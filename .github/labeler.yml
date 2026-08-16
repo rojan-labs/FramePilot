@@ -1,0 +1,76 @@
+apps/desktop:
+  - changed-files:
+      - any-glob-to-any-file: apps/desktop/**
+
+apps/web-editor:
+  - changed-files:
+      - any-glob-to-any-file: apps/web-editor/**
+
+apps/website:
+  - changed-files:
+      - any-glob-to-any-file: apps/website/**
+
+engine/python:
+  - changed-files:
+      - any-glob-to-any-file: engine/python/**
+
+editor-core:
+  - changed-files:
+      - any-glob-to-any-file: packages/editor-core/**
+
+timeline-schema:
+  - changed-files:
+      - any-glob-to-any-file: packages/timeline-schema/**
+
+ai-sdk:
+  - changed-files:
+      - any-glob-to-any-file: packages/ai-sdk/**
+
+mcp-server:
+  - changed-files:
+      - any-glob-to-any-file: packages/mcp-server/**
+
+capability-packs:
+  - changed-files:
+      - any-glob-to-any-file: packages/capability-packs/**
+
+ui:
+  - changed-files:
+      - any-glob-to-any-file: packages/ui/**
+
+shared-types:
+  - changed-files:
+      - any-glob-to-any-file: packages/shared-types/**
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file: .github/workflows/**
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - docs/**
+          - "**/*.md"
+
+plan:
+  - changed-files:
+      - any-glob-to-any-file: plan/**
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/package.json"
+          - "**/pnpm-lock.yaml"
+          - "**/pyproject.toml"
+          - "**/uv.lock"
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.test.ts"
+          - "**/*.test.tsx"
+          - "**/*.spec.ts"
+          - "**/*.spec.tsx"
+          - "**/test_*.py"
+          - "**/*_test.py"
+          - "**/e2e/**"
