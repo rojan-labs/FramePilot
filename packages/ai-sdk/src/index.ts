@@ -31,6 +31,8 @@ export * from './controllers/audio-controller.js';
 export * from './editor-capabilities.js';
 export * from './editor-capability-pack-dependencies.js';
 export * from './professional-evals.js';
+export * from './professional-agent-evals.js';
+export * from './agent-run-quality.js';
 export * from './tool-contract.js';
 export * from './tool-input-contract.js';
 export * from './autonomous-tool-contract.js';
