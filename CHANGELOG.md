@@ -5265,3 +5265,4 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   agent instruction files and skills (incl. security & correctness), `plan/PLAN.md`
   master plan, full `docs/` tree, CI/CD quality gates, Playwright E2E harness,
   governance docs, and MIT license.
+
