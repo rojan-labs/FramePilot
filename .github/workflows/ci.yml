@@ -104,6 +104,7 @@ jobs:
       - name: Sync engine dependencies
         working-directory: engine/python
         run: uv sync --extra dev
+      - run: pnpm build
       - run: pnpm eval:professional:rendered
 
   # ── License & dependency review ──────────────────────────────────────────
@@ -141,6 +142,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm build
       - name: Install Playwright browsers
         run: pnpm --filter @framepilot/e2e exec playwright install --with-deps chromium
       - run: pnpm test:e2e
@@ -169,6 +171,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm build
       - name: Install Playwright browsers
         run: pnpm --filter @framepilot/e2e exec playwright install --with-deps chromium
       - run: pnpm --filter @framepilot/e2e test:visual

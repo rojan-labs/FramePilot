@@ -48,7 +48,7 @@ export const OVERLAY_SECONDS_BOUNDS = { min: 0.5, max: 30 } as const;
 export const DEFAULT_SETTINGS: EditorSettings = {
   timeDisplay: 'timecode',
   density: 'comfortable',
-  theme: 'light',
+  theme: 'system',
   snapping: true,
   showTimelineThumbnails: true,
   autoFollow: true,
