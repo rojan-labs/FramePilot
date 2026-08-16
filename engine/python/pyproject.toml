@@ -1,0 +1,86 @@
+# Package manifest for the FramePilot Python render engine.
+#
+# This is the uv workspace member declared by the repo-root pyproject.toml.
+# It is the *actual* installable package; the root file only hosts shared
+# tooling config (ruff/mypy/pytest/coverage) so those tools can run from the
+# repo root. Keep dependencies and the script entry consistent with the root.
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "framepilot-engine"
+version = "0.0.0"
+description = "Deterministic Python render + timeline engine for FramePilot"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Rojan Acharya and FramePilot contributors" }]
+dependencies = [
+  # Render / media
+  "moviepy>=2.0.0",
+  "imageio-ffmpeg>=0.5.1",
+  "numpy>=1.26",
+  "pillow>=10.3",
+  # Service
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.8",
+  # AI providers (OpenAI-compatible client covers NVIDIA NIM too)
+  "anthropic>=0.40",
+  "openai>=1.50",
+  # Visual embeddings (plan MI2.1): direct HTTP client for the NVIDIA
+  # integrate.api.nvidia.com embeddings endpoint with multi-key failover.
+  # BSD-3-Clause; already an indirect dep via fastapi's ecosystem tooling.
+  "httpx>=0.27",
+  # Vector search (plan MI2.3): sqlite-vec loads a vec0 virtual table into the
+  # existing brain.sqlite for indexed KNN. Apache-2.0. Loaded lazily via the
+  # vector-store seam and degrades to the brute-force cosine path if the native
+  # extension can't load (browser/packaging miss), so it never blocks startup.
+  "sqlite-vec>=0.1.6",
+  # TwelveLabs hosted media understanding (optional backend, ADR 0070) — the
+  # generated SDK the brain.twelvelabs facade wraps. Pulls in only httpx/pydantic
+  # (already deps). ⚠️ LICENSE RISK: this package ships with NO declared license
+  # (none on PyPI, no LICENSE file in the repo), i.e. all-rights-reserved by
+  # default, and the engine is redistributed via PyInstaller. Adopted with the
+  # maintainer's explicit acceptance of that risk; revisit if TwelveLabs ships a
+  # licensed release. Only used when a TWELVELABS_API_KEY is configured.
+  "twelvelabs>=1.2.9",
+]
+
+[project.optional-dependencies]
+# Similarity search backend (plan B3.1) — OPT-IN, never installed by default:
+# the brain's find_similar degrades honestly to FTS keyword search without it.
+# onnxruntime (MIT) runs the MiniLM-class text encoder; tokenizers (Apache-2.0)
+# loads its tokenizer.json. Activated via FRAMEPILOT_EMBEDDINGS_MODEL_DIR.
+embeddings = [
+  "onnxruntime>=1.18",
+  "tokenizers>=0.19",
+]
+dev = [
+  "pytest>=8.3",
+  "pytest-cov>=5.0",
+  "pytest-asyncio>=0.24",
+  "ruff>=0.6",
+  "mypy>=1.11",
+  "httpx>=0.27",
+  # Mocks the NVIDIA embeddings HTTP surface (plan §6: no live API calls in
+  # any test tier). Apache-2.0.
+  "respx>=0.21",
+]
+# Desktop packaging only (apps/desktop/scripts/package-engine.mjs): bundles the
+# engine into a self-contained onedir binary shipped inside the Electron app.
+# PyInstaller is GPL-2.0 WITH the bootloader exception — build-time tool only,
+# it grants the bundled output any license and is never a runtime dependency.
+package = [
+  "pyinstaller>=6.10",
+]
+
+[project.scripts]
+framepilot = "framepilot_engine.cli:main"
+
+# Tool config is intentionally minimal here: the repo-root pyproject.toml is the
+# single source of truth for ruff/mypy/pytest/coverage. We only declare what the
+# build backend needs to find the package.
+[tool.hatch.build.targets.wheel]
+packages = ["framepilot_engine"]

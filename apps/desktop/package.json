@@ -1,0 +1,46 @@
+{
+  "name": "@framepilot/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "FramePilot Electron desktop shell. Renderer is provided by @framepilot/web-editor.",
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "main": "dist/bootstrap.js",
+  "scripts": {
+    "build:main": "tsc -p tsconfig.node.json",
+    "build": "tsc -p tsconfig.node.json",
+    "dev": "pnpm --filter @framepilot/shared-types build && pnpm --filter @framepilot/timeline-schema build && pnpm --filter @framepilot/editor-core build && pnpm --filter @framepilot/ai-sdk build && pnpm build:main && concurrently --kill-others-on-fail --names vite,electron --prefix-colors cyan,magenta \"pnpm --filter @framepilot/web-editor dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "build:renderer": "pnpm --filter @framepilot/web-editor build && node scripts/copy-renderer.mjs",
+    "build:engine": "node scripts/package-engine.mjs",
+    "dist": "pnpm run build && pnpm run build:renderer && pnpm run build:engine && electron-builder",
+    "dist:unpacked": "pnpm run build && pnpm run build:renderer && pnpm run build:engine && electron-builder --dir",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.node.json --noEmit"
+  },
+  "dependencies": {
+    "@framepilot/ai-sdk": "workspace:*",
+    "@framepilot/capability-packs": "workspace:*",
+    "@framepilot/editor-core": "workspace:*",
+    "@framepilot/shared-types": "workspace:*",
+    "@framepilot/timeline-schema": "workspace:*",
+    "@framepilot/web-editor": "workspace:*",
+    "electron-updater": "^6.3.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.9.0",
+    "@ffprobe-installer/ffprobe": "^2.1.2",
+    "@types/node": "^20.14.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "concurrently": "^9.2.3",
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.0",
+    "eslint": "^9.9.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.0.0",
+    "vite": "^5.4.0",
+    "vitest": "^2.1.0",
+    "wait-on": "^9.0.10"
+  }
+}

@@ -1,0 +1,104 @@
+# Pinned model weights for the Subject Intelligence Capability Pack.
+#
+# WHY THIS FILE EXISTS
+#
+# Weights are binaries with their own licences and their own provenance. They are
+# deliberately NOT committed to this repository: they are fetched at pack build
+# time from a URL pinned to an immutable commit and verified against the exact
+# sha256 recorded here. A weight file that does not hash to its pin is refused,
+# so a silently re-uploaded or tampered model cannot enter a signed pack.
+#
+# These digests are also what the worker reports in `modelDigests` on every
+# handshake and every result, which is how an edit's evidence lineage can name
+# the exact model that produced it years later.
+#
+# WHY THESE MODELS
+#
+# The requirement was face/object detection and segmentation masks under a
+# commercially permissive licence, on Apple Silicon macOS and Windows x64, with
+# no bundled payload in the base installer. The decisive constraints:
+#
+#  1. Licence. The obvious default — YOLOv8/YOLO11 via Ultralytics — is AGPL-3.0,
+#     which would impose network-copyleft obligations on a desktop product that
+#     merely ships the weights. It was rejected on that ground alone, not on
+#     accuracy. Every model below is MIT or Apache-2.0.
+#  2. Runtime. All three run on OpenCV's `dnn` module, which this project has
+#     already licence-audited and shipped for Tracking Lite. Choosing them adds
+#     ZERO new ML runtimes — no ONNX Runtime, no PyTorch, no PaddlePaddle — and
+#     therefore no second native supply chain to sign, scan and update.
+#  3. Size. ~42 MiB of weights total, against a pack budget that anticipated
+#     150 MiB–1.5 GiB. Nothing enters the base installer either way, but a
+#     smaller on-demand download is a smaller thing to ask a user to approve.
+#
+# Verified on real content before selection, not assumed from documentation:
+# YuNet found 58 faces and YOLOX 44 person detections in the group photo below,
+# and PPHumanSeg produced a 47%-foreground person mask inside a prompted region.
+
+schemaVersion = 1
+
+# Immutable source commit. Every URL below is pinned to this sha, so "main moved"
+# can never change what a build downloads.
+[source]
+repository = "https://github.com/opencv/opencv_zoo"
+commit = "47534e27c9851bb1128ccc0102f1145e27f23f98"
+# Weights are git-lfs objects; media.githubusercontent.com serves the content
+# rather than the LFS pointer.
+baseUrl = "https://media.githubusercontent.com/media/opencv/opencv_zoo/47534e27c9851bb1128ccc0102f1145e27f23f98/models"
+
+[[model]]
+id = "face"
+role = "subject.detect/face"
+name = "YuNet"
+file = "face_detection_yunet_2023mar.onnx"
+path = "face_detection_yunet/face_detection_yunet_2023mar.onnx"
+sha256 = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"
+bytes = 232589
+license = "MIT"
+licensePath = "face_detection_yunet/LICENSE"
+copyright = "Shiqi Yu and contributors; OpenCV Zoo"
+# A 2026may revision exists upstream. 2023mar is pinned because it is the
+# revision this pack's decoded-media proof actually passes against; moving is a
+# deliberate, re-proven change, not a silent pickup of whatever is newest.
+notes = "Loaded through cv2.FaceDetectorYN, which owns YuNet's pre/post-processing."
+
+[[model]]
+id = "object"
+role = "subject.detect/person+object"
+name = "YOLOX-S"
+file = "object_detection_yolox_2022nov.onnx"
+path = "object_detection_yolox/object_detection_yolox_2022nov.onnx"
+sha256 = "c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063"
+bytes = 35858002
+license = "Apache-2.0"
+licensePath = "object_detection_yolox/LICENSE"
+copyright = "Megvii, Inc. and contributors; OpenCV Zoo"
+notes = "COCO-80. Class 0 is reported as `person`; every other class as `object`."
+
+[[model]]
+id = "segment"
+role = "subject.segment"
+name = "PPHumanSeg"
+file = "human_segmentation_pphumanseg_2023mar.onnx"
+path = "human_segmentation_pphumanseg/human_segmentation_pphumanseg_2023mar.onnx"
+sha256 = "552d8a984054e59b5d773d24b9b12022b22046ceb2bbc4c9aaeaceb36a9ddf24"
+bytes = 6163938
+license = "Apache-2.0"
+licensePath = "human_segmentation_pphumanseg/LICENSE"
+copyright = "PaddlePaddle Authors; Shenzhen Institute of Artificial Intelligence and Robotics for Society"
+# Trained for portrait/half-body subjects, so it is run INSIDE the caller's
+# prompt region rather than over the whole frame. Measured: 1.25% foreground on a
+# full wide group shot versus 47% on the prompted subject in the same photo.
+notes = "Human segmentation only. A non-human prompt is reported honestly as no subject, never as a plausible mask."
+
+# Real photographic content for the decoded-media proof. Synthetic frames cannot
+# prove a detector works: a model that finds nothing in noise looks identical to
+# a model that is broken. Pinned and digest-checked exactly like the weights.
+[[fixture]]
+id = "group-photo"
+file = "largest_selfie.jpg"
+path = "face_detection_yunet/example_outputs/largest_selfie.jpg"
+sha256 = "ab8413ad9bb4f53068f4fb63c6747e5989991dd02241c923d5595b614ecf2bf6"
+bytes = 1147146
+license = "MIT"
+licensePath = "face_detection_yunet/LICENSE"
+notes = "Group photograph shipped in the MIT-licensed YuNet model directory; contains many faces and many people."

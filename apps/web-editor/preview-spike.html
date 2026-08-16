@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>FramePilot — WebCodecs preview spike (P0)</title>
+    <!--
+      Standalone harness page for the P0 WebCodecs feasibility spike
+      (plan/PREVIEW-WEBCODECS-COMPOSITOR.md). Deliberately NOT part of the
+      app: this file is not referenced by any Vite rollupOptions.input, so
+      it never ships in `pnpm build`, and no app route links here. Only
+      Playwright (tests/e2e/specs/preview-spike.spec.ts) and manual dev use
+      (`pnpm --filter @framepilot/web-editor dev`, then open this URL) load it.
+    -->
+  </head>
+  <body>
+    <button id="spike-start" type="button">Start audio</button>
+    <span id="spike-status">loading…</span>
+    <canvas id="spike-canvas" width="1280" height="720"></canvas>
+    <script type="module" src="/src/preview/spike/main.ts"></script>
+  </body>
+</html>

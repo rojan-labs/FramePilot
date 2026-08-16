@@ -1,0 +1,7 @@
+# Vendored clone — bootstrapped by setup.mjs, never tracked here.
+auth2api/
+node_modules/
+
+# auth2api resolves config.yaml relative to cwd, so npm scripts write it here.
+# It holds the generated API key — never commit it.
+config.yaml

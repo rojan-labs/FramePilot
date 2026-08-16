@@ -1,0 +1,13 @@
+---
+title: 'Long AI edits stay responsive'
+summary: 'Large projects and editor reloads no longer overwhelm an AI edit that is still running.'
+date: '2026-08-03'
+tags: ['Fixed']
+---
+
+### Fixed
+
+- **Long AI edits use far less memory.** Large undo histories no longer get copied into every project
+  read, so complex edits can keep running without exhausting the desktop app.
+- **Reloads no longer cause repeated delivery errors.** If the editor reloads while an AI edit is in
+  progress, FramePilot cleanly detaches the old view while the edit remains available to reconnect.

@@ -1,0 +1,59 @@
+---
+title: MCP integration
+description: Connect Cursor, Claude Desktop, or Codex to FramePilot's built-in MCP server and drive real, safe edits.
+category: Guides
+order: 3
+---
+
+FramePilot ships with a built-in Model Context Protocol (MCP) server. It exposes the same safe, typed edit tools the app's own UI uses to any MCP client, so an external agent can drive real edits on your timeline — not generate a throwaway clip, but modify your actual project. The guardrails live in the engine, not the prompt, which is what makes this safe.
+
+## What MCP is
+
+MCP is an open standard that lets AI assistants — Cursor, Claude Desktop, Codex, and others — connect to external tools through a common interface. An MCP *server* exposes a set of typed tools; the AI *client* discovers and calls them. FramePilot is the server; your agent is the client.
+
+The key design decision is that there is no separate, weaker "AI API." External agents call the exact same validated, reversible operation set that FramePilot's UI and its own AI layer use.
+
+## Connecting a client
+
+The steps are the same across clients:
+
+1. Start FramePilot. The MCP server runs locally.
+2. Add a server entry named `framepilot` to your MCP client's configuration, pointing at the local server.
+3. Ask your agent to edit. It discovers FramePilot's tools automatically.
+
+A generic MCP client config looks like this:
+
+```jsonc
+{
+  "mcpServers": {
+    "framepilot": {
+      "url": "http://127.0.0.1:<port>/mcp"
+    }
+  }
+}
+```
+
+The exact command, port, and URL are shown in the in-app MCP panel — copy them from there rather than guessing, since they can vary by build and platform. Cursor, Claude Desktop, and Codex each read an MCP config in this shape; consult your client's docs for the precise file location, then use the values from FramePilot's panel.
+
+## What agents can and cannot do
+
+Every action an external agent takes flows through FramePilot's patch engine, so the same invariants hold as for the built-in AI:
+
+- **Only typed tools.** Agents call registered operations (trim, split, ripple delete, add captions, render, export). They cannot invent operations or write raw project JSON.
+- **Validated before apply.** Every tool call is schema-validated; an invalid edit is rejected before it touches your timeline.
+- **Reversible.** Each edit becomes a patch you can review and undo.
+- **Sandboxed file access.** The agent is confined to your project directory — it cannot read or write files elsewhere on your machine.
+- **Deterministic rendering.** Rendering is delegated to the deterministic engine and validated, so an agent cannot ship a broken export.
+
+Put plainly: an agent physically cannot make an edit the engine would not accept from a human, and anything it does can be undone.
+
+## Who this is for
+
+- **Developers** building automated content pipelines who want video edits to be scriptable alongside everything else their agents do.
+- **Creators** who already work in Claude or Cursor and want to stay in that environment.
+- **Teams** standardizing on MCP for agent tooling across their stack.
+
+## Next steps
+
+- [The AI agent](/docs/the-ai-agent) — the modes and the patch → validate → preview → validate-render loop these tools share.
+- [Render and export](/docs/render-and-export) — how the deterministic engine validates every render an agent triggers.

@@ -1,0 +1,29 @@
+{
+  "description": "Golden measurements for the B1.1 loudness/black analyzers against deterministic lavfi sources. These pin the analyzers end-to-end (real ffmpeg, real parse) rather than only the pure parsers, which unit tests already cover with canned logs. Regenerate by synthesizing each `lavfi` graph with the recorded encoder args and re-running the analyzer; only widen a tolerance with a reason. true_peak_tolerance is wider than lufs_tolerance because the AAC encoder's peak overshoot varies by ffmpeg build (-16.6 dBFS on ffmpeg 8.1, -17.3 on Ubuntu CI's apt build); a units/scaling bug would still miss by tens of dB.",
+  "loudness": {
+    "source": {
+      "lavfi": "sine=frequency=1000:duration=5:sample_rate=48000",
+      "attenuated_lavfi": "sine=frequency=1000:duration=5:sample_rate=48000,volume=0.5",
+      "codec": "aac",
+      "suffix": ".m4a"
+    },
+    "integrated_lufs": -21.1,
+    "loudness_range_lu": 0.0,
+    "true_peak_dbfs": -16.6,
+    "lufs_tolerance": 0.6,
+    "true_peak_tolerance": 1.5,
+    "attenuation_lu": 6.0,
+    "attenuation_tolerance": 0.3
+  },
+  "black": {
+    "source": {
+      "lavfi": "color=c=black:s=320x240:d=2:r=30[b];testsrc2=s=320x240:d=2:r=30[t];[b][t]concat=n=2:v=1:a=0",
+      "suffix": ".mp4",
+      "pix_fmt": "yuv420p"
+    },
+    "min_duration_seconds": 0.5,
+    "picture_threshold": 0.98,
+    "expected_ranges": [{ "start": 0.0, "end": 2.0 }],
+    "time_tolerance_seconds": 0.15
+  }
+}

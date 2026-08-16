@@ -1,0 +1,274 @@
+{
+  "version": 1,
+  "name": "cancel-mid-model-call",
+  "covers": "Stop pressed while the model is answering. The run must settle honestly as cancelled with the work so far intact — the exact contract the LangGraph driver broke by discarding a whole superstep on abort (risk 2).",
+  "prompt": "tighten the intro",
+  "events": [
+    {
+      "id": "turn_golden:status:1",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "thinking"
+    },
+    {
+      "id": "turn_golden:run-state",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_golden",
+        "identity": {
+          "conversationId": "conv_golden",
+          "projectId": "proj_1",
+          "attemptId": "turn_golden"
+        },
+        "version": 2,
+        "objective": {
+          "request": "tighten the intro",
+          "outcome": "tighten the intro",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "tighten the intro"
+            }
+          ]
+        },
+        "stage": "interpret",
+        "completedStages": [],
+        "stageEnteredAtTurn": 0,
+        "facts": [],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "tighten the intro",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_golden_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1"
+          ]
+        },
+        "execution": {
+          "authorized": true
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "tighten the intro",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [],
+        "verifications": [],
+        "nextAction": null,
+        "blockedOn": null,
+        "integrity": {
+          "status": "valid",
+          "diagnostics": []
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 0
+      }
+    },
+    {
+      "id": "turn_golden:status:2",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "generating"
+    },
+    {
+      "id": "turn_golden:reasoning:1",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "reasoning",
+      "summaries": [],
+      "done": false
+    },
+    {
+      "id": "turn_golden:context-usage",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "context_usage",
+      "usedTokens": 19212,
+      "contextWindow": 200000,
+      "estimated": true,
+      "manifest": {
+        "requestId": "turn_golden:assistant:seg-1",
+        "provider": "mock",
+        "model": "unknown",
+        "sections": [
+          {
+            "id": "s1",
+            "type": "system",
+            "label": "system contract",
+            "tokenEstimate": 135,
+            "included": true
+          },
+          {
+            "id": "s2",
+            "type": "conversation",
+            "label": "user turn 1",
+            "tokenEstimate": 1667,
+            "included": true
+          },
+          {
+            "id": "s3",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 1770,
+            "included": true
+          },
+          {
+            "id": "s4",
+            "type": "tool_schemas",
+            "label": "tool definitions",
+            "tokenEstimate": 15640,
+            "included": true
+          }
+        ],
+        "usage": {
+          "modelContextLimit": 200000,
+          "limitAssumed": true,
+          "estimatedInputTokensBeforeSend": 19212,
+          "reservedOutputTokens": 8192,
+          "estimatedRemainingCapacity": 172596,
+          "calculationSource": "local_estimate"
+        },
+        "compaction": {
+          "occurred": false,
+          "removedTokenEstimate": 0,
+          "removedSections": []
+        },
+        "memory": {
+          "runId": "turn_golden",
+          "stage": "interpret",
+          "projectRevision": 0,
+          "objectiveKnown": true,
+          "committedDecisions": 1,
+          "facts": 0,
+          "evidenceHandles": 0,
+          "remainingObjectives": 1
+        }
+      }
+    },
+    {
+      "id": "turn_golden:reasoning:1",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "reasoning",
+      "summaries": [],
+      "done": true
+    },
+    {
+      "id": "turn_golden:run-state",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_golden",
+        "identity": {
+          "conversationId": "conv_golden",
+          "projectId": "proj_1",
+          "attemptId": "turn_golden"
+        },
+        "version": 2,
+        "objective": {
+          "request": "tighten the intro",
+          "outcome": "tighten the intro",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "tighten the intro"
+            }
+          ]
+        },
+        "stage": "interpret",
+        "completedStages": [],
+        "stageEnteredAtTurn": 0,
+        "facts": [],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "tighten the intro",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_golden_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1"
+          ]
+        },
+        "execution": {
+          "authorized": true
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "tighten the intro",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [],
+        "verifications": [],
+        "nextAction": null,
+        "blockedOn": null,
+        "integrity": {
+          "status": "valid",
+          "diagnostics": []
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 0
+      }
+    },
+    {
+      "id": "turn_golden:usage:3",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "usage",
+      "tokens": 0,
+      "usd": 0,
+      "modelCalls": 1
+    },
+    {
+      "id": "turn_golden:status:4",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "cancelled"
+    }
+  ],
+  "operations": [],
+  "terminalStatus": "cancelled"
+}

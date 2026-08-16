@@ -1,0 +1,1216 @@
+{
+  "version": 1,
+  "name": "plan-approval",
+  "covers": "The plan-first path (ADR 0051): a plan is drafted before any edit. M9 turns this into a LangGraph interrupt and must reproduce this stream.",
+  "prompt": "tighten the intro",
+  "events": [
+    {
+      "id": "turn_golden:status:1",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "thinking"
+    },
+    {
+      "id": "turn_golden:run-state",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_golden",
+        "identity": {
+          "conversationId": "conv_golden",
+          "projectId": "proj_1",
+          "attemptId": "turn_golden"
+        },
+        "version": 1,
+        "objective": {
+          "request": "tighten the intro",
+          "outcome": "tighten the intro",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "tighten the intro"
+            }
+          ]
+        },
+        "stage": "interpret",
+        "completedStages": [],
+        "stageEnteredAtTurn": 0,
+        "facts": [],
+        "decisions": [],
+        "plan": {
+          "status": "none",
+          "id": null,
+          "committedAtTurn": null,
+          "basedOnProjectRevision": null,
+          "decisionIds": []
+        },
+        "execution": {
+          "authorized": false
+        },
+        "evidence": [],
+        "objectives": [],
+        "operations": [],
+        "verifications": [],
+        "nextAction": null,
+        "blockedOn": null,
+        "integrity": {
+          "status": "valid",
+          "diagnostics": []
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 0
+      }
+    },
+    {
+      "id": "turn_golden:status:2",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "planning"
+    },
+    {
+      "id": "turn_golden:plan",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "plan",
+      "steps": [
+        {
+          "id": "step-1",
+          "label": "Trim the dead air",
+          "status": "pending"
+        },
+        {
+          "id": "step-2",
+          "label": "Tighten the intro",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "turn_golden:status:3",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "thinking"
+    },
+    {
+      "id": "turn_golden:run-state",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_golden",
+        "identity": {
+          "conversationId": "conv_golden",
+          "projectId": "proj_1",
+          "attemptId": "turn_golden"
+        },
+        "version": 2,
+        "objective": {
+          "request": "tighten the intro",
+          "outcome": "tighten the intro",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "tighten the intro"
+            }
+          ]
+        },
+        "stage": "interpret",
+        "completedStages": [],
+        "stageEnteredAtTurn": 0,
+        "facts": [],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "Trim the dead air",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          },
+          {
+            "id": "decision_2",
+            "decision": "Tighten the intro",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_golden_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1",
+            "decision_2"
+          ]
+        },
+        "execution": {
+          "authorized": true
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "Trim the dead air",
+            "stage": "verify",
+            "status": "pending"
+          },
+          {
+            "id": "objective_2",
+            "description": "Tighten the intro",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [],
+        "verifications": [],
+        "nextAction": null,
+        "blockedOn": null,
+        "integrity": {
+          "status": "valid",
+          "diagnostics": []
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 0
+      }
+    },
+    {
+      "id": "turn_golden:status:4",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "generating"
+    },
+    {
+      "id": "turn_golden:reasoning:1",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "reasoning",
+      "summaries": [],
+      "done": false
+    },
+    {
+      "id": "turn_golden:context-usage",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "context_usage",
+      "usedTokens": 19268,
+      "contextWindow": 200000,
+      "estimated": true,
+      "manifest": {
+        "requestId": "turn_golden:assistant:seg-1",
+        "provider": "mock",
+        "model": "unknown",
+        "sections": [
+          {
+            "id": "s1",
+            "type": "system",
+            "label": "system contract",
+            "tokenEstimate": 135,
+            "included": true
+          },
+          {
+            "id": "s2",
+            "type": "conversation",
+            "label": "user turn 1",
+            "tokenEstimate": 1688,
+            "included": true
+          },
+          {
+            "id": "s3",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 1805,
+            "included": true
+          },
+          {
+            "id": "s4",
+            "type": "tool_schemas",
+            "label": "tool definitions",
+            "tokenEstimate": 15640,
+            "included": true
+          }
+        ],
+        "usage": {
+          "modelContextLimit": 200000,
+          "limitAssumed": true,
+          "estimatedInputTokensBeforeSend": 19268,
+          "reservedOutputTokens": 8192,
+          "estimatedRemainingCapacity": 172540,
+          "calculationSource": "local_estimate"
+        },
+        "compaction": {
+          "occurred": false,
+          "removedTokenEstimate": 0,
+          "removedSections": []
+        },
+        "memory": {
+          "runId": "turn_golden",
+          "stage": "interpret",
+          "projectRevision": 0,
+          "objectiveKnown": true,
+          "committedDecisions": 2,
+          "facts": 0,
+          "evidenceHandles": 0,
+          "remainingObjectives": 2
+        }
+      }
+    },
+    {
+      "id": "turn_golden:reasoning:1",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "reasoning",
+      "summaries": [],
+      "done": true
+    },
+    {
+      "id": "turn_golden:plan",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "plan",
+      "steps": [
+        {
+          "id": "step-1",
+          "label": "Trim the dead air",
+          "status": "running",
+          "detail": "Deleting a range on Video 1"
+        },
+        {
+          "id": "step-2",
+          "label": "Tighten the intro",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "turn_golden:status:5",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "running_tool"
+    },
+    {
+      "id": "c1",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "tool_call",
+      "toolName": "delete_range",
+      "status": "running",
+      "title": "Deleting a range on Video 1",
+      "argsSummary": "trackId: \"video_1\", start: 0, end: 3"
+    },
+    {
+      "id": "c1",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "tool_call",
+      "toolName": "delete_range",
+      "status": "completed",
+      "runtimeMs": 0,
+      "title": "Deleting a range on Video 1",
+      "argsSummary": "trackId: \"video_1\", start: 0, end: 3"
+    },
+    {
+      "id": "turn_golden:result:6",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "tool_result",
+      "toolCallId": "c1",
+      "summary": "Deleted range Video 1 · 0s–3s"
+    },
+    {
+      "id": "turn_golden:diff:7",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "diff",
+      "edit": {
+        "patch": {
+          "patchId": "patch_bce93659",
+          "createdBy": "agent",
+          "reason": "Agent step",
+          "operations": [
+            {
+              "type": "delete_range",
+              "trackId": "video_1",
+              "start": 0,
+              "end": 3
+            }
+          ]
+        },
+        "validation": {
+          "valid": true,
+          "issues": []
+        },
+        "diff": {
+          "before": {
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": [
+                  {
+                    "id": "clip_a",
+                    "assetId": "asset_1",
+                    "trackId": "video_1",
+                    "start": 0,
+                    "end": 6,
+                    "sourceStart": 0,
+                    "sourceEnd": 6,
+                    "effects": [],
+                    "keyframes": []
+                  },
+                  {
+                    "id": "clip_b",
+                    "assetId": "asset_1",
+                    "trackId": "video_1",
+                    "start": 6,
+                    "end": 10,
+                    "sourceStart": 6,
+                    "sourceEnd": 10,
+                    "effects": [],
+                    "keyframes": []
+                  }
+                ]
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": []
+              }
+            ]
+          },
+          "after": {
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": [
+                  {
+                    "id": "clip_a",
+                    "assetId": "asset_1",
+                    "trackId": "video_1",
+                    "start": 3,
+                    "end": 6,
+                    "sourceStart": 3,
+                    "sourceEnd": 6,
+                    "effects": [],
+                    "keyframes": []
+                  },
+                  {
+                    "id": "clip_b",
+                    "assetId": "asset_1",
+                    "trackId": "video_1",
+                    "start": 6,
+                    "end": 10,
+                    "sourceStart": 6,
+                    "sourceEnd": 10,
+                    "effects": [],
+                    "keyframes": []
+                  }
+                ]
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": []
+              }
+            ],
+            "revision": 1
+          },
+          "summary": [
+            "[video_1] ~ clip clip_a (0–6s → 3–6s)"
+          ]
+        },
+        "text": "Agent step"
+      },
+      "scope": "turn",
+      "turnIndex": 1,
+      "runId": "run:turn_golden",
+      "planStepId": "step-1"
+    },
+    {
+      "id": "turn_golden:plan",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "plan",
+      "steps": [
+        {
+          "id": "step-1",
+          "label": "Trim the dead air",
+          "status": "completed",
+          "detail": "Deleting a range on Video 1"
+        },
+        {
+          "id": "step-2",
+          "label": "Tighten the intro",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "turn_golden:action:8",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "timeline_action",
+      "action": "Deleted range",
+      "detail": "0s–3s",
+      "refs": [
+        {
+          "kind": "track",
+          "id": "video_1",
+          "label": "Video 1"
+        }
+      ]
+    },
+    {
+      "id": "turn_golden:run-state",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_golden",
+        "identity": {
+          "conversationId": "conv_golden",
+          "projectId": "proj_1",
+          "attemptId": "turn_golden"
+        },
+        "version": 5,
+        "objective": {
+          "request": "tighten the intro",
+          "outcome": "tighten the intro",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "tighten the intro"
+            }
+          ]
+        },
+        "stage": "inspect",
+        "completedStages": [
+          "interpret"
+        ],
+        "stageEnteredAtTurn": 1,
+        "facts": [],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "Trim the dead air",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          },
+          {
+            "id": "decision_2",
+            "decision": "Tighten the intro",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_golden_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1",
+            "decision_2"
+          ]
+        },
+        "execution": {
+          "authorized": true
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "Trim the dead air",
+            "stage": "verify",
+            "status": "pending"
+          },
+          {
+            "id": "objective_2",
+            "description": "Tighten the intro",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [
+          {
+            "id": "op_1",
+            "intent": "Deleted range",
+            "status": "succeeded",
+            "atRevision": 1,
+            "attempts": 1,
+            "planId": "plan_turn_golden_1",
+            "decisionId": "decision_1",
+            "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":3}:0",
+            "projectRevisionBefore": 0,
+            "projectRevisionAfter": 1,
+            "objectiveId": "objective_1"
+          }
+        ],
+        "verifications": [],
+        "nextAction": null,
+        "blockedOn": null,
+        "integrity": {
+          "status": "valid",
+          "diagnostics": []
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 1
+      }
+    },
+    {
+      "id": "turn_golden:status:9",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "generating"
+    },
+    {
+      "id": "turn_golden:reasoning:2",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "reasoning",
+      "summaries": [],
+      "done": false
+    },
+    {
+      "id": "turn_golden:context-usage",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "context_usage",
+      "usedTokens": 19305,
+      "contextWindow": 200000,
+      "estimated": true,
+      "manifest": {
+        "requestId": "turn_golden:assistant:seg-2",
+        "provider": "mock",
+        "model": "unknown",
+        "sections": [
+          {
+            "id": "s1",
+            "type": "system",
+            "label": "system contract",
+            "tokenEstimate": 135,
+            "included": true
+          },
+          {
+            "id": "s2",
+            "type": "conversation",
+            "label": "user turn 1",
+            "tokenEstimate": 1688,
+            "included": true
+          },
+          {
+            "id": "s3",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 1842,
+            "included": true
+          },
+          {
+            "id": "s4",
+            "type": "tool_schemas",
+            "label": "tool definitions",
+            "tokenEstimate": 15640,
+            "included": true
+          }
+        ],
+        "usage": {
+          "modelContextLimit": 200000,
+          "limitAssumed": true,
+          "estimatedInputTokensBeforeSend": 19305,
+          "reservedOutputTokens": 8192,
+          "estimatedRemainingCapacity": 172503,
+          "calculationSource": "local_estimate"
+        },
+        "compaction": {
+          "occurred": false,
+          "removedTokenEstimate": 0,
+          "removedSections": []
+        },
+        "memory": {
+          "runId": "turn_golden",
+          "stage": "inspect",
+          "projectRevision": 1,
+          "objectiveKnown": true,
+          "committedDecisions": 2,
+          "facts": 0,
+          "evidenceHandles": 0,
+          "remainingObjectives": 2,
+          "nextAction": "Continue inspect: Trim the dead air"
+        }
+      }
+    },
+    {
+      "id": "turn_golden:delta:10",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "assistant_delta",
+      "parentId": "turn_golden:assistant:seg-2",
+      "chunk": "done"
+    },
+    {
+      "id": "turn_golden:reasoning:2",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "reasoning",
+      "summaries": [],
+      "done": true
+    },
+    {
+      "id": "turn_golden:assistant:seg-2",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "assistant_message",
+      "text": "done"
+    },
+    {
+      "id": "turn_golden:notice:11",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "notification",
+      "text": "The plan still has unfinished work — continuing with “Tighten the intro”."
+    },
+    {
+      "id": "turn_golden:run-state",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_golden",
+        "identity": {
+          "conversationId": "conv_golden",
+          "projectId": "proj_1",
+          "attemptId": "turn_golden"
+        },
+        "version": 6,
+        "objective": {
+          "request": "tighten the intro",
+          "outcome": "tighten the intro",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "tighten the intro"
+            }
+          ]
+        },
+        "stage": "inspect",
+        "completedStages": [
+          "interpret"
+        ],
+        "stageEnteredAtTurn": 1,
+        "facts": [],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "Trim the dead air",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          },
+          {
+            "id": "decision_2",
+            "decision": "Tighten the intro",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_golden_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1",
+            "decision_2"
+          ]
+        },
+        "execution": {
+          "authorized": true
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "Trim the dead air",
+            "stage": "verify",
+            "status": "pending"
+          },
+          {
+            "id": "objective_2",
+            "description": "Tighten the intro",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [
+          {
+            "id": "op_1",
+            "intent": "Deleted range",
+            "status": "succeeded",
+            "atRevision": 1,
+            "attempts": 1,
+            "planId": "plan_turn_golden_1",
+            "decisionId": "decision_1",
+            "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":3}:0",
+            "projectRevisionBefore": 0,
+            "projectRevisionAfter": 1,
+            "objectiveId": "objective_1"
+          }
+        ],
+        "verifications": [],
+        "nextAction": {
+          "stage": "inspect",
+          "action": "Tighten the intro",
+          "objectiveId": "objective_2"
+        },
+        "blockedOn": null,
+        "integrity": {
+          "status": "valid",
+          "diagnostics": []
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 1
+      }
+    },
+    {
+      "id": "turn_golden:status:12",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "generating"
+    },
+    {
+      "id": "turn_golden:reasoning:3",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "reasoning",
+      "summaries": [],
+      "done": false
+    },
+    {
+      "id": "turn_golden:context-usage",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "context_usage",
+      "usedTokens": 14425,
+      "contextWindow": 200000,
+      "estimated": true,
+      "manifest": {
+        "requestId": "turn_golden:assistant:seg-3",
+        "provider": "mock",
+        "model": "unknown",
+        "sections": [
+          {
+            "id": "s1",
+            "type": "system",
+            "label": "system contract",
+            "tokenEstimate": 135,
+            "included": true
+          },
+          {
+            "id": "s2",
+            "type": "conversation",
+            "label": "user turn 1",
+            "tokenEstimate": 1688,
+            "included": true
+          },
+          {
+            "id": "s3",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 1970,
+            "included": true
+          },
+          {
+            "id": "s4",
+            "type": "tool_schemas",
+            "label": "tool definitions",
+            "tokenEstimate": 10632,
+            "included": true
+          }
+        ],
+        "usage": {
+          "modelContextLimit": 200000,
+          "limitAssumed": true,
+          "estimatedInputTokensBeforeSend": 14425,
+          "reservedOutputTokens": 8192,
+          "estimatedRemainingCapacity": 177383,
+          "calculationSource": "local_estimate"
+        },
+        "compaction": {
+          "occurred": false,
+          "removedTokenEstimate": 0,
+          "removedSections": []
+        },
+        "memory": {
+          "runId": "turn_golden",
+          "stage": "inspect",
+          "projectRevision": 1,
+          "objectiveKnown": true,
+          "committedDecisions": 2,
+          "facts": 0,
+          "evidenceHandles": 0,
+          "remainingObjectives": 2,
+          "nextAction": "Tighten the intro"
+        }
+      }
+    },
+    {
+      "id": "turn_golden:delta:13",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "assistant_delta",
+      "parentId": "turn_golden:assistant:seg-3",
+      "chunk": "done"
+    },
+    {
+      "id": "turn_golden:reasoning:3",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "reasoning",
+      "summaries": [],
+      "done": true
+    },
+    {
+      "id": "turn_golden:assistant:seg-3",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "assistant_message",
+      "text": "done"
+    },
+    {
+      "id": "turn_golden:run-state",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_golden",
+        "identity": {
+          "conversationId": "conv_golden",
+          "projectId": "proj_1",
+          "attemptId": "turn_golden"
+        },
+        "version": 6,
+        "objective": {
+          "request": "tighten the intro",
+          "outcome": "tighten the intro",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "tighten the intro"
+            }
+          ]
+        },
+        "stage": "inspect",
+        "completedStages": [
+          "interpret"
+        ],
+        "stageEnteredAtTurn": 1,
+        "facts": [],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "Trim the dead air",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          },
+          {
+            "id": "decision_2",
+            "decision": "Tighten the intro",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_golden_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1",
+            "decision_2"
+          ]
+        },
+        "execution": {
+          "authorized": true
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "Trim the dead air",
+            "stage": "verify",
+            "status": "pending"
+          },
+          {
+            "id": "objective_2",
+            "description": "Tighten the intro",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [
+          {
+            "id": "op_1",
+            "intent": "Deleted range",
+            "status": "succeeded",
+            "atRevision": 1,
+            "attempts": 1,
+            "planId": "plan_turn_golden_1",
+            "decisionId": "decision_1",
+            "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":3}:0",
+            "projectRevisionBefore": 0,
+            "projectRevisionAfter": 1,
+            "objectiveId": "objective_1"
+          }
+        ],
+        "verifications": [],
+        "nextAction": {
+          "stage": "inspect",
+          "action": "Tighten the intro",
+          "objectiveId": "objective_2"
+        },
+        "blockedOn": null,
+        "integrity": {
+          "status": "valid",
+          "diagnostics": []
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 1
+      }
+    },
+    {
+      "id": "turn_golden:notice:14",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "notification",
+      "text": "Self-check: All checks passed."
+    },
+    {
+      "id": "turn_golden:run-state",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_golden",
+        "identity": {
+          "conversationId": "conv_golden",
+          "projectId": "proj_1",
+          "attemptId": "turn_golden"
+        },
+        "version": 14,
+        "objective": {
+          "request": "tighten the intro",
+          "outcome": "tighten the intro",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "tighten the intro"
+            }
+          ]
+        },
+        "stage": "verify",
+        "completedStages": [
+          "interpret",
+          "inspect",
+          "analyze",
+          "plan",
+          "apply",
+          "enhance"
+        ],
+        "stageEnteredAtTurn": 3,
+        "facts": [],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "Trim the dead air",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          },
+          {
+            "id": "decision_2",
+            "decision": "Tighten the intro",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_golden_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1",
+            "decision_2"
+          ]
+        },
+        "execution": {
+          "authorized": false
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "Trim the dead air",
+            "stage": "verify",
+            "status": "pending"
+          },
+          {
+            "id": "objective_2",
+            "description": "Tighten the intro",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [
+          {
+            "id": "op_1",
+            "intent": "Deleted range",
+            "status": "succeeded",
+            "atRevision": 1,
+            "attempts": 1,
+            "planId": "plan_turn_golden_1",
+            "decisionId": "decision_1",
+            "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":3}:0",
+            "projectRevisionBefore": 0,
+            "projectRevisionAfter": 1,
+            "objectiveId": "objective_1"
+          }
+        ],
+        "verifications": [
+          {
+            "id": "verify_1",
+            "criterion": "Trim the dead air",
+            "passed": false,
+            "atRevision": 1,
+            "detail": "The committed plan still has incomplete deliverables."
+          },
+          {
+            "id": "verify_2",
+            "criterion": "Tighten the intro",
+            "passed": false,
+            "atRevision": 1,
+            "detail": "The committed plan still has incomplete deliverables."
+          }
+        ],
+        "nextAction": {
+          "stage": "inspect",
+          "action": "Tighten the intro",
+          "objectiveId": "objective_2"
+        },
+        "blockedOn": {
+          "reason": "Verification is inconclusive because committed plan deliverables are incomplete.",
+          "missing": "VERIFICATION_INCONCLUSIVE",
+          "atStage": "verify"
+        },
+        "integrity": {
+          "status": "needs_review",
+          "diagnostics": [
+            {
+              "code": "VERIFICATION_INCONCLUSIVE",
+              "message": "Verification is inconclusive because committed plan deliverables are incomplete.",
+              "stage": "verify",
+              "blocking": true,
+              "atVersion": 13
+            }
+          ]
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 1
+      }
+    },
+    {
+      "id": "turn_golden:usage:15",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "usage",
+      "tokens": 0,
+      "usd": 0,
+      "modelCalls": 3
+    },
+    {
+      "id": "turn_golden:status:16",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "failed"
+    }
+  ],
+  "operations": [
+    {
+      "type": "delete_range",
+      "trackId": "video_1",
+      "start": 0,
+      "end": 3
+    }
+  ],
+  "terminalStatus": "failed"
+}

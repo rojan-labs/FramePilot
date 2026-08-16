@@ -1,0 +1,44 @@
+{
+  "name": "@framepilot/mcp-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Model Context Protocol server exposing FramePilot's registered editing tools to external AI agents (Claude Desktop, Claude Code). See docs/guides/mcp-server.md.",
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "bin": {
+    "framepilot-mcp": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "start": "node dist/bin.js",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@framepilot/ai-sdk": "workspace:*",
+    "@framepilot/editor-core": "workspace:*",
+    "@framepilot/shared-types": "workspace:*",
+    "@framepilot/timeline-schema": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.9.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "eslint": "^9.9.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.1.0"
+  }
+}

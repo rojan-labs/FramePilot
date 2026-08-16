@@ -1,0 +1,242 @@
+/*
+ * Cross-surface editor ergonomics.
+ *
+ * Feature styles own their layout. This layer owns the presentation invariants
+ * that must stay identical across Settings, Inspector, Captions, Timeline, and
+ * other dense editor chrome: readable typography, portable font weights,
+ * minimum hit targets, focus visibility, density behavior, and motion timing.
+ *
+ * Keep this file small. New feature-specific visual rules belong beside their
+ * component, while shared values belong in @framepilot/ui/tokens.css.
+ */
+
+body {
+  font-family: var(--font-sans);
+}
+
+/* Compact density removes space, not legibility. The legacy density rule lowers
+ * the root font size; cancel that here and let the spacing/control tokens carry
+ * the compact presentation instead. */
+:root[data-density='compact'] {
+  font-size: 14px;
+  --control-h-sm: 26px;
+  --control-h-md: 30px;
+  --row-h-sm: 30px;
+  --row-h-md: 36px;
+  --panel-padding-sm: 10px;
+  --panel-padding-md: 12px;
+}
+
+/* -------------------------------------------------------------------------
+ * Settings: keep the compact two-column design while preserving the 11px
+ * ordinary text floor and the shared 400/500/600 weight contract.
+ * ---------------------------------------------------------------------- */
+.settings-dialog .settings-head h2 {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+}
+
+.settings-dialog .settings-title-lockup p,
+.settings-dialog .settings-nav-group,
+.settings-dialog .settings-nav button small,
+.settings-dialog .settings-readiness-label,
+.settings-dialog .settings-readiness div,
+.settings-dialog .settings-readiness strong,
+.settings-dialog .settings-group-head p,
+.settings-dialog .setting-hint,
+.settings-dialog .setting-field-label {
+  font-size: var(--font-size-xs);
+}
+
+.settings-dialog .settings-nav-group,
+.settings-dialog .settings-readiness-label,
+.settings-dialog .settings-group-head h4 {
+  font-weight: var(--font-weight-semibold);
+}
+
+.settings-dialog .settings-nav button strong,
+.settings-dialog .settings-group-head h4,
+.settings-dialog .setting-label {
+  font-size: var(--font-size-sm);
+}
+
+.settings-dialog .settings-nav button strong,
+.settings-dialog .setting-label,
+.settings-dialog .settings-readiness strong {
+  font-weight: var(--font-weight-medium);
+}
+
+.settings-dialog .switch {
+  width: 38px;
+  min-width: 38px;
+  height: var(--hit-target-min);
+  min-height: var(--hit-target-min);
+}
+
+.settings-dialog .switch-thumb {
+  top: 4px;
+  left: 4px;
+}
+
+.settings-dialog .switch.is-on .switch-thumb {
+  transform: translateX(16px);
+}
+
+/* -------------------------------------------------------------------------
+ * Inspector: precision density without sub-11px labels. Keep glyphs visually
+ * compact, but make every direct manipulation target at least 24px.
+ * ---------------------------------------------------------------------- */
+.inspector-pro .inspector-clip-copy strong,
+.inspector-pro .inspector-section-head h3 {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.inspector-pro .inspector-clip-copy span,
+.inspector-pro .inspector-icon-button,
+.inspector-pro .inspector-text-button,
+.inspector-pro .inspector-tab,
+.inspector-pro .inspector-multi,
+.inspector-pro .inspector-subpanel h4,
+.inspector-pro .inspector-row-label,
+.inspector-pro .scrub-label,
+.inspector-pro .inspector-select-caption,
+.inspector-pro .inspector-caption,
+.inspector-pro .scrub-input input[type='number'],
+.inspector-pro .scrub-unit,
+.inspector-pro select,
+.inspector-pro .select select,
+.inspector-pro .inspector-field,
+.inspector-pro .inspector-statusbar {
+  font-size: var(--font-size-xs);
+}
+
+.inspector-pro .inspector-icon-button,
+.inspector-pro .inspector-text-button,
+.inspector-pro .inspector-tab,
+.inspector-pro .inspector-row-label,
+.inspector-pro .scrub-label,
+.inspector-pro .inspector-select-caption,
+.inspector-pro .inspector-caption {
+  font-weight: var(--font-weight-medium);
+}
+
+.inspector-pro .inspector-subpanel h4 {
+  font-weight: var(--font-weight-semibold);
+}
+
+.inspector-pro .inspector-row-reset,
+.inspector-pro .inspector-section-reset,
+.inspector-pro .scrub-reset {
+  width: var(--hit-target-min);
+  height: var(--hit-target-min);
+  min-width: var(--hit-target-min);
+  min-height: var(--hit-target-min);
+}
+
+/* -------------------------------------------------------------------------
+ * Captions: transcript metadata is editor chrome, not decorative caption text.
+ * ---------------------------------------------------------------------- */
+.caption-workspace-host .caption-sidebar-title-row h2 {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.caption-workspace-host .caption-sidebar-count,
+.caption-workspace-host .caption-sidebar-description,
+.caption-workspace-host .caption-workspace-row .cue-time,
+.caption-workspace-host .caption-row-duration,
+.caption-workspace-host .caption-selection-bar strong,
+.caption-workspace-host .caption-duration-readout {
+  font-size: var(--font-size-xs);
+}
+
+.caption-workspace-host .caption-workspace-row .cue-text,
+.caption-workspace-host .cue-input {
+  font-family: var(--font-sans) !important;
+  font-size: var(--font-size-sm) !important;
+  font-weight: var(--font-weight-medium) !important;
+}
+
+.caption-workspace-host .caption-font-field .select,
+.caption-workspace-host .caption-font-field .select-trigger {
+  width: 100%;
+  min-width: 0;
+}
+
+.caption-sidebar-tab,
+.caption-sidebar-tab::after,
+.caption-workspace-host .caption-workspace-row,
+.caption-workspace-host .caption-workspace-row .cue-actions {
+  transition-duration: var(--motion-hover);
+  transition-timing-function: var(--ease);
+}
+
+/* -------------------------------------------------------------------------
+ * Timeline: keep the visual glyphs small, but give precision actions proper
+ * hit boxes. The gutter grows to match, so the controls do not crowd the stage.
+ *
+ * The gutter MUST be at least as wide as the row it holds, and the row is sized by
+ * the hit targets below, not by the 14/16px in `styles.css`:
+ *   6 (padding) + 24 (collapse) + 4 + 18 (glyph) + 4 + [4 × 24 + 3 × 4] (controls)
+ *   + 6 (padding) = 170px.
+ * At 152px every header overflowed by 12px and the last control — the lock — was drawn
+ * past the column edge, underneath the lanes column that paints over it, so the header
+ * ended in a clipped, broken-looking edge with the lock half-swallowed by the first clip.
+ * Widening is the fix: shrinking the controls back would undo the accessible hit target
+ * this block exists to provide. Keep this ≥ the arithmetic above.
+ * ---------------------------------------------------------------------- */
+.timeline-grid {
+  grid-template-columns: 176px minmax(0, 1fr);
+}
+
+.track-head {
+  font-size: var(--font-size-xs);
+  padding-inline: 6px;
+}
+
+.track-control,
+.track-collapse,
+.layer-order-btn,
+.keyframe-nav,
+.keyframe-diamond {
+  width: var(--hit-target-min);
+  min-width: var(--hit-target-min);
+  height: var(--hit-target-min);
+  min-height: var(--hit-target-min);
+}
+
+.layer-order {
+  left: 20px;
+}
+
+.ruler-tick.is-major,
+.playhead-bubble,
+.timeline-empty-state {
+  font-size: var(--font-size-xs);
+}
+
+/* Strong, consistent keyboard focus for dense editor controls. */
+.track-control:focus-visible,
+.track-collapse:focus-visible,
+.layer-order-btn:focus-visible,
+.keyframe-nav:focus-visible,
+.keyframe-diamond:focus-visible,
+.inspector-pro .inspector-row-reset:focus-visible,
+.inspector-pro .inspector-section-reset:focus-visible,
+.inspector-pro .scrub-reset:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* Reduced-motion has a global safety net in styles.css. This explicit contract
+ * keeps the new semantic motion layer correct even if these surfaces are later
+ * extracted from the app stylesheet. */
+@media (prefers-reduced-motion: reduce) {
+  .caption-sidebar-tab,
+  .caption-sidebar-tab::after,
+  .caption-workspace-host .caption-workspace-row,
+  .caption-workspace-host .caption-workspace-row .cue-actions {
+    transition: none;
+  }
+}

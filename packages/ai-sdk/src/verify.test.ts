@@ -1,0 +1,368 @@
+/**
+ * Tests for enhancement verification (ADR 0076).
+ *
+ * The bar these set is specific: the exact captions the broken pipeline used to
+ * produce — right text, plausible-looking times, source timestamps — must be
+ * *detected*, with an issue that names the drift. A verification that passes
+ * those is worse than none, because it converts an unverified claim into a
+ * verified-looking one.
+ */
+import { describe, expect, it } from 'vitest';
+import { buildTimelineMap, deriveCaptionCues, captionSegmentConfig } from '@framepilot/editor-core';
+import type { Clip, Project, TranscriptWord } from '@framepilot/timeline-schema';
+import { verifyCaptions, verifyTransitions } from './verify.js';
+
+const ASSET = 'asset_talk';
+
+/** Two retained ranges rippled together: source 10–20 then source 50–60. */
+const RANGES: readonly (readonly [number, number])[] = [
+  [10, 20],
+  [50, 60],
+];
+
+const mediaClip = (id: string, start: number, end: number, s0: number, s1: number): Clip => ({
+  id,
+  assetId: ASSET,
+  trackId: 'video_1',
+  start,
+  end,
+  sourceStart: s0,
+  sourceEnd: s1,
+  effects: [],
+  keyframes: [],
+});
+
+/** A word every 0.5s across the source, attributed to the asset. */
+function transcript(): TranscriptWord[] {
+  const words: TranscriptWord[] = [];
+  for (let t = 0; t < 70; t += 0.5) {
+    words.push({ word: `w${t}`, start: t, end: t + 0.4, assetId: ASSET });
+  }
+  return words;
+}
+
+function projectDoc(captionClips: Clip[] = [], revision = 1): Project {
+  return {
+    id: 'p1',
+    name: 'p',
+    version: 1,
+    fps: 30,
+    resolution: { width: 1080, height: 1920 },
+    assets: [{ id: ASSET, path: '/a.mp4', kind: 'video', durationSeconds: 120 }],
+    folders: [],
+    timeline: {
+      revision,
+      tracks: [
+        {
+          id: 'video_1',
+          type: 'video',
+          clips: [
+            mediaClip('clip_0', 0, 10, RANGES[0]![0], RANGES[0]![1]),
+            mediaClip('clip_1', 10, 20, RANGES[1]![0], RANGES[1]![1]),
+          ],
+        },
+        { id: 'caption_1', type: 'caption', clips: captionClips },
+      ],
+    },
+    transcript: transcript(),
+    markers: [],
+    aiMemory: {},
+    history: [],
+  };
+}
+
+/** Caption clips built the CORRECT way — through the mapping. */
+function correctCaptions(revision = 1): Clip[] {
+  const base = projectDoc([], revision);
+  const map = buildTimelineMap(base.timeline);
+  return deriveCaptionCues(map, base.transcript, captionSegmentConfig('subtitle')).map(
+    (cue, i) => ({
+      id: `cap_${i}`,
+      assetId: '__caption__',
+      trackId: 'caption_1',
+      start: cue.start,
+      end: cue.end,
+      sourceStart: 0,
+      sourceEnd: cue.end - cue.start,
+      effects: [],
+      keyframes: [],
+      captionCue: {
+        text: cue.text,
+        words: [...cue.words],
+        derivedFromRevision: cue.revision,
+        source: {
+          assetId: cue.assetId,
+          clipId: cue.clipId,
+          start: cue.sourceStart,
+          end: cue.sourceEnd,
+        },
+      },
+    }),
+  );
+}
+
+describe('verifyCaptions', () => {
+  it('passes captions derived through the timeline mapping', () => {
+    const report = verifyCaptions(projectDoc(correctCaptions()));
+    expect(report.issues).toEqual([]);
+    expect(report.ok).toBe(true);
+    expect(report.cueCount).toBeGreaterThan(0);
+  });
+
+  it('catches the original bug: cues carrying SOURCE timestamps', () => {
+    // Exactly what the broken pipeline produced — segmented straight from the
+    // transcript, so a word spoken at source 50s becomes a cue at 50s on a
+    // 20s timeline. Every operation applied cleanly; nothing said it was wrong.
+    const sourceTimed: Clip[] = [
+      {
+        id: 'cap_bad',
+        assetId: '__caption__',
+        trackId: 'caption_1',
+        start: 50,
+        end: 52,
+        sourceStart: 0,
+        sourceEnd: 2,
+        effects: [],
+        keyframes: [],
+        captionCue: {
+          text: 'w50 w50.5',
+          words: [
+            { word: 'w50', start: 50, end: 50.4 },
+            { word: 'w50.5', start: 50.5, end: 50.9 },
+          ],
+          derivedFromRevision: 1,
+        },
+      },
+    ];
+    const report = verifyCaptions(projectDoc(sourceTimed));
+    expect(report.ok).toBe(false);
+    expect(report.issues.map((i) => i.code)).toContain('caption_past_end');
+  });
+
+  it('catches a cue placed over footage that was cut', () => {
+    const overDeleted: Clip[] = [
+      {
+        ...correctCaptions()[0]!,
+        id: 'cap_x',
+        start: 3,
+        end: 5,
+        captionCue: {
+          // Words from source 30–32, a range that was deleted entirely.
+          text: 'w30 w30.5',
+          words: [
+            { word: 'w30', start: 30, end: 30.4 },
+            { word: 'w30.5', start: 30.5, end: 30.9 },
+          ],
+          derivedFromRevision: 1,
+        },
+      },
+    ];
+    const report = verifyCaptions(projectDoc(overDeleted));
+    expect(report.issues.map((i) => i.code)).toContain('caption_text_mismatch');
+  });
+
+  it('catches a cue running across a cut', () => {
+    // Spans 9–11, straddling the 10s boundary between two source ranges whose
+    // words were never spoken together.
+    const straddling: Clip[] = [
+      {
+        ...correctCaptions()[0]!,
+        id: 'cap_straddle',
+        start: 9,
+        end: 11,
+      },
+    ];
+    const report = verifyCaptions(projectDoc(straddling));
+    expect(report.issues.map((i) => i.code)).toContain('caption_spans_cut');
+  });
+
+  it('catches captions left behind by a later edit', () => {
+    // Cues derived at revision 1, timeline now at revision 4.
+    const report = verifyCaptions(projectDoc(correctCaptions(1), 4));
+    const stale = report.issues.filter((i) => i.code === 'caption_stale');
+    expect(stale.length).toBeGreaterThan(0);
+    expect(stale[0]!.detail).toMatch(/revision 1.*revision 4/);
+  });
+
+  it('refuses to call a cue of unknown provenance verified', () => {
+    const noProvenance = correctCaptions().map((c) => ({
+      ...c,
+      captionCue: { text: c.captionCue!.text, words: c.captionCue!.words },
+    }));
+    const report = verifyCaptions(projectDoc(noProvenance));
+    expect(report.issues.map((i) => i.code)).toContain('caption_provenance_unknown');
+  });
+
+  it('rejects the live lyric-video failure: one full-duration transcript fallback block', () => {
+    const project = projectDoc([
+      {
+        id: 'cap_whole_song',
+        assetId: '__caption__',
+        trackId: 'caption_1',
+        start: 0,
+        end: 20,
+        sourceStart: 0,
+        sourceEnd: 20,
+        effects: [{ id: 'caption_fx', type: 'caption', params: {}, keyframes: [] }],
+        keyframes: [],
+      },
+    ]);
+    const report = verifyCaptions(project);
+
+    // Time-range coverage alone is not caption quality: all retained words fit inside
+    // the rectangle, but the viewer would see one paragraph and there is no revision
+    // provenance proving the fallback text is current.
+    expect(report.speechCoverage).toBe(1);
+    expect(report.ok).toBe(false);
+    expect(report.cueCount).toBe(1);
+    expect(report.issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(['caption_too_dense', 'caption_provenance_unknown']),
+    );
+  });
+
+  it('does not count a title on an overlay track as a caption cue', () => {
+    const project = projectDoc(correctCaptions());
+    project.timeline.tracks.push({
+      id: 'titles',
+      type: 'overlay',
+      clips: [
+        {
+          id: 'title',
+          assetId: '__text__',
+          trackId: 'titles',
+          start: 0,
+          end: 4.5,
+          sourceStart: 0,
+          sourceEnd: 4.5,
+          effects: [
+            { id: 'title_fx', type: 'text', params: { text: 'THE SEARCH' }, keyframes: [] },
+          ],
+          keyframes: [],
+        },
+      ],
+    });
+
+    expect(verifyCaptions(project).cueCount).toBe(correctCaptions().length);
+  });
+
+  it('reports retained speech that nothing captions', () => {
+    const onlyFirst = correctCaptions().slice(0, 1);
+    const report = verifyCaptions(projectDoc(onlyFirst));
+    expect(report.issues.map((i) => i.code)).toContain('speech_uncaptioned');
+    expect(report.speechCoverage).toBeLessThan(1);
+  });
+
+  it('names the drift in seconds, so the caller can act on it', () => {
+    const drifted = correctCaptions().map((c, i) =>
+      i === 0 ? { ...c, start: c.start + 1.5, end: c.end + 1.5 } : c,
+    );
+    const report = verifyCaptions(projectDoc(drifted));
+    const sync = report.issues.find(
+      (i) => i.code === 'caption_out_of_sync' || i.code === 'caption_spans_cut',
+    );
+    expect(sync?.detail).toMatch(/\d/);
+  });
+
+  it('skips sync checks for a cue whose captionCue carries no words (nothing to compare)', () => {
+    // A captionCue can exist (so provenance/stale checks still run) while `words` is
+    // empty — e.g. a placeholder cue. There is nothing to compare timing against, so
+    // sync checking must bail out rather than indexing into an empty array.
+    const wordless: Clip[] = [
+      {
+        ...correctCaptions()[0]!,
+        id: 'cap_wordless',
+        captionCue: { ...correctCaptions()[0]!.captionCue!, text: '', words: [] },
+      },
+    ];
+    const report = verifyCaptions(projectDoc(wordless));
+    expect(report.issues.map((i) => i.code)).not.toContain('caption_out_of_sync');
+    expect(report.issues.map((i) => i.code)).not.toContain('caption_text_mismatch');
+  });
+
+  it('reports full speech coverage (not NaN/Infinity) when the project carries no transcript at all', () => {
+    // With zero transcript words, the "fraction covered" division would be 0/0. There is
+    // no retained speech to fail to caption, so coverage must read as complete (1), not
+    // a NaN that would corrupt a caller's "coverage < threshold" check.
+    const project = projectDoc(correctCaptions());
+    const report = verifyCaptions({ ...project, transcript: [] });
+    expect(report.speechCoverage).toBe(1);
+    expect(report.issues.map((i) => i.code)).not.toContain('speech_uncaptioned');
+  });
+
+  it('is honest about an empty caption track rather than passing it', () => {
+    const report = verifyCaptions(projectDoc([]));
+    expect(report.cueCount).toBe(0);
+    expect(report.ok).toBe(false);
+    expect(report.issues.map((issue) => issue.code)).toContain('speech_uncaptioned');
+    expect(report.speechCoverage).toBeLessThan(1);
+  });
+});
+
+describe('verifyTransitions', () => {
+  const withTransition = (
+    toClipId: string,
+    fromClipId: string,
+    durationSeconds: number,
+  ): Project => {
+    const p = projectDoc();
+    const track = p.timeline.tracks[0]!;
+    return {
+      ...p,
+      timeline: {
+        ...p.timeline,
+        tracks: [
+          {
+            ...track,
+            clips: track.clips.map((c) =>
+              c.id === toClipId
+                ? {
+                    ...c,
+                    effects: [
+                      {
+                        id: `${toClipId}__transition`,
+                        type: 'transition',
+                        params: { kind: 'cross-dissolve', durationSeconds, fromClipId },
+                        keyframes: [],
+                      },
+                    ],
+                  }
+                : c,
+            ),
+          },
+          ...p.timeline.tracks.slice(1),
+        ],
+      },
+    };
+  };
+
+  it('passes a transition at a real cut with the right neighbours', () => {
+    const report = verifyTransitions(withTransition('clip_1', 'clip_0', 1));
+    expect(report.issues).toEqual([]);
+    expect(report.transitionCount).toBe(1);
+    expect(report.boundaryCount).toBe(1);
+  });
+
+  it('reports no transitions when none were applied — not silent success', () => {
+    const report = verifyTransitions(projectDoc());
+    expect(report.transitionCount).toBe(0);
+    expect(report.boundaryCount).toBe(1);
+  });
+
+  it('catches a transition on a clip with nothing before it', () => {
+    // The failure mode: an effect stamped where there is no cut to cross.
+    const report = verifyTransitions(withTransition('clip_0', 'ghost', 1));
+    expect(report.ok).toBe(false);
+    expect(report.issues.map((i) => i.code)).toContain('transition_without_cut');
+  });
+
+  it('catches a transition naming the wrong outgoing clip', () => {
+    const report = verifyTransitions(withTransition('clip_1', 'not_the_previous_clip', 1));
+    expect(report.issues.map((i) => i.code)).toContain('transition_wrong_clips');
+  });
+
+  it('catches a transition longer than the cut can carry', () => {
+    // Both clips are 10s, so the ceiling is 5s; 9s overruns the shot.
+    const report = verifyTransitions(withTransition('clip_1', 'clip_0', 9));
+    expect(report.issues.map((i) => i.code)).toContain('transition_too_long');
+  });
+});

@@ -1,0 +1,36 @@
+{
+  "name": "@framepilot/editor-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Typed timeline operations, patch engine, and validator for FramePilot (PRD §8.4–8.5).",
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@framepilot/shared-types": "workspace:*",
+    "@framepilot/timeline-schema": "workspace:*"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.9.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "eslint": "^9.9.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.1.0"
+  }
+}

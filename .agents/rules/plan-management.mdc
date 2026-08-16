@@ -1,0 +1,56 @@
+---
+description: PRIORITY - read and update plan/PLAN.md every task; enforce scope discipline; never check off unverified work
+globs:
+alwaysApply: true
+---
+
+# Plan management rules - PRIORITY
+
+`plan/PLAN.md` is the single source of truth for execution. Read
+`.agents/skills/plan-keeper/SKILL.md` for the full workflow and
+`.agents/rules/product-discipline.mdc` for the mandatory product-scope gate.
+
+## Before starting work
+- **Read `plan/PLAN.md`.** Understand the current phase and the build order
+  (timeline + patch engine → render + validation → AI → compositing → agent mode).
+- Find the task you are about to do. If it isn't there, **add it** as `[ ]` in the right phase.
+- For non-trivial feature or architecture work, record the scope gate before expanding the plan:
+  - concrete user outcome;
+  - current workflow gap;
+  - minimum end-to-end vertical slice;
+  - existing systems to reuse;
+  - intentionally deferred adjacent scope;
+  - evidence required for completion.
+- If the task introduces a subsystem, editing domain, runtime/provider/worker boundary, a large
+  sub-plan, multiple ADRs, or broad cross-layer work, run a product-scope review before treating
+  the expansion as approved scope.
+
+## While working
+- Mark the task **`[~]` (in progress)** when you start.
+- **Add new tasks** you discover (`[ ]`). Mark blocked work `[!]` with a one-line reason.
+- Do not automatically promote every discovered adjacent opportunity into active scope. Record it
+  as deferred unless it is required for the current vertical slice or explicitly chosen by the
+  maintainer.
+- If a sub-area genuinely needs its own plan, create a new doc under `plan/` and link it from
+  `PLAN.md`. The sub-plan must identify the near-term executable vertical slice it enables.
+- Keep plan detail proportional to uncertainty and risk. A long document is not evidence of
+  implementation progress.
+
+## When done
+- Mark **`[x]`** ONLY when the Definition of Done is met and the applicable verification passed.
+  **Never check off untested or unverified work.**
+- A schema, worker, backend, tool, placeholder UI, hardcoded demo path, ADR, or plan does not by
+  itself justify `[x]` for an editing capability.
+- For an editing capability, confirm the applicable path is usable end to end: user entry → target
+  resolution → operation/tool → validation → preview → render/export semantics → undo → failure
+  state → tests.
+- Keep the **"Status snapshot"** line and the **"Last updated"** date current.
+
+## Reconcile
+- Keep the plan honest: if code state and plan disagree, fix the plan to match reality and note it.
+- If a capability was previously marked complete but its actual UI/preview/render/AI path is not
+  usable, reopen it instead of preserving an inaccurate completion claim.
+- Preserve explicit maintainer scope decisions and their rationale so later agents do not
+  repeatedly reopen settled product choices.
+
+The legend is `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked.

@@ -1,0 +1,163 @@
+{
+  "comment": "Generated from packages/timeline-schema/src/caption-fonts.ts. Bundled OFL caption fonts; keep binary assets mirrored with apps/web-editor/public/fonts/.",
+  "families": {
+    "Inter": {
+      "file": "Inter-Variable.ttf",
+      "category": "sans",
+      "minWeight": 100,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Montserrat": {
+      "file": "Montserrat-Variable.ttf",
+      "category": "sans",
+      "minWeight": 100,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Roboto": {
+      "file": "Roboto-Variable.ttf",
+      "category": "sans",
+      "minWeight": 100,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Open Sans": {
+      "file": "OpenSans-Variable.ttf",
+      "category": "sans",
+      "minWeight": 300,
+      "maxWeight": 800,
+      "variable": true
+    },
+    "Lato": {
+      "file": "Lato-Regular.ttf",
+      "category": "sans",
+      "minWeight": 400,
+      "maxWeight": 700,
+      "boldFile": "Lato-Bold.ttf",
+      "variable": false
+    },
+    "Raleway": {
+      "file": "Raleway-Variable.ttf",
+      "category": "sans",
+      "minWeight": 100,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Figtree": {
+      "file": "Figtree-Variable.ttf",
+      "category": "sans",
+      "minWeight": 300,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Manrope": {
+      "file": "Manrope-Variable.ttf",
+      "category": "sans",
+      "minWeight": 200,
+      "maxWeight": 800,
+      "variable": true
+    },
+    "Poppins": {
+      "file": "Poppins-Regular.ttf",
+      "category": "sans",
+      "minWeight": 400,
+      "maxWeight": 700,
+      "boldFile": "Poppins-Bold.ttf",
+      "variable": false
+    },
+    "Nunito": {
+      "file": "Nunito-Variable.ttf",
+      "category": "sans",
+      "minWeight": 200,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Archivo Black": {
+      "file": "ArchivoBlack-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 900,
+      "variable": false
+    },
+    "Oswald": {
+      "file": "Oswald-Variable.ttf",
+      "category": "display",
+      "minWeight": 200,
+      "maxWeight": 700,
+      "variable": true
+    },
+    "Bebas Neue": {
+      "file": "BebasNeue-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Anton": {
+      "file": "Anton-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 900,
+      "variable": false
+    },
+    "Bangers": {
+      "file": "Bangers-Regular.ttf",
+      "category": "display",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "DM Serif Display": {
+      "file": "DMSerifDisplay-Regular.ttf",
+      "category": "serif",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "italicFile": "DMSerifDisplay-Italic.ttf",
+      "variable": false
+    },
+    "Playfair Display": {
+      "file": "PlayfairDisplay-Variable.ttf",
+      "category": "serif",
+      "minWeight": 400,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Merriweather": {
+      "file": "Merriweather-Variable.ttf",
+      "category": "serif",
+      "minWeight": 300,
+      "maxWeight": 900,
+      "variable": true
+    },
+    "Space Mono": {
+      "file": "SpaceMono-Regular.ttf",
+      "category": "mono",
+      "minWeight": 400,
+      "maxWeight": 700,
+      "boldFile": "SpaceMono-Bold.ttf",
+      "variable": false
+    },
+    "Caveat": {
+      "file": "Caveat-Variable.ttf",
+      "category": "handwritten",
+      "minWeight": 400,
+      "maxWeight": 700,
+      "variable": true
+    },
+    "Pacifico": {
+      "file": "Pacifico-Regular.ttf",
+      "category": "handwritten",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    },
+    "Shadows Into Light": {
+      "file": "ShadowsIntoLight-Regular.ttf",
+      "category": "handwritten",
+      "minWeight": 400,
+      "maxWeight": 400,
+      "variable": false
+    }
+  }
+}

@@ -1,0 +1,9 @@
+# Model weights and proof fixtures are NEVER committed. They are fetched by
+# tools/fetch_models.py from URLs pinned to an immutable upstream commit and
+# verified against the sha256 digests in pack/models.lock.toml.
+#
+# Committing them would put ~42 MiB of binaries with their own licences into
+# every clone of the base repository — the exact thing on-demand Capability
+# Packs exist to avoid.
+*
+!.gitignore

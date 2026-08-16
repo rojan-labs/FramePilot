@@ -1,0 +1,5 @@
+
+# Capability Pack catalog root PUBLIC keys, generated per release by
+# `framepilot-pack generate-root-key`. Not committed: the trust anchor for a
+# build is a release input, not repository content.
+build/capability-pack-root-keys.json

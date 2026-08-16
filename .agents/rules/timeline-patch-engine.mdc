@@ -1,0 +1,39 @@
+---
+description: Timeline + patch engine rules — typed ops, apply+invert, validate-before-apply, migrations
+globs: packages/editor-core/**,packages/timeline-schema/**
+alwaysApply: false
+---
+
+# Timeline & patch engine rules (PRD §8.4, §8.5, §11)
+
+This is the foundation. Build and harden it before the AI layer.
+Read `.agents/skills/timeline-editing/SKILL.md`.
+
+## Every edit is a typed operation
+- Operations are a typed union: `trim_clip`, `split_clip`, `delete_range`, `move_clip`,
+  `ripple_delete`, `add_clip`, `add_text_overlay`, `add_caption_layer`, `add_keyframes`,
+  `apply_color_grade`, `adjust_audio`, `add_transition`, `add_mask`, `track_object`, …
+- Each operation:
+  - `apply(timeline, op) -> timeline` — **pure & immutable** (no in-place mutation).
+  - `invert(timeline, op) -> op[]` — produces inverse operations for undo. **Required.**
+- Unit tests on every operation **and** its inverse, across their real branches.
+
+## Patch envelope & lifecycle
+- Patch = `{ patchId, createdBy, reason, operations[] }`.
+- Lifecycle: **proposed → validated → previewed → applied → reverted/failed**.
+- Apply transactionally (all-or-nothing). Compute a before/after **diff** for review.
+- Undo/redo is backed by inverse operations. Patch history persists in the project file.
+
+## Validate before apply (PRD §8.5)
+References exist · no negative duration · valid layer order · no missing asset ·
+supported effect · no broken audio link · no overlap error · engine supports op ·
+op is reversible. Validation errors are **typed and actionable**.
+
+## Schema discipline
+- `timeline-schema` (Zod) is the contract; keep it in sync with the Python Pydantic models via shared JSON Schema.
+- **No schema change without a migration** and a version bump (plan §1.1). Round-trip golden fixtures must pass.
+
+## Don't
+- ❌ Mutate the timeline outside `editor-core`.
+- ❌ Add an operation without an inverse and tests.
+- ❌ Let an unvalidated operation reach apply.

@@ -1,0 +1,42 @@
+---
+title: "Text overlays, right on the canvas"
+summary: "Drag text onto the timeline, move and resize it right on the video, and style everything — colour, font, animation — from one panel. Plus a smoother preview and snappier zooming."
+date: "2026-07-07"
+version: "1.2.0"
+tags: ["New", "Improved", "Fixed"]
+---
+
+### New
+
+- **Add text by dragging.** Grab **Text** from the Overlays panel and drop it
+  anywhere on the timeline to create an overlay right where you want it.
+- **Edit right on the video.** Select a text overlay and work with it directly in
+  the preview — drag to move it, pull a side handle to set how wide it wraps, and
+  double-click to type. No fiddly forms.
+- **Style it your way.** A new Text panel puts everything in one place: content,
+  colour, font and weight, size, alignment, a background, on-screen position, and
+  in/out animations with timing. The preview shows exactly how it will look and
+  moves, even as you scrub.
+- **Pick your transitions.** Clicking the **+** between two clips now opens a
+  quick menu of every transition — fade, cross-dissolve, push, zoom, blur —
+  instead of just dropping in a default.
+- **A composition grid.** Turn on a rule-of-thirds grid in the monitor to line up
+  your shots.
+
+### Improved
+
+- **A calmer preview.** The area around your video now matches the app instead of
+  harsh black, the frame fits perfectly at any window size, and fast cut-heavy
+  edits play back more smoothly.
+- **Status where you expect it.** "Saved to…" and other messages now appear
+  quietly in the header instead of popping up as a separate toast.
+- **Snappier zooming.** Zooming the timeline in and out repeatedly no longer bogs
+  the app down — thumbnails and waveforms are cached smartly and reused.
+- **Leaner AI.** Behind the scenes the assistant now sends less redundant data
+  with each step, so it works within tighter model limits.
+
+### Fixed
+
+- **No more empty "proposed edit."** When the assistant only made a plan, replied
+  in chat, or hit a snag, it no longer shows an empty edit card with nothing to
+  apply — and the "Apply all" count stays accurate.

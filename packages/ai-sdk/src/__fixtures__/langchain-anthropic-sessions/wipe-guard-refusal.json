@@ -1,0 +1,746 @@
+{
+  "version": 1,
+  "name": "wipe-guard-refusal",
+  "covers": "The wipe-guard refusal through a real provider adapter. §5.3 puts the invariant inside the tool path so it holds regardless of what produced the call — including which adapter parsed it.",
+  "prompt": "make the opening punchier",
+  "events": [
+    {
+      "id": "turn_parity:status:1",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "status",
+      "status": "thinking"
+    },
+    {
+      "id": "turn_parity:run-state",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_parity",
+        "identity": {
+          "conversationId": "conv_parity",
+          "projectId": "proj_1",
+          "attemptId": "turn_parity"
+        },
+        "version": 2,
+        "objective": {
+          "request": "make the opening punchier",
+          "outcome": "make the opening punchier",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "make the opening punchier"
+            }
+          ]
+        },
+        "stage": "interpret",
+        "completedStages": [],
+        "stageEnteredAtTurn": 0,
+        "facts": [],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "make the opening punchier",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_parity_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1"
+          ]
+        },
+        "execution": {
+          "authorized": true
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "make the opening punchier",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [],
+        "verifications": [],
+        "nextAction": null,
+        "blockedOn": null,
+        "integrity": {
+          "status": "valid",
+          "diagnostics": []
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 0
+      }
+    },
+    {
+      "id": "turn_parity:status:2",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "status",
+      "status": "generating"
+    },
+    {
+      "id": "turn_parity:reasoning:1",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "reasoning",
+      "summaries": [],
+      "done": false
+    },
+    {
+      "id": "turn_parity:context-usage",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "context_usage",
+      "usedTokens": 19222,
+      "contextWindow": 1000000,
+      "estimated": true,
+      "manifest": {
+        "requestId": "turn_parity:assistant:seg-1",
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "sections": [
+          {
+            "id": "s1",
+            "type": "system",
+            "label": "system contract",
+            "tokenEstimate": 135,
+            "included": true
+          },
+          {
+            "id": "s2",
+            "type": "conversation",
+            "label": "user turn 1",
+            "tokenEstimate": 1667,
+            "included": true
+          },
+          {
+            "id": "s3",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 1780,
+            "included": true
+          },
+          {
+            "id": "s4",
+            "type": "tool_schemas",
+            "label": "tool definitions",
+            "tokenEstimate": 15640,
+            "included": true
+          }
+        ],
+        "usage": {
+          "modelContextLimit": 1000000,
+          "limitAssumed": false,
+          "estimatedInputTokensBeforeSend": 19222,
+          "reservedOutputTokens": 128000,
+          "estimatedRemainingCapacity": 852778,
+          "calculationSource": "local_estimate"
+        },
+        "compaction": {
+          "occurred": false,
+          "removedTokenEstimate": 0,
+          "removedSections": []
+        },
+        "memory": {
+          "runId": "turn_parity",
+          "stage": "interpret",
+          "projectRevision": 0,
+          "objectiveKnown": true,
+          "committedDecisions": 1,
+          "facts": 0,
+          "evidenceHandles": 0,
+          "remainingObjectives": 1
+        }
+      }
+    },
+    {
+      "id": "turn_parity:reasoning:1",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "reasoning",
+      "summaries": [],
+      "done": true
+    },
+    {
+      "id": "turn_parity:context-usage",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "context_usage",
+      "usedTokens": 100,
+      "contextWindow": 1000000,
+      "estimated": false,
+      "manifest": {
+        "requestId": "turn_parity:assistant:seg-1",
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "sections": [
+          {
+            "id": "s1",
+            "type": "system",
+            "label": "system contract",
+            "tokenEstimate": 135,
+            "included": true
+          },
+          {
+            "id": "s2",
+            "type": "conversation",
+            "label": "user turn 1",
+            "tokenEstimate": 1667,
+            "included": true
+          },
+          {
+            "id": "s3",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 1780,
+            "included": true
+          },
+          {
+            "id": "s4",
+            "type": "tool_schemas",
+            "label": "tool definitions",
+            "tokenEstimate": 15640,
+            "included": true
+          }
+        ],
+        "usage": {
+          "modelContextLimit": 1000000,
+          "limitAssumed": false,
+          "estimatedInputTokensBeforeSend": 19222,
+          "reservedOutputTokens": 128000,
+          "estimatedRemainingCapacity": 871900,
+          "calculationSource": "provider_reported",
+          "providerReportedInputTokens": 100,
+          "providerReportedOutputTokens": 20
+        },
+        "compaction": {
+          "occurred": false,
+          "removedTokenEstimate": 0,
+          "removedSections": []
+        },
+        "memory": {
+          "runId": "turn_parity",
+          "stage": "interpret",
+          "projectRevision": 0,
+          "objectiveKnown": true,
+          "committedDecisions": 1,
+          "facts": 0,
+          "evidenceHandles": 0,
+          "remainingObjectives": 1
+        }
+      }
+    },
+    {
+      "id": "turn_parity:status:3",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "status",
+      "status": "running_tool"
+    },
+    {
+      "id": "w",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "tool_call",
+      "toolName": "delete_range",
+      "status": "running",
+      "title": "Deleting a range on Video 1",
+      "argsSummary": "trackId: \"video_1\", start: 0, end: 10"
+    },
+    {
+      "id": "w",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "tool_call",
+      "toolName": "delete_range",
+      "status": "failed",
+      "runtimeMs": 0,
+      "title": "Deleting a range on Video 1",
+      "argsSummary": "trackId: \"video_1\", start: 0, end: 10"
+    },
+    {
+      "id": "turn_parity:result:4",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "tool_result",
+      "toolCallId": "w",
+      "summary": "Deleting a range on Video 1 — rejected: would wipe existing work",
+      "result": "this would delete every clip on track \"video_1\" (2 clips), including work that existed before this run. Continue from the current timeline with targeted trim/split/move/delete operations. A scoped cleanup request does not authorize a full-track wipe."
+    },
+    {
+      "id": "turn_parity:run-state",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_parity",
+        "identity": {
+          "conversationId": "conv_parity",
+          "projectId": "proj_1",
+          "attemptId": "turn_parity"
+        },
+        "version": 3,
+        "objective": {
+          "request": "make the opening punchier",
+          "outcome": "make the opening punchier",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "make the opening punchier"
+            }
+          ]
+        },
+        "stage": "inspect",
+        "completedStages": [
+          "interpret"
+        ],
+        "stageEnteredAtTurn": 1,
+        "facts": [],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "make the opening punchier",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_parity_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1"
+          ]
+        },
+        "execution": {
+          "authorized": true
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "make the opening punchier",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [],
+        "verifications": [],
+        "nextAction": null,
+        "blockedOn": null,
+        "integrity": {
+          "status": "valid",
+          "diagnostics": []
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 0
+      }
+    },
+    {
+      "id": "turn_parity:status:5",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "status",
+      "status": "generating"
+    },
+    {
+      "id": "turn_parity:reasoning:2",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "reasoning",
+      "summaries": [],
+      "done": false
+    },
+    {
+      "id": "turn_parity:context-usage",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "context_usage",
+      "usedTokens": 19311,
+      "contextWindow": 1000000,
+      "estimated": true,
+      "manifest": {
+        "requestId": "turn_parity:assistant:seg-2",
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "sections": [
+          {
+            "id": "s1",
+            "type": "system",
+            "label": "system contract",
+            "tokenEstimate": 135,
+            "included": true
+          },
+          {
+            "id": "s2",
+            "type": "conversation",
+            "label": "user turn 1",
+            "tokenEstimate": 1667,
+            "included": true
+          },
+          {
+            "id": "s3",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 1869,
+            "included": true
+          },
+          {
+            "id": "s4",
+            "type": "tool_schemas",
+            "label": "tool definitions",
+            "tokenEstimate": 15640,
+            "included": true
+          }
+        ],
+        "usage": {
+          "modelContextLimit": 1000000,
+          "limitAssumed": false,
+          "estimatedInputTokensBeforeSend": 19311,
+          "reservedOutputTokens": 128000,
+          "estimatedRemainingCapacity": 852689,
+          "calculationSource": "local_estimate"
+        },
+        "compaction": {
+          "occurred": false,
+          "removedTokenEstimate": 0,
+          "removedSections": []
+        },
+        "memory": {
+          "runId": "turn_parity",
+          "stage": "inspect",
+          "projectRevision": 0,
+          "objectiveKnown": true,
+          "committedDecisions": 1,
+          "facts": 0,
+          "evidenceHandles": 0,
+          "remainingObjectives": 1,
+          "nextAction": "Continue inspect: make the opening punchier"
+        }
+      }
+    },
+    {
+      "id": "turn_parity:delta:6",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "assistant_delta",
+      "parentId": "turn_parity:assistant:seg-2",
+      "chunk": "done"
+    },
+    {
+      "id": "turn_parity:reasoning:2",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "reasoning",
+      "summaries": [],
+      "done": true
+    },
+    {
+      "id": "turn_parity:context-usage",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "context_usage",
+      "usedTokens": 100,
+      "contextWindow": 1000000,
+      "estimated": false,
+      "manifest": {
+        "requestId": "turn_parity:assistant:seg-2",
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "sections": [
+          {
+            "id": "s1",
+            "type": "system",
+            "label": "system contract",
+            "tokenEstimate": 135,
+            "included": true
+          },
+          {
+            "id": "s2",
+            "type": "conversation",
+            "label": "user turn 1",
+            "tokenEstimate": 1667,
+            "included": true
+          },
+          {
+            "id": "s3",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 1869,
+            "included": true
+          },
+          {
+            "id": "s4",
+            "type": "tool_schemas",
+            "label": "tool definitions",
+            "tokenEstimate": 15640,
+            "included": true
+          }
+        ],
+        "usage": {
+          "modelContextLimit": 1000000,
+          "limitAssumed": false,
+          "estimatedInputTokensBeforeSend": 19311,
+          "reservedOutputTokens": 128000,
+          "estimatedRemainingCapacity": 871900,
+          "calculationSource": "provider_reported",
+          "providerReportedInputTokens": 100,
+          "providerReportedOutputTokens": 20
+        },
+        "compaction": {
+          "occurred": false,
+          "removedTokenEstimate": 0,
+          "removedSections": []
+        },
+        "memory": {
+          "runId": "turn_parity",
+          "stage": "inspect",
+          "projectRevision": 0,
+          "objectiveKnown": true,
+          "committedDecisions": 1,
+          "facts": 0,
+          "evidenceHandles": 0,
+          "remainingObjectives": 1,
+          "nextAction": "Continue inspect: make the opening punchier"
+        }
+      }
+    },
+    {
+      "id": "turn_parity:assistant:seg-2",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "assistant_message",
+      "text": "done"
+    },
+    {
+      "id": "turn_parity:run-state",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_parity",
+        "identity": {
+          "conversationId": "conv_parity",
+          "projectId": "proj_1",
+          "attemptId": "turn_parity"
+        },
+        "version": 3,
+        "objective": {
+          "request": "make the opening punchier",
+          "outcome": "make the opening punchier",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "make the opening punchier"
+            }
+          ]
+        },
+        "stage": "inspect",
+        "completedStages": [
+          "interpret"
+        ],
+        "stageEnteredAtTurn": 1,
+        "facts": [],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "make the opening punchier",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_parity_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1"
+          ]
+        },
+        "execution": {
+          "authorized": true
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "make the opening punchier",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [],
+        "verifications": [],
+        "nextAction": null,
+        "blockedOn": null,
+        "integrity": {
+          "status": "valid",
+          "diagnostics": []
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 0
+      }
+    },
+    {
+      "id": "turn_parity:notice:7",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "warning",
+      "text": "No edits were applied — 1 proposed change couldn't be applied to the timeline (Rejected \"delete_range\" — this would delete every clip on track \"video_1\" (2 clips), including work that existed before this run. Continue from the current timeline with targeted trim/split/move/delete operations. A scoped cleanup request does not authorize a full-track wipe.). Try rephrasing the request."
+    },
+    {
+      "id": "turn_parity:run-state",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_parity",
+        "identity": {
+          "conversationId": "conv_parity",
+          "projectId": "proj_1",
+          "attemptId": "turn_parity"
+        },
+        "version": 5,
+        "objective": {
+          "request": "make the opening punchier",
+          "outcome": "make the opening punchier",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "make the opening punchier"
+            }
+          ]
+        },
+        "stage": "inspect",
+        "completedStages": [
+          "interpret"
+        ],
+        "stageEnteredAtTurn": 1,
+        "facts": [],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "make the opening punchier",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_parity_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1"
+          ]
+        },
+        "execution": {
+          "authorized": false
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "make the opening punchier",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [],
+        "verifications": [
+          {
+            "id": "verify_1",
+            "criterion": "make the opening punchier",
+            "passed": false,
+            "atRevision": 0,
+            "detail": "Passed with 1 warning(s)."
+          }
+        ],
+        "nextAction": null,
+        "blockedOn": {
+          "reason": "Verification found no traceable project mutation for the committed plan.",
+          "missing": "VERIFICATION_INCONCLUSIVE",
+          "atStage": "inspect"
+        },
+        "integrity": {
+          "status": "needs_review",
+          "diagnostics": [
+            {
+              "code": "VERIFICATION_INCONCLUSIVE",
+              "message": "Verification found no traceable project mutation for the committed plan.",
+              "stage": "verify",
+              "blocking": true,
+              "atVersion": 4
+            }
+          ]
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 0
+      }
+    },
+    {
+      "id": "turn_parity:usage:8",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "usage",
+      "tokens": 240,
+      "usd": 0.0012,
+      "modelCalls": 2
+    },
+    {
+      "id": "turn_parity:status:9",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "status",
+      "status": "failed"
+    }
+  ],
+  "operations": [],
+  "terminalStatus": "failed"
+}

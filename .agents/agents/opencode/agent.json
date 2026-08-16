@@ -1,0 +1,108 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "name": "framepilot",
+  "description": "FramePilot — Cursor for video editing. AI edits the timeline via typed, validated, reversible patches executed by a deterministic Python render engine.",
+  "sharedRules": ["AGENTS.md", ".agents/rules"],
+  "priorityRules": [
+    ".agents/rules/security.mdc",
+    ".agents/rules/correctness.mdc",
+    ".agents/rules/plan-management.mdc",
+    ".agents/rules/documentation.mdc"
+  ],
+  "skillsDir": ".agents/skills",
+  "skills": [
+    "timeline-editing",
+    "render-debugging",
+    "e2e-testing",
+    "ai-safety",
+    "media-pipeline",
+    "security-hardening",
+    "correctness-verification",
+    "plan-keeper",
+    "docs-maintainer",
+    "changelog-maintainer"
+  ],
+  "invariants": [
+    "Non-destructive: never modify or delete original media.",
+    "Every AI edit is a typed timeline operation.",
+    "Validate every operation before apply.",
+    "Check every render automatically after it runs.",
+    "AI edits only via registered schema-validated tools and returns reversible patches; never raw project.fp.json mutation."
+  ],
+  "commands": {
+    "test": "pnpm test",
+    "verify": "pnpm verify",
+    "lint": "pnpm lint",
+    "typecheck": "pnpm typecheck",
+    "engineTest": "pnpm engine:test",
+    "e2e": "pnpm test:e2e",
+    "licenseScan": "pnpm license:scan"
+  },
+  "subagents": {
+    "timeline-engineer": {
+      "description": "Builds and maintains typed timeline operations and the patch engine (apply/invert/validate/diff/undo). Build the engine before the AI layer.",
+      "skills": ["timeline-editing", "correctness-verification"],
+      "rules": [".agents/rules/timeline-patch-engine.mdc", ".agents/rules/correctness.mdc"]
+    },
+    "render-debugger": {
+      "description": "Debugs failed MoviePy/FFmpeg renders and render-validation failures; adds regression and golden-media tests.",
+      "skills": ["render-debugging", "media-pipeline"],
+      "rules": [".agents/rules/python-engine.mdc", ".agents/rules/correctness.mdc"]
+    },
+    "ai-tooling": {
+      "description": "Adds AI tools and orchestrator modes safely. Every tool needs schema + validation + reversibility + tests, and returns a patch.",
+      "skills": ["ai-safety", "correctness-verification"],
+      "rules": [".agents/rules/ai-agent-system.mdc", ".agents/rules/security.mdc"]
+    },
+    "security-reviewer": {
+      "description": "Reviews path sandboxing, agent sandbox, Electron hardening, render timeout/cancellation, secrets, and dependency/license risk.",
+      "skills": ["security-hardening"],
+      "rules": [".agents/rules/security.mdc", ".agents/rules/desktop-shell.mdc"]
+    },
+    "qa-e2e": {
+      "description": "Writes and maintains Playwright e2e and golden-media tests for critical flows; enforces coverage gates.",
+      "skills": ["e2e-testing", "media-pipeline"],
+      "rules": [".agents/rules/testing.mdc"]
+    },
+    "mcp-engineer": {
+      "description": "Builds and maintains the MCP server (packages/mcp-server) that exposes FramePilot's registered editing tools to external AI agents. Keeps the MCP tool surface auto-synced with the canonical tool registry; edits go through validate→apply→save; paths are sandboxed; rendering delegates to the Python sidecar.",
+      "skills": ["ai-safety", "security-hardening", "correctness-verification"],
+      "rules": [".agents/rules/ai-agent-system.mdc", ".agents/rules/security.mdc"]
+    },
+    "changelog-maintainer": {
+      "description": "Maintains the public, customer-facing changelog on the marketing website (apps/website/content/changelog → /changelog). Translates shipped user-visible changes into plain-language, benefit-first entries; never leaks engineering detail or repo links.",
+      "skills": ["changelog-maintainer"],
+      "rules": [".agents/rules/documentation.mdc"]
+    },
+    "lead-prompt-engineer": {
+      "description": "Crafts every string the model reads and every model-authored string the user sees: the system contract and context-builder prompt blocks, tool names/descriptions (TS + Python mirror), orchestrator mode instructions, and model-layer UI copy. Applies agent-harness prompt patterns (Claude Code, Codex) for an audience of video editors, not programmers; enforces model/UI/customer audience separation, determinism, and token/cache discipline.",
+      "skills": ["ai-safety", "correctness-verification"],
+      "rules": [".agents/rules/ai-agent-system.mdc", ".agents/rules/documentation.mdc"]
+    },
+    "plan-keeper": {
+      "description": "Reads, updates, and reconciles plan/PLAN.md (and sub-plans) — marks task status, adds discovered tasks, keeps the snapshot/date current. Invoke at the start and end of units of work.",
+      "skills": ["plan-keeper"],
+      "rules": [".agents/rules/plan-management.mdc"]
+    },
+    "docs-maintainer": {
+      "description": "Keeps docs/ and CHANGELOG.md current — writes guides/API docs, authors ADRs for decisions, and records user-facing changes. Invoke whenever code changes behavior, APIs, or architecture.",
+      "skills": ["docs-maintainer"],
+      "rules": [".agents/rules/documentation.mdc"]
+    },
+    "performance-monitor": {
+      "description": "Measures, budgets, and guards FramePilot's performance — profiles the editor, defines and enforces interaction/render/decode budgets, adds non-flaky perf-regression tests, and produces before/after evidence for optimization work. Measures and gates; does not do broad feature rewrites.",
+      "skills": ["correctness-verification"],
+      "rules": [".agents/rules/correctness.mdc"]
+    },
+    "performance-optimizer": {
+      "description": "Makes FramePilot fast — diagnoses and fixes runtime performance problems (React re-render storms, timeline drag/zoom/scrub lag, thumbnail/waveform decode cost, media-bin/asset lag, AI-sidebar event churn) without changing behavior, schema, or the five invariants. Optimizes features; never removes them.",
+      "skills": ["correctness-verification"],
+      "rules": [".agents/rules/correctness.mdc"]
+    },
+    "editing-skills-expert": {
+      "description": "Writes and maintains the bundled agent skills in packages/ai-sdk/skills/*.md — the expert editing playbooks the AI loads on demand via load_skill. Grounds every recipe in the real tool registry, schema, and render engine; never assumes a capability exists. Invoke when adding a skill, improving editing craft guidance, or when a skill drifts from what the tools/engine actually do.",
+      "skills": ["ai-safety", "correctness-verification"],
+      "rules": [".agents/rules/ai-agent-system.mdc"]
+    }
+  }
+}

@@ -1,0 +1,2755 @@
+{
+  "categories": [
+    {
+      "id": "blur-focus",
+      "label": "Blur & Focus",
+      "blurb": "Soften the frame or pull attention to one plane."
+    },
+    {
+      "id": "glow",
+      "label": "Glow & Bloom",
+      "blurb": "Bleed light out of the highlights."
+    },
+    {
+      "id": "light",
+      "label": "Light & Lens",
+      "blurb": "Leaks, flares and falloff from real glass."
+    },
+    {
+      "id": "film",
+      "label": "Film & Cinematic",
+      "blurb": "Print stocks and graded looks."
+    },
+    {
+      "id": "retro",
+      "label": "Retro & Vintage",
+      "blurb": "Faded, sun-bleached, decades old."
+    },
+    {
+      "id": "analog",
+      "label": "VHS & Analog",
+      "blurb": "Tape, tracking error and CRT lines."
+    },
+    {
+      "id": "glitch",
+      "label": "Glitch & Digital",
+      "blurb": "Corrupt the signal on purpose."
+    },
+    {
+      "id": "motion",
+      "label": "Shake & Impact",
+      "blurb": "Hits, handheld energy and camera weight."
+    },
+    {
+      "id": "zoom",
+      "label": "Zoom & Directional",
+      "blurb": "Punch in, whip across, rush forward."
+    },
+    {
+      "id": "chromatic",
+      "label": "Chromatic",
+      "blurb": "Split the colour channels apart."
+    },
+    {
+      "id": "dreamy",
+      "label": "Dreamy & Soft",
+      "blurb": "Hazy, gentle, half-remembered."
+    },
+    {
+      "id": "warp",
+      "label": "Distortion & Warp",
+      "blurb": "Bend the picture through water and heat."
+    },
+    {
+      "id": "pixel",
+      "label": "Pixel & Halftone",
+      "blurb": "Quantise into blocks, dots and levels."
+    },
+    {
+      "id": "texture",
+      "label": "Grain & Texture",
+      "blurb": "Grain, dust and physical wear."
+    },
+    {
+      "id": "party",
+      "label": "Party & Neon",
+      "blurb": "Loud colour and moving light."
+    },
+    {
+      "id": "comic",
+      "label": "Comic & Stylised",
+      "blurb": "Flatten into ink and poster colour."
+    },
+    {
+      "id": "outline",
+      "label": "Edge & Outline",
+      "blurb": "Trace and light up the contours."
+    },
+    {
+      "id": "lens-deform",
+      "label": "Fisheye & Lens",
+      "blurb": "Extreme glass geometry."
+    },
+    {
+      "id": "strobe",
+      "label": "Flash & Strobe",
+      "blurb": "Cut the light on a rhythm."
+    },
+    {
+      "id": "mirror",
+      "label": "Mirror & Split",
+      "blurb": "Fold the frame back on itself."
+    }
+  ],
+  "params": {
+    "blur-gaussian": [
+      {
+        "name": "radius",
+        "label": "Blur",
+        "min": 0,
+        "max": 64,
+        "step": 0.5,
+        "default": 12,
+        "unit": "px",
+        "hint": "Gaussian sample radius."
+      }
+    ],
+    "blur-directional": [
+      {
+        "name": "radius",
+        "label": "Length",
+        "min": 0,
+        "max": 64,
+        "step": 0.5,
+        "default": 16,
+        "unit": "px"
+      },
+      {
+        "name": "angle",
+        "label": "Direction",
+        "min": 0,
+        "max": 360,
+        "step": 1,
+        "default": 0,
+        "unit": "°"
+      }
+    ],
+    "blur-radial": [
+      {
+        "name": "strength",
+        "label": "Strength",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.4
+      },
+      {
+        "name": "centerX",
+        "label": "Center X",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5
+      },
+      {
+        "name": "centerY",
+        "label": "Center Y",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5
+      }
+    ],
+    "tilt-shift": [
+      {
+        "name": "radius",
+        "label": "Blur",
+        "min": 0,
+        "max": 48,
+        "step": 0.5,
+        "default": 18,
+        "unit": "px"
+      },
+      {
+        "name": "focusY",
+        "label": "Focus line",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5,
+        "hint": "Vertical position of the sharp band."
+      },
+      {
+        "name": "bandHeight",
+        "label": "Band height",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.3
+      }
+    ],
+    "bloom": [
+      {
+        "name": "threshold",
+        "label": "Threshold",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.7,
+        "hint": "Only pixels brighter than this bloom."
+      },
+      {
+        "name": "strength",
+        "label": "Strength",
+        "min": 0,
+        "max": 2,
+        "step": 0.01,
+        "default": 0.8
+      },
+      {
+        "name": "radius",
+        "label": "Spread",
+        "min": 0,
+        "max": 64,
+        "step": 0.5,
+        "default": 20,
+        "unit": "px"
+      }
+    ],
+    "glow-diffuse": [
+      {
+        "name": "strength",
+        "label": "Strength",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5
+      },
+      {
+        "name": "radius",
+        "label": "Spread",
+        "min": 0,
+        "max": 64,
+        "step": 0.5,
+        "default": 24,
+        "unit": "px"
+      }
+    ],
+    "halation": [
+      {
+        "name": "threshold",
+        "label": "Threshold",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.75
+      },
+      {
+        "name": "strength",
+        "label": "Strength",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5
+      },
+      {
+        "name": "tint",
+        "label": "Tint",
+        "min": 0,
+        "max": 360,
+        "step": 1,
+        "default": 15,
+        "unit": "°",
+        "hint": "Hue of the bleed around highlights."
+      }
+    ],
+    "light-leak": [
+      {
+        "name": "angle",
+        "label": "Angle",
+        "min": 0,
+        "max": 360,
+        "step": 1,
+        "default": 45,
+        "unit": "°"
+      },
+      {
+        "name": "strength",
+        "label": "Strength",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5
+      },
+      {
+        "name": "warmth",
+        "label": "Warmth",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.7
+      },
+      {
+        "name": "position",
+        "label": "Position",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.2
+      }
+    ],
+    "lens-flare": [
+      {
+        "name": "x",
+        "label": "Source X",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.3
+      },
+      {
+        "name": "y",
+        "label": "Source Y",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.3
+      },
+      {
+        "name": "strength",
+        "label": "Strength",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.6
+      },
+      {
+        "name": "spread",
+        "label": "Spread",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.4
+      }
+    ],
+    "vignette": [
+      {
+        "name": "amount",
+        "label": "Amount",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.4
+      },
+      {
+        "name": "radius",
+        "label": "Radius",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.7
+      },
+      {
+        "name": "softness",
+        "label": "Softness",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5
+      }
+    ],
+    "film-fade": [
+      {
+        "name": "lift",
+        "label": "Black lift",
+        "min": 0,
+        "max": 0.3,
+        "step": 0.005,
+        "default": 0.08
+      },
+      {
+        "name": "rolloff",
+        "label": "Highlight rolloff",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.4
+      },
+      {
+        "name": "warmth",
+        "label": "Warmth",
+        "min": -1,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.15
+      },
+      {
+        "name": "saturation",
+        "label": "Saturation",
+        "min": 0,
+        "max": 2,
+        "step": 0.01,
+        "default": 0.9
+      }
+    ],
+    "film-curve": [
+      {
+        "name": "contrast",
+        "label": "Contrast",
+        "min": -1,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.2
+      },
+      {
+        "name": "shadowTint",
+        "label": "Shadow tint",
+        "min": 0,
+        "max": 360,
+        "step": 1,
+        "default": 210,
+        "unit": "°"
+      },
+      {
+        "name": "highlightTint",
+        "label": "Highlight tint",
+        "min": 0,
+        "max": 360,
+        "step": 1,
+        "default": 40,
+        "unit": "°"
+      },
+      {
+        "name": "strength",
+        "label": "Strength",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.6
+      }
+    ],
+    "analog-vhs": [
+      {
+        "name": "tracking",
+        "label": "Tracking error",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.4
+      },
+      {
+        "name": "chroma",
+        "label": "Chroma bleed",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5
+      },
+      {
+        "name": "noise",
+        "label": "Noise",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.35
+      },
+      {
+        "name": "jitter",
+        "label": "Line jitter",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.3
+      },
+      {
+        "name": "speed",
+        "label": "Speed",
+        "min": 0,
+        "max": 4,
+        "step": 0.05,
+        "default": 1,
+        "unit": "×",
+        "hint": "Animation rate. Deterministic — the same timestamp always looks the same."
+      }
+    ],
+    "scanlines": [
+      {
+        "name": "count",
+        "label": "Line count",
+        "min": 50,
+        "max": 1080,
+        "step": 1,
+        "default": 320
+      },
+      {
+        "name": "strength",
+        "label": "Strength",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.35
+      },
+      {
+        "name": "roll",
+        "label": "Roll",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.2,
+        "hint": "Vertical drift of the line pattern over time."
+      },
+      {
+        "name": "speed",
+        "label": "Speed",
+        "min": 0,
+        "max": 4,
+        "step": 0.05,
+        "default": 1,
+        "unit": "×",
+        "hint": "Animation rate. Deterministic — the same timestamp always looks the same."
+      }
+    ],
+    "tape-dropout": [
+      {
+        "name": "density",
+        "label": "Density",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.3
+      },
+      {
+        "name": "length",
+        "label": "Streak length",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.4
+      },
+      {
+        "name": "speed",
+        "label": "Speed",
+        "min": 0,
+        "max": 4,
+        "step": 0.05,
+        "default": 1,
+        "unit": "×",
+        "hint": "Animation rate. Deterministic — the same timestamp always looks the same."
+      }
+    ],
+    "chroma-shift": [
+      {
+        "name": "amount",
+        "label": "Amount",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.35
+      },
+      {
+        "name": "angle",
+        "label": "Angle",
+        "min": 0,
+        "max": 360,
+        "step": 1,
+        "default": 0,
+        "unit": "°"
+      }
+    ],
+    "rgb-split": [
+      {
+        "name": "amount",
+        "label": "Amount",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.4
+      },
+      {
+        "name": "angle",
+        "label": "Angle",
+        "min": 0,
+        "max": 360,
+        "step": 1,
+        "default": 90,
+        "unit": "°"
+      }
+    ],
+    "glitch-block": [
+      {
+        "name": "density",
+        "label": "Density",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.4
+      },
+      {
+        "name": "size",
+        "label": "Block size",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.35
+      },
+      {
+        "name": "displace",
+        "label": "Displacement",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5
+      },
+      {
+        "name": "speed",
+        "label": "Speed",
+        "min": 0,
+        "max": 4,
+        "step": 0.05,
+        "default": 1,
+        "unit": "×",
+        "hint": "Animation rate. Deterministic — the same timestamp always looks the same."
+      }
+    ],
+    "datamosh": [
+      {
+        "name": "strength",
+        "label": "Strength",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5
+      },
+      {
+        "name": "blockSize",
+        "label": "Block size",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.4
+      },
+      {
+        "name": "speed",
+        "label": "Speed",
+        "min": 0,
+        "max": 4,
+        "step": 0.05,
+        "default": 1,
+        "unit": "×",
+        "hint": "Animation rate. Deterministic — the same timestamp always looks the same."
+      }
+    ],
+    "pixel-sort": [
+      {
+        "name": "threshold",
+        "label": "Threshold",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5
+      },
+      {
+        "name": "amount",
+        "label": "Amount",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5
+      },
+      {
+        "name": "axis",
+        "label": "Axis",
+        "min": 0,
+        "max": 1,
+        "step": 1,
+        "default": 0,
+        "choices": [
+          "Horizontal",
+          "Vertical"
+        ]
+      }
+    ],
+    "shake": [
+      {
+        "name": "amplitude",
+        "label": "Amplitude",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.35
+      },
+      {
+        "name": "frequency",
+        "label": "Frequency",
+        "min": 0,
+        "max": 20,
+        "step": 0.1,
+        "default": 8,
+        "unit": "Hz"
+      },
+      {
+        "name": "rotation",
+        "label": "Rotation",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.2
+      }
+    ],
+    "zoom-punch": [
+      {
+        "name": "amount",
+        "label": "Amount",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.3
+      },
+      {
+        "name": "attack",
+        "label": "Attack",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.15,
+        "hint": "Fraction of the layer spent zooming in."
+      },
+      {
+        "name": "hold",
+        "label": "Hold",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.2,
+        "hint": "Fraction held at full zoom before releasing."
+      }
+    ],
+    "whip-pan": [
+      {
+        "name": "amount",
+        "label": "Amount",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5
+      },
+      {
+        "name": "angle",
+        "label": "Direction",
+        "min": 0,
+        "max": 360,
+        "step": 1,
+        "default": 0,
+        "unit": "°"
+      },
+      {
+        "name": "blur",
+        "label": "Motion blur",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.6
+      }
+    ],
+    "soft-focus": [
+      {
+        "name": "radius",
+        "label": "Softness",
+        "min": 0,
+        "max": 64,
+        "step": 0.5,
+        "default": 20,
+        "unit": "px"
+      },
+      {
+        "name": "mix",
+        "label": "Mix",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5
+      },
+      {
+        "name": "lift",
+        "label": "Glow lift",
+        "min": 0,
+        "max": 0.3,
+        "step": 0.005,
+        "default": 0.06
+      }
+    ],
+    "fisheye": [
+      {
+        "name": "amount",
+        "label": "Amount",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5
+      },
+      {
+        "name": "zoom",
+        "label": "Zoom",
+        "min": 0.5,
+        "max": 2,
+        "step": 0.01,
+        "default": 1
+      }
+    ],
+    "barrel-warp": [
+      {
+        "name": "amount",
+        "label": "Amount",
+        "min": -1,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.4
+      }
+    ],
+    "ripple": [
+      {
+        "name": "amplitude",
+        "label": "Amplitude",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.3
+      },
+      {
+        "name": "frequency",
+        "label": "Frequency",
+        "min": 1,
+        "max": 40,
+        "step": 1,
+        "default": 10
+      },
+      {
+        "name": "speed",
+        "label": "Speed",
+        "min": 0,
+        "max": 4,
+        "step": 0.05,
+        "default": 1,
+        "unit": "×",
+        "hint": "Animation rate. Deterministic — the same timestamp always looks the same."
+      }
+    ],
+    "mosaic": [
+      {
+        "name": "size",
+        "label": "Cell size",
+        "min": 2,
+        "max": 128,
+        "step": 1,
+        "default": 16
+      }
+    ],
+    "halftone": [
+      {
+        "name": "dotSize",
+        "label": "Dot size",
+        "min": 2,
+        "max": 64,
+        "step": 1,
+        "default": 8
+      },
+      {
+        "name": "angle",
+        "label": "Screen angle",
+        "min": 0,
+        "max": 360,
+        "step": 1,
+        "default": 45,
+        "unit": "°"
+      },
+      {
+        "name": "mix",
+        "label": "Mix",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 1
+      }
+    ],
+    "dither": [
+      {
+        "name": "levels",
+        "label": "Levels",
+        "min": 2,
+        "max": 16,
+        "step": 1,
+        "default": 4
+      },
+      {
+        "name": "strength",
+        "label": "Strength",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 1
+      }
+    ],
+    "grain": [
+      {
+        "name": "amount",
+        "label": "Amount",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.35
+      },
+      {
+        "name": "size",
+        "label": "Grain size",
+        "min": 0.5,
+        "max": 4,
+        "step": 0.1,
+        "default": 1
+      },
+      {
+        "name": "speed",
+        "label": "Speed",
+        "min": 0,
+        "max": 4,
+        "step": 0.05,
+        "default": 1,
+        "unit": "×",
+        "hint": "Animation rate. Deterministic — the same timestamp always looks the same."
+      }
+    ],
+    "dust-scratches": [
+      {
+        "name": "density",
+        "label": "Dust",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.35
+      },
+      {
+        "name": "scratches",
+        "label": "Scratches",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.3
+      },
+      {
+        "name": "speed",
+        "label": "Speed",
+        "min": 0,
+        "max": 4,
+        "step": 0.05,
+        "default": 1,
+        "unit": "×",
+        "hint": "Animation rate. Deterministic — the same timestamp always looks the same."
+      }
+    ],
+    "neon-edge": [
+      {
+        "name": "threshold",
+        "label": "Edge threshold",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.3
+      },
+      {
+        "name": "hue",
+        "label": "Hue",
+        "min": 0,
+        "max": 360,
+        "step": 1,
+        "default": 300,
+        "unit": "°"
+      },
+      {
+        "name": "strength",
+        "label": "Strength",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.7
+      },
+      {
+        "name": "thickness",
+        "label": "Thickness",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.4
+      }
+    ],
+    "strobe-color": [
+      {
+        "name": "hueA",
+        "label": "Colour A",
+        "min": 0,
+        "max": 360,
+        "step": 1,
+        "default": 300,
+        "unit": "°"
+      },
+      {
+        "name": "hueB",
+        "label": "Colour B",
+        "min": 0,
+        "max": 360,
+        "step": 1,
+        "default": 180,
+        "unit": "°"
+      },
+      {
+        "name": "frequency",
+        "label": "Rate",
+        "min": 0,
+        "max": 20,
+        "step": 0.1,
+        "default": 6,
+        "unit": "Hz"
+      },
+      {
+        "name": "strength",
+        "label": "Strength",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5
+      }
+    ],
+    "posterize": [
+      {
+        "name": "levels",
+        "label": "Levels",
+        "min": 2,
+        "max": 16,
+        "step": 1,
+        "default": 5
+      },
+      {
+        "name": "saturation",
+        "label": "Saturation",
+        "min": 0,
+        "max": 2,
+        "step": 0.01,
+        "default": 1.2
+      }
+    ],
+    "sketch": [
+      {
+        "name": "strength",
+        "label": "Strength",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.6
+      },
+      {
+        "name": "threshold",
+        "label": "Threshold",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.4
+      }
+    ],
+    "edge-outline": [
+      {
+        "name": "threshold",
+        "label": "Threshold",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.3
+      },
+      {
+        "name": "thickness",
+        "label": "Thickness",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.3
+      },
+      {
+        "name": "mix",
+        "label": "Mix",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.6
+      }
+    ],
+    "flash": [
+      {
+        "name": "frequency",
+        "label": "Rate",
+        "min": 0,
+        "max": 20,
+        "step": 0.1,
+        "default": 4,
+        "unit": "Hz"
+      },
+      {
+        "name": "strength",
+        "label": "Strength",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.6
+      },
+      {
+        "name": "duty",
+        "label": "Duty cycle",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.3,
+        "hint": "Fraction of each cycle the flash is lit."
+      }
+    ],
+    "flicker": [
+      {
+        "name": "frequency",
+        "label": "Rate",
+        "min": 0,
+        "max": 20,
+        "step": 0.1,
+        "default": 10,
+        "unit": "Hz"
+      },
+      {
+        "name": "depth",
+        "label": "Depth",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.35
+      },
+      {
+        "name": "irregular",
+        "label": "Irregularity",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.4
+      }
+    ],
+    "mirror": [
+      {
+        "name": "axis",
+        "label": "Mirror",
+        "min": 0,
+        "max": 3,
+        "step": 1,
+        "default": 0,
+        "choices": [
+          "Left → right",
+          "Right → left",
+          "Top → bottom",
+          "Bottom → top"
+        ]
+      },
+      {
+        "name": "offset",
+        "label": "Seam",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5
+      }
+    ],
+    "kaleidoscope": [
+      {
+        "name": "segments",
+        "label": "Segments",
+        "min": 2,
+        "max": 16,
+        "step": 1,
+        "default": 6
+      },
+      {
+        "name": "rotation",
+        "label": "Rotation",
+        "min": 0,
+        "max": 360,
+        "step": 1,
+        "default": 0,
+        "unit": "°"
+      },
+      {
+        "name": "zoom",
+        "label": "Zoom",
+        "min": 0.5,
+        "max": 2,
+        "step": 0.01,
+        "default": 1
+      }
+    ]
+  },
+  "effects": [
+    {
+      "id": "soft-veil",
+      "label": "Soft Veil",
+      "category": "blur-focus",
+      "kind": "blur-gaussian",
+      "params": {
+        "radius": 8
+      },
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(145deg,#f7d9c4 0%,#c98a6b 45%,#3b2b2b 100%)",
+        "css": "blur(3px)"
+      },
+      "description": "A gentle overall blur that takes the edge off a hard frame.",
+      "tags": [
+        "blur",
+        "soft",
+        "gaussian",
+        "defocus"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "deep-blur",
+      "label": "Deep Blur",
+      "category": "blur-focus",
+      "kind": "blur-gaussian",
+      "params": {
+        "radius": 34
+      },
+      "defaultDuration": 1.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(145deg,#f7d9c4 0%,#c98a6b 45%,#3b2b2b 100%)",
+        "css": "blur(9px)"
+      },
+      "description": "Heavy defocus — good for backgrounds, titles and reveals.",
+      "tags": [
+        "blur",
+        "heavy",
+        "background",
+        "obscure"
+      ]
+    },
+    {
+      "id": "motion-streak",
+      "label": "Motion Streak",
+      "category": "blur-focus",
+      "kind": "blur-directional",
+      "params": {
+        "radius": 22,
+        "angle": 0
+      },
+      "defaultDuration": 1,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#1b2a4a 0%,#3f5f8a 40%,#f0a868 100%)",
+        "css": "blur(4px)"
+      },
+      "description": "Directional smear that reads as speed along one axis.",
+      "tags": [
+        "motion blur",
+        "speed",
+        "streak",
+        "directional"
+      ],
+      "popular": true
+    },
+    {
+      "id": "miniature",
+      "label": "Miniature",
+      "category": "blur-focus",
+      "kind": "tilt-shift",
+      "defaultDuration": 3,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#1b2a4a 0%,#3f5f8a 40%,#f0a868 100%)",
+        "css": "blur(2px) saturate(1.2)"
+      },
+      "description": "Sharp band through the middle, soft above and below.",
+      "tags": [
+        "tilt shift",
+        "diorama",
+        "focus",
+        "band"
+      ]
+    },
+    {
+      "id": "halo-bloom",
+      "label": "Halo Bloom",
+      "category": "glow",
+      "kind": "bloom",
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#ffe7c2 0%,#f0a05a 50%,#7a3b1f 100%)",
+        "css": "brightness(1.15) saturate(1.1)"
+      },
+      "description": "Light blooms out of the brightest parts of the picture.",
+      "tags": [
+        "bloom",
+        "glow",
+        "highlight",
+        "light"
+      ],
+      "popular": true,
+      "recommended": true
+    },
+    {
+      "id": "angel-glow",
+      "label": "Angel Glow",
+      "category": "glow",
+      "kind": "glow-diffuse",
+      "defaultDuration": 2.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#dff0f7 0%,#8fbfd8 55%,#2f5f76 100%)",
+        "css": "brightness(1.12) blur(1px)"
+      },
+      "description": "An even, diffuse glow across the whole frame.",
+      "tags": [
+        "glow",
+        "diffuse",
+        "soft",
+        "ethereal"
+      ]
+    },
+    {
+      "id": "highlight-bleed",
+      "label": "Highlight Bleed",
+      "category": "glow",
+      "kind": "halation",
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#ffe7c2 0%,#f0a05a 50%,#7a3b1f 100%)",
+        "css": "saturate(1.2) brightness(1.08)"
+      },
+      "description": "Warm halation ringing the highlights, the way film prints do.",
+      "tags": [
+        "halation",
+        "film",
+        "bleed",
+        "red",
+        "highlight"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "overexposed",
+      "label": "Overexposed",
+      "category": "glow",
+      "kind": "bloom",
+      "params": {
+        "threshold": 0.45,
+        "strength": 1.6,
+        "radius": 34
+      },
+      "defaultDuration": 1,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#dff0f7 0%,#8fbfd8 55%,#2f5f76 100%)",
+        "css": "brightness(1.4) contrast(0.9)"
+      },
+      "description": "Blown-out blooming light for a hard, hot look.",
+      "tags": [
+        "blown out",
+        "bright",
+        "hot",
+        "bloom"
+      ]
+    },
+    {
+      "id": "golden-leak",
+      "label": "Golden Leak",
+      "category": "light",
+      "kind": "light-leak",
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#ffe7c2 0%,#f0a05a 50%,#7a3b1f 100%)",
+        "css": "saturate(1.25) brightness(1.1)"
+      },
+      "description": "Warm light spilling in from the frame edge.",
+      "tags": [
+        "light leak",
+        "warm",
+        "golden",
+        "sun",
+        "flare"
+      ],
+      "popular": true,
+      "recommended": true
+    },
+    {
+      "id": "window-streak",
+      "label": "Window Streak",
+      "category": "light",
+      "kind": "light-leak",
+      "params": {
+        "angle": 110,
+        "strength": 0.62,
+        "warmth": 0.35,
+        "position": 0.6
+      },
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#dff0f7 0%,#8fbfd8 55%,#2f5f76 100%)",
+        "css": "brightness(1.12)"
+      },
+      "description": "A cooler, harder shaft of light raking across the shot.",
+      "tags": [
+        "light leak",
+        "shaft",
+        "cool",
+        "window",
+        "raking"
+      ]
+    },
+    {
+      "id": "anamorphic-star",
+      "label": "Anamorphic Star",
+      "category": "light",
+      "kind": "lens-flare",
+      "defaultDuration": 1.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#1b2a4a 0%,#3f5f8a 40%,#f0a868 100%)",
+        "css": "brightness(1.15) saturate(1.15)"
+      },
+      "description": "A streaked lens flare anchored to a bright source.",
+      "tags": [
+        "lens flare",
+        "anamorphic",
+        "streak",
+        "star",
+        "blue"
+      ],
+      "popular": true
+    },
+    {
+      "id": "edge-fall",
+      "label": "Edge Fall",
+      "category": "light",
+      "kind": "vignette",
+      "defaultDuration": 3,
+      "thumbnail": {
+        "gradient": "linear-gradient(145deg,#f7d9c4 0%,#c98a6b 45%,#3b2b2b 100%)",
+        "css": "brightness(0.95) contrast(1.05)"
+      },
+      "description": "Darkened corners that pull the eye to centre frame.",
+      "tags": [
+        "vignette",
+        "corners",
+        "falloff",
+        "darken",
+        "focus"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "cinema-print",
+      "label": "Cinema Print",
+      "category": "film",
+      "kind": "film-curve",
+      "defaultDuration": 4,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#38254d 0%,#a05a7a 50%,#f2c17a 100%)",
+        "css": "contrast(1.15) saturate(0.95)"
+      },
+      "description": "Split-toned contrast curve — cool shadows, warm highlights.",
+      "tags": [
+        "cinematic",
+        "film",
+        "grade",
+        "split tone",
+        "contrast"
+      ],
+      "popular": true,
+      "recommended": true
+    },
+    {
+      "id": "teal-amber",
+      "label": "Teal & Amber",
+      "category": "film",
+      "kind": "film-curve",
+      "params": {
+        "shadowTint": 185,
+        "highlightTint": 32,
+        "contrast": 0.28,
+        "strength": 0.75
+      },
+      "defaultDuration": 4,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#1b2a4a 0%,#3f5f8a 40%,#f0a868 100%)",
+        "css": "contrast(1.2) saturate(1.1) hue-rotate(-6deg)"
+      },
+      "description": "The blockbuster complement — teal shadows against amber skin.",
+      "tags": [
+        "teal orange",
+        "blockbuster",
+        "grade",
+        "cinematic"
+      ],
+      "popular": true
+    },
+    {
+      "id": "faded-stock",
+      "label": "Faded Stock",
+      "category": "film",
+      "kind": "film-fade",
+      "defaultDuration": 4,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#f2f2f2 0%,#8a8a8a 50%,#1c1c1c 100%)",
+        "css": "contrast(0.9) brightness(1.05) saturate(0.9)"
+      },
+      "description": "Lifted blacks and rolled highlights, like aged print stock.",
+      "tags": [
+        "faded",
+        "matte",
+        "film",
+        "lifted blacks",
+        "vintage"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "silver-halide",
+      "label": "Silver Halide",
+      "category": "film",
+      "kind": "film-fade",
+      "params": {
+        "saturation": 0.08,
+        "lift": 0.05,
+        "rolloff": 0.5,
+        "warmth": -0.05
+      },
+      "defaultDuration": 4,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#f2f2f2 0%,#8a8a8a 50%,#1c1c1c 100%)",
+        "css": "grayscale(0.92) contrast(1.1)"
+      },
+      "description": "Near-monochrome with a trace of colour left in.",
+      "tags": [
+        "black and white",
+        "monochrome",
+        "silver",
+        "desaturate"
+      ]
+    },
+    {
+      "id": "polaroid-79",
+      "label": "Polaroid 79",
+      "category": "retro",
+      "kind": "film-fade",
+      "params": {
+        "lift": 0.18,
+        "rolloff": 0.55,
+        "warmth": 0.35,
+        "saturation": 0.82
+      },
+      "defaultDuration": 3,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#ffe7c2 0%,#f0a05a 50%,#7a3b1f 100%)",
+        "css": "contrast(0.88) sepia(0.22) brightness(1.06)"
+      },
+      "description": "Milky, warm-shifted instant film with soft blacks.",
+      "tags": [
+        "polaroid",
+        "instant",
+        "retro",
+        "70s",
+        "warm",
+        "faded"
+      ],
+      "popular": true
+    },
+    {
+      "id": "sun-bleached",
+      "label": "Sun-Bleached",
+      "category": "retro",
+      "kind": "film-fade",
+      "params": {
+        "lift": 0.12,
+        "rolloff": 0.7,
+        "warmth": 0.45,
+        "saturation": 0.62
+      },
+      "defaultDuration": 3,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#ffe7c2 0%,#f0a05a 50%,#7a3b1f 100%)",
+        "css": "saturate(0.7) brightness(1.12) sepia(0.15)"
+      },
+      "description": "Colour cooked out of the picture by years of daylight.",
+      "tags": [
+        "bleached",
+        "washed out",
+        "faded",
+        "summer",
+        "retro"
+      ]
+    },
+    {
+      "id": "super-eight",
+      "label": "Super Eight",
+      "category": "retro",
+      "kind": "film-curve",
+      "params": {
+        "contrast": -0.12,
+        "shadowTint": 35,
+        "highlightTint": 45,
+        "strength": 0.8
+      },
+      "defaultDuration": 3,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#ffe7c2 0%,#f0a05a 50%,#7a3b1f 100%)",
+        "css": "sepia(0.3) contrast(0.95) brightness(1.05)"
+      },
+      "description": "Amber-cast home-movie warmth. Stack with Cine Grain for the full look.",
+      "tags": [
+        "super 8",
+        "8mm",
+        "home movie",
+        "amber",
+        "retro"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "tape-warp",
+      "label": "Tape Warp",
+      "category": "analog",
+      "kind": "analog-vhs",
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "css": "saturate(1.3) contrast(1.05)"
+      },
+      "description": "Tracking error, chroma bleed and tape noise together.",
+      "tags": [
+        "vhs",
+        "tape",
+        "analog",
+        "tracking",
+        "retro",
+        "80s"
+      ],
+      "popular": true,
+      "recommended": true
+    },
+    {
+      "id": "camcorder-88",
+      "label": "Camcorder 88",
+      "category": "analog",
+      "kind": "scanlines",
+      "params": {
+        "count": 240,
+        "strength": 0.42,
+        "roll": 0.3
+      },
+      "defaultDuration": 2.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#f2f2f2 0%,#8a8a8a 50%,#1c1c1c 100%)",
+        "css": "contrast(1.1) saturate(0.9)"
+      },
+      "description": "Coarse interlaced lines with a slow vertical roll.",
+      "tags": [
+        "camcorder",
+        "interlace",
+        "scanline",
+        "analog",
+        "80s"
+      ]
+    },
+    {
+      "id": "signal-dropout",
+      "label": "Signal Dropout",
+      "category": "analog",
+      "kind": "tape-dropout",
+      "defaultDuration": 1,
+      "thumbnail": {
+        "gradient": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "css": "contrast(1.15)"
+      },
+      "description": "Horizontal streaks where the tape loses the signal.",
+      "tags": [
+        "dropout",
+        "tape",
+        "streak",
+        "damage",
+        "analog"
+      ]
+    },
+    {
+      "id": "crt-lines",
+      "label": "CRT Lines",
+      "category": "analog",
+      "kind": "scanlines",
+      "params": {
+        "count": 720,
+        "strength": 0.28,
+        "roll": 0.05
+      },
+      "defaultDuration": 3,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#1b2a4a 0%,#3f5f8a 40%,#f0a868 100%)",
+        "css": "contrast(1.08) brightness(0.97)"
+      },
+      "description": "Fine, stable phosphor lines like a studio monitor.",
+      "tags": [
+        "crt",
+        "monitor",
+        "scanline",
+        "fine",
+        "phosphor"
+      ]
+    },
+    {
+      "id": "block-shift",
+      "label": "Block Shift",
+      "category": "glitch",
+      "kind": "glitch-block",
+      "defaultDuration": 0.8,
+      "thumbnail": {
+        "gradient": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "css": "saturate(1.35) contrast(1.1)"
+      },
+      "description": "Rectangular regions tear sideways out of position.",
+      "tags": [
+        "glitch",
+        "block",
+        "tear",
+        "digital",
+        "corrupt"
+      ],
+      "popular": true,
+      "recommended": true
+    },
+    {
+      "id": "data-smear",
+      "label": "Data Smear",
+      "category": "glitch",
+      "kind": "datamosh",
+      "defaultDuration": 1.2,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#38254d 0%,#a05a7a 50%,#f2c17a 100%)",
+        "css": "saturate(1.2) blur(1px)"
+      },
+      "description": "Compression artefacts dragged forward through time.",
+      "tags": [
+        "datamosh",
+        "compression",
+        "smear",
+        "glitch",
+        "artefact"
+      ],
+      "popular": true
+    },
+    {
+      "id": "pixel-drift",
+      "label": "Pixel Drift",
+      "category": "glitch",
+      "kind": "pixel-sort",
+      "defaultDuration": 1,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#38254d 0%,#a05a7a 50%,#f2c17a 100%)",
+        "css": "saturate(1.15)"
+      },
+      "description": "Bright pixels bleed along rows in sorted runs.",
+      "tags": [
+        "pixel sort",
+        "drift",
+        "glitch",
+        "bleed"
+      ]
+    },
+    {
+      "id": "hard-corrupt",
+      "label": "Hard Corrupt",
+      "category": "glitch",
+      "kind": "glitch-block",
+      "params": {
+        "density": 0.75,
+        "size": 0.6,
+        "displace": 0.85,
+        "speed": 2
+      },
+      "defaultDuration": 0.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "css": "saturate(1.5) contrast(1.2)"
+      },
+      "description": "Violent, fast corruption for hard cuts and impacts.",
+      "tags": [
+        "glitch",
+        "corrupt",
+        "violent",
+        "hard",
+        "impact"
+      ]
+    },
+    {
+      "id": "scan-tear",
+      "label": "Scan Tear",
+      "category": "glitch",
+      "kind": "glitch-block",
+      "params": {
+        "density": 0.3,
+        "size": 0.9,
+        "displace": 0.35,
+        "speed": 0.6
+      },
+      "defaultDuration": 1.2,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#1b2a4a 0%,#3f5f8a 40%,#f0a868 100%)",
+        "css": "contrast(1.1)"
+      },
+      "description": "Wide, slow horizontal tears across the whole frame.",
+      "tags": [
+        "tear",
+        "scan",
+        "slow",
+        "glitch",
+        "wide"
+      ]
+    },
+    {
+      "id": "impact-shake",
+      "label": "Impact Shake",
+      "category": "motion",
+      "kind": "shake",
+      "defaultDuration": 0.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#1b2a4a 0%,#3f5f8a 40%,#f0a868 100%)",
+        "css": "contrast(1.1)"
+      },
+      "description": "A sharp camera hit — lands beat changes and cuts.",
+      "tags": [
+        "shake",
+        "impact",
+        "hit",
+        "beat",
+        "punch"
+      ],
+      "popular": true,
+      "recommended": true
+    },
+    {
+      "id": "handheld",
+      "label": "Handheld",
+      "category": "motion",
+      "kind": "shake",
+      "params": {
+        "amplitude": 0.12,
+        "frequency": 3.2,
+        "rotation": 0.1
+      },
+      "defaultDuration": 4,
+      "thumbnail": {
+        "gradient": "linear-gradient(145deg,#f7d9c4 0%,#c98a6b 45%,#3b2b2b 100%)"
+      },
+      "description": "Subtle organic drift that makes a locked-off shot breathe.",
+      "tags": [
+        "handheld",
+        "organic",
+        "subtle",
+        "drift",
+        "documentary"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "earthquake",
+      "label": "Earthquake",
+      "category": "motion",
+      "kind": "shake",
+      "params": {
+        "amplitude": 0.8,
+        "frequency": 14,
+        "rotation": 0.45
+      },
+      "defaultDuration": 1.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#1b2a4a 0%,#3f5f8a 40%,#f0a868 100%)",
+        "css": "contrast(1.15)"
+      },
+      "description": "Heavy sustained shaking with rotation.",
+      "tags": [
+        "earthquake",
+        "heavy",
+        "violent",
+        "shake",
+        "rumble"
+      ]
+    },
+    {
+      "id": "rotor-jitter",
+      "label": "Rotor Jitter",
+      "category": "motion",
+      "kind": "shake",
+      "params": {
+        "amplitude": 0.2,
+        "frequency": 18,
+        "rotation": 0.7
+      },
+      "defaultDuration": 1.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#f2f2f2 0%,#8a8a8a 50%,#1c1c1c 100%)"
+      },
+      "description": "Fast rotational vibration, more twist than travel.",
+      "tags": [
+        "jitter",
+        "rotate",
+        "vibrate",
+        "fast",
+        "engine"
+      ]
+    },
+    {
+      "id": "punch-in",
+      "label": "Punch In",
+      "category": "zoom",
+      "kind": "zoom-punch",
+      "defaultDuration": 0.6,
+      "thumbnail": {
+        "gradient": "linear-gradient(145deg,#f7d9c4 0%,#c98a6b 45%,#3b2b2b 100%)",
+        "css": "contrast(1.05)"
+      },
+      "description": "Quick scale-up and release to emphasise a moment.",
+      "tags": [
+        "punch in",
+        "zoom",
+        "emphasis",
+        "beat",
+        "scale"
+      ],
+      "popular": true,
+      "recommended": true
+    },
+    {
+      "id": "slam-zoom",
+      "label": "Slam Zoom",
+      "category": "zoom",
+      "kind": "zoom-punch",
+      "params": {
+        "amount": 0.65,
+        "attack": 0.06,
+        "hold": 0.1
+      },
+      "defaultDuration": 0.4,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#1b2a4a 0%,#3f5f8a 40%,#f0a868 100%)",
+        "css": "contrast(1.12)"
+      },
+      "description": "Aggressive snap zoom for hard emphasis.",
+      "tags": [
+        "slam",
+        "snap zoom",
+        "aggressive",
+        "fast",
+        "impact"
+      ],
+      "popular": true
+    },
+    {
+      "id": "whip-across",
+      "label": "Whip Across",
+      "category": "zoom",
+      "kind": "whip-pan",
+      "defaultDuration": 0.4,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#1b2a4a 0%,#3f5f8a 40%,#f0a868 100%)",
+        "css": "blur(4px)"
+      },
+      "description": "A blurred lateral throw — pairs with a cut for a whip transition.",
+      "tags": [
+        "whip pan",
+        "swish",
+        "transition",
+        "lateral",
+        "blur"
+      ]
+    },
+    {
+      "id": "speed-rush",
+      "label": "Speed Rush",
+      "category": "zoom",
+      "kind": "blur-radial",
+      "defaultDuration": 0.8,
+      "thumbnail": {
+        "gradient": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "css": "blur(2px) saturate(1.2)"
+      },
+      "description": "Radial streaks rushing out from centre frame.",
+      "tags": [
+        "radial blur",
+        "speed",
+        "rush",
+        "warp",
+        "zoom blur"
+      ],
+      "popular": true
+    },
+    {
+      "id": "prism-edge",
+      "label": "Prism Edge",
+      "category": "chromatic",
+      "kind": "chroma-shift",
+      "defaultDuration": 1.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "css": "saturate(1.3)"
+      },
+      "description": "Colour fringing that grows toward the frame edges.",
+      "tags": [
+        "chromatic aberration",
+        "prism",
+        "fringe",
+        "lens"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "rgb-tear",
+      "label": "RGB Tear",
+      "category": "chromatic",
+      "kind": "rgb-split",
+      "defaultDuration": 1,
+      "thumbnail": {
+        "gradient": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "css": "saturate(1.4) contrast(1.1)"
+      },
+      "description": "Red, green and blue pulled apart along one axis.",
+      "tags": [
+        "rgb split",
+        "channel",
+        "separation",
+        "glitch",
+        "3d"
+      ],
+      "popular": true
+    },
+    {
+      "id": "colour-fringe",
+      "label": "Colour Fringe",
+      "category": "chromatic",
+      "kind": "chroma-shift",
+      "params": {
+        "amount": 0.12,
+        "angle": 0
+      },
+      "defaultDuration": 3,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#dff0f7 0%,#8fbfd8 55%,#2f5f76 100%)"
+      },
+      "description": "Barely-there aberration for subtle lens realism.",
+      "tags": [
+        "subtle",
+        "fringe",
+        "lens",
+        "realism",
+        "aberration"
+      ]
+    },
+    {
+      "id": "daydream",
+      "label": "Daydream",
+      "category": "dreamy",
+      "kind": "soft-focus",
+      "defaultDuration": 3,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#38254d 0%,#a05a7a 50%,#f2c17a 100%)",
+        "css": "blur(2px) brightness(1.08) saturate(1.05)"
+      },
+      "description": "Soft bloom over a sharp core — flattering and hazy.",
+      "tags": [
+        "dreamy",
+        "soft focus",
+        "haze",
+        "romantic",
+        "glow"
+      ],
+      "popular": true,
+      "recommended": true
+    },
+    {
+      "id": "milk-glass",
+      "label": "Milk Glass",
+      "category": "dreamy",
+      "kind": "soft-focus",
+      "params": {
+        "radius": 44,
+        "mix": 0.78,
+        "lift": 0.14
+      },
+      "defaultDuration": 2.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#dff0f7 0%,#8fbfd8 55%,#2f5f76 100%)",
+        "css": "blur(5px) brightness(1.12)"
+      },
+      "description": "Heavier diffusion, like shooting through frosted glass.",
+      "tags": [
+        "frosted",
+        "diffusion",
+        "milky",
+        "soft",
+        "dreamy"
+      ]
+    },
+    {
+      "id": "bloom-haze",
+      "label": "Bloom Haze",
+      "category": "dreamy",
+      "kind": "glow-diffuse",
+      "params": {
+        "strength": 0.32,
+        "radius": 40
+      },
+      "defaultDuration": 3,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#ffe7c2 0%,#f0a05a 50%,#7a3b1f 100%)",
+        "css": "brightness(1.1) blur(1px)"
+      },
+      "description": "Wide, low glow that lifts the whole image gently.",
+      "tags": [
+        "haze",
+        "atmosphere",
+        "glow",
+        "soft",
+        "lift"
+      ]
+    },
+    {
+      "id": "ripple-tide",
+      "label": "Ripple Tide",
+      "category": "warp",
+      "kind": "ripple",
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#dff0f7 0%,#8fbfd8 55%,#2f5f76 100%)",
+        "css": "saturate(1.1)"
+      },
+      "description": "Rolling waves travelling across the picture.",
+      "tags": [
+        "ripple",
+        "wave",
+        "water",
+        "warp",
+        "liquid"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "heat-haze",
+      "label": "Heat Haze",
+      "category": "warp",
+      "kind": "ripple",
+      "params": {
+        "amplitude": 0.09,
+        "frequency": 28,
+        "speed": 1.6
+      },
+      "defaultDuration": 3,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#ffe7c2 0%,#f0a05a 50%,#7a3b1f 100%)",
+        "css": "saturate(1.15) brightness(1.04)"
+      },
+      "description": "Fine shimmering distortion like hot air over tarmac.",
+      "tags": [
+        "heat",
+        "shimmer",
+        "haze",
+        "desert",
+        "subtle"
+      ]
+    },
+    {
+      "id": "barrel-push",
+      "label": "Barrel Push",
+      "category": "warp",
+      "kind": "barrel-warp",
+      "defaultDuration": 1.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#1b2a4a 0%,#3f5f8a 40%,#f0a868 100%)"
+      },
+      "description": "Bulges the centre outward for a pressurised look.",
+      "tags": [
+        "barrel",
+        "bulge",
+        "distort",
+        "warp",
+        "push"
+      ]
+    },
+    {
+      "id": "mosaic-block",
+      "label": "Mosaic Block",
+      "category": "pixel",
+      "kind": "mosaic",
+      "defaultDuration": 1.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)"
+      },
+      "description": "Quantises the frame into flat colour cells.",
+      "tags": [
+        "mosaic",
+        "pixelate",
+        "censor",
+        "block",
+        "blur"
+      ],
+      "popular": true,
+      "recommended": true
+    },
+    {
+      "id": "chunky-pixel",
+      "label": "Chunky Pixel",
+      "category": "pixel",
+      "kind": "mosaic",
+      "params": {
+        "size": 56
+      },
+      "defaultDuration": 1,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#38254d 0%,#a05a7a 50%,#f2c17a 100%)"
+      },
+      "description": "Very large cells for an 8-bit, low-resolution read.",
+      "tags": [
+        "8 bit",
+        "pixel art",
+        "retro game",
+        "chunky",
+        "lo-fi"
+      ]
+    },
+    {
+      "id": "newsprint",
+      "label": "Newsprint",
+      "category": "pixel",
+      "kind": "halftone",
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#f2f2f2 0%,#8a8a8a 50%,#1c1c1c 100%)",
+        "css": "contrast(1.2) grayscale(0.5)"
+      },
+      "description": "Dot-screen halftone like a printed newspaper.",
+      "tags": [
+        "halftone",
+        "dots",
+        "print",
+        "newspaper",
+        "comic"
+      ],
+      "popular": true
+    },
+    {
+      "id": "retro-dither",
+      "label": "Retro Dither",
+      "category": "pixel",
+      "kind": "dither",
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#f2f2f2 0%,#8a8a8a 50%,#1c1c1c 100%)",
+        "css": "contrast(1.3)"
+      },
+      "description": "Ordered dithering down to a few colour levels.",
+      "tags": [
+        "dither",
+        "bayer",
+        "retro",
+        "levels",
+        "lo-fi"
+      ]
+    },
+    {
+      "id": "cine-grain",
+      "label": "Cine Grain",
+      "category": "texture",
+      "kind": "grain",
+      "defaultDuration": 4,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#f2f2f2 0%,#8a8a8a 50%,#1c1c1c 100%)",
+        "css": "contrast(1.05)"
+      },
+      "description": "Fine animated grain that gives digital footage some tooth.",
+      "tags": [
+        "grain",
+        "film",
+        "texture",
+        "noise",
+        "organic"
+      ],
+      "popular": true,
+      "recommended": true
+    },
+    {
+      "id": "heavy-grain",
+      "label": "Heavy Grain",
+      "category": "texture",
+      "kind": "grain",
+      "params": {
+        "amount": 0.72,
+        "size": 2.4
+      },
+      "defaultDuration": 3,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#f2f2f2 0%,#8a8a8a 50%,#1c1c1c 100%)",
+        "css": "contrast(1.1)"
+      },
+      "description": "Coarse, pushed-stock grain for a gritty look.",
+      "tags": [
+        "grain",
+        "gritty",
+        "coarse",
+        "pushed",
+        "grunge"
+      ]
+    },
+    {
+      "id": "dust-and-scratch",
+      "label": "Dust & Scratch",
+      "category": "texture",
+      "kind": "dust-scratches",
+      "defaultDuration": 3,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#ffe7c2 0%,#f0a05a 50%,#7a3b1f 100%)",
+        "css": "sepia(0.15) contrast(1.05)"
+      },
+      "description": "Specks and vertical scratches like a worn print.",
+      "tags": [
+        "dust",
+        "scratches",
+        "old film",
+        "damage",
+        "wear"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "archive-wear",
+      "label": "Archive Wear",
+      "category": "texture",
+      "kind": "dust-scratches",
+      "params": {
+        "density": 0.72,
+        "scratches": 0.68,
+        "speed": 1.4
+      },
+      "defaultDuration": 2.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#f2f2f2 0%,#8a8a8a 50%,#1c1c1c 100%)",
+        "css": "sepia(0.25) contrast(1.12)"
+      },
+      "description": "Badly-kept archive footage — heavy dirt and damage.",
+      "tags": [
+        "archive",
+        "damaged",
+        "found footage",
+        "heavy",
+        "old"
+      ]
+    },
+    {
+      "id": "neon-trace",
+      "label": "Neon Trace",
+      "category": "party",
+      "kind": "neon-edge",
+      "defaultDuration": 1.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "css": "saturate(1.5) contrast(1.15)"
+      },
+      "description": "Contours lit up in saturated neon over a dark frame.",
+      "tags": [
+        "neon",
+        "edge",
+        "glow",
+        "outline",
+        "cyberpunk"
+      ],
+      "popular": true,
+      "recommended": true
+    },
+    {
+      "id": "club-strobe",
+      "label": "Club Strobe",
+      "category": "party",
+      "kind": "strobe-color",
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "css": "saturate(1.6)"
+      },
+      "description": "Alternating colour washes on a steady beat.",
+      "tags": [
+        "strobe",
+        "club",
+        "party",
+        "colour",
+        "beat",
+        "rave"
+      ],
+      "popular": true
+    },
+    {
+      "id": "laser-edge",
+      "label": "Laser Edge",
+      "category": "party",
+      "kind": "neon-edge",
+      "params": {
+        "threshold": 0.16,
+        "hue": 150,
+        "strength": 0.9,
+        "thickness": 0.14
+      },
+      "defaultDuration": 1.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "css": "saturate(1.7) contrast(1.2)"
+      },
+      "description": "Thin, intense green edge light like a scanning laser.",
+      "tags": [
+        "laser",
+        "thin",
+        "green",
+        "scan",
+        "neon"
+      ]
+    },
+    {
+      "id": "rave-pulse",
+      "label": "Rave Pulse",
+      "category": "party",
+      "kind": "strobe-color",
+      "params": {
+        "frequency": 14,
+        "strength": 0.78,
+        "hueA": 320,
+        "hueB": 90
+      },
+      "defaultDuration": 1.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "css": "saturate(1.8) contrast(1.15)"
+      },
+      "description": "Fast, high-contrast colour flashing.",
+      "tags": [
+        "rave",
+        "fast",
+        "pulse",
+        "strobe",
+        "energetic"
+      ]
+    },
+    {
+      "id": "poster-print",
+      "label": "Poster Print",
+      "category": "comic",
+      "kind": "posterize",
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#ffe7c2 0%,#f0a05a 50%,#7a3b1f 100%)",
+        "css": "saturate(1.4) contrast(1.25)"
+      },
+      "description": "Flattens tones into bold poster bands.",
+      "tags": [
+        "posterize",
+        "poster",
+        "flat",
+        "bold",
+        "screenprint"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "ink-sketch",
+      "label": "Ink Sketch",
+      "category": "comic",
+      "kind": "sketch",
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#f2f2f2 0%,#8a8a8a 50%,#1c1c1c 100%)",
+        "css": "grayscale(1) contrast(1.4)"
+      },
+      "description": "Renders the frame as pen-and-ink line work.",
+      "tags": [
+        "sketch",
+        "ink",
+        "line art",
+        "drawing",
+        "pencil"
+      ],
+      "popular": true
+    },
+    {
+      "id": "cel-shade",
+      "label": "Cel Shade",
+      "category": "comic",
+      "kind": "posterize",
+      "params": {
+        "levels": 3,
+        "saturation": 1.5
+      },
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "css": "saturate(1.6) contrast(1.3)"
+      },
+      "description": "Three-tone flat shading for an animated-cel read.",
+      "tags": [
+        "cel",
+        "anime",
+        "cartoon",
+        "flat",
+        "toon"
+      ]
+    },
+    {
+      "id": "edge-light",
+      "label": "Edge Light",
+      "category": "outline",
+      "kind": "edge-outline",
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#1b2a4a 0%,#3f5f8a 40%,#f0a868 100%)",
+        "css": "contrast(1.2)"
+      },
+      "description": "Traces contours and lights them over the original.",
+      "tags": [
+        "edge detect",
+        "outline",
+        "contour",
+        "highlight"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "contour-glow",
+      "label": "Contour Glow",
+      "category": "outline",
+      "kind": "edge-outline",
+      "params": {
+        "threshold": 0.18,
+        "thickness": 0.72,
+        "mix": 0.9
+      },
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#38254d 0%,#a05a7a 50%,#f2c17a 100%)",
+        "css": "contrast(1.25) brightness(1.05)"
+      },
+      "description": "Thick, dominant outlines that read almost graphic.",
+      "tags": [
+        "thick",
+        "outline",
+        "graphic",
+        "contour",
+        "bold"
+      ]
+    },
+    {
+      "id": "fisheye-wide",
+      "label": "Fisheye Wide",
+      "category": "lens-deform",
+      "kind": "fisheye",
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#1b2a4a 0%,#3f5f8a 40%,#f0a868 100%)"
+      },
+      "description": "Ultra-wide lens curvature bowing the frame outward.",
+      "tags": [
+        "fisheye",
+        "wide",
+        "lens",
+        "gopro",
+        "action cam"
+      ],
+      "popular": true,
+      "recommended": true
+    },
+    {
+      "id": "bubble-lens",
+      "label": "Bubble Lens",
+      "category": "lens-deform",
+      "kind": "fisheye",
+      "params": {
+        "amount": 0.92,
+        "zoom": 1.18
+      },
+      "defaultDuration": 1.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)"
+      },
+      "description": "Extreme spherical warp — the frame becomes a bubble.",
+      "tags": [
+        "bubble",
+        "extreme",
+        "sphere",
+        "fisheye",
+        "dome"
+      ]
+    },
+    {
+      "id": "lens-pinch",
+      "label": "Lens Pinch",
+      "category": "lens-deform",
+      "kind": "barrel-warp",
+      "params": {
+        "amount": -0.5
+      },
+      "defaultDuration": 1.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(145deg,#f7d9c4 0%,#c98a6b 45%,#3b2b2b 100%)"
+      },
+      "description": "Pulls the centre inward for a concave, pinched frame.",
+      "tags": [
+        "pinch",
+        "concave",
+        "pincushion",
+        "inward",
+        "lens"
+      ]
+    },
+    {
+      "id": "white-flash",
+      "label": "White Flash",
+      "category": "strobe",
+      "kind": "flash",
+      "defaultDuration": 0.6,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#dff0f7 0%,#8fbfd8 55%,#2f5f76 100%)",
+        "css": "brightness(1.35)"
+      },
+      "description": "Rhythmic white blowouts — great on a cut or a beat.",
+      "tags": [
+        "flash",
+        "white",
+        "blowout",
+        "beat",
+        "transition"
+      ],
+      "popular": true,
+      "recommended": true
+    },
+    {
+      "id": "camera-pop",
+      "label": "Camera Pop",
+      "category": "strobe",
+      "kind": "flash",
+      "params": {
+        "frequency": 11,
+        "strength": 0.85,
+        "duty": 0.12
+      },
+      "defaultDuration": 1,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#f2f2f2 0%,#8a8a8a 50%,#1c1c1c 100%)",
+        "css": "brightness(1.3) contrast(1.1)"
+      },
+      "description": "Short, hard flashes like a burst of stills photography.",
+      "tags": [
+        "camera flash",
+        "paparazzi",
+        "burst",
+        "pop",
+        "fast"
+      ]
+    },
+    {
+      "id": "bulb-flicker",
+      "label": "Bulb Flicker",
+      "category": "strobe",
+      "kind": "flicker",
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#ffe7c2 0%,#f0a05a 50%,#7a3b1f 100%)",
+        "css": "brightness(0.95)"
+      },
+      "description": "Irregular brightness wobble like a failing bulb.",
+      "tags": [
+        "flicker",
+        "bulb",
+        "unstable",
+        "horror",
+        "irregular"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "mirror-split",
+      "label": "Mirror Split",
+      "category": "mirror",
+      "kind": "mirror",
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(145deg,#f7d9c4 0%,#c98a6b 45%,#3b2b2b 100%)"
+      },
+      "description": "Reflects one half of the frame across the centre.",
+      "tags": [
+        "mirror",
+        "split screen",
+        "reflect",
+        "symmetry"
+      ],
+      "popular": true,
+      "recommended": true
+    },
+    {
+      "id": "vertical-mirror",
+      "label": "Vertical Mirror",
+      "category": "mirror",
+      "kind": "mirror",
+      "params": {
+        "axis": 2,
+        "offset": 0.5
+      },
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(150deg,#dff0f7 0%,#8fbfd8 55%,#2f5f76 100%)"
+      },
+      "description": "Reflects top over bottom for a waterline effect.",
+      "tags": [
+        "mirror",
+        "vertical",
+        "waterline",
+        "reflect",
+        "flip"
+      ]
+    },
+    {
+      "id": "kaleidoscope",
+      "label": "Kaleidoscope",
+      "category": "mirror",
+      "kind": "kaleidoscope",
+      "defaultDuration": 2.5,
+      "thumbnail": {
+        "gradient": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "css": "saturate(1.4)"
+      },
+      "description": "Folds the frame into radial mirrored wedges.",
+      "tags": [
+        "kaleidoscope",
+        "radial",
+        "symmetry",
+        "wedge",
+        "psychedelic"
+      ],
+      "popular": true
+    },
+    {
+      "id": "prism-fold",
+      "label": "Prism Fold",
+      "category": "mirror",
+      "kind": "kaleidoscope",
+      "params": {
+        "segments": 14,
+        "rotation": 20,
+        "zoom": 1.25
+      },
+      "defaultDuration": 2,
+      "thumbnail": {
+        "gradient": "linear-gradient(160deg,#38254d 0%,#a05a7a 50%,#f2c17a 100%)",
+        "css": "saturate(1.35)"
+      },
+      "description": "Many fine wedges for a dense, jewel-like fold.",
+      "tags": [
+        "prism",
+        "dense",
+        "fold",
+        "jewel",
+        "radial"
+      ]
+    }
+  ]
+}

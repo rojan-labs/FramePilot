@@ -1,0 +1,64 @@
+---
+title: Local transcription (Whisper) setup
+description: Install whisper.cpp and set up the local Whisper model that powers captions, footage search, and hooks.
+category: Guides
+order: 4
+---
+
+Auto captions, footage search, filler-word cleanup, and hook detection all depend on a real, word-level transcript of your audio. Choose a provider in **Settings → AI → Whisper / Speech-to-text**:
+
+- **Local (whisper-cli)** — runs fully offline, for free, using [whisper.cpp](https://github.com/ggml-org/whisper.cpp) on your machine. This is the default.
+- **TwelveLabs** — uploads and indexes the chosen media, then returns its native timed words using the same key as Media intelligence.
+- **Hosted (Groq or NVIDIA)** — sends audio off-device for transcription with no local model setup.
+
+This page covers the local option, which needs one manual, one-time step: installing the `whisper-cli` binary.
+
+## What "Set up" does — and doesn't do
+
+Clicking **Set up** next to the local model downloads and SHA256-verifies the multilingual `large-v3-turbo-q5_0` Whisper model (~548MiB) into a local cache outside your project folder. It does **not** install the `whisper-cli` program itself — that's a separate, one-time install step, because it varies by OS and FramePilot never silently installs system binaries on your behalf.
+
+So there are two things that need to be true before local transcription works:
+
+1. `whisper-cli` is installed and on your `PATH`.
+2. The model has been downloaded via **Set up**.
+
+The Settings panel shows both: a hint under "Local model" tells you whether the binary was found, and whether the model is installed.
+
+## Installing whisper-cli
+
+**macOS (Homebrew):**
+
+```sh
+brew install whisper-cpp
+```
+
+This installs the CLI as `whisper-cli` (Homebrew's package name is `whisper-cpp`; the binary it ships is `whisper-cli`).
+
+**Windows / Linux:** download a prebuilt release from the [whisper.cpp releases page](https://github.com/ggml-org/whisper.cpp/releases), or build it from source following the project's README, then make sure the resulting binary is on your `PATH`.
+
+**Custom location:** if you'd rather not add it to `PATH`, point FramePilot at it directly with an environment variable before launching the app:
+
+```sh
+FRAMEPILOT_WHISPER_CLI=/path/to/whisper-cli
+```
+
+After installing, reopen Settings (or click **Set up** again) — the status line updates once the binary is discoverable.
+
+## Then run Set up
+
+With `whisper-cli` installed, go back to **Settings → AI → Whisper / Speech-to-text** and click **Set up**. This downloads the model once; it's cached under `~/.framepilot/models` and reused across every project, so you only do this once per machine (not per project).
+
+## Troubleshooting
+
+**"Method Not Allowed" when clicking Set up.** This was a bug in older builds of FramePilot's local engine, where the browser's pre-flight request to the setup endpoint wasn't accepted. Update FramePilot to the latest version and try again — you should now see a clearer message (with a link back to this page) instead of a raw error if something still isn't set up correctly.
+
+**"whisper-cli not found."** The binary isn't on `PATH` (or the `FRAMEPILOT_WHISPER_CLI` override doesn't point at a valid file). Reinstall following the steps above, then restart the app.
+
+**Set up fails or hangs.** This step downloads a model file over the network — check your connection. A failed checksum verification means the download was corrupted or incomplete; just click **Set up** again to retry.
+
+**Nothing transcribes even though setup succeeded.** Check the selected provider and its status in Settings. Switching to a configured hosted provider can isolate whether the problem is the local binary/model or the shared project workflow.
+
+## Next steps
+
+- [Captions, silence, and shorts](/docs/captions-silence-and-shorts) — what transcription powers once it's set up.
+- [System requirements](/docs/system-requirements) — general disk, memory, and bring-your-own-key guidance.

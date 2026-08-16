@@ -1,0 +1,10 @@
+# Repository-wide ownership. Keep protection enforcement in GitHub rulesets so
+# emergency bypass and reviewer policy remain explicit rather than hidden here.
+* @rjach
+
+# Security, licensing, release, and automation boundaries always stay owner-reviewed.
+/LICENSE @rjach
+/SECURITY.md @rjach
+/.github/ @rjach
+/apps/desktop/ @rjach
+/engine/python/ @rjach

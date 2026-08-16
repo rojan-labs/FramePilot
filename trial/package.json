@@ -1,0 +1,15 @@
+{
+  "name": "framepilot-auth2api-trial",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Trial-only: run auth2api locally to route chat through a Claude Code / Codex subscription instead of a metered API key. Not part of the pnpm workspace and not a core FramePilot module.",
+  "type": "module",
+  "scripts": {
+    "setup": "node setup.mjs",
+    "login": "node auth2api/dist/index.js --login",
+    "login:codex": "node auth2api/dist/index.js --login --provider=codex",
+    "login:manual": "node auth2api/dist/index.js --login --manual",
+    "start": "node auth2api/dist/index.js",
+    "test:smoke": "npm --prefix auth2api run test:smoke"
+  }
+}

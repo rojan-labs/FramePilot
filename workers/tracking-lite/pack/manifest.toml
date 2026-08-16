@@ -1,0 +1,62 @@
+# Tracking Lite pack build manifest.
+#
+# The signed catalog record is generated FROM this manifest plus the artifact
+# hash produced by the build job. Nothing here may drift from
+# `src/framepilot_tracking_lite/__init__.py`, which holds the identity the worker
+# itself enforces during the health handshake.
+
+[pack]
+id = "framepilot.tracking-lite"
+version = "1.0.0"
+display_name = "Tracking Lite"
+description = "Point, region, and planar motion tracking for the FramePilot editor."
+channel = "stable"
+# The roster the worker enforces. Health check refuses any other set.
+capabilities = ["tracking.planar", "tracking.point", "tracking.region"]
+worker_protocol_version = 1
+# Tracking Lite is purely algorithmic; it ships no model weights.
+model_digests = {}
+
+[runtime]
+# CPython 3.12 is the floor (NumPy 2.5 requires >=3.12). The build embeds a
+# self-contained interpreter so the worker never depends on a user's Python.
+python_version = "3.13"
+python_requires = ">=3.12"
+entrypoint_module = "framepilot_tracking_lite"
+health_check_argument = "--framepilot-health-check"
+runtime_argument = "--framepilot-worker-runtime"
+network = "disabled"
+
+[[platforms]]
+os = "darwin"
+arch = "arm64"
+entrypoint = "framepilot-tracking-lite"
+signing = "apple-developer-id + notarization"
+
+[[platforms]]
+os = "win32"
+arch = "x64"
+entrypoint = "framepilot-tracking-lite.exe"
+signing = "authenticode"
+
+[dependencies]
+# Exact versions come from uv.lock, which is the authority. These names document
+# WHY each dependency is present.
+lock = "uv.lock"
+# CSRT lives in the contrib `tracking` module. Verified against real wheels:
+# opencv-python-headless 4.14.0.94 exposes no TrackerCSRT at all. See LICENSES.md
+# for the LGPL-2.1 native components this wheel redistributes.
+opencv = "opencv-contrib-python-headless"
+numpy = "numpy"
+
+[artifact]
+# Enforced by the base app's archive-safety checks at install time.
+max_unpacked_mib = 400
+license_notice = "LICENSES.md"
+sbom = "pack/sbom"
+
+[verification]
+# The build job must run all three before an artifact may be signed.
+unit_suite = "pytest"
+decoded_media_suite = "pytest -m decoded_media"
+license_drift = "python tools/generate_sbom.py --check"

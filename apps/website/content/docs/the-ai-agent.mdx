@@ -1,0 +1,51 @@
+---
+title: The AI agent
+description: How FramePilot's AI modes work — chat, plan, edit, and agent — and why every AI edit is a reversible patch you approve.
+category: Guides
+order: 1
+---
+
+FramePilot's AI does not edit your project directly. It proposes typed, validated, reversible operations that you review and apply. The AI layer sits on top of the same patch engine the manual UI uses, so an agent can only make edits the engine would accept from you. This page covers the modes and the reliability loop behind them.
+
+## The four modes
+
+You interact with the AI through the panel next to your timeline. There are four ways to work, from most hands-on to most autonomous.
+
+- **Chat** — ask questions about your timeline and transcript, or discuss an approach before committing to anything. Chat can propose small edits, but it is conversational first.
+- **Plan** — ask for an edit plan without touching the timeline. The AI returns a structured list of steps (for example: use 00:08–00:13 as the hook, remove the intro silence, add captions with keyword highlights). Plan mode never edits directly; when you are happy, you tell it to apply the plan.
+- **Edit** — a focused, Cmd+K-style edit. Select a clip or range, describe the change ("make this section faster and more engaging"), and get back a small patch to apply, edit, preview, or reject.
+- **Agent** — give a high-level goal like "create a 45-second product demo for Reels." The agent analyzes the transcript, detects hook moments and slow segments, drafts a plan, asks for approval, applies the operations, renders a preview, self-checks the output, and suggests improvements.
+
+Every mode ends the same way: with concrete operations you can see, approve, and undo.
+
+## Edits are patches, not mutations
+
+This is the core design decision. The AI never writes to your project file. Instead it emits a **patch** — a set of typed timeline operations such as `trim_clip`, `split_clip`, `delete_range`, `add_caption_layer`, or `add_keyframes`. Each operation is defined with both an apply and an inverse, which is what makes one-click undo reliable.
+
+Because edits are structured operations rather than a finished export, you keep full manual control afterward. You can tweak, extend, or partially undo what the AI did, exactly as if you had made the edits by hand.
+
+## The patch → validate → preview → validate-render flow
+
+Under every AI action is a single reliability loop:
+
+1. **Patch.** The AI proposes typed operations through the tool registry — it cannot reach around it to mutate raw project JSON.
+2. **Validate.** The patch validator checks the operations before anything is applied: clip references exist, durations stay consistent, layer order is legal, and every operation is reversible. An invalid patch is rejected before it can touch your timeline.
+3. **Preview.** You see a before/after diff of exactly what changes, and can scrub the result in the HTML/canvas preview. Apply commits it transactionally; undo restores the prior state via the inverse operations.
+4. **Validate-render.** When you export, the deterministic engine renders the timeline and automatically validates the output (duration, streams, black frames, audio clipping) so a broken file never reaches you.
+
+The result: a probabilistic AI proposes ideas, but a deterministic engine decides what is legal and produces the final file. See [render and export](/docs/render-and-export) for the render side of this loop.
+
+## Bring your own key
+
+The AI runs on a provider key you supply, so your usage stays under your own account. Supported providers:
+
+- **Anthropic (Claude)** — the recommended default.
+- **NVIDIA NIM** — an OpenAI-compatible endpoint.
+- A deterministic **mock** provider that returns canned patches, useful for offline testing with no key.
+
+Configure your provider in AI settings. See [system requirements](/docs/system-requirements) for provider notes.
+
+## Next steps
+
+- [Captions, silence, and shorts](/docs/captions-silence-and-shorts) — the most common "ask the timeline" flows.
+- [MCP integration](/docs/mcp-integration) — expose these same tools to external agents.

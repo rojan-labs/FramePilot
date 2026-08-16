@@ -1,0 +1,28 @@
+---
+title: 'Smoother editing for feature-length projects'
+summary: 'Long movies now stay responsive without loading the entire original file into the preview.'
+date: '2026-08-03'
+tags: ['Improved', 'Fixed']
+---
+
+### Improved
+
+- **Long footage opens and previews with far less work.** FramePilot now streams full-length originals as you edit, while automatically using lightweight preview media when it is available.
+
+- **Large timelines stay responsive near the playhead.** Thousands of cuts, captions, and effects elsewhere in the movie no longer add work to every displayed frame.
+
+- **Long caption tracks stay quick to edit.** Only the cues currently on screen stay active, so a full movie's subtitles do not slow down typing, timing, or scrolling.
+
+- **Caption adjustments stay fluid.** Dragging size, width, or line-height controls previews immediately and becomes one undo step when released, instead of creating an edit for every pointer movement.
+
+- **The AI panel remains responsive during long jobs.** Multi-step edits keep their place and continue showing progress without repeatedly rebuilding the editor around them.
+
+### Fixed
+
+- **Paused means idle again.** The timeline and effect preview stop running display-rate update loops when playback is paused, reducing CPU use and fan noise between edits.
+
+- **Agent steps no longer reset the workspace.** Applied steps update the open project in place, while rapidly arriving text is grouped into smooth updates so controls remain usable.
+
+- **Long AI sessions no longer run out of application memory.** Large undo histories stay in the editor instead of being copied into every AI request, and growing agent activity is recorded without repeatedly reloading the entire session.
+
+- **Old undo data no longer stalls saves or agent steps.** The current session keeps its full undo stack, while the project file retains a bounded recent undo window so autosave stays responsive on large movies.

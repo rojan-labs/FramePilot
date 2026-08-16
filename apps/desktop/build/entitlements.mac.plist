@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for the notarized macOS build
+  (electron-builder.yml mac.entitlements / entitlementsInherit).
+
+  WHY each entitlement:
+  - allow-jit + allow-unsigned-executable-memory: Electron/V8 JIT-compiles
+    JavaScript; without these the hardened runtime kills the renderer.
+  - disable-library-validation: the app spawns the bundled PyInstaller engine
+    (Resources/engine/), whose Python shared libraries are signed separately
+    from the app's Developer ID chain.
+
+  The App Sandbox is deliberately NOT enabled: FramePilot's path sandbox is
+  enforced in the main process (ipc/sandbox.ts), and the render engine needs
+  real filesystem access to project media.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

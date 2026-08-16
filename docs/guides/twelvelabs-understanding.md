@@ -1,0 +1,160 @@
+# Media understanding with TwelveLabs (optional)
+
+FramePilot understands your footage so the AI can find moments by what is _shown_
+or _said_ — "the shot where the door opens", "where they say hello". By default
+this runs on the **built-in indexer** (local frame sampling + NVIDIA visual
+embeddings; see [project-brain.md](./project-brain.md)). You can optionally route
+understanding through **[TwelveLabs](https://www.twelvelabs.io/)** instead, whose
+hosted index understands a video's visual, audio, and speech content together.
+
+See [ADR 0070](../adr/0070-twelvelabs-optional-understanding-backend.md) for the
+design and rationale, and [ADR 0097](../adr/0097-twelvelabs-official-sdk-adoption.md)
+for why the engine talks to TwelveLabs through the official `twelvelabs` SDK (and the
+license caveat that comes with it).
+
+## When to use it
+
+- You want stronger search over **what is spoken** and **what is on screen**
+  together (TwelveLabs fuses visual + audio + transcription internally).
+- You already have a TwelveLabs account/API key.
+
+If you don't set a key, nothing changes — the built-in indexer is used.
+
+## Enabling it
+
+1. Get an API key from the [TwelveLabs dashboard](https://www.twelvelabs.io/).
+2. **Desktop / web-editor:** Settings → AI → Embeddings → **TwelveLabs API key**.
+   Paste the key and (optionally) click **Index now**, or leave _Auto-index
+   imported media_ on so new footage indexes in the background.
+3. **Engine env (headless/CI/desktop sidecar):** set `TWELVELABS_API_KEY`. The
+   Settings key takes precedence; the env var is the fallback.
+
+The key is stored as plain text on your machine and sent only to TwelveLabs —
+never to FramePilot. It is never written to logs.
+
+## What changes
+
+| Capability                           | Built-in backend                                  | TwelveLabs backend                                                                          |
+| ------------------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Visual search (`search_visual`)      | local vectors + FTS fusion                        | TwelveLabs clips (visual + audio + speech)                                                  |
+| Indexing                             | frame sampling → NVIDIA embeddings → `sqlite-vec` | upload → TwelveLabs Marengo **+ Pegasus** index                                             |
+| Captions & transcript                | local whisper (word timestamps)                   | TwelveLabs' own word-level transcription (from the indexed audio), when explicitly selected |
+| `describe_footage` (scene walk)      | enumerates local spans                            | walks the Pegasus chapter map in time order                                                 |
+| `map_footage` (whole-footage digest) | derived from local spans/captions                 | TwelveLabs Pegasus chapters + highlights + summary                                          |
+| `backend` reported by status/search  | `sqlite-vec`                                      | `twelvelabs`                                                                                |
+
+When TwelveLabs is explicitly selected under Settings → AI → Speech-to-text, the
+word-level transcript is pulled from TwelveLabs' own transcription of the indexed
+audio (no second ASR pass). Provider selection is strict: an unindexed asset or a
+TwelveLabs failure is reported and preserves the current transcript; it never
+silently falls back to local whisper.
+
+## Understanding the whole footage (the footage map)
+
+On unfamiliar or hours-long footage the AI needs a map before it can plan an
+edit — it does not know _what_ to search for. The **footage map** provides that:
+a time-ordered digest of the whole footage with **no query**, made of chapters
+(`{ t0, t1, title, summary }`) and highlights (`{ t0, t1, label, score }`) in
+timeline seconds, plus a one-paragraph summary.
+
+- On the **TwelveLabs** backend the map is produced by **Pegasus** via the
+  `/analyze` endpoint (one call each for chapters, highlights, and summary, each
+  with a JSON-schema `response_format`), cached per video by content hash so it is
+  computed once and rebuilt only when the footage is re-indexed. (The older
+  `/summarize` and `/gist` endpoints this used were sunset by TwelveLabs on
+  2026-02-15 — a live index answers HTTP 410 for them — so the client migrated to
+  `/analyze`, which returns the same structured chapters/highlights/summary.)
+  - **`/analyze` requires a Pegasus model on the index.** FramePilot creates every
+    index with both Marengo (search) and `pegasus1.2` (generate), so new footage
+    supports the map out of the box. An index created before this (Marengo-only)
+    answers HTTP 400 `index_not_supported_for_generate`; the map then degrades to
+    the built-in span/caption derivation until you re-index (which recreates the
+    index with Pegasus).
+- On the **built-in** backend the map is derived from the already-indexed visual
+  spans and captions (chapters only; highlights need a salience signal the local
+  index does not have).
+
+The AI reaches it with the **`map_footage`** tool (called first on long or
+unfamiliar footage, then drilling in with `describe_footage` / `search_visual`),
+and from the map it can propose **grounded, cited edit candidates** — punch-ins on
+reveals/emphasis, reframes for a vertical target, speed ramps over low-information
+stretches, cuts over dead air, b-roll over narration — via the `propose_edits`
+tool. Every candidate cites the real span it came from; the AI chooses which to
+apply and each becomes a normal, reversible timeline patch.
+
+You can see the same map yourself: the **Footage understanding** panel (the map
+icon in the top bar) lists the chapters and highlights; click one to seek to it.
+
+### Honest states (footage map)
+
+- **Not indexed** → `not_indexed`: index the footage first.
+- **No Pegasus entitlement** (valid key, plan without generative understanding) →
+  `pegasus_unavailable`: search/index still work; the built-in structure is shown
+  once indexed. Marengo (search/index) is unaffected.
+- **No key / invalid key** → `no_api_key` / `invalid_api_key`.
+
+In every case the panel and the tool report the typed reason — a map is never
+fabricated.
+
+## Search ranking (visual + audio + transcription)
+
+A visual search sends the query against all three Marengo search modalities —
+**visual, audio, and transcription** (lexical + semantic) — the same fused
+configuration the TwelveLabs dashboard uses, so FramePilot's ranking matches what
+you see there. The index itself is still created with only the `visual` + `audio`
+model options (the transcription modality is derived from the indexed audio at
+search time; it is _not_ a valid index option).
+
+Marengo 3.0's `/search` response returns each clip's **`rank`** (1 = best match)
+and **no numeric score**. FramePilot derives the relevance score the orchestrator
+ranks on directly from that rank (`1/rank`), so the best clip leads with the
+highest score. (Before this was handled, every clip arrived with `score = 0`,
+which left the agent unable to tell scenes apart — it would repeat the same search
+and stop with "no further edits could be found".)
+
+## How it behaves (honest degradation)
+
+- **No key** → the built-in indexer runs.
+- **Indexing** is paced: FramePilot uploads a typed media asset first, then attaches it to the
+  index; both states are resumed across background slices. Large uploads index in the background;
+  status shows coverage (`indexed / total` assets) with `backend: twelvelabs`.
+- **Invalid key** → search/index report `invalid_api_key` (nothing fabricated).
+- **Project not indexed yet** → search reports `not_indexed` with no results.
+- **Sidecar/network down** → the caller degrades cleanly, as with any brain read.
+
+## Tracing an index that looks stuck
+
+Indexing a long clip is genuinely slow: TwelveLabs uploads the **whole** file as a media asset,
+then attaches and indexes it server-side, which can take minutes for a multi-minute video. Audio
+files retain their audio MIME type; they are not submitted to the legacy video-only task API. The
+Settings panel shows a single job at `0%` for the whole time, because progress is
+counted per **asset** — one video is `0/1` until it finishes, then jumps to `1/1`.
+That `0%` alone does **not** mean it is stuck.
+
+To see what is actually happening, watch the engine sidecar log. Every TwelveLabs
+call is traced (never the key or media bytes):
+
+- `ACT twelvelabs upload start … size=…MB` / `upload done … in …s` — the file
+  transfer to TwelveLabs (the slow part for large videos).
+- `ACT twelvelabs index attach …` — the ready upload was attached to the project index.
+- `twelvelabs indexed asset poll: … status=…` (enable `debug`) — each indexing poll.
+- `twelvelabs index asset still indexing … yielding to re-post` — a paced slice
+  handed back so the client continues; normal while a big video indexes.
+- `ACT twelvelabs index asset ready … video=…` — the asset finished indexing.
+- `twelvelabs ✗ …` — a rejected key, an HTTP error, or a transport/timeout
+  failure, with the status code and elapsed time.
+
+Set the engine log level to `debug` to include the per-poll lines. Uploads use a
+generous timeout (both the engine and the index client), so a large file is given
+minutes to transfer rather than being cut off early.
+
+If the panel reads `sqlite-vec` while you have a TwelveLabs key in Settings, that
+is expected only until the project's TwelveLabs index is created; once indexing
+has started, status detects the TwelveLabs backend from the stored index and
+reports `twelvelabs`.
+
+## Privacy note
+
+Like the built-in NVIDIA embeddings path (ADR 0066), this uploads your footage to
+a third party — here, TwelveLabs — for indexing and search. Only enable it if that
+is acceptable for your material.

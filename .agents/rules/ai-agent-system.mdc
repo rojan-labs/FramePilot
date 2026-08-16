@@ -1,0 +1,62 @@
+---
+description: AI agent system rules - tools only, schema-validated, reversible, host-authoritative
+globs: packages/ai-sdk/**,engine/python/framepilot_engine/ai_tools/**
+alwaysApply: false
+---
+
+# AI agent system rules (PRD §7, §8)
+
+The AI is powerful only because the editing engine beneath it is structured, validated,
+and deterministic. Build the engine first. Read `.agents/skills/ai-safety/SKILL.md` and
+`.agents/rules/product-discipline.mdc`.
+
+## Non-negotiables
+- **AI edits ONLY through registered, schema-validated tools.** No free-form mutation.
+- **Every editing tool produces typed reversible operations/patches**, never a raw mutation of
+  `project.fp.json` (PRD §8.3).
+- **The host remains the single mutation authority.** Models and perceptual reviewers do not
+  write project state directly.
+- **Deterministic validation authorizes a safe patch.** Do not reintroduce an expensive
+  perceptual-review write gate when review can run as a reader and surface findings separately.
+- **Every applied AI edit remains inspectable and reversible.** Auto-apply may commit a validated
+  patch immediately according to host policy; user authority is preserved through the visible
+  timeline, change receipts/diffs, and undo.
+- **The agent cannot run arbitrary shell** or spawn processes from the app runtime.
+- **All file operations are sandboxed** to the project directory.
+
+## Every new tool requires
+1. **Schema** - typed, validated input (Zod in TS / Pydantic in PY).
+2. **Validation** - inputs and resulting operations validated before apply (PRD §8.5).
+3. **Reversibility** - if it edits the timeline, the produced operations have inverses.
+4. **Tests** - unit tests for schema + behavior, covering real branches and error paths.
+5. **Product purpose** - a concrete current workflow/use case. Do not add tools for hypothetical
+   future capability or prompt convenience alone.
+
+## Core components (PRD §8.1)
+- **Tool Registry** - the only surface the AI may edit through.
+- **AI Orchestrator** - modes include `chat`, `plan`, `edit`, `agent`, `autocomplete`, `review`.
+  - `plan` mode: no mutation, no render action - structured plan only.
+  - editing modes: reason → validated tool calls → typed patch → host apply policy → visible result.
+  - agent mode: plan/steer → tools → validated mutations → evidence/review → completion report.
+- **Context Builder** - transcript, timeline state, clip metadata, selection, target platform,
+  bounded project evidence, and available capability status.
+- **Memory Store** - project memory (style, pacing, accepted/rejected edits); learns from corrections.
+- **Patch Validator** - deterministic gate before mutation.
+- **Critic/Review** - reader/evidence system that checks results, reports findings, and must not
+  become a second project writer.
+
+## Product quality
+- Prompt sophistication must not substitute for missing editor capability.
+- Judge an AI edit by the resulting timeline and rendered output, not tool-call count or agent depth.
+- If visual/audio evidence is unavailable, say so. Never claim an unobserved result was verified.
+- Prefer the smallest tool/capability addition that improves an existing end-to-end editing flow.
+
+## Providers
+- Providers are transports and model capabilities, not editing authority. Provider choice must not
+  bypass tool schemas, patch validation, host authority, or project safety boundaries.
+
+## Flow for any AI edit
+
+model reasons/selects tools → schema validation → typed patch → deterministic validation →
+host-authoritative apply policy → visible timeline result → perceptual/render evidence as needed →
+findings/completion report → user can inspect and undo

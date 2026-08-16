@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FramePilot — Timeline (CapCut-style)</title>
+  <meta name="description" content="A CapCut-style multi-layer NLE timeline reference for FramePilot — full-bleed clips, effect/adjustment bars, transitions on cuts, keyframe chips, speed badges.">
+  <link rel="stylesheet" href="timeline-mock.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- toolbar -->
+  <div class="toolbar" role="toolbar" aria-label="Timeline tools">
+    <div class="grp">
+      <button class="tbtn" aria-pressed="true" title="Select"><svg class="ico" viewBox="0 0 24 24"><path d="M5 3l7 17 2-7 7-2z"/></svg></button>
+    </div>
+    <span class="sep"></span>
+    <div class="grp">
+      <button class="tbtn" title="Undo"><svg class="ico" viewBox="0 0 24 24"><path d="M9 7L4 12l5 5M4 12h11a5 5 0 010 10h-1"/></svg></button>
+      <button class="tbtn" title="Redo"><svg class="ico" viewBox="0 0 24 24"><path d="M15 7l5 5-5 5M20 12H9a5 5 0 000 10h1"/></svg></button>
+    </div>
+    <span class="sep"></span>
+    <div class="grp">
+      <button class="tbtn" title="Split (S)"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3v7M12 14v7M7 10l5 4 5-4"/></svg></button>
+      <button class="tbtn" title="Trim left"><svg class="ico" viewBox="0 0 24 24"><path d="M7 4v16M11 8l-4 4 4 4M21 12H7"/></svg></button>
+      <button class="tbtn" title="Trim right"><svg class="ico" viewBox="0 0 24 24"><path d="M17 4v16M13 8l4 4-4 4M3 12h14"/></svg></button>
+      <button class="tbtn" title="Delete"><svg class="ico" viewBox="0 0 24 24"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13"/></svg></button>
+      <button class="tbtn" title="Marker"><svg class="ico" viewBox="0 0 24 24"><path d="M6 3h12l-2 5 2 5H6z M6 13v8"/></svg></button>
+    </div>
+
+    <div class="dots">• • •</div>
+    <div class="spacer"></div>
+
+    <div class="grp">
+      <button class="tbtn" title="Record voiceover"><svg class="ico" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg></button>
+      <span class="sep"></span>
+      <button class="tbtn" title="Fit to frame"><svg class="ico" viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg></button>
+      <button class="tbtn" aria-pressed="true" title="Snapping"><svg class="ico" viewBox="0 0 24 24"><path d="M6 3v8a6 6 0 0012 0V3"/></svg></button>
+      <button class="tbtn" title="Link / unlink"><svg class="ico" viewBox="0 0 24 24"><path d="M10 13a5 5 0 007 0l2-2a5 5 0 00-7-7l-1 1M14 11a5 5 0 00-7 0l-2 2a5 5 0 007 7l1-1"/></svg></button>
+      <button class="tbtn" title="Adjustment / split view"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg></button>
+    </div>
+    <span class="sep"></span>
+    <div class="grp" style="gap:8px">
+      <button class="tbtn" title="Zoom out"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M8 11h6M21 21l-5-5"/></svg></button>
+      <div class="zoomslider" title="Zoom"><div class="knob"></div></div>
+      <button class="tbtn" title="Zoom in"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M11 8v6M8 11h6M21 21l-5-5"/></svg></button>
+    </div>
+  </div>
+
+  <!-- timeline -->
+  <div class="tl">
+    <div class="headcol">
+      <div class="rspace"></div>
+      <div id="heads"></div>
+    </div>
+    <div class="scroll">
+      <div class="lanes" id="lanes">
+        <div class="ruler" id="ruler"></div>
+        <div id="laneBody"></div>
+        <div class="playhead" id="playhead" style="left:1640px">
+          <div class="hd" id="phHead" role="slider" aria-label="playhead" tabindex="0" aria-valuemin="0" aria-valuemax="86" aria-valuenow="78">
+            <svg viewBox="0 0 12 14"><path d="M0 0h12v8l-6 6-6-6z"/></svg>
+          </div>
+          <div class="ln"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span class="sw"><span class="dot" style="background:var(--teal-bd)"></span>Video (filmstrip + waveform)</span>
+    <span class="sw"><span class="dot" style="background:var(--blue-bd)"></span>Audio</span>
+    <span class="sw"><span class="dot" style="background:var(--yellow)"></span>Image / PSD</span>
+    <span class="sw"><span class="dot" style="background:var(--textclip-bd)"></span>Text / caption</span>
+    <span class="sw"><span class="dot" style="background:var(--purple-bd)"></span>Effect (Dot Silkscreen, Color Flicker)</span>
+    <span class="sw"><span class="dot" style="background:var(--olive-bd)"></span>Adjustment layer</span>
+  </div>
+  <div class="note">CapCut-style reference for the FramePilot timeline revamp. Clip content (waveform / filmstrip / thumbnail) fills the <b>entire</b> clip body under a thin title bar; effects &amp; adjustments are <b>full-width colored bars</b> spanning a range; transitions sit as hourglasses <b>on the cut</b>; the chip row carries keyframe/filter markers; speed shows as a badge. This is a non-shipping design mock — not wired to the engine.</div>
+
+</div>
+
+<script>
+(function(){
+  var PPS=21, FPS=30, TLEN=86;
+  function x(s){return Math.round(s*PPS);}
+  function el(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e;}
+  function ico(d,vb){return '<svg class="ico" viewBox="'+(vb||'0 0 24 24')+'">'+d+'</svg>';}
+  function pad(n){return (n<10?'0':'')+n;}
+
+  // type glyphs for headers
+  var GLY={
+    text:'<path d="M5 6h14M9 6v12M15 6v12"/>',
+    video:'<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M10 9l5 3-5 3z"/>',
+    image:'<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.6"/><path d="M5 18l5-4 4 3 3-2 4 3"/>',
+    audio:'<path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/>',
+    effect:'<path d="M12 3l2 5 5 .5-4 3.5 1.5 5-4.5-3-4.5 3 1.5-5-4-3.5 5-.5z"/>',
+    adjust:'<path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 5v4M6 15v4"/>'
+  };
+  var I_LOCK='<path d="M7 10V7a5 5 0 0110 0v3M5 10h14v10H5z"/>';
+  var I_EYE='<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/>';
+  var I_SPK='<path d="M11 5L6 9H2v6h4l5 4zM15 9a4 4 0 010 6"/>';
+  var I_DOTS='<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>';
+
+  // ---- ruler ----
+  var ruler=document.getElementById('ruler');
+  for(var s=0;s<=TLEN;s+=2){
+    var maj=(s%10===0);
+    var t=el('div','t'+(maj?' maj':''));t.style.left=x(s)+'px';
+    if(maj){t.appendChild(el('span',null,pad(Math.floor(s/60))+':'+pad(s%60)));}
+    ruler.appendChild(t);
+  }
+
+  // ---- helpers to build clip rows ----
+  function genText(clusters){ // orange caption segments
+    var out=[];clusters.forEach(function(c){
+      for(var i=0;i<c.n;i++){out.push({s:c.s+i*(c.d+c.g),d:c.d,kind:'text',label:'A≡'});}
+    });return out;
+  }
+
+  // ---- track model (top = front) ----
+  var tracks=[
+    {type:'text',h:22,clips:genText([
+      {s:2,n:5,d:1.0,g:.25},{s:9,n:6,d:.9,g:.2},{s:16.5,n:5,d:1.0,g:.25},
+      {s:24,n:6,d:.9,g:.2},{s:38,n:7,d:.9,g:.18},{s:50,n:6,d:1.0,g:.25},
+      {s:62,n:5,d:.9,g:.22},{s:70,n:5,d:1.0,g:.25}
+    ])},
+
+    {type:'video',h:56,clips:[
+      {s:14,d:3.6,kind:'image',img:'white',title:'White.j'},
+      {s:18,d:3.6,kind:'image',img:'white',title:'White.j'},
+      {s:40,d:3.6,kind:'image',img:'white',title:'White.j'},
+      {s:46.5,d:3.6,kind:'image',img:'white',title:'White.j'},
+      {s:54,d:3.6,kind:'image',img:'white',title:'White.j'},
+      {s:60.5,d:3.6,kind:'image',img:'white',title:'White.j'},
+      {s:67.5,d:3.6,kind:'image',img:'white',title:'White.j'}
+    ],xt:[17.8,46.3]},
+
+    {type:'video',h:58,clips:[
+      {s:0,d:7,kind:'teal',title:'2025-03-05 13-5',arrows:true},
+      {s:7,d:3,kind:'teal',title:'2025-',arrows:true},
+      {s:10,d:6,kind:'teal',title:'2025-03-05 13-52-44.mp4',arrows:true},
+      {s:16,d:2,kind:'teal',title:'20',arrows:true},
+      {s:34,d:2.2,kind:'teal',title:'2025-0',arrows:true},
+      {s:37,d:3,kind:'teal',title:'2025',arrows:true},
+      {s:40.5,d:5.2,kind:'teal',title:'2025-03-05 1',arrows:true},
+      {s:46,d:3,kind:'teal',title:'2025-0',arrows:true},
+      {s:49.5,d:6,kind:'teal',title:'2025-03-05 13-52-44.mp',arrows:true},
+      {s:56,d:4,kind:'teal',title:'2025-03-05 13-52-44.',arrows:true},
+      {s:60.5,d:3,kind:'teal',title:'2025-03',arrows:true},
+      {s:71,d:8,kind:'teal',title:'2025-03-05 13-52-44.mp4',arrows:true}
+    ],xt:[7,40.3]},
+
+    {type:'effect',h:20,bar:{s:0,d:7,cls:'purple',label:'Dot Silkscreen'}},
+    {type:'adjust',h:20,bars:[{s:0,d:23,cls:'olive',label:'Adjustment2'},{s:23.4,d:23,cls:'olive',label:'Adjustment2'}]},
+    {type:'effect',h:20,bar:{s:0,d:62,cls:'purple',label:'Color Flicker'}},
+
+    {type:'effect',h:24,chips:[0.5,5,12.5,21.8,26.5,42,49,53.5,72]},
+
+    {type:'text',h:22,clips:[{s:65,d:2.4,kind:'red',title:'NÓS DE'}]},
+
+    {type:'image',h:56,clips:[
+      {s:4,d:3,kind:'yellow',title:'Yellow.psd'},
+      {s:39,d:2,kind:'yellow',title:'Yellow.ps'},
+      {s:44,d:3,kind:'yellow',title:'Yellow.psd'},
+      {s:65,d:3,kind:'whatsapp',title:'ssstwitte'}
+    ]},
+
+    {type:'image',h:54,clips:[
+      {s:4,d:5,kind:'whatsapp',title:'WhatsApp Image 2025'},
+      {s:33,d:1.6,kind:'whatsapp',title:'WhatsA'},
+      {s:35,d:2.4,kind:'teal',title:'Compou'},
+      {s:43,d:2.4,kind:'whatsapp',title:'WhatsApp'},
+      {s:50,d:5,kind:'whatsapp',title:'WhatsApp Image 2'},
+      {s:62,d:2.4,kind:'whatsapp',title:'WhatsAp'}
+    ]},
+
+    {type:'image',h:50,clips:[
+      {s:4,d:5,kind:'whatsapp',title:'WhatsApp Image 2025'},
+      {s:33,d:1.6,kind:'whatsapp',title:'WhatsA'},
+      {s:43,d:2.4,kind:'whatsapp',title:'WhatsApp'},
+      {s:50,d:5,kind:'whatsapp',title:'WhatsApp Image 2'},
+      {s:62,d:2.4,kind:'whatsapp',title:'WhatsAp'}
+    ]},
+
+    {type:'image',h:46,clips:[{s:60,d:2.6,kind:'whatsapp',title:'Gilmar-M'}]},
+
+    {type:'adjust',h:20,bars:[{s:0,d:18,cls:'olive',label:'Adjustment1'}]},
+
+    {type:'video',h:62,cover:true,clips:[
+      {s:0,d:10,kind:'teal',title:'ssstwitter.com_1740971083824.mp4'},
+      {s:10,d:5,kind:'teal',title:'2025-03-05'},
+      {s:15,d:4,kind:'teal',title:'2025-03-05 14-54-1'},
+      {s:19,d:4,kind:'teal',title:'',speed:'1.3X'},
+      {s:23.4,d:4,kind:'teal',title:'',speed:'1.3X'},
+      {s:28,d:23,kind:'teal',sel:true,speed:'0.5X',title:'.black and white  abstract grunge collage slideshow background'},
+      {s:74,d:4,kind:'teal',speed:'0.5X',title:''},
+      {s:83,d:3,kind:'teal',speed:'0.5X',title:''}
+    ]},
+
+    {type:'audio',h:46,clips:[
+      {s:.5,d:1.2,kind:'audio',title:'Z'},{s:4,d:1.4,kind:'audio',title:'Zuz'},
+      {s:8,d:1.2,kind:'audio',title:'C'},{s:16,d:1,kind:'audio',title:''},
+      {s:29,d:2.2,kind:'audio',title:'Deep w'},{s:40,d:1,kind:'audio',title:''},
+      {s:49,d:1.6,kind:'audio',title:'Gl'},{s:56,d:1,kind:'audio',title:''},{s:62,d:1.4,kind:'audio',title:'(L'}
+    ]},
+
+    {type:'audio',h:46,clips:[
+      {s:65,d:2.4,kind:'audio',title:'Si-Fi wo'},
+      {s:29,d:1.6,kind:'audio',title:'8r'},{s:33,d:2.2,kind:'audio',title:'Deep woos'},
+      {s:39,d:2.2,kind:'audio',title:'Deep woos'},{s:52,d:2.2,kind:'audio',title:'Deep woos'},
+      {s:62,d:2.2,kind:'audio',title:'Deep woos'}
+    ]},
+
+    {type:'audio',h:52,clips:[{s:0,d:86,kind:'audio',title:'Suspense Cinematic'}]}
+  ];
+
+  var heads=document.getElementById('heads'), body=document.getElementById('laneBody');
+
+  tracks.forEach(function(tr,idx){
+    /* header */
+    var th=el('div','thd');th.style.setProperty('--h',tr.h+'px');
+    if(tr.cover){th.appendChild(makeCover());}
+    var typ=el('span','ti type');typ.innerHTML=ico(GLY[tr.type]||GLY.video);th.appendChild(typ);
+    th.appendChild(mkIcon(I_LOCK,'Lock'));
+    if(tr.type!=='audio')th.appendChild(mkIcon(I_EYE,'Hide'));
+    if(tr.type==='audio'||tr.type==='video')th.appendChild(mkIcon(I_SPK,'Mute'));
+    th.appendChild(mkIcon(I_DOTS,'More'));
+    heads.appendChild(th);
+
+    /* lane */
+    var lane=el('div','lane'+(idx%2?' alt':''));lane.style.setProperty('--h',tr.h+'px');
+
+    // effect/adjustment bars
+    if(tr.bar) lane.appendChild(mkBar(tr.bar));
+    if(tr.bars) tr.bars.forEach(function(b){lane.appendChild(mkBar(b));});
+    // keyframe chips
+    if(tr.chips) tr.chips.forEach(function(t){
+      var c=el('div','chip');c.style.left=x(t)+'px';c.innerHTML=ico('<path d="M12 3l2 5 5 .5-4 3.5 1.5 5-4.5-3-4.5 3 1.5-5-4-3.5 5-.5z"/>');lane.appendChild(c);
+    });
+    // clips
+    if(tr.clips) tr.clips.forEach(function(c){lane.appendChild(mkClip(c,tr));});
+    // transitions on cuts
+    if(tr.xt) tr.xt.forEach(function(cut){
+      var xt=el('div','xt');xt.style.left=x(cut)+'px';xt.title='Cross dissolve';
+      xt.innerHTML='<svg viewBox="0 0 8 9"><path d="M0 .5L4 4.5L0 8.5M8 .5L4 4.5L8 8.5"/></svg>';lane.appendChild(xt);
+    });
+
+    body.appendChild(lane);
+  });
+
+  function mkIcon(d,title){var s=el('span','ti');s.title=title;s.innerHTML=ico(d);return s;}
+  function makeCover(){var c=el('div','cover');c.textContent='Cover';return c;}
+  function mkBar(b){
+    var e=el('div','fxbar '+b.cls);e.style.left=x(b.s)+'px';e.style.width=(x(b.d)-2)+'px';
+    e.innerHTML=ico('<path d="M12 3l2 5 5 .5-4 3.5 1.5 5-4.5-3-4.5 3 1.5-5-4-3.5 5-.5z"/>')+'<span class="tag">'+b.label+'</span>';
+    e.title=b.label;return e;
+  }
+  function famClass(kind){
+    return ({audio:'f-blue',image:'f-image',white:'f-image',yellow:'f-yellow',whatsapp:'f-image',text:'f-text',red:'f-red'})[kind]||'';
+  }
+  function mkClip(c,tr){
+    var clip=el('div','clip '+famClass(c.kind==='image'?(c.img||'image'):c.kind)+(c.sel?' sel':''));
+    clip.style.left=x(c.s)+'px';clip.style.width=(x(c.d)-1)+'px';
+    clip.title=c.title||'';
+    if(c.kind==='text'){
+      var tt=el('div','ttl');tt.innerHTML='<span class="t">'+(c.label||'A≡')+'</span>';clip.appendChild(tt);
+      return clip;
+    }
+    // title bar
+    var ttl=el('div','ttl');
+    ttl.appendChild(Object.assign(el('span','t'),{textContent:c.title||''}));
+    if(c.d>=4){var du=el('span','dur mono','00:00:'+pad(Math.round(c.d)));ttl.appendChild(du);}
+    clip.appendChild(ttl);
+    // body + canvas
+    var bd=el('div','bd');var cv=document.createElement('canvas');bd.appendChild(cv);clip.appendChild(bd);
+    // speed badge
+    if(c.speed){var sp=el('div','speed');sp.innerHTML=ico('<circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M12 3h0"/>')+'Speed '+c.speed;clip.appendChild(sp);}
+    // trim arrows
+    if(c.arrows||tr.type==='video'){var la=el('div','tarr l','◄');var ra=el('div','tarr r','►');clip.appendChild(la);clip.appendChild(ra);}
+    requestAnimationFrame(function(){paint(cv,c);});
+    return clip;
+  }
+
+  // ---- canvas painters (fill the WHOLE body) ----
+  function seed(i){var v=Math.sin(i*12.9898)*43758.5453;return v-Math.floor(v);}
+  function paint(cv,c){
+    var r=cv.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+    var w=Math.max(2,Math.round(r.width)),h=Math.max(2,Math.round(r.height));
+    cv.width=w*dpr;cv.height=h*dpr;var ctx=cv.getContext('2d');ctx.scale(dpr,dpr);
+    var k=c.kind;
+    if(k==='teal'){filmstrip(ctx,w,h,c);waveBand(ctx,w,h,c);}
+    else if(k==='audio'){solid(ctx,w,h,'rgba(35,62,110,.0)');wave(ctx,w,h,c,'rgba(111,154,230,.95)',false);}
+    else if(k==='image'){ if(c.img==='white'){thumbWhite(ctx,w,h,c);} else {thumbWhats(ctx,w,h,c);} }
+    else if(k==='yellow'){ /* css bg yellow; add slight sheen */ var g=ctx.createLinearGradient(0,0,0,h);g.addColorStop(0,'rgba(255,255,255,.25)');g.addColorStop(1,'rgba(0,0,0,.06)');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);}
+    else if(k==='whatsapp'){thumbWhats(ctx,w,h,c);}
+    else if(k==='red'){ctx.fillStyle='rgba(0,0,0,.12)';ctx.fillRect(0,0,w,h);}
+  }
+  function solid(ctx,w,h,col){ctx.fillStyle=col;ctx.fillRect(0,0,w,h);}
+  function filmstrip(ctx,w,h,c){
+    // photo-like frame previews (sky/ground split, hue varies per frame)
+    var cell=Math.max(18,Math.round(h*0.78)),n=Math.ceil(w/cell);
+    for(var i=0;i<n;i++){
+      var t=seed(i+c.s), t2=seed(i*3.1+c.s);
+      var r=70+t*120, g=95+t2*100, b=85+t*95;
+      var grd=ctx.createLinearGradient(0,0,0,h);
+      grd.addColorStop(0,'rgb('+Math.round(r)+','+Math.round(g+28)+','+Math.round(b+22)+')');
+      grd.addColorStop(.55,'rgb('+Math.round(r*.72)+','+Math.round(g*.72)+','+Math.round(b*.74)+')');
+      grd.addColorStop(1,'rgb('+Math.round(r*.4)+','+Math.round(g*.42)+','+Math.round(b*.46)+')');
+      ctx.fillStyle=grd;ctx.fillRect(i*cell,0,cell-1,h);
+      ctx.fillStyle='rgba(0,0,0,.28)';ctx.fillRect(i*cell+cell-1,0,1,h);
+    }
+    // subtle teal grade overlay (CapCut video look)
+    ctx.fillStyle='rgba(16,58,66,.3)';ctx.fillRect(0,0,w,h);
+  }
+  function waveBand(ctx,w,h,c){
+    // distinct waveform strip along the bottom of a video-with-audio clip
+    var bandH=Math.max(13,Math.round(h*0.36)), y0=h-bandH;
+    ctx.fillStyle='rgba(5,24,29,.62)';ctx.fillRect(0,y0,w,bandH);
+    ctx.fillStyle='rgba(2,10,13,.7)';ctx.fillRect(0,y0,w,1);
+    var mid=y0+bandH*0.5, amp=bandH*0.42, n=Math.max(8,Math.floor(w/2)), pk=[];
+    ctx.fillStyle='rgba(60,210,232,.92)';ctx.beginPath();ctx.moveTo(0,mid);
+    for(var i=0;i<n;i++){var tt=i/n;
+      var v=(0.3+0.6*Math.abs(Math.sin(tt*Math.PI*(8+seed(c.s)*6)+c.s)))*(0.45+0.55*seed(i*1.7+c.s));
+      pk.push(Math.min(1,v));ctx.lineTo(i/n*w,mid-pk[i]*amp);}
+    for(var j=n-1;j>=0;j--){ctx.lineTo(j/n*w,mid+pk[j]*amp);}
+    ctx.closePath();ctx.fill();
+  }
+  function wave(ctx,w,h,c,col,half){
+    // fills the whole body height
+    var top=0,bh=h; var mid=top+bh*0.5, amp=bh*0.46;
+    var n=Math.max(8,Math.floor(w/2));
+    ctx.fillStyle=col;ctx.beginPath();ctx.moveTo(0,mid);
+    var pk=[];
+    for(var i=0;i<n;i++){var tt=i/n;
+      var env=/Suspense|Deep|Si-Fi/.test(c.title||'')?0.7:1;
+      var v=(0.35+0.55*Math.abs(Math.sin(tt*Math.PI*(7+seed(c.s)*6)+c.s)))*(0.5+0.5*seed(i*1.7+c.s))*env;
+      pk.push(Math.min(1,v));ctx.lineTo(i/n*w,mid-pk[i]*amp);
+    }
+    for(var j=n-1;j>=0;j--){ctx.lineTo(j/n*w,mid+pk[j]*amp);}
+    ctx.closePath();ctx.fill();
+  }
+  function thumbWhite(ctx,w,h){
+    var g=ctx.createLinearGradient(0,0,0,h);g.addColorStop(0,'#f3f3f3');g.addColorStop(1,'#d9dadf');
+    ctx.fillStyle=g;ctx.fillRect(0,0,w,h);
+    ctx.strokeStyle='rgba(0,0,0,.18)';ctx.lineWidth=1;
+    for(var y=h*0.4;y<h;y+=5){ctx.beginPath();ctx.moveTo(6,y);ctx.lineTo(w-6,y);ctx.stroke();}
+  }
+  function thumbWhats(ctx,w,h,c){
+    var cols=[['#0e6e63','#e8e0c8','#b23a2e'],['#16463f','#f0ead2','#cf6a3a'],['#10544c','#ece3c6','#9a2f2f']];
+    var p=cols[Math.floor(seed(c.s)*cols.length)%cols.length];
+    ctx.fillStyle=p[1];ctx.fillRect(0,0,w,h);
+    ctx.fillStyle=p[0];ctx.fillRect(0,0,w,Math.round(h*0.28));
+    ctx.fillStyle=p[2];ctx.font='bold '+Math.round(h*0.22)+'px Georgia,serif';ctx.textBaseline='middle';
+    ctx.fillText('REVISTA',5,h*0.55);
+    ctx.fillStyle=p[0];ctx.fillRect(5,h*0.74,w-10,2);
+  }
+
+  // ---- playhead drag ----
+  var lanes=document.getElementById('lanes'),ph=document.getElementById('playhead'),head=document.getElementById('phHead');
+  var drag=false;
+  function setPh(cx){var rect=lanes.getBoundingClientRect();var px=Math.max(0,Math.min(x(TLEN),cx-rect.left));ph.style.left=px+'px';head.setAttribute('aria-valuenow',(px/PPS).toFixed(1));}
+  head.addEventListener('pointerdown',function(e){drag=true;head.setPointerCapture(e.pointerId);});
+  head.addEventListener('pointermove',function(e){if(drag)setPh(e.clientX);});
+  head.addEventListener('pointerup',function(){drag=false;});
+  ruler.addEventListener('pointerdown',function(e){setPh(e.clientX);});
+})();
+</script>
+</body>
+</html>

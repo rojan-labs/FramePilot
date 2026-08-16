@@ -1,0 +1,323 @@
+/**
+ * Tests for the Critic / Review agent (PRD §8.6). The Critic is pure and
+ * deterministic — every check is exercised across pass / warn / fail / skipped.
+ */
+import { describe, expect, it } from 'vitest';
+import type { Project } from '@framepilot/timeline-schema';
+import { CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID } from '@framepilot/editor-core';
+import { critique, explicitDurationTargetSeconds, timelineDuration } from './critic.js';
+import { makeProject } from './__fixtures__/project.js';
+
+const clip = (over: Record<string, unknown>) => ({
+  assetId: 'asset_1',
+  trackId: 't',
+  start: 0,
+  end: 2,
+  sourceStart: 0,
+  sourceEnd: 2,
+  effects: [],
+  keyframes: [],
+  ...over,
+});
+
+/** Build a project with arbitrary tracks for a targeted check. */
+const withTracks = (tracks: unknown[], over: Partial<Project> = {}): Project =>
+  makeProject({ timeline: { tracks } as Project['timeline'], ...over });
+
+const idOf = (report: ReturnType<typeof critique>, id: string) =>
+  report.checks.find((c) => c.id === id);
+
+describe('timelineDuration', () => {
+  it('is the latest clip end, 0 for empty', () => {
+    expect(timelineDuration(makeProject().timeline)).toBe(10);
+    expect(timelineDuration({ tracks: [] })).toBe(0);
+  });
+});
+
+describe('explicitDurationTargetSeconds', () => {
+  it('extracts explicit whole-deliverable lengths', () => {
+    expect(explicitDurationTargetSeconds('I want full video of 30 seconds')).toBe(30);
+    expect(explicitDurationTargetSeconds('Create a 45-second montage')).toBe(45);
+    expect(explicitDurationTargetSeconds('Make it 1.5 minutes long')).toBe(90);
+  });
+
+  it('does not mistake an edit timestamp for a duration goal', () => {
+    expect(explicitDurationTargetSeconds('Cut at 30 seconds and add a transition')).toBeUndefined();
+    expect(explicitDurationTargetSeconds('Move this clip to 12s')).toBeUndefined();
+  });
+});
+
+describe('critique — shape', () => {
+  it('preserves the existing PRD §8.6 check set when no temporal review ran', () => {
+    const report = critique(makeProject());
+    expect(report.checks.map((c) => c.id)).toEqual([
+      'request_match',
+      'duration_target',
+      'caption_alignment',
+      'safe_area',
+      'audio_clipping',
+      'black_frames',
+      'missing_assets',
+      'export_settings',
+    ]);
+  });
+
+  it('ok is false only when a check fails; warnings still pass', () => {
+    const ok = critique(makeProject(), { producedChanges: true });
+    expect(ok.ok).toBe(true);
+    expect(ok.summary).toBe('All checks passed.');
+
+    const warned = critique(makeProject(), { producedChanges: false });
+    expect(warned.ok).toBe(true);
+    expect(warned.summary).toMatch(/warning/);
+  });
+});
+
+describe('request_match', () => {
+  it('warns when no changes were produced, passes otherwise', () => {
+    expect(idOf(critique(makeProject(), { producedChanges: false }), 'request_match')?.status).toBe(
+      'warn',
+    );
+    expect(idOf(critique(makeProject(), { producedChanges: true }), 'request_match')?.status).toBe(
+      'pass',
+    );
+    expect(idOf(critique(makeProject()), 'request_match')?.status).toBe('pass');
+  });
+});
+
+describe('duration_target', () => {
+  it('skips with no target, passes within tolerance, fails outside', () => {
+    expect(idOf(critique(makeProject()), 'duration_target')?.status).toBe('skipped');
+    expect(
+      idOf(critique(makeProject(), { durationTargetSeconds: 10 }), 'duration_target')?.status,
+    ).toBe('pass');
+    expect(
+      idOf(critique(makeProject(), { durationTargetSeconds: 45 }), 'duration_target')?.status,
+    ).toBe('fail');
+    // custom tolerance widens the pass window
+    expect(
+      idOf(
+        critique(makeProject(), { durationTargetSeconds: 14, durationToleranceSeconds: 5 }),
+        'duration_target',
+      )?.status,
+    ).toBe('pass');
+  });
+});
+
+describe('caption_alignment', () => {
+  it('skips when no caption track exists', () => {
+    expect(idOf(critique(makeProject()), 'caption_alignment')?.status).toBe('skipped');
+  });
+
+  it('passes captions inside the program with positive duration', () => {
+    const project = withTracks([
+      { id: 'video_1', type: 'video', clips: [clip({ id: 'v', end: 10, sourceEnd: 10 })] },
+      {
+        id: 'caption_1',
+        type: 'caption',
+        clips: [clip({ id: 'c', assetId: CAPTION_ASSET_ID, start: 1, end: 3, sourceEnd: 3 })],
+      },
+    ]);
+    expect(idOf(critique(project), 'caption_alignment')?.status).toBe('pass');
+  });
+
+  it('falls back to full timeline length when there is no video/audio content', () => {
+    // A caption-only timeline has no video/audio, so contentDuration falls back
+    // to the overall timeline length and the caption is considered in-bounds.
+    const project = withTracks([
+      {
+        id: 'caption_1',
+        type: 'caption',
+        clips: [clip({ id: 'c', assetId: CAPTION_ASSET_ID, start: 0, end: 3, sourceEnd: 3 })],
+      },
+    ]);
+    expect(idOf(critique(project), 'caption_alignment')?.status).toBe('pass');
+  });
+
+  it('fails a caption that runs past the program end', () => {
+    const project = withTracks([
+      { id: 'video_1', type: 'video', clips: [clip({ id: 'v', end: 5, sourceEnd: 5 })] },
+      {
+        id: 'caption_1',
+        type: 'caption',
+        clips: [clip({ id: 'c', assetId: CAPTION_ASSET_ID, start: 4, end: 9, sourceEnd: 9 })],
+      },
+    ]);
+    const check = idOf(critique(project), 'caption_alignment');
+    expect(check?.status).toBe('fail');
+    expect(check?.detail).toMatch(/past program end/);
+  });
+});
+
+describe('safe_area', () => {
+  it('skips when overlays carry no explicit position', () => {
+    const project = withTracks([
+      {
+        id: 'overlay_1',
+        type: 'overlay',
+        clips: [clip({ id: 'o', assetId: TEXT_OVERLAY_ASSET_ID })],
+      },
+    ]);
+    expect(idOf(critique(project), 'safe_area')?.status).toBe('skipped');
+  });
+
+  it('passes a positioned overlay inside the safe area', () => {
+    const project = withTracks([
+      {
+        id: 'overlay_1',
+        type: 'overlay',
+        clips: [
+          clip({
+            id: 'o',
+            assetId: TEXT_OVERLAY_ASSET_ID,
+            effects: [{ id: 'e', type: 'transform', params: { x: 0.5, y: 0.5 }, keyframes: [] }],
+          }),
+        ],
+      },
+    ]);
+    expect(idOf(critique(project), 'safe_area')?.status).toBe('pass');
+  });
+
+  it('warns when a positioned overlay sits outside the safe area', () => {
+    const project = withTracks([
+      {
+        id: 'overlay_1',
+        type: 'overlay',
+        clips: [
+          clip({
+            id: 'o',
+            assetId: TEXT_OVERLAY_ASSET_ID,
+            effects: [{ id: 'e', type: 'transform', params: { x: 0.02, y: 0.5 }, keyframes: [] }],
+          }),
+        ],
+      },
+    ]);
+    expect(idOf(critique(project), 'safe_area')?.status).toBe('warn');
+  });
+
+  it('ignores non-positional effects, non-numeric coords, and partial coords', () => {
+    const project = withTracks([
+      {
+        id: 'overlay_1',
+        type: 'overlay',
+        clips: [
+          clip({
+            id: 'o',
+            assetId: TEXT_OVERLAY_ASSET_ID,
+            effects: [
+              // no x/y — skipped
+              { id: 'e0', type: 'color_grade', params: { exposure: 0.2 }, keyframes: [] },
+              // non-numeric x is ignored; y is in-range
+              { id: 'e1', type: 'transform', params: { x: 'nope', y: 0.5 }, keyframes: [] },
+              // y-only, out of range → flagged with an em-dash for the missing x
+              { id: 'e2', type: 'transform', params: { y: 0.98 }, keyframes: [] },
+              // x-only, out of range → flagged with an em-dash for the missing y
+              { id: 'e3', type: 'transform', params: { x: 0.99 }, keyframes: [] },
+            ],
+          }),
+        ],
+      },
+    ]);
+    const check = idOf(critique(project), 'safe_area');
+    expect(check?.status).toBe('warn');
+    expect(check?.detail).toContain('(—,');
+    expect(check?.detail).toContain(', —)');
+  });
+});
+
+describe('audio_clipping / black_frames (render-derived)', () => {
+  it('skips without a render report', () => {
+    const report = critique(makeProject());
+    expect(idOf(report, 'audio_clipping')?.status).toBe('skipped');
+    expect(idOf(report, 'black_frames')?.status).toBe('skipped');
+  });
+
+  it('reflects the render validator verdict', () => {
+    const bad = critique(makeProject(), { render: { audioClipping: true, hasBlackFrames: true } });
+    expect(idOf(bad, 'audio_clipping')?.status).toBe('fail');
+    expect(idOf(bad, 'black_frames')?.status).toBe('fail');
+
+    const good = critique(makeProject(), {
+      render: { audioClipping: false, hasBlackFrames: false },
+    });
+    expect(idOf(good, 'audio_clipping')?.status).toBe('pass');
+    expect(idOf(good, 'black_frames')?.status).toBe('pass');
+  });
+});
+
+describe('temporal_evidence', () => {
+  it('is additive when a temporal review ran and passes a complete report', () => {
+    expect(idOf(critique(makeProject()), 'temporal_evidence')).toBeUndefined();
+    const report = critique(makeProject(), {
+      temporal: {
+        ok: true,
+        projectRevision: 4,
+        evidenceRequestIds: ['window'],
+        checks: [{ requestId: 'window', kind: 'range', status: 'pass', issues: [] }],
+      },
+    });
+    expect(idOf(report, 'temporal_evidence')?.status).toBe('pass');
+  });
+
+  it('fails when evidence fails or was not returned', () => {
+    const report = critique(makeProject(), {
+      temporal: {
+        ok: false,
+        projectRevision: 4,
+        evidenceRequestIds: ['window'],
+        checks: [
+          {
+            requestId: 'window',
+            kind: 'range',
+            status: 'skipped',
+            issues: ['Evidence was not returned.'],
+          },
+        ],
+      },
+    });
+    expect(idOf(report, 'temporal_evidence')).toMatchObject({ status: 'fail' });
+    expect(report.ok).toBe(false);
+  });
+});
+
+describe('missing_assets', () => {
+  it('passes when every clip references a known or synthetic asset', () => {
+    const project = withTracks([
+      { id: 'video_1', type: 'video', clips: [clip({ id: 'v' })] },
+      { id: 'caption_1', type: 'caption', clips: [clip({ id: 'c', assetId: CAPTION_ASSET_ID })] },
+    ]);
+    expect(idOf(critique(project), 'missing_assets')?.status).toBe('pass');
+  });
+
+  it('fails when a clip references an unknown asset', () => {
+    const project = withTracks([
+      { id: 'video_1', type: 'video', clips: [clip({ id: 'v', assetId: 'ghost' })] },
+    ]);
+    const check = idOf(critique(project), 'missing_assets');
+    expect(check?.status).toBe('fail');
+    expect(check?.detail).toMatch(/ghost/);
+  });
+});
+
+describe('export_settings', () => {
+  it('skips without a target platform', () => {
+    expect(idOf(critique(makeProject()), 'export_settings')?.status).toBe('skipped');
+  });
+
+  it('warns when a vertical platform gets a landscape frame', () => {
+    expect(
+      idOf(critique(makeProject(), { targetPlatform: 'reels' }), 'export_settings')?.status,
+    ).toBe('warn');
+  });
+
+  it('passes when the frame suits the platform', () => {
+    const portrait = makeProject({ resolution: { width: 1080, height: 1920 } });
+    expect(idOf(critique(portrait, { targetPlatform: 'reels' }), 'export_settings')?.status).toBe(
+      'pass',
+    );
+    // landscape platform with landscape frame
+    expect(
+      idOf(critique(makeProject(), { targetPlatform: 'linkedin' }), 'export_settings')?.status,
+    ).toBe('pass');
+  });
+});

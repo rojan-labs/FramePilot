@@ -1,0 +1,9 @@
+# Next.js build output
+/.next/
+/out/
+
+# Generated TypeScript env
+next-env.d.ts
+
+# Vercel
+.vercel

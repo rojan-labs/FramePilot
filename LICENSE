@@ -1,0 +1,100 @@
+FramePilot Source-Available Non-Commercial License
+Version 2.0
+
+Copyright (c) 2026 Rojan Acharya. All rights reserved.
+
+FramePilot is source-available software. It is not open-source software under the
+Open Source Initiative definition, and it is not licensed under the MIT License, the
+GNU General Public License, or any other OSI-approved license. This license grants a
+limited, revocable, non-exclusive, non-transferable right to view, run, modify, and
+contribute to the source code strictly for non-commercial purposes, as described below.
+
+1. Permitted non-commercial use
+
+Subject to Section 2 and the other terms of this license, you may, at no charge:
+
+- view, clone, and fork this repository;
+- build and run the source code, unmodified or modified, for your own personal
+  evaluation, learning, non-commercial hobby projects, or academic research;
+- modify the source code for the permitted uses above; and
+- submit contributions (code, documentation, or other material) back to this
+  repository under the terms of Section 5.
+
+Any copy or modified version you run or distribute under this license remains subject
+to every term of this license, including the non-commercial restriction in Section 2.
+
+2. No commercial use
+
+"Commercial use" means any use of the source code, or of a modified or unmodified copy
+of it, that is intended for or directed toward commercial advantage, monetary
+compensation, or other business purposes. This includes, without limitation:
+
+- using the source code, or software built from it, in the course of a business,
+  including internal use by a company, organization, or freelancer, whether or not the
+  software itself is sold;
+- providing the software, or a modified version of it, to third parties as a hosted or
+  managed service (including SaaS, agency, or consulting delivery);
+- selling, renting, leasing, sublicensing, or otherwise commercially distributing the
+  source code or derivative works;
+- incorporating the source code or substantial portions of it into another product,
+  service, library, model, dataset, or codebase that is sold, monetized, or offered
+  commercially; and
+- using the source code to build or operate a competing product or service.
+
+Commercial use of any kind requires a separate written commercial license from the
+copyright holder. Contact the repository owner through GitHub to request one. This
+non-commercial license grants no rights whatsoever for commercial use, even for a
+free trial, evaluation copy, or internal pilot.
+
+3. Trademarks, notices, and integrity
+
+You may not remove or alter copyright, license, trademark, or other proprietary
+notices in the source code. No trademark rights are granted by this license. You may
+not represent a modified version as the official FramePilot product.
+
+4. Third-party components
+
+This repository may contain or depend on third-party software, models, media, fonts,
+or other materials. Those materials remain subject to their respective licenses and
+notices. This license applies only to the original FramePilot material for which the
+copyright holder has the right to grant these terms.
+
+5. Contributions
+
+By submitting a contribution (a pull request, patch, or other material) to this
+repository, you license that contribution to the copyright holder, and the copyright
+holder licenses it back to the community, under the same terms as this license
+("inbound = outbound"). You represent that you have the right to submit the
+contribution under these terms. No separate Contributor License Agreement is required.
+The copyright holder retains full discretion over whether to accept any contribution.
+
+6. Patents
+
+No patent license is granted except to the extent one is required by applicable law
+for the non-commercial rights granted in Section 1. No patent rights are granted for
+any commercial use.
+
+7. Termination
+
+This license and the rights granted under it terminate automatically if you breach any
+term, including the non-commercial restriction in Section 2. Upon termination, you must
+stop using and destroy any copies of the source code in your possession, except as
+required to preserve evidence of compliance or as otherwise required by law.
+
+8. No warranty
+
+THE SOFTWARE AND SOURCE CODE ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. TO THE MAXIMUM EXTENT
+PERMITTED BY LAW, THE COPYRIGHT HOLDER SHALL NOT BE LIABLE FOR ANY CLAIM, DAMAGES, OR
+OTHER LIABILITY ARISING FROM OR RELATING TO THE SOFTWARE OR SOURCE CODE.
+
+9. Separate commercial permissions
+
+Commercial use, redistribution, hosting, integration into a commercial product, or any
+other use not permitted under Section 1 requires a separate written agreement with the
+copyright holder. The FramePilot packaged desktop application distributed for purchase
+is a separate commercial product governed by its own terms and is not affected by, and
+does not derive any rights from, this license.
+
+For permission requests, contact the repository owner through GitHub.

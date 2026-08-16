@@ -1,0 +1,241 @@
+{
+  "timeline": {
+    "revision": 0,
+    "tracks": [
+      {
+        "id": "video_main",
+        "type": "video",
+        "clips": [
+          {
+            "id": "clip_a",
+            "assetId": "asset_a",
+            "trackId": "video_main",
+            "start": 0,
+            "end": 4,
+            "sourceStart": 0,
+            "sourceEnd": 4,
+            "effects": [],
+            "keyframes": []
+          },
+          {
+            "id": "clip_b",
+            "assetId": "asset_b",
+            "trackId": "video_main",
+            "start": 4,
+            "end": 8,
+            "sourceStart": 0,
+            "sourceEnd": 4,
+            "effects": [],
+            "keyframes": []
+          }
+        ]
+      },
+      { "id": "overlay_main", "type": "overlay", "clips": [] }
+    ]
+  },
+  "cases": [
+    {
+      "name": "trim clip",
+      "operation": { "type": "trim_clip", "clipId": "clip_a", "start": 0.5, "end": 3.5 },
+      "expect": {
+        "clipId": "clip_a",
+        "trackId": "video_main",
+        "start": 0.5,
+        "end": 3.5,
+        "sourceStart": 0.5,
+        "sourceEnd": 3.5
+      }
+    },
+    {
+      "name": "split clip",
+      "operation": { "type": "split_clip", "clipId": "clip_a", "at": 2 },
+      "expect": {
+        "trackId": "video_main",
+        "clipIds": ["clip_a", "clip_a__split_2000", "clip_b"],
+        "boundary": 2
+      }
+    },
+    {
+      "name": "move clip",
+      "operation": {
+        "type": "move_clip",
+        "clipId": "clip_a",
+        "toTrackId": "overlay_main",
+        "toStart": 1
+      },
+      "expect": { "clipId": "clip_a", "trackId": "overlay_main", "start": 1, "end": 5 }
+    },
+    {
+      "name": "add text",
+      "operation": {
+        "type": "add_text_overlay",
+        "trackId": "overlay_main",
+        "text": "FramePilot",
+        "start": 1,
+        "end": 3,
+        "clipId": "title_1"
+      },
+      "expect": {
+        "clipId": "title_1",
+        "trackId": "overlay_main",
+        "effectType": "text",
+        "effectText": "FramePilot"
+      }
+    },
+    {
+      "name": "set track flags",
+      "operation": {
+        "type": "set_track_flags",
+        "trackId": "video_main",
+        "locked": true,
+        "muted": true
+      },
+      "expect": { "trackId": "video_main", "locked": true, "muted": true }
+    },
+    {
+      "name": "set clip speed",
+      "operation": { "type": "set_clip_speed", "clipId": "clip_a", "speed": 2 },
+      "expect": { "clipId": "clip_a", "speed": 2, "start": 0, "end": 2 }
+    },
+    {
+      "name": "set clip crop",
+      "operation": {
+        "type": "set_clip_crop",
+        "clipId": "clip_a",
+        "crop": { "x": 0.1, "y": 0.2, "width": 0.7, "height": 0.6 }
+      },
+      "expect": { "clipId": "clip_a", "crop": { "x": 0.1, "y": 0.2, "width": 0.7, "height": 0.6 } }
+    },
+    {
+      "name": "set blend mode",
+      "operation": { "type": "set_clip_blend_mode", "clipId": "clip_a", "blendMode": "multiply" },
+      "expect": { "clipId": "clip_a", "blendMode": "multiply" }
+    },
+    {
+      "name": "add mask",
+      "operation": {
+        "type": "add_mask",
+        "clipId": "clip_a",
+        "shape": "ellipse",
+        "feather": 0.2,
+        "opacity": 0.8
+      },
+      "expect": {
+        "clipId": "clip_a",
+        "effectType": "mask",
+        "shape": "ellipse",
+        "feather": 0.2,
+        "opacity": 0.8
+      }
+    },
+    {
+      "name": "adjust audio",
+      "operation": {
+        "type": "adjust_audio",
+        "clipId": "clip_a",
+        "gainDb": -3,
+        "fadeInSeconds": 0.25,
+        "muted": false
+      },
+      "expect": {
+        "clipId": "clip_a",
+        "effectType": "audio_gain",
+        "gainDb": -3,
+        "fadeInSeconds": 0.25,
+        "muted": false
+      }
+    },
+    {
+      "name": "add transition",
+      "operation": {
+        "type": "add_transition",
+        "trackId": "video_main",
+        "fromClipId": "clip_a",
+        "toClipId": "clip_b",
+        "kind": "cross-dissolve",
+        "durationSeconds": 0.5
+      },
+      "expect": {
+        "clipId": "clip_b",
+        "effectType": "transition",
+        "kind": "cross-dissolve",
+        "durationSeconds": 0.5,
+        "fromClipId": "clip_a"
+      }
+    },
+    {
+      "name": "adjust audio channel strip",
+      "operation": {
+        "type": "adjust_audio",
+        "clipId": "clip_a",
+        "gainDb": 0,
+        "eq": {
+          "bands": [
+            { "kind": "high-pass", "frequencyHz": 80 },
+            { "kind": "peaking", "frequencyHz": 3000, "gainDb": 2.5, "q": 1.2 }
+          ]
+        },
+        "dynamics": {
+          "thresholdDb": -18,
+          "ratio": 3,
+          "attackMs": 10,
+          "releaseMs": 120,
+          "makeupGainDb": 2
+        }
+      },
+      "expect": {
+        "clipId": "clip_a",
+        "effectType": "audio_gain",
+        "gainDb": 0,
+        "eq": {
+          "bands": [
+            { "kind": "high-pass", "frequencyHz": 80 },
+            { "kind": "peaking", "frequencyHz": 3000, "gainDb": 2.5, "q": 1.2 }
+          ]
+        },
+        "dynamics": {
+          "thresholdDb": -18,
+          "ratio": 3,
+          "attackMs": 10,
+          "releaseMs": 120,
+          "makeupGainDb": 2
+        }
+      }
+    },
+    {
+      "name": "adjust audio automation lane",
+      "operation": {
+        "type": "adjust_audio",
+        "clipId": "clip_a",
+        "gainDb": 0,
+        "automation": {
+          "property": "gainDb",
+          "points": [
+            { "timeSeconds": 0, "value": -20 },
+            { "timeSeconds": 2, "value": 0, "easing": "ease-in-out" }
+          ]
+        }
+      },
+      "expect": {
+        "clipId": "clip_a",
+        "effectType": "audio_gain",
+        "keyframes": [
+          {
+            "id": "clip_a__gainDb__0",
+            "time": 0,
+            "property": "gainDb",
+            "value": -20,
+            "easing": "linear"
+          },
+          {
+            "id": "clip_a__gainDb__2000",
+            "time": 2,
+            "property": "gainDb",
+            "value": 0,
+            "easing": "ease-in-out"
+          }
+        ]
+      }
+    }
+  ]
+}

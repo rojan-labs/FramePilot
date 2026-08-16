@@ -1,0 +1,45 @@
+---
+title: 'AI edits stop safely when run context is inconsistent'
+summary: 'FramePilot now keeps long edit plans visible, carries every step into assembly reliably, and refuses false completion.'
+date: '2026-07-28'
+tags: ['Improved', 'Fixed']
+---
+
+### Improved
+
+- **Your active plan stays within reach without taking over the sidebar.** Every run starts
+  with a compact, collapsed plan below the AI header, showing only the latest task and
+  progress. Open it whenever you want the full checklist.
+
+### Fixed
+
+- **A late polish step no longer throws away a finished montage.** Transitions, grading,
+  and motion accents now see the clips created earlier in the same run and are included in
+  one final check. If that optional refinement still cannot produce a safe result,
+  FramePilot clearly marks the warning and keeps the already validated cut for review
+  instead of terminating the whole edit.
+
+- **Montage clips no longer fail because a timeline track was mistaken for a media file.**
+  FramePilot now keeps those identities separate, checks the whole proposed edit before
+  moving on, and gives the agent the exact problem to correct. If the edit still cannot be
+  made safely, assembly and verification do not start and the failed step explains why.
+
+- **A montage no longer appears complete when no edits were produced.** FramePilot gives an
+  empty proposal focused, bounded correction attempts. If it still cannot produce the
+  requested timeline changes, the exact step fails clearly instead of checking off assembly
+  and verification.
+
+- **Complex planned edits no longer stop just before the proposal is assembled.** The
+  steps already connected in a plan now carry their results forward automatically, so a
+  montage can move from footage analysis through assembly without failing over a missing
+  internal reference.
+
+- **An AI run can no longer keep editing after losing its objective or committed plan.**
+  FramePilot now saves the request and plan before applying changes, links each operation
+  back to that plan, and avoids repeating an operation during recovery. If the durable run
+  state is missing, stale, or inconsistent, later edits pause safely and the existing
+  timeline is preserved for review.
+
+- **“All checks passed” now requires real completion evidence.** Verification reconciles
+  the committed deliverables with the edits that actually landed. An incomplete or
+  untraceable run ends honestly instead of presenting a successful summary.

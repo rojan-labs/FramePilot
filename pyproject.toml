@@ -1,0 +1,88 @@
+# Root pyproject for the FramePilot Python render engine.
+# The actual installable package lives in engine/python/framepilot_engine and is
+# declared as the `framepilot-engine` uv workspace member. This root file is NOT
+# itself a package — it only (a) hosts shared tooling config (ruff/mypy/pytest/
+# coverage) so those tools run from the repo root, and (b) points uv at the
+# engine workspace. It therefore carries a distinct name and `package = false`
+# so uv does not treat it as a second member colliding with the engine package.
+[project]
+name = "framepilot-workspace"
+version = "0.0.0"
+description = "Workspace root + shared tooling config for the FramePilot engine"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Rojan Acharya and FramePilot contributors" }]
+# The root depends on the engine member (resolved from the workspace, below) so
+# `uv sync` installs it editable into the environment — that is what makes
+# `import framepilot_engine` and the `framepilot` console script work. The
+# member owns the real runtime dependencies (moviepy, fastapi, …); the root does
+# not duplicate them.
+dependencies = [
+  "framepilot-engine",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "pytest-cov>=5.0",
+  "pytest-asyncio>=0.24",
+  "ruff>=0.6",
+  "mypy>=1.11",
+  "httpx>=0.27",
+  # Mirrors the engine member's dev extra (respx mocks the NVIDIA embeddings
+  # HTTP surface — plan §6: no live API calls in any test tier). Apache-2.0.
+  "respx>=0.21",
+]
+# Mirrors the engine member's `package` extra (desktop packaging via PyInstaller;
+# build-time only — see engine/python/pyproject.toml for the WHY/license note).
+package = [
+  "pyinstaller>=6.10",
+]
+
+# NOTE: the `framepilot` console script is declared by the engine package
+# (engine/python/pyproject.toml), not here — this root is not an installable
+# package (see header + `package = false` below).
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+framepilot-engine = { workspace = true }
+
+[tool.uv.workspace]
+members = ["engine/python"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["engine/python"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "PTH", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["engine/python/framepilot_engine"]
+plugins = ["pydantic.mypy"]
+
+# Media libraries (MoviePy + the bundled ffmpeg locator) ship no type stubs or
+# py.typed marker, so strict mode cannot analyse them. Ignore missing imports for
+# just these modules rather than weakening strictness engine-wide.
+[[tool.mypy.overrides]]
+module = ["imageio_ffmpeg.*", "moviepy.*", "sqlite_vec.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["engine/python/tests"]
+asyncio_mode = "auto"
+addopts = "-ra --strict-markers"
+
+[tool.coverage.run]
+source = ["engine/python/framepilot_engine"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "twelvelabs-docs": {
+      "type": "http",
+      "url": "https://docs.twelvelabs.io/_mcp/server"
+    }
+  }
+}

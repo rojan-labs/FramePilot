@@ -1,0 +1,640 @@
+/*
+ * FramePilot editor visual direction.
+ *
+ * Loaded after the editor's existing styles, this file is a presentation layer
+ * over the current editor DOM. It does not replace editor behavior. Timeline
+ * interactions, rails, drag/drop, keyboard workflows, preview, AI sessions,
+ * dialogs, export, and persistence remain owned by their existing components.
+ *
+ * Direction: white / soft-gray chrome, black primary actions, a neutral-black
+ * program monitor, restrained orange for AI/focus/playhead state, and semantic
+ * timeline colours where colour communicates editing meaning.
+ */
+
+:root {
+  --fp-orange: #ef6427;
+  --fp-orange-hover: #d9551d;
+  --fp-orange-soft: rgba(239, 100, 39, 0.1);
+  --fp-orange-border: rgba(239, 100, 39, 0.34);
+  --fp-chrome-radius: 7px;
+  --fp-control-radius: 6px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    color-scheme: light;
+    --bg-app: #f1f1ef;
+    --bg-panel: #f7f7f5;
+    --bg-surface: #ffffff;
+    --bg-elevated: #ffffff;
+    --bg-hover: rgba(17, 17, 15, 0.045);
+    --bg-active: rgba(17, 17, 15, 0.075);
+    --bg-selected: rgba(17, 17, 15, 0.085);
+    --bg-canvas: #101012;
+    --border-subtle: rgba(17, 17, 15, 0.055);
+    --border-default: rgba(17, 17, 15, 0.095);
+    --border-strong: rgba(17, 17, 15, 0.17);
+    --text-primary: rgba(17, 17, 15, 0.94);
+    --text-secondary: rgba(17, 17, 15, 0.66);
+    --text-tertiary: rgba(17, 17, 15, 0.49);
+    --text-disabled: rgba(17, 17, 15, 0.3);
+    --accent: #171715;
+    --accent-hover: #000000;
+    --accent-text: #ffffff;
+    --accent-subtle: rgba(17, 17, 15, 0.075);
+    --focus-ring: rgba(239, 100, 39, 0.62);
+    --playhead: var(--fp-orange);
+    --bg-raised: #fafaf8;
+    --track-lane: rgba(17, 17, 15, 0.018);
+    --ruler-tick: rgba(17, 17, 15, 0.22);
+    --transition-fill: rgba(17, 17, 15, 0.12);
+    --transition-border: rgba(17, 17, 15, 0.3);
+    --shadow-sm: 0 1px 2px rgba(17, 17, 15, 0.045);
+    --shadow-md: 0 1px 2px rgba(17, 17, 15, 0.035), 0 7px 20px rgba(17, 17, 15, 0.075);
+    --shadow-lg: 0 1px 2px rgba(17, 17, 15, 0.04), 0 16px 40px rgba(17, 17, 15, 0.1);
+    --clip-backing: #e7e7e4;
+    --clip-backing-image: #e3e3e0;
+    --clip-backing-skeleton: #ecece9;
+  }
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg-app: #f1f1ef;
+  --bg-panel: #f7f7f5;
+  --bg-surface: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-hover: rgba(17, 17, 15, 0.045);
+  --bg-active: rgba(17, 17, 15, 0.075);
+  --bg-selected: rgba(17, 17, 15, 0.085);
+  --bg-canvas: #101012;
+  --border-subtle: rgba(17, 17, 15, 0.055);
+  --border-default: rgba(17, 17, 15, 0.095);
+  --border-strong: rgba(17, 17, 15, 0.17);
+  --text-primary: rgba(17, 17, 15, 0.94);
+  --text-secondary: rgba(17, 17, 15, 0.66);
+  --text-tertiary: rgba(17, 17, 15, 0.49);
+  --text-disabled: rgba(17, 17, 15, 0.3);
+  --accent: #171715;
+  --accent-hover: #000000;
+  --accent-text: #ffffff;
+  --accent-subtle: rgba(17, 17, 15, 0.075);
+  --focus-ring: rgba(239, 100, 39, 0.62);
+  --playhead: var(--fp-orange);
+  --bg-raised: #fafaf8;
+  --track-lane: rgba(17, 17, 15, 0.018);
+  --ruler-tick: rgba(17, 17, 15, 0.22);
+  --transition-fill: rgba(17, 17, 15, 0.12);
+  --transition-border: rgba(17, 17, 15, 0.3);
+  --shadow-sm: 0 1px 2px rgba(17, 17, 15, 0.045);
+  --shadow-md: 0 1px 2px rgba(17, 17, 15, 0.035), 0 7px 20px rgba(17, 17, 15, 0.075);
+  --shadow-lg: 0 1px 2px rgba(17, 17, 15, 0.04), 0 16px 40px rgba(17, 17, 15, 0.1);
+  --clip-backing: #e7e7e4;
+  --clip-backing-image: #e3e3e0;
+  --clip-backing-skeleton: #ecece9;
+}
+
+/* Application chrome ----------------------------------------------------- */
+
+.topbar {
+  height: 54px;
+  gap: 10px;
+  padding: 0 14px;
+  background: var(--bg-surface);
+  border-bottom-color: var(--border-default);
+}
+
+/* File is still the same menu. This adds only the product label from the
+   approved reference beside its existing FramePilot mark. */
+.topbar-file .menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.topbar-file .menu-trigger::after {
+  content: 'FramePilot';
+  font-size: 13px;
+  letter-spacing: -0.015em;
+  white-space: nowrap;
+}
+
+.topbar-logo {
+  width: 30px;
+  height: 30px;
+}
+
+.topbar-logo-mark {
+  width: 23px;
+  height: 23px;
+}
+
+.topbar-title {
+  min-height: 30px;
+  border-radius: var(--fp-control-radius);
+}
+
+.topbar-actions {
+  gap: 3px;
+}
+
+.topbar-actions-divider {
+  height: 22px;
+  margin-inline: 5px;
+  background: var(--border-default);
+}
+
+.topbar [data-variant] {
+  border-radius: var(--fp-control-radius);
+}
+
+.topbar .export-btn {
+  min-width: 78px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08);
+}
+
+/* Workspace and rails ---------------------------------------------------- */
+
+.editor-workspace,
+.editor-main,
+.framepilot-body,
+.stage-col,
+.timeline-dock {
+  background: var(--bg-panel);
+}
+
+.rail,
+.rail-left-body,
+.rail-body {
+  background: var(--bg-surface);
+}
+
+.rail-left,
+.rail-right {
+  border-color: var(--border-subtle);
+}
+
+.rail-activitybar {
+  width: 58px;
+  padding: 10px 7px 8px;
+  gap: 4px;
+  background: var(--bg-raised);
+  border-right: 1px solid var(--border-subtle);
+}
+
+.activity-tab {
+  width: 44px;
+  height: 46px;
+  border-radius: var(--fp-control-radius);
+  color: var(--text-tertiary);
+}
+
+/* The reference labels the primary tool rail. Existing aria-labels supply the
+   visual text too, so no separate navigation source of truth is introduced. */
+.activity-tab::after {
+  content: attr(aria-label);
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: 4px;
+  overflow: hidden;
+  color: currentColor;
+  font-size: 9px;
+  font-weight: var(--font-weight-medium);
+  line-height: 1;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-tab > svg {
+  transform: translateY(-6px);
+}
+
+.activity-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.activity-tab.is-active {
+  color: var(--text-primary);
+  background: var(--bg-active);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+}
+
+.activity-tab.is-active::before {
+  content: '';
+  position: absolute;
+  top: 7px;
+  left: 4px;
+  width: 2px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--fp-orange);
+}
+
+.rail-head,
+.rail-tabs {
+  min-height: 48px;
+  background: var(--bg-surface);
+  border-bottom-color: var(--border-default);
+}
+
+.rail-tabs {
+  padding-inline: 10px;
+}
+
+.rail-tabs button {
+  min-height: 48px;
+  border-bottom-width: 2px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+}
+
+.rail-tabs button[aria-selected='true'] {
+  color: var(--fp-orange);
+  border-bottom-color: var(--fp-orange);
+}
+
+.rail-collapse,
+.rail-expand {
+  border-radius: var(--fp-control-radius);
+}
+
+/* Program / source monitor ---------------------------------------------- */
+
+.stage-monitor,
+.preview-stage,
+.source-stage {
+  background: var(--bg-panel);
+}
+
+.monitor-header {
+  min-height: 42px;
+  padding-inline: 12px;
+  background: var(--bg-surface);
+  border-bottom-color: var(--border-default);
+}
+
+.monitor-tab {
+  border-radius: var(--fp-control-radius);
+  color: var(--text-tertiary);
+}
+
+.monitor-tab:hover,
+.monitor-tab.is-active,
+.monitor-tab[aria-selected='true'] {
+  color: var(--text-primary);
+}
+
+.preview-frame,
+.source-frame {
+  overflow: hidden;
+  background: var(--bg-canvas);
+  border-radius: var(--fp-chrome-radius);
+  box-shadow: 0 0 0 1px var(--border-default);
+}
+
+.preview-transport,
+.source-transport {
+  background: var(--bg-surface);
+  border-top-color: var(--border-subtle);
+}
+
+/* Media / authoring panels ---------------------------------------------- */
+
+.bin-card-thumb,
+.bin-thumb {
+  border-radius: var(--fp-chrome-radius);
+}
+
+.bin-card-thumb {
+  overflow: hidden;
+  background: var(--bg-panel);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+}
+
+.bin-card-name {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.bin-card:hover .bin-card-name,
+.bin-card:focus-within .bin-card-name {
+  color: var(--text-primary);
+}
+
+.bin-card-open:focus-visible {
+  outline: 2px solid var(--fp-orange);
+  outline-offset: 2px;
+  border-radius: var(--fp-chrome-radius);
+}
+
+.bin-card-dur {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.68);
+  color: rgba(255, 255, 255, 0.94);
+}
+
+.bin-card-icon-btn {
+  border-radius: 5px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
+}
+
+[data-ui='input'],
+.select-trigger,
+select,
+.bin-folder-input {
+  border-radius: var(--fp-control-radius);
+  background: var(--bg-surface);
+  border-color: var(--border-default);
+  box-shadow: none;
+}
+
+[data-ui='input']:focus,
+[data-ui='input']:focus-visible,
+.select-trigger:focus-visible,
+select:focus-visible,
+.bin-folder-input:focus-visible {
+  border-color: var(--fp-orange);
+  box-shadow: 0 0 0 3px var(--fp-orange-soft);
+}
+
+/* Timeline --------------------------------------------------------------- */
+
+.timeline-dock {
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-default);
+}
+
+.toolbar {
+  min-height: 42px;
+  padding-inline: 10px;
+  background: var(--bg-surface);
+  border-bottom-color: var(--border-default);
+}
+
+.toolbar-group {
+  gap: 2px;
+}
+
+.toolbar .icon-btn,
+.timeline-tool {
+  border-radius: 5px;
+}
+
+.toolbar .icon-btn.is-active,
+.timeline-tool.is-active {
+  color: var(--fp-orange);
+  background: var(--fp-orange-soft);
+}
+
+.toolbar .icon-btn.is-active:hover,
+.timeline-tool.is-active:hover {
+  color: var(--fp-orange-hover);
+  background: rgba(239, 100, 39, 0.14);
+}
+
+.timeline,
+.timeline-view,
+.timeline-shell,
+.timeline-vscroll,
+.lane-scroll {
+  background-color: var(--bg-surface);
+}
+
+.track-header,
+.timeline-track-header,
+.timeline-ruler {
+  background: var(--bg-surface);
+  border-color: var(--border-subtle);
+}
+
+/* AI / Inspector --------------------------------------------------------- */
+
+.ai-sidebar,
+.inspector,
+.ai-stream {
+  background: var(--bg-surface);
+}
+
+.ai-sidebar-header {
+  min-height: 48px;
+  padding-inline: 12px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ai-mode-current {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.ai-mode-current svg,
+.ai-sidebar-header .ai-header-toggle:focus-within {
+  color: var(--fp-orange);
+}
+
+.ai-toggle-input:checked + .ai-toggle-track {
+  background: var(--fp-orange);
+  border-color: var(--fp-orange);
+}
+
+.ai-stream-inner {
+  padding-inline: 12px;
+}
+
+.ai-empty {
+  padding: 28px 14px 20px;
+}
+
+.ai-empty-title {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.015em;
+}
+
+.ai-empty-sub {
+  max-width: 28ch;
+  color: var(--text-tertiary);
+  line-height: 1.55;
+}
+
+.ai-empty-prompts {
+  width: 100%;
+  gap: 7px;
+}
+
+.ai-empty-prompt {
+  min-height: 38px;
+  padding: 8px 11px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--fp-control-radius);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  text-align: left;
+  transition:
+    color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.ai-empty-prompt:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+.ai-empty-prompt:focus-visible {
+  outline: none;
+  border-color: var(--fp-orange);
+  box-shadow: 0 0 0 3px var(--fp-orange-soft);
+}
+
+.ai-run-footer,
+.ai-actionbar,
+.ai-agent-options,
+.ai-apikey {
+  border-color: var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.ai-apikey-btn,
+.ai-btn:not(.ai-btn--quiet) {
+  border-radius: var(--fp-control-radius);
+}
+
+/* Composer remains the existing workspace input. Slash commands, @ context,
+   attachments, stop, run status, and all keyboard behavior stay intact. */
+.ai-composer-shell {
+  padding: 10px 12px 12px;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ai-composer {
+  min-height: 44px;
+  border: 1px solid var(--border-default);
+  border-radius: 9px;
+  background: var(--bg-surface);
+  box-shadow: 0 1px 2px rgba(17, 17, 15, 0.035);
+}
+
+.ai-composer:focus-within {
+  border-color: var(--fp-orange-border);
+  box-shadow: 0 0 0 3px var(--fp-orange-soft);
+}
+
+.ai-composer-input {
+  color: var(--text-primary);
+}
+
+.ai-composer-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.ai-composer-send {
+  color: #ffffff;
+  background: var(--fp-orange);
+  border-color: var(--fp-orange);
+  border-radius: 6px;
+}
+
+.ai-composer-send:hover:not(:disabled) {
+  background: var(--fp-orange-hover);
+  border-color: var(--fp-orange-hover);
+}
+
+.ai-composer-send:disabled {
+  color: var(--text-disabled);
+  background: var(--bg-active);
+  border-color: transparent;
+}
+
+.ai-composer-stop {
+  border-radius: 6px;
+}
+
+.ai-context-chip,
+.ai-chip {
+  border-color: var(--border-default);
+  background: var(--bg-panel);
+}
+
+.ai-jump {
+  border-color: var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Shared floating surfaces ---------------------------------------------- */
+
+.menu-popover,
+.select-popover,
+.export-popover,
+.command-palette,
+.tooltip-bubble {
+  border-color: var(--border-default);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
+}
+
+.menu-popover,
+.select-popover,
+.export-popover,
+.command-palette {
+  border-radius: 9px;
+}
+
+[data-variant='secondary'] {
+  background: var(--bg-surface);
+  border-color: var(--border-default);
+}
+
+[data-variant='secondary']:hover:not(:disabled) {
+  background: var(--bg-panel);
+  border-color: var(--border-strong);
+}
+
+[data-variant='ghost'].is-active,
+.icon-btn.is-active {
+  color: var(--fp-orange);
+  background: var(--fp-orange-soft);
+}
+
+button:focus-visible,
+[role='button']:focus-visible,
+[role='tab']:focus-visible {
+  outline-color: var(--fp-orange);
+}
+
+/* Only the redundant visual product wordmark is dropped on narrower windows.
+   No interactive control is hidden or disabled by this responsive pass. */
+@media (max-width: 1100px) {
+  .topbar-file .menu-trigger::after {
+    display: none;
+  }
+
+  .rail-activitybar {
+    width: 52px;
+    padding-inline: 4px;
+  }
+
+  .activity-tab {
+    width: 42px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-empty-prompt:hover {
+    transform: none;
+  }
+}

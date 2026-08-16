@@ -1,0 +1,39 @@
+---
+description: PRIORITY — determinism, reversibility, validate-before-apply, render validation, typed errors, DoD
+globs:
+alwaysApply: true
+---
+
+# Correctness rules — PRIORITY (PRD §3, §8, §9, §20)
+
+Correctness is a first-class priority. Read `.agents/skills/correctness-verification/SKILL.md`.
+
+## The five invariants
+1. **Non-destructive** — never modify/delete original media.
+2. **Every AI edit is a typed timeline operation** — no free-form mutation.
+3. **Validate before apply** — no operation reaches apply unvalidated (PRD §8.5).
+4. **Check every render** — automatic render validation after every render (PRD §9.4).
+5. **AI edits only via tools and returns reversible patches** — never raw JSON mutation.
+
+## Determinism
+- Same project JSON → same render output. No wall-clock, no unseeded randomness, stable ordering.
+- Pure, immutable timeline operations.
+
+## Reversibility
+- Every timeline-editing operation has an `invert` and is covered by apply+invert tests.
+- Patches are revertible; undo/redo uses inverse operations.
+
+## Render validation (after every render, PRD §9.4)
+File exists & non-zero · duration matches expected · video stream present · audio stream
+present if expected · black-frame detection · audio-clipping detection. Not done until validated.
+
+## Typed errors with context
+- Errors are typed (discriminated unions / typed exceptions) and include context: what failed, which id/path, and why. No silent swallow.
+
+## Definition of Done (PRD §20)
+Works manually + via AI tool · reversible · schema documented (+ migration if changed) ·
+unit + integration tests · e2e for critical flow · coverage target met · render validated ·
+clear user-facing errors · plan/PLAN.md + docs/ + CHANGELOG.md updated.
+
+## No vanity coverage
+Coverage must come from real workflows exercising real behavior — not lines hit by accident.

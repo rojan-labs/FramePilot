@@ -1,0 +1,49 @@
+{
+  "name": "@framepilot/capability-packs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Signed on-demand Capability Pack contracts, trust verification, and storage policy.",
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "default": "./dist/node/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "framepilot-pack": "./dist/node/release-cli.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "typecheck": "tsc -b",
+    "release:pack": "pnpm build && node dist/node/release-cli.js"
+  },
+  "dependencies": {
+    "@framepilot/shared-types": "workspace:*",
+    "yauzl": "^3.2.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.9.0",
+    "@types/node": "^20.14.0",
+    "@types/yauzl": "^2.10.3",
+    "@types/yazl": "^3.3.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "eslint": "^9.9.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.1.0",
+    "yazl": "^3.3.1"
+  }
+}

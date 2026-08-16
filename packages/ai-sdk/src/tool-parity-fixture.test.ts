@@ -1,0 +1,62 @@
+/**
+ * Staleness guard for the TS↔Python tool-parity fixture.
+ *
+ * WHY: `engine/python/tests/fixtures/ts_tool_registry.json` is generated from
+ * TOOL_REGISTRY and consumed by `test_tool_registry_schema_parity.py`. The
+ * Python suite cannot execute TypeScript, so it trusts the committed fixture —
+ * which means a stale fixture would let the Python mirror drift from the real
+ * TS registry while the parity test still reported green. That is worse than no
+ * check at all: a silent false negative on the tool security boundary.
+ *
+ * This mirrors the guard already in place for generated skills: rebuild the
+ * artifact in-memory from the live source and fail if the committed file
+ * differs. Same rule, same reason.
+ */
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+// @ts-expect-error — plain .mjs generator, intentionally not part of the TS build.
+import {
+  buildFixture,
+  serializeFixture,
+  FIXTURE_PATH,
+} from '../scripts/generate-tool-parity-fixture.mjs';
+import { TOOL_REGISTRY } from './tool-registry.js';
+
+describe('tool-parity fixture', () => {
+  it('is not stale — regenerate with `pnpm --filter @framepilot/ai-sdk generate:tool-parity`', () => {
+    const rebuilt = serializeFixture(buildFixture(TOOL_REGISTRY));
+    const committed = readFileSync(FIXTURE_PATH as string, 'utf8');
+    expect(committed).toBe(rebuilt);
+  });
+
+  it('covers every registered tool', () => {
+    const fixture = buildFixture(TOOL_REGISTRY) as {
+      toolCount: number;
+      tools: Record<string, { kind: string; hostUiOnly: boolean }>;
+    };
+    expect(fixture.toolCount).toBe(TOOL_REGISTRY.length);
+    // Would silently pass an empty comparison otherwise.
+    expect(fixture.toolCount).toBeGreaterThan(30);
+    expect(fixture.tools.trim_clip?.kind).toBe('mutate');
+  });
+
+  it('keeps the exact interaction-dependent host-only allowlist', () => {
+    const fixture = buildFixture(TOOL_REGISTRY) as {
+      tools: Record<string, { kind: string; hostUiOnly: boolean }>;
+    };
+    const hostUiOnly = Object.entries(fixture.tools)
+      .filter(([, spec]) => spec.hostUiOnly)
+      .map(([name]) => name);
+    expect(hostUiOnly.sort()).toEqual(
+      [
+        'ask_user',
+        'measure_color',
+        'professional_color',
+        'professional_audio',
+        'professional_edit',
+        'professional_motion',
+        'professional_tracking_mask',
+      ].sort(),
+    );
+  });
+});

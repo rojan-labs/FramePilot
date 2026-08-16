@@ -1,0 +1,39 @@
+---
+description: PRIORITY — local file safety, path traversal prevention, agent sandbox, no arbitrary shell, secrets
+globs:
+alwaysApply: true
+---
+
+# Security rules — PRIORITY (PRD §18)
+
+Security is a first-class priority. If a change weakens any rule below, stop and ask.
+Read `.agents/skills/security-hardening/SKILL.md`.
+
+## Local file safety
+- **Never delete or overwrite original assets.** Never overwrite user files without explicit confirmation.
+- Renders go to the project `renders/` folder only.
+- Use **safe path resolution**: resolve against `FRAMEPILOT_PROJECTS_ROOT`, then verify the resolved real path stays inside the sandbox.
+
+## Path traversal prevention
+- Reject `..`, absolute-path escapes, and symlink escapes before any read/write.
+- Validate and normalize every incoming path (from UI, IPC, AI tools) with the shared safe-path helper. Never trust a raw path string.
+
+## Agent sandbox (PRD §18.2)
+- The in-app AI agent **cannot run arbitrary shell commands**, eval code, or spawn processes.
+- The agent can ONLY call **registered, schema-validated tools**.
+- Tool inputs are schema-validated before use. File operations are sandboxed to the project directory.
+
+## Render job safety
+- Every render job has a **timeout** (`FRAMEPILOT_RENDER_TIMEOUT_SECONDS`) and supports **cancellation**.
+- Long jobs cannot hang the app; failures surface useful logs.
+
+## Electron hardening
+- `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`.
+- Renderer talks to main ONLY through the **preload bridge** (a minimal, typed, allow-listed API). No `remote` module. Validate all IPC payloads.
+
+## Secrets & artifacts
+- Secrets live in **`.env` only**. Never hardcode keys. Never log secrets.
+- **Never commit** `.env`, media, proxies, renders, caches, or keys (keep them git-ignored).
+
+## Dependencies
+- No new dependency without a license check (`pnpm license:scan`) and a quick supply-chain sanity review.

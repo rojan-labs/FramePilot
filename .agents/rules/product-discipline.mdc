@@ -1,0 +1,156 @@
+---
+description: PRIORITY - protect FramePilot product focus, finished-edit quality, and scope discipline
+globs:
+alwaysApply: true
+---
+
+# Product discipline and scope gate - PRIORITY
+
+FramePilot wins by producing excellent finished edits through an AI-operable, deterministic editor.
+It does not win by accumulating the largest possible set of NLE features, abstractions, providers,
+or infrastructure.
+
+This rule applies to feature planning, architecture, implementation, reviews, and plan updates.
+Security, data-loss prevention, correctness regressions, and release blockers may override the
+product-priority order below.
+
+## 1. North-star product outcome
+
+The first product niche remains SaaS demos, screen recordings, product videos, talking-head
+content, and short-form edits.
+
+Use this as the default product benchmark for major editing work:
+
+> Given a real 5-15 minute source recording, FramePilot should be able to produce a polished
+> 30-90 second short with a strong hook, coherent cuts, removed dead time, accurate captions,
+> useful emphasis/punch-ins/B-roll where supported, clean audio, restrained transitions, a
+> correct platform export, and a fully editable/undoable timeline.
+
+A task does not need to implement the entire benchmark. It should improve the quality, speed,
+reliability, control, or observability of that end-to-end workflow, or be a clearly documented
+prerequisite for it.
+
+## 2. Priority order
+
+When two valid tasks compete, prefer the higher item unless the maintainer explicitly chooses
+otherwise:
+
+1. Finished-edit quality and the core AI editing loop.
+2. Responsiveness, reliability, correctness, preview/export parity, and manual control.
+3. UX and polish for workflows that already exist.
+4. Integrations, publishing, packaging, and distribution needed by current users.
+5. Advanced professional breadth, generalized extensibility, and future-facing infrastructure.
+
+Treat advanced NLE breadth such as deeper multicam, DAW-like audio, advanced grading,
+sophisticated masking/tracking, generalized plugin/capability infrastructure, and broad
+Premiere-parity work as lower priority by default. Build it when it directly unlocks a current
+workflow, closes a measured product gap, or is explicitly requested by the maintainer.
+
+## 3. Scope gate before implementation
+
+Before non-trivial feature or architecture work, the plan must answer all of these briefly:
+
+- **User outcome:** what concrete user result gets better?
+- **Current gap:** what existing workflow is blocked, weak, slow, unreliable, or impossible?
+- **Minimum vertical slice:** what is the smallest end-to-end change that proves value?
+- **Reuse:** which existing schema, operation, tool, render path, analysis path, or UI primitive
+  can be reused instead of creating a parallel system?
+- **Deferred scope:** what tempting adjacent work is intentionally not included?
+- **Evidence:** what test, fixture, timeline result, render, or measured behavior proves the task
+  is complete?
+
+If these cannot be answered, do not expand the architecture. Shrink the task, prototype the
+uncertain part, or surface the decision to the maintainer.
+
+## 4. Finish before expand
+
+Do not call a capability shipped or mark it `[x]` because its schema, backend, worker, tool, or
+plan exists.
+
+For an editing capability, completion means the applicable user path is real end to end:
+
+user entry point -> deterministic target resolution -> operation/tool -> validated mutation ->
+preview -> render/export semantics -> undo/reversibility -> clear failure state -> tests
+
+If the feature is AI-operable, include the AI tool path. If it is visual or audio behavior, prove
+its output through the appropriate render/evidence path.
+
+Hardcoded demo geometry, placeholder controls, backend-only capability with no usable consumer,
+preview-only effects with no export parity, or documentation-only architecture do not count as a
+shipped editing feature.
+
+## 5. No speculative architecture
+
+- Do not create a new framework, runtime, store, protocol, provider layer, capability pack,
+  plugin system, or generalized abstraction for hypothetical future use.
+- Prefer composing and extending existing primitives.
+- Generalize when current requirements demonstrate multiple concrete consumers, repeated
+  duplication, or the maintainer explicitly asks for the abstraction.
+- Do not create a second source of truth for state that already has an owner.
+- Prefer removing obsolete paths over preserving parallel implementations for convenience.
+- A large design document must lead to a near-term executable vertical slice. Do not spend a
+  thousand lines designing an unproven user outcome when a small prototype can answer the key
+  uncertainty.
+
+## 6. Complexity and PR discipline
+
+- Optimize for the smallest change that materially improves the user outcome.
+- One PR should have one coherent product or reliability goal. Split unrelated architecture,
+  feature breadth, cleanup, and polishing into separate reviewable changes.
+- Avoid mega-PRs that introduce several new subsystems at once. If a change crosses many layers,
+  sequence it as vertical slices that remain testable and useful.
+- Prefer deletion, consolidation, and reuse when they reduce cognitive or runtime cost.
+- Do not increase long-term maintenance burden merely to make one prompt easier to satisfy.
+
+## 7. AI quality rules
+
+- Prompt sophistication must never substitute for missing editor capability.
+- The model may reason and choose; deterministic code owns state, validation, execution, and
+  rendering.
+- If a capability, model, key, analysis result, or visual/audio evidence path is unavailable,
+  report it explicitly. Never fabricate completion.
+- Judge AI editing quality by the resulting timeline and rendered output, not by number of tool
+  calls, tokens, agents, plans, or intermediate artifacts.
+- Keep mutations responsive. Deterministic validation is the authority to apply a safe patch;
+  expensive perceptual review should not block interaction when it can run safely as a reader.
+- Every applied AI edit must remain inspectable and reversible. Auto-apply policy does not remove
+  human authority because the user can inspect the timeline, see what changed, and undo the run.
+
+## 8. Evidence required for major capability PRs
+
+A major editing or AI capability PR should state:
+
+- the user scenario it improves;
+- the before/after behavior;
+- the minimum end-to-end path exercised;
+- how correctness and reversibility were verified;
+- for AI behavior, a representative prompt/fixture and expected timeline outcome;
+- for visual/audio behavior, render-backed or deterministic evidence appropriate to the claim;
+- what adjacent scope was intentionally deferred.
+
+Representative media and realistic timeline scale are preferred when performance or media
+behavior is part of the claim. Tiny fixtures alone are insufficient evidence for a long-form
+performance claim.
+
+## 9. Product-scope review triggers
+
+Run a product-scope review before implementation when work does any of the following:
+
+- introduces a new subsystem or architectural source of truth;
+- expands FramePilot into a new professional editing domain;
+- creates a large sub-plan or multiple ADRs for one capability;
+- adds another runtime/provider/worker/plugin boundary;
+- crosses several architecture layers for a feature that has not yet been proven end to end;
+- materially delays the core raw-footage-to-finished-edit workflow.
+
+Use the `product-scope-reviewer` subagent or `/review-product-scope` command where available.
+The reviewer is advisory for normal work, but the scope gate in this file is mandatory.
+
+## 10. Exceptions
+
+Security fixes, data-loss prevention, critical correctness issues, severe performance regressions,
+and release blockers can take priority over the north-star benchmark. Keep those fixes focused and
+do not use them as a reason to bundle unrelated product expansion.
+
+An explicit maintainer decision may override these priorities. Record the exception and rationale
+in the relevant plan/ADR/PR so later agents do not accidentally reverse it.

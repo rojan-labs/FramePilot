@@ -1,0 +1,605 @@
+{
+  "version": 1,
+  "name": "ask-user-round-trip",
+  "covers": "The `ask` primitive: the model asks a question of its own authorship. Without a host resolver the run must end honestly rather than invent an answer (ADR 0059).",
+  "prompt": "make it punchier",
+  "events": [
+    {
+      "id": "turn_golden:status:1",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "thinking"
+    },
+    {
+      "id": "turn_golden:run-state",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_golden",
+        "identity": {
+          "conversationId": "conv_golden",
+          "projectId": "proj_1",
+          "attemptId": "turn_golden"
+        },
+        "version": 2,
+        "objective": {
+          "request": "make it punchier",
+          "outcome": "make it punchier",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "make it punchier"
+            }
+          ]
+        },
+        "stage": "interpret",
+        "completedStages": [],
+        "stageEnteredAtTurn": 0,
+        "facts": [],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "make it punchier",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_golden_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1"
+          ]
+        },
+        "execution": {
+          "authorized": true
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "make it punchier",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [],
+        "verifications": [],
+        "nextAction": null,
+        "blockedOn": null,
+        "integrity": {
+          "status": "valid",
+          "diagnostics": []
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 0
+      }
+    },
+    {
+      "id": "turn_golden:status:2",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "generating"
+    },
+    {
+      "id": "turn_golden:reasoning:1",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "reasoning",
+      "summaries": [],
+      "done": false
+    },
+    {
+      "id": "turn_golden:context-usage",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "context_usage",
+      "usedTokens": 19211,
+      "contextWindow": 200000,
+      "estimated": true,
+      "manifest": {
+        "requestId": "turn_golden:assistant:seg-1",
+        "provider": "mock",
+        "model": "unknown",
+        "sections": [
+          {
+            "id": "s1",
+            "type": "system",
+            "label": "system contract",
+            "tokenEstimate": 135,
+            "included": true
+          },
+          {
+            "id": "s2",
+            "type": "conversation",
+            "label": "user turn 1",
+            "tokenEstimate": 1667,
+            "included": true
+          },
+          {
+            "id": "s3",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 1769,
+            "included": true
+          },
+          {
+            "id": "s4",
+            "type": "tool_schemas",
+            "label": "tool definitions",
+            "tokenEstimate": 15640,
+            "included": true
+          }
+        ],
+        "usage": {
+          "modelContextLimit": 200000,
+          "limitAssumed": true,
+          "estimatedInputTokensBeforeSend": 19211,
+          "reservedOutputTokens": 8192,
+          "estimatedRemainingCapacity": 172597,
+          "calculationSource": "local_estimate"
+        },
+        "compaction": {
+          "occurred": false,
+          "removedTokenEstimate": 0,
+          "removedSections": []
+        },
+        "memory": {
+          "runId": "turn_golden",
+          "stage": "interpret",
+          "projectRevision": 0,
+          "objectiveKnown": true,
+          "committedDecisions": 1,
+          "facts": 0,
+          "evidenceHandles": 0,
+          "remainingObjectives": 1
+        }
+      }
+    },
+    {
+      "id": "turn_golden:reasoning:1",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "reasoning",
+      "summaries": [],
+      "done": true
+    },
+    {
+      "id": "turn_golden:status:3",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "awaiting_answer"
+    },
+    {
+      "id": "a",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "tool_call",
+      "toolName": "ask_user",
+      "status": "running",
+      "title": "Asking you: Which section should I tighten first?",
+      "argsSummary": "question: \"Which section should I …, options: [\"The intro\",\"The demo\"]"
+    },
+    {
+      "id": "a",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "tool_call",
+      "toolName": "ask_user",
+      "status": "failed",
+      "runtimeMs": 0,
+      "title": "Asking you: Which section should I tighten first?",
+      "argsSummary": "question: \"Which section should I …, options: [\"The intro\",\"The demo\"]"
+    },
+    {
+      "id": "turn_golden:result:4",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "tool_result",
+      "toolCallId": "a",
+      "summary": "Invalid arguments for \"ask_user\": options.0: Invalid input: expected object, received string; options.1: Invalid input: expected object, received string",
+      "result": "Invalid arguments for \"ask_user\": options.0: Invalid input: expected object, received string; options.1: Invalid input: expected object, received string"
+    },
+    {
+      "id": "turn_golden:run-state",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_golden",
+        "identity": {
+          "conversationId": "conv_golden",
+          "projectId": "proj_1",
+          "attemptId": "turn_golden"
+        },
+        "version": 3,
+        "objective": {
+          "request": "make it punchier",
+          "outcome": "make it punchier",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "make it punchier"
+            }
+          ]
+        },
+        "stage": "inspect",
+        "completedStages": [
+          "interpret"
+        ],
+        "stageEnteredAtTurn": 1,
+        "facts": [],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "make it punchier",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_golden_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1"
+          ]
+        },
+        "execution": {
+          "authorized": true
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "make it punchier",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [],
+        "verifications": [],
+        "nextAction": null,
+        "blockedOn": null,
+        "integrity": {
+          "status": "valid",
+          "diagnostics": []
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 0
+      }
+    },
+    {
+      "id": "turn_golden:status:5",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "generating"
+    },
+    {
+      "id": "turn_golden:reasoning:2",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "reasoning",
+      "summaries": [],
+      "done": false
+    },
+    {
+      "id": "turn_golden:context-usage",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "context_usage",
+      "usedTokens": 19267,
+      "contextWindow": 200000,
+      "estimated": true,
+      "manifest": {
+        "requestId": "turn_golden:assistant:seg-2",
+        "provider": "mock",
+        "model": "unknown",
+        "sections": [
+          {
+            "id": "s1",
+            "type": "system",
+            "label": "system contract",
+            "tokenEstimate": 135,
+            "included": true
+          },
+          {
+            "id": "s2",
+            "type": "conversation",
+            "label": "user turn 1",
+            "tokenEstimate": 1667,
+            "included": true
+          },
+          {
+            "id": "s3",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 1825,
+            "included": true
+          },
+          {
+            "id": "s4",
+            "type": "tool_schemas",
+            "label": "tool definitions",
+            "tokenEstimate": 15640,
+            "included": true
+          }
+        ],
+        "usage": {
+          "modelContextLimit": 200000,
+          "limitAssumed": true,
+          "estimatedInputTokensBeforeSend": 19267,
+          "reservedOutputTokens": 8192,
+          "estimatedRemainingCapacity": 172541,
+          "calculationSource": "local_estimate"
+        },
+        "compaction": {
+          "occurred": false,
+          "removedTokenEstimate": 0,
+          "removedSections": []
+        },
+        "memory": {
+          "runId": "turn_golden",
+          "stage": "inspect",
+          "projectRevision": 0,
+          "objectiveKnown": true,
+          "committedDecisions": 1,
+          "facts": 0,
+          "evidenceHandles": 0,
+          "remainingObjectives": 1,
+          "nextAction": "Continue inspect: make it punchier"
+        }
+      }
+    },
+    {
+      "id": "turn_golden:delta:6",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "assistant_delta",
+      "parentId": "turn_golden:assistant:seg-2",
+      "chunk": "done"
+    },
+    {
+      "id": "turn_golden:reasoning:2",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "reasoning",
+      "summaries": [],
+      "done": true
+    },
+    {
+      "id": "turn_golden:assistant:seg-2",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "assistant_message",
+      "text": "done"
+    },
+    {
+      "id": "turn_golden:run-state",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_golden",
+        "identity": {
+          "conversationId": "conv_golden",
+          "projectId": "proj_1",
+          "attemptId": "turn_golden"
+        },
+        "version": 3,
+        "objective": {
+          "request": "make it punchier",
+          "outcome": "make it punchier",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "make it punchier"
+            }
+          ]
+        },
+        "stage": "inspect",
+        "completedStages": [
+          "interpret"
+        ],
+        "stageEnteredAtTurn": 1,
+        "facts": [],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "make it punchier",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_golden_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1"
+          ]
+        },
+        "execution": {
+          "authorized": true
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "make it punchier",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [],
+        "verifications": [],
+        "nextAction": null,
+        "blockedOn": null,
+        "integrity": {
+          "status": "valid",
+          "diagnostics": []
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 0
+      }
+    },
+    {
+      "id": "turn_golden:notice:7",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "warning",
+      "text": "This run ended without applying anything — it could not verify that it had done what you asked, so your timeline is unchanged. Retry, or ask for a smaller, more specific edit."
+    },
+    {
+      "id": "turn_golden:run-state",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_golden",
+        "identity": {
+          "conversationId": "conv_golden",
+          "projectId": "proj_1",
+          "attemptId": "turn_golden"
+        },
+        "version": 5,
+        "objective": {
+          "request": "make it punchier",
+          "outcome": "make it punchier",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "make it punchier"
+            }
+          ]
+        },
+        "stage": "inspect",
+        "completedStages": [
+          "interpret"
+        ],
+        "stageEnteredAtTurn": 1,
+        "facts": [],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "make it punchier",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_golden_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1"
+          ]
+        },
+        "execution": {
+          "authorized": false
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "make it punchier",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [],
+        "verifications": [
+          {
+            "id": "verify_1",
+            "criterion": "make it punchier",
+            "passed": false,
+            "atRevision": 0,
+            "detail": "Passed with 1 warning(s)."
+          }
+        ],
+        "nextAction": null,
+        "blockedOn": {
+          "reason": "Verification found no traceable project mutation for the committed plan.",
+          "missing": "VERIFICATION_INCONCLUSIVE",
+          "atStage": "inspect"
+        },
+        "integrity": {
+          "status": "needs_review",
+          "diagnostics": [
+            {
+              "code": "VERIFICATION_INCONCLUSIVE",
+              "message": "Verification found no traceable project mutation for the committed plan.",
+              "stage": "verify",
+              "blocking": true,
+              "atVersion": 4
+            }
+          ]
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 0
+      }
+    },
+    {
+      "id": "turn_golden:usage:8",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "usage",
+      "tokens": 0,
+      "usd": 0,
+      "modelCalls": 2
+    },
+    {
+      "id": "turn_golden:status:9",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "failed"
+    }
+  ],
+  "operations": [],
+  "terminalStatus": "failed"
+}

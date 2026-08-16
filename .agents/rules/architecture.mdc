@@ -1,0 +1,38 @@
+---
+description: FramePilot monorepo layout, package boundaries, and the render-vs-preview rule
+globs:
+alwaysApply: true
+---
+
+# Architecture rules
+
+Read `AGENTS.md` for the canonical shared rules. This file governs *where code goes*.
+
+## Monorepo layout
+- `apps/desktop/` — Electron shell (main/preload/renderer), secure IPC, spawns the Python sidecar.
+- `apps/web-editor/` — React + TS editor UI (timeline, preview, panels).
+- `packages/timeline-schema/` — `Project/Timeline/Track/Clip/Effect/Keyframe` schemas (Zod), versioning + migrations.
+- `packages/shared-types/` — cross-package TS types only.
+- `packages/editor-core/` — typed timeline operations + patch engine (apply/invert/validate/diff/undo).
+- `packages/ai-sdk/` — AI orchestrator, tool registry, context builder, memory store.
+- `packages/ui/` — shared React components.
+- `engine/python/framepilot_engine/` — `render/ timeline/ effects/ audio/ tracking/ masking/ validation/ ai_tools/`.
+- `tests/e2e/` — Playwright suite. `plan/PLAN.md` — build plan. `docs/` — all docs.
+
+## Package boundaries (enforce)
+- `editor-core` is the ONLY place timeline operations are applied. UI and AI call into it.
+- `ai-sdk` depends on `editor-core` and `timeline-schema` — never reaches into the Python render engine to mutate state. It emits **patches**.
+- `timeline-schema` has no runtime deps on other packages (it is the contract).
+- `shared-types` holds types only — no logic.
+- The Python render engine is **isolated** so the desktop shell (Electron now, possibly Tauri later) can change without touching it.
+
+## Render engine vs preview engine (HARD RULE, PRD §9.2)
+- **Render engine = Python MoviePy + FFmpeg.** Final export, preview *render*, waveforms, frame extraction, masks, tracking, proxies. Deterministic.
+- **Preview engine = the UI.** HTML `<video>`, canvas/WebGL overlays, proxy/low-res media.
+- ❌ Never call MoviePy for the real-time UI preview path.
+
+## Where things go (examples)
+- New timeline operation → `packages/editor-core` (+ schema in `timeline-schema`, + Python counterpart in `engine/.../timeline`).
+- New AI tool → `packages/ai-sdk` tool registry (+ `engine/.../ai_tools` if it needs the engine). Returns a patch.
+- New render/effect/codec logic → `engine/python/framepilot_engine/`.
+- New UI panel → `apps/web-editor` (+ shared bits in `packages/ui`).

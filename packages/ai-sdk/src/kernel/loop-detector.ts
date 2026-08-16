@@ -1,0 +1,235 @@
+/**
+ * @framepilot/ai-sdk/kernel/loop-detector — semantic loops, meaningful progress, and the
+ * recovery that answers both (plan/AGENT-TASK-MEMORY.md §3.5, ADR 0075).
+ *
+ * ## Why the existing guards were not enough
+ *
+ * The stall guard catches a run making no progress, where progress includes "learned
+ * something new". The diminishing-returns guard catches a run that has gone quiet. The
+ * reported failure was neither: every turn was novel, expensive and verbose, and every
+ * turn said the same thing in different words —
+ *
+ *   "Let me orient myself." / "Let me get the full picture." /
+ *   "Let me first understand the project." / "Let me map the footage before editing."
+ *
+ * Those are one intent wearing four sentences. Detecting them needs to compare what turns
+ * were FOR, not what they called or how much they wrote.
+ *
+ * ## Why the vocabulary is closed
+ *
+ * Intents are matched against a fixed set of purposes rather than free text. A
+ * model-generated label drifts — "orienting", "getting my bearings", "building context"
+ * are three strings and one intent — and a detector that compares drifting labels detects
+ * nothing. A closed set is coarse, deterministic, testable, and costs no model call.
+ *
+ * ## Recovery is an action, never a plan
+ *
+ * When a loop trips, the answer is emphatically not another round of thinking. It is:
+ * read the working state, find the first thing that is still owed, and say to do that.
+ * {@link recoveryAction} returns exactly one imperative or `null` — it cannot return a
+ * plan, because it cannot produce prose at all.
+ */
+import { createLogger } from '@framepilot/shared-types';
+import {
+  type NextAction,
+  type RunWorkingState,
+  isExecutionStage,
+  remainingObjectives,
+} from './working-state.js';
+
+const log = createLogger('ai-sdk:kernel:loop-detector');
+
+/**
+ * Consecutive turns sharing one intent, with no stage advance and no decision committed,
+ * that mean the run is circling. Three rather than two: two turns of orientation is a
+ * normal opening (get the shape, then get the detail), and cutting a legitimately
+ * thorough run short is worse than one extra turn of it.
+ */
+export const SEMANTIC_LOOP_TURNS = 3;
+
+/**
+ * Consecutive turns producing no meaningful progress before recovery takes over. Tighter
+ * than the loop detector because it is a stronger signal: a semantic loop is a run
+ * repeating itself, while this is a run achieving nothing at all.
+ */
+export const MAX_NO_PROGRESS_TURNS = 2;
+
+/** The closed vocabulary of turn purposes. */
+export const TURN_INTENTS = [
+  'orient',
+  'analyze',
+  'plan',
+  'execute',
+  'verify',
+  'report',
+  'unknown',
+] as const;
+
+export type TurnIntent = (typeof TURN_INTENTS)[number];
+
+/**
+ * Phrases that mark each intent, most specific first. Matching is substring-based on
+ * lowercased prose — crude on purpose. The job is to notice that four differently-worded
+ * turns are the same turn, and for that, coarse and deterministic beats clever.
+ */
+const INTENT_MARKERS: readonly (readonly [TurnIntent, readonly string[]])[] = [
+  [
+    'orient',
+    [
+      'orient',
+      'get the full picture',
+      'understand the project',
+      'get a sense',
+      'get my bearings',
+      'take stock',
+      'see what we have',
+      'start by understanding',
+      'first understand',
+      'build context',
+      'familiarize',
+    ],
+  ],
+  [
+    'analyze',
+    [
+      'read the transcript',
+      'get the transcript',
+      'map the footage',
+      'analyze',
+      'analyse',
+      'look for',
+      'find the',
+      'identify',
+      'examine',
+      'inspect',
+      'review the footage',
+    ],
+  ],
+  [
+    'plan',
+    ['plan', 'decide', 'work out', 'figure out', 'outline', 'ready to begin', 'ready to start'],
+  ],
+  [
+    'execute',
+    ['cut', 'trim', 'delete', 'apply', 'add ', 'place', 'insert', 'edit', 'remove', 'caption'],
+  ],
+  ['verify', ['verify', 'check the result', 'confirm', 'double-check', 'make sure the']],
+  ['report', ['done', 'finished', 'summary', 'to summarize', 'in summary']],
+];
+
+/**
+ * Classify a turn's prose into one of the fixed purposes. Unrecognised prose is
+ * `'unknown'`, which never contributes to a loop — an intent the detector cannot read is
+ * not evidence of repetition.
+ */
+export function normalizeIntent(text: string): TurnIntent {
+  const prose = text.toLowerCase();
+  if (!prose.trim()) return 'unknown';
+  for (const [intent, markers] of INTENT_MARKERS) {
+    if (markers.some((marker) => prose.includes(marker))) return intent;
+  }
+  return 'unknown';
+}
+
+/**
+ * Is the run circling? True when the last {@link SEMANTIC_LOOP_TURNS} turns share one
+ * readable intent AND the run neither advanced a stage nor committed a decision across
+ * them.
+ *
+ * The two conjuncts matter. Repeating an intent while advancing is just a long stage
+ * (three turns of cutting are three turns of cutting); repeating it while standing still
+ * is the failure.
+ */
+export function isSemanticLoop(
+  recentIntents: readonly TurnIntent[],
+  args: { readonly stageAdvanced: boolean; readonly decisionCommitted: boolean },
+): boolean {
+  if (args.stageAdvanced || args.decisionCommitted) return false;
+  if (recentIntents.length < SEMANTIC_LOOP_TURNS) return false;
+  const window = recentIntents.slice(-SEMANTIC_LOOP_TURNS);
+  const [first] = window;
+  if (!first || first === 'unknown') return false;
+  return window.every((intent) => intent === first);
+}
+
+/** What a turn is credited with, for the progress test. */
+export interface TurnProgress {
+  readonly learnedSomethingNew: boolean;
+  readonly attemptedEdit: boolean;
+  readonly appliedEdit: boolean;
+  readonly recordedVerification: boolean;
+  readonly advancedStage: boolean;
+  readonly committedDecision: boolean;
+  readonly satisfiedObjective: boolean;
+}
+
+/**
+ * Did this turn move the task forward?
+ *
+ * Everything counted here changes the run's state. Everything NOT counted — reasoning
+ * text, stream events, status updates, restated summaries, memo hits — is a run
+ * describing itself rather than progressing, which is exactly what filled 3,430 events
+ * while the timeline stayed untouched.
+ */
+export function madeMeaningfulProgress(p: TurnProgress): boolean {
+  return (
+    p.learnedSomethingNew ||
+    p.attemptedEdit ||
+    p.appliedEdit ||
+    p.recordedVerification ||
+    p.advancedStage ||
+    p.committedDecision ||
+    p.satisfiedObjective
+  );
+}
+
+/**
+ * The smallest valid next execution step, derived from the working state alone.
+ *
+ * Deliberately deterministic and prose-free. The recovery path must not be another
+ * opportunity to think — it exists precisely because thinking is what the run cannot stop
+ * doing — so this reads what is owed and names one thing to do about it. Returns `null`
+ * only when the state genuinely offers nothing actionable, which the caller must then
+ * report as a blocker rather than paper over.
+ */
+export function recoveryAction(state: RunWorkingState): NextAction | null {
+  const pending = remainingObjectives(state);
+  const first = pending[0];
+  if (first) {
+    log.debug('recovery → outstanding objective', { objectiveId: first.id });
+    return {
+      stage: first.stage,
+      action: `Do this now: ${first.description}. Everything you need is in the run state above.`,
+      objectiveId: first.id,
+    };
+  }
+
+  // A failed operation is the next most concrete thing owed: the run tried, lost the
+  // work, and the reason is recorded.
+  const failed = state.operations.find((op) => op.status === 'failed');
+  if (failed) {
+    log.debug('recovery → unresolved failure', { operationId: failed.id });
+    return {
+      stage: isExecutionStage(state.stage) ? state.stage : 'apply',
+      action: `Fix the cause of this failed edit and make it land: ${failed.intent}${
+        failed.failureReason ? ` (it failed because: ${failed.failureReason})` : ''
+      }.`,
+    };
+  }
+
+  // Nothing has been applied and nothing is enumerated, but the run has been researching
+  // — so the outstanding work IS the edit the creator asked for.
+  if (state.operations.every((op) => op.status !== 'succeeded')) {
+    log.debug('recovery → nothing applied yet');
+    return {
+      stage: 'apply',
+      action:
+        'Make the edit the creator asked for now, using the evidence already listed ' +
+        'above. Commit to the best version your current findings support — a good edit ' +
+        'you can refine beats a better one you never make.',
+    };
+  }
+
+  log.debug('recovery → nothing actionable remains');
+  return null;
+}

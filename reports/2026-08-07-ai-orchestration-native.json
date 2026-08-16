@@ -1,0 +1,664 @@
+{
+  "label": "native",
+  "adapter": "native",
+  "provider": "deepseek",
+  "promptsRun": 5,
+  "completed": 2,
+  "failed": 3,
+  "summary": {
+    "turnCount": 62,
+    "ttftMs": {
+      "p50": 1563,
+      "p95": 2953,
+      "min": 985,
+      "max": 86556
+    },
+    "wallMs": {
+      "p50": 19519,
+      "p95": 79278,
+      "min": 2776,
+      "max": 99918
+    },
+    "inputTokensPerTurn": {
+      "p50": 17120,
+      "p95": 26354,
+      "min": 0,
+      "max": 28312
+    },
+    "outputTokensPerTurn": {
+      "p50": 816,
+      "p95": 3173,
+      "min": 0,
+      "max": 5043
+    },
+    "usdPerTurn": {
+      "p50": 0.067932,
+      "p95": 0.099507,
+      "min": 0,
+      "max": 0.139866
+    },
+    "cacheReportingTurns": 0
+  },
+  "samples": [
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1442,
+      "wallMs": 4270,
+      "inputTokens": 18508,
+      "outputTokens": 234,
+      "usd": 0.059034
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1517,
+      "wallMs": 13203,
+      "inputTokens": 19687,
+      "outputTokens": 783,
+      "usd": 0.070806
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1270,
+      "wallMs": 18551,
+      "inputTokens": 19707,
+      "outputTokens": 1191,
+      "usd": 0.076986
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1783,
+      "wallMs": 37549,
+      "inputTokens": 16792,
+      "outputTokens": 2264,
+      "usd": 0.084336
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 2322,
+      "wallMs": 11892,
+      "inputTokens": 23498,
+      "outputTokens": 608,
+      "usd": 0.079614
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1854,
+      "wallMs": 14632,
+      "inputTokens": 23881,
+      "outputTokens": 800,
+      "usd": 0.083643
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1363,
+      "wallMs": 14027,
+      "inputTokens": 16695,
+      "outputTokens": 678,
+      "usd": 0.060255
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1298,
+      "wallMs": 11098,
+      "inputTokens": 16951,
+      "outputTokens": 510,
+      "usd": 0.058503
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 2406,
+      "wallMs": 47737,
+      "inputTokens": 16927,
+      "outputTokens": 2390,
+      "usd": 0.086631
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 2014,
+      "wallMs": 19519,
+      "inputTokens": 17975,
+      "outputTokens": 805,
+      "usd": 0.066
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1525,
+      "wallMs": 26247,
+      "inputTokens": 16974,
+      "outputTokens": 1134,
+      "usd": 0.067932
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1152,
+      "wallMs": 50626,
+      "inputTokens": 17402,
+      "outputTokens": 2192,
+      "usd": 0.085086
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1547,
+      "wallMs": 13550,
+      "inputTokens": 16885,
+      "outputTokens": 543,
+      "usd": 0.0588
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1473,
+      "wallMs": 19285,
+      "inputTokens": 17043,
+      "outputTokens": 864,
+      "usd": 0.064089
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1979,
+      "wallMs": 44342,
+      "inputTokens": 17061,
+      "outputTokens": 1553,
+      "usd": 0.074478
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1113,
+      "wallMs": 33985,
+      "inputTokens": 16942,
+      "outputTokens": 1262,
+      "usd": 0.069756
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1801,
+      "wallMs": 36185,
+      "inputTokens": 17268,
+      "outputTokens": 1269,
+      "usd": 0.070839
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1042,
+      "wallMs": 26440,
+      "inputTokens": 15687,
+      "outputTokens": 937,
+      "usd": 0.061116
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1708,
+      "wallMs": 28693,
+      "inputTokens": 16760,
+      "outputTokens": 989,
+      "usd": 0.065115
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 3275,
+      "wallMs": 30987,
+      "inputTokens": 23839,
+      "outputTokens": 1035,
+      "usd": 0.087042
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1557,
+      "wallMs": 40978,
+      "inputTokens": 24178,
+      "outputTokens": 1373,
+      "usd": 0.093129
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1244,
+      "wallMs": 21652,
+      "inputTokens": 16759,
+      "outputTokens": 807,
+      "usd": 0.062382
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 2953,
+      "wallMs": 99918,
+      "inputTokens": 24187,
+      "outputTokens": 1353,
+      "usd": 0.092856
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 86556,
+      "wallMs": 86744,
+      "inputTokens": 18486,
+      "outputTokens": 329,
+      "usd": 0.060393
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 2072,
+      "wallMs": 14028,
+      "inputTokens": 26354,
+      "outputTokens": 439,
+      "usd": 0.085647
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1493,
+      "wallMs": 11134,
+      "inputTokens": 26564,
+      "outputTokens": 411,
+      "usd": 0.085857
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1210,
+      "wallMs": 9469,
+      "inputTokens": 20108,
+      "outputTokens": 326,
+      "usd": 0.065214
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1691,
+      "wallMs": 67746,
+      "inputTokens": 16884,
+      "outputTokens": 2457,
+      "usd": 0.087507
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1579,
+      "wallMs": 7594,
+      "inputTokens": 20574,
+      "outputTokens": 287,
+      "usd": 0.066027
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1240,
+      "wallMs": 23339,
+      "inputTokens": 16487,
+      "outputTokens": 816,
+      "usd": 0.061701
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1841,
+      "wallMs": 79278,
+      "inputTokens": 16499,
+      "outputTokens": 3173,
+      "usd": 0.097092
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1275,
+      "wallMs": 11822,
+      "inputTokens": 16295,
+      "outputTokens": 403,
+      "usd": 0.05493
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1480,
+      "wallMs": 29178,
+      "inputTokens": 16463,
+      "outputTokens": 1147,
+      "usd": 0.066594
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1300,
+      "wallMs": 22936,
+      "inputTokens": 16897,
+      "outputTokens": 864,
+      "usd": 0.063651
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1541,
+      "wallMs": 42784,
+      "inputTokens": 15528,
+      "outputTokens": 1414,
+      "usd": 0.067794
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1635,
+      "wallMs": 38751,
+      "inputTokens": 15112,
+      "outputTokens": 1332,
+      "usd": 0.065316
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1599,
+      "wallMs": 42791,
+      "inputTokens": 16295,
+      "outputTokens": 1448,
+      "usd": 0.070605
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1475,
+      "wallMs": 16871,
+      "inputTokens": 16476,
+      "outputTokens": 524,
+      "usd": 0.057288
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1933,
+      "wallMs": 34091,
+      "inputTokens": 16892,
+      "outputTokens": 1274,
+      "usd": 0.069786
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1972,
+      "wallMs": 69140,
+      "inputTokens": 18222,
+      "outputTokens": 2572,
+      "usd": 0.093246
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1344,
+      "wallMs": 6335,
+      "inputTokens": 18491,
+      "outputTokens": 248,
+      "usd": 0.059193
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 2012,
+      "wallMs": 15682,
+      "inputTokens": 26789,
+      "outputTokens": 694,
+      "usd": 0.090777
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1666,
+      "wallMs": 70935,
+      "inputTokens": 28312,
+      "outputTokens": 3662,
+      "usd": 0.139866
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1563,
+      "wallMs": 5860,
+      "inputTokens": 17673,
+      "outputTokens": 207,
+      "usd": 0.056124
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1980,
+      "wallMs": 14929,
+      "inputTokens": 16448,
+      "outputTokens": 633,
+      "usd": 0.058839
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1961,
+      "wallMs": 37382,
+      "inputTokens": 23864,
+      "outputTokens": 1861,
+      "usd": 0.099507
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1866,
+      "wallMs": 4870,
+      "inputTokens": 24145,
+      "outputTokens": 168,
+      "usd": 0.074955
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1555,
+      "wallMs": 97531,
+      "inputTokens": 15302,
+      "outputTokens": 5043,
+      "usd": 0.121551
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1466,
+      "wallMs": 3925,
+      "inputTokens": 16330,
+      "outputTokens": 181,
+      "usd": 0.051705
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 2864,
+      "wallMs": 56962,
+      "inputTokens": 24276,
+      "outputTokens": 3700,
+      "usd": 0.128328
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1891,
+      "wallMs": 23283,
+      "inputTokens": 24294,
+      "outputTokens": 1558,
+      "usd": 0.096252
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1617,
+      "wallMs": 10132,
+      "inputTokens": 16850,
+      "outputTokens": 633,
+      "usd": 0.060045
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1813,
+      "wallMs": 34348,
+      "inputTokens": 16040,
+      "outputTokens": 2263,
+      "usd": 0.082065
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 3236,
+      "wallMs": 27561,
+      "inputTokens": 17120,
+      "outputTokens": 2100,
+      "usd": 0.08286
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1357,
+      "wallMs": 3295,
+      "inputTokens": 16539,
+      "outputTokens": 143,
+      "usd": 0.051762
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1140,
+      "wallMs": 2776,
+      "inputTokens": 18481,
+      "outputTokens": 160,
+      "usd": 0.057843
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1756,
+      "wallMs": 8214,
+      "inputTokens": 19994,
+      "outputTokens": 670,
+      "usd": 0.070032
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1346,
+      "wallMs": 17843,
+      "inputTokens": 20496,
+      "outputTokens": 1246,
+      "usd": 0.080178
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1108,
+      "wallMs": 3445,
+      "inputTokens": 18501,
+      "outputTokens": 195,
+      "usd": 0.058428
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 1207,
+      "wallMs": 3917,
+      "inputTokens": 19239,
+      "outputTokens": 209,
+      "usd": 0.060852
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 985,
+      "wallMs": 3214,
+      "inputTokens": 19681,
+      "outputTokens": 164,
+      "usd": 0.061503
+    },
+    {
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-pro",
+      "streamed": true,
+      "ttftMs": 2199,
+      "wallMs": 10592,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "usd": 0
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+---
+title: 'AI edits follow through without losing your place'
+summary: 'Long edit plans continue past partial results, while chat activity and context stay steady as you work.'
+date: '2026-07-30'
+tags: ['Improved', 'Fixed']
+---
+
+### Improved
+
+- **The agent keeps going when a plan still has work left.** If a long edit produces one
+  safe batch and then tries to stop early, FramePilot gives it a focused opportunity to
+  finish the next pending step. “All checks passed” now means the requested result was
+  actually reached — including an explicit duration such as a 30-second video — while any
+  safe partial changes remain available for review.
+
+- **Live activity is easier to follow.** Thinking, tool use, editing, and verification now
+  animate beside the message box where you can stop or steer the run. Earlier thoughts stay
+  settled as “Thought for Ns” instead of appearing to start thinking again when a new step
+  begins.
+
+### Fixed
+
+- **Preview playback stays smooth across mixed footage.** Video-only stock clips, clips with
+  sound, still images, gaps, and a music bed now share one steady timeline clock, so the
+  program monitor no longer flashes black and the playhead no longer jumps back and forth.
+  High-refresh displays also reuse each real video frame cleanly, while the playhead stays
+  crisp on the screen's physical pixel grid.
+
+- **Opening Inspector or Transcript no longer interrupts AI chat.** The agent keeps working
+  in the background, and returning to AI restores the same active conversation and draft.
+
+- **The context figure stays steady for your message.** Internal planning and tool requests
+  no longer replace the number with their smaller or larger prompt sizes, so ordinary agent
+  work does not look like conversation memory is disappearing.
+
+- **GLM-5V-Turbo uses its full supported capacity.** FramePilot now recognizes both the
+  configured `glm-5v-turbo` name and its provider-qualified id, with a 200K-token context
+  window and up to 131,072 output tokens.

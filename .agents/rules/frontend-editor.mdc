@@ -1,0 +1,30 @@
+---
+description: React/TS editor UI standards — preview uses HTML/canvas/proxy, strict types, accessibility
+globs: apps/**,packages/ui/**
+alwaysApply: false
+---
+
+# Frontend editor rules
+
+## Stack & style
+- React + TypeScript **strict**. No `any` — use `unknown` + narrowing. Named exports.
+- Small, focused components; early returns; meaningful names; no magic numbers/strings.
+- State changes to the timeline go through `editor-core` (typed ops + patch engine) — UI never mutates the project shape directly.
+
+## Preview engine (HARD RULE, PRD §9.2)
+- The UI preview uses **HTML `<video>`, canvas/WebGL overlays, and proxy/low-res media**.
+- ❌ Never call MoviePy or the Python render engine for the real-time scrub/playback preview. Render (preview render & export) is a Python engine job invoked over IPC.
+
+## Review UX (PRD §3.2)
+- Every AI edit must be shown as a reviewable diff: **what changed, why, before/after preview, timeline diff, undo**. Apply / Edit prompt / Preview / Reject controls.
+
+## Accessibility
+- Keyboard-operable timeline and panels; visible focus states; ARIA roles/labels on custom controls; sufficient color contrast.
+- Add accessibility tests alongside component/visual tests.
+
+## Testing
+- Component tests, integration tests, visual regression, accessibility tests (see `testing.mdc`).
+- Critical flows are covered by Playwright e2e in `tests/e2e`.
+
+## Plan & docs
+- Update `plan/PLAN.md` and `docs/` (guide + CHANGELOG for user-facing changes) per `AGENTS.md`.

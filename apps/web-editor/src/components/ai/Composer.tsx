@@ -1,0 +1,310 @@
+/**
+ * The AI composer (Phase 11 M8, ADR 0033): a workspace input, not a chat box.
+ *
+ * Adds a **slash-command palette** (FramePilot task commands), **quick actions**
+ * (one-tap prompt prefills), an **included-context panel** (removable chips derived
+ * from the project + selection + pinned entities), an **"@" pin-context picker**
+ * (H1.5, P8.7 narrow slice — search timeline clips/`project.assets` and pin one as
+ * extra context), and **attachment chips** with a paste handler. Voice/mic is
+ * intentionally absent (Approval A5). Pure presentational state lives here; the
+ * parent owns the conversation + run.
+ */
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { RunStatus } from '@framepilot/ai-sdk';
+import type { Attachment, ContextItem } from '../../ai/conversation.js';
+import {
+  QUICK_ACTIONS,
+  type PinnedEntity,
+  filterAtEntities,
+  filterSlashCommands,
+  isAtQuery,
+  isSlashQuery,
+  removeAtQuery,
+} from '../../ai/composerActions.js';
+import { ICON_SIZE, Send, Square, X } from '../icons.js';
+import {
+  ContextWindowIndicator,
+  type ContextPhase,
+  type ContextWindowState,
+} from './ContextWindowIndicator.js';
+import type { ContextDebugInfo } from './ContextDebugger.js';
+import { runStatusLabel } from './statusTone.js';
+
+/** Max composer height (px) before it scrolls internally — keep in sync with CSS. */
+const MAX_COMPOSER_HEIGHT = 200;
+
+export interface ComposerProps {
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+  readonly onSubmit: () => void;
+  readonly onStop: () => void;
+  readonly running: boolean;
+  /** Current durable run phase, rendered beside the message box rather than in the header. */
+  readonly runStatus?: RunStatus;
+  /** Most recent model call's prompt occupancy (per call, not cumulative cost). */
+  readonly contextWindow: ContextWindowState;
+  /**
+   * What the current request is doing — assembling context, generating, or idle. Named
+   * states rather than one spinner: they are different waits and read differently.
+   */
+  readonly contextPhase: ContextPhase;
+  /** Dev-only context inspector data; absent in production builds. */
+  readonly contextDebug?: ContextDebugInfo;
+  /** Included-context chips (already filtered by the parent's removals). */
+  readonly contextItems: readonly ContextItem[];
+  readonly onRemoveContext: (id: string) => void;
+  readonly attachments: readonly Attachment[];
+  readonly onAddAttachment: (attachment: Attachment) => void;
+  readonly onRemoveAttachment: (id: string) => void;
+  /**
+   * Every clip/asset the "@" picker can pin (P8.7 narrow slice) — the parent
+   * derives this from the project via `pinnableEntities`. Typing `@query` filters
+   * this list into a dropdown; picking one calls {@link onPinEntity} and removes
+   * the `@query` token from the composer text.
+   */
+  readonly atEntities: readonly PinnedEntity[];
+  readonly onPinEntity: (entity: PinnedEntity) => void;
+}
+
+export function Composer(props: ComposerProps): JSX.Element {
+  const { value, onChange, onSubmit, onStop, running } = props;
+  const [showQuick, setShowQuick] = useState(false);
+  const slashMatches = useMemo(() => filterSlashCommands(value), [value]);
+  const atMatches = useMemo(
+    () => filterAtEntities(value, props.atEntities),
+    [value, props.atEntities],
+  );
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-grow the textarea to fit its content (#6) so a multi-line message expands
+  // the box instead of clipping/scrolling — capped at MAX_COMPOSER_HEIGHT, after which
+  // it scrolls internally. Runs on every value change (typing, prefill, or clearing).
+  //
+  // Empty content skips the scrollHeight measurement entirely and just clears the
+  // inline height: this component remounts fresh whenever the AI rail collapses
+  // and re-expands (WorkspaceShell drops it from the tree while collapsed), and a
+  // synchronous scrollHeight read on that first layout can race the rail's CSS
+  // width transition — an empty textarea has no content to legitimately need
+  // 200px for, so there is nothing to measure that a plain reset doesn't already
+  // get right (CSS `min-height: 24px` takes back over).
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    if (value.trim() === '') {
+      el.style.height = '';
+      return;
+    }
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, MAX_COMPOSER_HEIGHT)}px`;
+  }, [value]);
+
+  const submit = (): void => {
+    if (value.trim().length > 0) onSubmit();
+  };
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (event.key === 'Enter' && !event.shiftKey && !isSlashQuery(value) && !isAtQuery(value)) {
+      event.preventDefault();
+      submit();
+    }
+  };
+
+  const pickEntity = (entity: PinnedEntity): void => {
+    onChange(removeAtQuery(value));
+    props.onPinEntity(entity);
+  };
+
+  const onPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    const file = Array.from(event.clipboardData.files)[0];
+    if (file) {
+      event.preventDefault();
+      props.onAddAttachment({
+        id: `att_${Date.now()}`,
+        kind: file.type.startsWith('image/') ? 'image' : 'document',
+        name: file.name || 'pasted',
+      });
+    }
+  };
+
+  return (
+    <div className="ai-composer-shell">
+      {running && props.runStatus ? (
+        // ONE moving thing, not three. The row used to carry a pulsing orb, a static
+        // label and a bouncing ellipsis — three separate animations all saying the same
+        // "still working", with the ellipsis duplicating the "…" already in the label.
+        // It is now the FramePilot mark breathing beside a shimmering label: the product's
+        // own face is what tells you it is thinking.
+        <div className="ai-composer-activity" role="status" aria-live="polite">
+          <span className="ai-activity-mark" aria-hidden="true">
+            <img src="/logo.png" alt="" width={16} height={16} />
+          </span>
+          <span className="ai-activity-label ai-shimmer-text">
+            {runStatusLabel(props.runStatus)}
+          </span>
+        </div>
+      ) : null}
+      {props.contextItems.length > 0 && (
+        // Included-context chips (P8.4/P8.7/P12.7): what the orchestrator's
+        // `context-builder` actually receives for the next turn — the always-on
+        // project/timeline/transcript/asset chips, plus a "Selected" chip when the
+        // editor has a live timeline selection. Each is removable; removing one
+        // (e.g. the selection chip) means it is NOT sent as context for the next
+        // turn (`AiSidebar` filters `contextItems` by the removed-id list before it
+        // builds the request) — mirrors the attachment chips' remove affordance.
+        <div className="ai-context-chips" aria-label="Included context">
+          {props.contextItems.map((item) => (
+            <span
+              key={item.id}
+              className="ai-context-chip"
+              data-kind={item.kind}
+              title={item.label}
+            >
+              <span className="ai-context-chip-label">{item.label}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${item.label}`}
+                onClick={() => props.onRemoveContext(item.id)}
+              >
+                <X size={12} aria-hidden="true" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {props.attachments.length > 0 && (
+        <div className="ai-attachments" aria-label="Attachments">
+          {props.attachments.map((attachment) => (
+            <span
+              key={attachment.id}
+              className="ai-chip"
+              data-kind={attachment.kind}
+              title={attachment.name}
+            >
+              <span className="ai-context-chip-label">{attachment.name}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${attachment.name}`}
+                onClick={() => props.onRemoveAttachment(attachment.id)}
+              >
+                <X size={12} aria-hidden="true" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {showQuick && (
+        <div className="ai-quick" role="menu" aria-label="Quick actions">
+          {QUICK_ACTIONS.map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              role="menuitem"
+              className="ai-quick-item"
+              onClick={() => {
+                onChange(action.prompt);
+                setShowQuick(false);
+              }}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {slashMatches.length > 0 && (
+        <ul className="ai-slash" role="listbox" aria-label="Slash commands">
+          {slashMatches.map((command) => (
+            <li key={command.name}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={false}
+                onClick={() => onChange(`/${command.name} `)}
+              >
+                <span className="ai-slash-name">/{command.name}</span>
+                <span className="ai-slash-desc">{command.description}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {atMatches.length > 0 && (
+        // "@" pin-context picker (P8.7 narrow slice): search timeline clips + project
+        // assets and pin one as an extra, independently-removable context chip — mirrors
+        // the slash-command dropdown's interaction shape (reuses its `.ai-slash` styles).
+        <ul className="ai-slash" role="listbox" aria-label="Pin context">
+          {atMatches.map((entity) => (
+            <li key={`${entity.kind}:${entity.id}`}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={false}
+                onClick={() => pickEntity(entity)}
+              >
+                <span className="ai-slash-name">@{entity.kind}</span>
+                <span className="ai-slash-desc">{entity.label}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="ai-composer">
+        <button
+          type="button"
+          className="ai-icon-button"
+          aria-label="Quick actions"
+          title="Quick actions"
+          data-active={showQuick}
+          onClick={() => setShowQuick((v) => !v)}
+        >
+          +
+        </button>
+        <textarea
+          ref={inputRef}
+          className="ai-composer-input"
+          value={value}
+          placeholder="Message FramePilot…  (/ for commands)"
+          aria-label="Message FramePilot"
+          rows={1}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+        />
+        <ContextWindowIndicator
+          value={props.contextWindow}
+          phase={props.contextPhase}
+          {...(props.contextDebug ? { debug: props.contextDebug } : {})}
+        />
+        {running ? (
+          // Visually STABLE stop control (H2): no pulsing/blinking — a static ring
+          // with distinct hover/pressed states; activity is signalled elsewhere
+          // (header spinner + streaming text), never by animating the kill switch.
+          <button
+            type="button"
+            className="ai-composer-stop"
+            aria-label="Stop agent"
+            title="Stop agent"
+            onClick={onStop}
+          >
+            <Square size={12} aria-hidden="true" className="ai-composer-stop-glyph" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="ai-composer-send"
+            aria-label="Send"
+            title="Send"
+            disabled={value.trim().length === 0}
+            onClick={submit}
+          >
+            <Send size={ICON_SIZE.sm} aria-hidden="true" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}

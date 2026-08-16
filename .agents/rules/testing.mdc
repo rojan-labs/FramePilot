@@ -1,0 +1,30 @@
+---
+description: Test types, coverage expectations, and tooling for FramePilot
+globs:
+alwaysApply: false
+---
+
+# Testing rules (PRD §16, §17)
+
+## Test types
+- **Unit** (Vitest TS / pytest PY): timeline operations, patch validator, schema parser, keyframe interpolation, caption alignment, export settings, AI tool input validation.
+- **Integration**: import video, generate proxy, create transcript, apply patch, render preview, export final.
+- **E2E** (Playwright): every critical user flow — create project, import, transcript, captions, trim, text overlay, AI edit, review diff, apply, undo, render preview, export, validate output.
+- **Visual regression**: timeline UI, caption overlay, text-behind-object, export preview frame, mask editor, color panel, keyframe panel.
+- **Golden media** (pytest fixtures): duration, resolution, fps, audio/video streams, frame-hash tolerance, caption timing, black-frame detection, audio clipping.
+
+## Coverage expectations
+- **No coverage percentage gate.** Cover the core deterministic modules meaningfully — timeline operations, patch validator, AI tool schemas, render validation — including their error paths.
+- Every operation tests BOTH `apply` and `invert`.
+- **No vanity coverage** — exercise real workflows, not accidental line hits.
+
+## Rules
+- Use deterministic fixtures; **no network** in tests.
+- Use exact assertions for JSON patches; perceptual/tolerance assertions for rendered video.
+- **No skipped tests without a linked issue** in the skip annotation.
+- A render behavior change REQUIRES a golden-test update.
+- Record screenshots/video on e2e failure.
+- After any edit, run the affected tests; run `pnpm verify` before declaring done.
+
+## Commands
+`pnpm test` · `pnpm test:coverage` · `pnpm test:e2e` · `pnpm engine:test` · `pnpm engine:test:cov`

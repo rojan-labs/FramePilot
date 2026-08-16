@@ -1,0 +1,1024 @@
+/*
+ * Settings workspace.
+ *
+ * This is the canonical SettingsDialog stylesheet. The visual language follows
+ * FramePilot's neutral editor chrome with the low-elevation, information-dense
+ * patterns used by Notion, Linear, and Cursor: quiet borders, compact rows,
+ * restrained radii, neutral selection states, and a clear two-column hierarchy.
+ *
+ * Keep every rule scoped to `.settings-dialog`. Shared controls elsewhere in the
+ * editor continue to use the base styles from `styles.css`.
+ */
+
+.settings-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(960px, calc(100vw - 32px));
+  height: min(680px, calc(100vh - 32px));
+  max-height: calc(100vh - 24px);
+  overflow: hidden;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  box-shadow: 0 18px 55px color-mix(in srgb, #000 20%, transparent);
+}
+
+/* Header ---------------------------------------------------------------- */
+
+.settings-dialog .settings-head,
+.settings-dialog .settings-foot {
+  display: flex;
+  align-items: center;
+  flex: none;
+  background: var(--bg-panel);
+}
+
+.settings-dialog .settings-head {
+  min-height: 64px;
+  justify-content: space-between;
+  padding: 10px 14px 10px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-dialog .settings-title-lockup {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 1px 10px;
+  min-width: 0;
+}
+
+.settings-dialog .settings-head h2 {
+  grid-column: 2;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 620;
+  line-height: 1.25;
+  letter-spacing: -0.012em;
+}
+
+.settings-dialog .settings-title-lockup p {
+  grid-column: 2;
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+/* The existing SET badge becomes the compact outlined settings glyph from the
+   reference without changing dialog behavior or adding another icon dependency. */
+.settings-dialog .settings-kicker {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  display: grid;
+  place-items: center;
+  align-self: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  font-size: 0;
+  line-height: 0;
+}
+
+.settings-dialog .settings-kicker::before {
+  content: '';
+  width: 17px;
+  height: 17px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.settings-dialog .settings-head .icon-btn {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: 7px;
+  box-shadow: none;
+}
+
+.settings-dialog .settings-head .icon-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+/* Shell ----------------------------------------------------------------- */
+
+.settings-dialog .settings-body {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+  background: var(--bg-app);
+}
+
+/* Navigation ------------------------------------------------------------- */
+
+.settings-dialog .settings-nav {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 12px 10px 10px;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border-subtle);
+}
+
+.settings-dialog .settings-nav-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.settings-dialog .settings-nav-entry {
+  display: contents;
+}
+
+.settings-dialog .settings-nav-group {
+  display: block;
+  margin: 13px 8px 5px;
+  color: var(--text-tertiary);
+  font-size: 9px;
+  font-weight: 610;
+  line-height: 1.2;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.settings-dialog .settings-nav-entry:first-child .settings-nav-group {
+  margin-top: 2px;
+}
+
+.settings-dialog .settings-nav button {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 45px;
+  padding: 6px 8px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  text-align: left;
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+
+.settings-dialog .settings-nav button:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.settings-dialog .settings-nav button.is-active {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--bg-surface) 76%, var(--bg-panel));
+  border-color: var(--border-default);
+}
+
+.settings-dialog .settings-nav button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.settings-dialog .settings-nav button > svg {
+  width: 17px;
+  height: 17px;
+  color: var(--text-tertiary);
+  stroke-width: 1.8;
+}
+
+.settings-dialog .settings-nav button.is-active > svg {
+  color: var(--text-primary);
+}
+
+.settings-dialog .settings-nav button > span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.settings-dialog .settings-nav button strong {
+  color: inherit;
+  font-size: 12px;
+  font-weight: 570;
+  line-height: 1.3;
+}
+
+.settings-dialog .settings-nav button small {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 9.5px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Readiness -------------------------------------------------------------- */
+
+.settings-dialog .settings-readiness {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: none;
+  padding: 9px 10px;
+  margin-top: 10px;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.settings-dialog .settings-readiness-label {
+  margin-bottom: 2px;
+  color: var(--text-tertiary);
+  font-size: 9px;
+  font-weight: 610;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.settings-dialog .settings-readiness div {
+  display: grid;
+  grid-template-columns: 6px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-tertiary);
+  font-size: 9.5px;
+  line-height: 1.4;
+}
+
+.settings-dialog .settings-readiness i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-disabled);
+}
+
+.settings-dialog .settings-readiness i[data-tone='ready'] {
+  background: var(--success);
+  box-shadow: 0 0 0 2px var(--success-subtle);
+}
+
+.settings-dialog .settings-readiness i[data-tone='attention'] {
+  background: var(--warning);
+  box-shadow: 0 0 0 2px var(--warning-subtle);
+}
+
+.settings-dialog .settings-readiness strong {
+  max-width: 78px;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 9.5px;
+  font-weight: 520;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Content --------------------------------------------------------------- */
+
+.settings-dialog .settings-panel {
+  position: relative;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  background: var(--bg-app);
+}
+
+/* Navigation already identifies the active category. Keep the semantic heading
+   in the document without spending a second title row in this utility surface. */
+.settings-dialog .settings-panel-head {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.settings-dialog .settings-panel-content {
+  padding: 16px 18px 20px;
+}
+
+.settings-dialog .settings-group {
+  margin: 0 0 12px;
+  overflow: hidden;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  box-shadow: none;
+}
+
+.settings-dialog .settings-group:last-child {
+  margin-bottom: 0;
+}
+
+.settings-dialog .settings-group-head {
+  padding: 12px 14px 8px;
+  background: transparent;
+  border-bottom: 0;
+}
+
+.settings-dialog .settings-group-head h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 620;
+  line-height: 1.35;
+  letter-spacing: -0.004em;
+}
+
+.settings-dialog .settings-group-head p {
+  margin: 2px 0 0;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.settings-dialog .settings-group-controls {
+  padding: 0 14px 10px;
+}
+
+.settings-dialog .setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 46px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-dialog .setting-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-dialog .setting-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.settings-dialog .setting-label {
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-weight: 535;
+  line-height: 1.35;
+}
+
+.settings-dialog .setting-hint {
+  max-width: 58ch;
+  color: var(--text-tertiary);
+  font-size: 9.5px;
+  line-height: 1.4;
+}
+
+.settings-dialog .setting-row--stack {
+  align-items: stretch;
+  flex-direction: column;
+  min-height: 0;
+  gap: 6px;
+  padding: 9px 0;
+}
+
+.settings-dialog .setting-field-label {
+  color: var(--text-tertiary);
+  font-size: 9.5px;
+  font-weight: 520;
+  line-height: 1.3;
+}
+
+.settings-dialog .setting-note {
+  padding: 5px 0 0;
+  color: var(--text-tertiary);
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+
+.settings-dialog .setting-section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 10px 0 5px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.settings-dialog .setting-section-head .setting-hint {
+  line-height: 1.45;
+}
+
+.settings-dialog .setting-list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+/* Inputs ---------------------------------------------------------------- */
+
+.settings-dialog .setting-text-input,
+.settings-dialog .setting-number {
+  height: 29px;
+  min-width: 0;
+  padding: 0 8px;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  box-shadow: none;
+  font-size: 10.5px;
+  line-height: 29px;
+}
+
+.settings-dialog .setting-text-input {
+  flex: 1;
+}
+
+.settings-dialog .setting-number {
+  width: 68px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.settings-dialog .setting-text-input:hover,
+.settings-dialog .setting-number:hover {
+  border-color: var(--border-strong);
+}
+
+.settings-dialog .setting-text-input:focus-visible,
+.settings-dialog .setting-number:focus-visible {
+  outline: none;
+  border-color: var(--text-tertiary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 50%, transparent);
+}
+
+.settings-dialog .setting-key-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-dialog .setting-key-row [data-variant] {
+  height: 29px;
+  padding-inline: 9px;
+  border-color: var(--border-default);
+  border-radius: 6px;
+  box-shadow: none;
+  font-size: 10px;
+}
+
+/* Switch ---------------------------------------------------------------- */
+
+.settings-dialog .switch {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  flex: none;
+  padding: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+
+.settings-dialog .switch.is-on {
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+}
+
+.settings-dialog .switch-thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  box-shadow: 0 1px 2px color-mix(in srgb, #000 18%, transparent);
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.settings-dialog .switch.is-on .switch-thumb {
+  transform: translateX(14px);
+}
+
+.settings-dialog .switch:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+/* Segmented controls ---------------------------------------------------- */
+
+.settings-dialog .segmented {
+  display: inline-flex;
+  flex: none;
+  min-height: 29px;
+  padding: 2px;
+  background: color-mix(in srgb, var(--bg-surface) 74%, var(--bg-app));
+  border: 1px solid var(--border-default);
+  border-radius: 7px;
+  box-shadow: none;
+}
+
+.settings-dialog .segmented button {
+  min-height: 23px;
+  padding: 0 10px;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  box-shadow: none;
+  font-size: 10px;
+  font-weight: 510;
+  line-height: 1;
+}
+
+.settings-dialog .segmented button:hover:not(.is-active) {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--bg-hover) 60%, transparent);
+}
+
+.settings-dialog .segmented button.is-active {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  box-shadow:
+    0 0 0 1px var(--border-subtle),
+    0 1px 2px color-mix(in srgb, #000 8%, transparent);
+}
+
+.settings-dialog .segmented button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+/* Give the compact choice rows the same deliberate full-width treatment as the
+   reference when space allows. Text-heavy/provider controls keep natural width. */
+.settings-dialog .setting-row:not(.setting-row--asr-provider) > .segmented {
+  min-width: 248px;
+}
+
+.settings-dialog .setting-row:not(.setting-row--asr-provider) > .segmented button {
+  flex: 1;
+}
+
+.settings-dialog .setting-row--asr-provider > .segmented {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(max-content, 1fr));
+}
+
+.settings-dialog .setting-subtabs {
+  display: flex;
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+.settings-dialog .setting-subtabs button {
+  flex: 1;
+}
+
+/* Provider accordion ---------------------------------------------------- */
+
+.settings-dialog .setting-provider {
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-dialog .setting-provider:last-child {
+  border-bottom: 0;
+}
+
+.settings-dialog .setting-provider-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 4px;
+}
+
+.settings-dialog .setting-provider-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 26px;
+  padding: 0;
+  color: var(--text-primary);
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-dialog .setting-provider-toggle .setting-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-dialog .setting-provider-toggle .setting-hint {
+  flex: none;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.settings-dialog .setting-provider-toggle svg {
+  flex: none;
+  color: var(--text-tertiary);
+}
+
+.settings-dialog .setting-provider-toggle:hover svg {
+  color: var(--text-primary);
+}
+
+.settings-dialog .setting-provider-toggle:focus-visible {
+  outline: none;
+  border-radius: 5px;
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.settings-dialog .setting-provider-chevron {
+  width: 13px;
+  height: 13px;
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.settings-dialog .setting-provider-toggle[aria-expanded='true'] .setting-provider-chevron {
+  transform: rotate(180deg);
+}
+
+.settings-dialog .setting-provider-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 0.18s var(--ease),
+    opacity 0.14s var(--ease);
+}
+
+.settings-dialog .setting-provider-body[data-expanded='true'] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.settings-dialog .setting-provider-body-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.settings-dialog .setting-provider-state {
+  padding: 1px 6px;
+  color: var(--text-tertiary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.settings-dialog .setting-provider-state[data-ready='true'] {
+  color: var(--success);
+  background: var(--success-subtle);
+  border-color: color-mix(in srgb, var(--success) 26%, var(--border-subtle));
+}
+
+/* Supporting states ----------------------------------------------------- */
+
+.settings-dialog .settings-callout {
+  margin: 0 0 9px;
+  padding: 8px 10px;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+
+.settings-dialog .settings-empty-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0;
+  color: var(--text-tertiary);
+}
+
+.settings-dialog .settings-empty-state > svg {
+  flex: none;
+}
+
+.settings-dialog .settings-empty-state > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.settings-dialog .settings-empty-state strong {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.settings-dialog .settings-empty-state span {
+  font-size: 9.5px;
+}
+
+.settings-dialog .capability-storage-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.settings-dialog .capability-storage-summary > div,
+.settings-dialog .capability-pack-progress,
+.settings-dialog .capability-cleanup-review {
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.settings-dialog .capability-storage-summary span,
+.settings-dialog .capability-pack-progress span,
+.settings-dialog .capability-pack-progress small,
+.settings-dialog .capability-cleanup-review > span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.settings-dialog .capability-storage-summary strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 14px;
+}
+
+.settings-dialog .capability-storage-path {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-dialog .capability-pack-progress strong {
+  display: block;
+  margin: 3px 0;
+  font-size: 12px;
+  text-transform: capitalize;
+}
+
+.settings-dialog .capability-pack-list,
+.settings-dialog .capability-cleanup-review ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-dialog .capability-pack-list li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-dialog .capability-pack-list li:last-child {
+  border-bottom: 0;
+}
+
+.settings-dialog .capability-pack-list strong,
+.settings-dialog .capability-pack-list span,
+.settings-dialog .capability-pack-list small {
+  display: block;
+}
+
+.settings-dialog .capability-pack-list span,
+.settings-dialog .capability-pack-list small,
+.settings-dialog .capability-cleanup-review li {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.settings-dialog .capability-cleanup-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.settings-dialog .capability-cleanup-review ul {
+  margin: 10px 0;
+}
+
+/* Footer ---------------------------------------------------------------- */
+
+.settings-dialog .settings-foot {
+  min-height: 46px;
+  justify-content: space-between;
+  padding: 8px 14px 8px 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.settings-dialog .settings-foot > span {
+  color: var(--text-tertiary);
+  font-size: 9.5px;
+}
+
+.settings-dialog .settings-foot [data-variant] {
+  height: 30px;
+  padding-inline: 10px;
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: var(--border-default);
+  border-radius: 7px;
+  box-shadow: none;
+  font-size: 10px;
+}
+
+.settings-dialog .settings-foot [data-variant]:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* Two compact dashboard sections remain side by side when the dialog has room. */
+@media (min-width: 900px) {
+  .settings-dialog .settings-panel-content--editing,
+  .settings-dialog .settings-panel-content--playback {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 12px;
+  }
+
+  .settings-dialog .settings-panel-content--editing .settings-group,
+  .settings-dialog .settings-panel-content--playback .settings-group {
+    margin-bottom: 0;
+  }
+}
+
+/* Tablet --------------------------------------------------------------- */
+
+@media (max-width: 760px) {
+  .settings-dialog {
+    width: calc(100vw - 20px);
+    height: calc(100vh - 20px);
+    max-height: calc(100vh - 20px);
+    border-radius: 11px;
+  }
+
+  .settings-dialog .settings-head {
+    min-height: 56px;
+    padding: 8px 10px 8px 12px;
+  }
+
+  .settings-dialog .settings-title-lockup {
+    grid-template-columns: 30px minmax(0, 1fr);
+    gap: 1px 8px;
+  }
+
+  .settings-dialog .settings-kicker {
+    width: 30px;
+    height: 30px;
+  }
+
+  .settings-dialog .settings-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .settings-dialog .settings-nav {
+    padding: 6px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .settings-dialog .settings-nav-scroll {
+    display: flex;
+    gap: 3px;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .settings-dialog .settings-nav-entry {
+    display: block;
+    flex: none;
+  }
+
+  .settings-dialog .settings-nav-group,
+  .settings-dialog .settings-readiness,
+  .settings-dialog .settings-nav button small {
+    display: none;
+  }
+
+  .settings-dialog .settings-nav button {
+    display: flex;
+    width: auto;
+    min-height: 34px;
+    gap: 6px;
+    padding: 5px 8px;
+  }
+
+  .settings-dialog .settings-nav button > span {
+    display: block;
+  }
+
+  .settings-dialog .settings-panel-content {
+    padding: 12px;
+  }
+
+  .settings-dialog .settings-group {
+    margin-bottom: 10px;
+  }
+
+  .settings-dialog .setting-row--asr-provider {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-dialog .setting-row--asr-provider > .segmented {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+}
+
+/* Phone ---------------------------------------------------------------- */
+
+@media (max-width: 520px) {
+  .settings-dialog .settings-title-lockup p,
+  .settings-dialog .settings-kicker,
+  .settings-dialog .settings-foot > span,
+  .settings-dialog .settings-nav button strong {
+    display: none;
+  }
+
+  .settings-dialog .settings-title-lockup {
+    display: block;
+  }
+
+  .settings-dialog .settings-head,
+  .settings-dialog .settings-foot {
+    min-height: 44px;
+    padding: 7px 8px 7px 10px;
+  }
+
+  .settings-dialog .settings-nav button {
+    padding: 7px;
+  }
+
+  .settings-dialog .settings-panel-content {
+    padding: 8px;
+  }
+
+  .settings-dialog .settings-group-head {
+    padding: 10px 10px 7px;
+  }
+
+  .settings-dialog .settings-group-controls {
+    padding: 0 10px 8px;
+  }
+
+  .settings-dialog .setting-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .settings-dialog .setting-row > .segmented,
+  .settings-dialog .setting-row > .setting-text-input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .settings-dialog .setting-key-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-dialog .settings-foot {
+    justify-content: flex-end;
+  }
+}

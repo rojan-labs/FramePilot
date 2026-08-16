@@ -1,0 +1,85 @@
+# Tracking Lite Capability Pack worker.
+#
+# This is a SEPARATE artifact project. It is deliberately NOT a member of the
+# root uv workspace and NOT a dependency of the base Python render engine or the
+# Electron app: heavy CV payloads ship as signed, on-demand Capability Packs
+# (docs/adr/0114-on-demand-capability-packs.md), never inside the base
+# installer. Nothing here may be imported by `framepilot_engine`.
+[project]
+name = "framepilot-tracking-lite"
+version = "1.0.0"
+description = "FramePilot Tracking Lite Capability Pack worker (point, region, planar tracking)"
+readme = "README.md"
+license = { text = "Proprietary" }
+authors = [{ name = "Rojan Acharya and FramePilot contributors" }]
+# CPython 3.12 is the pack runtime floor: NumPy 2.5 requires >=3.12, and the
+# per-platform self-contained runtime is built against 3.12 so the lock is
+# reproducible across macOS arm64 and Windows x64.
+requires-python = ">=3.12"
+# The protocol/health/policy layer has NO third-party dependency. That is what
+# lets the base repository test this worker without installing OpenCV.
+dependencies = []
+
+[project.optional-dependencies]
+# Real decoded-media backend. Installed only by the pack build/CI job, never by
+# the base repository's `uv sync`. The exact resolved versions live in uv.lock;
+# these bounds state compatibility.
+#
+# `-contrib-` is required, not incidental: CSRT lives in the contrib `tracking`
+# module. Verified against real wheels — opencv-python-headless 4.14.0.94 exposes
+# no TrackerCSRT/KCF at all (only MIL plus weight-requiring GOTURN/DaSiam/Nano/
+# Vit), while opencv-contrib-python-headless 5.0.0 exposes TrackerCSRT. Region
+# tracking quality is the reason this pack exists, so the ~9 MiB and the wider
+# contrib module set are accepted; the contrib wheel also ships the non-free
+# SURF, which this worker never calls but which LICENSES.md records honestly.
+# Headless: no GUI/Qt dependency.
+cv = [
+  "numpy>=2.1",
+  "opencv-contrib-python-headless>=5.0,<6",
+]
+dev = [
+  "pytest>=8.3",
+  "ruff>=0.6",
+  "mypy>=1.11",
+]
+
+[project.scripts]
+framepilot-tracking-lite = "framepilot_tracking_lite.__main__:main"
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/framepilot_tracking_lite"]
+
+[tool.pytest.ini_options]
+# `pythonpath` keeps the unit suite runnable straight from a checkout with no
+# install step and no CV dependency.
+pythonpath = ["src"]
+testpaths = ["tests"]
+# The default suite must run with no CV stack installed, so decoded-media proof
+# is opt-in: the pack build job runs `pytest -m decoded_media --extra cv`.
+addopts = "-ra --strict-markers -m 'not decoded_media'"
+markers = [
+  "decoded_media: requires the OpenCV backend and real decoded media (pack build job only)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "PTH", "RUF"]
+# The en dash is intentional prose (Lucas–Kanade, forward–backward), not a typo.
+allowed-confusables = ["–"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/framepilot_tracking_lite"]
+
+[[tool.mypy.overrides]]
+module = ["cv2.*", "numpy.*"]
+ignore_missing_imports = true

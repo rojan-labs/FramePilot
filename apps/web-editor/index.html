@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FramePilot</title>
+    <!-- Brand mark shared with the marketing site (the same logo.png) so the
+         editor tab/app icon never differs from the website. -->
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <meta name="theme-color" content="#0d0e15" />
+    <!-- Critical inline style: paint the app's dark canvas BEFORE the bundle/CSS
+         load, so startup never flashes the browser's default white frame. The
+         color mirrors --bg-canvas and the Electron BrowserWindow backgroundColor. -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #0e0e12;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Renderer entry. See plan/PLAN.md Phase 3 (Editor UI). -->
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

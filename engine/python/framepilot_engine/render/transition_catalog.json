@@ -1,0 +1,2753 @@
+{
+  "categories": [
+    {
+      "id": "basic",
+      "label": "Basic",
+      "blurb": "The cuts and dissolves every edit is built from."
+    },
+    {
+      "id": "slide",
+      "label": "Slide & Push",
+      "blurb": "One shot moves the other out of frame."
+    },
+    {
+      "id": "zoom",
+      "label": "Zoom",
+      "blurb": "Push in, pull out, land on the next shot."
+    },
+    {
+      "id": "motion",
+      "label": "Blur & Motion",
+      "blurb": "Whips, smears and camera energy across the cut."
+    },
+    {
+      "id": "wipe",
+      "label": "Wipe",
+      "blurb": "An edge or a shape reveals the next shot."
+    },
+    {
+      "id": "creative",
+      "label": "Creative",
+      "blurb": "Glitch, light, ink and liquid — the ones people notice."
+    },
+    {
+      "id": "spatial",
+      "label": "3D & Spatial",
+      "blurb": "The frame becomes a surface in space."
+    }
+  ],
+  "params": {
+    "dissolve": [
+      {
+        "name": "hold",
+        "label": "Hold",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0,
+        "hint": "Linger at the halfway blend before completing."
+      }
+    ],
+    "dip-color": [
+      {
+        "name": "red",
+        "label": "Red",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0
+      },
+      {
+        "name": "green",
+        "label": "Green",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0
+      },
+      {
+        "name": "blue",
+        "label": "Blue",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0
+      },
+      {
+        "name": "hold",
+        "label": "Hold",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.2,
+        "hint": "How long the frame sits at full colour."
+      },
+      {
+        "name": "blend",
+        "label": "Blend",
+        "min": 0,
+        "max": 1,
+        "step": 1,
+        "default": 0,
+        "choices": [
+          "dip",
+          "flash"
+        ],
+        "hint": "Dip replaces the picture; flash adds light to it."
+      }
+    ],
+    "luma-fade": [
+      {
+        "name": "invert",
+        "label": "From",
+        "min": 0,
+        "max": 1,
+        "step": 1,
+        "default": 0,
+        "choices": [
+          "highlights",
+          "shadows"
+        ],
+        "hint": "Which tones arrive first."
+      }
+    ],
+    "noise-dissolve": [
+      {
+        "name": "cell",
+        "label": "Grain",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.15,
+        "hint": "Size of the organic patches that arrive first."
+      },
+      {
+        "name": "seed",
+        "label": "Variation",
+        "min": 0,
+        "max": 64,
+        "step": 1,
+        "default": 1,
+        "hint": "Pick a different random arrangement. The same value always looks the same."
+      }
+    ],
+    "pixel-dissolve": [
+      {
+        "name": "blockPx",
+        "label": "Block size",
+        "min": 2,
+        "max": 128,
+        "step": 1,
+        "default": 24
+      },
+      {
+        "name": "seed",
+        "label": "Variation",
+        "min": 0,
+        "max": 64,
+        "step": 1,
+        "default": 1,
+        "hint": "Pick a different random arrangement. The same value always looks the same."
+      }
+    ],
+    "mosaic": [
+      {
+        "name": "blockPx",
+        "label": "Block size",
+        "min": 2,
+        "max": 160,
+        "step": 1,
+        "default": 48
+      }
+    ],
+    "wipe-linear": [
+      {
+        "name": "angle",
+        "label": "Tilt",
+        "min": 0,
+        "max": 360,
+        "step": 1,
+        "default": 0,
+        "unit": "°",
+        "hint": "Rotate the wipe edge off its direction."
+      }
+    ],
+    "wipe-radial": [
+      {
+        "name": "centreX",
+        "label": "Centre X",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5,
+        "hint": "Where the transition originates, across the frame."
+      },
+      {
+        "name": "centreY",
+        "label": "Centre Y",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5,
+        "hint": "Where the transition originates, down the frame."
+      },
+      {
+        "name": "invert",
+        "label": "Shape",
+        "min": 0,
+        "max": 1,
+        "step": 1,
+        "default": 0,
+        "choices": [
+          "circle in",
+          "circle out"
+        ]
+      }
+    ],
+    "wipe-clock": [
+      {
+        "name": "centreX",
+        "label": "Centre X",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5,
+        "hint": "Where the transition originates, across the frame."
+      },
+      {
+        "name": "centreY",
+        "label": "Centre Y",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5,
+        "hint": "Where the transition originates, down the frame."
+      },
+      {
+        "name": "start",
+        "label": "Start angle",
+        "min": 0,
+        "max": 360,
+        "step": 1,
+        "default": 0,
+        "unit": "°"
+      },
+      {
+        "name": "reverse",
+        "label": "Sweep",
+        "min": 0,
+        "max": 1,
+        "step": 1,
+        "default": 0,
+        "choices": [
+          "clockwise",
+          "anticlockwise"
+        ]
+      }
+    ],
+    "wipe-split": [
+      {
+        "name": "axis",
+        "label": "Axis",
+        "min": 0,
+        "max": 1,
+        "step": 1,
+        "default": 0,
+        "choices": [
+          "horizontal",
+          "vertical"
+        ]
+      },
+      {
+        "name": "invert",
+        "label": "From",
+        "min": 0,
+        "max": 1,
+        "step": 1,
+        "default": 0,
+        "choices": [
+          "centre",
+          "edges"
+        ]
+      }
+    ],
+    "wipe-shape": [
+      {
+        "name": "shape",
+        "label": "Shape",
+        "min": 0,
+        "max": 4,
+        "step": 1,
+        "default": 0,
+        "choices": [
+          "diamond",
+          "star",
+          "cross",
+          "heart",
+          "hexagon"
+        ]
+      },
+      {
+        "name": "centreX",
+        "label": "Centre X",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5,
+        "hint": "Where the transition originates, across the frame."
+      },
+      {
+        "name": "centreY",
+        "label": "Centre Y",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5,
+        "hint": "Where the transition originates, down the frame."
+      }
+    ],
+    "wipe-bars": [
+      {
+        "name": "bars",
+        "label": "Bars",
+        "min": 2,
+        "max": 32,
+        "step": 1,
+        "default": 8
+      },
+      {
+        "name": "axis",
+        "label": "Axis",
+        "min": 0,
+        "max": 1,
+        "step": 1,
+        "default": 0,
+        "choices": [
+          "vertical",
+          "horizontal"
+        ]
+      },
+      {
+        "name": "stagger",
+        "label": "Stagger",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.3,
+        "hint": "Delay each bar behind the one before it."
+      }
+    ],
+    "slide": [
+      {
+        "name": "distance",
+        "label": "Distance",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 1,
+        "hint": "How far off-frame the picture starts."
+      },
+      {
+        "name": "slices",
+        "label": "Slices",
+        "min": 1,
+        "max": 12,
+        "step": 1,
+        "default": 1,
+        "hint": "Split the picture into bands that arrive from alternating sides."
+      },
+      {
+        "name": "stagger",
+        "label": "Stagger",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0,
+        "hint": "Delay each slice behind the one before it."
+      }
+    ],
+    "zoom": [
+      {
+        "name": "scaleFrom",
+        "label": "Scale from",
+        "min": 0.1,
+        "max": 4,
+        "step": 0.05,
+        "default": 1.6
+      },
+      {
+        "name": "centreX",
+        "label": "Centre X",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5,
+        "hint": "Where the transition originates, across the frame."
+      },
+      {
+        "name": "centreY",
+        "label": "Centre Y",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5,
+        "hint": "Where the transition originates, down the frame."
+      },
+      {
+        "name": "rotate",
+        "label": "Rotate",
+        "min": -1,
+        "max": 1,
+        "step": 0.01,
+        "default": 0,
+        "unit": "turns"
+      }
+    ],
+    "spin": [
+      {
+        "name": "turns",
+        "label": "Turns",
+        "min": -3,
+        "max": 3,
+        "step": 0.05,
+        "default": 1
+      },
+      {
+        "name": "scaleFrom",
+        "label": "Scale from",
+        "min": 0.1,
+        "max": 4,
+        "step": 0.05,
+        "default": 2
+      }
+    ],
+    "stretch": [
+      {
+        "name": "axis",
+        "label": "Axis",
+        "min": 0,
+        "max": 1,
+        "step": 1,
+        "default": 0,
+        "choices": [
+          "horizontal",
+          "vertical"
+        ]
+      },
+      {
+        "name": "stretchAmount",
+        "label": "Stretch",
+        "min": 1,
+        "max": 12,
+        "step": 0.1,
+        "default": 5
+      }
+    ],
+    "shake": [
+      {
+        "name": "shakeAmount",
+        "label": "Shake",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.35
+      },
+      {
+        "name": "frequency",
+        "label": "Frequency",
+        "min": 1,
+        "max": 60,
+        "step": 1,
+        "default": 18,
+        "unit": "Hz"
+      },
+      {
+        "name": "rotate",
+        "label": "Roll",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.3,
+        "hint": "How much the frame rolls as well as jumps."
+      },
+      {
+        "name": "seed",
+        "label": "Variation",
+        "min": 0,
+        "max": 64,
+        "step": 1,
+        "default": 1,
+        "hint": "Pick a different random arrangement. The same value always looks the same."
+      }
+    ],
+    "blur-dissolve": [
+      {
+        "name": "radius",
+        "label": "Blur",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.04,
+        "hint": "Starting radius, as a fraction of the frame."
+      }
+    ],
+    "blur-directional": [
+      {
+        "name": "radius",
+        "label": "Blur",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.06,
+        "hint": "Starting smear length, as a fraction of the frame."
+      },
+      {
+        "name": "travel",
+        "label": "Travel",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.35,
+        "hint": "How far the picture also moves along the smear."
+      }
+    ],
+    "blur-radial": [
+      {
+        "name": "strength",
+        "label": "Strength",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.4
+      },
+      {
+        "name": "centreX",
+        "label": "Centre X",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5,
+        "hint": "Where the transition originates, across the frame."
+      },
+      {
+        "name": "centreY",
+        "label": "Centre Y",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5,
+        "hint": "Where the transition originates, down the frame."
+      },
+      {
+        "name": "mode",
+        "label": "Mode",
+        "min": 0,
+        "max": 1,
+        "step": 1,
+        "default": 0,
+        "choices": [
+          "zoom",
+          "spin"
+        ]
+      }
+    ],
+    "glitch": [
+      {
+        "name": "blocks",
+        "label": "Blocks",
+        "min": 2,
+        "max": 64,
+        "step": 1,
+        "default": 16
+      },
+      {
+        "name": "displace",
+        "label": "Displace",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.25
+      },
+      {
+        "name": "rgbSplit",
+        "label": "Colour split",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.4
+      },
+      {
+        "name": "seed",
+        "label": "Variation",
+        "min": 0,
+        "max": 64,
+        "step": 1,
+        "default": 1,
+        "hint": "Pick a different random arrangement. The same value always looks the same."
+      }
+    ],
+    "rgb-split": [
+      {
+        "name": "split",
+        "label": "Split",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.35
+      },
+      {
+        "name": "angle",
+        "label": "Angle",
+        "min": 0,
+        "max": 360,
+        "step": 1,
+        "default": 0,
+        "unit": "°"
+      }
+    ],
+    "light-leak": [
+      {
+        "name": "warmth",
+        "label": "Warmth",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.8
+      },
+      {
+        "name": "brightness",
+        "label": "Brightness",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.9
+      },
+      {
+        "name": "angle",
+        "label": "Angle",
+        "min": 0,
+        "max": 360,
+        "step": 1,
+        "default": 30,
+        "unit": "°"
+      },
+      {
+        "name": "mode",
+        "label": "Mode",
+        "min": 0,
+        "max": 1,
+        "step": 1,
+        "default": 0,
+        "choices": [
+          "leak",
+          "burn"
+        ],
+        "hint": "A leak streaks light in; a burn eats the frame away."
+      }
+    ],
+    "ripple": [
+      {
+        "name": "amplitude",
+        "label": "Amplitude",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.12
+      },
+      {
+        "name": "frequency",
+        "label": "Frequency",
+        "min": 1,
+        "max": 40,
+        "step": 0.5,
+        "default": 12
+      },
+      {
+        "name": "centreX",
+        "label": "Centre X",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5,
+        "hint": "Where the transition originates, across the frame."
+      },
+      {
+        "name": "centreY",
+        "label": "Centre Y",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5,
+        "hint": "Where the transition originates, down the frame."
+      }
+    ],
+    "warp": [
+      {
+        "name": "amplitude",
+        "label": "Amplitude",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.18
+      },
+      {
+        "name": "cell",
+        "label": "Scale",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.35
+      },
+      {
+        "name": "seed",
+        "label": "Variation",
+        "min": 0,
+        "max": 64,
+        "step": 1,
+        "default": 1,
+        "hint": "Pick a different random arrangement. The same value always looks the same."
+      }
+    ],
+    "liquid": [
+      {
+        "name": "swirl",
+        "label": "Swirl",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.6
+      },
+      {
+        "name": "centreX",
+        "label": "Centre X",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5,
+        "hint": "Where the transition originates, across the frame."
+      },
+      {
+        "name": "centreY",
+        "label": "Centre Y",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5,
+        "hint": "Where the transition originates, down the frame."
+      }
+    ],
+    "kaleidoscope": [
+      {
+        "name": "segments",
+        "label": "Segments",
+        "min": 2,
+        "max": 16,
+        "step": 1,
+        "default": 6
+      }
+    ],
+    "perspective-3d": [
+      {
+        "name": "axis",
+        "label": "Axis",
+        "min": 0,
+        "max": 1,
+        "step": 1,
+        "default": 0,
+        "choices": [
+          "vertical",
+          "horizontal"
+        ],
+        "hint": "Which way the surface turns."
+      },
+      {
+        "name": "panels",
+        "label": "Panels",
+        "min": 1,
+        "max": 12,
+        "step": 1,
+        "default": 1
+      },
+      {
+        "name": "pivot",
+        "label": "Pivot",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0,
+        "hint": "Turn about the panel centre (0) or its outer edge (1)."
+      },
+      {
+        "name": "depth",
+        "label": "Depth",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.6,
+        "hint": "How much perspective the turn has."
+      },
+      {
+        "name": "turns",
+        "label": "Turn",
+        "min": -1,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.25,
+        "unit": "turns"
+      },
+      {
+        "name": "arc",
+        "label": "Arc",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0,
+        "hint": "Swing the surface along a curve as it turns."
+      },
+      {
+        "name": "shade",
+        "label": "Shading",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.5,
+        "hint": "Darken the surface as it turns away."
+      },
+      {
+        "name": "push",
+        "label": "Distance",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0,
+        "hint": "Start the surface further away and let it rush in."
+      }
+    ],
+    "page-turn": [
+      {
+        "name": "curl",
+        "label": "Curl",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.35,
+        "hint": "How tightly the page rolls."
+      },
+      {
+        "name": "angle",
+        "label": "Angle",
+        "min": 0,
+        "max": 360,
+        "step": 1,
+        "default": 0,
+        "unit": "°"
+      },
+      {
+        "name": "shade",
+        "label": "Shading",
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "default": 0.6
+      }
+    ]
+  },
+  "directions": {
+    "dissolve": [],
+    "dip-color": [],
+    "luma-fade": [],
+    "noise-dissolve": [],
+    "pixel-dissolve": [],
+    "mosaic": [],
+    "wipe-linear": [
+      "left",
+      "right",
+      "up",
+      "down"
+    ],
+    "wipe-radial": [],
+    "wipe-clock": [],
+    "wipe-split": [],
+    "wipe-shape": [],
+    "wipe-bars": [],
+    "slide": [
+      "left",
+      "right",
+      "up",
+      "down"
+    ],
+    "zoom": [
+      "in",
+      "out"
+    ],
+    "spin": [],
+    "stretch": [],
+    "shake": [],
+    "blur-dissolve": [],
+    "blur-directional": [
+      "left",
+      "right",
+      "up",
+      "down"
+    ],
+    "blur-radial": [
+      "in",
+      "out"
+    ],
+    "glitch": [],
+    "rgb-split": [],
+    "light-leak": [
+      "left",
+      "right",
+      "up",
+      "down"
+    ],
+    "ripple": [],
+    "warp": [],
+    "liquid": [],
+    "kaleidoscope": [],
+    "perspective-3d": [],
+    "page-turn": [
+      "left",
+      "right",
+      "up",
+      "down"
+    ]
+  },
+  "applyPath": {
+    "dissolve": "mask",
+    "dip-color": "frame",
+    "luma-fade": "mask",
+    "noise-dissolve": "mask",
+    "pixel-dissolve": "mask",
+    "mosaic": "frame",
+    "wipe-linear": "mask",
+    "wipe-radial": "mask",
+    "wipe-clock": "mask",
+    "wipe-split": "mask",
+    "wipe-shape": "mask",
+    "wipe-bars": "mask",
+    "slide": "frame",
+    "zoom": "frame",
+    "spin": "frame",
+    "stretch": "frame",
+    "shake": "frame",
+    "blur-dissolve": "frame",
+    "blur-directional": "frame",
+    "blur-radial": "frame",
+    "glitch": "frame",
+    "rgb-split": "frame",
+    "light-leak": "frame",
+    "ripple": "frame",
+    "warp": "frame",
+    "liquid": "frame",
+    "kaleidoscope": "frame",
+    "perspective-3d": "frame",
+    "page-turn": "frame"
+  },
+  "transitions": [
+    {
+      "id": "cut",
+      "label": "Cut",
+      "category": "basic",
+      "renderKind": "dissolve",
+      "defaultDuration": 0,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)",
+        "to": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)"
+      },
+      "description": "A hard cut — removes any transition at this edit point.",
+      "tags": [
+        "none",
+        "remove",
+        "hard",
+        "straight"
+      ],
+      "isCut": true
+    },
+    {
+      "id": "cross-dissolve",
+      "label": "Cross Dissolve",
+      "category": "basic",
+      "renderKind": "dissolve",
+      "defaultDuration": 0.5,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#e9f1c9 0%,#5f9a52 50%,#1d3524 100%)",
+        "to": "linear-gradient(150deg,#e2f2f5 0%,#5fa8bf 55%,#123b52 100%)"
+      },
+      "description": "The classic blend. Softens a cut without drawing attention.",
+      "tags": [
+        "dissolve",
+        "blend",
+        "mix",
+        "classic",
+        "smooth",
+        "cinematic"
+      ],
+      "popular": true,
+      "recommended": true
+    },
+    {
+      "id": "fade",
+      "label": "Fade",
+      "category": "basic",
+      "renderKind": "dissolve",
+      "defaultDuration": 0.6,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)",
+        "to": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)"
+      },
+      "description": "The incoming shot rises out of what is beneath it.",
+      "tags": [
+        "fade",
+        "in",
+        "gentle",
+        "open",
+        "smooth"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "soft-dissolve",
+      "label": "Soft Dissolve",
+      "category": "basic",
+      "renderKind": "dissolve",
+      "params": {
+        "hold": 0.45
+      },
+      "easing": "ease-in-out",
+      "defaultDuration": 1.2,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#e2f2f5 0%,#5fa8bf 55%,#123b52 100%)",
+        "to": "linear-gradient(150deg,#e9f1c9 0%,#5f9a52 50%,#1d3524 100%)"
+      },
+      "description": "A long dissolve that lingers at the halfway blend.",
+      "tags": [
+        "slow",
+        "dreamy",
+        "cinematic",
+        "linger",
+        "documentary"
+      ]
+    },
+    {
+      "id": "fade-to-black",
+      "label": "Fade to Black",
+      "category": "basic",
+      "renderKind": "dip-color",
+      "params": {
+        "red": 0,
+        "green": 0,
+        "blue": 0,
+        "hold": 0
+      },
+      "defaultDuration": 0.7,
+      "thumbnail": {
+        "from": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)",
+        "to": "linear-gradient(160deg,#3a2450 0%,#a45a7c 50%,#f2c078 100%)"
+      },
+      "description": "Down to black, then up into the next shot.",
+      "tags": [
+        "black",
+        "fade out",
+        "end",
+        "chapter",
+        "scene break"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "fade-to-white",
+      "label": "Fade to White",
+      "category": "basic",
+      "renderKind": "dip-color",
+      "params": {
+        "red": 1,
+        "green": 1,
+        "blue": 1,
+        "hold": 0
+      },
+      "defaultDuration": 0.7,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)",
+        "to": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)"
+      },
+      "description": "Up to white, then back down into the next shot.",
+      "tags": [
+        "white",
+        "bright",
+        "clean",
+        "dream",
+        "memory"
+      ]
+    },
+    {
+      "id": "dip-to-black",
+      "label": "Dip to Black",
+      "category": "basic",
+      "renderKind": "dip-color",
+      "params": {
+        "red": 0,
+        "green": 0,
+        "blue": 0,
+        "hold": 0.4
+      },
+      "defaultDuration": 0.9,
+      "thumbnail": {
+        "from": "linear-gradient(160deg,#3a2450 0%,#a45a7c 50%,#f2c078 100%)",
+        "to": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)"
+      },
+      "description": "Holds on black long enough to feel like time passed.",
+      "tags": [
+        "black",
+        "dip",
+        "time passing",
+        "chapter",
+        "pause"
+      ]
+    },
+    {
+      "id": "dip-to-white",
+      "label": "Dip to White",
+      "category": "basic",
+      "renderKind": "dip-color",
+      "params": {
+        "red": 1,
+        "green": 1,
+        "blue": 1,
+        "hold": 0.4
+      },
+      "defaultDuration": 0.9,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)",
+        "to": "linear-gradient(150deg,#e2f2f5 0%,#5fa8bf 55%,#123b52 100%)"
+      },
+      "description": "Holds on white — a clean break between two ideas.",
+      "tags": [
+        "white",
+        "dip",
+        "clean",
+        "break",
+        "bright"
+      ]
+    },
+    {
+      "id": "push",
+      "label": "Push Left",
+      "category": "slide",
+      "renderKind": "slide",
+      "direction": "left",
+      "defaultDuration": 0.5,
+      "thumbnail": {
+        "from": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)",
+        "to": "linear-gradient(150deg,#e9f1c9 0%,#5f9a52 50%,#1d3524 100%)"
+      },
+      "description": "The next shot shoves this one out to the left.",
+      "tags": [
+        "push",
+        "left",
+        "slide",
+        "move",
+        "shove"
+      ],
+      "popular": true
+    },
+    {
+      "id": "push-right",
+      "label": "Push Right",
+      "category": "slide",
+      "renderKind": "slide",
+      "direction": "right",
+      "defaultDuration": 0.5,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#e9f1c9 0%,#5f9a52 50%,#1d3524 100%)",
+        "to": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)"
+      },
+      "description": "The next shot shoves this one out to the right.",
+      "tags": [
+        "push",
+        "right",
+        "slide",
+        "move",
+        "back"
+      ]
+    },
+    {
+      "id": "push-up",
+      "label": "Push Up",
+      "category": "slide",
+      "renderKind": "slide",
+      "direction": "up",
+      "defaultDuration": 0.5,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)",
+        "to": "linear-gradient(160deg,#3a2450 0%,#a45a7c 50%,#f2c078 100%)"
+      },
+      "description": "The next shot rises from below and lifts this one away.",
+      "tags": [
+        "push",
+        "up",
+        "rise",
+        "vertical",
+        "reels"
+      ]
+    },
+    {
+      "id": "push-down",
+      "label": "Push Down",
+      "category": "slide",
+      "renderKind": "slide",
+      "direction": "down",
+      "defaultDuration": 0.5,
+      "thumbnail": {
+        "from": "linear-gradient(160deg,#3a2450 0%,#a45a7c 50%,#f2c078 100%)",
+        "to": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)"
+      },
+      "description": "The next shot drops in from above.",
+      "tags": [
+        "push",
+        "down",
+        "drop",
+        "vertical"
+      ]
+    },
+    {
+      "id": "slide",
+      "label": "Slide Up",
+      "category": "slide",
+      "renderKind": "slide",
+      "direction": "up",
+      "params": {
+        "distance": 1
+      },
+      "easing": "ease-out",
+      "defaultDuration": 0.45,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#e2f2f5 0%,#5fa8bf 55%,#123b52 100%)",
+        "to": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)"
+      },
+      "description": "The next shot slides up over this one and settles.",
+      "tags": [
+        "slide",
+        "up",
+        "over",
+        "vertical",
+        "social"
+      ]
+    },
+    {
+      "id": "slide-left",
+      "label": "Slide Left",
+      "category": "slide",
+      "renderKind": "slide",
+      "direction": "left",
+      "easing": "ease-out",
+      "defaultDuration": 0.45,
+      "thumbnail": {
+        "from": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "to": "linear-gradient(150deg,#e2f2f5 0%,#5fa8bf 55%,#123b52 100%)"
+      },
+      "description": "The next shot slides in from the right and settles.",
+      "tags": [
+        "slide",
+        "left",
+        "over",
+        "lateral"
+      ]
+    },
+    {
+      "id": "slide-right",
+      "label": "Slide Right",
+      "category": "slide",
+      "renderKind": "slide",
+      "direction": "right",
+      "easing": "ease-out",
+      "defaultDuration": 0.45,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)",
+        "to": "linear-gradient(150deg,#ffe9c0 0%,#f26f3d 50%,#4a1414 100%)"
+      },
+      "description": "The next shot slides in from the left and settles.",
+      "tags": [
+        "slide",
+        "right",
+        "over",
+        "lateral"
+      ]
+    },
+    {
+      "id": "slide-down",
+      "label": "Slide Down",
+      "category": "slide",
+      "renderKind": "slide",
+      "direction": "down",
+      "easing": "ease-out",
+      "defaultDuration": 0.45,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#ffe9c0 0%,#f26f3d 50%,#4a1414 100%)",
+        "to": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)"
+      },
+      "description": "The next shot drops in from above and settles.",
+      "tags": [
+        "slide",
+        "down",
+        "drop",
+        "vertical"
+      ]
+    },
+    {
+      "id": "split-slide",
+      "label": "Split Slide",
+      "category": "slide",
+      "renderKind": "slide",
+      "direction": "left",
+      "params": {
+        "slices": 2,
+        "stagger": 0
+      },
+      "easing": "ease-out",
+      "defaultDuration": 0.55,
+      "thumbnail": {
+        "from": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)",
+        "to": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)"
+      },
+      "description": "The frame arrives in two halves from opposite sides.",
+      "tags": [
+        "split",
+        "halves",
+        "two",
+        "slide",
+        "graphic"
+      ]
+    },
+    {
+      "id": "multi-slide",
+      "label": "Multi Slide",
+      "category": "slide",
+      "renderKind": "slide",
+      "direction": "left",
+      "params": {
+        "slices": 7,
+        "stagger": 0.55
+      },
+      "easing": "ease-out",
+      "defaultDuration": 0.7,
+      "thumbnail": {
+        "from": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "to": "linear-gradient(150deg,#ffe9c0 0%,#f26f3d 50%,#4a1414 100%)"
+      },
+      "description": "Bands sweep in one after another from alternating sides.",
+      "tags": [
+        "bands",
+        "stripes",
+        "stagger",
+        "graphic",
+        "energetic"
+      ]
+    },
+    {
+      "id": "zoom",
+      "label": "Zoom In",
+      "category": "zoom",
+      "renderKind": "zoom",
+      "direction": "in",
+      "defaultDuration": 0.4,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#e9f1c9 0%,#5f9a52 50%,#1d3524 100%)",
+        "to": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)"
+      },
+      "description": "The next shot lands from oversized down to frame.",
+      "tags": [
+        "zoom",
+        "in",
+        "punch",
+        "scale",
+        "push in"
+      ],
+      "popular": true
+    },
+    {
+      "id": "zoom-out",
+      "label": "Zoom Out",
+      "category": "zoom",
+      "renderKind": "zoom",
+      "direction": "out",
+      "defaultDuration": 0.4,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)",
+        "to": "linear-gradient(150deg,#e9f1c9 0%,#5f9a52 50%,#1d3524 100%)"
+      },
+      "description": "The next shot grows in from small.",
+      "tags": [
+        "zoom",
+        "out",
+        "pull",
+        "reveal",
+        "scale"
+      ]
+    },
+    {
+      "id": "smooth-zoom",
+      "label": "Smooth Zoom",
+      "category": "zoom",
+      "renderKind": "zoom",
+      "direction": "in",
+      "params": {
+        "scaleFrom": 1.22
+      },
+      "easing": "ease-in-out",
+      "defaultDuration": 0.8,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#e2f2f5 0%,#5fa8bf 55%,#123b52 100%)",
+        "to": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)"
+      },
+      "description": "A gentle drift in — barely there, but the cut stops feeling hard.",
+      "tags": [
+        "smooth",
+        "gentle",
+        "subtle",
+        "talking head",
+        "cinematic",
+        "social media"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "punch-zoom",
+      "label": "Punch Zoom",
+      "category": "zoom",
+      "renderKind": "zoom",
+      "direction": "in",
+      "params": {
+        "scaleFrom": 2.4
+      },
+      "easing": "ease-out",
+      "defaultDuration": 0.22,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#ffe9c0 0%,#f26f3d 50%,#4a1414 100%)",
+        "to": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)"
+      },
+      "description": "A hard, fast punch onto the beat.",
+      "tags": [
+        "punch",
+        "fast",
+        "beat",
+        "hit",
+        "energetic",
+        "music"
+      ],
+      "popular": true
+    },
+    {
+      "id": "centre-zoom",
+      "label": "Centre Zoom",
+      "category": "zoom",
+      "renderKind": "zoom",
+      "direction": "in",
+      "params": {
+        "scaleFrom": 3.4
+      },
+      "easing": "ease-in-out",
+      "defaultDuration": 0.6,
+      "thumbnail": {
+        "from": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "to": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)"
+      },
+      "description": "Rushes out of the centre of the frame at full force.",
+      "tags": [
+        "centre",
+        "center",
+        "rush",
+        "big",
+        "dramatic"
+      ]
+    },
+    {
+      "id": "directional-zoom",
+      "label": "Directional Zoom",
+      "category": "zoom",
+      "renderKind": "zoom",
+      "direction": "in",
+      "params": {
+        "scaleFrom": 1.9,
+        "centreX": 0.22,
+        "centreY": 0.5
+      },
+      "easing": "ease-out",
+      "defaultDuration": 0.45,
+      "thumbnail": {
+        "from": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)",
+        "to": "linear-gradient(160deg,#3a2450 0%,#a45a7c 50%,#f2c078 100%)"
+      },
+      "description": "Zooms towards one side, so the move reads as travel.",
+      "tags": [
+        "directional",
+        "off centre",
+        "lead",
+        "travel",
+        "left"
+      ]
+    },
+    {
+      "id": "lens-zoom",
+      "label": "Lens Zoom",
+      "category": "zoom",
+      "renderKind": "zoom",
+      "direction": "in",
+      "params": {
+        "scaleFrom": 1.8,
+        "rotate": 0.045
+      },
+      "easing": "ease-out",
+      "defaultDuration": 0.5,
+      "thumbnail": {
+        "from": "linear-gradient(160deg,#3a2450 0%,#a45a7c 50%,#f2c078 100%)",
+        "to": "linear-gradient(150deg,#ffe9c0 0%,#f26f3d 50%,#4a1414 100%)"
+      },
+      "description": "A zoom with a touch of roll, like a hand-held lens pull.",
+      "tags": [
+        "lens",
+        "roll",
+        "handheld",
+        "organic",
+        "twist"
+      ]
+    },
+    {
+      "id": "zoom-blur",
+      "label": "Zoom Blur",
+      "category": "zoom",
+      "renderKind": "blur-radial",
+      "direction": "in",
+      "params": {
+        "strength": 0.55,
+        "mode": 0
+      },
+      "easing": "ease-out",
+      "defaultDuration": 0.35,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#ffe9c0 0%,#f26f3d 50%,#4a1414 100%)",
+        "to": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)"
+      },
+      "description": "Streaks pull out of the centre and resolve into the shot.",
+      "tags": [
+        "zoom",
+        "blur",
+        "streak",
+        "fast",
+        "energetic"
+      ],
+      "popular": true
+    },
+    {
+      "id": "blur",
+      "label": "Blur",
+      "category": "motion",
+      "renderKind": "blur-dissolve",
+      "defaultDuration": 0.5,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)",
+        "to": "linear-gradient(150deg,#e2f2f5 0%,#5fa8bf 55%,#123b52 100%)"
+      },
+      "description": "The next shot resolves out of a soft blur.",
+      "tags": [
+        "blur",
+        "defocus",
+        "soft",
+        "resolve",
+        "smooth"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "motion-blur",
+      "label": "Motion Blur",
+      "category": "motion",
+      "renderKind": "blur-directional",
+      "direction": "left",
+      "params": {
+        "radius": 0.09,
+        "travel": 0.35
+      },
+      "easing": "ease-out",
+      "defaultDuration": 0.35,
+      "thumbnail": {
+        "from": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)",
+        "to": "linear-gradient(150deg,#ffe9c0 0%,#f26f3d 50%,#4a1414 100%)"
+      },
+      "description": "The frame arrives smeared along its travel and settles sharp.",
+      "tags": [
+        "motion",
+        "smear",
+        "speed",
+        "travel",
+        "fast"
+      ]
+    },
+    {
+      "id": "directional-blur",
+      "label": "Directional Blur",
+      "category": "motion",
+      "renderKind": "blur-directional",
+      "direction": "right",
+      "params": {
+        "radius": 0.14,
+        "travel": 0
+      },
+      "defaultDuration": 0.4,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#ffe9c0 0%,#f26f3d 50%,#4a1414 100%)",
+        "to": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)"
+      },
+      "description": "A pure lateral smear that sharpens into place.",
+      "tags": [
+        "directional",
+        "smear",
+        "streak",
+        "horizontal"
+      ]
+    },
+    {
+      "id": "radial-blur",
+      "label": "Radial Blur",
+      "category": "motion",
+      "renderKind": "blur-radial",
+      "direction": "out",
+      "params": {
+        "strength": 0.6,
+        "mode": 0
+      },
+      "defaultDuration": 0.4,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#e2f2f5 0%,#5fa8bf 55%,#123b52 100%)",
+        "to": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)"
+      },
+      "description": "Streaks rush outward from the centre before the shot lands.",
+      "tags": [
+        "radial",
+        "burst",
+        "rush",
+        "centre"
+      ]
+    },
+    {
+      "id": "spin-blur",
+      "label": "Spin Blur",
+      "category": "motion",
+      "renderKind": "blur-radial",
+      "params": {
+        "strength": 0.65,
+        "mode": 1
+      },
+      "easing": "ease-out",
+      "defaultDuration": 0.4,
+      "thumbnail": {
+        "from": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "to": "linear-gradient(160deg,#3a2450 0%,#a45a7c 50%,#f2c078 100%)"
+      },
+      "description": "The frame arrives spinning and settles still.",
+      "tags": [
+        "spin",
+        "rotate",
+        "whirl",
+        "blur",
+        "energetic"
+      ]
+    },
+    {
+      "id": "whip-pan-left",
+      "label": "Whip Pan Left",
+      "category": "motion",
+      "renderKind": "blur-directional",
+      "direction": "left",
+      "params": {
+        "radius": 0.16,
+        "travel": 0.85
+      },
+      "easing": "ease-in-out",
+      "defaultDuration": 0.28,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#e9f1c9 0%,#5f9a52 50%,#1d3524 100%)",
+        "to": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)"
+      },
+      "description": "A hard camera whip to the left that lands on the next shot.",
+      "tags": [
+        "whip",
+        "swish",
+        "pan",
+        "left",
+        "fast",
+        "energetic",
+        "social media"
+      ],
+      "popular": true
+    },
+    {
+      "id": "whip-pan-right",
+      "label": "Whip Pan Right",
+      "category": "motion",
+      "renderKind": "blur-directional",
+      "direction": "right",
+      "params": {
+        "radius": 0.16,
+        "travel": 0.85
+      },
+      "easing": "ease-in-out",
+      "defaultDuration": 0.28,
+      "thumbnail": {
+        "from": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)",
+        "to": "linear-gradient(150deg,#e9f1c9 0%,#5f9a52 50%,#1d3524 100%)"
+      },
+      "description": "A hard camera whip to the right that lands on the next shot.",
+      "tags": [
+        "whip",
+        "swish",
+        "pan",
+        "right",
+        "fast",
+        "energetic"
+      ]
+    },
+    {
+      "id": "whip-pan-up",
+      "label": "Whip Pan Up",
+      "category": "motion",
+      "renderKind": "blur-directional",
+      "direction": "up",
+      "params": {
+        "radius": 0.16,
+        "travel": 0.85
+      },
+      "easing": "ease-in-out",
+      "defaultDuration": 0.28,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)",
+        "to": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)"
+      },
+      "description": "A vertical whip — the natural one for a 9:16 edit.",
+      "tags": [
+        "whip",
+        "up",
+        "vertical",
+        "reels",
+        "tiktok",
+        "fast"
+      ]
+    },
+    {
+      "id": "whip-pan-down",
+      "label": "Whip Pan Down",
+      "category": "motion",
+      "renderKind": "blur-directional",
+      "direction": "down",
+      "params": {
+        "radius": 0.16,
+        "travel": 0.85
+      },
+      "easing": "ease-in-out",
+      "defaultDuration": 0.28,
+      "thumbnail": {
+        "from": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "to": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)"
+      },
+      "description": "A downward whip that drops onto the next shot.",
+      "tags": [
+        "whip",
+        "down",
+        "vertical",
+        "fast"
+      ]
+    },
+    {
+      "id": "speed-blur",
+      "label": "Speed Blur",
+      "category": "motion",
+      "renderKind": "blur-directional",
+      "direction": "right",
+      "params": {
+        "radius": 0.22,
+        "travel": 0.5
+      },
+      "easing": "ease-out",
+      "defaultDuration": 0.32,
+      "thumbnail": {
+        "from": "linear-gradient(160deg,#3a2450 0%,#a45a7c 50%,#f2c078 100%)",
+        "to": "linear-gradient(150deg,#ffe9c0 0%,#f26f3d 50%,#4a1414 100%)"
+      },
+      "description": "Heavy horizontal streaking, like a whip-pan held one beat longer.",
+      "tags": [
+        "speed",
+        "fast",
+        "streak",
+        "rush",
+        "energetic"
+      ]
+    },
+    {
+      "id": "camera-shake",
+      "label": "Camera Shake",
+      "category": "motion",
+      "renderKind": "shake",
+      "defaultDuration": 0.35,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#ffe9c0 0%,#f26f3d 50%,#4a1414 100%)",
+        "to": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)"
+      },
+      "description": "An impact shake that settles into the next shot.",
+      "tags": [
+        "shake",
+        "impact",
+        "hit",
+        "handheld",
+        "beat",
+        "energetic"
+      ]
+    },
+    {
+      "id": "spin",
+      "label": "Spin",
+      "category": "motion",
+      "renderKind": "spin",
+      "easing": "ease-out",
+      "defaultDuration": 0.5,
+      "thumbnail": {
+        "from": "linear-gradient(160deg,#3a2450 0%,#a45a7c 50%,#f2c078 100%)",
+        "to": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)"
+      },
+      "description": "The next shot spins down out of nowhere and lands square.",
+      "tags": [
+        "spin",
+        "rotate",
+        "twist",
+        "whirl",
+        "graphic"
+      ]
+    },
+    {
+      "id": "wipe",
+      "label": "Wipe Right",
+      "category": "wipe",
+      "renderKind": "wipe-linear",
+      "direction": "right",
+      "defaultDuration": 0.5,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#e2f2f5 0%,#5fa8bf 55%,#123b52 100%)",
+        "to": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)"
+      },
+      "description": "A clean edge sweeps left to right.",
+      "tags": [
+        "wipe",
+        "right",
+        "edge",
+        "sweep",
+        "graphic"
+      ],
+      "popular": true
+    },
+    {
+      "id": "wipe-left",
+      "label": "Wipe Left",
+      "category": "wipe",
+      "renderKind": "wipe-linear",
+      "direction": "left",
+      "defaultDuration": 0.5,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)",
+        "to": "linear-gradient(150deg,#e2f2f5 0%,#5fa8bf 55%,#123b52 100%)"
+      },
+      "description": "A clean edge sweeps right to left.",
+      "tags": [
+        "wipe",
+        "left",
+        "edge",
+        "sweep"
+      ]
+    },
+    {
+      "id": "wipe-up",
+      "label": "Wipe Up",
+      "category": "wipe",
+      "renderKind": "wipe-linear",
+      "direction": "up",
+      "defaultDuration": 0.5,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#e9f1c9 0%,#5f9a52 50%,#1d3524 100%)",
+        "to": "linear-gradient(160deg,#3a2450 0%,#a45a7c 50%,#f2c078 100%)"
+      },
+      "description": "The edge sweeps upward from the bottom of frame.",
+      "tags": [
+        "wipe",
+        "up",
+        "vertical",
+        "reveal"
+      ]
+    },
+    {
+      "id": "wipe-down",
+      "label": "Wipe Down",
+      "category": "wipe",
+      "renderKind": "wipe-linear",
+      "direction": "down",
+      "defaultDuration": 0.5,
+      "thumbnail": {
+        "from": "linear-gradient(160deg,#3a2450 0%,#a45a7c 50%,#f2c078 100%)",
+        "to": "linear-gradient(150deg,#e9f1c9 0%,#5f9a52 50%,#1d3524 100%)"
+      },
+      "description": "The edge sweeps down from the top of frame.",
+      "tags": [
+        "wipe",
+        "down",
+        "vertical",
+        "reveal"
+      ]
+    },
+    {
+      "id": "diagonal-wipe",
+      "label": "Diagonal Wipe",
+      "category": "wipe",
+      "renderKind": "wipe-linear",
+      "direction": "right",
+      "params": {
+        "angle": 45
+      },
+      "defaultDuration": 0.55,
+      "thumbnail": {
+        "from": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)",
+        "to": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)"
+      },
+      "description": "The edge crosses the frame corner to corner.",
+      "tags": [
+        "diagonal",
+        "angle",
+        "corner",
+        "wipe",
+        "graphic"
+      ]
+    },
+    {
+      "id": "soft-wipe",
+      "label": "Soft Edge Wipe",
+      "category": "wipe",
+      "renderKind": "wipe-linear",
+      "direction": "right",
+      "softness": 0.85,
+      "defaultDuration": 0.7,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)",
+        "to": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)"
+      },
+      "description": "A wipe with a wide feather — halfway to a dissolve.",
+      "tags": [
+        "soft",
+        "feather",
+        "gentle",
+        "wipe",
+        "smooth"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "circular-wipe",
+      "label": "Circular Wipe",
+      "category": "wipe",
+      "renderKind": "wipe-radial",
+      "params": {
+        "invert": 0
+      },
+      "defaultDuration": 0.6,
+      "thumbnail": {
+        "from": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "to": "linear-gradient(150deg,#e2f2f5 0%,#5fa8bf 55%,#123b52 100%)"
+      },
+      "description": "A circle opens out of the centre and fills the frame.",
+      "tags": [
+        "circle",
+        "iris",
+        "open",
+        "radial",
+        "reveal"
+      ]
+    },
+    {
+      "id": "iris-close",
+      "label": "Iris Close",
+      "category": "wipe",
+      "renderKind": "wipe-radial",
+      "params": {
+        "invert": 1
+      },
+      "defaultDuration": 0.6,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#e2f2f5 0%,#5fa8bf 55%,#123b52 100%)",
+        "to": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)"
+      },
+      "description": "The old shot closes to a point and the new one is behind it.",
+      "tags": [
+        "iris",
+        "close",
+        "circle",
+        "vintage",
+        "silent film"
+      ]
+    },
+    {
+      "id": "clock-wipe",
+      "label": "Clock Wipe",
+      "category": "wipe",
+      "renderKind": "wipe-clock",
+      "defaultDuration": 0.7,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#ffe9c0 0%,#f26f3d 50%,#4a1414 100%)",
+        "to": "linear-gradient(150deg,#e9f1c9 0%,#5f9a52 50%,#1d3524 100%)"
+      },
+      "description": "A hand sweeps around the frame like a second hand.",
+      "tags": [
+        "clock",
+        "radar",
+        "sweep",
+        "angular",
+        "time"
+      ]
+    },
+    {
+      "id": "shape-wipe",
+      "label": "Shape Wipe",
+      "category": "wipe",
+      "renderKind": "wipe-shape",
+      "params": {
+        "shape": 0
+      },
+      "defaultDuration": 0.6,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)",
+        "to": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)"
+      },
+      "description": "A diamond opens out of the centre of the frame.",
+      "tags": [
+        "shape",
+        "diamond",
+        "graphic",
+        "reveal"
+      ]
+    },
+    {
+      "id": "star-wipe",
+      "label": "Star Wipe",
+      "category": "wipe",
+      "renderKind": "wipe-shape",
+      "params": {
+        "shape": 1
+      },
+      "defaultDuration": 0.65,
+      "thumbnail": {
+        "from": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "to": "linear-gradient(150deg,#ffe9c0 0%,#f26f3d 50%,#4a1414 100%)"
+      },
+      "description": "A star grows out of the centre — playful and unmistakable.",
+      "tags": [
+        "star",
+        "shape",
+        "retro",
+        "fun",
+        "kids"
+      ]
+    },
+    {
+      "id": "split-wipe",
+      "label": "Split Wipe",
+      "category": "wipe",
+      "renderKind": "wipe-split",
+      "params": {
+        "axis": 0,
+        "invert": 0
+      },
+      "defaultDuration": 0.55,
+      "thumbnail": {
+        "from": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)",
+        "to": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)"
+      },
+      "description": "The frame splits down the middle and opens outward.",
+      "tags": [
+        "split",
+        "open",
+        "centre",
+        "graphic",
+        "reveal"
+      ]
+    },
+    {
+      "id": "barn-door",
+      "label": "Barn Door",
+      "category": "wipe",
+      "renderKind": "wipe-split",
+      "params": {
+        "axis": 0,
+        "invert": 1
+      },
+      "defaultDuration": 0.55,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)",
+        "to": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)"
+      },
+      "description": "Two panels close in from the edges to the centre.",
+      "tags": [
+        "barn door",
+        "close",
+        "panels",
+        "edges"
+      ]
+    },
+    {
+      "id": "blinds",
+      "label": "Blinds",
+      "category": "wipe",
+      "renderKind": "wipe-bars",
+      "params": {
+        "bars": 10,
+        "axis": 0,
+        "stagger": 0.4
+      },
+      "defaultDuration": 0.7,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)",
+        "to": "linear-gradient(160deg,#3a2450 0%,#a45a7c 50%,#f2c078 100%)"
+      },
+      "description": "Vertical slats open one after another.",
+      "tags": [
+        "blinds",
+        "bars",
+        "slats",
+        "venetian",
+        "graphic"
+      ]
+    },
+    {
+      "id": "glitch",
+      "label": "Glitch",
+      "category": "creative",
+      "renderKind": "glitch",
+      "defaultDuration": 0.35,
+      "thumbnail": {
+        "from": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "to": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)"
+      },
+      "description": "The signal tears apart and reassembles as the next shot.",
+      "tags": [
+        "glitch",
+        "digital",
+        "broken",
+        "tear",
+        "fast",
+        "energetic"
+      ],
+      "popular": true
+    },
+    {
+      "id": "rgb-split",
+      "label": "RGB Split",
+      "category": "creative",
+      "renderKind": "rgb-split",
+      "defaultDuration": 0.35,
+      "thumbnail": {
+        "from": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)",
+        "to": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)"
+      },
+      "description": "Colour channels fly apart and snap back together.",
+      "tags": [
+        "rgb",
+        "chromatic",
+        "colour split",
+        "aberration",
+        "music"
+      ]
+    },
+    {
+      "id": "flash",
+      "label": "Flash",
+      "category": "creative",
+      "renderKind": "dip-color",
+      "params": {
+        "red": 1,
+        "green": 1,
+        "blue": 1,
+        "hold": 0.08,
+        "blend": 1
+      },
+      "easing": "ease-out",
+      "defaultDuration": 0.22,
+      "thumbnail": {
+        "from": "linear-gradient(160deg,#3a2450 0%,#a45a7c 50%,#f2c078 100%)",
+        "to": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)"
+      },
+      "description": "A blown-out flash of light on the cut.",
+      "tags": [
+        "flash",
+        "blowout",
+        "strobe",
+        "beat",
+        "fast",
+        "music"
+      ],
+      "popular": true
+    },
+    {
+      "id": "light-leak",
+      "label": "Light Leak",
+      "category": "creative",
+      "renderKind": "light-leak",
+      "direction": "right",
+      "params": {
+        "mode": 0
+      },
+      "defaultDuration": 0.7,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)",
+        "to": "linear-gradient(150deg,#ffe9c0 0%,#f26f3d 50%,#4a1414 100%)"
+      },
+      "description": "Warm light bleeds across the frame the way it does on film.",
+      "tags": [
+        "light leak",
+        "warm",
+        "film",
+        "analog",
+        "cinematic",
+        "organic"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "film-burn",
+      "label": "Film Burn",
+      "category": "creative",
+      "renderKind": "light-leak",
+      "direction": "right",
+      "params": {
+        "mode": 1,
+        "warmth": 0.9,
+        "brightness": 1
+      },
+      "defaultDuration": 0.8,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#ffe9c0 0%,#f26f3d 50%,#4a1414 100%)",
+        "to": "linear-gradient(160deg,#3a2450 0%,#a45a7c 50%,#f2c078 100%)"
+      },
+      "description": "The frame burns through, the way a stuck film print does.",
+      "tags": [
+        "film burn",
+        "burn",
+        "analog",
+        "vintage",
+        "projector",
+        "cinematic"
+      ]
+    },
+    {
+      "id": "pixel-dissolve",
+      "label": "Pixel Dissolve",
+      "category": "creative",
+      "renderKind": "pixel-dissolve",
+      "defaultDuration": 0.6,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)",
+        "to": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)"
+      },
+      "description": "Blocks of the new shot arrive at random until it is whole.",
+      "tags": [
+        "pixel",
+        "blocks",
+        "dissolve",
+        "digital",
+        "retro"
+      ]
+    },
+    {
+      "id": "mosaic",
+      "label": "Mosaic",
+      "category": "creative",
+      "renderKind": "mosaic",
+      "defaultDuration": 0.5,
+      "thumbnail": {
+        "from": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "to": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)"
+      },
+      "description": "The picture resolves out of coarse blocks into detail.",
+      "tags": [
+        "mosaic",
+        "pixelate",
+        "blocks",
+        "resolve",
+        "digital"
+      ]
+    },
+    {
+      "id": "ripple",
+      "label": "Ripple",
+      "category": "creative",
+      "renderKind": "ripple",
+      "defaultDuration": 0.6,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#e2f2f5 0%,#5fa8bf 55%,#123b52 100%)",
+        "to": "linear-gradient(150deg,#e9f1c9 0%,#5f9a52 50%,#1d3524 100%)"
+      },
+      "description": "Rings spread out from the centre and settle.",
+      "tags": [
+        "ripple",
+        "water",
+        "wave",
+        "rings",
+        "organic"
+      ]
+    },
+    {
+      "id": "warp",
+      "label": "Warp",
+      "category": "creative",
+      "renderKind": "warp",
+      "defaultDuration": 0.5,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#e9f1c9 0%,#5f9a52 50%,#1d3524 100%)",
+        "to": "linear-gradient(150deg,#e2f2f5 0%,#5fa8bf 55%,#123b52 100%)"
+      },
+      "description": "The frame bends through heat haze and straightens out.",
+      "tags": [
+        "warp",
+        "heat",
+        "haze",
+        "bend",
+        "organic"
+      ]
+    },
+    {
+      "id": "distortion",
+      "label": "Distortion",
+      "category": "creative",
+      "renderKind": "warp",
+      "params": {
+        "amplitude": 0.4,
+        "cell": 0.12
+      },
+      "defaultDuration": 0.4,
+      "thumbnail": {
+        "from": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)",
+        "to": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)"
+      },
+      "description": "A violent short-wavelength wobble that tears and resolves.",
+      "tags": [
+        "distortion",
+        "wobble",
+        "violent",
+        "harsh",
+        "glitch"
+      ]
+    },
+    {
+      "id": "stretch",
+      "label": "Stretch",
+      "category": "creative",
+      "renderKind": "stretch",
+      "defaultDuration": 0.35,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)",
+        "to": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)"
+      },
+      "description": "The frame stretches in from a smear and snaps to size.",
+      "tags": [
+        "stretch",
+        "squash",
+        "smear",
+        "elastic",
+        "fast"
+      ]
+    },
+    {
+      "id": "liquid",
+      "label": "Liquid",
+      "category": "creative",
+      "renderKind": "liquid",
+      "defaultDuration": 0.7,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#e2f2f5 0%,#5fa8bf 55%,#123b52 100%)",
+        "to": "linear-gradient(160deg,#3a2450 0%,#a45a7c 50%,#f2c078 100%)"
+      },
+      "description": "The picture unwinds out of a swirl.",
+      "tags": [
+        "liquid",
+        "swirl",
+        "vortex",
+        "twist",
+        "organic",
+        "dreamy"
+      ]
+    },
+    {
+      "id": "kaleidoscope",
+      "label": "Kaleidoscope",
+      "category": "creative",
+      "renderKind": "kaleidoscope",
+      "defaultDuration": 0.7,
+      "thumbnail": {
+        "from": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "to": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)"
+      },
+      "description": "Mirrored wedges fold back into a single frame.",
+      "tags": [
+        "kaleidoscope",
+        "mirror",
+        "symmetry",
+        "psychedelic",
+        "music"
+      ]
+    },
+    {
+      "id": "page-turn",
+      "label": "Page Turn",
+      "category": "creative",
+      "renderKind": "page-turn",
+      "direction": "left",
+      "defaultDuration": 0.7,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)",
+        "to": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)"
+      },
+      "description": "The old shot peels away like a page.",
+      "tags": [
+        "page",
+        "turn",
+        "curl",
+        "book",
+        "peel",
+        "classic"
+      ]
+    },
+    {
+      "id": "luma-fade",
+      "label": "Luma Fade",
+      "category": "creative",
+      "renderKind": "luma-fade",
+      "softness": 0.35,
+      "defaultDuration": 0.7,
+      "thumbnail": {
+        "from": "linear-gradient(160deg,#3a2450 0%,#a45a7c 50%,#f2c078 100%)",
+        "to": "linear-gradient(150deg,#e2f2f5 0%,#5fa8bf 55%,#123b52 100%)"
+      },
+      "description": "The bright parts of the next shot arrive first.",
+      "tags": [
+        "luma",
+        "brightness",
+        "organic",
+        "cinematic",
+        "smooth"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "ink-reveal",
+      "label": "Ink Reveal",
+      "category": "creative",
+      "renderKind": "noise-dissolve",
+      "params": {
+        "cell": 0.09
+      },
+      "softness": 0.35,
+      "defaultDuration": 0.8,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)",
+        "to": "linear-gradient(150deg,#e9f1c9 0%,#5f9a52 50%,#1d3524 100%)"
+      },
+      "description": "The next shot bleeds through like ink through paper.",
+      "tags": [
+        "ink",
+        "bleed",
+        "organic",
+        "paper",
+        "documentary"
+      ]
+    },
+    {
+      "id": "flip-horizontal",
+      "label": "Flip Horizontal",
+      "category": "spatial",
+      "renderKind": "perspective-3d",
+      "params": {
+        "axis": 0,
+        "panels": 1,
+        "pivot": 0,
+        "turns": 0.5,
+        "depth": 0.55,
+        "shade": 0.6
+      },
+      "easing": "ease-in-out",
+      "defaultDuration": 0.6,
+      "thumbnail": {
+        "from": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)",
+        "to": "linear-gradient(150deg,#e2f2f5 0%,#5fa8bf 55%,#123b52 100%)"
+      },
+      "description": "The frame flips over on its vertical axis.",
+      "tags": [
+        "flip",
+        "horizontal",
+        "3d",
+        "turn",
+        "card"
+      ],
+      "popular": true
+    },
+    {
+      "id": "flip-vertical",
+      "label": "Flip Vertical",
+      "category": "spatial",
+      "renderKind": "perspective-3d",
+      "params": {
+        "axis": 1,
+        "panels": 1,
+        "pivot": 0,
+        "turns": 0.5,
+        "depth": 0.55,
+        "shade": 0.6
+      },
+      "easing": "ease-in-out",
+      "defaultDuration": 0.6,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#e2f2f5 0%,#5fa8bf 55%,#123b52 100%)",
+        "to": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)"
+      },
+      "description": "The frame flips over on its horizontal axis.",
+      "tags": [
+        "flip",
+        "vertical",
+        "3d",
+        "turn"
+      ]
+    },
+    {
+      "id": "card-flip",
+      "label": "Card Flip",
+      "category": "spatial",
+      "renderKind": "perspective-3d",
+      "params": {
+        "axis": 0,
+        "panels": 1,
+        "pivot": 0,
+        "turns": 0.5,
+        "depth": 0.9,
+        "shade": 0.85
+      },
+      "easing": "ease-in-out",
+      "defaultDuration": 0.5,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)",
+        "to": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)"
+      },
+      "description": "A hard-perspective flip with a shaded back face.",
+      "tags": [
+        "card",
+        "flip",
+        "3d",
+        "perspective",
+        "deck"
+      ]
+    },
+    {
+      "id": "cube-rotate",
+      "label": "Cube Rotate",
+      "category": "spatial",
+      "renderKind": "perspective-3d",
+      "params": {
+        "axis": 0,
+        "panels": 1,
+        "pivot": 1,
+        "turns": 0.25,
+        "depth": 0.85,
+        "shade": 0.55
+      },
+      "easing": "ease-in-out",
+      "defaultDuration": 0.6,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#e9f1c9 0%,#5f9a52 50%,#1d3524 100%)",
+        "to": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)"
+      },
+      "description": "The shots sit on adjacent faces of a cube that turns.",
+      "tags": [
+        "cube",
+        "rotate",
+        "3d",
+        "box",
+        "turn"
+      ],
+      "popular": true
+    },
+    {
+      "id": "door-open",
+      "label": "Door Open",
+      "category": "spatial",
+      "renderKind": "perspective-3d",
+      "params": {
+        "axis": 0,
+        "panels": 2,
+        "pivot": 1,
+        "turns": -0.3,
+        "depth": 0.75,
+        "shade": 0.6
+      },
+      "easing": "ease-in-out",
+      "defaultDuration": 0.65,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)",
+        "to": "linear-gradient(150deg,#e9f1c9 0%,#5f9a52 50%,#1d3524 100%)"
+      },
+      "description": "The frame swings open in two panels.",
+      "tags": [
+        "door",
+        "open",
+        "panels",
+        "3d",
+        "reveal"
+      ]
+    },
+    {
+      "id": "door-close",
+      "label": "Door Close",
+      "category": "spatial",
+      "renderKind": "perspective-3d",
+      "params": {
+        "axis": 0,
+        "panels": 2,
+        "pivot": 1,
+        "turns": 0.3,
+        "depth": 0.75,
+        "shade": 0.6
+      },
+      "easing": "ease-in-out",
+      "defaultDuration": 0.65,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#e9f1c9 0%,#5f9a52 50%,#1d3524 100%)",
+        "to": "linear-gradient(150deg,#f4f4f2 0%,#b9b6ae 50%,#2e2b28 100%)"
+      },
+      "description": "Two panels swing shut on the next shot.",
+      "tags": [
+        "door",
+        "close",
+        "panels",
+        "3d",
+        "shut"
+      ]
+    },
+    {
+      "id": "fold",
+      "label": "Fold",
+      "category": "spatial",
+      "renderKind": "perspective-3d",
+      "params": {
+        "axis": 0,
+        "panels": 6,
+        "pivot": 1,
+        "turns": 0.35,
+        "depth": 0.7,
+        "shade": 0.7
+      },
+      "easing": "ease-in-out",
+      "defaultDuration": 0.7,
+      "thumbnail": {
+        "from": "linear-gradient(160deg,#3a2450 0%,#a45a7c 50%,#f2c078 100%)",
+        "to": "linear-gradient(150deg,#f7dcb4 0%,#e08a5a 55%,#6b3a2e 100%)"
+      },
+      "description": "The frame concertinas open like a folding screen.",
+      "tags": [
+        "fold",
+        "accordion",
+        "concertina",
+        "panels",
+        "3d"
+      ]
+    },
+    {
+      "id": "perspective-slide",
+      "label": "Perspective Slide",
+      "category": "spatial",
+      "renderKind": "perspective-3d",
+      "params": {
+        "axis": 0,
+        "panels": 1,
+        "pivot": 0,
+        "turns": 0.13,
+        "depth": 0.95,
+        "arc": 0.35,
+        "shade": 0.4
+      },
+      "easing": "ease-out",
+      "defaultDuration": 0.55,
+      "thumbnail": {
+        "from": "linear-gradient(155deg,#16273f 0%,#3f5f8a 45%,#efa96b 100%)",
+        "to": "linear-gradient(150deg,#ffe9c0 0%,#f26f3d 50%,#4a1414 100%)"
+      },
+      "description": "The shot slides in along a plane that is angled away from you.",
+      "tags": [
+        "perspective",
+        "slide",
+        "angle",
+        "3d",
+        "travel"
+      ]
+    },
+    {
+      "id": "tunnel",
+      "label": "Tunnel",
+      "category": "spatial",
+      "renderKind": "perspective-3d",
+      "params": {
+        "axis": 0,
+        "panels": 1,
+        "pivot": 0,
+        "turns": 0,
+        "depth": 1,
+        "arc": 0,
+        "shade": 0.75,
+        "push": 1
+      },
+      "easing": "ease-out",
+      "defaultDuration": 0.6,
+      "thumbnail": {
+        "from": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)",
+        "to": "linear-gradient(160deg,#3a2450 0%,#a45a7c 50%,#f2c078 100%)"
+      },
+      "description": "The next shot rushes at you out of the distance.",
+      "tags": [
+        "tunnel",
+        "depth",
+        "rush",
+        "forward",
+        "z",
+        "3d"
+      ]
+    },
+    {
+      "id": "carousel",
+      "label": "Carousel Rotate",
+      "category": "spatial",
+      "renderKind": "perspective-3d",
+      "params": {
+        "axis": 0,
+        "panels": 1,
+        "pivot": 1,
+        "turns": 0.3,
+        "depth": 0.7,
+        "arc": 0.9,
+        "shade": 0.5
+      },
+      "easing": "ease-in-out",
+      "defaultDuration": 0.7,
+      "thumbnail": {
+        "from": "linear-gradient(150deg,#ffe9c0 0%,#f26f3d 50%,#4a1414 100%)",
+        "to": "linear-gradient(135deg,#2a0d3d 0%,#a2129b 50%,#26d0e0 100%)"
+      },
+      "description": "The shots swing past on a carousel.",
+      "tags": [
+        "carousel",
+        "rotate",
+        "swing",
+        "arc",
+        "3d"
+      ]
+    }
+  ]
+}

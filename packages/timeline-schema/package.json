@@ -1,0 +1,65 @@
+{
+  "name": "@framepilot/timeline-schema",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Zod schemas and inferred types for the FramePilot project/timeline data model (PRD §11).",
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./file": {
+      "types": "./dist/project-file.d.ts",
+      "default": "./dist/project-file.js"
+    },
+    "./caption-templates": {
+      "types": "./dist/caption-templates.d.ts",
+      "default": "./dist/caption-templates.js"
+    },
+    "./caption-fonts": {
+      "types": "./dist/caption-fonts.d.ts",
+      "default": "./dist/caption-fonts.js"
+    },
+    "./effect-catalog": {
+      "types": "./dist/effect-catalog.d.ts",
+      "default": "./dist/effect-catalog.js"
+    },
+    "./effect-params": {
+      "types": "./dist/effect-params.d.ts",
+      "default": "./dist/effect-params.js"
+    },
+    "./transition-catalog": {
+      "types": "./dist/transition-catalog.d.ts",
+      "default": "./dist/transition-catalog.js"
+    },
+    "./transition-params": {
+      "types": "./dist/transition-params.d.ts",
+      "default": "./dist/transition-params.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "schema:generate": "node scripts/generate-json-schema.mjs",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@framepilot/shared-types": "workspace:*",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.9.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "eslint": "^9.9.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.1.0"
+  }
+}

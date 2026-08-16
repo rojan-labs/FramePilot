@@ -1,0 +1,461 @@
+{
+  "version": 1,
+  "name": "no-op-run",
+  "covers": "The model declining to edit. Must settle identically rather than differ on an empty run.",
+  "prompt": "is there anything to tighten?",
+  "events": [
+    {
+      "id": "turn_parity:status:1",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "status",
+      "status": "thinking"
+    },
+    {
+      "id": "turn_parity:run-state",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_parity",
+        "identity": {
+          "conversationId": "conv_parity",
+          "projectId": "proj_1",
+          "attemptId": "turn_parity"
+        },
+        "version": 2,
+        "objective": {
+          "request": "is there anything to tighten?",
+          "outcome": "is there anything to tighten?",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "is there anything to tighten?"
+            }
+          ]
+        },
+        "stage": "interpret",
+        "completedStages": [],
+        "stageEnteredAtTurn": 0,
+        "facts": [],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "is there anything to tighten?",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_parity_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1"
+          ]
+        },
+        "execution": {
+          "authorized": true
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "is there anything to tighten?",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [],
+        "verifications": [],
+        "nextAction": null,
+        "blockedOn": null,
+        "integrity": {
+          "status": "valid",
+          "diagnostics": []
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 0
+      }
+    },
+    {
+      "id": "turn_parity:status:2",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "status",
+      "status": "generating"
+    },
+    {
+      "id": "turn_parity:reasoning:1",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "reasoning",
+      "summaries": [],
+      "done": false
+    },
+    {
+      "id": "turn_parity:context-usage",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "context_usage",
+      "usedTokens": 19227,
+      "contextWindow": 1000000,
+      "estimated": true,
+      "manifest": {
+        "requestId": "turn_parity:assistant:seg-1",
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "sections": [
+          {
+            "id": "s1",
+            "type": "system",
+            "label": "system contract",
+            "tokenEstimate": 135,
+            "included": true
+          },
+          {
+            "id": "s2",
+            "type": "conversation",
+            "label": "user turn 1",
+            "tokenEstimate": 1667,
+            "included": true
+          },
+          {
+            "id": "s3",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 1785,
+            "included": true
+          },
+          {
+            "id": "s4",
+            "type": "tool_schemas",
+            "label": "tool definitions",
+            "tokenEstimate": 15640,
+            "included": true
+          }
+        ],
+        "usage": {
+          "modelContextLimit": 1000000,
+          "limitAssumed": false,
+          "estimatedInputTokensBeforeSend": 19227,
+          "reservedOutputTokens": 128000,
+          "estimatedRemainingCapacity": 852773,
+          "calculationSource": "local_estimate"
+        },
+        "compaction": {
+          "occurred": false,
+          "removedTokenEstimate": 0,
+          "removedSections": []
+        },
+        "memory": {
+          "runId": "turn_parity",
+          "stage": "interpret",
+          "projectRevision": 0,
+          "objectiveKnown": true,
+          "committedDecisions": 1,
+          "facts": 0,
+          "evidenceHandles": 0,
+          "remainingObjectives": 1
+        }
+      }
+    },
+    {
+      "id": "turn_parity:delta:3",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "assistant_delta",
+      "parentId": "turn_parity:assistant:seg-1",
+      "chunk": "The intro is already tight."
+    },
+    {
+      "id": "turn_parity:reasoning:1",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "reasoning",
+      "summaries": [],
+      "done": true
+    },
+    {
+      "id": "turn_parity:context-usage",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "context_usage",
+      "usedTokens": 100,
+      "contextWindow": 1000000,
+      "estimated": false,
+      "manifest": {
+        "requestId": "turn_parity:assistant:seg-1",
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "sections": [
+          {
+            "id": "s1",
+            "type": "system",
+            "label": "system contract",
+            "tokenEstimate": 135,
+            "included": true
+          },
+          {
+            "id": "s2",
+            "type": "conversation",
+            "label": "user turn 1",
+            "tokenEstimate": 1667,
+            "included": true
+          },
+          {
+            "id": "s3",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 1785,
+            "included": true
+          },
+          {
+            "id": "s4",
+            "type": "tool_schemas",
+            "label": "tool definitions",
+            "tokenEstimate": 15640,
+            "included": true
+          }
+        ],
+        "usage": {
+          "modelContextLimit": 1000000,
+          "limitAssumed": false,
+          "estimatedInputTokensBeforeSend": 19227,
+          "reservedOutputTokens": 128000,
+          "estimatedRemainingCapacity": 871900,
+          "calculationSource": "provider_reported",
+          "providerReportedInputTokens": 100,
+          "providerReportedOutputTokens": 20
+        },
+        "compaction": {
+          "occurred": false,
+          "removedTokenEstimate": 0,
+          "removedSections": []
+        },
+        "memory": {
+          "runId": "turn_parity",
+          "stage": "interpret",
+          "projectRevision": 0,
+          "objectiveKnown": true,
+          "committedDecisions": 1,
+          "facts": 0,
+          "evidenceHandles": 0,
+          "remainingObjectives": 1
+        }
+      }
+    },
+    {
+      "id": "turn_parity:assistant:seg-1",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "assistant_message",
+      "text": "The intro is already tight."
+    },
+    {
+      "id": "turn_parity:run-state",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_parity",
+        "identity": {
+          "conversationId": "conv_parity",
+          "projectId": "proj_1",
+          "attemptId": "turn_parity"
+        },
+        "version": 2,
+        "objective": {
+          "request": "is there anything to tighten?",
+          "outcome": "is there anything to tighten?",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "is there anything to tighten?"
+            }
+          ]
+        },
+        "stage": "interpret",
+        "completedStages": [],
+        "stageEnteredAtTurn": 0,
+        "facts": [],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "is there anything to tighten?",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_parity_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1"
+          ]
+        },
+        "execution": {
+          "authorized": true
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "is there anything to tighten?",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [],
+        "verifications": [],
+        "nextAction": null,
+        "blockedOn": null,
+        "integrity": {
+          "status": "valid",
+          "diagnostics": []
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 0
+      }
+    },
+    {
+      "id": "turn_parity:notice:4",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "warning",
+      "text": "This run ended without applying anything — it could not verify that it had done what you asked, so your timeline is unchanged. Retry, or ask for a smaller, more specific edit."
+    },
+    {
+      "id": "turn_parity:run-state",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_parity",
+        "identity": {
+          "conversationId": "conv_parity",
+          "projectId": "proj_1",
+          "attemptId": "turn_parity"
+        },
+        "version": 4,
+        "objective": {
+          "request": "is there anything to tighten?",
+          "outcome": "is there anything to tighten?",
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "is there anything to tighten?"
+            }
+          ]
+        },
+        "stage": "interpret",
+        "completedStages": [],
+        "stageEnteredAtTurn": 0,
+        "facts": [],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "is there anything to tighten?",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_parity_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1"
+          ]
+        },
+        "execution": {
+          "authorized": false
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "is there anything to tighten?",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [],
+        "verifications": [
+          {
+            "id": "verify_1",
+            "criterion": "is there anything to tighten?",
+            "passed": false,
+            "atRevision": 0,
+            "detail": "Passed with 1 warning(s)."
+          }
+        ],
+        "nextAction": null,
+        "blockedOn": {
+          "reason": "Verification found no traceable project mutation for the committed plan.",
+          "missing": "VERIFICATION_INCONCLUSIVE",
+          "atStage": "interpret"
+        },
+        "integrity": {
+          "status": "needs_review",
+          "diagnostics": [
+            {
+              "code": "VERIFICATION_INCONCLUSIVE",
+              "message": "Verification found no traceable project mutation for the committed plan.",
+              "stage": "verify",
+              "blocking": true,
+              "atVersion": 3
+            }
+          ]
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 0
+      }
+    },
+    {
+      "id": "turn_parity:usage:5",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "usage",
+      "tokens": 120,
+      "usd": 0.0006,
+      "modelCalls": 1
+    },
+    {
+      "id": "turn_parity:status:6",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "status",
+      "status": "failed"
+    }
+  ],
+  "operations": [],
+  "terminalStatus": "failed"
+}

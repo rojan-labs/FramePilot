@@ -1,0 +1,89 @@
+---
+title: Keyboard shortcuts
+description: A reference of common FramePilot keyboard shortcuts for playback, editing, timeline navigation, and the AI agent.
+category: Reference
+order: 2
+---
+
+FramePilot uses conventional non-linear editor (NLE) shortcuts, so if you have used a pro editor before, most of these will already be in your fingers. The tables below group the common defaults. All shortcuts are configurable in settings — remap anything that fights your muscle memory.
+
+On macOS, use Cmd where the tables show Ctrl.
+
+## Playback
+
+Transport controls follow the standard JKL convention editors expect.
+
+| Action           | Shortcut |
+| ---------------- | -------- |
+| Play / pause     | Space    |
+| Shuttle backward | J        |
+| Pause            | K        |
+| Shuttle forward  | L        |
+| Step back 1 frame| Left     |
+| Step forward 1 frame | Right |
+| Go to start      | Home     |
+| Go to end        | End      |
+
+Tap J or L repeatedly to shuttle faster.
+
+## Editing
+
+The core cut-and-trim operations.
+
+| Action         | Shortcut     |
+| -------------- | ------------ |
+| Razor / split at playhead | S      |
+| Ripple delete  | Shift + Delete |
+| Delete (leave gap) | Delete    |
+| Trim in point  | I            |
+| Trim out point | O            |
+| Cut            | Ctrl + X     |
+| Copy           | Ctrl + C     |
+| Paste          | Ctrl + V     |
+
+## Timeline navigation
+
+Move around and shape the timeline itself.
+
+| Action              | Shortcut       |
+| ------------------- | -------------- |
+| Zoom in             | Ctrl + =       |
+| Zoom out            | Ctrl + -       |
+| Zoom to fit         | Shift + Z      |
+| Nudge clip left     | ,              |
+| Nudge clip right    | .              |
+| Toggle snapping     | N              |
+| Add marker          | M              |
+| Select all clips    | Ctrl + A       |
+
+Ctrl + A selects every clip on the timeline while the timeline has focus; in the AI panel or any text field it still selects text as usual.
+
+## Project
+
+Managing the project and history.
+
+| Action        | Shortcut         |
+| ------------- | ---------------- |
+| Save          | Ctrl + S         |
+| Undo          | Ctrl + Z         |
+| Redo          | Ctrl + Shift + Z |
+| Import media  | Ctrl + I         |
+| Export        | Ctrl + E         |
+
+Undo and redo apply to AI edits too — every applied patch is reversible through the same history.
+
+## AI
+
+Reach the agent without leaving the keyboard.
+
+| Action                | Shortcut     |
+| --------------------- | ------------ |
+| Open AI agent panel   | Ctrl + L     |
+| Quick edit on selection | Ctrl + K   |
+
+Quick edit opens the Cmd+K-style prompt for the current selection; see [the AI agent](/docs/the-ai-agent) for how those edits become reviewable patches.
+
+## Next steps
+
+- [The AI agent](/docs/the-ai-agent) — modes and the reversible-patch model.
+- [Render and export](/docs/render-and-export) — presets and validated output.

@@ -1,0 +1,78 @@
+---
+title: Render and export
+description: How the deterministic render engine compiles, renders, and automatically validates every export before it reaches you.
+category: Reference
+order: 1
+---
+
+Rendering in FramePilot is deliberately separate from the AI and from the editor preview. The AI proposes structured operations; a deterministic Python engine (MoviePy + FFmpeg) executes them the same way every time and validates the result. This page covers how a render runs, the export presets, and what to do when a render fails.
+
+## Preview vs. render
+
+These are two different systems, on purpose.
+
+- **Preview** uses HTML video, canvas overlays, and proxy/low-res media in the editor. It is built for instant scrubbing and immediate feedback while you work.
+- **Render** is the deterministic export pipeline. MoviePy composes the edit in Python and FFmpeg handles encoding. It is not the realtime preview engine — it runs when you export.
+
+Keeping them separate is why preview stays responsive while final output stays deterministic and reproducible.
+
+## How a render runs
+
+When you export, the timeline compiles to a render plan and the engine executes it through a defined lifecycle:
+
+```txt
+queued
+preparing_assets
+rendering_frames
+encoding
+validating_output
+completed
+```
+
+The important stage is `validating_output`: every export is checked automatically before you get the file, so a broken render never silently reaches your audience.
+
+## Automatic render validation
+
+After rendering, the engine validates the output against the timeline it was asked to produce:
+
+- the file exists and is not zero bytes,
+- the duration matches the expected timeline duration,
+- a video stream exists,
+- an audio stream exists when one is expected,
+- there are no unexpected black frames,
+- audio is not clipping.
+
+If any check fails, the render is reported as failed rather than handed to you as a bad file. This is the render-side half of the same reliability loop the AI uses — see [the AI agent](/docs/the-ai-agent) for the patch → validate → preview → validate-render flow.
+
+## Export presets
+
+FramePilot targets platform-ready outputs directly. Common presets:
+
+| Preset | Aspect ratio | Typical use                          |
+| ------ | ------------ | ------------------------------------ |
+| Reels  | 9:16         | Instagram Reels, TikTok, Shorts      |
+| Square | 1:1          | Feed posts                           |
+| Wide   | 16:9         | YouTube, landscape embeds            |
+| Custom | your choice  | Any dimensions and settings you set  |
+
+For turning a raw recording into a vertical short, see [captions, silence, and shorts](/docs/captions-silence-and-shorts).
+
+## Where files land
+
+FramePilot is local-first. Renders are written to your local project workspace alongside your project files and media — nothing is uploaded to render. The export dialog confirms the output location before the job runs.
+
+## When a render fails
+
+A failed render usually means validation caught a mismatch between the intended timeline and the produced file. Approach it as a regression, not a mystery:
+
+1. **Read the failure reason.** The validation step reports which check failed (duration, missing stream, black frames, clipping).
+2. **Check the timeline.** Confirm the offending clip, gap, or audio level is what you expect in the editor.
+3. **Re-preview the range** the validator flagged to see the problem before re-exporting.
+4. **Re-export** once the underlying timeline issue is fixed.
+
+Because the engine is deterministic, the same timeline produces the same output — so a fix that resolves the flagged range resolves the render.
+
+## Next steps
+
+- [The AI agent](/docs/the-ai-agent) — the full reliability loop from patch to validated render.
+- [Keyboard shortcuts](/docs/keyboard-shortcuts) — speed up editing before you export.

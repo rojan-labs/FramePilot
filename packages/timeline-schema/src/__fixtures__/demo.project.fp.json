@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "project_001",
+  "name": "Demo Video",
+  "version": 1,
+  "fps": 30,
+  "resolution": { "width": 1920, "height": 1080 },
+  "assets": [
+    { "id": "asset_001", "path": "/media/intro.mp4", "kind": "video", "durationSeconds": 20 }
+  ],
+  "timeline": {
+    "tracks": [
+      {
+        "id": "video_1",
+        "type": "video",
+        "clips": [
+          {
+            "id": "clip_001",
+            "assetId": "asset_001",
+            "trackId": "video_1",
+            "start": 0,
+            "end": 12.5,
+            "sourceStart": 4,
+            "sourceEnd": 16.5,
+            "effects": [],
+            "keyframes": []
+          }
+        ]
+      },
+      { "id": "audio_1", "type": "audio", "clips": [] },
+      { "id": "caption_1", "type": "caption", "clips": [] },
+      { "id": "overlay_1", "type": "overlay", "clips": [] }
+    ]
+  },
+  "transcript": [{ "word": "hello", "start": 0, "end": 0.5 }],
+  "aiMemory": {},
+  "history": []
+}

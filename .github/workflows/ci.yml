@@ -1,0 +1,199 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Public pull requests must receive the smallest possible GITHUB_TOKEN. Jobs in
+# this workflow only read repository content and upload Actions artifacts.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PNPM_VERSION: '9.12.0'
+  NODE_VERSION: '22.15.0'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # ── Node / TypeScript quality gates ──────────────────────────────────────
+  node-quality:
+    name: TS typecheck · lint · unit tests · coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      # - run: pnpm format:check
+      - run: pnpm test:coverage
+      # - name: Upload coverage report
+      #   if: always()
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: node-coverage
+      #     path: reports/coverage
+
+  # ── Python engine quality gates ──────────────────────────────────────────
+  python-engine:
+    name: Python typecheck · lint · tests · render fixture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Sync deps
+        working-directory: engine/python
+        run: uv sync --extra dev
+      - name: Ruff
+        working-directory: engine/python
+        run: uv run ruff check .
+      - name: Mypy
+        working-directory: engine/python
+        run: uv run mypy .
+      - name: Pytest + coverage
+        working-directory: engine/python
+        run: uv run pytest --cov --cov-report=xml --cov-report=term
+      - name: Render and validate fixture project
+        working-directory: engine/python
+        run: uv run pytest tests/test_render_pipeline.py::test_export_video_completes_and_validates -q
+
+  # ── Cross-runtime professional-operation proof ─────────────────────────────────────
+  professional-rendered-evals:
+    name: Professional operations · 33 rendered proofs
+    runs-on: ubuntu-latest
+    needs: [node-quality, python-engine]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: pnpm install --frozen-lockfile
+      - name: Sync engine dependencies
+        working-directory: engine/python
+        run: uv sync --extra dev
+      - run: pnpm eval:professional:rendered
+
+  # ── License & dependency review ──────────────────────────────────────────
+  license-scan:
+    name: License scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm license:scan
+
+  # ── E2E smoke tests (functional flows; PRD §16.1) ────────────────────────
+  e2e:
+    name: E2E smoke
+    runs-on: ubuntu-latest
+    needs: [node-quality]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright browsers
+        run: pnpm --filter @framepilot/e2e exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: reports/e2e
+
+  # ── E2E visual regression (platform-specific screenshot baselines) ────────
+  e2e-visual:
+    name: E2E visual regression
+    # Visual baselines are intentionally platform-specific; the committed golden set is macOS.
+    runs-on: macos-latest
+    needs: [node-quality]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright browsers
+        run: pnpm --filter @framepilot/e2e exec playwright install --with-deps chromium
+      - run: pnpm --filter @framepilot/e2e test:visual
+      - name: Upload visual report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-visual-report
+          path: reports/e2e
+
+  # ── Desktop build ────────────────────────────────────────────────────────
+  desktop-build:
+    name: Build desktop app
+    runs-on: ubuntu-latest
+    needs: [node-quality]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build

@@ -1,0 +1,71 @@
+---
+title: Captions, silence, and shorts
+description: Auto captions, one-tap silence removal, pacing and hook fixes, and turning a raw recording into a 9:16 short.
+category: Guides
+order: 2
+---
+
+The workflows below are the everyday reason to reach for the AI. Each one is an "ask the timeline" flow: you describe intent, the agent proposes a typed patch, and you review a before/after diff before applying. Everything here is reversible — apply, preview, and undo in one click each. For the modes behind these flows, see [the AI agent](/docs/the-ai-agent).
+
+## Auto captions
+
+FramePilot transcribes your audio and generates captions with word-level timestamps, so captions land in sync with speech rather than in loose blocks.
+
+- **Generate** a caption track from the transcript by asking the timeline to add captions.
+- **Style** captions with templates, and highlight keywords for emphasis.
+- **Edit** any caption manually — the text and timing are yours to adjust.
+- **Burn in** captions on export, or keep them as an editable track until you are ready.
+
+Because the caption track is added as a patch, you can undo the whole thing or tweak individual lines without redoing the transcription.
+
+## Remove silence
+
+Dead air is the fastest thing to cut. Ask the timeline to remove silences and the agent analyzes the audio for silent gaps, then proposes a patch that deletes them.
+
+```txt
+Remove the silences.
+```
+
+You review exactly which ranges will be removed as a diff before applying, and undo restores the original timing if a cut is too aggressive. This is a reversible timeline operation, not a destructive re-encode of your source media.
+
+## Fix pacing
+
+Slow sections lose viewers. Select a range and ask for tighter pacing, and the AI proposes targeted operations — trimming slack, adding a speed ramp, or a punch-in zoom on a key moment.
+
+```txt
+Make this section faster and more engaging.
+```
+
+The result comes back as a small patch you can apply, edit, preview, or reject, so you can dial in the feel without committing blind.
+
+## Find the hook
+
+The opening decides whether anyone keeps watching. The agent can analyze your transcript to detect the strongest hook moment and propose restructuring the opening around it — for example, leading with 00:08–00:13 and moving the intro later or cutting it.
+
+As with every flow, the change is a proposed patch. You see what moves before it happens and can undo it if the original order worked better.
+
+## Turn a recording into a 9:16 short
+
+The flagship flow ties the others together. Hand the agent a raw recording and a goal:
+
+```txt
+Create a 45-second product demo for Instagram Reels.
+```
+
+In agent mode it will typically:
+
+1. Analyze the transcript.
+2. Detect the hook and the strongest segments.
+3. Detect slow or repeated sections to cut.
+4. Draft an edit plan and ask for your approval.
+5. Apply the timeline operations (cuts, captions, zooms, reframing to vertical).
+6. Render a preview and self-check the output.
+7. Suggest improvements before you export.
+
+Every step is a reviewable, reversible operation, and the final render goes through the deterministic, auto-validated export path.
+
+## Next steps
+
+- [The AI agent](/docs/the-ai-agent) — chat, plan, edit, and agent modes in depth.
+- [Local transcription (Whisper) setup](/docs/local-transcription-setup) — install whisper.cpp and set up the local model that powers captions.
+- [Render and export](/docs/render-and-export) — export presets and how output is validated, including 9:16 Reels.

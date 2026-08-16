@@ -1,0 +1,111 @@
+# Subject Intelligence Capability Pack build and verification.
+#
+# Deliberately SEPARATE from CI, on the same terms as Tracking Lite:
+# `workers/subject-intelligence` is a standalone artifact project, not a
+# workspace member, and neither its OpenCV dependency nor its ~42 MiB of model
+# weights may ever enter the base application's environment.
+#
+# Four tiers, all required before an artifact may be signed:
+#   1. protocol/policy suite — no third-party dependency, no weights
+#   2. weight provisioning — every model must match its pinned digest
+#   3. real-inference proof — the pinned models over real photographic content
+#   4. license/SBOM drift check — the shipped record must match what resolves
+name: Capability Pack — Subject Intelligence
+
+on:
+  pull_request:
+    paths:
+      - 'workers/subject-intelligence/**'
+      - '.github/workflows/capability-pack-subject-intelligence.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'workers/subject-intelligence/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pack-subject-intelligence-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: workers/subject-intelligence
+
+jobs:
+  # Tier 1 runs everywhere and proves the worker's own logic needs neither a CV
+  # stack nor a downloaded weight.
+  protocol-and-policy:
+    name: Protocol and policy (no CV stack, no weights)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v5
+      - name: Unit suite
+        run: uv run --python 3.13 --with pytest --no-project pytest -q
+      - name: Lint
+        run: uv run --python 3.13 --with ruff --no-project ruff check .
+      - name: Typecheck
+        run: uv run --python 3.13 --with mypy --no-project mypy
+      - name: Weights must never be committed
+        # ~42 MiB of binaries with their own licences belong in a signed pack
+        # artifact, not in every clone of the base repository.
+        run: |
+          if git ls-files models | grep -v '^workers/subject-intelligence/models/.gitignore$'; then
+            echo "::error::model weights must not be committed; they are fetched by digest"
+            exit 1
+          fi
+        working-directory: .
+      - name: Base app must not depend on this worker
+        # A regression here would put OpenCV and model weights inside the base
+        # installer, which is what the Capability Pack architecture prevents.
+        working-directory: .
+        run: |
+          if grep -rn "framepilot_subject_intelligence\|subject-intelligence" \
+              --include='*.py' engine/python/framepilot_engine; then
+            echo "::error::the base render engine must never import the Subject Intelligence worker"
+            exit 1
+          fi
+          if grep -n '"workers/' pnpm-workspace.yaml pyproject.toml; then
+            echo "::error::the worker must not be a workspace member"
+            exit 1
+          fi
+
+  # Tiers 2–4 run per shipped platform, because the artifact is platform bound.
+  inference-proof:
+    name: Real-inference proof (${{ matrix.platform }})
+    needs: protocol-and-policy
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14 # Apple Silicon
+            platform: darwin-arm64
+          - runner: windows-latest
+            platform: win32-x64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v5
+      - name: Install the CV extra from the exact lock
+        run: uv sync --extra cv --no-dev --locked --python 3.13
+      - name: Fetch the pinned weights and verify every digest
+        run: uv run --no-dev python tools/fetch_models.py
+      - name: Weights must still match their pins
+        run: uv run --no-dev python tools/fetch_models.py --check
+      - name: Detection and segmentation proof on real content
+        run: uv run --extra cv --no-dev --with pytest pytest -m decoded_media -q
+      - name: License and SBOM record must match the resolved environment
+        run: uv run --extra cv --no-dev python tools/generate_sbom.py --check
+      - name: Regenerate the platform SBOM
+        run: uv run --extra cv --no-dev python tools/generate_sbom.py --platform ${{ matrix.platform }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: subject-intelligence-sbom-${{ matrix.platform }}
+          path: workers/subject-intelligence/pack/sbom/${{ matrix.platform }}.cdx.json

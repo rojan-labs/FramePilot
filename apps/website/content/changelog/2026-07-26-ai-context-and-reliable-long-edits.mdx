@@ -1,0 +1,19 @@
+---
+title: 'See AI context at a glance'
+summary: 'A live ring shows context pressure, while long AI edits now recover cleanly from planning and provider compatibility issues.'
+date: '2026-07-26'
+tags: ['New', 'Fixed']
+---
+
+### New
+
+- **Know when a request is getting crowded.** A small ring beside Send shows how much of
+  the current AI request's context is in use. Hover or focus it for the used and total
+  token counts plus the exact amount remaining.
+
+### Fixed
+
+- **Long AI edits keep moving.** If the fast planning path cannot execute a valid graph,
+  FramePilot continues the same request with its general editing agent instead of stopping.
+  The selected provider stays consistent throughout, oversized timelines keep coverage
+  from beginning to end, and incompatible Ollama sampling settings recover automatically.

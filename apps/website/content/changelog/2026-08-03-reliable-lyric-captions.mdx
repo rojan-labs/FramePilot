@@ -1,0 +1,19 @@
+---
+title: 'Lyric captions now fail loudly when they are not real cues'
+summary: 'The editing agent no longer mistakes one song-length text block for synchronized, readable lyrics.'
+date: '2026-08-03'
+tags: ['Fixed', 'Improved']
+---
+
+### Fixed
+
+- **A full-song text block can no longer pass as finished lyrics.** Caption checks now require
+  separate readable cues with trustworthy timing, and title cards no longer inflate the reported
+  caption count.
+
+### Improved
+
+- **Visual quality claims now require visual review.** If a preview cannot be rendered, the agent
+  clearly leaves lighting, colour, caption readability, typography and motion marked as unchecked
+  instead of saying every check passed. Caption styling also starts restrained instead of piling
+  multiple animations, boxes, outlines and accent colours onto the same lyric treatment.

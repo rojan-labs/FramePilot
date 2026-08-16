@@ -1,0 +1,11 @@
+{
+  "description": "Golden perceptual aHashes for a deterministic testsrc2 source rendered to the 9:16 Reels preset. Regenerate with tests/fixtures/golden/README if the compiler's framing changes intentionally.",
+  "source": {
+    "lavfi": "testsrc2=size=640x480:rate=30:duration=2",
+    "duration_seconds": 2.0
+  },
+  "preset_id": "reels",
+  "sample_timestamps": [0.25, 1.0, 1.75],
+  "ahash": [131941386354688, 131941386354688, 131941394743296],
+  "hamming_tolerance": 10
+}

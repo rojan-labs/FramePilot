@@ -1,0 +1,28 @@
+---
+description: Electron desktop shell — security hardening, Python sidecar lifecycle, atomic save, crash recovery
+globs: apps/desktop/**
+alwaysApply: false
+---
+
+# Desktop shell rules (PRD §10, §18.3)
+
+## Electron security (HARD RULE)
+- `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`.
+- Renderer ↔ main communication ONLY through a minimal, typed, allow-listed **preload bridge**. No `remote` module, no exposing `ipcRenderer` wholesale, no Node APIs in the renderer.
+- Validate every IPC payload (schema) on the main side. Treat the renderer as untrusted input.
+- Restrict `webContents` navigation and `window.open`; no loading remote/untrusted content into a privileged context.
+
+## Python sidecar lifecycle
+- Main process spawns, health-checks, and gracefully shuts down the Python sidecar (`FRAMEPILOT_PYTHON_API_URL`).
+- Restart/backoff on crash; surface clear status to the UI. Never leak orphaned processes on quit.
+- The sidecar is the render/AI-tool engine — keep the IPC contract typed and stable.
+
+## Atomic project save (PRD §18.3)
+- `project.fp.json` saves are **atomic**: write to a temp file, fsync, then rename. Never partially overwrite the live project file.
+- Keep timeline history for undo/redo.
+
+## Crash recovery
+- On startup after an unclean exit, recover from the **last valid project state** (autosave/journal). Background jobs are resumable/retryable.
+
+## Path & secrets
+- All file access goes through the safe-path sandbox (project dir). Secrets stay in `.env`; never bundle keys into the app.

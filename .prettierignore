@@ -1,0 +1,25 @@
+node_modules
+dist
+build
+out
+.turbo
+coverage
+.pytest_cache
+reports
+playwright-report
+test-results
+pnpm-lock.yaml
+engine/python/.venv
+**/__pycache__
+*.fp.json
+CHANGELOG.md
+
+# Generated from the Zod source of truth via `schema:generate`; the generator
+# (JSON.stringify) owns its formatting, and a TS test guards it against drift.
+packages/timeline-schema/schema/project.schema.json
+
+# Agent skill playbooks. Their YAML frontmatter is parsed line-by-line by
+# `packages/ai-sdk/scripts/generate-skills.mjs`, which requires `tools: [...]` to be a
+# SINGLE line — Prettier wraps a long list across lines and the generator (and therefore
+# the build) then fails on it. The bodies are prose the generator embeds verbatim.
+packages/ai-sdk/skills/*.md

@@ -1,0 +1,67 @@
+# Subject Intelligence pack build manifest.
+#
+# The signed catalog record is generated FROM this manifest plus the artifact
+# hash produced by the build job. Nothing here may drift from
+# `src/framepilot_subject_intelligence/__init__.py`, which holds the identity the
+# worker itself enforces during the health handshake, or from
+# `pack/models.lock.toml`, which pins the weights.
+
+[pack]
+id = "framepilot.subject-intelligence"
+version = "1.0.0"
+display_name = "Subject Intelligence"
+description = "Face, person, and object detection plus subject segmentation masks."
+channel = "stable"
+# The roster the worker enforces. Health check refuses any other set.
+capabilities = ["subject.detect", "subject.segment"]
+worker_protocol_version = 1
+# Unlike Tracking Lite, this pack ships weights. The authority is
+# pack/models.lock.toml; the worker hashes every file before loading it and
+# reports these digests in the handshake and in every result.
+models_lock = "pack/models.lock.toml"
+
+[runtime]
+python_version = "3.13"
+python_requires = ">=3.12"
+entrypoint_module = "framepilot_subject_intelligence"
+health_check_argument = "--framepilot-health-check"
+runtime_argument = "--framepilot-worker-runtime"
+network = "disabled"
+
+[[platforms]]
+os = "darwin"
+arch = "arm64"
+entrypoint = "framepilot-subject-intelligence"
+signing = "apple-developer-id + notarization"
+
+[[platforms]]
+os = "win32"
+arch = "x64"
+entrypoint = "framepilot-subject-intelligence.exe"
+signing = "authenticode"
+
+[dependencies]
+# Exact versions come from uv.lock, which is the authority. These names document
+# WHY each dependency is present.
+lock = "uv.lock"
+# All three models run on OpenCV's `dnn` module, so this pack adds no second ML
+# runtime. See LICENSES.md for the LGPL-2.1 native components the wheel
+# redistributes.
+opencv = "opencv-contrib-python-headless"
+numpy = "numpy"
+
+[artifact]
+# Weights are ~42 MiB on top of the runtime; the ceiling leaves room for the
+# embedded interpreter and OpenCV natives without leaving room for a surprise.
+max_unpacked_mib = 500
+license_notice = "LICENSES.md"
+sbom = "pack/sbom"
+# Consent copy: what the user is told before approving the download.
+download_discloses = ["size", "licenses", "model provenance", "local-only execution"]
+
+[verification]
+# The build job must run all of these before an artifact may be signed.
+models = "python tools/fetch_models.py --check"
+unit_suite = "pytest"
+decoded_media_suite = "pytest -m decoded_media"
+license_drift = "python tools/generate_sbom.py --check"

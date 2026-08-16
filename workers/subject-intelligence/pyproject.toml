@@ -1,0 +1,77 @@
+# Subject Intelligence Capability Pack worker.
+#
+# A SEPARATE artifact project, on the same terms as workers/tracking-lite: not a
+# member of the root uv workspace, not a dependency of the base Python render
+# engine or the Electron app. Model weights and CV runtimes ship as signed,
+# on-demand Capability Packs (docs/adr/0114-on-demand-capability-packs.md),
+# never inside the base installer. Nothing here may be imported by
+# `framepilot_engine`.
+[project]
+name = "framepilot-subject-intelligence"
+version = "1.0.0"
+description = "FramePilot Subject Intelligence Capability Pack worker (face/person/object detection, subject segmentation)"
+readme = "README.md"
+license = { text = "Proprietary" }
+authors = [{ name = "Rojan Acharya and FramePilot contributors" }]
+requires-python = ">=3.12"
+# The protocol/policy/identity layer has NO third-party dependency, so the base
+# repository can test this worker without installing OpenCV or fetching weights.
+dependencies = []
+
+[project.optional-dependencies]
+# Real inference backend. Installed only by the pack build/CI job.
+#
+# OpenCV's `dnn` module runs all three models, so this pack adds NO second ML
+# runtime: no ONNX Runtime, no PyTorch, no PaddlePaddle. That is the single
+# biggest reason for the model choices recorded in pack/models.lock.toml — it
+# reuses a native dependency whose licence position is already audited for
+# Tracking Lite instead of introducing another ~50 MiB runtime with its own
+# supply chain.
+cv = [
+  "numpy>=2.1",
+  "opencv-contrib-python-headless>=5.0,<6",
+]
+dev = [
+  "pytest>=8.3",
+  "ruff>=0.6",
+  "mypy>=1.11",
+]
+
+[project.scripts]
+framepilot-subject-intelligence = "framepilot_subject_intelligence.__main__:main"
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/framepilot_subject_intelligence"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+# The default suite runs with no CV stack and no downloaded weights. Real
+# inference proof is opt-in and runs in the pack build job, because it needs
+# both the OpenCV extra and the pinned model files.
+addopts = "-ra --strict-markers -m 'not decoded_media'"
+markers = [
+  "decoded_media: requires the OpenCV backend, pinned model weights and real media (pack build job only)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "PTH", "RUF"]
+allowed-confusables = ["–"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/framepilot_subject_intelligence"]
+
+[[tool.mypy.overrides]]
+module = ["cv2.*", "numpy.*"]
+ignore_missing_imports = true

@@ -1,0 +1,71 @@
+{
+  "name": "framepilot",
+  "version": "0.0.0",
+  "private": true,
+  "description": "FramePilot — Cursor for professional video editing. Chat with your timeline, run agent edits as typed/validated operations, and render reliably through a deterministic Python engine.",
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "Rojan Acharya and FramePilot contributors",
+  "type": "module",
+  "engines": {
+    "node": ">=22.15.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.12.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "tests/e2e"
+  ],
+  "scripts": {
+    "preinstall": "npx only-allow pnpm",
+    "dev": "turbo run dev --filter=!@framepilot/web-editor --filter=!@framepilot/website",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "test:coverage": "turbo run test:coverage",
+    "test:e2e": "pnpm --filter @framepilot/e2e test",
+    "eval:professional:rendered": "FRAMEPILOT_RENDERED_PROFESSIONAL_EVALS=1 pnpm --filter @framepilot/ai-sdk exec vitest run src/professional-evals.rendered.test.ts",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "typecheck": "turbo run typecheck",
+    "desktop:dev": "pnpm --filter @framepilot/desktop dev",
+    "desktop:build": "pnpm --filter @framepilot/desktop build",
+    "desktop:dist": "pnpm build && pnpm --filter @framepilot/desktop dist",
+    "website:dev": "pnpm --filter @framepilot/website dev",
+    "website:build": "pnpm --filter @framepilot/website build",
+    "website:start": "pnpm --filter @framepilot/website start",
+    "website:generate:og": "pnpm --filter @framepilot/website generate:og",
+    "website:fetch:pricing": "pnpm --filter @framepilot/website fetch:pricing",
+    "engine:sync": "cd engine/python && uv sync --extra dev",
+    "engine:test": "cd engine/python && uv run pytest",
+    "engine:test:cov": "cd engine/python && uv run pytest --cov",
+    "engine:lint": "cd engine/python && uv run ruff check .",
+    "engine:typecheck": "cd engine/python && uv run mypy .",
+    "license:scan": "node scripts/license-scan.mjs",
+    "release:check-feed": "node scripts/verify-update-feed.mjs",
+    "release:check-installer": "node scripts/check-installer-budget.mjs",
+    "trial:setup": "npm --prefix trial run setup",
+    "trial:login": "npm --prefix trial run login",
+    "trial:start": "npm --prefix trial start",
+    "verify:core": "pnpm typecheck && pnpm lint && pnpm test && pnpm engine:test",
+    "verify": "pnpm typecheck && pnpm lint && pnpm test:coverage && pnpm engine:lint && pnpm engine:typecheck && pnpm engine:test:cov && pnpm license:scan && pnpm build && pnpm test:e2e && pnpm --filter @framepilot/e2e test:visual && pnpm eval:professional:rendered",
+    "prepare": "husky || true"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "husky": "^9.1.0",
+    "lint-staged": "^15.2.0",
+    "only-allow": "^1.2.1",
+    "prettier": "^3.3.0",
+    "turbo": "^2.1.0",
+    "typescript": "^5.5.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,json,md,yml,yaml}": "prettier --write"
+  },
+  "pnpm": {
+    "peerDependencyRules": {
+      "allowAny": []
+    }
+  }
+}

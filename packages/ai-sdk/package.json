@@ -1,0 +1,52 @@
+{
+  "name": "@framepilot/ai-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "description": "Multi-provider AI layer (Anthropic, NVIDIA, mock) — tool registry, orchestrator, context builder (PRD §8).",
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "generate:skills": "node scripts/generate-skills.mjs",
+    "generate:model-capabilities": "node scripts/generate-model-capabilities.mjs",
+    "generate:autonomous-tools": "node scripts/generate-autonomous-tools.mjs",
+    "generate:tool-parity": "node scripts/generate-tool-parity-fixture.mjs",
+    "build": "node scripts/generate-skills.mjs && node scripts/generate-model-capabilities.mjs && tsc -b && node scripts/generate-tool-parity-fixture.mjs && node scripts/generate-autonomous-tools.mjs",
+    "dev": "tsc -b --watch",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@framepilot/capability-packs": "workspace:*",
+    "@framepilot/editor-core": "workspace:*",
+    "@framepilot/shared-types": "workspace:*",
+    "@framepilot/timeline-schema": "workspace:*",
+    "@langchain/anthropic": "1.5.3",
+    "@langchain/core": "1.2.5",
+    "@langchain/deepseek": "1.1.6",
+    "@langchain/google-genai": "2.2.0",
+    "@langchain/groq": "1.3.1",
+    "@langchain/langgraph": "1.4.9",
+    "@langchain/ollama": "1.3.0",
+    "@langchain/openai": "1.5.6",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.9.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "eslint": "^9.9.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.1.0"
+  }
+}

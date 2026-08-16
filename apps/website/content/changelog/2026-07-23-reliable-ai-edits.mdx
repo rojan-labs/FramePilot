@@ -1,0 +1,18 @@
+---
+title: 'AI edits that stay in sync and undo cleanly'
+summary: 'FramePilot now keeps long AI edits coordinated with your open project, even across conflicts and restarts.'
+date: '2026-07-23'
+tags: ['Improved', 'Fixed']
+---
+
+### Improved
+
+- **Auto mode is now trustworthy.** When you authorize automatic editing, each change is saved through the same protected project workflow and appears in your workspace immediately.
+
+- **Undo a whole AI run in one step.** Multi-stage edits from one request are grouped together, so a single Undo returns you to the state before the run.
+
+### Fixed
+
+- **Newer work is never silently overwritten.** If your project changes while an AI edit is in progress, FramePilot either applies the edit safely to the latest version or asks for a fresh plan.
+
+- **AI state survives reopening the app.** Project versions and completed edit decisions remain consistent after a restart, preventing the workspace from showing stale execution results.

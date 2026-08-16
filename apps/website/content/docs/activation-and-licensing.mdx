@@ -1,0 +1,66 @@
+---
+title: Activation and licensing
+description: How the FramePilot subscription, license keys, offline grace, and moving between machines work end to end.
+category: Getting started
+order: 2
+---
+
+FramePilot is a paid subscription. This page explains exactly how activation works, what happens offline, how to move between machines, and what changes if you cancel. Billing and license issuance are handled by Freemius; the key lives on your device.
+
+## Plans and pricing
+
+There are two plans for the same product — pick whichever billing cadence you prefer.
+
+| Plan    | Price        | Effective monthly | Notes                     |
+| ------- | ------------ | ----------------- | ------------------------- |
+| Monthly | $25/month    | $25/mo            | Cancel anytime            |
+| Annual  | $199/year    | ~$16.58/mo        | ~34% off vs. monthly      |
+
+Both plans unlock the full editor, the AI agent, and the [MCP server](/docs/mcp-integration). Start on [pricing](/pricing).
+
+## How activation works
+
+1. **Buy on the website.** Checkout runs through Freemius.
+2. **Get your key.** Freemius emails you a license key after payment.
+3. **Paste it in.** On first launch, FramePilot shows an activation card with a license-key text box. Paste your key and activate.
+4. **The app validates and stores it.** FramePilot checks the key against Freemius, registers this machine as an install, and saves the result locally. Only a masked, secret-free status is kept — your raw key is never uploaded anywhere beyond the validation call.
+
+After that, the editor unlocks. The app re-validates in the background periodically (roughly daily) to confirm the subscription is still active.
+
+## Working offline
+
+You do not need to be online to edit. FramePilot keeps a cached validation result and honors a **7-day offline grace window** measured from the last successful validation.
+
+- Within 7 days of the last good check, the app keeps working even with no network.
+- After the grace window with no successful re-validation, FramePilot asks you to reconnect so it can confirm your subscription.
+
+This is a network-tolerance mechanism, not a way to run without a subscription — a cancelled or expired license is treated as invalid as soon as the app can confirm it.
+
+## Moving between machines
+
+Your subscription is tied to your account, and each activation registers one install. To move to a new computer:
+
+1. **Deactivate** FramePilot on the old machine (from the license screen), which frees the seat.
+2. **Reactivate** on the new machine by pasting the same key.
+
+If you can no longer access the old machine, deactivate it from your Freemius account page instead, then activate the new one.
+
+## Canceling, lapsing, and refunds
+
+- **Canceling.** You can cancel anytime. Access continues until the end of the period you already paid for.
+- **When the subscription lapses.** Once the paid period ends (or a renewal fails), the next validation marks the license invalid and the app shows a renew screen. Your projects and media are untouched on disk — renew to unlock the editor again.
+- **Refunds.** There is a 14-day money-back guarantee. Request a refund within 14 days of purchase through Freemius or support.
+
+## Privacy
+
+Your license key and install token stay on your device. FramePilot only contacts Freemius' public activate/validate endpoints to confirm your subscription — no secret keys ship in the app, and your footage never leaves your machine as part of licensing.
+
+## Troubleshooting
+
+**"Invalid key."** Double-check for a stray space or missing character when pasting. Confirm the key matches the email Freemius sent and that the subscription is active.
+
+**Offline / can't validate.** If you are within the 7-day grace window, keep editing. If the window has passed, reconnect to the internet and reopen FramePilot so it can re-validate.
+
+**"Subscription lapsed" or renew screen.** Your paid period ended or a renewal failed. Renew or update your payment method through the buy link on the renew screen, then relaunch.
+
+Still stuck? See [getting started](/docs/getting-started) for the activation walkthrough, or contact support with the masked license status shown on the activation card.

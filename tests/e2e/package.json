@@ -1,0 +1,22 @@
+{
+  "name": "@framepilot/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "End-to-end tests for FramePilot critical user flows (Playwright)",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test --project=chromium --grep-invert @visual --workers=1",
+    "test:all": "playwright test --project=chromium",
+    "test:visual": "playwright test --project=chromium --grep @visual",
+    "test:visual:update": "playwright test --project=chromium --grep @visual --update-snapshots",
+    "test:headed": "playwright test --project=chromium --headed",
+    "test:ui": "playwright test --project=chromium --ui",
+    "test:preview-spike": "playwright test --project=preview-spike",
+    "report": "playwright show-report ../../reports/e2e",
+    "install:browsers": "playwright install --with-deps chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0",
+    "@types/node": "^20.14.0"
+  }
+}

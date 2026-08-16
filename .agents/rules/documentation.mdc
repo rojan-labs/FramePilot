@@ -1,0 +1,27 @@
+---
+description: PRIORITY — every change updates docs/; new ADRs for decisions; CHANGELOG for user-facing changes
+globs:
+alwaysApply: true
+---
+
+# Documentation rules — PRIORITY
+
+Docs are part of Done, not an afterthought. Read `.agents/skills/docs-maintainer/SKILL.md`.
+
+## Every change updates docs
+- **New feature** → write/extend a guide in `docs/guides/` and/or API doc in `docs/api/`.
+- **Architectural decision** → new **ADR** in `docs/adr/` using the ADR template, with an
+  **incrementing number** (`NNNN-title.md`). Record context, decision, consequences.
+- **User-facing change** → add an entry to `CHANGELOG.md` (Keep a Changelog format, under `[Unreleased]`).
+- **Runbooks** for operational/debug procedures go in `docs/runbooks/`; architecture notes in `docs/architecture/`.
+
+## How to write
+- Document **WHY**, not just WHAT. Explain decisions, trade-offs, and non-obvious behavior.
+- Keep docs **in sync with code** — update them in the same change, not later.
+- Create docs/folders proactively when a topic needs them. Keep cross-links (README ↔ docs) valid.
+
+## Checklist before declaring done
+- [ ] Relevant guide/API doc updated or created.
+- [ ] ADR added if a decision was made.
+- [ ] `CHANGELOG.md` updated for user-facing changes.
+- [ ] `plan/PLAN.md` updated (see plan-management rule).

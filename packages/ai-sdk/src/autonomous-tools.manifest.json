@@ -1,0 +1,399 @@
+{
+  "version": 2,
+  "tools": [
+    {
+      "name": "inspect_project",
+      "description": "Read a compact project overview including assets, folders, timeline shape, transcript coverage, and current revision.",
+      "stages": ["inspect", "understand", "recover", "verify"],
+      "status": "ready",
+      "kind": "registry",
+      "internalRoutes": ["get_project_state"],
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+    },
+    {
+      "name": "inspect_timeline",
+      "description": "Read the current timeline structure, clip identities, exact ranges, tracks, transitions, effects, and markers.",
+      "stages": ["inspect", "edit", "recover", "verify"],
+      "status": "ready",
+      "kind": "registry",
+      "internalRoutes": ["get_timeline"],
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+    },
+    {
+      "name": "inspect_transcript",
+      "description": "Read transcript words for a bounded source-time range without dumping unrelated project state.",
+      "stages": ["inspect", "understand", "edit", "recover", "verify"],
+      "status": "ready",
+      "kind": "registry",
+      "internalRoutes": ["get_transcript"],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "start": { "type": "number", "minimum": 0 },
+          "end": { "type": "number", "exclusiveMinimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "probe_media",
+      "description": "Return deterministic local media facts such as duration, dimensions, rational FPS, frame count, codecs, container, and stream presence.",
+      "stages": ["inspect", "understand", "verify"],
+      "status": "planned",
+      "kind": "runtime",
+      "internalRoutes": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": { "assetId": { "type": "string" } },
+        "required": ["assetId"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "resolve_time",
+      "description": "Convert a source or sequence timestamp to the other domain using an explicit clip mapping and integer-frame rounding policy.",
+      "stages": ["understand", "edit", "verify"],
+      "status": "planned",
+      "kind": "runtime",
+      "internalRoutes": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "clipId": { "type": "string" },
+          "domain": { "type": "string", "enum": ["source", "sequence"] },
+          "seconds": { "type": "number", "minimum": 0 }
+        },
+        "required": ["clipId", "domain", "seconds"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_frame",
+      "description": "Render one exact timeline frame for visual inspection and return a first-class evidence attachment.",
+      "stages": ["inspect", "understand", "recover", "verify"],
+      "status": "ready",
+      "kind": "registry",
+      "internalRoutes": ["get_frame"],
+      "inputSchema": {
+        "type": "object",
+        "properties": { "time": { "type": "number", "minimum": 0 } },
+        "required": ["time"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "search_media",
+      "description": "Search transcript, markers, semantic memory, or visible footage through one bounded query contract with explicit evidence provenance.",
+      "stages": ["understand", "edit", "recover"],
+      "status": "ready",
+      "kind": "composite",
+      "internalRoutes": [
+        "search_media",
+        "find_similar",
+        "search_visual",
+        "describe_footage",
+        "map_footage"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "minLength": 1 },
+          "mode": {
+            "type": "string",
+            "enum": ["keyword", "semantic", "visual", "describe", "map"]
+          },
+          "assetIds": { "type": "array", "items": { "type": "string" } },
+          "timeRange": {
+            "type": "array",
+            "prefixItems": [
+              { "type": "number", "minimum": 0 },
+              { "type": "number", "minimum": 0 }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 50 }
+        },
+        "required": ["mode"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "analyze_media",
+      "description": "Run one deterministic analysis contract for transcription, silence, scenes, beats, or a bounded standard analysis pass.",
+      "stages": ["understand", "edit", "recover", "verify"],
+      "status": "ready",
+      "kind": "composite",
+      "internalRoutes": ["transcribe", "analyze_silence", "detect_scenes", "detect_beats"],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string", "enum": ["transcription", "silence", "scenes", "beats"] },
+          "assetId": { "type": "string" },
+          "options": { "type": "object" }
+        },
+        "required": ["kind"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "understand_timestamp",
+      "description": "Answer what happens at a precise source or sequence timestamp with exact frame or segment evidence, or return an honest no-answer.",
+      "stages": ["understand", "edit", "verify"],
+      "status": "planned",
+      "kind": "runtime",
+      "internalRoutes": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "assetId": { "type": "string" },
+          "clipId": { "type": "string" },
+          "domain": { "type": "string", "enum": ["source", "sequence"] },
+          "seconds": { "type": "number", "minimum": 0 },
+          "question": { "type": "string", "minLength": 1 }
+        },
+        "required": ["domain", "seconds", "question"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "plan_edit_candidates",
+      "description": "Generate evidence-cited candidate edit ranges from footage signals without mutating the project.",
+      "stages": ["edit"],
+      "status": "ready",
+      "kind": "registry",
+      "internalRoutes": ["propose_edits"],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chapters": { "type": "array", "items": { "type": "object" } },
+          "highlights": { "type": "array", "items": { "type": "object" } },
+          "silences": { "type": "array", "items": { "type": "object" } },
+          "sceneCuts": { "type": "array", "items": { "type": "number", "minimum": 0 } },
+          "verticalTarget": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "propose_timeline_patch",
+      "description": "Propose one typed timeline patch. Internal operation builders validate and assemble it; the model never mutates project JSON directly.",
+      "stages": ["edit", "recover"],
+      "status": "ready",
+      "kind": "proposal",
+      "internalRoutes": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "reason": { "type": "string", "minLength": 1 },
+          "evidenceIds": { "type": "array", "items": { "type": "string" } },
+          "operations": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "tool": { "type": "string", "minLength": 1 },
+                "arguments": { "type": "object" }
+              },
+              "required": ["tool", "arguments"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["reason", "operations"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "propose_project_patch",
+      "description": "Propose one typed media-bin, folder, asset, or marker patch through the same validated reversible patch authority.",
+      "stages": ["edit", "recover"],
+      "status": "ready",
+      "kind": "proposal",
+      "internalRoutes": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "reason": { "type": "string", "minLength": 1 },
+          "evidenceIds": { "type": "array", "items": { "type": "string" } },
+          "operations": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "tool": { "type": "string", "minLength": 1 },
+                "arguments": { "type": "object" }
+              },
+              "required": ["tool", "arguments"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["reason", "operations"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "render_preview",
+      "description": "Render a bounded low-resolution preview of the current applied patch revision.",
+      "stages": ["render", "verify"],
+      "status": "ready",
+      "kind": "registry",
+      "internalRoutes": ["render_preview"],
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+    },
+    {
+      "name": "verify_result",
+      "description": "Run deterministic caption, transition, duration, stream, and visual-evidence checks before completion can be reported.",
+      "stages": ["verify", "recover"],
+      "status": "ready",
+      "kind": "composite",
+      "internalRoutes": ["verify_captions", "verify_transitions"],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["captions", "transitions", "duration", "visual", "render"]
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "ask_user",
+      "description": "Pause on a genuinely blocking preference or ambiguity and resume with a validated plain-language answer.",
+      "stages": ["inspect", "understand", "edit", "recover", "verify", "render"],
+      "status": "ready",
+      "kind": "registry",
+      "internalRoutes": ["ask_user"],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "question": { "type": "string", "minLength": 1, "maxLength": 600 },
+          "options": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 5,
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+                "description": { "type": "string", "maxLength": 240 }
+              },
+              "required": ["label"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["question"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "load_skill",
+      "description": "Load one bounded editing playbook by name and keep it pinned for the current run.",
+      "stages": ["understand", "edit", "recover"],
+      "status": "ready",
+      "kind": "registry",
+      "internalRoutes": ["load_skill"],
+      "inputSchema": {
+        "type": "object",
+        "properties": { "name": { "type": "string", "minLength": 1 } },
+        "required": ["name"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "discover_styles",
+      "description": "Search the real caption, effect, or transition catalogs through one discovery contract.",
+      "stages": ["understand", "edit"],
+      "status": "ready",
+      "kind": "composite",
+      "internalRoutes": ["discover_caption_styles", "discover_effects", "discover_transitions"],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string", "enum": ["captions", "effects", "transitions"] },
+          "query": { "type": "string" }
+        },
+        "required": ["kind"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "recall_evidence",
+      "description": "Recall bounded evidence already collected in this run without repeating provider or media work.",
+      "stages": ["understand", "edit", "recover", "verify"],
+      "status": "ready",
+      "kind": "registry",
+      "internalRoutes": ["recall_evidence"],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "evidenceId": { "type": "string", "minLength": 1 },
+          "query": { "type": "string" }
+        },
+        "required": ["evidenceId"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "manage_assets",
+      "description": "Organize project assets and folders through typed reversible project operations.",
+      "stages": ["edit", "recover"],
+      "status": "ready",
+      "kind": "registry",
+      "internalRoutes": ["manage_assets"],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "strategy": { "type": "string", "enum": ["by-kind", "plan"] },
+          "folders": { "type": "array", "items": { "type": "object" } },
+          "assignments": { "type": "array", "items": { "type": "object" } }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "inspect_session",
+      "description": "Read bounded project memory, previous decisions, corrections, and session state before planning.",
+      "stages": ["inspect", "understand", "recover"],
+      "status": "ready",
+      "kind": "registry",
+      "internalRoutes": ["session_context"],
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+    },
+    {
+      "name": "cancel_operation",
+      "description": "Cancel a long-running index, render, analysis, or autonomous-edit operation through its typed cancellation route.",
+      "stages": ["recover"],
+      "status": "planned",
+      "kind": "runtime",
+      "internalRoutes": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "operationId": { "type": "string", "minLength": 1 },
+          "operationKind": { "type": "string", "enum": ["index", "render", "analysis", "edit"] }
+        },
+        "required": ["operationId", "operationKind"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "undo_edit",
+      "description": "Undo the most recently applied grouped autonomous edit and return the restored revision.",
+      "stages": ["recover"],
+      "status": "planned",
+      "kind": "runtime",
+      "internalRoutes": [],
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+    }
+  ]
+}

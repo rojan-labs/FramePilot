@@ -1,0 +1,38 @@
+---
+description: Python render engine standards — ruff/mypy strict, determinism, golden media, render validation
+globs: engine/python/**
+alwaysApply: false
+---
+
+# Python render engine rules
+
+The engine is the deterministic render layer (MoviePy + FFmpeg). It must be reliable,
+typed, and testable. Read `AGENTS.md` and `.agents/skills/media-pipeline/SKILL.md`.
+
+## Tooling (strict)
+- `ruff check .` clean; `mypy .` in strict mode (run `pnpm engine:lint` / `pnpm engine:typecheck`).
+- Full type hints on every function. No untyped `dict` flowing across module boundaries — use Pydantic models / typed dataclasses.
+- Use `pathlib.Path`, never string concatenation for paths. Resolve and sandbox to the project dir; reject path traversal.
+
+## Determinism
+- Render output must be reproducible: no wall-clock, no randomness without a fixed seed, stable ordering of operations and tracks.
+- A timeline JSON must compile to the same MoviePy composition every time.
+- Layer order (e.g. text-behind-object) is explicit and deterministic.
+
+## Render validation is REQUIRED (PRD §9.4)
+Every render runs automatic checks: file exists & non-zero, duration matches expected
+timeline duration (tolerance), video stream present, audio stream present if expected,
+black-frame detection, audio-clipping detection. A render is not "done" until validated.
+
+## Render jobs
+- Lifecycle: queued → preparing_assets → rendering_frames → encoding → validating_output → completed/failed.
+- Must support **timeout** (`FRAMEPILOT_RENDER_TIMEOUT_SECONDS`) and **cancellation**.
+- Failed renders surface useful logs. Jobs are resumable/retryable.
+
+## Testing
+- Golden media tests with deterministic fixtures; exact tests for JSON patch behavior, perceptual tolerances for frames.
+- No render change without a golden-test update. Cover the `validation/` module's behavior and failure paths.
+
+## Safety
+- Never delete/overwrite originals. Renders go to the project `renders/` folder.
+- AI tools in `ai_tools/` are schema-validated and return patches — never mutate the project file directly.

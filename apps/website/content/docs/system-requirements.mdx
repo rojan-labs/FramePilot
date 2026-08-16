@@ -1,0 +1,53 @@
+---
+title: System requirements
+description: Supported operating systems, disk and memory guidance, GPU notes, and what ships bundled with FramePilot.
+category: Getting started
+order: 3
+---
+
+FramePilot is a local-first desktop application. It runs entirely on your machine, and rendering happens locally through a bundled deterministic engine. This page lists what you need to run it comfortably.
+
+## Operating systems
+
+FramePilot ships as a native desktop build for all three major platforms.
+
+| Platform | Supported versions                     |
+| -------- | -------------------------------------- |
+| macOS    | macOS 12 (Monterey) or newer           |
+| Windows  | Windows 10 (64-bit) or newer           |
+| Linux    | Recent 64-bit distributions (AppImage) |
+
+Apple Silicon and Intel Macs are both supported. On Linux, the AppImage runs on most modern distributions; a `.deb` is provided where available.
+
+## Memory and disk
+
+Video editing and rendering are memory- and disk-intensive. Treat these as practical guidance rather than hard limits.
+
+- **RAM:** 8 GB minimum, 16 GB or more recommended for longer or higher-resolution projects.
+- **Disk:** enough free space for your source media plus renders and cached proxies. Budget several gigabytes of working space beyond your raw footage; final exports and preview proxies are written locally.
+- **CPU:** a modern multi-core processor. Rendering is CPU-heavy because encoding runs through FFmpeg.
+
+Because FramePilot is local-first, your projects and media stay in local project folders — nothing is uploaded to edit or render.
+
+## GPU
+
+A discrete GPU is not required. The editor preview uses HTML video and canvas layers, which are lightweight, and the deterministic render engine leans on FFmpeg. A capable GPU can help with smooth preview playback on high-resolution timelines, but it is not a prerequisite for rendering or export.
+
+## FFmpeg is bundled
+
+You do not need to install FFmpeg separately. It ships with the app, so rendering and export work out of the box after activation. This keeps the deterministic render pipeline consistent across machines rather than depending on whatever version happens to be on your system.
+
+## Bringing your own AI provider key
+
+FramePilot's AI features use a bring-your-own-key model, so your account and usage stay yours. Supported providers are:
+
+- **Anthropic (Claude)** — the recommended default.
+- **NVIDIA NIM** — an OpenAI-compatible endpoint.
+- A deterministic **mock** provider for offline testing, which returns canned patches and needs no key.
+
+Add your provider key in the app's AI settings. See [the AI agent](/docs/the-ai-agent) for how the agent uses your key and what it can do.
+
+## Next steps
+
+- [Getting started](/docs/getting-started) — install and make your first cut.
+- [Activation and licensing](/docs/activation-and-licensing) — set up your subscription and key.

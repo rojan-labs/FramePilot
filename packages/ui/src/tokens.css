@@ -1,0 +1,295 @@
+/**
+ * @framepilot/ui design tokens — the single source of truth for DESIGN_SYSTEM.md
+ * (repo root). Every color/spacing/radius/type/elevation/motion/z-index token the
+ * editor chrome references lives here, under `:root`, as CSS custom properties.
+ *
+ * Dark is FramePilot's default editing theme. Light uses the same semantic token
+ * names with values chosen to preserve the same hierarchy. An explicit
+ * `data-theme` attribute on `<html>` wins in either direction; with no explicit
+ * choice, `prefers-color-scheme` decides.
+ *
+ * Visual decisions belong here. Feature styles may own layout geometry that is
+ * specific to the editing interaction, but typography, control density, shape,
+ * motion, color, and elevation should resolve through these shared tokens.
+ */
+:root {
+  /* Surfaces — layered near-black, elevation rises = lighter but only slightly. */
+  --bg-app: #0a0a0b;
+  --bg-canvas: #000000;
+  --bg-panel: #131316;
+  --bg-surface: #1c1c20;
+  --bg-elevated: #212126;
+  --bg-hover: rgba(255, 255, 255, 0.05);
+  --bg-active: rgba(255, 255, 255, 0.08);
+  --bg-selected: rgba(59, 130, 246, 0.16);
+
+  /* Borders & dividers — hairline low-opacity white. */
+  --border-subtle: rgba(255, 255, 255, 0.055);
+  --border-default: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.15);
+
+  /* Text — hierarchy via opacity, not hue. */
+  --text-primary: rgba(255, 255, 255, 0.9);
+  --text-secondary: rgba(255, 255, 255, 0.64);
+  --text-tertiary: rgba(255, 255, 255, 0.45);
+  --text-disabled: rgba(255, 255, 255, 0.28);
+
+  /* Accent — the single expressive colour: primary, focus, active, selection. */
+  --accent: #3b82f6;
+  --accent-hover: #5b9bfb;
+  --accent-text: #ffffff;
+  --accent-subtle: rgba(59, 130, 246, 0.14);
+  --focus-ring: rgba(59, 130, 246, 0.55);
+
+  /* Semantic — crisp but restrained. */
+  --success: #3fb950;
+  --success-subtle: rgba(63, 185, 80, 0.14);
+  --warning: #d29922;
+  --warning-subtle: rgba(210, 153, 34, 0.14);
+  --danger: #f85149;
+  --danger-subtle: rgba(248, 81, 73, 0.14);
+
+  /* Video-editor specifics. */
+  --playhead: #3b9dff;
+  --clip-video: rgba(35, 131, 226, 0.22);
+  --clip-video-border: rgba(35, 131, 226, 0.5);
+  --clip-image: rgba(45, 196, 196, 0.22);
+  --clip-image-border: rgba(45, 196, 196, 0.5);
+  --clip-audio: rgba(28, 68, 48, 0.88);
+  --clip-audio-border: rgba(77, 171, 109, 0.7);
+  --clip-audio-wave: rgba(100, 210, 140, 0.82);
+  --clip-text: rgba(217, 162, 59, 0.22);
+  --clip-text-border: rgba(217, 162, 59, 0.5);
+  --clip-ai: rgba(160, 120, 235, 0.22);
+  --clip-ai-border: rgba(160, 120, 235, 0.5);
+  --clip-indicator-ink: rgba(255, 255, 255, 0.82);
+  --clip-indicator-chip: rgba(0, 0, 0, 0.34);
+  --clip-keyframe: #f0c45a;
+  --kf-diamond: var(--text-tertiary);
+  --kf-diamond-active: var(--clip-keyframe);
+  --kf-lane-bg: rgba(255, 255, 255, 0.035);
+  --kf-curve: var(--clip-keyframe);
+  --transition-fill: rgba(255, 255, 255, 0.16);
+  --transition-border: rgba(255, 255, 255, 0.34);
+  --track-lane: rgba(255, 255, 255, 0.02);
+  --ruler-tick: rgba(255, 255, 255, 0.2);
+
+  /* ---- Legacy aliases (existing class names resolve through these) ---- */
+  --bg: var(--bg-app);
+  --bg-raised: #0a0a0b;
+  --panel: var(--bg-panel);
+  --panel-2: var(--bg-surface);
+  --surface: var(--bg-surface);
+  --line: var(--border-default);
+  --line-soft: var(--border-subtle);
+  --muted: var(--text-secondary);
+  --muted-2: var(--text-tertiary);
+  --text-muted: var(--text-secondary);
+  --text: var(--text-primary);
+  --accent-2: var(--accent-hover);
+  --accent-soft: var(--accent-subtle);
+  --warn: var(--warning);
+  --good: var(--success);
+  --track-video: var(--clip-video-border);
+  --track-audio: var(--clip-audio-border);
+  --track-caption: var(--clip-text-border);
+  --track-overlay: var(--clip-ai-border);
+
+  /* Typography — 11px is the ordinary UI floor. */
+  --font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-lg: 14px;
+  --font-size-xl: 16px;
+  --leading-tight: 1.35;
+  --leading: 1.5;
+  --leading-relaxed: 1.6;
+
+  /* Radii — modest editor chrome plus one explicit pill shape. */
+  --radius-xl: 12px;
+  --radius-lg: 8px;
+  --radius-md: 6px;
+  --radius: var(--radius-lg);
+  --radius-sm: 4px;
+  --radius-xs: 3px;
+  --radius-pill: 999px;
+  /* Temporary compatibility alias for the caption workspace; new code uses pill. */
+  --radius-full: var(--radius-pill);
+
+  /* Spacing — a 4px-based scale. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* Shared control ergonomics. Glyphs may remain smaller than their hit box. */
+  --control-h-xs: 24px;
+  --control-h-sm: 28px;
+  --control-h-md: 32px;
+  --hit-target-min: 24px;
+  --row-h-sm: 32px;
+  --row-h-md: 40px;
+  --panel-padding-sm: 12px;
+  --panel-padding-md: 16px;
+
+  /* Elevation — panels use borders; only floating layers get shadow. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 0 0 1px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 0 0 1px rgba(0, 0, 0, 0.2), 0 12px 32px rgba(0, 0, 0, 0.45);
+  --shadow-1: var(--shadow-md);
+  --shadow-2: var(--shadow-lg);
+
+  /* Motion system — one scale plus semantic aliases. */
+  --dur-fast: 120ms;
+  --dur: 180ms;
+  --dur-med: 240ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --ease-spring: cubic-bezier(0.22, 1.2, 0.36, 1);
+  --motion-hover: var(--dur-fast);
+  --motion-disclosure: var(--dur);
+  --motion-layout: var(--dur-med);
+
+  /* Z-index scale. */
+  --z-playhead: 6;
+  --z-drag-ghost: 50;
+  --z-menu: 100;
+  --z-toast: 200;
+  --z-modal: 300;
+  --z-tooltip: 400;
+}
+
+/* =========================================================================
+ * LIGHT THEME — same semantic relationships, tuned for a bright surface.
+ * ========================================================================= */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --bg-app: #e9eaed;
+    --bg-canvas: #17171a;
+    --bg-panel: #f2f3f5;
+    --bg-surface: #fbfbfc;
+    --bg-elevated: #ffffff;
+    --bg-hover: rgba(0, 0, 0, 0.04);
+    --bg-active: rgba(0, 0, 0, 0.07);
+    --bg-selected: rgba(37, 99, 235, 0.12);
+
+    --border-subtle: rgba(0, 0, 0, 0.06);
+    --border-default: rgba(0, 0, 0, 0.1);
+    --border-strong: rgba(0, 0, 0, 0.18);
+
+    --text-primary: rgba(10, 10, 15, 0.92);
+    --text-secondary: rgba(10, 10, 15, 0.68);
+    --text-tertiary: rgba(10, 10, 15, 0.58);
+    --text-disabled: rgba(10, 10, 15, 0.38);
+
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --accent-text: #ffffff;
+    --accent-subtle: rgba(37, 99, 235, 0.12);
+    --focus-ring: rgba(37, 99, 235, 0.4);
+
+    --success: #1a7f37;
+    --success-subtle: rgba(26, 127, 55, 0.12);
+    --warning: #9a6700;
+    --warning-subtle: rgba(154, 103, 0, 0.12);
+    --danger: #cf222e;
+    --danger-subtle: rgba(207, 34, 46, 0.12);
+
+    --playhead: #2563eb;
+    --clip-video: rgba(35, 131, 226, 0.16);
+    --clip-video-border: rgba(35, 131, 226, 0.55);
+    --clip-image: rgba(45, 196, 196, 0.18);
+    --clip-image-border: rgba(45, 196, 196, 0.55);
+    --clip-audio: rgba(210, 238, 221, 0.9);
+    --clip-audio-border: rgba(43, 138, 74, 0.7);
+    --clip-audio-wave: rgba(31, 122, 68, 0.85);
+    --clip-text: rgba(217, 162, 59, 0.18);
+    --clip-text-border: rgba(217, 162, 59, 0.6);
+    --clip-ai: rgba(160, 120, 235, 0.18);
+    --clip-ai-border: rgba(160, 120, 235, 0.6);
+    --clip-indicator-ink: rgba(0, 0, 0, 0.72);
+    --clip-indicator-chip: rgba(255, 255, 255, 0.55);
+    --clip-keyframe: #b8791a;
+    --kf-diamond: var(--text-tertiary);
+    --kf-diamond-active: var(--clip-keyframe);
+    --kf-lane-bg: rgba(0, 0, 0, 0.04);
+    --kf-curve: var(--clip-keyframe);
+    --transition-fill: rgba(0, 0, 0, 0.16);
+    --transition-border: rgba(0, 0, 0, 0.36);
+    --track-lane: rgba(0, 0, 0, 0.025);
+    --ruler-tick: rgba(0, 0, 0, 0.25);
+
+    --bg-raised: #eef0f2;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+    --shadow-md: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.12);
+    --shadow-lg: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 12px 32px rgba(0, 0, 0, 0.16);
+  }
+}
+
+:root[data-theme='light'] {
+  --bg-app: #e9eaed;
+  --bg-canvas: #17171a;
+  --bg-panel: #f2f3f5;
+  --bg-surface: #fbfbfc;
+  --bg-elevated: #ffffff;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-active: rgba(0, 0, 0, 0.07);
+  --bg-selected: rgba(37, 99, 235, 0.12);
+
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --border-default: rgba(0, 0, 0, 0.1);
+  --border-strong: rgba(0, 0, 0, 0.18);
+
+  --text-primary: rgba(10, 10, 15, 0.92);
+  --text-secondary: rgba(10, 10, 15, 0.68);
+  --text-tertiary: rgba(10, 10, 15, 0.58);
+  --text-disabled: rgba(10, 10, 15, 0.38);
+
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-text: #ffffff;
+  --accent-subtle: rgba(37, 99, 235, 0.12);
+  --focus-ring: rgba(37, 99, 235, 0.4);
+
+  --success: #1a7f37;
+  --success-subtle: rgba(26, 127, 55, 0.12);
+  --warning: #9a6700;
+  --warning-subtle: rgba(154, 103, 0, 0.12);
+  --danger: #cf222e;
+  --danger-subtle: rgba(207, 34, 46, 0.12);
+
+  --playhead: #2563eb;
+  --clip-video: rgba(35, 131, 226, 0.16);
+  --clip-video-border: rgba(35, 131, 226, 0.55);
+  --clip-image: rgba(45, 196, 196, 0.18);
+  --clip-image-border: rgba(45, 196, 196, 0.55);
+  --clip-audio: rgba(210, 238, 221, 0.9);
+  --clip-audio-border: rgba(43, 138, 74, 0.7);
+  --clip-audio-wave: rgba(31, 122, 68, 0.85);
+  --clip-text: rgba(217, 162, 59, 0.18);
+  --clip-text-border: rgba(217, 162, 59, 0.6);
+  --clip-ai: rgba(160, 120, 235, 0.18);
+  --clip-ai-border: rgba(160, 120, 235, 0.6);
+  --clip-indicator-ink: rgba(0, 0, 0, 0.72);
+  --clip-indicator-chip: rgba(255, 255, 255, 0.55);
+  --clip-keyframe: #b8791a;
+  --kf-diamond: var(--text-tertiary);
+  --kf-diamond-active: var(--clip-keyframe);
+  --kf-lane-bg: rgba(0, 0, 0, 0.04);
+  --kf-curve: var(--clip-keyframe);
+  --transition-fill: rgba(0, 0, 0, 0.16);
+  --transition-border: rgba(0, 0, 0, 0.36);
+  --track-lane: rgba(0, 0, 0, 0.025);
+  --ruler-tick: rgba(0, 0, 0, 0.25);
+
+  --bg-raised: #eef0f2;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 12px 32px rgba(0, 0, 0, 0.16);
+}

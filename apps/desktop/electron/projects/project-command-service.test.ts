@@ -1,0 +1,250 @@
+import { describe, expect, it, vi } from 'vitest';
+import { parseProject, type Project } from '@framepilot/timeline-schema';
+import type { Patch } from '@framepilot/editor-core';
+import { ProjectCommandService, type ProjectRevisionIO } from './project-command-service.js';
+
+const project = (assets: Project['assets']): Project =>
+  parseProject({
+    id: 'project_1',
+    name: 'Test project',
+    version: 1,
+    fps: 30,
+    resolution: { width: 1920, height: 1080 },
+    assets,
+    timeline: { tracks: [] },
+    transcript: [],
+    aiMemory: {},
+    history: [],
+  });
+
+const asset = { id: 'asset_1', path: 'media/just-imported.mp4', kind: 'video' as const, durationSeconds: 12 };
+
+function revisionIO(): ProjectRevisionIO & { write: ReturnType<typeof vi.fn> } {
+  return {
+    read: async () => null,
+    write: vi.fn(async () => {}),
+  };
+}
+
+describe('ProjectCommandService.refresh', () => {
+  it('updates the live document without serializing or advancing the persisted revision', () => {
+    const serialize = vi.fn(JSON.stringify);
+    const service = new ProjectCommandService(serialize);
+    const initial = project([]);
+    const revision = service.observe(initial).revision;
+    const callsAfterObserve = serialize.mock.calls.length;
+    const imported = project([asset]);
+
+    expect(service.refresh(imported, revision)).toBe(true);
+    expect(serialize).toHaveBeenCalledTimes(callsAfterObserve);
+    expect(service.revision(imported.id)).toBe(revision);
+    expect(service.project(imported.id)?.assets).toEqual(imported.assets);
+  });
+
+  it('refuses a stale renderer snapshot', () => {
+    const service = new ProjectCommandService(JSON.stringify);
+    const initial = project([]);
+    const revision = service.observe(initial).revision;
+    expect(service.refresh(project([]), revision + 1)).toBe(false);
+    expect(service.project(initial.id)).toBe(initial);
+  });
+});
+
+describe('ProjectCommandService persisted revision work', () => {
+  it('serializes once on observe and reuses the cached fingerprint for checkpoints', async () => {
+    const serialize = vi.fn(JSON.stringify);
+    const io = revisionIO();
+    const service = new ProjectCommandService(serialize, io);
+    service.observe(project([]));
+    expect(serialize).toHaveBeenCalledTimes(1);
+
+    await service.checkpoint();
+    await service.checkpoint();
+    expect(serialize).toHaveBeenCalledTimes(1);
+  });
+
+  it('per successful write serializes once and checkpoints once without an async duplicate', async () => {
+    const serialize = vi.fn(JSON.stringify);
+    const io = revisionIO();
+    const service = new ProjectCommandService(serialize, io);
+    const initial = project([]);
+    const revision = service.observe(initial).revision;
+    await service.checkpoint();
+    io.write.mockClear();
+    serialize.mockClear();
+
+    const changed = project([asset]);
+    const result = await service.write(changed, revision, async () => {});
+    expect(result).toEqual({ ok: true, revision: revision + 1 });
+    expect(serialize).toHaveBeenCalledTimes(1);
+    expect(io.write).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not advance the revision when identical persisted content is written again', async () => {
+    const service = new ProjectCommandService(JSON.stringify);
+    const initial = project([]);
+    const revision = service.observe(initial).revision;
+    await expect(service.write(initial, revision, async () => {})).resolves.toEqual({
+      ok: true,
+      revision,
+    });
+  });
+});
+
+describe('ProjectCommandService.commitPatch', () => {
+  it('drops an oversized legacy undo payload before an agent commit', async () => {
+    const service = new ProjectCommandService(JSON.stringify);
+    const initial = project([]);
+    const oversized: Project = {
+      ...initial,
+      history: [
+        {
+          patch: {
+            patchId: 'legacy_large',
+            createdBy: 'user',
+            reason: 'x'.repeat(5 * 1024 * 1024),
+            operations: [],
+          },
+          inverse: {
+            patchId: 'legacy_large_inverse',
+            createdBy: 'user',
+            reason: 'legacy inverse',
+            operations: [],
+          },
+        },
+      ],
+    };
+    const revision = service.observe(oversized).revision;
+    const patch: Patch = {
+      patchId: 'agent_marker',
+      createdBy: 'agent',
+      reason: 'Add marker',
+      operations: [{ type: 'add_marker', id: 'marker_1', time: 1 }],
+    };
+
+    const result = await service.commitPatch(initial.id, revision, patch, async () => {});
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.project.history).toHaveLength(1);
+      expect(result.project.history[0]?.patch.patchId).toBe('agent_marker');
+    }
+  });
+
+  it('serializes the committed project once for revision bookkeeping', async () => {
+    const serialize = vi.fn(JSON.stringify);
+    const service = new ProjectCommandService(serialize);
+    const initial = project([]);
+    const revision = service.observe(initial).revision;
+    serialize.mockClear();
+    const patch: Patch = {
+      patchId: 'agent_marker',
+      createdBy: 'agent',
+      reason: 'Add marker',
+      operations: [{ type: 'add_marker', id: 'marker_1', time: 1 }],
+    };
+    await service.commitPatch(initial.id, revision, patch, async () => {});
+    expect(serialize).toHaveBeenCalledTimes(1);
+  });
+
+  it('replays an identical accepted patch without writing or advancing the revision', async () => {
+    const service = new ProjectCommandService(JSON.stringify);
+    const initial = project([]);
+    const revision = service.observe(initial).revision;
+    const write = vi.fn(async () => undefined);
+    const patch: Patch = {
+      patchId: 'agent_marker',
+      createdBy: 'agent',
+      reason: 'Add marker',
+      operations: [{ type: 'add_marker', id: 'marker_1', time: 1 }],
+    };
+
+    const first = await service.commitPatch(initial.id, revision, patch, write, 'run_1');
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const replay = await service.commitPatch(initial.id, revision, patch, write, 'run_1');
+
+    expect(replay).toMatchObject({
+      ok: true,
+      revision: first.revision,
+      replayed: true,
+      rebased: false,
+    });
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(service.project(initial.id)?.history).toHaveLength(1);
+  });
+
+  it('retains replay identity for every member of a collapsed run after reload', async () => {
+    const service = new ProjectCommandService(JSON.stringify);
+    const initial = project([]);
+    const revision = service.observe(initial).revision;
+    const first: Patch = {
+      patchId: 'agent_marker_1',
+      createdBy: 'agent',
+      reason: 'Add first marker',
+      operations: [{ type: 'add_marker', id: 'marker_1', time: 1 }],
+    };
+    const second: Patch = {
+      patchId: 'agent_marker_2',
+      createdBy: 'agent',
+      reason: 'Add second marker',
+      operations: [{ type: 'add_marker', id: 'marker_2', time: 2 }],
+    };
+    const firstResult = await service.commitPatch(
+      initial.id,
+      revision,
+      first,
+      async () => undefined,
+      'run_1',
+    );
+    expect(firstResult.ok).toBe(true);
+    if (!firstResult.ok) return;
+    const secondResult = await service.commitPatch(
+      initial.id,
+      firstResult.revision,
+      second,
+      async () => undefined,
+      'run_1',
+    );
+    expect(secondResult.ok).toBe(true);
+    if (!secondResult.ok) return;
+
+    const persisted = service.project(initial.id);
+    expect(persisted).toBeDefined();
+    if (persisted === undefined) return;
+    const reloaded = new ProjectCommandService(JSON.stringify);
+    reloaded.observe(persisted);
+    const write = vi.fn(async () => undefined);
+    const replay = await reloaded.commitPatch(
+      initial.id,
+      revision,
+      second,
+      write,
+      'run_1',
+    );
+    expect(replay).toMatchObject({ ok: true, replayed: true, revision: 1 });
+    expect(write).not.toHaveBeenCalled();
+    expect(reloaded.project(initial.id)?.history).toHaveLength(1);
+  });
+
+  it('rejects patch-id reuse with different content', async () => {
+    const service = new ProjectCommandService(JSON.stringify);
+    const initial = project([]);
+    const revision = service.observe(initial).revision;
+    const original: Patch = {
+      patchId: 'agent_marker',
+      createdBy: 'agent',
+      reason: 'Add marker',
+      operations: [{ type: 'add_marker', id: 'marker_1', time: 1 }],
+    };
+    await service.commitPatch(initial.id, revision, original, async () => undefined, 'run_1');
+
+    const collision = await service.commitPatch(
+      initial.id,
+      revision,
+      { ...original, operations: [{ type: 'add_marker', id: 'marker_2', time: 2 }] },
+      async () => undefined,
+      'run_1',
+    );
+    expect(collision).toMatchObject({ ok: false, code: 'invalid_patch' });
+  });
+});
