@@ -11,7 +11,7 @@ import type { AgentOutcomeEvalScenario, AgentOutcomeEvalTier } from './professio
 
 export type AgentRunRouteMode =
   | 'agent'
-  | 'planned_edit'
+  | 'planned-edit'
   | 'direct_edit'
   | 'browser_edit'
   | 'auto'
@@ -164,6 +164,9 @@ export function captureAgentRunQuality(input: CaptureAgentRunQualityInput): Agen
   );
   const operations = input.operations ?? {};
   const humanEditorialScore = input.humanEditorialScore;
+  const measuredWallClockMs = wallClockMs(input.events);
+  const measuredAnalysisReviewMs =
+    input.analysisReviewMs ?? eventVisibleAnalysisReviewMs(input.events);
   if (
     humanEditorialScore !== undefined &&
     (!Number.isFinite(humanEditorialScore) || humanEditorialScore < 0 || humanEditorialScore > 1)
@@ -181,9 +184,9 @@ export function captureAgentRunQuality(input: CaptureAgentRunQualityInput): Agen
     duplicateRedundantCallCount: nonNegative(input.duplicateRedundantCallCount),
     cacheMemoHitCount: providerCacheHits + nonNegative(input.memoHitCount),
     tokens: { input: inputTokens, output: outputTokens },
-    ...(wallClockMs(input.events) !== undefined ? { wallClockMs: wallClockMs(input.events) } : {}),
-    ...((input.analysisReviewMs ?? eventVisibleAnalysisReviewMs(input.events)) !== undefined
-      ? { analysisReviewMs: input.analysisReviewMs ?? eventVisibleAnalysisReviewMs(input.events) }
+    ...(measuredWallClockMs !== undefined ? { wallClockMs: measuredWallClockMs } : {}),
+    ...(measuredAnalysisReviewMs !== undefined
+      ? { analysisReviewMs: measuredAnalysisReviewMs }
       : {}),
     operations: {
       attempted: nonNegative(operations.attempted),
