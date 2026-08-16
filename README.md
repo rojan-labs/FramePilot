@@ -7,7 +7,8 @@
 **Chat with your timeline. Review concrete edits. Let agents work through your footage.
 Export through a deterministic, validated render pipeline.**
 
-[![CI](https://github.com/rjach/FramePilot/actions/workflows/ci.yml/badge.svg)](./.github/workflows/ci.yml)
+[![CI](https://github.com/rojan-labs/FramePilot/actions/workflows/ci.yml/badge.svg)](./.github/workflows/ci.yml)
+[![CodeQL](https://github.com/rojan-labs/FramePilot/actions/workflows/codeql.yml/badge.svg)](./.github/workflows/codeql.yml)
 [![License: Non-Commercial](https://img.shields.io/badge/license-non--commercial-blue.svg)](./LICENSE)
 [![Status: Pre-release](https://img.shields.io/badge/status-pre--release-e5670a.svg)](./docs/reports/STATUS.md)
 
@@ -156,7 +157,7 @@ plan/PLAN.md        Living implementation plan and detailed completion record
 ### Install
 
 ```bash
-git clone <repository-url> framepilot
+git clone https://github.com/rojan-labs/FramePilot.git framepilot
 cd framepilot
 
 corepack enable
@@ -242,6 +243,13 @@ Start with [`docs/README.md`](./docs/README.md), which maps each document to its
 - Architecture decisions: [`docs/adr/`](./docs/adr)
 - Operations and releases: [`docs/runbooks/`](./docs/runbooks)
 - Contribution workflow: [`CONTRIBUTING.md`](./CONTRIBUTING.md)
+- Security policy: [`SECURITY.md`](./SECURITY.md)
+
+## Contributing and security
+
+Issues, product feedback, and pull requests are welcome under the repository's source-available non-commercial license. Read [`CONTRIBUTING.md`](./CONTRIBUTING.md) and the [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) before contributing.
+
+Report suspected vulnerabilities privately through GitHub's security advisory flow when available, or use the fallback contact in [`SECURITY.md`](./SECURITY.md). Do not disclose an unpatched vulnerability in a public issue.
 
 ## Working with coding agents
 
@@ -262,9 +270,9 @@ when deciding what is shipped.
 
 FramePilot is **source-available, non-commercial software**. You may view, clone, run,
 modify, and contribute to this repository for personal, educational, or other
-non-commercial purposes at no charge. Commercial use of any kind — including internal
+non-commercial purposes at no charge. Commercial use of any kind, including internal
 business use, resale, hosting as a service, or incorporation into another commercial
-product — requires a separate written license from the copyright holder. See
+product, requires a separate written license from the copyright holder. See
 [LICENSE](./LICENSE) for the complete terms.
 
 Third-party dependencies, models, fonts, media, and other materials remain subject to their
