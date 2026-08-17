@@ -49,27 +49,24 @@ test.describe('AI sidebar: edit → review → apply → undo', () => {
     );
   });
 
-  test('shows the active context window immediately before Send with hover details', async ({
+  test('shows context usage as circular progress in the AI header with hover details', async ({
     page,
   }) => {
     await openEditor(page);
     await rightTab(page, 'AI');
 
-    const context = page.getByRole('button', { name: /^Context:/ });
-    const send = page.getByLabel('Send');
+    const header = page.locator('.ai-sidebar-header-right');
+    const context = header.getByRole('button', { name: /^Context:/ });
     await expect(context).toBeVisible();
-    await expect(context).toHaveAttribute('aria-label', /No request accounted for yet/);
-    const immediatelyBeforeSend = await context.evaluate(
-      (element) =>
-        element.closest('.ai-context')?.nextElementSibling?.getAttribute('aria-label') === 'Send',
-    );
-    expect(immediatelyBeforeSend).toBe(true);
+    await expect(context).toHaveAttribute('aria-label', /No request accounted for yet.*0% used/);
+    await expect(context.locator('.ai-context-ring')).toBeVisible();
+    await expect(page.locator('.ai-composer .ai-context-trigger')).toHaveCount(0);
 
     await context.hover();
     await expect(page.getByRole('tooltip')).toContainText('No request accounted for yet');
 
     await page.getByLabel('Message FramePilot').fill('how long is this video?');
-    await send.click();
+    await page.getByLabel('Send').click();
     await expect(context).not.toHaveAttribute('aria-label', /No request accounted for yet/);
   });
 

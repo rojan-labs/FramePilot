@@ -4390,7 +4390,7 @@ input[type='checkbox']:focus-visible {
 .track-controls {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   margin-left: auto; /* cluster flags to the right edge, away from the glyph */
   opacity: 0.55;
   transition: opacity var(--dur-fast) var(--ease);
@@ -8967,61 +8967,9 @@ details.inspector-panel[open] > .inspector-section-head::before {
   gap: var(--space-2);
   font-size: var(--font-size-xs);
   color: var(--text-muted);
-  cursor: pointer;
 }
 .ai-agent-option-hint {
   color: var(--text-tertiary);
-}
-
-/* Animated switch for "Plan first" (replaces the bare native checkbox): a real
-   checkbox drives state/a11y, visually hidden beneath a styled track + thumb
-   that slide/spring on toggle. */
-.ai-toggle {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-}
-.ai-toggle-input {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-.ai-toggle-track {
-  display: inline-flex;
-  align-items: center;
-  width: 28px;
-  height: 16px;
-  padding: 2px;
-  border-radius: 999px;
-  background: var(--bg-active);
-  transition: background var(--dur) var(--ease);
-}
-.ai-toggle-thumb {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--text-tertiary);
-  transform: translateX(0);
-  transition:
-    transform var(--dur-med, 180ms) cubic-bezier(0.34, 1.56, 0.64, 1),
-    background var(--dur) var(--ease);
-}
-.ai-toggle-input:checked ~ .ai-toggle-track {
-  background: var(--accent);
-}
-.ai-toggle-input:checked ~ .ai-toggle-track .ai-toggle-thumb {
-  transform: translateX(12px);
-  background: var(--accent-text, #fff);
-}
-.ai-toggle-input:focus-visible ~ .ai-toggle-track {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.ai-toggle-input:active ~ .ai-toggle-track .ai-toggle-thumb {
-  width: 14px;
 }
 
 /* Composer — the row holding the textarea + send/stop inside the shell well. */

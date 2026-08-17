@@ -178,8 +178,8 @@ body {
  *
  * The gutter MUST be at least as wide as the row it holds, and the row is sized by
  * the hit targets below, not by the 14/16px in `styles.css`:
- *   6 (padding) + 24 (collapse) + 4 + 18 (glyph) + 4 + [4 × 24 + 3 × 4] (controls)
- *   + 6 (padding) = 170px.
+ *   6 (padding) + 24 (collapse) + 4 + 18 (glyph) + 4 + [4 × 24 + 3 × 2] (controls,
+ *   `.track-controls` gap tightened to 2px) + 6 (padding) = 164px.
  * At 152px every header overflowed by 12px and the last control — the lock — was drawn
  * past the column edge, underneath the lanes column that paints over it, so the header
  * ended in a clipped, broken-looking edge with the lock half-swallowed by the first clip.

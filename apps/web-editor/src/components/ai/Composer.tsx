@@ -9,7 +9,7 @@
  * intentionally absent (Approval A5). Pure presentational state lives here; the
  * parent owns the conversation + run.
  */
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { RunStatus } from '@framepilot/ai-sdk';
 import type { Attachment, ContextItem } from '../../ai/conversation.js';
 import {
@@ -33,13 +33,43 @@ import { runStatusLabel } from './statusTone.js';
 /** Max composer height (px) before it scrolls internally — keep in sync with CSS. */
 const MAX_COMPOSER_HEIGHT = 200;
 
+/** BeautifulUI's Drive loader timing, adapted to a real FramePilot run indicator. */
+const ACTIVITY_PIXEL_DELAYS = Array.from({ length: 9 }, (_, index) => {
+  const row = Math.floor(index / 3);
+  const column = index % 3;
+  return (column + Math.abs(row - 1)) * 90;
+});
+
+/**
+ * Live run duration beside the activity label. The timer is presentation-only: the
+ * durable run/event timestamps remain authoritative everywhere else in the app.
+ */
+function useElapsedRunTime(active: boolean): string {
+  const [deciseconds, setDeciseconds] = useState(0);
+
+  useEffect(() => {
+    if (!active) {
+      setDeciseconds(0);
+      return;
+    }
+
+    setDeciseconds(0);
+    const timer = window.setInterval(() => setDeciseconds((value) => value + 1), 100);
+    return () => window.clearInterval(timer);
+  }, [active]);
+
+  const seconds = deciseconds / 10;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  return `${Math.floor(seconds / 60)}m ${(seconds % 60).toFixed(1)}s`;
+}
+
 export interface ComposerProps {
   readonly value: string;
   readonly onChange: (value: string) => void;
   readonly onSubmit: () => void;
   readonly onStop: () => void;
   readonly running: boolean;
-  /** Current durable run phase, rendered beside the message box rather than in the header. */
+  /** Current durable run phase, rendered as compact activity above the writing row. */
   readonly runStatus?: RunStatus;
   /** Most recent model call's prompt occupancy (per call, not cumulative cost). */
   readonly contextWindow: ContextWindowState;
@@ -75,6 +105,7 @@ export function Composer(props: ComposerProps): JSX.Element {
     [value, props.atEntities],
   );
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const elapsed = useElapsedRunTime(running);
 
   // Auto-grow the textarea to fit its content (#6) so a multi-line message expands
   // the box instead of clipping/scrolling — capped at MAX_COMPOSER_HEIGHT, after which
@@ -129,17 +160,24 @@ export function Composer(props: ComposerProps): JSX.Element {
   return (
     <div className="ai-composer-shell">
       {running && props.runStatus ? (
-        // ONE moving thing, not three. The row used to carry a pulsing orb, a static
-        // label and a bouncing ellipsis — three separate animations all saying the same
-        // "still working", with the ellipsis duplicating the "…" already in the label.
-        // It is now the FramePilot mark breathing beside a shimmering label: the product's
-        // own face is what tells you it is thinking.
-        <div className="ai-composer-activity" role="status" aria-live="polite">
-          <span className="ai-activity-mark" aria-hidden="true">
-            <img src="/logo.png" alt="" width={16} height={16} />
+        // The supplied BeautifulUI loading primitive is intentionally adapted rather
+        // than copied as demo state: a compact 3×3 drive wave + shimmer + elapsed time
+        // describes the current REAL run phase without adding another spinner source.
+        <div className="ai-composer-activity">
+          <span className="ai-pixel-loader" aria-hidden="true">
+            {ACTIVITY_PIXEL_DELAYS.map((delay, index) => (
+              <span
+                key={index}
+                className="ai-loader-pixel"
+                style={{ animationDelay: `${delay}ms` }}
+              />
+            ))}
           </span>
-          <span className="ai-activity-label ai-shimmer-text">
+          <span className="ai-activity-label ai-shimmer-text" role="status" aria-live="polite">
             {runStatusLabel(props.runStatus)}
+          </span>
+          <span className="ai-activity-elapsed tabular" aria-hidden="true">
+            {elapsed}
           </span>
         </div>
       ) : null}
@@ -274,15 +312,18 @@ export function Composer(props: ComposerProps): JSX.Element {
           onKeyDown={onKeyDown}
           onPaste={onPaste}
         />
+        {/* Context belongs to workspace chrome, not inside the message row. This component
+            keeps owning the value but portals its circular progress control into the AI header. */}
         <ContextWindowIndicator
           value={props.contextWindow}
           phase={props.contextPhase}
+          placement="header"
           {...(props.contextDebug ? { debug: props.contextDebug } : {})}
         />
         {running ? (
           // Visually STABLE stop control (H2): no pulsing/blinking — a static ring
           // with distinct hover/pressed states; activity is signalled elsewhere
-          // (header spinner + streaming text), never by animating the kill switch.
+          // (activity row + streaming text), never by animating the kill switch.
           <button
             type="button"
             className="ai-composer-stop"
