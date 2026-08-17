@@ -11,11 +11,12 @@
 | Canonical agent-outcome scenarios | 50 registered, 10 in each A-E tier | The benchmark surface is fixed before convergence work. |
 | Existing professional capability rows | 33 registered professional eval rows | Capability correctness continues to use the existing release gate rather than a second framework. |
 | Foundation deterministic linkage | Tier-A representative rows link to the existing ripple-trim, roll, slip, slide, insert, overwrite, lift and replace professional fixtures | These execute through resolve/compile/validate/apply/invert/persist/cross-host checks. |
-| Shipping agent-path representatives | Mutating agent turn and cancel-during-analysis scenarios | The Foundation telemetry is exercised on `Orchestrator.streamAgent`, not only synthetic metric objects. |
+| Shipping agent-path representatives | Mutating agent turn and cancel-during-analysis scenarios | The Foundation telemetry is exercised on `Orchestrator.streamAgent`, not only synthetic metric objects. A `diff` emitted by the agent is treated as a proposal/attempt, not host-commit evidence. |
+| Foundation contract eval | `pnpm eval:agent:foundation` | Runs the canonical manifest/drift checks, linked professional-eval executions, run-quality invariants and provider-capability transparency tests without creating another eval framework. |
 | Run-quality metric surface | Complete roadmap §5.3 metric contract represented in one serializable record | Route, model/provider, model calls, exposed tool schemas, tool/invalid/duplicate/cache counts, tokens, timing, operation counts, revisions, findings, repairs, cancellation, outcome, deterministic validation, render evidence and optional human score are preserved per measured run. |
 | Outcome grading | Scenario inspection/review requirements, revision budget, terminal outcome, deterministic validation and render failure are enforced before a run can pass | Predicate-only success cannot hide missing execution evidence or excessive rewrites. |
 | Cancellation integrity | Explicit observed evidence only | A cancelled run is not called clean merely because it happened to have zero rejected operations. |
-| Mutating route ownership | 6 route groups documented | Direct patch, primary agent, planned edit, desktop host settlement, browser/manual mutation and undo/redo have explicit semantics. |
+| Mutating route ownership | 6 route groups documented | Direct patch, primary agent, planned edit, host settlement, browser/manual mutation and undo/redo have explicit semantics. |
 | Review writer count | 0 | Review remains a finding source. It has no direct project mutation authority. |
 | Canonical project mutation authority | 1 (`@framepilot/editor-core` patch/project-patch boundary) | Agent/runtime convergence must not replace this authority. |
 | Final-render authority | 1 (Python/FFmpeg) | Foundation does not change rendering architecture. |
@@ -24,6 +25,7 @@
 
 The Foundation record is deliberately strict about the difference between **zero** and **unknown**:
 
+- an agent `diff` proves a proposed edit, not that the host applied it; applied operation counts, revision changes and deterministic-validation results require host-side evidence;
 - required inspection or review that was not observed makes the scenario fail;
 - missing project revision range makes the scenario fail instead of assuming zero revisions;
 - a revision delta above `maxToleratedRevisionCount` makes the scenario fail;
@@ -73,6 +75,7 @@ observed cancellation-integrity result cannot silently become a zero or a pass.
 - [x] Canonical approximately-50 scenario set exists. Exact count: 50.
 - [x] Representative deterministic scenarios reuse the professional eval runner.
 - [x] Representative mutating and cancellation scenarios exercise the shipping agent runtime.
+- [x] `pnpm eval:agent:foundation` provides one deterministic command for the Foundation contract suite.
 - [x] Per-run quality metrics are serializable in eval output records.
 - [x] Scenario execution requirements are fail-closed in the grader.
 - [x] Mutating-route census documents validation, revision, persistence, cancellation, review and undo.
