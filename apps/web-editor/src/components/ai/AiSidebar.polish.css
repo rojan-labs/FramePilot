@@ -1,9 +1,8 @@
 /*
  * Final visual correction layer for the BeautifulUI AI workspace.
  *
- * Keep this deliberately narrow: popup surfaces and thread geometry only. The main
- * BeautifulUI stylesheet owns the broader presentation. These rules fix regressions
- * found against the rendered FramePilot sidebar after the first pass.
+ * Keep this deliberately narrow: popup surfaces, thread geometry, and the small
+ * product-level spacing corrections that need to win over the legacy editor CSS.
  */
 
 .ai-sidebar {
@@ -343,6 +342,246 @@
   font-size: 12px;
 }
 
+/* ── Product pass: context belongs in header ───────────────────────────── */
+
+.ai-sidebar-header-right {
+  gap: 3px;
+}
+
+.ai-sidebar .ai-context[data-placement='header'] {
+  position: relative;
+  order: -1;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+
+.ai-sidebar .ai-context-trigger {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  box-shadow: none;
+  cursor: default;
+  transition:
+    background 110ms ease,
+    transform 110ms ease,
+    opacity 110ms ease;
+}
+
+.ai-sidebar .ai-context-trigger:hover,
+.ai-sidebar .ai-context-trigger:focus-visible,
+.ai-sidebar .ai-context[data-placement='header']:has(.ai-context-panel) .ai-context-trigger {
+  background: var(--bg-hover);
+}
+
+.ai-sidebar .ai-context-trigger:active {
+  transform: scale(0.94);
+}
+
+.ai-sidebar .ai-context-ring {
+  width: 20px;
+  height: 20px;
+  display: block;
+  overflow: visible;
+  transform: rotate(-90deg);
+}
+
+.ai-sidebar .ai-context-ring-track,
+.ai-sidebar .ai-context-ring-value {
+  fill: none;
+  stroke-width: 2.25;
+}
+
+.ai-sidebar .ai-context-ring-track {
+  stroke: var(--border-strong);
+}
+
+.ai-sidebar .ai-context-ring-value {
+  stroke: currentColor;
+  stroke-linecap: round;
+  transition: stroke-dasharray 240ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.ai-sidebar .ai-context-trigger[data-empty='true'] {
+  color: var(--text-tertiary);
+  opacity: 0.72;
+}
+
+.ai-sidebar .ai-context-trigger[data-phase='assembling'] .ai-context-ring-value,
+.ai-sidebar .ai-context-trigger[data-phase='generating'] .ai-context-ring-value {
+  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--accent) 45%, transparent));
+}
+
+.ai-sidebar .ai-context-panel {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  z-index: 90;
+  width: min(286px, calc(100vw - 24px));
+  padding: 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.34),
+    0 4px 14px rgba(0, 0, 0, 0.22);
+  transform-origin: top right;
+  animation: ai-polish-popover-in 130ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.ai-sidebar .ai-context-panel-head {
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 5px;
+}
+
+.ai-sidebar .ai-context-panel-title {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ai-sidebar .ai-context-percent {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.ai-sidebar .ai-context-figure,
+.ai-sidebar .ai-context-line,
+.ai-sidebar .ai-context-explain {
+  margin: 0;
+}
+
+.ai-sidebar .ai-context-figure {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.ai-sidebar .ai-context-line {
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.ai-sidebar .ai-context-explain {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+/* ── Product pass: one composer surface, no inner field box ────────────── */
+
+.ai-composer-shell {
+  gap: 5px;
+  padding: 6px;
+}
+
+.ai-composer {
+  grid-template-columns: 28px minmax(0, 1fr) 28px !important;
+  gap: 4px !important;
+  align-items: end;
+}
+
+.ai-composer-input,
+.ai-composer textarea.ai-composer-input {
+  min-height: 28px !important;
+  width: 100%;
+  margin: 0 !important;
+  padding: 5px 3px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.ai-composer-input:focus,
+.ai-composer-input:focus-visible {
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+/* The outer composer is the only field boundary. Its focus treatment should be subtle,
+   not a second orange rectangle nested around the text itself. */
+.ai-composer-shell:focus-within {
+  border-color: var(--border-strong);
+  box-shadow:
+    0 0 0 1px var(--border-strong),
+    0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+/* ── Product pass: remove dead bands from Edited receipts ──────────────── */
+
+.ai-event--diff {
+  min-height: 0 !important;
+}
+
+.ai-event--diff .ai-diff-head {
+  height: 38px !important;
+  min-height: 38px !important;
+  margin: 0 !important;
+  padding: 0 10px !important;
+}
+
+/* A collapsed accordion contributes exactly zero layout. The legacy editor CSS gave the
+   disclosure a minimum block-size, which created the blank strip visible between the
+   Edited header and its inspection footer. */
+.ai-event--diff .ai-accordion[data-open='false'] {
+  display: none !important;
+  min-height: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
+
+.ai-event--diff .ai-accordion[data-open='true'] {
+  min-height: 0 !important;
+  height: auto !important;
+  margin: 0 !important;
+}
+
+.ai-event--diff .ai-accordion-inner {
+  min-height: 0 !important;
+  margin: 0 !important;
+}
+
+.ai-event--diff .ai-diff-buttons {
+  min-height: 32px !important;
+  margin: 0 !important;
+  padding: 3px 6px !important;
+}
+
+.ai-event--diff .ai-diff-inspect {
+  min-height: 26px;
+  gap: 0;
+}
+
+.ai-event--diff .ai-btn.ai-btn--quiet {
+  min-height: 26px;
+  height: 26px;
+  padding: 0 7px;
+}
+
 /* ── Motion + narrow rail ──────────────────────────────────────────────── */
 
 @keyframes ai-polish-popover-in {
@@ -378,6 +617,10 @@
     max-width: min(260px, calc(100vw - 16px));
   }
 
+  .ai-sidebar .ai-context-panel {
+    width: min(270px, calc(100vw - 16px));
+  }
+
   .overlay-backdrop:has(.ai-tool-modal) {
     padding: 12px;
   }
@@ -390,6 +633,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .ai-sidebar .menu-popover,
+  .ai-sidebar .ai-context-panel,
   .ai-tool-modal {
     animation: none;
   }
