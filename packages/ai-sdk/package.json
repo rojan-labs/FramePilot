@@ -20,6 +20,7 @@
     "generate:autonomous-tools": "node scripts/generate-autonomous-tools.mjs",
     "generate:tool-parity": "node scripts/generate-tool-parity-fixture.mjs",
     "build": "node scripts/generate-skills.mjs && node scripts/generate-model-capabilities.mjs && tsc -b && node scripts/generate-tool-parity-fixture.mjs && node scripts/generate-autonomous-tools.mjs",
+    "eval:foundation:real": "node scripts/run-foundation-real-eval.mjs",
     "dev": "tsc -b --watch",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

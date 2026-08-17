@@ -89,3 +89,38 @@ observed cancellation-integrity result cannot silently become a zero or a pass.
 The measuring infrastructure is ready for Runtime-convergence comparisons, but no route-retirement
 or architecture-deletion decision should treat the Phase 0 evidence exit gate as complete until
 those two items are satisfied.
+
+## Real-provider capture path (Google Gemini)
+
+**Status: infrastructure only. Not yet executed against a real API key.** This closes the
+*measuring capability* for the two rows above; it does not close the rows themselves.
+
+- `pnpm eval:agent:foundation:real` (`packages/ai-sdk/src/eval/foundation-real-eval.ts`) drives
+  every Tier B, C and D scenario in `AGENT_OUTCOME_EVAL_SCENARIOS` through the real
+  `Orchestrator.streamAgent` path against a real `ConcreteLangChainGoogleProvider` (Google
+  Gemini, `GOOGLE_API_KEY`/`GOOGLE_MODEL`/`GOOGLE_BASE_URL`), wrapped in the existing
+  `BaselineCaptureProvider` measuring rig. It reuses `captureAgentRunQuality` and
+  `buildAgentOutcomeEvalRunRecord` unchanged — no second grading path.
+- `.github/workflows/foundation-real-eval.yml` runs it as a **manual `workflow_dispatch` job
+  only**, reading `GOOGLE_API_KEY` from a repository secret. It does not run on every push or
+  pull request — these are real, billed provider calls. Output is uploaded as a build artifact
+  and the top-line summary is written to the job's `$GITHUB_STEP_SUMMARY`; the workflow does
+  **not** auto-commit results back to the branch, by design (a maintainer reviews and commits
+  a specific capture as evidence if they choose to).
+- **Scope, narrowed deliberately:** Tier B, C, D scenarios only. Tier A already runs against
+  real professional fixtures in the offline suite. Tier E (adversarial/recovery, including the
+  1000+ clip large-session scenario), the 1000+ clip performance gate, "full-media" render
+  evidence, and human/editorial scoring all remain **explicitly open and out of scope** for
+  this change.
+- **Tier B-D `status` will legitimately read `failed` for most or all rows, even after a
+  real, successful Gemini call.** `buildAgentOutcomeEvalRunRecord` is fail-closed: it only
+  passes a scenario when its natural-language hard constraints/final-state predicates were
+  mechanically observed as true, and no automated grader for those semantic judgments exists
+  yet. This capture path also never touches a persisted project/revision store, so it never
+  observes a revision range either — every record therefore fails on
+  `"Project revision range was not observed."` in addition to any ungraded predicates. **This
+  is correct fail-closed behavior, not a defect of this change.** The `metrics` on every
+  record (latency, tokens, tool calls, model identity, terminal run outcome) are real captured
+  telemetry regardless of `status`, and that telemetry — not a fabricated pass rate — is what
+  this path exists to produce. Building the semantic predicate grader and wiring host
+  settlement/revision observation into this harness are separate, not-yet-scoped follow-ups.

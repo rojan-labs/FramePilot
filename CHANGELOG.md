@@ -6,6 +6,24 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **A manual, real-provider capture path for the FramePilot 9.5 Foundation benchmark.**
+  `pnpm eval:agent:foundation` proves the Foundation *contract* entirely offline, but two of
+  the roadmap's Phase-0 exit rows — real-provider latency/cache evidence and a real-provider
+  Tier B-D distribution — need a real model call a hermetic CI run cannot honestly fabricate.
+  `pnpm eval:agent:foundation:real` now drives every Tier B/C/D agent-outcome scenario through
+  the real `Orchestrator.streamAgent` path against a real Google Gemini call (via the existing
+  `BaselineCaptureProvider` rig), reusing the same fail-closed grader as the offline suite. It
+  runs only as a manual `.github/workflows/foundation-real-eval.yml` (`workflow_dispatch`) job
+  gated on a `GOOGLE_API_KEY` repository secret — not on every push/PR, since these are real,
+  billed calls. This closes the *measuring infrastructure* for those two exit rows, not the
+  rows themselves: the semantic Tier B-D predicates (e.g. "long awkward pauses are shortened")
+  have no automated grader yet, so most/all captured runs correctly report `status: 'failed'`
+  even when the real provider call succeeded — see
+  `docs/quality/FRAMEPILOT-95-FOUNDATION-BASELINE.md` for why that is honest, not a defect.
+  (`packages/ai-sdk`, `.github/workflows`)
+
 ### Changed
 
 - **Relicensed from fully proprietary to source-available, non-commercial.** The prior
