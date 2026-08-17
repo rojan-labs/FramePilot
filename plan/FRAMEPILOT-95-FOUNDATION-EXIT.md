@@ -12,8 +12,10 @@
 - [x] Every row records task, realistic project/media state, final-state predicates, hard constraints, inspection expectation, review expectation and maximum tolerated revisions.
 - [x] Representative deterministic rows execute through the existing professional eval runner.
 - [x] Representative mutation and cancel-during-analysis rows exercise the current shipping `Orchestrator.streamAgent` path.
+- [x] `pnpm eval:agent:foundation` runs the deterministic Foundation manifest, linked professional-eval, telemetry and provider-capability contract suite.
+- [x] Agent-emitted `diff` events are treated as proposed/attempted work; applied operations, revision advancement and deterministic validation require host-side evidence.
 - [x] Phase-0 run-quality telemetry represents the complete roadmap §5.3 metric contract in serializable eval output records.
-- [x] Outcome grading fails closed on missing required inspection/review evidence, missing revision evidence, excessive revisions, missing terminal outcome, deterministic-validation failure and failed render/media evidence.
+- [x] Outcome grading fails closed on missing required inspection/review evidence, missing revision evidence, excessive revisions, missing terminal outcome, unvalidated claimed application, impossible operation accounting, deterministic-validation failure and failed render/media evidence.
 - [x] Cancellation integrity is scored only from explicit observed evidence.
 - [x] Top-line aggregation exists for tier success, p50/p95 wall time, p50/p95 tool calls, revision rate, cancellation integrity and render validity.
 - [x] Architecture census identifies all current mutation authority groups and documents validation, revision, persistence, cancellation, review and undo semantics.
