@@ -267,6 +267,47 @@ describe('FramePilot 9.5 agent run quality telemetry', () => {
     );
   });
 
+  it('requires validation proof and an authoritative revision change for applied operations', () => {
+    const scenario = AGENT_OUTCOME_EVAL_SCENARIOS[0];
+    const observations = {
+      hardConstraints: scenario.expectedHardConstraints.map((predicate) => ({ predicate, passed: true })),
+      finalStatePredicates: scenario.expectedFinalStatePredicates.map((predicate) => ({ predicate, passed: true })),
+    };
+    const unvalidated = captureAgentRunQuality({
+      routeMode: 'agent',
+      events: [completedStatus()],
+      operations: { attempted: 1, applied: 1, rejected: 0 },
+      projectRevisionBefore: 4,
+      projectRevisionAfter: 5,
+      deterministicValidation: 'not_run',
+    });
+    const unchangedRevision = captureAgentRunQuality({
+      routeMode: 'agent',
+      events: [completedStatus()],
+      operations: { attempted: 1, applied: 1, rejected: 0 },
+      projectRevisionBefore: 4,
+      projectRevisionAfter: 4,
+      deterministicValidation: 'passed',
+    });
+
+    expect(
+      buildAgentOutcomeEvalRunRecord({
+        scenario,
+        ...observations,
+        metrics: unvalidated,
+        inspectionObserved: true,
+      }).failures,
+    ).toContain('Applied operations were not proven to pass deterministic validation.');
+    expect(
+      buildAgentOutcomeEvalRunRecord({
+        scenario,
+        ...observations,
+        metrics: unchangedRevision,
+        inspectionObserved: true,
+      }).failures,
+    ).toContain('Applied operations were reported without an authoritative revision change.');
+  });
+
   it('keeps unavailable render, latency and cancellation-integrity evidence out of denominators', () => {
     const scenario = AGENT_OUTCOME_EVAL_SCENARIOS[0];
     const metrics = captureAgentRunQuality({
@@ -343,7 +384,7 @@ describe('FramePilot 9.5 agent run quality telemetry', () => {
     expect(summarizeAgentOutcomeRuns([recordWithIntegrity]).cancellationIntegrity).toBe(1);
   });
 
-  it('rejects fabricated or invalid metric values instead of coercing them to zero', () => {
+  it('rejects fabricated or internally inconsistent metric values', () => {
     expect(() =>
       captureAgentRunQuality({
         routeMode: 'agent',
@@ -363,6 +404,20 @@ describe('FramePilot 9.5 agent run quality telemetry', () => {
         routeMode: 'agent',
         events: [],
         humanEditorialScore: 1.1,
+      }),
+    ).toThrow(RangeError);
+    expect(() =>
+      captureAgentRunQuality({
+        routeMode: 'agent',
+        events: [],
+        operations: { attempted: 1, applied: 1, rejected: 1 },
+      }),
+    ).toThrow(RangeError);
+    expect(() =>
+      captureAgentRunQuality({
+        routeMode: 'agent',
+        events: [completedStatus()],
+        cancellationLatencyMs: 4,
       }),
     ).toThrow(RangeError);
   });
