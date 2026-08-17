@@ -13,6 +13,19 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-17):** `[~]` FramePilot 9.5 Foundation (`plan/FRAMEPILOT-95-CONVERGENCE-ROADMAP.md`
+Phase 0, tracked in that doc and `docs/quality/FRAMEPILOT-95-FOUNDATION-BASELINE.md` rather than
+here as its own task list) — added the **measuring infrastructure** for the two still-open
+Phase-0 "evidence exit gate" rows that need a real provider: `pnpm eval:agent:foundation:real`
+drives Tier B/C/D agent-outcome scenarios through a real Google Gemini call and the existing
+fail-closed `agent-run-quality.ts` grader, wired as a manual `workflow_dispatch`-only GitHub
+Actions job (`.github/workflows/foundation-real-eval.yml`) so it never runs on a normal push/PR
+and never spends API budget without a maintainer choosing to. **Not yet run against a real key**,
+and the two evidence-exit-gate checkboxes in `FRAMEPILOT-95-FOUNDATION-BASELINE.md` stay
+unchecked — this PR closes the capability to measure, not the measurement itself. Tier A/E, the
+1000+ clip performance gate, full-media render evidence and human/editorial scoring remain
+explicitly out of scope.
+
 **Status snapshot (2026-08-16):** **Recipes are removed end to end** (ADR 0125). The
 deterministic route — seven fixed templates, `compileRecipe`, `recipe-executor`,
 `streamRecipe`, the legacy keyword `router.ts`, saved workflows and the "Save as recipe"

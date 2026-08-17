@@ -36,6 +36,11 @@ reports/e2e/*
 !reports/**/.gitkeep
 !reports/**/README.md
 
+# Foundation real-provider eval captures (docs/quality/foundation-real-eval/README.md):
+# generated per-run evidence, not auto-committed by the capture workflow.
+docs/quality/foundation-real-eval/*.json
+!docs/quality/foundation-real-eval/README.md
+
 # Local media + project data (never commit user media)
 *.mp4
 *.mov
