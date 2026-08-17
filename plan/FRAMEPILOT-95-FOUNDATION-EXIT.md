@@ -2,31 +2,35 @@
 
 **Parent roadmap:** [`FRAMEPILOT-95-CONVERGENCE-ROADMAP.md`](./FRAMEPILOT-95-CONVERGENCE-ROADMAP.md)  
 **Phase:** 0, measurement before architecture  
-**Status:** `[x]` Foundation implementation complete, external real-media sampling remains evidence collection  
+**Status:** `[~]` measurement implementation complete; Phase 0 evidence exit still pending  
 **Date:** 2026-08-17
 
-## Completed in this phase
+## Measurement implementation completed
 
 - [x] Canonical agent-outcome benchmark manifest exists with 50 scenarios.
 - [x] Tiers A, B, C, D and E each contain 10 scenarios.
 - [x] Every row records task, realistic project/media state, final-state predicates, hard constraints, inspection expectation, review expectation and maximum tolerated revisions.
 - [x] Representative deterministic rows execute through the existing professional eval runner.
 - [x] Representative mutation and cancel-during-analysis rows exercise the current shipping `Orchestrator.streamAgent` path.
-- [x] Phase-0 run-quality telemetry records the complete roadmap §5.3 metric surface in serializable eval output records.
+- [x] Phase-0 run-quality telemetry represents the complete roadmap §5.3 metric contract in serializable eval output records.
+- [x] Outcome grading fails closed on missing required inspection/review evidence, missing revision evidence, excessive revisions, missing terminal outcome, deterministic-validation failure and failed render/media evidence.
+- [x] Cancellation integrity is scored only from explicit observed evidence.
 - [x] Top-line aggregation exists for tier success, p50/p95 wall time, p50/p95 tool calls, revision rate, cancellation integrity and render validity.
 - [x] Architecture census identifies all current mutation authority groups and documents validation, revision, persistence, cancellation, review and undo semantics.
 - [x] The census explicitly preserves editor-core as project mutation authority and review as read-only.
 - [x] No `planned_edit` deletion, runtime convergence or later roadmap phase is included.
 
-## Evidence that remains deliberately unclaimed
+## Phase 0 evidence exit still required
 
-These require real provider/media/editor samples and are not fabricated by hermetic tests:
+The roadmap's Phase 0 exit criteria require measured evidence, not only the instrumentation that can
+collect it. These items remain open and must not be converted to inferred or synthetic passes:
 
-- full 50-scenario success distribution on representative source media;
-- real-provider p50/p95 latency and cache behavior;
-- human/editorial acceptance score distribution;
-- render-validity distribution for rows requiring rendered evidence;
-- large-session wall-clock/memory numbers for 1000+ clip/asset projects.
+- [ ] run the representative agent benchmark against real provider/media projects and persist the resulting distribution;
+- [ ] replace the roadmap's working score estimates with measured values wherever the required evidence source exists;
+- [ ] capture real-provider p50/p95 latency and cache behavior;
+- [ ] capture human/editorial acceptance scores for scenarios where subjective quality is unavoidable;
+- [ ] capture render-validity evidence for benchmark rows whose claim depends on rendered media;
+- [ ] capture large-session wall-clock/memory numbers for the 1000+ clip/asset scenario.
 
 The measuring contracts for those values now exist. When sampling is performed, results must be
 stored through the same `AgentOutcomeEvalRunRecord`/top-line summary rather than a second benchmark
@@ -34,12 +38,15 @@ format.
 
 ## Gate for Runtime convergence
 
-Phase 1 may now compare the primary agent and `planned_edit` against one benchmark/census contract.
-It must not treat an unavailable metric as zero or passing, and it must not change the host project
-mutation, revision, persistence, review or undo authorities merely to improve an orchestration
-score.
+The Foundation contracts may be used now to implement and exercise comparison tooling for the
+primary agent and `planned_edit`, but **route retirement, architecture deletion and claims that Phase
+0 has exited remain blocked** until the evidence items above are satisfied.
 
-Any Phase-1 deletion decision should cite:
+Runtime-convergence work must not treat an unavailable metric as zero or passing, and it must not
+change the host project mutation, revision, persistence, review or undo authorities merely to
+improve an orchestration score.
+
+Any later convergence or deletion decision should cite:
 
 1. `packages/ai-sdk/src/professional-agent-evals.ts` for canonical scenario definitions;
 2. `packages/ai-sdk/src/agent-run-quality.ts` for per-run and top-line measurements;
