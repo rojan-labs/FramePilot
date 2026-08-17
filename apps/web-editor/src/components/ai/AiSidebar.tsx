@@ -1393,12 +1393,17 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
             }
           </Menu>
           {/* Agent "Plan first" toggle. Lives in the header (an agent-run preference)
-              rather than above the composer. Just the switch
-              at rest — the name + long hint are hover/focus-only (Tooltip), so the
-              header stays as quiet as a single control can be. Agent mode only. */}
+              rather than above the composer. The switch alone reads as an unlabeled
+              on/off with no visible state — a name and hint hidden entirely behind
+              hover/focus is not discoverable on a control this consequential, so the
+              name stays on screen and only the longer explanation is tooltip-only.
+              Agent mode only. */}
           {mode === 'agent' && (
-            <Tooltip label={`Plan first: ${PLAN_FIRST_HINT}`}>
+            <Tooltip label={PLAN_FIRST_HINT}>
               <label className="ai-header-toggle" aria-label={`Plan first: ${PLAN_FIRST_HINT}`}>
+                <span className="ai-header-toggle-label" aria-hidden="true">
+                  Plan first
+                </span>
                 <span className="ai-toggle">
                   <input
                     type="checkbox"

@@ -4390,7 +4390,7 @@ input[type='checkbox']:focus-visible {
 .track-controls {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   margin-left: auto; /* cluster flags to the right edge, away from the glyph */
   opacity: 0.55;
   transition: opacity var(--dur-fast) var(--ease);
