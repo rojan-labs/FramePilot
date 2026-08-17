@@ -163,7 +163,7 @@ export function Composer(props: ComposerProps): JSX.Element {
         // The supplied BeautifulUI loading primitive is intentionally adapted rather
         // than copied as demo state: a compact 3×3 drive wave + shimmer + elapsed time
         // describes the current REAL run phase without adding another spinner source.
-        <div className="ai-composer-activity" role="status" aria-live="polite">
+        <div className="ai-composer-activity">
           <span className="ai-pixel-loader" aria-hidden="true">
             {ACTIVITY_PIXEL_DELAYS.map((delay, index) => (
               <span
@@ -173,10 +173,10 @@ export function Composer(props: ComposerProps): JSX.Element {
               />
             ))}
           </span>
-          <span className="ai-activity-label ai-shimmer-text">
+          <span className="ai-activity-label ai-shimmer-text" role="status" aria-live="polite">
             {runStatusLabel(props.runStatus)}
           </span>
-          <span className="ai-activity-elapsed tabular" aria-label={`Elapsed ${elapsed}`}>
+          <span className="ai-activity-elapsed tabular" aria-hidden="true">
             {elapsed}
           </span>
         </div>
