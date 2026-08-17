@@ -1,0 +1,396 @@
+/*
+ * Final visual correction layer for the BeautifulUI AI workspace.
+ *
+ * Keep this deliberately narrow: popup surfaces and thread geometry only. The main
+ * BeautifulUI stylesheet owns the broader presentation. These rules fix regressions
+ * found against the rendered FramePilot sidebar after the first pass.
+ */
+
+.ai-sidebar {
+  --ai-shell-gutter: 10px;
+  --ai-thread-slot: 18px;
+  --ai-thread-line-x: 8px;
+  --ai-thread-card-gap: 7px;
+}
+
+/* ── Shared horizontal rhythm ──────────────────────────────────────────── */
+
+.ai-stream {
+  padding-right: var(--ai-shell-gutter);
+  padding-left: var(--ai-shell-gutter);
+}
+
+.ai-event {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ai-step-slot {
+  flex: 0 0 var(--ai-thread-slot);
+  width: var(--ai-thread-slot);
+}
+
+.ai-step-slot::before {
+  left: var(--ai-thread-line-x);
+}
+
+.ai-event--reasoning,
+.ai-event--tool,
+.ai-event--action,
+.ai-event--progress,
+.ai-event--finding,
+.ai-event--plan {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.ai-event--reasoning .ai-step-body,
+.ai-event--tool .ai-step-body,
+.ai-event--action .ai-step-body,
+.ai-event--progress .ai-step-body,
+.ai-event--finding .ai-step-body,
+.ai-event--plan .ai-step-body {
+  min-width: 0;
+  width: calc(100% - var(--ai-thread-slot));
+}
+
+/* Rows without StepSlot still start exactly where a normal step body starts. */
+.ai-event--diff,
+.ai-approval-card,
+.ai-ask,
+.ai-event--notice,
+.ai-run-footer {
+  margin-left: var(--ai-thread-slot);
+  margin-right: 0;
+  width: calc(100% - var(--ai-thread-slot));
+  box-sizing: border-box;
+}
+
+.ai-event--diff {
+  margin-top: 8px;
+  margin-bottom: 10px;
+}
+
+.ai-event--notice {
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+.ai-run-footer {
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+
+/* The user turn is a conversation anchor, not a run step. Keep its card aligned to
+   the stream's right edge while respecting the same left body column. */
+.ai-event--user {
+  padding-right: 0;
+  padding-left: var(--ai-thread-slot);
+}
+
+.ai-bubble--user {
+  max-width: min(92%, 420px);
+}
+
+/* Tool row internals share one baseline. The status spine owns the first 18px; icon,
+   title, runtime and hover actions stay inside the body rather than shifting it. */
+.ai-tool-head {
+  width: 100%;
+  min-width: 0;
+}
+
+.ai-tool-toggle {
+  min-width: 0;
+  padding-left: 0;
+}
+
+.ai-tool-glyphs {
+  margin-left: 0;
+}
+
+.ai-row-actions {
+  flex: 0 0 auto;
+}
+
+.ai-tool-time {
+  margin-left: 6px;
+}
+
+/* Applied-edit cards should never become narrower simply because their footer has
+   fewer actions. Header/body/footer all use the same card box. */
+.ai-event--diff .ai-diff-head,
+.ai-event--diff .ai-accordion,
+.ai-event--diff .ai-diff-buttons {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* The docked composer uses the same outer gutter as the stream/header. */
+.ai-composer-shell {
+  margin: 8px var(--ai-shell-gutter) var(--ai-shell-gutter);
+}
+
+.ai-tasks,
+.ai-plan-dock {
+  margin-right: var(--ai-shell-gutter);
+  margin-left: var(--ai-shell-gutter);
+}
+
+/* ── Dropdown / popover chrome ─────────────────────────────────────────── */
+
+/* Menu.tsx is a shared component. Scope its stronger popup treatment to the AI rail so
+   File/Edit menus elsewhere in FramePilot are not changed by this redesign. */
+.ai-sidebar .menu {
+  position: relative;
+}
+
+.ai-sidebar .menu-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 80;
+  min-width: 188px;
+  max-width: min(290px, calc(100vw - 24px));
+  padding: 5px;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.34),
+    0 4px 14px rgba(0, 0, 0, 0.22),
+    0 0 0 1px rgba(255, 255, 255, 0.025) inset;
+  transform-origin: top left;
+  animation: ai-polish-popover-in 130ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.ai-sidebar .ai-mode-menu .menu-popover {
+  left: 0;
+}
+
+.ai-sidebar .ai-overflow-menu .menu-popover {
+  right: 0;
+  left: auto;
+  min-width: 208px;
+  transform-origin: top right;
+}
+
+.ai-sidebar .menu-item {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: default;
+  transition:
+    background 90ms ease,
+    color 90ms ease,
+    transform 90ms ease;
+}
+
+.ai-sidebar .menu-item:hover:not(:disabled),
+.ai-sidebar .menu-item:focus-visible {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  outline: none;
+}
+
+.ai-sidebar .menu-item:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+.ai-sidebar .menu-item:disabled {
+  opacity: 0.42;
+}
+
+.ai-sidebar .menu-item-icon {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  color: var(--text-tertiary);
+}
+
+.ai-sidebar .menu-item-label {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ai-sidebar .ai-mode-option {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.ai-sidebar .ai-mode-option-label {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ai-sidebar .ai-mode-option-hint {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-sidebar .ai-mode-option[data-active='true'] .ai-mode-option-label::after {
+  content: 'Current';
+  margin-left: 8px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-tertiary);
+  box-shadow: 0 0 0 1px var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 400;
+  vertical-align: 1px;
+}
+
+/* Composer palettes are popup surfaces too. The first pass supplied the shell, but these
+   rules restore clipping, separation and selected-row clarity visible in the reference. */
+.ai-composer-shell .ai-quick,
+.ai-composer-shell .ai-slash {
+  right: -1px;
+  left: -1px;
+  padding: 5px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.34),
+    0 4px 14px rgba(0, 0, 0, 0.22);
+}
+
+.ai-composer-shell .ai-quick-item,
+.ai-composer-shell .ai-slash button {
+  border-radius: 7px;
+}
+
+/* ── Portal modal chrome ───────────────────────────────────────────────── */
+
+/* Tool details is portalled to body, so it cannot inherit .ai-sidebar-scoped popup
+   tokens. Use the app's semantic tokens directly here. */
+.overlay-backdrop:has(.ai-tool-modal) {
+  z-index: 240;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+.ai-tool-modal {
+  width: min(680px, calc(100vw - 48px));
+  max-height: min(720px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  box-shadow:
+    0 28px 80px rgba(0, 0, 0, 0.48),
+    0 8px 28px rgba(0, 0, 0, 0.3);
+  animation: ai-polish-modal-in 150ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.ai-tool-modal-head {
+  flex: 0 0 auto;
+  padding: 0 12px;
+  background: var(--bg-surface);
+}
+
+.ai-tool-modal-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  background: var(--bg-elevated);
+}
+
+.ai-tool-modal .ai-tool-detail {
+  display: grid;
+  grid-template-columns: minmax(88px, 0.22fr) minmax(0, 1fr);
+  gap: 10px 14px;
+  margin: 0;
+}
+
+.ai-tool-modal .ai-tool-detail dt {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.ai-tool-modal .ai-tool-detail dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* ── Motion + narrow rail ──────────────────────────────────────────────── */
+
+@keyframes ai-polish-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ai-polish-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 420px) {
+  .ai-sidebar {
+    --ai-shell-gutter: 8px;
+    --ai-thread-slot: 17px;
+    --ai-thread-line-x: 7px;
+  }
+
+  .ai-sidebar .menu-popover {
+    max-width: min(260px, calc(100vw - 16px));
+  }
+
+  .overlay-backdrop:has(.ai-tool-modal) {
+    padding: 12px;
+  }
+
+  .ai-tool-modal {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-sidebar .menu-popover,
+  .ai-tool-modal {
+    animation: none;
+  }
+}
