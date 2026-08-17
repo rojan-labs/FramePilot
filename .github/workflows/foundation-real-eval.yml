@@ -1,0 +1,53 @@
+name: Foundation real-provider eval
+
+# Closes the FramePilot 9.5 Foundation Phase-0 evidence-exit gate rows that a hermetic PR
+# run cannot honestly satisfy: real-provider latency/cache evidence and a real-provider
+# Tier B-D distribution (docs/quality/FRAMEPILOT-95-FOUNDATION-BASELINE.md). Manual
+# workflow_dispatch only — this drives real, billed Google Gemini calls and must not run on
+# every push/PR.
+on:
+  workflow_dispatch:
+    inputs:
+      note:
+        description: 'Optional note recorded in the job summary (e.g. why this run was triggered).'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  PNPM_VERSION: '9.12.0'
+  NODE_VERSION: '22.15.0'
+
+jobs:
+  foundation-real-eval:
+    name: Capture Tier B-D scenarios against Google Gemini
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Record run note
+        if: ${{ github.event.inputs.note != '' }}
+        run: |
+          echo "Note: ${{ github.event.inputs.note }}" >> "$GITHUB_STEP_SUMMARY"
+      - name: Run Foundation real-provider capture
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: pnpm eval:agent:foundation:real
+      - name: Upload capture output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: foundation-real-eval-output
+          path: docs/quality/foundation-real-eval/*.json
+          if-no-files-found: warn
