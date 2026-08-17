@@ -56,7 +56,7 @@ function streamOptions(signal?: AbortSignal): StreamOptions {
   };
 }
 
-function operationCount(events: readonly AiEvent[]): number {
+function proposedOperationCount(events: readonly AiEvent[]): number {
   return events
     .filter((event): event is Extract<AiEvent, { type: 'diff' }> => event.type === 'diff')
     .reduce((sum, event) => sum + event.edit.patch.operations.length, 0);
@@ -74,7 +74,7 @@ function completedStatus(ts = 10): Extract<AiEvent, { type: 'status' }> {
 }
 
 describe('FramePilot 9.5 agent run quality telemetry', () => {
-  it('records the complete metric surface on a production-like mutating agent run', async () => {
+  it('records provider and proposal metrics without fabricating host settlement evidence', async () => {
     const scenario = AGENT_OUTCOME_EVAL_SCENARIOS.find((row) => row.id === 'A01-trim');
     expect(scenario).toBeDefined();
     const scripted = new ScriptedProvider([
@@ -102,17 +102,17 @@ describe('FramePilot 9.5 agent run quality telemetry', () => {
       userPrompt: scenario?.task ?? 'Trim the opening.',
     };
     const events = await drain(new Orchestrator(provider).streamAgent(input, streamOptions(), {}));
-    const applied = operationCount(events);
+    const proposed = proposedOperationCount(events);
     const metrics = captureAgentRunQuality({
       routeMode: 'agent',
       events,
       capturedTurns: provider.captured(),
       toolSchemasExposedPerTurn: [1, 1],
-      operations: { attempted: applied, applied, rejected: 0 },
+      operations: { attempted: proposed, applied: 0, rejected: 0 },
       projectRevisionBefore: 0,
-      projectRevisionAfter: applied > 0 ? 1 : 0,
+      projectRevisionAfter: 0,
       wallClockMs: 42,
-      deterministicValidation: 'passed',
+      deterministicValidation: 'not_run',
       renderEvidence: 'not_run',
     });
 
@@ -122,7 +122,10 @@ describe('FramePilot 9.5 agent run quality telemetry', () => {
     expect(metrics.models).toEqual([{ provider: 'mock' }]);
     expect(metrics.modelCallCount).toBe(2);
     expect(metrics.toolCallCount).toBe(1);
-    expect(metrics.operations.applied).toBeGreaterThan(0);
+    expect(metrics.operations.attempted).toBeGreaterThan(0);
+    expect(metrics.operations.applied).toBe(0);
+    expect(metrics.revisions).toEqual({ before: 0, after: 0 });
+    expect(metrics.deterministicValidation).toBe('not_run');
     expect(metrics.wallClockMs).toBe(42);
     expect(metrics.runOutcome).toBe('completed');
     expect(metrics.cancellation.state).toBe('not_cancelled');
