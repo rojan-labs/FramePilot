@@ -1,28 +1,20 @@
 /**
- * The AI composer's context readout (ADR 0080).
+ * Compact context-window progress for the AI workspace (ADR 0080).
  *
- * ## What this shows, and why so little
- *
- * The composer is a writing surface, not a dashboard. The one thing worth a permanent
- * pixel is how full the current request is — `2.1K/1M` — so the readout is that string
- * and nothing else: no ring, no percentage, no expandable ledger competing with the
- * send button.
- *
- * The number still legitimately moves between requests (a large tool result is replaced
- * by a summary; a skill loads for one stage and not the next; the budgeter trims a
- * tier), and a drop from 60K to 12K reads as "my conversation was erased" if nothing
- * explains it. That explanation lives in a hover/focus tooltip: the exact figures, the
- * room left, and the sentence that answers the actual fear — the prompt shrank, the
- * durable memory did not. Hover is enough for a reassurance nobody needs mid-sentence,
- * and keyboard focus opens the same tooltip so it is not mouse-only.
+ * Context is workspace status, not message-composer content. The permanent surface is
+ * therefore a small circular progress control in the AI header; exact token figures,
+ * capacity and compaction detail remain available on hover/focus. This keeps the composer
+ * dedicated to writing while preserving the reassurance that a shrinking prompt is not
+ * lost durable memory.
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { AiEvent, ContextManifest } from '@framepilot/ai-sdk';
 import { ContextDebugger, type ContextDebugInfo } from './ContextDebugger.js';
 
 /**
- * What the composer knows about context right now. Kept as a value object (rather than
- * the raw event) so the component stays a pure projection and is trivially testable.
+ * What the UI knows about context right now. Kept as a value object (rather than the raw
+ * event) so the indicator stays a pure projection and remains trivially testable.
  */
 export interface ContextWindowState {
   readonly usedTokens: number;
@@ -49,7 +41,7 @@ const EMPTY_CONTEXT: ContextWindowState = { usedTokens: 0, contextWindow: 0, est
 export type ContextPhase = 'idle' | 'assembling' | 'generating';
 
 /**
- * The first substantive model request of the latest user turn owns the composer meter.
+ * The first substantive model request of the latest user turn owns the context meter.
  * Classifier/planner/repair calls are orchestration internals with intentionally different
  * prompts; allowing each one to replace the readout made the number jump throughout one
  * edit even though conversation memory was intact. The selected request may still replace
@@ -121,7 +113,6 @@ export function contextPhase(
   if (!events) return 'assembling';
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const type = events[index]?.type;
-    // Any model output since the last context_usage means the request landed.
     if (type === 'assistant_delta' || type === 'assistant_message' || type === 'reasoning_delta') {
       return 'generating';
     }
@@ -160,6 +151,8 @@ function compactionNote(state: ContextWindowState): string | undefined {
 export interface ContextWindowIndicatorProps {
   readonly value: ContextWindowState;
   readonly phase?: ContextPhase;
+  /** Render into the AI header while keeping request ownership in the composer shell. */
+  readonly placement?: 'inline' | 'header';
   /**
    * Development-mode inspector data. Passed only under `import.meta.env.DEV` by the
    * parent, so the build-environment decision lives at one call site and this component
@@ -171,14 +164,27 @@ export interface ContextWindowIndicatorProps {
 export function ContextWindowIndicator({
   value,
   phase = 'idle',
+  placement = 'inline',
   debug,
-}: ContextWindowIndicatorProps): JSX.Element {
+}: ContextWindowIndicatorProps): JSX.Element | null {
   const [open, setOpen] = useState(false);
+  const [headerHost, setHeaderHost] = useState<HTMLElement | null>(null);
   const tooltipId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   const manifest = value.manifest;
+
+  useEffect(() => {
+    if (placement !== 'header') {
+      setHeaderHost(null);
+      return;
+    }
+    // There is one active AI rail. Portalling here avoids threading context-window props
+    // through the 77KB sidebar shell solely for presentation, while keeping the indicator
+    // semantically in the header and out of the message grid.
+    setHeaderHost(document.querySelector<HTMLElement>('.ai-sidebar .ai-sidebar-header-right'));
+  }, [placement]);
 
   // Escape dismisses a tooltip the pointer may be parked on; an outside pointer-down
   // dismisses one opened by tap, where there is no "mouse leave" to end the hover.
@@ -202,11 +208,16 @@ export function ContextWindowIndicator({
     };
   }, [open]);
 
-  /** The whole permanent surface: used over capacity, e.g. `2.1K/1M`. */
   const readout =
     value.contextWindow > 0
       ? `${compactTokens(value.usedTokens)}/${compactTokens(value.contextWindow)}`
       : '—';
+
+  const ratio =
+    value.contextWindow > 0
+      ? Math.min(1, Math.max(0, value.usedTokens / value.contextWindow))
+      : 0;
+  const percent = Math.round(ratio * 100);
 
   const figures = useMemo(() => {
     if (value.contextWindow <= 0) return 'No request accounted for yet';
@@ -215,7 +226,6 @@ export function ContextWindowIndicator({
     }`;
   }, [manifest, value.contextWindow, value.usedTokens]);
 
-  // Speech gets the phase and the figures spelled out; sight already has the digits.
   const spokenPhase =
     phase === 'assembling' ? 'Preparing context. ' : phase === 'generating' ? 'Generating. ' : '';
 
@@ -223,10 +233,11 @@ export function ContextWindowIndicator({
   const available = manifest?.usage.estimatedRemainingCapacity ?? 0;
   const compaction = compactionNote(value);
 
-  return (
+  const indicator = (
     <div
       className="ai-context"
       ref={rootRef}
+      data-placement={placement}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
     >
@@ -234,20 +245,35 @@ export function ContextWindowIndicator({
         type="button"
         ref={buttonRef}
         className="ai-context-trigger"
-        aria-label={`${spokenPhase}Context: ${figures}.`}
+        aria-label={`${spokenPhase}Context: ${figures}. ${percent}% used.`}
         aria-describedby={open ? tooltipId : undefined}
         data-phase={phase}
         data-estimated={value.estimated}
-        // Tap has no hover: a click toggles the same tooltip on touch devices.
+        data-empty={value.contextWindow <= 0}
         onClick={() => setOpen((v) => !v)}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
       >
-        {readout}
+        <svg className="ai-context-ring" viewBox="0 0 24 24" aria-hidden="true">
+          <circle className="ai-context-ring-track" cx="12" cy="12" r="9" pathLength="100" />
+          <circle
+            className="ai-context-ring-value"
+            cx="12"
+            cy="12"
+            r="9"
+            pathLength="100"
+            strokeDasharray={`${ratio * 100} ${100 - ratio * 100}`}
+          />
+        </svg>
+        <span className="sr-only">{readout}</span>
       </button>
 
       {open ? (
         <div className="ai-context-panel" id={tooltipId} role="tooltip">
+          <div className="ai-context-panel-head">
+            <span className="ai-context-panel-title">Context</span>
+            <span className="ai-context-percent tabular">{percent}%</span>
+          </div>
           <p className="ai-context-figure">{figures}</p>
           {available > 0 || reserved > 0 ? (
             <p className="ai-context-line">
@@ -266,4 +292,7 @@ export function ContextWindowIndicator({
       ) : null}
     </div>
   );
+
+  if (placement === 'header') return headerHost ? createPortal(indicator, headerHost) : null;
+  return indicator;
 }

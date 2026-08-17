@@ -1177,8 +1177,8 @@ describe('AiSidebar', () => {
       />,
     );
     // Default mode is Agent → the plan-first toggle is present and on by default.
-    const toggle = screen.getByTestId('ai-plan-first') as HTMLInputElement;
-    expect(toggle.checked).toBe(true);
+    const toggle = screen.getByTestId('ai-plan-first');
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
     fireEvent.change(screen.getByLabelText('Message FramePilot'), { target: { value: 'edit it' } });
     await act(async () => {
       fireEvent.click(screen.getByLabelText('Send'));
@@ -1221,15 +1221,15 @@ describe('AiSidebar', () => {
       <AiSidebar project={project} session={noop} persistence={new MemoryPersistence()} />,
     );
     // Default is on; turning it off writes through to storage.
-    const toggle = screen.getByTestId('ai-plan-first') as HTMLInputElement;
-    expect(toggle.checked).toBe(true);
+    const toggle = screen.getByTestId('ai-plan-first');
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
     fireEvent.click(toggle);
     expect(window.localStorage.getItem('framepilot.ai.planFirst')).toBe('false');
 
     // Remounting reads the persisted choice rather than the default.
     unmount();
     render(<AiSidebar project={project} session={noop} persistence={new MemoryPersistence()} />);
-    expect((screen.getByTestId('ai-plan-first') as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByTestId('ai-plan-first').getAttribute('aria-checked')).toBe('false');
   });
 
   it('threads an opt-in "2 alternatives" toggle into edit-mode requests only (H1.5/P13.1)', async () => {
@@ -1257,8 +1257,8 @@ describe('AiSidebar', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /Edit/ }));
     // Off by default — never silently on (cost-honesty: an extra take is a REAL,
     // separately billed model call).
-    const toggle = screen.getByTestId('ai-want-variations') as HTMLInputElement;
-    expect(toggle.checked).toBe(false);
+    const toggle = screen.getByTestId('ai-want-variations');
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
 
     fireEvent.change(screen.getByLabelText('Message FramePilot'), {
       target: { value: 'add a text overlay that says thanks' },
