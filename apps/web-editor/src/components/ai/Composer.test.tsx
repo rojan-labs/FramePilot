@@ -39,7 +39,14 @@ function setup(overrides: Partial<ComposerProps> = {}) {
     onPinEntity: vi.fn(),
     ...overrides,
   };
-  render(<Composer {...props} />);
+  render(
+    <div className="ai-sidebar" data-testid="ai-sidebar">
+      <header className="ai-sidebar-header">
+        <div className="ai-sidebar-header-right" data-testid="header-actions" />
+      </header>
+      <Composer {...props} />
+    </div>,
+  );
   return props;
 }
 
@@ -53,18 +60,20 @@ describe('Composer', () => {
     expect(loader?.querySelectorAll('.ai-loader-pixel')).toHaveLength(9);
     expect(document.querySelector('.ai-activity-elapsed')?.getAttribute('aria-hidden')).toBe('true');
 
-    // The old logo/orb/dots activity grammar is intentionally gone; there is one
-    // compact pixel-wave loader and the streaming/status surfaces remain separate.
     expect(document.querySelector('.ai-activity-mark')).toBeNull();
     expect(document.querySelector('.ai-activity-dots')).toBeNull();
     expect(document.querySelector('.ai-activity-orb')).toBeNull();
   });
 
-  it('shows the current context window immediately left of Send', () => {
+  it('ports context usage to the AI header as a circular progress control', () => {
     setup();
-    const indicator = screen.getByRole('button', { name: /Context: 20 of 100 tokens/ });
-    const send = screen.getByLabelText('Send');
-    expect(indicator.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const indicator = screen.getByRole('button', { name: /Context: 20 of 100 tokens.*20% used/ });
+    const header = screen.getByTestId('header-actions');
+    const composer = screen.getByLabelText('Message FramePilot').closest('.ai-composer');
+
+    expect(header.contains(indicator)).toBe(true);
+    expect(indicator.querySelector('.ai-context-ring')).toBeTruthy();
+    expect(composer?.contains(indicator)).toBe(false);
   });
 
   it('shows the slash palette for a slash query and inserts the command', () => {
