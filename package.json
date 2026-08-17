@@ -23,6 +23,7 @@
     "test": "turbo run test",
     "test:coverage": "turbo run test:coverage",
     "test:e2e": "pnpm --filter @framepilot/e2e test",
+    "eval:agent:foundation": "pnpm --filter @framepilot/ai-sdk exec vitest run src/professional-agent-evals.test.ts src/agent-run-quality.test.ts src/kernel/cost/baseline-capture-capability.test.ts",
     "eval:professional:rendered": "FRAMEPILOT_RENDERED_PROFESSIONAL_EVALS=1 pnpm --filter @framepilot/ai-sdk exec vitest run src/professional-evals.rendered.test.ts",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
