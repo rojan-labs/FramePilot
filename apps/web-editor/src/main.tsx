@@ -12,6 +12,7 @@ import './fonts.css';
 import './editor-foundation.css';
 import './minimal-light-theme.css';
 import './components/ai/AiSidebar.beautiful.css';
+import './components/ai/AiSidebar.polish.css';
 
 const container = document.getElementById('root');
 if (!container) {
