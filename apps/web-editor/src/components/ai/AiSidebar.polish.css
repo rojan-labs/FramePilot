@@ -1,0 +1,708 @@
+/*
+ * Final visual correction layer for the BeautifulUI AI workspace.
+ *
+ * Keep this deliberately narrow: popup surfaces, thread geometry, and the small
+ * product-level spacing corrections that need to win over the legacy editor CSS.
+ */
+
+.ai-sidebar {
+  --ai-shell-gutter: 10px;
+  --ai-thread-slot: 18px;
+  --ai-thread-line-x: 8px;
+  --ai-thread-card-gap: 7px;
+}
+
+/* ── Shared horizontal rhythm ──────────────────────────────────────────── */
+
+.ai-stream {
+  padding-right: var(--ai-shell-gutter);
+  padding-left: var(--ai-shell-gutter);
+}
+
+.ai-event {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ai-step-slot {
+  flex: 0 0 var(--ai-thread-slot);
+  width: var(--ai-thread-slot);
+}
+
+.ai-step-slot::before {
+  left: var(--ai-thread-line-x);
+}
+
+.ai-event--reasoning,
+.ai-event--tool,
+.ai-event--action,
+.ai-event--progress,
+.ai-event--finding,
+.ai-event--plan {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.ai-event--reasoning .ai-step-body,
+.ai-event--tool .ai-step-body,
+.ai-event--action .ai-step-body,
+.ai-event--progress .ai-step-body,
+.ai-event--finding .ai-step-body,
+.ai-event--plan .ai-step-body {
+  min-width: 0;
+  width: calc(100% - var(--ai-thread-slot));
+}
+
+/* Rows without StepSlot still start exactly where a normal step body starts. */
+.ai-event--diff,
+.ai-approval-card,
+.ai-ask,
+.ai-event--notice,
+.ai-run-footer {
+  margin-left: var(--ai-thread-slot);
+  margin-right: 0;
+  width: calc(100% - var(--ai-thread-slot));
+  box-sizing: border-box;
+}
+
+.ai-event--diff {
+  margin-top: 8px;
+  margin-bottom: 10px;
+}
+
+.ai-event--notice {
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+/* Every other row in the thread (tool glyph, assistant sparkle) sits flush at the
+   step body's left edge; the notice card's own `padding: 6px 8px` (AiSidebar.beautiful.css
+   wins over styles.css's --space-3-based padding here) pushes its icon 8px right of
+   that column, breaking the icon spine the eye tracks scrolling down the thread. Pull
+   just the icon back to the card's outer edge — matching that literal 8px, not
+   `--space-3` (which resolves to a different value in this scope) — the text keeps
+   its normal inset. */
+.ai-event--notice > .ai-tone-icon {
+  margin-left: -8px;
+  /* styles.css aligns the icon to `flex-start` (against the text's first line) and
+     nudges it 2px down to land on that line's cap-height. That breaks the moment a
+     sibling makes the row taller than the text — e.g. a Retry button (~28px) next to
+     one line of text (~17px) — because `.ai-notice-body`'s own `align-items: center`
+     then re-centers the TEXT against that taller row while the icon stays pinned to
+     the row's top, landing them on different baselines. Center the icon against the
+     row's actual height instead, which degrades gracefully to ~flex-start when there
+     is no taller sibling. */
+  align-self: center;
+  margin-top: 0;
+}
+
+/* `.ai-event` sets `overflow-wrap: anywhere; word-break: break-word` so long unbroken
+   tokens in the MESSAGE text (ids, URLs, provider error JSON) wrap inside the card
+   instead of overflowing it. That rule inherits into Retry too. `.ai-notice-actions`
+   has no `flex-shrink: 0`, so a long error message can squeeze it below "Retry"'s own
+   width — and the inherited anywhere-wrap then breaks the word letter-by-letter into a
+   vertical stack instead of leaving it on one line. Exempt the action row: it should
+   never be a wrap target, and should never be forced to shrink for the message next to
+   it — the message wraps; the buttons don't. */
+.ai-notice-actions {
+  flex: none;
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: nowrap;
+}
+
+.ai-run-footer {
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+
+/* The user turn is a conversation anchor, not a run step. Keep its card aligned to
+   the stream's right edge while respecting the same left body column. */
+.ai-event--user {
+  padding-right: 0;
+  padding-left: var(--ai-thread-slot);
+}
+
+.ai-bubble--user {
+  max-width: min(92%, 420px);
+}
+
+/* Tool row internals share one baseline. The status spine owns the first 18px; icon,
+   title, runtime and hover actions stay inside the body rather than shifting it. */
+.ai-tool-head {
+  width: 100%;
+  min-width: 0;
+}
+
+.ai-tool-toggle {
+  min-width: 0;
+  padding-left: 0;
+}
+
+.ai-tool-glyphs {
+  margin-left: 0;
+}
+
+.ai-row-actions {
+  flex: 0 0 auto;
+}
+
+.ai-tool-time {
+  margin-left: 6px;
+}
+
+/* Applied-edit cards should never become narrower simply because their footer has
+   fewer actions. Header/body/footer all use the same card box. */
+.ai-event--diff .ai-diff-head,
+.ai-event--diff .ai-accordion,
+.ai-event--diff .ai-diff-buttons {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* The docked composer uses the same outer gutter as the stream/header. */
+.ai-composer-shell {
+  margin: 8px var(--ai-shell-gutter) var(--ai-shell-gutter);
+}
+
+.ai-tasks,
+.ai-plan-dock {
+  margin-right: var(--ai-shell-gutter);
+  margin-left: var(--ai-shell-gutter);
+}
+
+/* ── Dropdown / popover chrome ─────────────────────────────────────────── */
+
+/* Menu.tsx is a shared component. Scope its stronger popup treatment to the AI rail so
+   File/Edit menus elsewhere in FramePilot are not changed by this redesign. */
+.ai-sidebar .menu {
+  position: relative;
+}
+
+.ai-sidebar .menu-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 80;
+  min-width: 188px;
+  max-width: min(290px, calc(100vw - 24px));
+  padding: 5px;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.34),
+    0 4px 14px rgba(0, 0, 0, 0.22),
+    0 0 0 1px rgba(255, 255, 255, 0.025) inset;
+  transform-origin: top left;
+  animation: ai-polish-popover-in 130ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.ai-sidebar .ai-mode-menu .menu-popover {
+  left: 0;
+}
+
+.ai-sidebar .ai-overflow-menu .menu-popover {
+  right: 0;
+  left: auto;
+  min-width: 208px;
+  transform-origin: top right;
+}
+
+.ai-sidebar .menu-item {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: default;
+  transition:
+    background 90ms ease,
+    color 90ms ease,
+    transform 90ms ease;
+}
+
+.ai-sidebar .menu-item:hover:not(:disabled),
+.ai-sidebar .menu-item:focus-visible {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  outline: none;
+}
+
+.ai-sidebar .menu-item:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+.ai-sidebar .menu-item:disabled {
+  opacity: 0.42;
+}
+
+.ai-sidebar .menu-item-icon {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  color: var(--text-tertiary);
+}
+
+.ai-sidebar .menu-item-label {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ai-sidebar .ai-mode-option {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.ai-sidebar .ai-mode-option-label {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ai-sidebar .ai-mode-option-hint {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-sidebar .ai-mode-option[data-active='true'] .ai-mode-option-label::after {
+  content: 'Current';
+  margin-left: 8px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-tertiary);
+  box-shadow: 0 0 0 1px var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 400;
+  vertical-align: 1px;
+}
+
+/* The "Plan first" switch used to be icon-only chrome (name/hint hover-only), which
+   read as an unlabeled, meaningless on/off. BeautifulUI's square icon-button sizing
+   (min-width/min-height 28px, centered) fought a visible label, so widen it back out
+   for the label + switch pair the base rule already lays out as a row. */
+.ai-sidebar .ai-header-toggle {
+  min-width: 0;
+  min-height: 0;
+  justify-content: flex-start;
+  gap: 6px;
+  border-radius: 7px;
+}
+
+.ai-sidebar .ai-header-toggle:hover {
+  background: var(--bg-hover);
+}
+
+.ai-sidebar .ai-header-toggle-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Composer palettes are popup surfaces too. The first pass supplied the shell, but these
+   rules restore clipping, separation and selected-row clarity visible in the reference. */
+.ai-composer-shell .ai-quick,
+.ai-composer-shell .ai-slash {
+  right: -1px;
+  left: -1px;
+  padding: 5px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.34),
+    0 4px 14px rgba(0, 0, 0, 0.22);
+}
+
+.ai-composer-shell .ai-quick-item,
+.ai-composer-shell .ai-slash button {
+  border-radius: 7px;
+}
+
+/* ── Portal modal chrome ───────────────────────────────────────────────── */
+
+/* Tool details is portalled to body, so it cannot inherit .ai-sidebar-scoped popup
+   tokens. Use the app's semantic tokens directly here. */
+.overlay-backdrop:has(.ai-tool-modal) {
+  z-index: 240;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+.ai-tool-modal {
+  width: min(680px, calc(100vw - 48px));
+  max-height: min(720px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  box-shadow:
+    0 28px 80px rgba(0, 0, 0, 0.48),
+    0 8px 28px rgba(0, 0, 0, 0.3);
+  animation: ai-polish-modal-in 150ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.ai-tool-modal-head {
+  flex: 0 0 auto;
+  padding: 0 12px;
+  background: var(--bg-surface);
+}
+
+.ai-tool-modal-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  background: var(--bg-elevated);
+}
+
+.ai-tool-modal .ai-tool-detail {
+  display: grid;
+  grid-template-columns: minmax(88px, 0.22fr) minmax(0, 1fr);
+  gap: 10px 14px;
+  margin: 0;
+}
+
+.ai-tool-modal .ai-tool-detail dt {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.ai-tool-modal .ai-tool-detail dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* ── Product pass: context belongs in header ───────────────────────────── */
+
+.ai-sidebar-header-right {
+  gap: 3px;
+}
+
+.ai-sidebar .ai-context[data-placement='header'] {
+  position: relative;
+  order: -1;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+
+.ai-sidebar .ai-context-trigger {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  box-shadow: none;
+  cursor: default;
+  transition:
+    background 110ms ease,
+    transform 110ms ease,
+    opacity 110ms ease;
+}
+
+.ai-sidebar .ai-context-trigger:hover,
+.ai-sidebar .ai-context-trigger:focus-visible,
+.ai-sidebar .ai-context[data-placement='header']:has(.ai-context-panel) .ai-context-trigger {
+  background: var(--bg-hover);
+}
+
+.ai-sidebar .ai-context-trigger:active {
+  transform: scale(0.94);
+}
+
+.ai-sidebar .ai-context-ring {
+  width: 20px;
+  height: 20px;
+  display: block;
+  overflow: visible;
+  transform: rotate(-90deg);
+}
+
+.ai-sidebar .ai-context-ring-track,
+.ai-sidebar .ai-context-ring-value {
+  fill: none;
+  stroke-width: 2.25;
+}
+
+.ai-sidebar .ai-context-ring-track {
+  stroke: var(--border-strong);
+}
+
+.ai-sidebar .ai-context-ring-value {
+  stroke: currentColor;
+  stroke-linecap: round;
+  transition: stroke-dasharray 240ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.ai-sidebar .ai-context-trigger[data-empty='true'] {
+  color: var(--text-tertiary);
+  opacity: 0.72;
+}
+
+.ai-sidebar .ai-context-trigger[data-phase='assembling'] .ai-context-ring-value,
+.ai-sidebar .ai-context-trigger[data-phase='generating'] .ai-context-ring-value {
+  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--accent) 45%, transparent));
+}
+
+.ai-sidebar .ai-context-panel {
+  position: absolute;
+  top: calc(100% + 7px);
+  /* Clears styles.css's `inset-block-end` (its logical `bottom`), which this
+     physical `top` does not touch on its own. With both edges set, the browser
+     solves `height` from the top/bottom gap instead of from content, collapsing
+     the panel to a sliver — same failure mode as the `max-width` override below. */
+  bottom: auto;
+  right: 0;
+  z-index: 90;
+  width: min(286px, calc(100vw - 24px));
+  /* Overrides styles.css's `max-inline-size: calc(100% - 16px)`: that percentage
+     resolves against the containing block, which `.ai-context[data-placement='header']`
+     (below) turns into the ~28px trigger button once it gets `position: relative`.
+     Without this, the panel is clamped to a near-zero sliver — invisible on hover. */
+  max-width: none;
+  padding: 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.34),
+    0 4px 14px rgba(0, 0, 0, 0.22);
+  transform-origin: top right;
+  animation: ai-polish-popover-in 130ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.ai-sidebar .ai-context-panel-head {
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 5px;
+}
+
+.ai-sidebar .ai-context-panel-title {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ai-sidebar .ai-context-percent {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.ai-sidebar .ai-context-figure,
+.ai-sidebar .ai-context-line,
+.ai-sidebar .ai-context-explain {
+  margin: 0;
+}
+
+.ai-sidebar .ai-context-figure {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.ai-sidebar .ai-context-line {
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.ai-sidebar .ai-context-explain {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+/* ── Product pass: one composer surface, no inner field box ────────────── */
+
+.ai-composer-shell {
+  gap: 5px;
+  padding: 6px;
+}
+
+.ai-composer {
+  grid-template-columns: 28px minmax(0, 1fr) 28px !important;
+  gap: 4px !important;
+  align-items: end;
+}
+
+.ai-composer-input,
+.ai-composer textarea.ai-composer-input {
+  min-height: 28px !important;
+  width: 100%;
+  margin: 0 !important;
+  padding: 5px 3px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.ai-composer-input:focus,
+.ai-composer-input:focus-visible {
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+/* The outer composer is the only field boundary. Its focus treatment should be subtle,
+   not a second orange rectangle nested around the text itself. */
+.ai-composer-shell:focus-within {
+  border-color: var(--border-strong);
+  box-shadow:
+    0 0 0 1px var(--border-strong),
+    0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+/* ── Product pass: remove dead bands from Edited receipts ──────────────── */
+
+.ai-event--diff {
+  min-height: 0 !important;
+}
+
+.ai-event--diff .ai-diff-head {
+  height: 38px !important;
+  min-height: 38px !important;
+  margin: 0 !important;
+  padding: 0 10px !important;
+}
+
+/* A collapsed accordion contributes exactly zero layout. The legacy editor CSS gave the
+   disclosure a minimum block-size, which created the blank strip visible between the
+   Edited header and its inspection footer. */
+.ai-event--diff .ai-accordion[data-open='false'] {
+  display: none !important;
+  min-height: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
+
+.ai-event--diff .ai-accordion[data-open='true'] {
+  min-height: 0 !important;
+  height: auto !important;
+  margin: 0 !important;
+}
+
+.ai-event--diff .ai-accordion-inner {
+  min-height: 0 !important;
+  margin: 0 !important;
+}
+
+.ai-event--diff .ai-diff-buttons {
+  min-height: 32px !important;
+  margin: 0 !important;
+  padding: 3px 6px !important;
+}
+
+.ai-event--diff .ai-diff-inspect {
+  min-height: 26px;
+  gap: 0;
+}
+
+.ai-event--diff .ai-btn.ai-btn--quiet {
+  min-height: 26px;
+  height: 26px;
+  padding: 0 7px;
+}
+
+/* ── Motion + narrow rail ──────────────────────────────────────────────── */
+
+@keyframes ai-polish-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ai-polish-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 420px) {
+  .ai-sidebar {
+    --ai-shell-gutter: 8px;
+    --ai-thread-slot: 17px;
+    --ai-thread-line-x: 7px;
+  }
+
+  .ai-sidebar .menu-popover {
+    max-width: min(260px, calc(100vw - 16px));
+  }
+
+  .ai-sidebar .ai-context-panel {
+    width: min(270px, calc(100vw - 16px));
+  }
+
+  .overlay-backdrop:has(.ai-tool-modal) {
+    padding: 12px;
+  }
+
+  .ai-tool-modal {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-sidebar .menu-popover,
+  .ai-sidebar .ai-context-panel,
+  .ai-tool-modal {
+    animation: none;
+  }
+}
