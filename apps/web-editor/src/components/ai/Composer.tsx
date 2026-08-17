@@ -69,7 +69,7 @@ export interface ComposerProps {
   readonly onSubmit: () => void;
   readonly onStop: () => void;
   readonly running: boolean;
-  /** Current durable run phase, rendered beside the message box rather than in the header. */
+  /** Current durable run phase, rendered as compact activity above the writing row. */
   readonly runStatus?: RunStatus;
   /** Most recent model call's prompt occupancy (per call, not cumulative cost). */
   readonly contextWindow: ContextWindowState;
@@ -312,9 +312,12 @@ export function Composer(props: ComposerProps): JSX.Element {
           onKeyDown={onKeyDown}
           onPaste={onPaste}
         />
+        {/* Context belongs to workspace chrome, not inside the message row. This component
+            keeps owning the value but portals its circular progress control into the AI header. */}
         <ContextWindowIndicator
           value={props.contextWindow}
           phase={props.contextPhase}
+          placement="header"
           {...(props.contextDebug ? { debug: props.contextDebug } : {})}
         />
         {running ? (
