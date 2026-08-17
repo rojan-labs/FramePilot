@@ -21,6 +21,7 @@ export type AgentRunRouteMode =
 export type EvidenceOutcome = 'passed' | 'failed' | 'not_run' | 'unavailable';
 export type ValidationOutcome = 'passed' | 'failed' | 'not_run';
 export type CancellationIntegrityOutcome = 'passed' | 'failed';
+type TerminalRunStatus = Extract<RunStatus, 'completed' | 'failed' | 'cancelled'>;
 
 export interface AgentRunModelIdentity {
   readonly provider: string;
@@ -349,6 +350,23 @@ function revisionCount(metrics: AgentRunQualityMetrics): number | undefined {
   return after - before;
 }
 
+const ADVERSARIAL_TERMINAL_OUTCOMES: Readonly<
+  Partial<Record<string, readonly TerminalRunStatus[]>>
+> = {
+  'E01-offline-media': ['completed', 'failed'],
+  'E02-missing-transcript': ['completed', 'failed'],
+  'E03-stale-context': ['completed', 'failed'],
+  'E04-revision-changes-mid-run': ['completed', 'failed'],
+  'E05-cancel-analysis': ['cancelled'],
+  'E06-cancel-mutation': ['cancelled'],
+  'E07-invalid-tool-args': ['completed', 'failed'],
+  'E08-transition-handles': ['completed', 'failed'],
+};
+
+function acceptedTerminalOutcomes(scenario: AgentOutcomeEvalScenario): readonly TerminalRunStatus[] {
+  return ADVERSARIAL_TERMINAL_OUTCOMES[scenario.id] ?? ['completed'];
+}
+
 /** Grade the scenario contract before accepting semantic outcome predicates as a pass. */
 export function buildAgentOutcomeEvalRunRecord(
   input: BuildAgentOutcomeEvalRunRecordInput,
@@ -399,6 +417,10 @@ export function buildAgentOutcomeEvalRunRecord(
   }
   if (input.metrics.runOutcome === undefined) {
     failures.push('Terminal run outcome was not observed.');
+  } else if (!acceptedTerminalOutcomes(input.scenario).includes(input.metrics.runOutcome as TerminalRunStatus)) {
+    failures.push(
+      `Terminal run outcome "${input.metrics.runOutcome}" is not accepted for scenario ${input.scenario.id}.`,
+    );
   }
   if (input.metrics.deterministicValidation === 'failed') {
     failures.push('Deterministic validation failed.');
