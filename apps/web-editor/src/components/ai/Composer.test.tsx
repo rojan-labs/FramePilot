@@ -44,22 +44,29 @@ function setup(overrides: Partial<ComposerProps> = {}) {
 }
 
 describe('Composer', () => {
-  it('surfaces live run activity beside the message box instead of requiring header state', () => {
+  it('surfaces BeautifulUI-style live run activity beside the message box', () => {
     setup({ running: true, runStatus: 'generating' });
     expect(screen.getByRole('status').textContent).toContain('Generating');
-    // The indicator is the FramePilot mark itself, animated — ONE moving thing. The old
-    // row stacked a pulsing orb, a static label and a bouncing ellipsis that merely
-    // repeated the "…" already in the label.
-    expect(document.querySelector('.ai-activity-mark img')?.getAttribute('src')).toBe('/logo.png');
+
+    const loader = document.querySelector('.ai-pixel-loader');
+    expect(loader).toBeTruthy();
+    expect(loader?.querySelectorAll('.ai-loader-pixel')).toHaveLength(9);
+    expect(document.querySelector('.ai-activity-elapsed')?.getAttribute('aria-hidden')).toBe('true');
+
+    // The old logo/orb/dots activity grammar is intentionally gone; there is one
+    // compact pixel-wave loader and the streaming/status surfaces remain separate.
+    expect(document.querySelector('.ai-activity-mark')).toBeNull();
     expect(document.querySelector('.ai-activity-dots')).toBeNull();
     expect(document.querySelector('.ai-activity-orb')).toBeNull();
   });
+
   it('shows the current context window immediately left of Send', () => {
     setup();
     const indicator = screen.getByRole('button', { name: /Context: 20 of 100 tokens/ });
     const send = screen.getByLabelText('Send');
     expect(indicator.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
+
   it('shows the slash palette for a slash query and inserts the command', () => {
     const props = setup({ value: '/cap' });
     const option = screen.getByRole('option', { name: /add-captions/ });
