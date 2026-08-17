@@ -200,6 +200,11 @@ export function captureAgentRunQuality(input: CaptureAgentRunQualityInput): Agen
     input.events.filter((event) => event.type === 'review_finding').map((event) => event.id),
   );
   const operations = input.operations ?? {};
+  const operationCounts: AgentRunOperationCounts = {
+    attempted: countOrZero('operations.attempted', operations.attempted),
+    applied: countOrZero('operations.applied', operations.applied),
+    rejected: countOrZero('operations.rejected', operations.rejected),
+  };
   const humanEditorialScore = input.humanEditorialScore;
   const measuredWallClockMs =
     optionalNonNegativeNumber('wallClockMs', input.wallClockMs) ?? eventEnvelopeWallClockMs(input.events);
@@ -219,6 +224,15 @@ export function captureAgentRunQuality(input: CaptureAgentRunQualityInput): Agen
     input.cancellationLatencyMs,
   );
 
+  if (operationCounts.applied + operationCounts.rejected > operationCounts.attempted) {
+    throw new RangeError('operations.applied + operations.rejected cannot exceed operations.attempted.');
+  }
+  if (
+    runOutcome !== 'cancelled' &&
+    (cancellationLatencyMs !== undefined || input.cancellationIntegrity !== undefined)
+  ) {
+    throw new RangeError('Cancellation evidence may only be supplied for a terminal cancelled run.');
+  }
   if (
     humanEditorialScore !== undefined &&
     (!Number.isFinite(humanEditorialScore) || humanEditorialScore < 0 || humanEditorialScore > 1)
@@ -248,11 +262,7 @@ export function captureAgentRunQuality(input: CaptureAgentRunQualityInput): Agen
     ...(measuredAnalysisReviewMs !== undefined
       ? { analysisReviewMs: measuredAnalysisReviewMs }
       : {}),
-    operations: {
-      attempted: countOrZero('operations.attempted', operations.attempted),
-      applied: countOrZero('operations.applied', operations.applied),
-      rejected: countOrZero('operations.rejected', operations.rejected),
-    },
+    operations: operationCounts,
     revisions: {
       ...(projectRevisionBefore !== undefined ? { before: projectRevisionBefore } : {}),
       ...(projectRevisionAfter !== undefined ? { after: projectRevisionAfter } : {}),
@@ -380,6 +390,12 @@ export function buildAgentOutcomeEvalRunRecord(
     failures.push(
       `Project revision count ${String(observedRevisionCount)} exceeded the tolerated maximum ${String(input.scenario.maxToleratedRevisionCount)}.`,
     );
+  }
+  if (input.metrics.operations.applied > 0 && input.metrics.deterministicValidation !== 'passed') {
+    failures.push('Applied operations were not proven to pass deterministic validation.');
+  }
+  if (input.metrics.operations.applied > 0 && observedRevisionCount === 0) {
+    failures.push('Applied operations were reported without an authoritative revision change.');
   }
   if (input.metrics.runOutcome === undefined) {
     failures.push('Terminal run outcome was not observed.');
