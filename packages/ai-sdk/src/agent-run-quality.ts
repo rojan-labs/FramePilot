@@ -3,7 +3,7 @@
  *
  * This is an observer over existing run events and provider-call samples. It never applies
  * edits, changes routing, retries work or decides whether a run may commit. Missing evidence
- * stays `undefined` instead of being converted into a fabricated zero/pass.
+ * stays absent instead of being converted into a fabricated pass.
  */
 import type { AiEvent, RunStatus } from './events.js';
 import type { CapturedTurn } from './kernel/cost/baseline-capture.js';
@@ -20,6 +20,7 @@ export type AgentRunRouteMode =
 
 export type EvidenceOutcome = 'passed' | 'failed' | 'not_run' | 'unavailable';
 export type ValidationOutcome = 'passed' | 'failed' | 'not_run';
+export type CancellationIntegrityOutcome = 'passed' | 'failed';
 
 export interface AgentRunModelIdentity {
   readonly provider: string;
@@ -46,6 +47,8 @@ export interface AgentRunCancellationMetric {
   readonly state: 'not_cancelled' | 'cancelled';
   /** Milliseconds from the cancellation request to terminal cancellation, when observed. */
   readonly latencyMs?: number;
+  /** Explicitly observed post-cancel integrity. Absent means it was not evaluated. */
+  readonly integrity?: CancellationIntegrityOutcome;
 }
 
 /** Every Phase-0 metric requested by FRAMEPILOT-95-CONVERGENCE-ROADMAP.md §5.3. */
@@ -86,15 +89,41 @@ export interface CaptureAgentRunQualityInput {
   readonly projectRevisionAfter?: number;
   readonly repairAttemptCount?: number;
   readonly cancellationLatencyMs?: number;
+  readonly cancellationIntegrity?: CancellationIntegrityOutcome;
   readonly deterministicValidation?: ValidationOutcome;
   readonly renderEvidence?: EvidenceOutcome;
   readonly humanEditorialScore?: number;
+  /** Full host-observed run latency. Preferred over the event-envelope fallback. */
+  readonly wallClockMs?: number;
   /** Override when analysis/review work happens outside the AiEvent timestamp envelope. */
   readonly analysisReviewMs?: number;
 }
 
-function nonNegative(value: number | undefined): number {
-  return value === undefined || !Number.isFinite(value) || value < 0 ? 0 : value;
+function nonNegativeNumber(name: string, value: number): number {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new RangeError(`${name} must be a finite non-negative number.`);
+  }
+  return value;
+}
+
+function optionalNonNegativeNumber(name: string, value: number | undefined): number | undefined {
+  return value === undefined ? undefined : nonNegativeNumber(name, value);
+}
+
+function nonNegativeInteger(name: string, value: number): number {
+  const checked = nonNegativeNumber(name, value);
+  if (!Number.isInteger(checked)) {
+    throw new RangeError(`${name} must be a non-negative integer.`);
+  }
+  return checked;
+}
+
+function optionalNonNegativeInteger(name: string, value: number | undefined): number | undefined {
+  return value === undefined ? undefined : nonNegativeInteger(name, value);
+}
+
+function countOrZero(name: string, value: number | undefined): number {
+  return value === undefined ? 0 : nonNegativeInteger(name, value);
 }
 
 function latestTerminalStatus(events: readonly AiEvent[]): RunStatus | undefined {
@@ -110,11 +139,12 @@ function latestTerminalStatus(events: readonly AiEvent[]): RunStatus | undefined
   return undefined;
 }
 
-function wallClockMs(events: readonly AiEvent[]): number | undefined {
+function eventEnvelopeWallClockMs(events: readonly AiEvent[]): number | undefined {
   if (events.length < 2) return undefined;
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
   for (const event of events) {
+    if (!Number.isFinite(event.ts)) return undefined;
     min = Math.min(min, event.ts);
     max = Math.max(max, event.ts);
   }
@@ -131,6 +161,7 @@ function eventVisibleAnalysisReviewMs(events: readonly AiEvent[]): number | unde
   );
   if (relevant.length < 2) return undefined;
   const timestamps = relevant.map((event) => event.ts);
+  if (timestamps.some((timestamp) => !Number.isFinite(timestamp))) return undefined;
   return Math.max(...timestamps) - Math.min(...timestamps);
 }
 
@@ -156,17 +187,38 @@ export function captureAgentRunQuality(input: CaptureAgentRunQualityInput): Agen
     input.events.filter((event) => event.type === 'tool_call').map((event) => event.id),
   );
   const providerCacheHits = turns.filter((turn) => (turn.cacheReadInputTokens ?? 0) > 0).length;
-  const inputTokens = turns.reduce((sum, turn) => sum + nonNegative(turn.inputTokens), 0);
-  const outputTokens = turns.reduce((sum, turn) => sum + nonNegative(turn.outputTokens), 0);
+  const inputTokens = turns.reduce(
+    (sum, turn, index) => sum + nonNegativeInteger(`capturedTurns[${String(index)}].inputTokens`, turn.inputTokens),
+    0,
+  );
+  const outputTokens = turns.reduce(
+    (sum, turn, index) => sum + nonNegativeInteger(`capturedTurns[${String(index)}].outputTokens`, turn.outputTokens),
+    0,
+  );
   const runOutcome = latestTerminalStatus(input.events);
   const reviewFindingIds = new Set(
     input.events.filter((event) => event.type === 'review_finding').map((event) => event.id),
   );
   const operations = input.operations ?? {};
   const humanEditorialScore = input.humanEditorialScore;
-  const measuredWallClockMs = wallClockMs(input.events);
+  const measuredWallClockMs =
+    optionalNonNegativeNumber('wallClockMs', input.wallClockMs) ?? eventEnvelopeWallClockMs(input.events);
   const measuredAnalysisReviewMs =
-    input.analysisReviewMs ?? eventVisibleAnalysisReviewMs(input.events);
+    optionalNonNegativeNumber('analysisReviewMs', input.analysisReviewMs) ??
+    eventVisibleAnalysisReviewMs(input.events);
+  const projectRevisionBefore = optionalNonNegativeInteger(
+    'projectRevisionBefore',
+    input.projectRevisionBefore,
+  );
+  const projectRevisionAfter = optionalNonNegativeInteger(
+    'projectRevisionAfter',
+    input.projectRevisionAfter,
+  );
+  const cancellationLatencyMs = optionalNonNegativeNumber(
+    'cancellationLatencyMs',
+    input.cancellationLatencyMs,
+  );
+
   if (
     humanEditorialScore !== undefined &&
     (!Number.isFinite(humanEditorialScore) || humanEditorialScore < 0 || humanEditorialScore > 1)
@@ -178,31 +230,42 @@ export function captureAgentRunQuality(input: CaptureAgentRunQualityInput): Agen
     routeMode: input.routeMode,
     models: distinctModels(turns),
     modelCallCount: turns.length,
-    toolSchemasExposedPerTurn: [...(input.toolSchemasExposedPerTurn ?? [])].map(nonNegative),
+    toolSchemasExposedPerTurn: [...(input.toolSchemasExposedPerTurn ?? [])].map((value, index) =>
+      nonNegativeInteger(`toolSchemasExposedPerTurn[${String(index)}]`, value),
+    ),
     toolCallCount: uniqueToolCalls.size,
-    invalidMalformedCallCount: nonNegative(input.invalidMalformedCallCount),
-    duplicateRedundantCallCount: nonNegative(input.duplicateRedundantCallCount),
-    cacheMemoHitCount: providerCacheHits + nonNegative(input.memoHitCount),
+    invalidMalformedCallCount: countOrZero(
+      'invalidMalformedCallCount',
+      input.invalidMalformedCallCount,
+    ),
+    duplicateRedundantCallCount: countOrZero(
+      'duplicateRedundantCallCount',
+      input.duplicateRedundantCallCount,
+    ),
+    cacheMemoHitCount: providerCacheHits + countOrZero('memoHitCount', input.memoHitCount),
     tokens: { input: inputTokens, output: outputTokens },
     ...(measuredWallClockMs !== undefined ? { wallClockMs: measuredWallClockMs } : {}),
     ...(measuredAnalysisReviewMs !== undefined
       ? { analysisReviewMs: measuredAnalysisReviewMs }
       : {}),
     operations: {
-      attempted: nonNegative(operations.attempted),
-      applied: nonNegative(operations.applied),
-      rejected: nonNegative(operations.rejected),
+      attempted: countOrZero('operations.attempted', operations.attempted),
+      applied: countOrZero('operations.applied', operations.applied),
+      rejected: countOrZero('operations.rejected', operations.rejected),
     },
     revisions: {
-      ...(input.projectRevisionBefore !== undefined ? { before: input.projectRevisionBefore } : {}),
-      ...(input.projectRevisionAfter !== undefined ? { after: input.projectRevisionAfter } : {}),
+      ...(projectRevisionBefore !== undefined ? { before: projectRevisionBefore } : {}),
+      ...(projectRevisionAfter !== undefined ? { after: projectRevisionAfter } : {}),
     },
     reviewFindingCount: reviewFindingIds.size,
-    repairAttemptCount: nonNegative(input.repairAttemptCount),
+    repairAttemptCount: countOrZero('repairAttemptCount', input.repairAttemptCount),
     cancellation: {
       state: runOutcome === 'cancelled' ? 'cancelled' : 'not_cancelled',
-      ...(runOutcome === 'cancelled' && input.cancellationLatencyMs !== undefined
-        ? { latencyMs: nonNegative(input.cancellationLatencyMs) }
+      ...(runOutcome === 'cancelled' && cancellationLatencyMs !== undefined
+        ? { latencyMs: cancellationLatencyMs }
+        : {}),
+      ...(runOutcome === 'cancelled' && input.cancellationIntegrity !== undefined
+        ? { integrity: input.cancellationIntegrity }
         : {}),
     },
     ...(runOutcome ? { runOutcome } : {}),
@@ -218,12 +281,19 @@ export interface AgentOutcomePredicateObservation {
   readonly detail?: string;
 }
 
+export interface AgentOutcomeExecutionEvidence {
+  readonly inspection: 'observed' | 'not_observed' | 'not_required';
+  readonly review: 'observed' | 'not_observed' | 'not_required';
+  readonly revisionCount?: number;
+}
+
 export interface AgentOutcomeEvalRunRecord {
   readonly scenarioId: string;
   readonly tier: AgentOutcomeEvalTier;
   readonly status: 'passed' | 'failed';
   readonly hardConstraints: readonly AgentOutcomePredicateObservation[];
   readonly finalStatePredicates: readonly AgentOutcomePredicateObservation[];
+  readonly executionEvidence: AgentOutcomeExecutionEvidence;
   readonly failures: readonly string[];
   readonly metrics: AgentRunQualityMetrics;
 }
@@ -233,6 +303,8 @@ export interface BuildAgentOutcomeEvalRunRecordInput {
   readonly hardConstraints: readonly AgentOutcomePredicateObservation[];
   readonly finalStatePredicates: readonly AgentOutcomePredicateObservation[];
   readonly metrics: AgentRunQualityMetrics;
+  readonly inspectionObserved?: boolean;
+  readonly reviewObserved?: boolean;
 }
 
 function observationFailures(
@@ -240,20 +312,34 @@ function observationFailures(
   observed: readonly AgentOutcomePredicateObservation[],
   label: string,
 ): readonly string[] {
-  const byPredicate = new Map(observed.map((entry) => [entry.predicate, entry] as const));
   const failures: string[] = [];
   for (const predicate of expected) {
-    const observation = byPredicate.get(predicate);
-    if (!observation) {
+    const observations = observed.filter((entry) => entry.predicate === predicate);
+    if (observations.length === 0) {
       failures.push(`${label} was not evaluated: ${predicate}`);
-    } else if (!observation.passed) {
-      failures.push(`${label} failed: ${predicate}${observation.detail ? ` (${observation.detail})` : ''}`);
+      continue;
+    }
+    if (observations.length > 1) {
+      failures.push(`${label} was evaluated more than once: ${predicate}`);
+      continue;
+    }
+    const observation = observations[0];
+    if (observation && !observation.passed) {
+      failures.push(
+        `${label} failed: ${predicate}${observation.detail ? ` (${observation.detail})` : ''}`,
+      );
     }
   }
   return failures;
 }
 
-/** Grade hard constraints before semantic outcome predicates, matching the roadmap order. */
+function revisionCount(metrics: AgentRunQualityMetrics): number | undefined {
+  const { before, after } = metrics.revisions;
+  if (before === undefined || after === undefined) return undefined;
+  return after - before;
+}
+
+/** Grade the scenario contract before accepting semantic outcome predicates as a pass. */
 export function buildAgentOutcomeEvalRunRecord(
   input: BuildAgentOutcomeEvalRunRecordInput,
 ): AgentOutcomeEvalRunRecord {
@@ -268,18 +354,54 @@ export function buildAgentOutcomeEvalRunRecord(
     'Final-state predicate',
   );
   const failures = [...hardFailures, ...outcomeFailures];
+  const observedRevisionCount = revisionCount(input.metrics);
+  const inspection = input.scenario.inspectionExpected
+    ? input.inspectionObserved === true
+      ? 'observed'
+      : 'not_observed'
+    : 'not_required';
+  const review = input.scenario.reviewExpected
+    ? input.reviewObserved === true
+      ? 'observed'
+      : 'not_observed'
+    : 'not_required';
+
+  if (input.scenario.inspectionExpected && inspection !== 'observed') {
+    failures.push('Required inspection evidence was not observed.');
+  }
+  if (input.scenario.reviewExpected && review !== 'observed') {
+    failures.push('Required review evidence was not observed.');
+  }
+  if (observedRevisionCount === undefined) {
+    failures.push('Project revision range was not observed.');
+  } else if (observedRevisionCount < 0) {
+    failures.push('Project revision moved backwards during the run.');
+  } else if (observedRevisionCount > input.scenario.maxToleratedRevisionCount) {
+    failures.push(
+      `Project revision count ${String(observedRevisionCount)} exceeded the tolerated maximum ${String(input.scenario.maxToleratedRevisionCount)}.`,
+    );
+  }
+  if (input.metrics.runOutcome === undefined) {
+    failures.push('Terminal run outcome was not observed.');
+  }
   if (input.metrics.deterministicValidation === 'failed') {
     failures.push('Deterministic validation failed.');
   }
-  if (input.scenario.reviewExpected && input.metrics.renderEvidence === 'failed') {
-    failures.push('Required render/media evidence failed.');
+  if (input.metrics.renderEvidence === 'failed') {
+    failures.push('Render/media evidence failed.');
   }
+
   return {
     scenarioId: input.scenario.id,
     tier: input.scenario.tier,
     status: failures.length === 0 ? 'passed' : 'failed',
     hardConstraints: [...input.hardConstraints],
     finalStatePredicates: [...input.finalStatePredicates],
+    executionEvidence: {
+      inspection,
+      review,
+      ...(observedRevisionCount !== undefined ? { revisionCount: observedRevisionCount } : {}),
+    },
     failures,
     metrics: input.metrics,
   };
@@ -337,9 +459,13 @@ export function summarizeAgentOutcomeRuns(
   const revised = withRevisions.filter(
     (record) => record.metrics.revisions.after !== record.metrics.revisions.before,
   ).length;
-  const cancelled = records.filter((record) => record.metrics.cancellation.state === 'cancelled');
-  const cleanCancelled = cancelled.filter(
-    (record) => record.metrics.runOutcome === 'cancelled' && record.metrics.operations.rejected === 0,
+  const cancellationEvidence = records.filter(
+    (record) =>
+      record.metrics.cancellation.state === 'cancelled' &&
+      record.metrics.cancellation.integrity !== undefined,
+  );
+  const cleanCancelled = cancellationEvidence.filter(
+    (record) => record.metrics.cancellation.integrity === 'passed',
   );
   const rendered = records.filter(
     (record) => record.metrics.renderEvidence === 'passed' || record.metrics.renderEvidence === 'failed',
@@ -354,7 +480,9 @@ export function summarizeAgentOutcomeRuns(
     toolCalls: percentilePair(records.map((record) => record.metrics.toolCallCount)),
     revisionRate: withRevisions.length === 0 ? undefined : revised / withRevisions.length,
     cancellationIntegrity:
-      cancelled.length === 0 ? undefined : cleanCancelled.length / cancelled.length,
+      cancellationEvidence.length === 0
+        ? undefined
+        : cleanCancelled.length / cancellationEvidence.length,
     renderValidity:
       rendered.length === 0
         ? undefined
