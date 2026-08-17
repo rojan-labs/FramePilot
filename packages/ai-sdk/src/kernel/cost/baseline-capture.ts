@@ -32,6 +32,8 @@
  *   later phase then "matches".
  * - Pricing is optional and explicit. Without a price table the samples carry tokens and
  *   timings only.
+ * - Provider capabilities are preserved exactly. Wrapping a completion-only provider
+ *   must not manufacture a `stream()` capability and silently change orchestrator flow.
  */
 import type { ModelTier } from '../proposers/types.js';
 import { DEFAULT_TIER_PRICING, estimateUsd, type TierPrice } from './cost-meter.js';
@@ -71,16 +73,17 @@ export interface BaselineCaptureOptions {
   readonly tier?: ModelTier;
 }
 
+type ProviderStream = NonNullable<AiProvider['stream']>;
+
 /**
  * Wrap a provider so every model call it serves is measured.
  *
- * The decorator is transparent: chunks are forwarded unchanged and in order, errors
- * propagate untouched, and an aborted stream still records what it managed to measure —
- * a cancelled turn's partial timing is real data, and dropping it would bias the sample
- * toward runs that happened to finish.
+ * The decorator is transparent: provider capabilities, chunks, order, errors and aborts
+ * are preserved. A cancelled turn still records the partial timing it actually produced.
  */
 export class BaselineCaptureProvider implements AiProvider {
   public readonly name: ProviderName;
+  public readonly stream?: ProviderStream;
 
   private readonly samples: CapturedTurn[] = [];
   private readonly now: () => number;
@@ -95,6 +98,14 @@ export class BaselineCaptureProvider implements AiProvider {
   ) {
     this.name = inner.name;
     this.now = options.now ?? (() => Date.now());
+
+    // `AiProvider.stream` is intentionally optional. Exposing a stream function when the
+    // wrapped provider has none makes the orchestrator select a different transport path,
+    // which means the measuring rig changes the behavior it is supposed to observe.
+    if (inner.stream !== undefined) {
+      const innerStream = inner.stream.bind(inner);
+      this.stream = (request, signal) => this.captureStream(innerStream, request, signal);
+    }
   }
 
   /** Every call measured so far, in call order. */
@@ -112,9 +123,10 @@ export class BaselineCaptureProvider implements AiProvider {
       this.record({ ttftMs: wallMs, wallMs, streamed: false, usage: response.usage });
       return response;
     } catch (error) {
+      const ended = this.now();
       this.record({
-        ttftMs: this.now() - started,
-        wallMs: this.now() - started,
+        ttftMs: ended - started,
+        wallMs: ended - started,
         streamed: false,
         usage: undefined,
       });
@@ -122,18 +134,17 @@ export class BaselineCaptureProvider implements AiProvider {
     }
   }
 
-  public async *stream(
+  private async *captureStream(
+    innerStream: ProviderStream,
     request: AiCompletionRequest,
     signal?: AbortSignal,
   ): AsyncIterable<ProviderChunk> {
-    /* v8 ignore next -- the rig is only ever wrapped around streaming providers */
-    if (!this.inner.stream) return;
     const started = this.now();
     let firstContentAt: number | undefined;
     let usage: Usage | undefined;
 
     try {
-      for await (const chunk of this.inner.stream(request, signal)) {
+      for await (const chunk of innerStream(request, signal)) {
         if (
           firstContentAt === undefined &&
           (chunk.type === 'text-delta' || chunk.type === 'reasoning-delta')
