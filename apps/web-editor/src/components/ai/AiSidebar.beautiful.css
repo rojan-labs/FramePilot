@@ -197,16 +197,6 @@
   border-radius: 8px;
 }
 
-.ai-toggle-track {
-  border-color: var(--ai-line-strong);
-  background: var(--ai-inset);
-}
-
-.ai-toggle-input:checked + .ai-toggle-track {
-  border-color: var(--ai-ink);
-  background: var(--ai-ink);
-}
-
 /* ── Stream shell ──────────────────────────────────────────────────────── */
 
 .ai-stream {

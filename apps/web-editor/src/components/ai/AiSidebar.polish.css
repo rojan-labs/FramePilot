@@ -87,6 +87,31 @@
    its normal inset. */
 .ai-event--notice > .ai-tone-icon {
   margin-left: -8px;
+  /* styles.css aligns the icon to `flex-start` (against the text's first line) and
+     nudges it 2px down to land on that line's cap-height. That breaks the moment a
+     sibling makes the row taller than the text — e.g. a Retry button (~28px) next to
+     one line of text (~17px) — because `.ai-notice-body`'s own `align-items: center`
+     then re-centers the TEXT against that taller row while the icon stays pinned to
+     the row's top, landing them on different baselines. Center the icon against the
+     row's actual height instead, which degrades gracefully to ~flex-start when there
+     is no taller sibling. */
+  align-self: center;
+  margin-top: 0;
+}
+
+/* `.ai-event` sets `overflow-wrap: anywhere; word-break: break-word` so long unbroken
+   tokens in the MESSAGE text (ids, URLs, provider error JSON) wrap inside the card
+   instead of overflowing it. That rule inherits into Retry too. `.ai-notice-actions`
+   has no `flex-shrink: 0`, so a long error message can squeeze it below "Retry"'s own
+   width — and the inherited anywhere-wrap then breaks the word letter-by-letter into a
+   vertical stack instead of leaving it on one line. Exempt the action row: it should
+   never be a wrap target, and should never be forced to shrink for the message next to
+   it — the message wraps; the buttons don't. */
+.ai-notice-actions {
+  flex: none;
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: nowrap;
 }
 
 .ai-run-footer {

@@ -81,6 +81,7 @@ import {
 } from '../icons.js';
 import { Menu, MenuItem } from '../Menu.js';
 import { Tooltip } from '../Tooltip.js';
+import { Switch } from '@framepilot/ui';
 import type { AiStreamAnswerMessage } from '@framepilot/shared-types';
 import { EventNode, type RevealHandler } from './EventNode.js';
 import { HistoryDrawer } from './HistoryDrawer.js';
@@ -1393,30 +1394,25 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
             }
           </Menu>
           {/* Agent "Plan first" toggle. Lives in the header (an agent-run preference)
-              rather than above the composer. The switch alone reads as an unlabeled
-              on/off with no visible state — a name and hint hidden entirely behind
+              rather than above the composer. A name and hint hidden entirely behind
               hover/focus is not discoverable on a control this consequential, so the
               name stays on screen and only the longer explanation is tooltip-only.
-              Agent mode only. */}
+              Uses the shared `Switch` primitive (packages/ui) — the same control
+              Settings uses — rather than a bespoke AI-only toggle, so the app has one
+              switch design instead of two that drift apart. Agent mode only. */}
           {mode === 'agent' && (
             <Tooltip label={PLAN_FIRST_HINT}>
-              <label className="ai-header-toggle" aria-label={`Plan first: ${PLAN_FIRST_HINT}`}>
+              <span className="ai-header-toggle">
                 <span className="ai-header-toggle-label" aria-hidden="true">
                   Plan first
                 </span>
-                <span className="ai-toggle">
-                  <input
-                    type="checkbox"
-                    className="ai-toggle-input"
-                    checked={planFirst}
-                    onChange={(e) => setPlanFirst(e.target.checked)}
-                    data-testid="ai-plan-first"
-                  />
-                  <span className="ai-toggle-track" aria-hidden="true">
-                    <span className="ai-toggle-thumb" />
-                  </span>
-                </span>
-              </label>
+                <Switch
+                  checked={planFirst}
+                  label={`Plan first: ${PLAN_FIRST_HINT}`}
+                  onCheckedChange={setPlanFirst}
+                  data-testid="ai-plan-first"
+                />
+              </span>
             </Tooltip>
           )}
         </div>
@@ -1650,24 +1646,18 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
 
           {mode === 'edit' && !getBridge() && (
             <div className="ai-agent-options">
-              <label className="ai-agent-option">
-                <span className="ai-toggle">
-                  <input
-                    type="checkbox"
-                    className="ai-toggle-input"
-                    checked={wantVariations}
-                    onChange={(e) => setWantVariations(e.target.checked)}
-                    data-testid="ai-want-variations"
-                  />
-                  <span className="ai-toggle-track" aria-hidden="true">
-                    <span className="ai-toggle-thumb" />
-                  </span>
-                </span>
+              <div className="ai-agent-option">
+                <Switch
+                  checked={wantVariations}
+                  label="Show 2 alternatives"
+                  onCheckedChange={setWantVariations}
+                  data-testid="ai-want-variations"
+                />
                 <span>Show 2 alternatives</span>
                 <span className="ai-agent-option-hint">
                   Runs a second AI take to compare — doubles the real cost of this edit
                 </span>
-              </label>
+              </div>
             </div>
           )}
 
