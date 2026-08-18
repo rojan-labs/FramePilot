@@ -32,7 +32,7 @@ dependencies = [
   # Visual embeddings (plan MI2.1): direct HTTP client for the NVIDIA
   # integrate.api.nvidia.com embeddings endpoint with multi-key failover.
   # BSD-3-Clause; already an indirect dep via fastapi's ecosystem tooling.
-  "httpx>=0.27",
+  "httpx>=0.28.1",
   # Vector search (plan MI2.3): sqlite-vec loads a vec0 virtual table into the
   # existing brain.sqlite for indexed KNN. Apache-2.0. Loaded lazily via the
   # vector-store seam and degrades to the brute-force cosine path if the native
@@ -63,7 +63,7 @@ dev = [
   "pytest-asyncio>=0.24",
   "ruff>=0.6",
   "mypy>=1.11",
-  "httpx>=0.27",
+  "httpx>=0.28.1",
   # Mocks the NVIDIA embeddings HTTP surface (plan §6: no live API calls in
   # any test tier). Apache-2.0.
   "respx>=0.21",
