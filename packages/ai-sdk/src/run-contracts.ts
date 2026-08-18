@@ -6,6 +6,7 @@
  * command, persisted event, and restored snapshot is parsed here before use.
  */
 import { z } from 'zod/v4';
+import type { DurableRunStartRequest } from '@framepilot/shared-types';
 import { KEY_DIGEST_CHARS, MAX_IDENTITY_KEY_CHARS, boundedKeySegment } from './stable-key.js';
 
 export const RUN_PROTOCOL_SCHEMA_VERSION = 1 as const;
@@ -190,6 +191,23 @@ export type DurableRunMode = (typeof DURABLE_RUN_MODES)[number];
  * migration only — nothing new is ever written with it.
  */
 const RETIRED_PLANNED_EDIT_MODE = 'planned-edit';
+
+/**
+ * Compile-time lockstep with `DurableRunStartRequest['mode']` in `@framepilot/shared-types`.
+ * That package cannot import this one (the dependency runs the other way), so the check lives
+ * here: adding or removing a run mode on either side fails typecheck instead of silently
+ * letting the renderer-facing contract and the durable schema drift apart.
+ */
+type MutuallyAssignable<Left, Right> = [Left] extends [Right]
+  ? [Right] extends [Left]
+    ? true
+    : false
+  : false;
+/** Fails to compile unless the two unions are exactly equal. */
+type AssertTrue<T extends true> = T;
+export type DurableRunModeLockstep = AssertTrue<
+  MutuallyAssignable<DurableRunMode, DurableRunStartRequest['mode']>
+>;
 
 const DurableRunModeSchema = z
   .enum([...DURABLE_RUN_MODES, RETIRED_PLANNED_EDIT_MODE])

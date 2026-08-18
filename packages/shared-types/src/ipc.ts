@@ -721,7 +721,14 @@ export interface DurableRunStartRequest {
   readonly projectId: string;
   readonly projectRevision: number;
   readonly userPrompt: string;
-  readonly mode: 'auto' | 'chat' | 'plan' | 'edit' | 'agent' | 'planned-edit' | 'review';
+  /**
+   * Modes a renderer may START a durable run in. `planned-edit` was removed with the second
+   * mutating execution route (ADR 0126) and is rejected at the IPC boundary; historic durable
+   * records that still carry it are normalized to `agent` on read. Kept in lockstep with
+   * `DURABLE_RUN_MODES` in `@framepilot/ai-sdk` by a compile-time check there (this package
+   * cannot import from that one — the dependency runs the other way).
+   */
+  readonly mode: 'auto' | 'chat' | 'plan' | 'edit' | 'agent' | 'review';
   readonly selection?: unknown;
   readonly agentOptions?: unknown;
   readonly contextHandles?: readonly string[];
