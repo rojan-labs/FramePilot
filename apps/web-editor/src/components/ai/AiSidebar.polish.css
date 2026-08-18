@@ -6,7 +6,7 @@
  */
 
 .ai-sidebar {
-  --ai-shell-gutter: 10px;
+  --ai-shell-gutter: 4px;
   --ai-thread-slot: 18px;
   --ai-thread-line-x: 8px;
   --ai-thread-card-gap: 7px;
@@ -87,16 +87,6 @@
    its normal inset. */
 .ai-event--notice > .ai-tone-icon {
   margin-left: -8px;
-  /* styles.css aligns the icon to `flex-start` (against the text's first line) and
-     nudges it 2px down to land on that line's cap-height. That breaks the moment a
-     sibling makes the row taller than the text — e.g. a Retry button (~28px) next to
-     one line of text (~17px) — because `.ai-notice-body`'s own `align-items: center`
-     then re-centers the TEXT against that taller row while the icon stays pinned to
-     the row's top, landing them on different baselines. Center the icon against the
-     row's actual height instead, which degrades gracefully to ~flex-start when there
-     is no taller sibling. */
-  align-self: center;
-  margin-top: 0;
 }
 
 /* `.ai-event` sets `overflow-wrap: anywhere; word-break: break-word` so long unbroken
@@ -135,6 +125,14 @@
 .ai-tool-head {
   width: 100%;
   min-width: 0;
+  min-height: 24px;
+  align-items: center;
+}
+
+.ai-step-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .ai-tool-toggle {
