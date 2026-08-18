@@ -206,7 +206,7 @@
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
-  padding: 10px 10px 14px;
+  padding: 2px 4px 6px;
   scrollbar-gutter: stable;
   background: var(--ai-canvas);
 }
@@ -238,24 +238,12 @@
 }
 
 .ai-step-slot::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: -6px;
-  left: 8px;
-  width: 1px;
-  background: var(--ai-line);
-}
-
-.ai-event:last-child .ai-step-slot::before {
-  bottom: 50%;
+  display: none;
 }
 
 .ai-step-node,
 .ai-bead {
-  position: relative;
-  z-index: 1;
-  box-shadow: 0 0 0 3px var(--ai-canvas);
+  display: none;
 }
 
 .ai-step-body {
@@ -1095,9 +1083,9 @@
 /* ── Notices / review findings ─────────────────────────────────────────── */
 
 .ai-event--notice {
-  min-height: 32px;
-  margin: 4px 2px 4px 20px;
-  padding: 6px 8px;
+  min-height: 28px;
+  margin: 3px 2px 3px 20px;
+  padding: 5px 7px;
   border: 0;
   border-radius: 9px;
   background: var(--ai-inset);
@@ -1107,8 +1095,12 @@
 .ai-notice-body {
   min-width: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
+}
+
+.ai-notice-actions {
+  align-self: center;
 }
 
 .ai-notice-text {

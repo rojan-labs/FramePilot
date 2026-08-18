@@ -8251,15 +8251,7 @@ details.inspector-panel[open] > .inspector-section-head::before {
 .ai-event--plan::before,
 .ai-event--action::before,
 .ai-event--progress::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: var(--ai-rail-x);
-  width: 1px;
-  /* `--border-subtle` (0.055 alpha) disappears entirely at 1px against the panel —
-     the thread has to actually be visible for the whole structure to read. */
-  background: var(--border-default);
+  display: none;
 }
 .ai-step-slot {
   flex: 0 0 var(--ai-gutter);
@@ -10249,13 +10241,7 @@ details.inspector-panel[open] > .inspector-section-head::before {
   padding: 1px 0;
 }
 .ai-event--finding::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: var(--ai-rail-x);
-  width: 1px;
-  background: var(--border-default);
+  display: none;
 }
 .ai-finding-body {
   display: flex;
