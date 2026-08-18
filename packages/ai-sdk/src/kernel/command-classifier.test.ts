@@ -5,7 +5,9 @@
  * returns `null` (→ safe fallback).
  */
 import { describe, expect, it } from 'vitest';
+import { makeProject } from '../__fixtures__/project.js';
 import {
+  projectHeaderOf,
   FALLBACK_CLASSIFICATION,
   buildClassifierMessages,
   parseClassification,
@@ -89,5 +91,29 @@ describe('parseClassification', () => {
 describe('FALLBACK_CLASSIFICATION', () => {
   it('is the safe edit route', () => {
     expect(FALLBACK_CLASSIFICATION).toEqual({ route: 'edit' });
+  });
+});
+
+describe('projectHeaderOf', () => {
+  // Moved here from the deleted planner path (ADR 0126); the classifier is its only
+  // consumer now, so its coverage lives with it.
+  const project = makeProject();
+
+  it('derives duration from the furthest clip end, not the asset length', () => {
+    expect(projectHeaderOf(project)).toEqual({
+      durationSeconds: 10,
+      resolution: { width: 1920, height: 1080 },
+      layerCount: 2,
+    });
+  });
+
+  it('omits platform when none is supplied and carries it when one is', () => {
+    expect(projectHeaderOf(project)).not.toHaveProperty('platform');
+    expect(projectHeaderOf(project, 'reels')).toMatchObject({ platform: 'reels' });
+  });
+
+  it('reports zero duration for a project with no clips', () => {
+    const empty = makeProject({ timeline: { tracks: [{ id: 'v', type: 'video', clips: [] }] } });
+    expect(projectHeaderOf(empty).durationSeconds).toBe(0);
   });
 });

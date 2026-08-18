@@ -161,6 +161,9 @@ function terminalStatusOf(events: readonly AiEvent[]): RunStatus | undefined {
     const event = events[index];
     if (event?.type === 'status') return event.status;
   }
+  /* v8 ignore next -- unreachable in practice: every orchestrator route settles on a
+     terminal status event, so a stream with no status at all cannot be produced by a
+     scenario. Kept as a total function rather than a non-null assertion. */
   return undefined;
 }
 
@@ -216,6 +219,10 @@ export async function observeRuntimeScenario(
         applied: 0,
         rejected: 0,
       },
+      /* v8 ignore next 6 -- the 'failed' arm needs an emitted diff whose validation did
+         NOT pass. Editor-core rejects an invalid patch before a diff is emitted, so no
+         scenario can currently reach it; it exists so a future regression that DOES emit
+         one is reported as a validation failure instead of silently as 'passed'. */
       deterministicValidation:
         diffs.length === 0
           ? 'not_run'

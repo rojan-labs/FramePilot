@@ -19,6 +19,34 @@ import {
 import { EDITOR_RUN_ROUTE_POLICY, EditorRunRouteSchema } from './kernel/editor-run-lifecycle.js';
 import { CommandClassificationSchema } from './kernel/command-classifier.js';
 
+/** A clean observation that violates nothing — each case below breaks exactly one thing. */
+const CLEAN: RuntimeObservation = {
+  metrics: { modelCallCount: 2 } as RuntimeObservation['metrics'],
+  terminalStatus: 'completed',
+  operationKinds: ['ripple_delete'],
+  validated: true,
+  reversible: true,
+  eventKinds: ['diff', 'status'],
+  reportedItsFailure: true,
+  reviewWroteNothing: true,
+};
+
+const SCENARIO = {
+  id: 'synthetic',
+  tier: 'B',
+  goal: 'g',
+  rationale: 'unit coverage for the violation checker itself',
+  project: () => ({}) as never,
+  agentScript: [],
+  executor: () => ({ run: async () => ({ status: 'completed' as const, summary: '' }) }),
+  expect: { terminalStatus: 'completed', operationKinds: ['ripple_delete'], maxModelCalls: 4 },
+} as const;
+
+const detailsFor = (patch: Partial<RuntimeObservation>): string =>
+  conformanceViolations(SCENARIO as never, { ...CLEAN, ...patch })
+    .map((violation) => violation.detail)
+    .join(' | ');
+
 async function observeAll(): Promise<readonly (readonly [string, RuntimeObservation])[]> {
   const entries: (readonly [string, RuntimeObservation])[] = [];
   for (const scenario of RUNTIME_CONFORMANCE_SCENARIOS) {
@@ -102,6 +130,49 @@ describe('single mutating AI runtime — conformance', () => {
       'question',
       'edit',
     ]);
+  });
+
+  // The checker is what makes the suite above mean anything. If its failure branches were
+  // broken it would report "no violations" for every run and the whole file would pass
+  // vacuously, so each branch is exercised directly against a synthetic observation.
+  describe('the violation checker itself', () => {
+    it('passes a clean observation', () => {
+      expect(conformanceViolations(SCENARIO as never, CLEAN)).toEqual([]);
+    });
+
+    it.each([
+      [{ terminalStatus: 'failed' as const }, 'terminal status was "failed"'],
+      [{ operationKinds: [] }, 'landed operations []'],
+      [
+        { metrics: { modelCallCount: 0 } as RuntimeObservation['metrics'] },
+        'no model call was observed',
+      ],
+      [
+        { metrics: { modelCallCount: 9 } as RuntimeObservation['metrics'] },
+        'over the bound of 4',
+      ],
+      [{ validated: false }, 'without a passing deterministic validation'],
+      [{ reversible: false }, 'does not invert back'],
+      [{ reportedItsFailure: false }, 'no error or warning explaining why'],
+      [{ reviewWroteNothing: false }, 'review must stay read-only'],
+    ])('reports %j', (patch, expected) => {
+      expect(detailsFor(patch)).toContain(expected);
+    });
+
+    it('attaches the scenario rationale to every violation so a break is self-explaining', () => {
+      const violations = conformanceViolations(SCENARIO as never, {
+        ...CLEAN,
+        terminalStatus: 'failed',
+      });
+      expect(violations[0]?.scenarioId).toBe('synthetic');
+      expect(violations[0]?.detail).toContain(SCENARIO.rationale);
+    });
+
+    it('treats "emitted no patch" as different from "emitted an irreversible patch"', () => {
+      // `undefined` means there was nothing to reverse, which a cancel/failure scenario
+      // reaches legitimately. Only `false` is a defect.
+      expect(detailsFor({ reversible: undefined, operationKinds: [] })).not.toContain('invert');
+    });
   });
 
   it('serializes observations as stable JSON for the convergence evidence record', async () => {

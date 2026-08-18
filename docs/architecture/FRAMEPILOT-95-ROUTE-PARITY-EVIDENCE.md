@@ -63,7 +63,8 @@ Gate summary: **`retirement_unblocked`**, blockers `[]`.
    argument shape reached the host analysis engine directly. This was discovered *by* the
    harness: the agent rejected `analyze_silence({ trackId })` with "Unrecognized key" while
    `planned_edit` passed the same arguments straight through. Retiring the route closes the
-   hole; `route-parity.test.ts` pins the invariant behaviourally.
+   hole; `mutating-runtime-conformance.test.ts` pins the invariant behaviourally by asserting
+   the host executor never receives the malformed call.
 
 ## What was NOT measured, and why
 
