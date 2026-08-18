@@ -976,7 +976,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
           conversations.append(conversation.id, noticeEmitter.notification(notice));
         }
         // Make the speed/cost win visible in creator language (P2.2/P7.2): every run whose
-        // real cost we actually know (today: the planned-edit path, the only one that
+        // real cost we actually know (today: the single-proposal run path, the one that
         // emits a `usage` event) gets a chip — "Instant · no AI needed" for a run that
         // never called a model, or an honest "AI edits used this session" otherwise. Raw
         // token/$ numbers NEVER appear here unless the user opted into the dev/pro toggle

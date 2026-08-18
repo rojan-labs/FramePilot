@@ -829,7 +829,7 @@ export interface OrchestratorOptions {
   readonly executor?: HostToolExecutor;
   /**
    * Dev/debug affordance (P7.3, plan/AGENT-NATIVE-COMPLETION-PLAN.md): when true, every
-   * effect `streamRecipe`/`streamPlannedEdit` runs is captured via
+   * effect an agent run executes is captured via
    * `createRecordingEffectRuntime` and, once the run settles, handed to
    * {@link OrchestratorOptions.onRecording} — a dev console or test can then replay it
    * with `createReplayEffectRuntime` and **zero** provider/host calls (`replay.ts`).
@@ -1279,7 +1279,7 @@ export class Orchestrator {
   }
 
   /**
-   * Build the {@link EffectRuntime} for one `streamRecipe`/`streamPlannedEdit` run, wrapped
+   * Build the {@link EffectRuntime} for one run, wrapped
    * in {@link createRecordingEffectRuntime} when `recordEffects` is on (P7.3). `finish` must
    * be called once the run settles (on every terminal path) so a recording run always hands
    * its `RunRecording` to `onRecording` — plain (non-recording) runs get a no-op `finish`.
@@ -3648,7 +3648,7 @@ export class Orchestrator {
     };
     try {
       // Fallback ordinal for routes whose diffs carry no `turnIndex` (the single-proposal
-      // recipe/planned-edit routes emit one `scope:'run'` diff). Findings still need a
+      // the `edit` route emits one `scope:'run'` diff). Findings still need a
       // monotonic key to compare against later edits.
       let turnOrdinal = 0;
       for await (const event of this.legacyEditorRun(
@@ -4207,7 +4207,7 @@ export class Orchestrator {
     // sidebar tell a deterministic recipe (0 calls, honestly free) apart from a run
     // whose provider returned no usage report (calls > 0, cost unknown, and emphatically
     // not "no AI needed"). See `UsageEvent.modelCalls`.
-    /* v8 ignore next -- unreachable today: every caller either omits `initialCost` entirely (the default already sets `modelCalls: 0`) or passes it with `modelCalls` explicitly stamped (see `streamAuto`'s planned-edit fallback), so the `?? 0` never actually fires. */
+    /* v8 ignore next -- unreachable today: every caller either omits `initialCost` entirely (the default already sets `modelCalls: 0`) or passes it with `modelCalls` explicitly stamped (see `streamAuto`'s edit route), so the `?? 0` never actually fires. */
     let modelCalls = initialCost.modelCalls ?? 0;
     // The emitter of the handler currently executing; `settle` reads its seq so a mid-run
     // throw continues the run's one-off id sequence exactly where it stopped. Seeded with a
@@ -4749,7 +4749,7 @@ export class Orchestrator {
         const emit = createTurnEmitter(state.turnRef, state.seq);
         // C1: the run's real, combined cost (classifier + every turn + any repair pass) —
         // emitted once at the terminal boundary, mirroring `streamRecipe`/
-        // `streamPlannedEdit`'s identical `emit.usage(...)` call.
+        // the single terminal `emit.usage(...)` contract every route shares.
         yield emit.usage({ tokens: usageTokens, usd: usageUsd, modelCalls });
         if (!effect.cancelled && !effect.failed && effect.ops.length > 0) {
           yield emit.assistant(

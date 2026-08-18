@@ -3,7 +3,11 @@
 **Status:** Phase 1 retirement-gate evidence
 **Roadmap:** `plan/FRAMEPILOT-95-CONVERGENCE-ROADMAP.md` §6.1, §6.3
 **Census:** `docs/architecture/FRAMEPILOT-95-MUTATION-ROUTE-CENSUS.md`
-**Harness:** `packages/ai-sdk/src/route-parity.ts` · scenarios `route-parity-scenarios.ts` · gate `route-parity.test.ts`
+**Harness (at the parity commit `34144a1`):** `packages/ai-sdk/src/route-parity.ts` ·
+scenarios `route-parity-scenarios.ts` · gate `route-parity.test.ts`
+**Harness (today):** `packages/ai-sdk/src/mutating-runtime-conformance.ts` — once the second
+route was retired the comparator had no subject, so the same scenarios and observations
+became invariants of the one runtime. The comparative harness is reproducible at `34144a1`.
 
 ## What this document is
 
@@ -82,5 +86,9 @@ rather than an inferred pass.
 ## Maintenance rule
 
 This document is evidence for one deletion. It is not a standing claim. If a future change
-reintroduces a second mutating route, the parity harness — not this table — is the thing to
-re-run.
+reintroduces a second mutating route, restore the comparative harness from `34144a1` and
+re-run it — do not cite this table.
+
+The invariants it proved are enforced continuously by
+`packages/ai-sdk/src/mutating-runtime-conformance.test.ts`, which also asserts that exactly
+one mutating route remains in the run contracts.

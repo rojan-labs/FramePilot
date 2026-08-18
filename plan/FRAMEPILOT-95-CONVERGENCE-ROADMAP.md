@@ -1,7 +1,9 @@
 # FramePilot 9.5 Convergence Roadmap
 
-**Status:** `[ ]` proposed priority program
+**Status:** `[~]` in progress — Phase 0 measurement merged (PR #13); Phase 1 runtime
+convergence complete (ADR 0126). Phases 2-11 not started.
 **Created:** 2026-08-16
+**Last reconciled:** 2026-08-18 against the code, not against these checkboxes.
 **Target branch:** `main`
 **Owner:** maintainer
 **Purpose:** move FramePilot toward a measured 9.5/10 across product, editing-machine, AI-agent, reliability, UX, and architectural simplicity benchmarks without adding speculative systems.
@@ -464,11 +466,18 @@ Generate and maintain a simple table:
 
 ## Phase 0 exit criteria
 
-- [ ] Representative agent evals run through current production-like paths.
+- [x] Representative agent evals run through current production-like paths.
+      *(Deterministic rows only. `professional-agent-evals.ts`, 50 scenarios.)*
 - [ ] Baseline metrics replace the working score estimates in this document.
-- [ ] Every mutating route is identified.
-- [ ] Every route's validation, revision, persistence, cancellation, review, and undo semantics are documented.
-- [ ] No architecture deletion has happened before this evidence exists.
+      **Blocked on the maintainer:** needs a provider key and real source media. The
+      measuring contracts exist (`agent-run-quality.ts`, `pnpm eval:agent:foundation:real`);
+      no number in the §4 table has been replaced, and none should be until they are real.
+- [x] Every mutating route is identified.
+      *(`docs/architecture/FRAMEPILOT-95-MUTATION-ROUTE-CENSUS.md`, kept live.)*
+- [x] Every route's validation, revision, persistence, cancellation, review, and undo semantics are documented.
+- [x] No architecture deletion happened before this evidence existed.
+      *(The Phase-1 deletion is gated on the parity record, with two dimensions explicitly
+      waived by the maintainer rather than inferred — see the evidence document.)*
 
 ---
 
@@ -590,11 +599,43 @@ agent
 
 ## Phase 1 exit criteria
 
-- [ ] One mutating agent runtime owns all natural-language edit execution.
-- [ ] Planning remains available without requiring a second mutation runtime.
-- [ ] No supported scenario regresses beyond agreed eval tolerance.
-- [ ] Duplicate runtime modules are deleted or reclassified as generic infrastructure.
-- [ ] Architecture docs clearly state the sole mutating execution path.
+- [x] One mutating agent runtime owns all natural-language edit execution.
+      *(ADR 0126. `planned_edit` is gone from the classifier, the editor-run lifecycle enum,
+      the desktop stream modes and the IPC contract.)*
+- [x] Planning remains available without requiring a second mutation runtime.
+      *(The agent already owns plan state: `planFirst`, `AgentRun.plan`, plan-approval
+      gating, and the run ledger. No new planning state was needed.)*
+- [x] No supported scenario regresses beyond agreed eval tolerance.
+      *(Deterministic scenarios only — see the waiver note below.)*
+- [x] Duplicate runtime modules are deleted.
+      *(plan-driver, plan-compiler, graph-executor, task-graph, scheduler, recipe-leaves,
+      intent-parser, planner, edit-proposer, and their prompts.)*
+- [x] Architecture docs clearly state the sole mutating execution path.
+      *(`docs/architecture/ai-engine.md`, the census, ADR 0126.)*
+
+### Waivers carried out of Phase 1
+
+Two §6.3 conditions could not be discharged deterministically and were **explicitly waived by
+the maintainer**, not satisfied:
+
+| Condition | Status | What would discharge it |
+| --- | --- | --- |
+| primary-agent success equal or better on the representative set | **waived** | the Phase-0 real-provider capture with editorial scoring |
+| latency and cost within agreed budget | **waived (cost measured, latency not)** | the same capture, recording p50/p95 |
+
+Model-call cost *was* measured and favours the agent. Wall-clock latency and editorial
+quality were not, because a scripted provider cannot produce either. Recorded here so a
+later reader does not mistake an unmeasured dimension for a proven one.
+
+### Follow-up opened by this phase
+
+- [ ] **The single-shot `edit` route is a second mutating entry point.** It is a proposal
+      surface, not a second runtime — no loop, no conductor, no durable checkpointing, and no
+      authority the agent lacks — but §4's "1 mutating AI runtime" is not literally true while
+      it exists. Its user-facing value (one quick reviewable edit; browser-only `variations`
+      A/B takes) is real, so it was deliberately NOT folded into the agent in this phase.
+      Converging it means running Edit mode as a turn-bounded agent run and deciding what
+      happens to `variations`. Tracked here rather than silently claimed as done.
 
 ---
 
@@ -1288,30 +1329,36 @@ Deletion is a roadmap item, not incidental cleanup.
 
 Track these counts over time:
 
-| Complexity metric | Target |
-| --- | ---: |
-| mutating AI runtimes | 1 |
-| project mutation authorities | 1 |
-| final render authorities | 1 |
-| review writers | 0 |
-| AI-only editor mutation APIs | 0 |
-| independent planning executors | 0 unless benchmark-justified |
-| user-visible orchestration modes that change safety semantics | 0 |
-| stale architecture docs claiming retired systems | 0 |
+| Complexity metric | Target | Measured 2026-08-18 |
+| --- | ---: | --- |
+| mutating AI runtimes | 1 | **1** agent runtime, plus the single-shot `edit` proposal surface (Phase-1 follow-up) |
+| project mutation authorities | 1 | **1** — `editor-core` |
+| final render authorities | 1 | **1** — Python/FFmpeg |
+| review writers | 0 | **0** — asserted per scenario by the conformance suite |
+| AI-only editor mutation APIs | 0 | **0** |
+| independent planning executors | 0 unless benchmark-justified | **0** — the planner executor was benchmarked and removed |
+| user-visible orchestration modes that change safety semantics | 0 | **0** — `agent`/`chat`/`edit` share validation, revision and undo |
+| stale architecture docs claiming retired systems | 0 | **0** — ADRs 0082/0084/0085 marked superseded rather than rewritten |
 
 ## Candidate deletion list after proven migration
 
-Evaluate, do not blindly delete:
+Phase 1 result (`[x]` = deleted, `[-]` = kept with a reason):
 
-- `streamPlannedEdit`;
-- planner-only intent parsing;
-- plan compiler used only by planned-edit execution;
-- planned-edit graph executor/task graph pieces with no generic infrastructure consumer;
-- effect runtime pieces serving only the retired route;
-- duplicate cost/cancellation/event logic;
-- duplicate routing fallbacks;
-- stale recipe-era naming where it obscures generic infrastructure;
-- obsolete architecture plans and ADR status claims, preserving historical ADRs but marking supersession clearly.
+- [x] `streamPlannedEdit`;
+- [x] planner-only intent parsing (`proposers/intent-parser.ts`; `ProjectHeader`/
+      `projectHeaderOf` moved to `command-classifier.ts`, their only surviving consumer);
+- [x] plan compiler used only by planned-edit execution;
+- [x] planned-edit graph executor / task graph / scheduler — none had a generic
+      infrastructure consumer, so §6.4's "keep the scheduler under a tool" did not apply;
+- [x] `recipe-leaves.ts` and `proposers/planner.ts` / `proposers/edit-proposer.ts`;
+- [x] duplicate cost/cancellation/event logic (the `streamAuto` fallback cost re-seeding);
+- [x] duplicate routing fallbacks (the declined-plan → agent continuation);
+- [-] the effect runtime itself: still used by the agent, replay and the gateway — it is
+      generic infrastructure below tools, exactly the §6.4 shape;
+- [-] `createAnalysisBagWarmer` in `brain-client.ts`: its orchestrator option was
+      planned-edit-only and is removed, but the brain read primitive is Phase-5 material.
+      It currently has no production consumer — a tracked loose end, not a live path;
+- [x] obsolete ADR status claims — 0082/0085 marked superseded, 0084 narrowed, history kept.
 
 ## Keep unless evidence says otherwise
 
@@ -1564,12 +1611,13 @@ The FramePilot 9.5 Convergence Program is complete when:
 - [ ] the benchmark table has measured evidence rather than subjective baseline estimates;
 - [ ] canonical supported agent-edit scenarios achieve >=95% target success;
 - [ ] the north-star raw-footage-to-finished-edit workflow is publishable-quality across representative projects;
-- [ ] there is one mutating AI runtime;
+- [~] there is one mutating AI runtime — `planned_edit` retired (ADR 0126); the single-shot
+      `edit` proposal surface remains, see the Phase-1 follow-up;
 - [ ] there is one authoritative editor command/transaction semantics per supported edit;
 - [ ] there is one project truth and one final-render authority;
 - [ ] review is read-only and cannot become a second writer;
 - [ ] every AI mutation remains typed, validated, inspectable, revision-safe, and undoable;
-- [ ] planned-edit machinery is either removed or retained only where benchmark evidence proves unique value;
+- [x] planned-edit machinery is removed — the benchmark proved no unique value (ADR 0126);
 - [ ] long-form retrieval scales with task complexity rather than source duration;
 - [ ] preview/export semantic parity is proven for supported capabilities;
 - [ ] professional manual editing workflows are measured and polished;

@@ -166,7 +166,8 @@ visible warning with zero additional operations; final assembly and verification
 the earlier edit. Without that checkpoint, the same exhaustion remains a hard failure. Structured
 responses may recover one bounded, schema-valid JSON object from a provider wrapper, but
 prose alone is never accepted. See
-[ADR 0085](../adr/0085-multi-stage-planned-edit-continuity.md).
+[ADR 0085](../adr/0085-multi-stage-planned-edit-continuity.md) (the planned-edit route it
+describes is retired — see [ADR 0126](../adr/0126-one-mutating-ai-runtime.md)).
 
 ### Causal run-state contract
 
@@ -256,7 +257,8 @@ assets/tracks/clips exist and that the operations are valid together. A proposal
 and repaired within a fixed local budget or routed to another tier. It never schedules
 itself, applies state, or decides that an effect succeeded. See
 [ADR 0084](../adr/0084-project-semantic-proposal-boundary.md) and
-[ADR 0085](../adr/0085-multi-stage-planned-edit-continuity.md).
+[ADR 0085](../adr/0085-multi-stage-planned-edit-continuity.md) (the planned-edit route it
+describes is retired — see [ADR 0126](../adr/0126-one-mutating-ai-runtime.md)).
 
 ### Execution plane
 
@@ -507,7 +509,7 @@ will be projected through the existing durable `RunEventEnvelope`; it does not c
 or orchestration authority.
 
 All mutating host entry points now call `Orchestrator.streamEditorRun`. Its discriminated request
-adapts edit, recipe, planned-edit, and agent work while keeping live steering/question/approval
+adapts single-shot edit and agent work while keeping live steering/question/approval
 controls outside the serialisable request. Browser sessions, desktop IPC dispatch, renderer-local
 recipes, and auto-router handoffs use this boundary. The mature route drivers remain behind it
 during migration; a four-route parity fixture proves the adapter yields their exact event sequence

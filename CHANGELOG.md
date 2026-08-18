@@ -6,6 +6,26 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- **FramePilot now has one AI editing runtime.** Requests that needed analysis before they
+  could edit — "cut this to the music", "build a montage from the best shots" — used to run
+  through a separate planning engine with its own understanding, planning and execution steps.
+  Everything now runs through the agent you already watch work: it looks at the footage,
+  detects the beats or scenes it needs, and makes the edit, all in one visible run. In
+  practice that means those edits gain what the agent already had and the old path never did:
+  you can steer them mid-run, undo the whole run as one action, and pick them back up after a
+  crash or a restart. Cancelling stops them immediately with nothing half-applied. Beat-synced
+  cuts land on exactly the same detected onsets as before. (ADR 0126,
+  `plan/FRAMEPILOT-95-CONVERGENCE-ROADMAP.md` Phase 1)
+
+### Fixed
+
+- **A hallucinated analysis request can no longer reach the media engine.** On the retired
+  planning path, the arguments the model wrote for an analysis step were passed to the engine
+  without being checked against that tool's schema. Every AI tool call is now validated at the
+  boundary before anything is dispatched, as the agent has always done.
+
 ### Added
 
 - **A manual, real-provider capture path for the FramePilot 9.5 Foundation benchmark.**

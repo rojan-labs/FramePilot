@@ -1,6 +1,9 @@
 # 0084. Validate model proposals against project semantics before assembly
 
-- Status: Accepted
+- Status: Accepted; the EditProposer it validated was removed with the planned-edit route
+  ([ADR 0126](0126-one-mutating-ai-runtime.md)). The principle — validate model proposals
+  against project semantics before assembly — is upheld by the agent's tool-argument
+  boundary, which is where it now lives.
 - Date: 2026-07-28
 
 ## Context

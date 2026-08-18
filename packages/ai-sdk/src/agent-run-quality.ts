@@ -9,6 +9,14 @@ import type { AiEvent, RunStatus } from './events.js';
 import type { CapturedTurn } from './kernel/cost/baseline-capture.js';
 import type { AgentOutcomeEvalScenario, AgentOutcomeEvalTier } from './professional-agent-evals.js';
 
+/**
+ * The route a measured run took.
+ *
+ * `planned-edit` is retained deliberately even though the route was retired (ADR 0126):
+ * this type labels RECORDED runs, and Phase-0 Foundation records captured before the
+ * convergence still carry it. Dropping the label would make historic evidence unreadable
+ * by the very tooling that produced it. Nothing emits it any more.
+ */
 export type AgentRunRouteMode =
   | 'agent'
   | 'planned-edit'

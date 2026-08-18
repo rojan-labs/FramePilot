@@ -218,7 +218,7 @@ export interface DiffEvent extends AiEventBase {
   /**
    * `'turn'` — one agent turn's validated ops, emitted live mid-run so hosts can
    * apply/review each step as it lands (auto mode applies instantly). `'run'` —
-   * a whole single-proposal run (edit/recipe/planned-edit). Absent = legacy
+   * a whole single-proposal run (`edit` mode). Absent = legacy
    * single-proposal semantics, treated the same as `'run'`.
    */
   readonly scope?: 'turn' | 'run';
@@ -402,7 +402,7 @@ export interface EffectProgressEvent extends AiEventBase {
 /**
  * A run's real, priced cost (P7.1 — `graph-executor.ts`'s `GraphRunResult.cost`/
  * `recipe-executor.ts`'s `RecipeRunResult.cost`/`plan-driver.ts`'s
- * `PlannedEditRunResult.cost`). Carries the RAW numbers — never rendered directly
+ * the run's accumulated cost). Carries the RAW numbers — never rendered directly
  * (lens §2.5.6: the default sidebar shows only creator-language, never a token/$
  * meter); a host app folds this into creator language via
  * `kernel/cost/usage-summary.ts`'s `summarizeUsage`, and a dev/pro settings toggle

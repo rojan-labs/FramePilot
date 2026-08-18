@@ -51,7 +51,7 @@ export interface ContextInput {
    * auto-derived `selection`. Surfaced as its own "Pinned context" prompt block
    * (see {@link assembleContext}). Browser-only for now — `DesktopAiSession` does not
    * thread this over IPC yet (an explicit, documented gap; see `AiSessionInput.pinned`
-   * in `apps/web-editor/src/editor/ai.ts`), mirroring the `variations`/`planned-edit`
+   * in `apps/web-editor/src/editor/ai.ts`), mirroring the `variations`
    * precedent. Deferred: `@range`/`@marker`/`@track` entity kinds (P8.7 full scope).
    */
   readonly pinned?: readonly PinnedEntity[];

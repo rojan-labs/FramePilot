@@ -13,6 +13,28 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-18):** `[x]` **FramePilot 9.5 Phase 1 — runtime convergence.**
+FramePilot now has ONE mutating AI execution runtime (ADR 0126). The `planned_edit` route and
+everything that served only it — `streamPlannedEdit`, the intent parser, the planner, the plan
+compiler, the task graph, the graph executor, the scheduler, the recipe leaves, the edit
+proposer, their prompts, and the `planned-edit` session mode across web-editor/desktop/IPC —
+are deleted. Analysis-dependent edits (beat sync, scene-driven assembly) are ordinary agent
+work: the agent acquires evidence through `detect_beats`/`detect_scenes`/`analyze_silence` and
+mutates through the same schema-validated tool boundary as every other edit.
+
+The deletion was gated on a parity harness that ran the same goal through both routes with the
+same deterministic provider and host executor
+(`docs/architecture/FRAMEPILOT-95-ROUTE-PARITY-EVIDENCE.md`). It found no unique capability, no
+model-call saving (3 vs 3 on the happy path, and `planned_edit` costing MORE on failure paths),
+and one safety defect unique to the planner path: Planner-authored `host_tool` arguments reached
+the host analysis engine with no schema check. Two dimensions — editorial outcome and wall-clock
+latency — could not be measured without a real provider and are recorded as **explicit
+maintainer waivers**, not passes.
+
+Open follow-up: the single-shot `edit` route is still a second mutating entry point (a proposal
+surface, not a runtime — no loop, no conductor, no durable checkpointing). Tracked in the
+roadmap's Phase-1 follow-up rather than claimed as done.
+
 **Status snapshot (2026-08-17):** `[~]` FramePilot 9.5 Foundation (`plan/FRAMEPILOT-95-CONVERGENCE-ROADMAP.md`
 Phase 0, tracked in that doc and `docs/quality/FRAMEPILOT-95-FOUNDATION-BASELINE.md` rather than
 here as its own task list) — added the **measuring infrastructure** for the two still-open
