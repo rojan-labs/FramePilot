@@ -54,9 +54,13 @@ dimension a scripted provider can measure. Full record:
 `docs/architecture/FRAMEPILOT-95-ROUTE-PARITY-EVIDENCE.md`. The three findings that decided
 it:
 
-1. **No planned-edit-only capability.** Beat synchronisation — the capability the route was
-   written for — is reached by the agent with the same operations, the same validation and
-   the same reversibility.
+1. **No planned-edit-only capability, with one exception found late.** Beat synchronisation —
+   the capability the route was written for — is reached by the agent with the same
+   operations, the same validation and the same reversibility. The exception is the
+   deterministic **beat-grid boundary rule** (`kernel/beat-grid/beat-alignment.ts`), which
+   snapped near-miss `add_clip` boundaries onto detected onsets and rejected off-grid ones
+   naming the nearest legal onset. Its only caller was the planner path, and the agent does
+   not enforce it. See Costs and risks.
 
 2. **The bounded-model-call argument did not survive measurement.** Both routes used 3 model
    calls for the same edit, and on every failure path `planned_edit` cost *more* (5 vs 2–3),
@@ -93,6 +97,16 @@ wall-clock `latency`, both properties of a real model on real media. They are re
 
 ### Costs and risks
 
+- **Beat-grid boundary enforcement is not currently applied by any path.** This was found
+  during self-review of the convergence diff, not by the parity harness, because the
+  harness's beat-sync scenario scripted perfectly on-beat clips and so never exercised
+  off-grid rejection. The module is retained and documented, and wiring it into
+  `applyAgentTurn` is roadmap PR 5. It was never a hard invariant in shipped behavior — the
+  planned-edit route only ran when the classifier chose it *and* the compiled plan passed
+  the structural gate, and otherwise fell back to the agent with no beat-snap — so this is a
+  tracked capability gap on a sometimes-taken path, not the loss of a guarantee. It is
+  nonetheless the one place where "no planned-edit-only capability remains" is not literally
+  true, and it is recorded here rather than smoothed over.
 - The bounded-call *shape* is gone. An agent loop is free to take more turns than a
   pre-compiled graph on a request neither was measured against. `maxSteps`, the loop
   detector and the cost ceilings remain the bound; the conformance suite pins a per-scenario

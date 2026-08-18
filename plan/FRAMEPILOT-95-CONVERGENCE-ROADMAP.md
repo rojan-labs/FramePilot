@@ -609,8 +609,9 @@ agent
 - [x] Planning remains available without requiring a second mutation runtime.
       *(The agent already owns plan state: `planFirst`, `AgentRun.plan`, plan-approval
       gating, and the run ledger. No new planning state was needed.)*
-- [x] No supported scenario regresses beyond agreed eval tolerance.
-      *(Deterministic scenarios only — see the waiver note below.)*
+- [~] No supported scenario regresses beyond agreed eval tolerance.
+      *(Deterministic scenarios only — see the waiver note below. One capability gap was
+      found during self-review and is NOT closed: beat-grid boundary enforcement, below.)*
 - [x] Duplicate runtime modules are deleted.
       *(plan-driver, plan-compiler, graph-executor, task-graph, scheduler, recipe-leaves,
       intent-parser, planner, edit-proposer, and their prompts.)*
@@ -632,6 +633,21 @@ quality were not, because a scripted provider cannot produce either. Recorded he
 later reader does not mistake an unmeasured dimension for a proven one.
 
 ### Follow-up opened by this phase
+
+- [ ] **Beat-grid boundary enforcement is unwired (roadmap PR 5).**
+      `kernel/beat-grid/beat-alignment.ts` snapped near-miss `add_clip` boundaries onto
+      detected onsets and rejected off-grid ones naming the nearest legal onset. Its only
+      caller was the planner path; the agent does not enforce it, so no path does today. The
+      module is retained and documented rather than deleted. Wiring point:
+      `Orchestrator#applyAgentTurn` (both turn loops funnel through it); the missing piece is
+      threading the run's raw `detect_beats` payload through its arguments rather than
+      holding it on the Orchestrator, which serves concurrent runs.
+      It was never a hard invariant in shipped behavior — the planned-edit route only ran
+      when the classifier chose it AND the compiled plan passed the structural gate, and
+      otherwise fell back to the agent with no beat-snap.
+      **The parity harness did not catch this**: its beat-sync row scripts perfectly on-beat
+      clips, so no boundary was ever off-grid. A parity row proves parity only for the
+      behavior it exercises — worth remembering when the next route is compared.
 
 - [ ] **The single-shot `edit` route is a second mutating entry point.** It is a proposal
       surface, not a second runtime — no loop, no conductor, no durable checkpointing, and no

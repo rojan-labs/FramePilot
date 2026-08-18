@@ -44,10 +44,19 @@ Gate summary: **`retirement_unblocked`**, blockers `[]`.
 
 ### The three findings that mattered
 
-1. **No planned-edit-only capability remains.** Beat synchronisation — the capability the
-   classifier's `planned_edit` route was explicitly written for
-   (`kernel/command-classifier.ts`) — is reached by the agent through `detect_beats` +
-   `add_clip` with the same operations, the same validation and the same reversibility.
+1. **No planned-edit-only capability remains — with one exception the harness missed.** Beat
+   synchronisation — the capability the classifier's `planned_edit` route was explicitly
+   written for (`kernel/command-classifier.ts`) — is reached by the agent through
+   `detect_beats` + `add_clip` with the same operations, the same validation and the same
+   reversibility.
+
+   **The exception, found during self-review rather than by this harness:** the deterministic
+   beat-grid boundary rule (`kernel/beat-grid/beat-alignment.ts`) snapped near-miss `add_clip`
+   boundaries onto detected onsets and rejected off-grid ones naming the nearest legal onset.
+   The agent does not enforce it. This harness did not catch it because the `beat-sync-montage`
+   scenario scripts perfectly on-beat clips, so no boundary was ever off-grid — a scenario-set
+   gap worth remembering: a parity row proves parity only for the behavior it actually
+   exercises. Tracked as roadmap PR 5; see ADR 0126's Costs and risks.
 
 2. **The bounded-model-call argument does not survive measurement.** `planned_edit` exists
    partly because it consults the model a bounded number of times (intent + plan +

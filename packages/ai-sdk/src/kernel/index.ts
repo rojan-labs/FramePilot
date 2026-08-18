@@ -22,7 +22,6 @@ export * from './cost/baseline-capture.js';
 export * from './agent-graph.js';
 export * from './cost/usage-summary.js';
 export * from './cost/analysis-caps.js';
-export * from './recovery/recovery.js';
 export * from './context/invariants.js';
 export * from './context/manifest.js';
 export * from './event-log.js';

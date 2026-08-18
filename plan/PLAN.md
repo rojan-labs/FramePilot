@@ -31,9 +31,14 @@ the host analysis engine with no schema check. Two dimensions — editorial outc
 latency — could not be measured without a real provider and are recorded as **explicit
 maintainer waivers**, not passes.
 
-Open follow-up: the single-shot `edit` route is still a second mutating entry point (a proposal
-surface, not a runtime — no loop, no conductor, no durable checkpointing). Tracked in the
-roadmap's Phase-1 follow-up rather than claimed as done.
+Two open follow-ups, both tracked in the roadmap rather than claimed as done. (1) The
+single-shot `edit` route is still a second mutating entry point — a proposal surface, not a
+runtime (no loop, no conductor, no durable checkpointing). (2) **Beat-grid boundary
+enforcement is unwired**: `beat-alignment.ts` snapped near-miss `add_clip` boundaries onto
+detected onsets and rejected off-grid ones, its only caller was the planner path, and the
+agent does not enforce it. Found during self-review, not by the parity harness — whose
+beat-sync row scripts perfectly on-beat clips and so never exercised off-grid rejection. The
+module is retained and documented; wiring it into `applyAgentTurn` is roadmap PR 5.
 
 **Status snapshot (2026-08-17):** `[~]` FramePilot 9.5 Foundation (`plan/FRAMEPILOT-95-CONVERGENCE-ROADMAP.md`
 Phase 0, tracked in that doc and `docs/quality/FRAMEPILOT-95-FOUNDATION-BASELINE.md` rather than
