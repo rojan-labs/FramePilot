@@ -81,7 +81,9 @@ wall-clock `latency`, both properties of a real model on real media. They are re
 
 - One answer to "how is a mutating AI request executed", explainable without archaeology.
 - One unvalidated model → host argument path removed.
-- Roughly 4,000 lines of runtime and test code deleted, not merely deprecated.
+- About 3,900 lines of runtime code and 5,800 lines of test code deleted, not merely
+  deprecated. Every deleted test belonged to a deleted module; no surviving behavior lost
+  coverage (`effect-runtime.ts` and `kernel/replay` remain at 100%).
 - Analysis-dependent edits gain what the agent has and the planner never did: mid-run
   steering, review findings folded into the next turn, grouped run undo, durable
   checkpoint/resume, and per-turn Instant Apply.
