@@ -56,10 +56,13 @@ describe('parseClassification', () => {
     expect(parseClassification('{"route":"chitchat"}')).toEqual({ route: 'chitchat' });
   });
 
-  it('accepts the analysis-backed planned edit route', () => {
-    expect(parseClassification('{"route":"planned_edit"}')).toEqual({
-      route: 'planned_edit',
-    });
+  it('rejects the retired planned_edit route so the caller falls back to the agent', () => {
+    // ADR 0126 removed the second mutating execution route. A model still emitting it
+    // (a stale cache, an older fine-tune) must not select a path that no longer exists:
+    // an unparseable classification is data, and `Orchestrator.classifyCommand` degrades
+    // to FALLBACK_CLASSIFICATION — which is `edit`, the runtime that absorbed the route.
+    expect(parseClassification('{"route":"planned_edit"}')).toBeNull();
+    expect(FALLBACK_CLASSIFICATION).toEqual({ route: 'edit' });
   });
 
   it('drops a reply off a non-chitchat route, and unknown fields entirely', () => {

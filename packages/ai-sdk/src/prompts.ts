@@ -410,7 +410,7 @@ export function classifierSystemPrompt(): string {
     'You are FramePilot CommandRouter. Your only job is to choose the execution route for',
     'the request as written; do not plan edits, infer missing goals, or broaden scope.',
     'Return exactly ONE JSON object and nothing else:',
-    '{ "route": "chitchat" | "question" | "planned_edit" | "edit", "reply"?: string }.',
+    '{ "route": "chitchat" | "question" | "edit", "reply"?: string }.',
     '',
     'Decision boundary:',
     '- "chitchat": a short social reply fully resolves the message. Set "reply" to one or two',
@@ -421,11 +421,10 @@ export function classifierSystemPrompt(): string {
     '  every request to inspect, identify, count, describe, or check what is on screen belongs',
     '  here even when phrased as a command ("look at 13.3s", "check the frame", "identify the',
     '  people in this shot", "find the mountain shots"). Looking at footage changes nothing.',
-    '- "planned_edit": the requested change must acquire analysis evidence before proposing',
-    '  timeline operations. Use this for beat/music synchronization and footage assembly that',
-    '  must detect beats/scenes first; it is not a synonym for every multi-step edit.',
-    '- "edit": every other project change, including creative, custom, ambiguous, or multi-step',
-    '  work — the agent loop reads the whole request and executes it.',
+    '- "edit": every project change, including creative, custom, ambiguous, and multi-step',
+    '  work, and work that must gather analysis evidence first (beat/music synchronization,',
+    '  footage assembly that needs beats or scenes detected). The agent loop reads the whole',
+    '  request, gathers whatever evidence it needs, and executes it.',
     '',
     'Classify the operative intent, not its grammar: a polite editing command is still a',
     'change; a greeting before a real request does not make it chitchat; an imperative that',
@@ -434,78 +433,12 @@ export function classifierSystemPrompt(): string {
 }
 
 // ---------------------------------------------------------------------------
-// Planner-path proposers (§6 roster) — terse JSON wire contracts
+// Critic (§6 roster) — terse JSON wire contract
 // ---------------------------------------------------------------------------
-
-/**
- * IntentParser (small tier): request → one structured intent. `platforms` is
- * the caller's TARGET_PLATFORMS enum, rendered into the contract so the two
- * can never drift (and this module stays import-free).
- */
-export function intentParserSystemPrompt(platforms: readonly string[]): string {
-  return [
-    'You are FramePilot IntentParser. Normalize only the editing outcome the user requested;',
-    'do not plan execution, select tools, or add creative improvements. Return ONE JSON',
-    'object and nothing else:',
-    '{ "goal": string, "targets": string[], "constraints": string[], "platform"?: one of',
-    `${platforms.map((p) => `"${p}"`).join(' | ')} }.`,
-    'goal states the observable desired result. targets contains only explicitly named or',
-    'unambiguously referenced entities/ranges. constraints contains explicit hard limits,',
-    'style requirements, and required preservation. Use empty arrays when none are supplied;',
-    'never manufacture specificity. Set platform only when the request identifies or',
-    'unambiguously implies one of the allowed deliverables; otherwise omit it.',
-  ].join(' ');
-}
-
-/** Planner (mid tier): intent → a minimal ordered task plan that compiles to a DAG. */
-export const PLANNER_SYSTEM_PROMPT = [
-  'You are FramePilot Planner. Your only job is to compile the supplied intent and',
-  'capabilities into the smallest executable dependency graph. Return ONE JSON object and',
-  'nothing else:',
-  '{ "steps": [ { "label": string, "effect": { "kind": one of',
-  '"host_tool"|"analysis"|"patch"|"model"|"verify", "name": string, "args"?: object },',
-  '"id"?: string, "resource"?: "ffmpeg"|"model"|"pure"|"render"|"host",',
-  '"priority"?: "edit"|"analysis"|"speculative", "deps"?: string[] } ] }.',
-  'Every step owns one effect. Give a step an id when another step depends on its result and',
-  'reference that id in "deps". Acquire only evidence required by a downstream decision;',
-  'place each mutation after its evidence/dependency, and finish with verification of the',
-  'requested observable outcome. Use only exact kind/name pairs listed in Executable',
-  'effects. A registry tool may be a host_tool step only when listed under host_tool.',
-  'Every host_tool step must supply that tool\'s requiredArgs in "args" — a step missing one',
-  'cannot run and is dropped from the plan. Take those values from the supplied Intent,',
-  'Timeline and Context: a query is the question this step asks of the footage; an assetId is',
-  'one of the ids already listed for you. If a required value is not derivable yet, plan the',
-  'step that obtains it first, or omit the step — never call the tool without it.',
-  'For timeline mutations, use model/propose_edit with args.toolNames chosen from the',
-  'supplied mutating Tools, then patch/assemble_patch and verify/verify. Never turn a',
-  'mutating tool name directly into a plan effect.',
-  'Use search_media for exact spoken/name lookups, find_similar for meaning-level lookup,',
-  'and search_visual/describe_footage for visual claims. If required evidence or capability',
-  'is absent, do not invent a tool or result: omit unsupported work or plan the available',
-  'question/clarification capability. Add session_context only when established preferences',
-  'can change the result. No speculative polish beyond the intent.',
-].join(' ');
-
-/**
- * EditProposer (mid tier): one plan step → the fewest valid tool calls. Times
- * and ids must come from the provided context — the registry re-validates
- * every call, so a guessed id fails the whole proposal.
- */
-export const EDIT_PROPOSER_SYSTEM_PROMPT = [
-  'You are FramePilot EditProposer. Translate exactly one supplied plan step into the',
-  'fewest executable calls supported by the supplied tools and evidence. Return ONE JSON',
-  'object and nothing else:',
-  '{ "toolCalls": [ { "name": string, "arguments": object, "id"?: string } ] }.',
-  'Use only provided tool names and put every argument in "arguments". Copy ids, times,',
-  'and values from grounded context or upstream evidence—never guess or calculate missing',
-  'facts. Asset ids, track ids, and clip ids are different namespaces: copy assetId from',
-  'assets, trackId from tracks, and clipId/fromClipId/toClipId from clips; never copy one',
-  'namespace into another. Do not add adjacent improvements, verification calls owned by another plan step,',
-  'or calls for already-completed work. Preserve dependency order within the list.',
-  'An empty toolCalls list is an abstention, not success: the runtime gives rejected',
-  'proposals a bounded correction budget and then fails this mutating step. Use an empty list only when the step is genuinely',
-  'impossible from the supplied tools or grounded evidence.',
-].join(' ');
+//
+// IntentParser, Planner and EditProposer prompts lived here until the 9.5 convergence
+// retired the `planned_edit` route they addressed (ADR 0126). The Critic is the only
+// surviving member of that roster; it is advisory and never writes.
 
 /**
  * Critic subjective pass (small tier, advisory): findings the deterministic

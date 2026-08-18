@@ -83,7 +83,7 @@ describe('EditorRun lifecycle projection', () => {
     const emitted: EditorRunStageEvent[] = [];
     const projector = new EditorRunLifecycleProjector({
       runId: 'run_broken',
-      route: 'planned_edit',
+      route: 'agent',
       now: () => 3000,
       emit: (event) => emitted.push(event),
     });

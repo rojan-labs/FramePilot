@@ -7,7 +7,6 @@ import { createRef } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  PLANNED_EDIT_UNSUPPORTED_NOTICE,
   createTurnEmitter,
   type AiEvent,
   type EditResult,
@@ -1152,17 +1151,8 @@ describe('AiSidebar', () => {
   it('threads the agent plan-first toggle into agentOptions (agent mode only)', async () => {
     const seen: AiSessionInput['agentOptions'][] = [];
     class RecordAgent implements AiSession {
-      public async *run(mode: string, input: AiSessionInput): AsyncIterable<AiEvent> {
+      public async *run(_mode: string, input: AiSessionInput): AsyncIterable<AiEvent> {
         const e = createTurnEmitter({ conversationId: input.conversationId, turnId: input.turnId });
-        // "edit it" doesn't match a recipe/direct_edit signature, so the router calls it
-        // `plan` kind and the sidebar probes the live planner path first (P3.1) — honor
-        // that probe honestly (this fixture isn't montage-shaped) so the sidebar's
-        // fallback rerun is what actually threads agentOptions, same as production.
-        if (mode === 'planned-edit') {
-          yield e.notification(PLANNED_EDIT_UNSUPPORTED_NOTICE);
-          yield e.status('completed');
-          return;
-        }
         seen.push(input.agentOptions);
         yield e.status('completed');
       }
@@ -1743,8 +1733,7 @@ describe('AiSidebar', () => {
       />,
     );
     // A question routes to 'chat' regardless of the default 'agent' mode (see the
-    // routing test above), so this can't take the planned-edit probe branch, which
-    // buffers events locally until its OWN generator completes.
+    // routing test above).
     fireEvent.change(screen.getByLabelText('Message FramePilot'), {
       target: { value: 'what is this timeline about?' },
     });
@@ -1979,15 +1968,8 @@ const GATED_STEPS = ['Trim the intro', 'Add captions', 'Balance the audio', 'Exp
  * approve/cancel wiring end to end without a real Orchestrator.
  */
 class GatedPlanSession implements AiSession {
-  public async *run(mode: string, input: AiSessionInput): AsyncIterable<AiEvent> {
+  public async *run(_mode: string, input: AiSessionInput): AsyncIterable<AiEvent> {
     const e = createTurnEmitter({ conversationId: input.conversationId, turnId: input.turnId });
-    // Same probe-honoring pattern as `RecordAgent` above — decline the planner-first
-    // probe so the sidebar's fallback rerun on 'agent' is what actually gates.
-    if (mode === 'planned-edit') {
-      yield e.notification(PLANNED_EDIT_UNSUPPORTED_NOTICE);
-      yield e.status('completed');
-      return;
-    }
     yield e.plan(
       GATED_STEPS.map((label, i) => ({ id: `step-${i + 1}`, label, status: 'pending' })),
     );
@@ -2083,13 +2065,8 @@ describe('AiSidebar — plan-approval gate (P11.3)', () => {
  * message is queued, confirms it, then completes — never stopping the run itself.
  */
 class SteerableSession implements AiSession {
-  public async *run(mode: string, input: AiSessionInput): AsyncIterable<AiEvent> {
+  public async *run(_mode: string, input: AiSessionInput): AsyncIterable<AiEvent> {
     const e = createTurnEmitter({ conversationId: input.conversationId, turnId: input.turnId });
-    if (mode === 'planned-edit') {
-      yield e.notification(PLANNED_EDIT_UNSUPPORTED_NOTICE);
-      yield e.status('completed');
-      return;
-    }
     yield e.status('editing');
     let message: string | undefined;
     // A real 5ms `setTimeout` poll racing against the test's own synchronous

@@ -2,16 +2,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   CRITIC_JUDGMENT_SYSTEM_PROMPT,
-  EDIT_PROPOSER_SYSTEM_PROMPT,
   PLAN_MODE_INSTRUCTION,
-  PLANNER_SYSTEM_PROMPT,
   QUESTION_MODE_INSTRUCTION,
   questionModeInstruction,
   SYSTEM_PROMPT,
   agentActionRecoveryBlock,
   agentModeInstruction,
   classifierSystemPrompt,
-  intentParserSystemPrompt,
 } from './prompts.js';
 
 describe('SYSTEM_PROMPT', () => {
@@ -175,42 +172,19 @@ describe('wire-prompt responsibilities', () => {
 
   it('routes without planning, and offers no route that no longer exists', () => {
     const prompt = classifierSystemPrompt();
-    expect(prompt).toContain('"route": "chitchat" | "question" | "planned_edit" | "edit"');
+    expect(prompt).toContain('"route": "chitchat" | "question" | "edit"');
     expect(prompt).toContain('do not plan edits');
+    // Analysis-dependent work is still named — it just belongs to `edit` now, so the
+    // model is told the agent gathers the evidence rather than that another route does.
     expect(prompt).toContain('beat/music synchronization');
-    // The deterministic recipe route is gone: naming it here would invite the model to
-    // return a route the parser rejects, costing a call to learn nothing.
+    // Naming a retired route here would invite the model to return one the parser
+    // rejects, costing a call to learn nothing. Both retired routes are checked.
     expect(prompt).not.toContain('recipe');
+    expect(prompt).not.toContain('planned_edit');
   });
 
-  it('normalizes observable intent without planning or invented specificity', () => {
-    const prompt = intentParserSystemPrompt(['reels', 'shorts']);
-    expect(prompt).toContain('{ "goal": string, "targets": string[], "constraints": string[]');
-    expect(prompt).toContain('do not plan execution');
-    expect(prompt).toContain('observable desired result');
-    expect(prompt).toContain('never manufacture specificity');
-    expect(prompt).toContain('"reels" | "shorts"');
-  });
 
-  it('makes the planner own dependencies, required evidence, and verification', () => {
-    expect(PLANNER_SYSTEM_PROMPT).toContain('smallest executable dependency graph');
-    expect(PLANNER_SYSTEM_PROMPT).toContain('"deps"');
-    expect(PLANNER_SYSTEM_PROMPT).toContain('Acquire only evidence required');
-    expect(PLANNER_SYSTEM_PROMPT).toContain('finish with verification');
-    expect(PLANNER_SYSTEM_PROMPT).toContain('do not invent a tool or result');
-  });
 
-  it('makes the proposer realize one step and abstain without evidence', () => {
-    expect(EDIT_PROPOSER_SYSTEM_PROMPT).toContain('exactly one supplied plan step');
-    expect(EDIT_PROPOSER_SYSTEM_PROMPT).toContain('{ "toolCalls"');
-    expect(EDIT_PROPOSER_SYSTEM_PROMPT).toContain('never guess or calculate missing facts');
-    expect(EDIT_PROPOSER_SYSTEM_PROMPT).toContain(
-      'Asset ids, track ids, and clip ids are different namespaces',
-    );
-    expect(EDIT_PROPOSER_SYSTEM_PROMPT).toContain('verification calls owned by another plan step');
-    expect(EDIT_PROPOSER_SYSTEM_PROMPT).toContain('An empty toolCalls list is an abstention');
-    expect(EDIT_PROPOSER_SYSTEM_PROMPT).toContain('then fails this mutating step');
-  });
 });
 
 describe('agentActionRecoveryBlock', () => {

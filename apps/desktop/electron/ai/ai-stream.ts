@@ -62,14 +62,7 @@ export {
 
 const log = createLogger('desktop:ai-stream');
 
-const STREAM_MODES: readonly AiStreamMode[] = [
-  'auto',
-  'chat',
-  'plan',
-  'edit',
-  'agent',
-  'planned-edit',
-];
+const STREAM_MODES: readonly AiStreamMode[] = ['auto', 'chat', 'plan', 'edit', 'agent'];
 // Sourced from the ai-sdk's own PROVIDER_NAMES rather than hand-duplicated here — a
 // renamed/added/removed provider now fails typecheck on this assignment instead of
 // silently drifting between the two independently-maintained lists.
@@ -553,8 +546,6 @@ function streamFor(
         { route: 'agent', agentOptions },
         controls,
       );
-    case 'planned-edit':
-      return orchestrator.streamEditorRun(input, options, { route: 'planned_edit' }, controls);
   }
 }
 

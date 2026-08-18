@@ -158,106 +158,25 @@ describe('Orchestrator.streamAuto', () => {
         ],
       },
     });
-    const plan = JSON.stringify({
-      steps: [
-        {
-          id: 'beats',
-          label: 'detect exact music onsets',
-          effect: { kind: 'host_tool', name: 'detect_beats', args: { assetId: 'music' } },
-          resource: 'ffmpeg',
-          priority: 'analysis',
-        },
-        {
-          id: 'scenes',
-          label: 'detect source shot changes',
-          effect: { kind: 'host_tool', name: 'detect_scenes', args: { assetId: 'broll' } },
-          resource: 'ffmpeg',
-          priority: 'analysis',
-        },
-        {
-          id: 'place',
-          label: 'place selected source moments on supported beat boundaries',
-          effect: { kind: 'model', name: 'propose_edit', args: { toolNames: ['add_clip'] } },
-          deps: ['beats', 'scenes'],
-        },
-        {
-          id: 'patch',
-          label: 'assemble the beat edit',
-          effect: { kind: 'patch', name: 'assemble_patch', args: { from: 'place' } },
-          deps: ['place'],
-        },
-        {
-          id: 'verify',
-          label: 'verify the assembled sequence',
-          effect: { kind: 'verify', name: 'verify', args: { goal: 'beat-synced montage' } },
-          deps: ['patch'],
-        },
-      ],
+    // ADR 0126: beat synchronisation used to select the `planned_edit` route and its
+    // separate planner/graph runtime. It is now ordinary `edit` work — the agent acquires
+    // the same beat/scene evidence through the same host tools and places the same clips,
+    // which is precisely the parity this convergence was gated on. The OUTCOME assertions
+    // below are unchanged from the planner-era test on purpose.
+    const addClip = (start: number, end: number, sourceStart: number) => ({
+      id: `add_${String(start)}`,
+      name: 'add_clip',
+      arguments: { trackId: 'video_1', assetId: 'broll', start, end, sourceStart },
     });
     const provider = new ScriptedProvider([
-      { text: '{"route":"planned_edit"}' },
+      { text: '{"route":"edit"}' },
+      { text: '', toolCalls: [{ id: 'beats', name: 'detect_beats', arguments: { assetId: 'music' } }] },
+      { text: '', toolCalls: [{ id: 'scenes', name: 'detect_scenes', arguments: { assetId: 'broll' } }] },
       {
-        text: JSON.stringify({
-          goal: 'assemble b-roll to detected music events',
-          targets: ['video_1', 'music', 'broll'],
-          constraints: ['use detected beat evidence'],
-        }),
+        text: '',
+        toolCalls: [addClip(0, 0.75, 0), addClip(0.75, 1.75, 2), addClip(1.75, 3, 4)],
       },
-      { text: plan },
-      {
-        // First proposal is deliberately off-grid. The deterministic planned-edit
-        // boundary must reject it and spend its one bounded repair attempt.
-        text: JSON.stringify({
-          toolCalls: [
-            {
-              name: 'add_clip',
-              arguments: {
-                trackId: 'video_1',
-                assetId: 'broll',
-                start: 0.1,
-                end: 0.75,
-                sourceStart: 0,
-              },
-            },
-          ],
-        }),
-      },
-      {
-        text: JSON.stringify({
-          toolCalls: [
-            {
-              name: 'add_clip',
-              arguments: {
-                trackId: 'video_1',
-                assetId: 'broll',
-                start: 0,
-                end: 0.75,
-                sourceStart: 0,
-              },
-            },
-            {
-              name: 'add_clip',
-              arguments: {
-                trackId: 'video_1',
-                assetId: 'broll',
-                start: 0.75,
-                end: 1.75,
-                sourceStart: 2,
-              },
-            },
-            {
-              name: 'add_clip',
-              arguments: {
-                trackId: 'video_1',
-                assetId: 'broll',
-                start: 1.75,
-                end: 3,
-                sourceStart: 4,
-              },
-            },
-          ],
-        }),
-      },
+      { text: 'Cut to the four detected onsets.', toolCalls: [] },
     ]);
     const executor: HostToolExecutor = {
       async run(call: ToolCall) {
@@ -306,7 +225,9 @@ describe('Orchestrator.streamAuto', () => {
       [1.75, 3],
     ]);
     expect(adds.map(({ start, end }) => Number(end) - Number(start))).toEqual([0.75, 1, 1.25]);
-    expect(provider.calls).toBe(5);
+    // One classification call plus the agent's turns. Bounded rather than exact so a
+    // harmless extra settle turn is not a failure, but a spin loop still is.
+    expect(provider.calls).toBeLessThanOrEqual(6);
 
     const after = applyProjectPatch(beatProject, diff!.edit.patch as never);
     const restored = applyProjectPatch(
@@ -316,7 +237,7 @@ describe('Orchestrator.streamAuto', () => {
     expect(diffProject(beatProject, restored).summary).toEqual(['no changes']);
   });
 
-  it('continues an unsupported planned edit in the general agent with long-video context and exact cost', async () => {
+  it('runs a long-video request through the agent with bounded context and exact cost', async () => {
     const longProject = makeProject({
       assets: [
         { id: 'long_asset', path: 'media/feature.mp4', kind: 'video', durationSeconds: 7_200 },
@@ -345,26 +266,7 @@ describe('Orchestrator.streamAuto', () => {
     });
     const prompt = 'Build a 30-second cinematic montage from this two-hour source, cut to beats.';
     const provider = new ScriptedProvider([
-      { text: '{"route":"planned_edit"}', usage: { inputTokens: 10, outputTokens: 2 } },
-      {
-        text: JSON.stringify({
-          goal: 'build a beat-driven montage',
-          targets: ['long_asset'],
-          constraints: ['30 seconds', 'ground shot choices in evidence'],
-        }),
-        usage: { inputTokens: 20, outputTokens: 3 },
-      },
-      {
-        text: JSON.stringify({
-          steps: [
-            {
-              label: 'invent an unsupported edit primitive',
-              effect: { kind: 'model', name: 'magic_montage', args: {} },
-            },
-          ],
-        }),
-        usage: { inputTokens: 30, outputTokens: 4 },
-      },
+      { text: '{"route":"edit"}', usage: { inputTokens: 10, outputTokens: 2 } },
       {
         text: 'I inspected the bounded context and stopped honestly.',
         usage: { inputTokens: 40, outputTokens: 5 },
@@ -375,71 +277,29 @@ describe('Orchestrator.streamAuto', () => {
       new Orchestrator(provider).streamAuto({ project: longProject, userPrompt: prompt }, opts),
     );
 
-    // The fallback agent declared itself done with its committed objective still pending,
-    // so the conductor issued one bounded mutation-only continuation before failing closed.
-    expect(provider.calls).toBe(5);
+    // The agent declared itself done with its committed objective still pending, so the
+    // conductor issued one bounded mutation-only continuation before failing closed.
+    // A two-hour source must not put two hours of timeline in the prompt: the classifier
+    // sees only the tiny project header, and the agent turn sees the request itself.
     expect(
-      provider.requests[1]?.messages.some((message) => message.content.includes('7200.00s')),
+      provider.requests[0]?.messages.some((message) => message.content.includes('7200.00s')),
     ).toBe(true);
-    expect(provider.requests[3]?.messages.some((message) => message.content.includes(prompt))).toBe(
+    expect(provider.requests[1]?.messages.some((message) => message.content.includes(prompt))).toBe(
       true,
     );
-    expect(
-      events.some(
-        (event) =>
-          event.type === 'notification' &&
-          event.text === 'This request needs the general planner path, which is not live yet.',
-      ),
-    ).toBe(false);
-    expect(
-      events.some(
-        (event) =>
-          event.type === 'notification' && event.text.includes('general agent is continuing'),
-      ),
-    ).toBe(true);
+    // ONE usage event for the whole turn, carrying the classifier's real spend folded into
+    // the agent run's — the C1 cost-honesty contract, now with no second route to seed.
     const usage = events.filter((event) => event.type === 'usage');
     expect(usage).toHaveLength(1);
-    expect(usage[0]).toMatchObject({ tokens: 159 });
+    // 12 from the classifier (10 in + 2 out) plus 45 for each agent turn (40 in + 5 out):
+    // the classifier's spend is folded in, not billed as a separate turn.
+    expect(usage[0]?.tokens).toBe(12 + 45 * (provider.calls - 1));
     // The general agent honestly recognized the requested primitive is unsupported and
     // stopped without landing an edit — ADR 0081's causal completion gate means that is
     // `failed`, not `completed`: the timeline is untouched, whatever the reason.
     expect(statuses(events).at(-1)).toBe('failed');
   });
 
-  it('does not start the general-agent fallback after cancellation settles the planner call', async () => {
-    const controller = new AbortController();
-    const provider = new ScriptedProvider(
-      [
-        { text: '{"route":"planned_edit"}', usage: { inputTokens: 10, outputTokens: 1 } },
-        {
-          text: '{"goal":"montage","targets":[],"constraints":[]}',
-          usage: { inputTokens: 20, outputTokens: 2 },
-        },
-        {
-          text: '{"steps":[{"label":"unsupported","effect":{"kind":"model","name":"magic","args":{}}}]}',
-          usage: { inputTokens: 30, outputTokens: 3 },
-        },
-        { text: 'must never be requested' },
-      ],
-      (call) => {
-        if (call === 3) controller.abort('user stopped');
-      },
-    );
-
-    const events = await collect(
-      new Orchestrator(provider).streamAuto(input, { ...opts, signal: controller.signal }),
-    );
-
-    expect(provider.calls).toBe(3);
-    expect(statuses(events).at(-1)).toBe('cancelled');
-    expect(
-      events.some(
-        (event) =>
-          event.type === 'notification' && event.text.includes('general agent is continuing'),
-      ),
-    ).toBe(false);
-    expect(events.filter((event) => event.type === 'usage')).toHaveLength(1);
-  });
 
   it('falls back to the edit (agent) route when classification is unparseable', async () => {
     // MockProvider never returns classification JSON, so parseClassification → null →

@@ -382,8 +382,13 @@ export interface ConversationSaveResult {
  * The streaming orchestrator modes the AI sidebar drives (Phase 11 M3, ADR 0033).
  * `auto` (ADR 0055) is the model-routed entry point: the main-process orchestrator
  * classifies the command and delegates to chat/agent internally.
+ *
+ * `planned-edit` was removed with the second mutating execution route it drove
+ * (ADR 0126). A renderer that still asks for it is a version mismatch and is rejected at
+ * the IPC boundary rather than silently run as something else; historic durable records
+ * that carry the string are normalized on read (`run-contracts.ts`).
  */
-export type AiStreamMode = 'auto' | 'chat' | 'plan' | 'edit' | 'agent' | 'planned-edit';
+export type AiStreamMode = 'auto' | 'chat' | 'plan' | 'edit' | 'agent';
 
 /**
  * AI provider names the desktop can drive. Mirrors `ProviderName` in

@@ -60,6 +60,7 @@ import {
   FALLBACK_CLASSIFICATION,
   buildClassifierMessages,
   parseClassification,
+  projectHeaderOf,
 } from './kernel/command-classifier.js';
 import type { Command } from './kernel/commands.js';
 import type {
@@ -93,22 +94,13 @@ import { type ConductorHandlers, runAgentGraph } from './kernel/agent-graph.js';
 import {
   type EffectRuntime,
   type EffectRuntimeObserver,
-  type ModelEffectResult,
   type StructuredEffectExecutor,
   createEffectRuntime,
 } from './kernel/effect-runtime.js';
-import { compilePlan } from './kernel/plan-compiler.js';
 import { EditorRunLifecycleProjector } from './kernel/editor-run-projection.js';
 import type { EditorRunStageEvent } from './kernel/editor-run-lifecycle.js';
-import { executePlannedEdit } from './kernel/plan-driver.js';
-import { intentParser, projectHeaderOf } from './kernel/proposers/intent-parser.js';
-import { planner, summarizeSemanticIndex, toolCapabilities } from './kernel/proposers/planner.js';
 import { type ModelTier } from './kernel/proposers/types.js';
-import { RECIPE_LEAVES } from './kernel/recipe-leaves.js';
 import { type RunRecording, createRecordingEffectRuntime } from './kernel/replay/replay.js';
-import { boundSemanticIndexSlice, getSlice } from './kernel/semantic-index/semantic-index-slice.js';
-import type { AnalysisResultsBag } from './kernel/semantic-index/semantic-index.js';
-import { semanticIndexFor } from './kernel/semantic-index/semantic-index.js';
 import type { TemporalEvidenceAcquirer } from './temporal-evidence-client.js';
 import {
   planTemporalEvidenceForEdit,
@@ -187,7 +179,7 @@ import {
   type HostToolOutcome,
 } from './tool-executor.js';
 import { withToolInputContract } from './tool-input-contract.js';
-import { TOOL_REGISTRY, concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
+import { concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
 import { QUESTION_ROUTE_PERMISSIONS, selectTools } from './tool-scope.js';
 import { type WipeGuardContext, detectTimelineWipe, wipeGuardFor } from './wipe-guard.js';
 
@@ -304,23 +296,7 @@ function costFromUsage(
   return { tokens: input + output, usd: estimateUsd(tier, { input, output }) };
 }
 
-/**
- * Sum two costs. `modelCalls` adds too — the point of the field is that a call whose
- * provider reported no tokens still increments it, so a $0 total with a nonzero call
- * count reads as "spent, amount unknown" rather than "free".
- */
-function addCost(left: RunCostSeed, right: RunCostSeed): Required<RunCostSeed> {
-  return {
-    tokens: left.tokens + right.tokens,
-    usd: left.usd + right.usd,
-    /* v8 ignore next -- unreachable today: both call sites pass a `Required<RunCostSeed>` on the left (this function's own return type) and stamp `modelCalls: 1` explicitly on the right, so the `?? 0` fallbacks guard a shape `addCost` accepts but never actually sees. */
-    modelCalls: (left.modelCalls ?? 0) + (right.modelCalls ?? 0),
-  };
-}
 
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
-}
 
 /**
  * Default cap on agent turns (safety backstop against a non-terminating model). Mirrors
@@ -359,64 +335,6 @@ const QUESTION_ROUTE_TOOL_TURNS = 4;
  */
 const MAX_PINNED_SKILLS = 8;
 
-/**
- * `streamPlannedEdit` (P3.1, widened by P11.1) recognises a growing but still-bounded set
- * of plan shapes — {@link RECIPE_LEAVES} plus {@link RECOGNIZED_MODEL_TASKS}. A request
- * that parses to anything else ends honestly with this notice instead of fabricating a
- * run; `AiSidebar` detects it and falls back to the sequential agent loop. Exported so the
- * sidebar imports the identical string rather than re-deriving it.
- *
- * P11.2 additionally threads a machine-inspectable {@link PlannerFallbackReason} (and a
- * specific human `detail`) on the `notification` event that carries this text — see
- * {@link plannedEditFallback} — so a caller can distinguish WHY the planner path declined
- * (unparseable intent vs. an unrecognised task shape vs. …) rather than seeing one opaque
- * string every time. `text` itself is unchanged (existing string-matching callers, e.g.
- * `AiSidebar`'s `tryPlannedEditFirst` probe, keep working); the reason/detail are additive.
- */
-export const PLANNED_EDIT_UNSUPPORTED_NOTICE =
-  'This request needs the general planner path, which is not live yet.';
-
-/**
- * Machine-inspectable tag for WHY {@link Orchestrator.streamPlannedEdit} declined a
- * request (P11.2 — "honest, inspectable fallback", not a silent discard). Carried on the
- * `notification` event's `reason` field alongside {@link PLANNED_EDIT_UNSUPPORTED_NOTICE}.
- */
-export type PlannerFallbackReason =
-  /** IntentParser's response wasn't valid, schema-matching JSON. */
-  | 'intent_unparseable'
-  /** The Planner's response wasn't valid, schema-matching JSON. */
-  | 'plan_unparseable'
-  /** The proposed plan's steps don't compile to a valid DAG (dangling dep, cycle, …). */
-  | 'plan_uncompilable'
-  /** The compiled plan names a task/tool shape this driver does not (yet) execute. */
-  | 'unrecognized_task_shape'
-  /** The gate passed but execution still reported `unsupported` (defense in depth). */
-  | 'execution_unsupported';
-
-/**
- * The creator-facing sentence for a genuinely failed planned edit. Names the step and
- * its reason rather than one opaque sentence for every cause — a rejected proposal, a
- * missing argument, and an engine that was not running all used to read the same.
- */
-function plannedEditFailureMessage(
-  failure: { readonly label: string; readonly reason: string } | undefined,
-): string {
-  if (failure) {
-    return `The planned edit stopped at "${failure.label}": ${failure.reason}`;
-    /* v8 ignore next 3 -- unreachable: every runTask path records its failure, so a `failed` terminal always carries one; the fallback below is a total-function default, not a live path today. (Placement note: this directive must stay HERE, inside the `if` after its `return` — moving it changes which branch-map entry the report attributes it to.) */
-  }
-  return 'The planned edit could not complete.';
-}
-
-/** Build the honest `notification` this run ends on when the planner path declines. */
-function plannedEditFallback(
-  emit: TurnEmitter,
-  reason: PlannerFallbackReason,
-  detail: string,
-): AiEvent {
-  return emit.notification(PLANNED_EDIT_UNSUPPORTED_NOTICE, { reason, detail });
-}
-
 // Named `orchestratorLog` (not `log`) because the agent-run closure has a local
 // `log: string[]` action ledger that would otherwise shadow it.
 const orchestratorLog = createLogger('ai-sdk:orchestrator');
@@ -425,45 +343,6 @@ const orchestratorLog = createLogger('ai-sdk:orchestrator');
 const DEFAULT_CHITCHAT_REPLY =
   "Hi! I'm your editing copilot. Tell me what you'd like to do with your timeline — " +
   'trim silences, add captions, punch in, build an intro, or anything else.';
-
-/** `model` task names {@link executePlannedEdit} actually implements (P3.2). */
-const RECOGNIZED_MODEL_TASKS: ReadonlySet<string> = new Set(['propose_edit']);
-
-/**
- * The structural gate: does every task in the compiled plan name an effect this driver
- * actually knows how to run? Deliberately structural, not a guess at the model's intent
- * text or a fixed named "shape" (P3.1's `isMontageShapedPlan` only accepted one exact
- * scenario) — a plan built entirely from known primitives is accepted regardless of what
- * it's for; anything else honestly isn't supported yet. New capability widens this check
- * by construction: an analysis tool becomes usable the day it lands in `TOOL_REGISTRY` as
- * `available` (no gate change), and a new derived-analysis leaf is a `recipe-leaves.ts`-style
- * addition to {@link RECIPE_LEAVES} (also no gate change) — only a genuinely new `model`
- * task kind needs a one-line addition here.
- *
- * The `analysis` case recognizes every already-shipped, already-tested {@link RECIPE_LEAVES}
- * primitive (ripple-delete synthesis, caption/hook/pacing/filler-cleanup synthesis, …), the
- * same registry {@link executePlannedEdit} defaults to — so a Planner proposal can compose
- * these proven pure functions into a novel plan shape.
- */
-function isRecognizedPlan(graph: ReturnType<typeof compilePlan>): boolean {
-  return graph.nodes.every((node) => {
-    const { effect } = node;
-    switch (effect.kind) {
-      case 'host_tool': {
-        const tool = getTool(effect.name);
-        return tool !== undefined && tool.available && tool.kind === 'analysis';
-      }
-      case 'model':
-        return RECOGNIZED_MODEL_TASKS.has(effect.name);
-      case 'analysis':
-        return effect.name in RECIPE_LEAVES;
-      case 'patch':
-        return effect.name === 'assemble_patch';
-      case 'verify':
-        return effect.name === 'verify';
-    }
-  });
-}
 
 /**
  * Marker replacing an old, re-derivable read/analysis payload in the action log
@@ -612,10 +491,6 @@ export type EditorRunRequest =
   | {
       readonly route: 'edit';
       readonly variations?: boolean;
-    }
-  | {
-      readonly route: 'planned_edit';
-      readonly initialCost?: RunCostSeed;
     }
   | {
       readonly route: 'agent';
@@ -964,16 +839,6 @@ export interface OrchestratorOptions {
   readonly recordEffects?: boolean;
   /** Receives the just-completed run's {@link RunRecording} when `recordEffects` is on. */
   readonly onRecording?: (recording: RunRecording) => void;
-  /**
-   * Run-start analysis warming from the project brain (plan B1.4): given the
-   * project's id, returns the persisted {@link AnalysisResultsBag} to seed
-   * `semanticIndexFor()` with — so a planner run starts knowing what previous
-   * runs already analyzed instead of an empty index. Hosts wire
-   * `createAnalysisBagWarmer` (brain-client.ts) here; absent (browser build,
-   * no sidecar) or failing, runs proceed bag-less exactly as before — the
-   * hook can never break a run.
-   */
-  readonly warmAnalysis?: (projectId: string) => Promise<AnalysisResultsBag | undefined>;
   /** Awaited durable audit observer for every fine-grained runtime effect. */
   readonly effectObserver?: EffectRuntimeObserver;
 }
@@ -1402,17 +1267,12 @@ export class Orchestrator {
   private readonly recordEffects: boolean;
   private readonly onRecording: ((recording: RunRecording) => void) | undefined;
   private readonly effectObserver: EffectRuntimeObserver | undefined;
-  /** Run-start brain warming (plan B1.4) — see {@link OrchestratorOptions.warmAnalysis}. */
-  private readonly warmAnalysis:
-    | ((projectId: string) => Promise<AnalysisResultsBag | undefined>)
-    | undefined;
 
   public constructor(
     private readonly provider: AiProvider,
     options: OrchestratorOptions = {},
   ) {
     this.executor = options.executor;
-    this.warmAnalysis = options.warmAnalysis;
     this.recordEffects = options.recordEffects ?? false;
     this.onRecording = options.onRecording;
     this.effectObserver = options.effectObserver;
@@ -1503,24 +1363,6 @@ export class Orchestrator {
         /* v8 ignore stop */
       },
     };
-  }
-
-  /**
-   * The brain-warmed {@link AnalysisResultsBag} for a run start (plan B1.4), or
-   * `undefined`. Never throws: a broken/slow warm hook degrades to the bag-less
-   * pre-B1.4 behavior with a warning — warming is an accelerant, not a dependency.
-   */
-  private async warmedAnalysisBag(projectId: string): Promise<AnalysisResultsBag | undefined> {
-    if (!this.warmAnalysis) return undefined;
-    try {
-      const bag = await this.warmAnalysis(projectId);
-      if (bag) orchestratorLog.action('warmed analysis bag from project brain', { projectId });
-      return bag;
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      orchestratorLog.warn('analysis warm hook failed; starting bag-less', { projectId, reason });
-      return undefined;
-    }
   }
 
   /** Complete one model request through the caller's run runtime. */
@@ -3467,91 +3309,6 @@ export class Orchestrator {
           ...(autoOptions.controls ? { controls: autoOptions.controls } : {}),
         });
         return;
-      case 'planned_edit': {
-        // Analysis-dependent edits prefer a bounded graph (for beat sync: detect
-        // beats/scenes in parallel, then propose validated add_clip operations). If the
-        // model proposes a graph outside that executable contract, continue through the
-        // evidence-grounded general agent instead of ending the user's request inert.
-        const classifierCost = costFromUsage(classifierUsage, 'small');
-        let fallback = false;
-        let plannedUsage: Extract<AiEvent, { type: 'usage' }> | undefined;
-        let trailing: AiEvent[] | undefined;
-        for await (const event of this.streamEditorRun(
-          input,
-          options,
-          { route: 'planned_edit', initialCost: classifierCost },
-          sharedEditorControls,
-        )) {
-          if (event.type === 'notification' && event.text === PLANNED_EDIT_UNSUPPORTED_NOTICE) {
-            fallback = true;
-            continue;
-          }
-          // Defer the terminal usage + tail until we know whether the bounded planner
-          // completed or declined. On fallback that spend seeds the SAME agent run;
-          // emitting it separately would double-count one user request.
-          if (event.type === 'usage') {
-            plannedUsage = event;
-            trailing = [];
-            continue;
-          }
-          if (trailing) trailing.push(event);
-          else yield event;
-        }
-        if (!fallback) {
-          if (plannedUsage) yield plannedUsage;
-          if (trailing) {
-            for (const event of trailing) yield event;
-          }
-          return;
-        }
-        /* v8 ignore start -- not exercisable deterministically with a synchronous mock
-           provider: every `options.signal?.aborted` check inside `streamPlannedEdit`
-           itself runs strictly BEFORE `isRecognizedPlan` on every code path, so any abort
-           visible by then already exits with `fallback` still false — the ONLY way to
-           reach this block with `fallback` true is an abort that lands in the narrow
-           window between the unsupported-plan notification already being yielded and this
-           loop's very next (synchronous) check, which requires a real async timing race a
-           deterministic test provider cannot reproduce. Real defensive coverage for a
-           production timing window, not dead code. */
-        if (options.signal?.aborted) {
-          if (plannedUsage) yield plannedUsage;
-          yield emit.status('cancelled');
-          return;
-        }
-        /* v8 ignore stop */
-        /* v8 ignore next 10 -- unreachable: every plannedEditFallback path in streamPlannedEdit is preceded or followed by an unconditional emit.usage() before the generator returns, so by the time `fallback` is observed true here, `plannedUsage` has always already been captured; classifierCost is a total-function fallback, not a live path today. */
-        const fallbackCost: RunCostSeed = plannedUsage
-          ? {
-              tokens: plannedUsage.tokens,
-              usd: plannedUsage.usd,
-              // The planner's own usage event already covers the classifier call and every
-              // planning call; when it reported a call count, carry it, otherwise the
-              // classifier alone is the one call we know for certain happened.
-              modelCalls: plannedUsage.modelCalls ?? 1,
-            }
-          : { ...classifierCost, modelCalls: 1 };
-        orchestratorLog.warn('streamAuto → bounded planner declined; continuing in agent mode', {
-          conversationId: options.conversationId,
-          tokensSpent: fallbackCost.tokens,
-        });
-        yield emit.notification(
-          'The bounded planner could not execute that task graph, so the general agent is continuing with the same request.',
-        );
-        yield* this.streamEditorRun(
-          input,
-          options,
-          {
-            route: 'agent',
-            agentOptions: autoOptions.agentOptions ?? {},
-            initialCost: fallbackCost,
-          },
-          {
-            ...sharedEditorControls,
-            agent: autoOptions.controls ?? {},
-          },
-        );
-        return;
-      }
       case 'edit':
         // Mark the turn as editing up front so an edit that ultimately applies nothing
         // still gets the sidebar's honest "nothing changed" notice — independent of which
@@ -4194,12 +3951,6 @@ export class Orchestrator {
     switch (request.route) {
       case 'edit':
         return this.streamEdit(input, options, request.variations ? { variations: true } : {});
-      case 'planned_edit':
-        return this.streamPlannedEdit(
-          input,
-          options,
-          request.initialCost ?? { tokens: 0, usd: 0, modelCalls: 0 },
-        );
       case 'agent':
         return this.streamAgent(
           input,
@@ -4312,257 +4063,6 @@ export class Orchestrator {
     }
     yield emit.diff(primary, variants.length > 1 ? variants : undefined);
     yield emit.usage(cost);
-    yield emit.status('completed');
-  }
-
-  /**
-   * Streaming **planned edit** run (plan/AGENT-NATIVE-COMPLETION-PLAN.md P3.1) — the live
-   * planner path's first vertical slice: IntentParser → Planner → `compilePlan` → the
-   * same scheduler the recipe path already proves live ({@link executePlannedEdit}). The
-   * model is consulted a bounded number of times (IntentParser + Planner + one
-   * `propose_edit` step, not once per turn of a long agent loop).
-   *
-   * `isRecognizedPlan`'s effect coverage spans any plan built from {@link RECIPE_LEAVES}'s
-   * proven pure leaves plus a `propose_edit` model step — a bounded, structural gate, never
-   * a guess at intent. A parsed intent/plan this driver STILL
-   * doesn't recognise ends the run honestly with {@link PLANNED_EDIT_UNSUPPORTED_NOTICE}
-   * (plus a {@link PlannerFallbackReason} — P11.2) rather than fabricate a run — the
-   * {@link streamAuto} continues through the general agent on that notice; direct
-   * planned-edit consumers receive the machine-readable unsupported event.
-   */
-  public async *streamPlannedEdit(
-    input: ContextInput,
-    options: StreamOptions,
-    initialCost: RunCostSeed = { tokens: 0, usd: 0, modelCalls: 0 },
-  ): AsyncGenerator<AiEvent> {
-    orchestratorLog.action('streamPlannedEdit start', {
-      provider: this.provider.name,
-      prompt: input.userPrompt?.slice(0, 200),
-    });
-    const emit = createTurnEmitter(options);
-    yield emit.status('editing');
-    const { runtime, finish } = this.createRunRuntime();
-    let planningCost: Required<RunCostSeed> = {
-      tokens: initialCost.tokens,
-      usd: initialCost.usd,
-      modelCalls: initialCost.modelCalls ?? 0,
-    };
-
-    const header = projectHeaderOf(input.project, input.targetPlatform);
-    const intentRequest = intentParser.buildRequest({
-      userText: input.userPrompt,
-      header,
-      ...(input.selection ? { selection: input.selection } : {}),
-    });
-    // Understanding and planning are two model calls that take tens of seconds on
-    // a real request, and they run BEFORE the plan exists — so until now the
-    // sidebar had nothing at all to show for them. In a measured session that was
-    // 38 seconds between "accepted" and the first visible step: the run looked
-    // idle for the entire time it was deciding what to do. They are announced as
-    // tasks for the same reason the review is: the wait is real, so name it.
-    let intentRaw: Awaited<ReturnType<EffectRuntime['run']>>;
-    yield emit.taskStarted('understand', 'Understand the request', 'model');
-    try {
-      intentRaw = await runtime.run(intentRequest, options.signal);
-    } catch (error) {
-      finish();
-      yield emit.taskFinished(
-        'understand',
-        options.signal?.aborted || isAbortError(error) ? 'cancelled' : 'failed',
-      );
-      if (options.signal?.aborted || isAbortError(error)) {
-        yield emit.usage(planningCost);
-        yield emit.status('cancelled');
-        return;
-      }
-      throw error;
-    }
-    yield emit.taskFinished('understand', 'completed');
-    const intentResponse = (intentRaw as ModelEffectResult).response;
-    /* v8 ignore next 3 -- unreachable: intentParser.buildRequest always stamps tier: 'small', so the 'mid' fallback here never runs. */
-    planningCost = addCost(planningCost, {
-      ...costFromUsage(intentResponse.usage, intentRequest.tier ?? 'mid'),
-      modelCalls: 1,
-    });
-    if (options.signal?.aborted) {
-      yield emit.usage(planningCost);
-      finish();
-      yield emit.status('cancelled');
-      return;
-    }
-    const intent = intentParser.parseResponse(intentResponse.text);
-    if (!intent.ok) {
-      yield plannedEditFallback(
-        emit,
-        'intent_unparseable',
-        `IntentParser's response could not be parsed: ${intent.error}`,
-      );
-      yield emit.usage(planningCost);
-      finish();
-      yield emit.status('completed');
-      return;
-    }
-
-    // No analysis has run in THIS run yet — but the project brain may hold results
-    // from previous runs (plan B1.3), so warm the bag from it (B1.4) instead of
-    // starting empty. Warming is best-effort: absent/failed → the honest bag-less
-    // state, exactly the pre-B1.4 behavior. P4.1 ingestion still feeds the LATER
-    // model steps inside `executePlannedEdit` (e.g. `propose_edit`) once this run's
-    // own `detect_scenes`/`analyze_silence`/`detect_beats` tasks complete
-    // (`plan-driver.ts`).
-    const warmedBag = await this.warmedAnalysisBag(input.project.id);
-    const semanticIndex = semanticIndexFor(input.project, warmedBag);
-    const index = summarizeSemanticIndex(semanticIndex);
-    const slice = boundSemanticIndexSlice(getSlice(semanticIndex));
-    const capabilities = toolCapabilities(TOOL_REGISTRY.filter((t) => t.available));
-    const plannerRequest = planner.buildRequest({
-      intent: intent.value,
-      index,
-      slice,
-      capabilities,
-      executableEffects: {
-        host_tool: capabilities.filter((tool) => tool.kind === 'analysis').map((tool) => tool.name),
-        analysis: Object.keys(RECIPE_LEAVES),
-        model: [...RECOGNIZED_MODEL_TASKS],
-        patch: ['assemble_patch'],
-        verify: ['verify'],
-      },
-    });
-    let plannerRaw: Awaited<ReturnType<EffectRuntime['run']>>;
-    // The longest pre-plan wait — 25s in the measured session, and the one the
-    // user is most likely to read as the app having hung.
-    yield emit.taskStarted('plan', 'Draft a plan', 'model');
-    try {
-      plannerRaw = await runtime.run(plannerRequest, options.signal);
-    } catch (error) {
-      finish();
-      yield emit.taskFinished(
-        'plan',
-        options.signal?.aborted || isAbortError(error) ? 'cancelled' : 'failed',
-      );
-      if (options.signal?.aborted || isAbortError(error)) {
-        yield emit.usage(planningCost);
-        yield emit.status('cancelled');
-        return;
-      }
-      throw error;
-    }
-    yield emit.taskFinished('plan', 'completed');
-    const plannerResponse = (plannerRaw as ModelEffectResult).response;
-    /* v8 ignore next 3 -- unreachable: planner.buildRequest always stamps tier: 'mid', so this fallback never runs. */
-    planningCost = addCost(planningCost, {
-      ...costFromUsage(plannerResponse.usage, plannerRequest.tier ?? 'mid'),
-      modelCalls: 1,
-    });
-    if (options.signal?.aborted) {
-      yield emit.usage(planningCost);
-      finish();
-      yield emit.status('cancelled');
-      return;
-    }
-    const proposedPlan = planner.parseResponse(plannerResponse.text);
-    if (!proposedPlan.ok) {
-      yield plannedEditFallback(
-        emit,
-        'plan_unparseable',
-        `The Planner's proposed plan could not be parsed: ${proposedPlan.error}`,
-      );
-      yield emit.usage(planningCost);
-      finish();
-      yield emit.status('completed');
-      return;
-    }
-
-    let graph: ReturnType<typeof compilePlan>;
-    try {
-      graph = compilePlan(proposedPlan.value);
-    } catch (error) {
-      /* v8 ignore next -- compilePlan throws only TaskGraphError (an Error subclass); the String(error) branch is defensive. */
-      const message = error instanceof Error ? error.message : String(error);
-      yield plannedEditFallback(
-        emit,
-        'plan_uncompilable',
-        `The proposed plan does not compile to a valid task graph: ${message}`,
-      );
-      yield emit.usage(planningCost);
-      finish();
-      yield emit.status('completed');
-      return;
-    }
-    if (!isRecognizedPlan(graph)) {
-      yield plannedEditFallback(
-        emit,
-        'unrecognized_task_shape',
-        'The proposed plan names a task/tool shape this planner path does not yet execute.',
-      );
-      yield emit.usage(planningCost);
-      finish();
-      yield emit.status('completed');
-      return;
-    }
-
-    const result = yield* executePlannedEdit(
-      graph,
-      {
-        project: input.project,
-        runtime,
-        emit,
-        reason: `Planned edit: ${intent.value.goal}`,
-      },
-      options.signal,
-    );
-    // P7.1/P7.2: the run's real, priced cost (a planned edit's `propose_edit`
-    // model tasks price real usage) — raw numbers, folded into creator language by the
-    // sidebar. Emitted on every terminal path, same as `streamRecipe`.
-    yield emit.usage({
-      tokens: planningCost.tokens + result.cost.tokens,
-      usd: planningCost.usd + result.cost.usd,
-      modelCalls: planningCost.modelCalls,
-    });
-    // P7.3 dev/debug affordance — see `streamRecipe`'s identical call for why this sits
-    // right after the graph settles rather than after every one of the early "unsupported"
-    // returns above (those never reach the graph executor at all).
-    finish();
-
-    if (result.status === 'cancelled') {
-      yield emit.status('cancelled');
-      return;
-    }
-    if (result.status === 'failed' && !result.unsupported) {
-      // Name the step and its reason. The bare sentence was unactionable — a missing
-      // argument, a rejected proposal and an engine that was not running all read the
-      // same — and a `model` step publishes no tool result to inspect instead.
-      const failure = result.failure;
-      yield emit.error(plannedEditFailureMessage(failure), { retryable: true });
-      yield emit.status('failed');
-      return;
-    }
-    /* v8 ignore start -- defense in depth: `isRecognizedPlan` (above) and
-       `executePlannedEdit`'s own task dispatch are built from the same primitives
-       (`RECOGNIZED_MODEL_TASKS`, `RECIPE_LEAVES`), so a plan that passes the gate can no
-       longer produce `unsupported: true` today. Kept as a safety net against the two
-       drifting apart (e.g. a new `model` task kind added to one list but not the other) —
-       `plan-driver.test.ts` exercises this fold directly against `executePlannedEdit`. */
-    if (result.unsupported) {
-      yield plannedEditFallback(
-        emit,
-        'execution_unsupported',
-        'A task in the compiled plan reported unsupported at execution time (gate/driver drift).',
-      );
-      yield emit.status('completed');
-      return;
-    }
-    /* v8 ignore stop */
-    if (result.status !== 'completed' || !result.edit) {
-      yield emit.status('completed');
-      return;
-    }
-    const names = projectNames(input.project);
-    for (const op of result.edit.patch.operations) {
-      const described = describeOperation(op, names);
-      yield emit.timelineAction(described.action, described.detail, described.refs);
-    }
-    yield emit.diff(result.edit);
     yield emit.status('completed');
   }
 
