@@ -2,8 +2,8 @@
  * The context meter (ADR 0080). The behaviour under test is not "does it render a
  * number" but "does it stop a shrinking prompt from reading as lost memory".
  */
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AiEvent, ContextManifest } from '@framepilot/ai-sdk';
 import { createTurnEmitter } from '@framepilot/ai-sdk';
 import {
@@ -53,10 +53,21 @@ function hover(value: ContextWindowState = state): HTMLElement {
   const { container } = render(<ContextWindowIndicator value={value} />);
   const root = container.querySelector('.ai-context') as HTMLElement;
   fireEvent.mouseEnter(root);
+  act(() => {
+    vi.advanceTimersByTime(1000);
+  });
   return root;
 }
 
 describe('ContextWindowIndicator', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('shows nothing on the surface but used over capacity', () => {
     render(<ContextWindowIndicator value={state} />);
     expect(screen.getByRole('button').textContent).toBe('17K/1M');
@@ -175,6 +186,9 @@ describe('ContextWindowIndicator', () => {
       <ContextWindowIndicator value={state} debug={{ conversationId: 'c1', latest: manifest() }} />,
     );
     fireEvent.mouseEnter(container.querySelector('.ai-context') as HTMLElement);
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
     expect(screen.getByText('Context inspector · dev')).toBeTruthy();
   });
 });
