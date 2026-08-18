@@ -600,8 +600,12 @@ agent
 ## Phase 1 exit criteria
 
 - [x] One mutating agent runtime owns all natural-language edit execution.
-      *(ADR 0126. `planned_edit` is gone from the classifier, the editor-run lifecycle enum,
-      the desktop stream modes and the IPC contract.)*
+      *(ADR 0126. Every request that reaches the classifier — the `auto`/Agent path all
+      natural language goes through — routes to the agent; `planned_edit` is gone from the
+      classifier, the editor-run lifecycle enum, the desktop stream modes and the IPC
+      contract. This criterion is about ROUTED natural-language execution. The explicitly
+      user-selected single-shot `edit` mode is a separate entry point and is NOT covered by
+      this box — see the follow-up below.)*
 - [x] Planning remains available without requiring a second mutation runtime.
       *(The agent already owns plan state: `planFirst`, `AgentRun.plan`, plan-approval
       gating, and the run ledger. No new planning state was needed.)*
