@@ -15,6 +15,7 @@ import {
   LangChainOllamaProvider,
   LangChainOpenAiCompatibleProvider,
   LangChainOpenRouterProvider,
+  LangChainVercelGatewayProvider,
 } from './langchain-providers.js';
 import { ConcreteLangChainDeepSeekProvider } from './langchain-deepseek.js';
 import { ConcreteLangChainGoogleProvider } from './langchain-google.js';
@@ -24,6 +25,7 @@ import {
   ConcreteLangChainNvidiaProvider,
   ConcreteLangChainOpenAiCompatibleProvider,
   ConcreteLangChainOpenRouterProvider,
+  ConcreteLangChainVercelGatewayProvider,
 } from './langchain-openai-compatible.js';
 import {
   LangChainChatProvider,
@@ -59,6 +61,7 @@ const CONCRETE_ROSTER = [
   ['ollama', ConcreteLangChainOllamaProvider],
   ['deepseek', ConcreteLangChainDeepSeekProvider],
   ['openrouter', ConcreteLangChainOpenRouterProvider],
+  ['vercel-gateway', ConcreteLangChainVercelGatewayProvider],
   ['nvidia', ConcreteLangChainNvidiaProvider],
   ['openai-compatible', ConcreteLangChainOpenAiCompatibleProvider],
 ] as const;
@@ -69,6 +72,7 @@ const LAZY_ROSTER = [
   ['ollama', LangChainOllamaProvider],
   ['deepseek', LangChainDeepSeekProvider],
   ['openrouter', LangChainOpenRouterProvider],
+  ['vercel-gateway', LangChainVercelGatewayProvider],
   ['nvidia', LangChainNvidiaProvider],
   ['openai-compatible', LangChainOpenAiCompatibleProvider],
 ] as const;
@@ -260,13 +264,14 @@ describe('concrete LangChain provider adapters', () => {
     superComplete.mockRestore();
   });
 
-  it.each(['groq', 'deepseek', 'openrouter', 'nvidia'] as const)(
+  it.each(['groq', 'deepseek', 'openrouter', 'vercel-gateway', 'nvidia'] as const)(
     '%s honours a host-configured base URL over its default',
     (name) => {
       const Adapter = {
         groq: ConcreteLangChainGroqProvider,
         deepseek: ConcreteLangChainDeepSeekProvider,
         openrouter: ConcreteLangChainOpenRouterProvider,
+        'vercel-gateway': ConcreteLangChainVercelGatewayProvider,
         nvidia: ConcreteLangChainNvidiaProvider,
       }[name];
       const provider = new Adapter({

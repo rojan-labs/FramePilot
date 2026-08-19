@@ -19,6 +19,7 @@ export const REAL_PROVIDERS: readonly Exclude<AiProviderName, 'mock'>[] = [
   'anthropic',
   'nvidia',
   'openrouter',
+  'vercel-gateway',
   'groq',
   'google',
   'ollama',
@@ -51,6 +52,7 @@ export const PROVIDER_META: Record<AiProviderName, { label: string; defaultModel
   anthropic: { label: 'Claude (Anthropic)', defaultModel: 'claude-opus-4-8' },
   nvidia: { label: 'NVIDIA NIM', defaultModel: 'meta/llama-3.1-70b-instruct' },
   openrouter: { label: 'OpenRouter', defaultModel: 'openai/gpt-4o-mini' },
+  'vercel-gateway': { label: 'Vercel AI Gateway', defaultModel: 'anthropic/claude-sonnet-4.6' },
   groq: { label: 'Groq', defaultModel: 'llama-3.3-70b-versatile' },
   google: { label: 'Google (Gemini)', defaultModel: 'gemini-2.5-flash' },
   ollama: { label: 'Ollama (local)', defaultModel: 'llama3.2' },
@@ -93,6 +95,7 @@ const isProvider = (value: unknown): value is AiProviderName =>
   value === 'anthropic' ||
   value === 'nvidia' ||
   value === 'openrouter' ||
+  value === 'vercel-gateway' ||
   value === 'groq' ||
   value === 'google' ||
   value === 'ollama' ||

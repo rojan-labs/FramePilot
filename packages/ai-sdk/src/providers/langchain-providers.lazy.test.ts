@@ -56,6 +56,7 @@ vi.mock('./langchain-openai-compatible.js', () => {
   loads.openaiCompatible += 1;
   return {
     ConcreteLangChainOpenRouterProvider: fake('openrouter'),
+    ConcreteLangChainVercelGatewayProvider: fake('vercel-gateway'),
     ConcreteLangChainNvidiaProvider: fake('nvidia'),
     ConcreteLangChainOpenAiCompatibleProvider: fake('openai-compatible'),
   };
@@ -70,6 +71,7 @@ import {
   LangChainOllamaProvider,
   LangChainOpenAiCompatibleProvider,
   LangChainOpenRouterProvider,
+  LangChainVercelGatewayProvider,
 } from './langchain-providers.js';
 
 describe('lazy provider roster', () => {
@@ -115,10 +117,13 @@ describe('lazy provider roster', () => {
     await expect(ollama.complete({ messages: [] })).resolves.toEqual({ text: 'ollama' });
     expect(loads.ollama).toBe(1);
 
-    // OpenRouter and NVIDIA deliberately share the OpenAI-compatible client.
+    // OpenRouter, the Vercel AI Gateway and NVIDIA deliberately share the
+    // OpenAI-compatible client.
     const openrouter = new LangChainOpenRouterProvider({ name: 'openrouter' });
+    const gateway = new LangChainVercelGatewayProvider({ name: 'vercel-gateway' });
     const nvidia = new LangChainNvidiaProvider({ name: 'nvidia' });
     await expect(openrouter.complete({ messages: [] })).resolves.toEqual({ text: 'openrouter' });
+    await expect(gateway.complete({ messages: [] })).resolves.toEqual({ text: 'vercel-gateway' });
     await expect(nvidia.complete({ messages: [] })).resolves.toEqual({ text: 'nvidia' });
     expect(loads.openaiCompatible).toBe(1);
 

@@ -9,6 +9,8 @@ import {
   OPENAI_COMPATIBLE_DEFAULT_MODEL,
   OPENROUTER_BASE_URL,
   OPENROUTER_DEFAULT_MODEL,
+  VERCEL_GATEWAY_BASE_URL,
+  VERCEL_GATEWAY_DEFAULT_MODEL,
 } from './provider-defaults.js';
 import type { AiCompletionRequest, AiResponse, ProviderChunk } from './types.js';
 
@@ -153,6 +155,16 @@ export class ConcreteLangChainOpenRouterProvider extends OpenAiCompatibleProvide
   }
   protected get defaultBaseUrl(): string {
     return OPENROUTER_BASE_URL;
+  }
+}
+
+export class ConcreteLangChainVercelGatewayProvider extends OpenAiCompatibleProvider {
+  public readonly name = 'vercel-gateway' as const;
+  public get modelId(): string {
+    return this.config.model ?? VERCEL_GATEWAY_DEFAULT_MODEL;
+  }
+  protected get defaultBaseUrl(): string {
+    return VERCEL_GATEWAY_BASE_URL;
   }
 }
 

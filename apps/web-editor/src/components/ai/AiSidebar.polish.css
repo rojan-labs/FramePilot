@@ -6,10 +6,10 @@
  */
 
 .ai-sidebar {
-  --ai-shell-gutter: 4px;
-  --ai-thread-slot: 18px;
-  --ai-thread-line-x: 8px;
-  --ai-thread-card-gap: 7px;
+  --ai-shell-gutter: 3px;
+  --ai-thread-slot: 15px;
+  --ai-thread-line-x: 7px;
+  --ai-thread-card-gap: 5px;
 }
 
 /* ── Shared horizontal rhythm ──────────────────────────────────────────── */
@@ -69,13 +69,13 @@
 }
 
 .ai-event--diff {
-  margin-top: 8px;
-  margin-bottom: 10px;
+  margin-top: 5px;
+  margin-bottom: 6px;
 }
 
 .ai-event--notice {
-  margin-top: 4px;
-  margin-bottom: 4px;
+  margin-top: 3px;
+  margin-bottom: 3px;
 }
 
 /* Every other row in the thread (tool glyph, assistant sparkle) sits flush at the
@@ -105,7 +105,7 @@
 }
 
 .ai-run-footer {
-  margin-top: 10px;
+  margin-top: 6px;
   margin-bottom: 0;
 }
 
@@ -163,7 +163,7 @@
 
 /* The docked composer uses the same outer gutter as the stream/header. */
 .ai-composer-shell {
-  margin: 8px var(--ai-shell-gutter) var(--ai-shell-gutter);
+  margin: 6px var(--ai-shell-gutter) var(--ai-shell-gutter);
 }
 
 .ai-tasks,
