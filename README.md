@@ -61,8 +61,8 @@ for Premiere Pro, After Effects, or DaVinci Resolve.
   reviewable proposals, and explicit completion checks.
 - Vision-capable runs can use `get_frame` to inspect a composited frame rendered through
   the export compiler before claiming a visual result.
-- Provider support for Anthropic, NVIDIA, OpenRouter, Groq, Google Gemini, Ollama,
-  DeepSeek, and a deterministic mock provider.
+- Provider support for Anthropic, NVIDIA, OpenRouter, the Vercel AI Gateway, Groq,
+  Google Gemini, Ollama, DeepSeek, and a deterministic mock provider.
 
 ### Media intelligence and memory
 

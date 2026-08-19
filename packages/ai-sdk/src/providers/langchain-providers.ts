@@ -3,8 +3,8 @@
  *
  * This module intentionally imports no hosted provider SDK. The factory can load this
  * tiny roster on first AI use, then the selected wrapper imports only its concrete
- * provider module. OpenRouter/NVIDIA share the OpenAI client module; every other SDK is
- * isolated in its own dynamic chunk.
+ * provider module. OpenRouter/Vercel AI Gateway/NVIDIA share the OpenAI client module;
+ * every other SDK is isolated in its own dynamic chunk.
  */
 import type {
   AiCompletionRequest,
@@ -22,6 +22,7 @@ import {
   OLLAMA_DEFAULT_MODEL,
   OPENAI_COMPATIBLE_DEFAULT_MODEL,
   OPENROUTER_DEFAULT_MODEL,
+  VERCEL_GATEWAY_DEFAULT_MODEL,
 } from './provider-defaults.js';
 
 type Loader = (config: ProviderConfig) => Promise<AiProvider>;
@@ -106,6 +107,17 @@ export class LangChainOpenRouterProvider extends LazyRosterProvider {
   );
 }
 
+export class LangChainVercelGatewayProvider extends LazyRosterProvider {
+  public readonly name = 'vercel-gateway' as const;
+  protected readonly defaultModel = VERCEL_GATEWAY_DEFAULT_MODEL;
+  protected loadConcrete = concrete(
+    async (config) =>
+      new (await import('./langchain-openai-compatible.js')).ConcreteLangChainVercelGatewayProvider(
+        config,
+      ),
+  );
+}
+
 export class LangChainNvidiaProvider extends LazyRosterProvider {
   public readonly name = 'nvidia' as const;
   protected readonly defaultModel = NVIDIA_DEFAULT_MODEL;
@@ -134,6 +146,7 @@ export const LANGCHAIN_PROVIDERS = {
   ollama: LangChainOllamaProvider,
   deepseek: LangChainDeepSeekProvider,
   openrouter: LangChainOpenRouterProvider,
+  'vercel-gateway': LangChainVercelGatewayProvider,
   nvidia: LangChainNvidiaProvider,
   'openai-compatible': LangChainOpenAiCompatibleProvider,
 } as const satisfies Record<string, new (config: ProviderConfig) => AiProvider>;

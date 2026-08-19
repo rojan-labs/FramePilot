@@ -45,6 +45,17 @@ export const DEEPSEEK_DEFAULT_MODEL = 'deepseek-chat';
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export const OPENROUTER_DEFAULT_MODEL = 'openai/gpt-4o-mini';
 
+/**
+ * Vercel AI Gateway — OpenAI-compatible aggregator endpoint and default model.
+ *
+ * The `/v1` suffix is the gateway's OpenAI-compatible surface (its other surface speaks
+ * Anthropic's wire format, which this adapter does not use). Model ids are `provider/model`
+ * slugs, like OpenRouter's, and the gateway rejects a bare id — so the default names a
+ * vendor explicitly rather than borrowing `ANTHROPIC_DEFAULT_MODEL`.
+ */
+export const VERCEL_GATEWAY_BASE_URL = 'https://ai-gateway.vercel.sh/v1';
+export const VERCEL_GATEWAY_DEFAULT_MODEL = 'anthropic/claude-sonnet-4.6';
+
 /** NVIDIA NIM — OpenAI-compatible endpoint and default model. */
 export const NVIDIA_BASE_URL = 'https://integrate.api.nvidia.com/v1';
 export const NVIDIA_DEFAULT_MODEL = 'meta/llama-3.1-70b-instruct';
