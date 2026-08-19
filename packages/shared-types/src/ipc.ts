@@ -989,17 +989,8 @@ export type TrackingRunResultWire =
       readonly projectRevision: number;
     }
   /** No healthy pack is installed. The user is offered the exact signed install. */
-  | {
-      readonly ok: false;
-      readonly code: 'pack_missing';
-      readonly proposal: CapabilityPackProposalResultWire;
-    }
-  | {
-      readonly ok: false;
-      readonly code: string;
-      readonly error: string;
-      readonly retryable: boolean;
-    };
+  | { readonly ok: false; readonly code: 'pack_missing'; readonly proposal: CapabilityPackProposalResultWire }
+  | { readonly ok: false; readonly code: string; readonly error: string; readonly retryable: boolean };
 
 export interface TrackingProgressWire {
   readonly requestId: string;
@@ -1105,10 +1096,7 @@ export interface FramePilotBridge {
   /** Resolve one capability through the root-verified catalog; never accepts a renderer URL. */
   capabilityPackPropose?(capabilityId: string): Promise<CapabilityPackProposalResultWire>;
   /** Resolve the active project's exact immutable dependency; main rereads the project authority. */
-  capabilityPackProposeProjectDependency?(
-    projectId: string,
-    packId: string,
-  ): Promise<CapabilityPackProposalResultWire>;
+  capabilityPackProposeProjectDependency?(projectId: string, packId: string): Promise<CapabilityPackProposalResultWire>;
   /** Reconcile and report the active project's authoritative dependency state. */
   capabilityPackProjectStatus?(projectId: string): Promise<CapabilityPackProjectResolutionWire>;
   /** Run one tracking job in an isolated signed pack worker; main resolves the media. */
@@ -1118,25 +1106,17 @@ export interface FramePilotBridge {
   /** Bounded progress for an in-flight tracking job. */
   onCapabilityPackTrackProgress?(handler: (progress: TrackingProgressWire) => void): () => void;
   /** Install only the exact signed proposal the user explicitly approved. */
-  capabilityPackInstall?(
-    approval: CapabilityPackInstallApprovalWire,
-  ): Promise<CapabilityPackInstallStartResultWire>;
+  capabilityPackInstall?(approval: CapabilityPackInstallApprovalWire): Promise<CapabilityPackInstallStartResultWire>;
   /** Cancel one main-owned install operation. */
   capabilityPackCancel?(operationId: string): void;
   /** Build a non-mutating explicit cleanup proposal. */
-  capabilityPackPlanEviction?(
-    requestedBytes: number,
-  ): Promise<CapabilityPackEvictionPlanResultWire>;
+  capabilityPackPlanEviction?(requestedBytes: number): Promise<CapabilityPackEvictionPlanResultWire>;
   /** Execute only an unexpired plan and exact identity list previously displayed. */
-  capabilityPackExecuteEviction?(
-    approval: CapabilityPackEvictionApprovalWire,
-  ): Promise<CapabilityPackActionResultWire>;
+  capabilityPackExecuteEviction?(approval: CapabilityPackEvictionApprovalWire): Promise<CapabilityPackActionResultWire>;
   /** Subscribe to install progress; the returned function unsubscribes. */
   onCapabilityPackProgress?(listener: (message: CapabilityPackProgressWire) => void): () => void;
   /** Subscribe to storage-copy progress; the returned function unsubscribes. */
-  onCapabilityPackRelocationProgress?(
-    listener: (message: CapabilityPackRelocationProgressWire) => void,
-  ): () => void;
+  onCapabilityPackRelocationProgress?(listener: (message: CapabilityPackRelocationProgressWire) => void): () => void;
   openProject(path: string): Promise<ProjectOpenResult>;
   /** Show a native OS file picker and open the selected project. */
   openProjectDialog(): Promise<ProjectOpenResult>;

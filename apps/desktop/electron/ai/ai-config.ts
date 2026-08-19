@@ -15,7 +15,11 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { isAsrProviderName, resolveProviderConfig, type ProviderConfig } from '@framepilot/ai-sdk';
+import {
+  isAsrProviderName,
+  resolveProviderConfig,
+  type ProviderConfig,
+} from '@framepilot/ai-sdk';
 import { createLogger } from '@framepilot/shared-types';
 import type {
   AiConfig,
