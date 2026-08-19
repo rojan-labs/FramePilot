@@ -28,6 +28,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Vercel AI Gateway as a selectable AI provider.** Settings → AI now lists **Vercel AI
+  Gateway** alongside the existing providers: paste a gateway key, pick a `provider/model`
+  slug (default `anthropic/claude-sonnet-4.6`), and edits run through it like any other
+  provider. The gateway fronts 100+ upstream models behind one OpenAI-compatible endpoint,
+  so a single key covers Claude, GPT, Gemini and the rest, with Vercel's spend tracking and
+  failover in front of them. It reads the static `AI_GATEWAY_API_KEY` (Vercel's own variable
+  name); the OIDC token flow is deliberately not used, since those tokens expire in about a
+  day and a desktop editor cannot assume the Vercel CLI is present to refresh them.
+  (`packages/ai-sdk`, `apps/desktop`, `apps/web-editor`)
+
 - **A manual, real-provider capture path for the FramePilot 9.5 Foundation benchmark.**
   `pnpm eval:agent:foundation` proves the Foundation *contract* entirely offline, but two of
   the roadmap's Phase-0 exit rows — real-provider latency/cache evidence and a real-provider

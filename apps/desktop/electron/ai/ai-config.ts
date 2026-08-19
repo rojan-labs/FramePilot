@@ -45,6 +45,7 @@ interface StoredConfig {
   anthropic: ProviderEntry;
   nvidia: ProviderEntry;
   openrouter: ProviderEntry;
+  'vercel-gateway': ProviderEntry;
   groq: ProviderEntry;
   google: ProviderEntry;
   ollama: ProviderEntry;
@@ -63,6 +64,7 @@ const REAL_PROVIDERS: readonly Exclude<AiProviderName, 'mock'>[] = [
   'anthropic',
   'nvidia',
   'openrouter',
+  'vercel-gateway',
   'groq',
   'google',
   'ollama',
@@ -85,6 +87,7 @@ const PROVIDER_META: Record<AiProviderName, { label: string; defaultModel: strin
   anthropic: { label: 'Claude (Anthropic)', defaultModel: 'claude-opus-4-8' },
   nvidia: { label: 'NVIDIA NIM', defaultModel: 'meta/llama-3.1-70b-instruct' },
   openrouter: { label: 'OpenRouter', defaultModel: 'openai/gpt-4o-mini' },
+  'vercel-gateway': { label: 'Vercel AI Gateway', defaultModel: 'anthropic/claude-sonnet-4.6' },
   groq: { label: 'Groq', defaultModel: 'llama-3.3-70b-versatile' },
   google: { label: 'Google (Gemini)', defaultModel: 'gemini-2.5-flash' },
   ollama: { label: 'Ollama (local)', defaultModel: 'llama3.2' },
@@ -98,6 +101,7 @@ const emptyStored = (): StoredConfig => ({
   anthropic: {},
   nvidia: {},
   openrouter: {},
+  'vercel-gateway': {},
   groq: {},
   google: {},
   ollama: {},
@@ -129,6 +133,7 @@ function parseStored(raw: string): StoredConfig {
     anthropic: readEntry(parsed['anthropic']),
     nvidia: readEntry(parsed['nvidia']),
     openrouter: readEntry(parsed['openrouter']),
+    'vercel-gateway': readEntry(parsed['vercel-gateway']),
     groq: readEntry(parsed['groq']),
     google: readEntry(parsed['google']),
     ollama: readEntry(parsed['ollama']),
@@ -172,14 +177,13 @@ function cloneStored(config: StoredConfig): StoredConfig {
     anthropic: cloneEntry(config.anthropic),
     nvidia: cloneEntry(config.nvidia),
     openrouter: cloneEntry(config.openrouter),
+    'vercel-gateway': cloneEntry(config['vercel-gateway']),
     groq: cloneEntry(config.groq),
     google: cloneEntry(config.google),
     ollama: cloneEntry(config.ollama),
     deepseek: cloneEntry(config.deepseek),
     'openai-compatible': cloneEntry(config['openai-compatible']),
-    ...(config.nvidiaEmbeddings === undefined
-      ? {}
-      : { nvidiaEmbeddings: config.nvidiaEmbeddings }),
+    ...(config.nvidiaEmbeddings === undefined ? {} : { nvidiaEmbeddings: config.nvidiaEmbeddings }),
     ...(config.twelveLabs === undefined ? {} : { twelveLabs: config.twelveLabs }),
     ...(config.embeddingsAutoIndex === undefined
       ? {}

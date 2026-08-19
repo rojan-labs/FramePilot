@@ -400,6 +400,7 @@ export type AiProviderName =
   | 'anthropic'
   | 'nvidia'
   | 'openrouter'
+  | 'vercel-gateway'
   | 'groq'
   | 'google'
   | 'ollama'
