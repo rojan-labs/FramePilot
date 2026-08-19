@@ -1152,7 +1152,9 @@ function registerIpcHandlers(): void {
         // `committedProject` is set whenever the write callback ran (a fresh, non-
         // rebased, non-replayed commit) — that's the only case where `committed.project`
         // is the transport envelope instead of a full Project.
-        await reconcileCapabilityPacks(parseProject(committedProject ?? (committed.project as Project)));
+        await reconcileCapabilityPacks(
+          parseProject(committedProject ?? (committed.project as Project)),
+        );
         return {
           ok: true,
           project: committed.project,
@@ -1423,6 +1425,7 @@ function registerIpcHandlers(): void {
     const defaults: Partial<Record<AiProviderName, string>> = {
       nvidia: 'https://integrate.api.nvidia.com/v1',
       openrouter: 'https://openrouter.ai/api/v1',
+      'vercel-gateway': 'https://ai-gateway.vercel.sh/v1',
       groq: 'https://api.groq.com/openai/v1',
       google: 'https://generativelanguage.googleapis.com/v1beta/openai',
       ollama: 'http://127.0.0.1:11434/v1',

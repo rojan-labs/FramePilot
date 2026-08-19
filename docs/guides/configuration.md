@@ -63,6 +63,14 @@ openai-compatible | mock
 | `OPENROUTER_MODEL`    | Upstream provider/model id.     |
 | `OPENROUTER_BASE_URL` | OpenRouter-compatible endpoint. |
 
+### Vercel AI Gateway
+
+| Variable              | Purpose                             |
+| --------------------- | ----------------------------------- |
+| `AI_GATEWAY_API_KEY`  | Vercel AI Gateway credential.       |
+| `AI_GATEWAY_MODEL`    | Upstream `provider/model` slug.     |
+| `AI_GATEWAY_BASE_URL` | Gateway OpenAI-compatible endpoint. |
+
 ### Groq
 
 | Variable                    | Purpose                                               |

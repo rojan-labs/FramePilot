@@ -1863,6 +1863,10 @@ workspace typecheck/lint clean, dist rebuilt.
         `llama-3.3-70b-versatile`), plus Google (Gemini Developer API) over the native Gemini
         REST endpoint via raw `fetch` (no SDK, `GOOGLE_API_KEY`, default `gemini-2.5-flash`).
         Each is registered in `PROVIDER_NAMES`, the desktop/web config stores, and Settings → AI.
+  - [x] Added **Vercel AI Gateway** (`vercel-gateway`, `AI_GATEWAY_API_KEY`, default
+        `anthropic/claude-sonnet-4.6`) over the same OpenAI-compatible adapter as OpenRouter —
+        one key fronting 100+ upstream models, registered in `PROVIDER_NAMES`, the engine
+        roster, both config stores, and Settings → AI (2026-08-19).
 - [x] Tool Registry — AI may ONLY edit via registered, schema-validated tools (PRD §8.3)
   ```
   — `tool-registry.ts` + Python `ai_tools/registry.py`+`handlers.py`+`dispatch.py`
