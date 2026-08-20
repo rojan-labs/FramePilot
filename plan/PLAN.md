@@ -13,6 +13,136 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-20):** `[x]` **Third stalled agent run — caption restyle
+("can you use differnt caption style and emphasize the captions as well", deepseek-v4-pro, two
+runs, 11 calls, $0.48, zero mutations).** Same failure family as the two montage runs below and
+again not an orchestration-architecture gap: the run read the answer, could not keep it, and
+could not ask for it back. Five defects, all fixed with `file:line` evidence:
+
+1. **`recall_evidence` could not match a keyword query.** `evidence-store.ts#recall` tested
+   `part.includes(wholeQuery)` — one literal substring — so `captionStyle track layer_caption_4
+   style` could only match if that exact 45-character string sat inside a single record. Every
+   queried recall in both runs returned "No part of ev_N matches" against payloads that plainly
+   contained the terms. Queries are now tokenised and scored (`rank`), with a whole-phrase hit
+   ranked above scattered term hits. This mattered most on the ACTION RECOVERY turn, where
+   recall is the ONLY retrieval tool left in scope.
+2. **No way past the recall budget.** An unqueried recall returned `slice(0, 4000)`, so the tail
+   of any larger payload was unreachable by any argument — the run recalled the caption catalog
+   three times and got the identical head, cut mid-template, each time. `recall_evidence` now
+   takes `offset` and every truncated answer names the offset to resume from (`page`).
+   `recordsOf` also stopped requiring exactly ONE array property: two record lists sent a
+   payload down the single-line JSON path, which covered both reads a caption run needs
+   (`discover_caption_styles`, `get_mapped_transcript`).
+3. **The digest dropped the field the request named.** `timelineDigest` rendered track
+   id/type/flags/clips and never `captionStyle`, so the distilled fact was "5 tracks, 87 clips"
+   while the payload held `templateId: headline` plus the accent already applied. Two turns
+   later the raw payload had aged out of the rolling log window and the run went hunting for
+   what it had already been told. `get_timeline` now carries the committed caption style, and
+   `get_clip`, `get_mapped_transcript`, `get_timeline_summary` and `discover_caption_styles`
+   have record-bounded digests instead of the blind 1200-char `previewJson` default.
+4. **The template catalog was unreachable by construction.** 51 templates exist; `limit` was
+   capped at 45 and defaulted to 20, so no call could return the catalog and `headline` — the
+   style actually applied — sat past the cut. `set_track_caption_style` rejects an id the model
+   was never shown, so the run could neither name what it had nor choose a deliberate
+   alternative. Ceiling and default are now the catalog's own size on both sides of the
+   TS↔Python contract.
+5. **"contine" became the objective.** `onCommand` seeded outcome/acceptance/decision from the
+   raw prompt, so the second turn's objective, success criterion, committed decision and the
+   criterion verification checked were all the literal word "contine" — hence
+   `VERIFICATION_INCONCLUSIVE`. `kernel/continuation.ts` resolves a bare nudge (typo-tolerant)
+   to the request underneath it from `input.history`, while `objective.request` keeps what the
+   editor actually typed; a message carrying its own content is never rewritten.
+
+Evidence: 3,030 ai-sdk tests and 2,581 engine tests green; every touched file at 100% line and
+branch coverage for the new code (`kernel/continuation.ts`, `kernel/evidence-store.ts`,
+`kernel/working-state.ts`, `kernel/conductor.ts`, `domain-tools/captions.ts` all 100%;
+`orchestrator.ts` branch 95.12 → 96.44). Ten golden corpora and one snapshot regenerated
+(`objective.provisional`, tool-definition token estimates, and pre-existing unregenerated drift
+in the `load_skill` unknown-skill finding — no event, operation or status changed). See
+`docs/adr/0128-retrieval-the-run-can-actually-use.md`; ADR 0127 amended where this closes half
+of an item it recorded as open.
+
+**Status snapshot (2026-08-20):** `[x]` **AI panel alignment/whitespace + one on/off control.**
+The notice card (errors, warnings, notices) was laid out by three stylesheets at once and they
+disagreed: `AiSidebar.beautiful.css`'s `border: 0` silenced the tone stripe `styles.css` set, so
+a failed run looked informational; `.ai-notice-body` was a flex ROW, which made the disclosed
+`<pre>` detail a third COLUMN beside the message; a `margin-top` for the old column layout
+knocked the action buttons out of line; and an info notice (no icon) started 20px left of every
+warning in the thread. A two-column grid in `AiSidebar.polish.css` now owns the whole card, and
+`tests/e2e/specs/ai-notice-layout.spec.ts` asserts the boxes — all three levels share a message
+column at x=963, the detail is full-width beneath the actions, and the stripe is an inset shadow
+that follows the 9px radius. Also: `.ai-markdown` styled only `code`/`pre`, so assistant lists
+took the browser's 40px indent and 13px paragraph margins in a 300px panel; and
+`.ai-plan-steps, .ai-plan-list` in `beautiful.css` matched no markup (the class is `.ai-plan`),
+so the plan list never got its intended flex layout. Controls: "Keep inside safe area" became a
+`Switch` (an immediate preference), caption row selection became the `Checkbox` primitive, and
+the global `input[type='checkbox'] { accent-color }` rule is gone — it only ever themed a native
+control that should not exist. The decision rule is now a table in `DESIGN_SYSTEM.md`.
+Orchestration: `stage-policy.ts#planningExhausted` deleted — a caller-less duplicate of
+`conductor.ts#researchBudgetSpent` whose docstring claimed a durable stage-level closure the
+product never had.
+
+**Measured, not fixed:** the agent ships **78 tool schemas ≈ 15.7k tokens on every turn** —
+~90% of the observed 102k-token run. The three caption tools alone are 12.5k chars (20% of the
+block), and `set_caption_style`/`set_track_caption_style` are near-duplicates at 8.4k combined.
+Reducing this is roadmap Phase 4 §9.1 (dynamic exposure by project capability) and §9.2 wants
+the telemetry before the cut; gating caption tools on "project has captions" would withhold them
+from a run about to add captions, so it needs the eval evidence rather than a guess.
+
+**Status snapshot (2026-08-19):** `[x]` **Agent read-fidelity + capability-honesty repair.**
+A real montage-refinement run ("more precise cuts, at least 45 clips, don't keep the clips from
+the starting offset") stalled without producing a patch. Root cause is not orchestration
+architecture: every timeline read that carries **source in/out** — `get_clips`, `get_clip`,
+`get_timeline_map`, `map_time` — had no entry in `summarizeReadResult`'s digest table and fell
+through to the blind 1200-char `previewJson` default, so the model received ~4 of 42 records
+with a bare `…` and no "N more" tail. It could not obtain the `sourceStart` it was asked to
+vary. Compounding it: `summarizeVisualStatus` told a text-only run to "look at a specific
+moment with `get_frame`" while `agentTools` had withheld every vision descriptor, and two
+skill manifests advertised `index_media`, which is `IMPLICIT_ONLY` and never model-selectable.
+Fixed: record-bounded digests for `get_clips`/`get_timeline_map`/`map_time` (source in/out
+included), record-aware `recall_evidence` for list payloads, `summarizeVisualStatus` gated on
+`Orchestrator#canSeeFrames()`, `validateSkillTools` rejecting implicit-only/unavailable tools,
+and `trim_clip`/`get_timeline_map` descriptions that state their limits. Five golden corpora
+and one snapshot regenerated (token estimates only). See
+`docs/adr/0127-a-read-the-model-cannot-finish-reading.md`.
+
+**Second run, same request (2026-08-19, deepseek-v4-pro, 6 calls, $0.98, 13m14s, cancelled):**
+four further defects, all fixed. (1) Every in-process read reported its own descriptor as its
+summary, so `distil` recorded "Reading the timeline → Reading the timeline" — the run's memory
+was a list of verbs; reads now carry a `finding` (the digest head line). (2) `isSemanticLoop`
+had been dead in production: the Conductor's `stageAdvanced` was an object comparison against a
+`state.working` the fact fold had already replaced, so it read true whenever a fact was
+recorded, and the detector only ever fired because degenerate facts deduplicated into a no-op —
+it now compares the stage. (3) `agentTools('action-recovery')` withheld `recall_evidence`, the
+one tool its own instruction names, so the model inferred asset durations from clip-id
+millisecond suffixes and placed 46 clips against guesses. (4) The briefing printed the raw
+request five times under five headings; the echoes are suppressed and `defaultActionFor` uses
+its per-stage instruction. Five golden corpora + one snapshot regenerated (fact statements,
+nextAction text, token estimates — no event, operation or status changed).
+
+Deliberately NOT fixed here, each needing its own reviewed slice — all four are recorded in
+ADR 0127 with `file:line`:
+- [~] **The interpretation slot holds an echo.** `conductor.ts` pre-fills the run objective
+      with the raw prompt at construction and `setObjective` is idempotent, so no turn can
+      ever write a real interpretation. The briefing no longer RENDERS the echo four times,
+      but the run's derived reading (montage length vs music bed, clip-count arithmetic,
+      visual search unavailable) is still never durable. Needs a seam for the model to write
+      an interpretation once — the remaining half of the 391-second thinking block.
+      **Half-fixed (2026-08-20, caption-restyle run below):** the seed is now recorded as
+      `objective.provisional` and `setObjective` lets the FIRST real interpretation replace a
+      placeholder while still protecting an interpretation from being rewritten — so the slot
+      is no longer permanently occupied. What remains is the model-facing seam itself: no tool
+      or turn hook calls `setObjective`, so nothing yet writes the interpretation the slot is
+      now open for. Keep this item until that caller exists.
+- [ ] **The decision-recording seam is unwired.** `addDecision`/`commitDecision`/
+      `reviseDecision`/`recordObjective`/`setBlocker` have no production callers.
+- [ ] **`stage-policy.ts#planningExhausted` is dead code** duplicating
+      `conductor.ts#researchBudgetSpent`; the durable stage-level planning closure its
+      docstring promises does not exist.
+- [ ] **No agent-usable in-place `sourceStart` change.** `professional_edit`'s `slip` needs a
+      live selection plus the clip's asset in the source monitor; delete + re-`add_clip` is
+      the only path an autonomous run has, and only the tool description now says so.
+
 **Status snapshot (2026-08-18):** `[x]` **FramePilot 9.5 Phase 1 — runtime convergence.**
 FramePilot now has ONE mutating AI execution runtime (ADR 0126). The `planned_edit` route and
 everything that served only it — `streamPlannedEdit`, the intent parser, the planner, the plan

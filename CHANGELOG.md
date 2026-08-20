@@ -8,6 +8,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Exporting an AI conversation now gives you the whole run.** The Markdown export used to
+  keep only the messages, so everything that explains an outcome — the thinking, each tool
+  call with its arguments and raw result, every proposed edit with its operations and
+  validation issues, run status changes, cost, and the resume checkpoint — was dropped from
+  the file you shared. It now writes the complete transcript, turn by turn, with nothing
+  from the log left out. You can also **copy** it: the conversation you are looking at has
+  "Copy transcript" and "Export transcript" in the sidebar's ⋯ menu, and every row in the
+  history drawer now offers "Copy Markdown" next to "Export Markdown".
+
 - **FramePilot now has one AI editing runtime.** Requests that needed analysis before they
   could edit — "cut this to the music", "build a montage from the best shots" — used to run
   through a separate planning engine with its own understanding, planning and execution steps.
@@ -20,6 +29,74 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `plan/FRAMEPILOT-95-CONVERGENCE-ROADMAP.md` Phase 1)
 
 ### Fixed
+
+- **Asking the AI to restyle your captions no longer sends it in circles.** "Use a different
+  caption style and emphasize the captions" could end a run with nothing applied: the read
+  that reports the style your captions already use summarised it as a track and clip count,
+  dropping the style itself, so two turns later the run had forgotten the one answer it
+  needed and went looking for it again. Reads that carry caption information now keep it —
+  the template a track uses and how it accents words, a clip's cue and any per-cue override,
+  every mapped word with its timing, and the full template catalog listed by family. The
+  catalog is also fully reachable now: 51 templates existed but no single request could
+  return more than 45, and the default returned 20, so the style actually applied to your
+  project could sit past the cut where the AI could neither name it nor pick something
+  different.
+- **Looking something back up mid-run now answers the question that was asked.** A query
+  had to appear word-for-word inside a single record to match, so a perfectly sensible
+  search for several terms at once came back "no match" even when every one of them was
+  there. Queries now match on any of their words, with an exact phrase ranked first. And
+  nothing is unreachable any more: a stored result larger than the recall budget used to
+  hand back the same opening section however many times it was asked for, with no way to
+  read on. It now says where it stopped and can be resumed from there.
+- **"Continue" no longer costs the AI its goal.** Typing just "continue" (or "contine")
+  made that word the run's objective, its success criterion, and the thing its own
+  verification checked — so the run both forgot what it was doing and could only report
+  itself inconclusive. A message that only asks it to keep going now resolves to the
+  request underneath it, and what you actually typed is still kept verbatim. Its first
+  reading of a request is also no longer permanent: it can be refined by a proper
+  interpretation instead of being locked in before the run has looked at anything.
+- **The AI can now see where each clip starts inside its footage.** Ask it to re-cut a
+  montage so the clips don't all begin at the head of the take, and it used to circle: the
+  reads that report each clip's in-point out of the original file were being cut off after
+  about four clips out of forty, with nothing to say the rest was missing. It now receives
+  every clip's timeline span *and* its source in/out, and on a long timeline it is told how
+  to page through the rest. Looking something back up mid-run (`recall_evidence`) can now
+  narrow to the clip you name instead of handing back the same truncated head.
+- **The AI is no longer told to use tools it does not have.** A run driven by a model that
+  cannot look at pictures was still being advised to "look at a frame", and two of the
+  editing playbooks listed a background indexing tool the AI can never call. Both are gone,
+  and a test now fails if any playbook advertises a tool the model cannot actually select.
+- **Errors in the AI panel look like errors, and line up.** A failed run's notice had lost
+  its red edge entirely, its Retry and Show details buttons sat out of line with the message
+  they belong to, and opening "Show details" squeezed the detail text into a narrow column
+  beside the message instead of laying it out underneath. Notices without an icon — plain
+  informational ones — also started 20px to the left of every warning and error above them.
+  All four came from three stylesheets describing the same card and disagreeing; one owns it
+  now.
+- **Assistant replies no longer waste a third of the panel on indentation.** Bulleted and
+  numbered lists in the AI's replies were falling back to the browser's own spacing: a 40px
+  indent in a 300px-wide panel, with markers sitting well outside the text column, and gaps
+  between paragraphs half again wider than they needed to be.
+- **One on/off control across the app.** "Keep inside safe area" in the caption panel was a
+  bare browser checkbox; it is now the same switch as "Plan first" and every Settings row.
+  Caption row selection uses the app's own checkbox instead of the browser's.
+- **The AI stops re-deciding what you asked for on every turn.** Its own notes on a run
+  recorded what it had just done ("Reading the timeline → Reading the timeline") instead of
+  what it had found, and the run brief repeated your request back to it under four different
+  headings. So each turn started over: one real montage request spent thirteen minutes and
+  six and a half minutes of that inside a single thinking step, re-deriving the same plan.
+  Its notes now carry the actual finding ("5 tracks, 87 clips…"), and the brief states your
+  request once.
+- **The AI can no longer be told to check its notes with no way to open them.** When a run
+  has gathered enough and is pushed to start editing, fresh searches are withheld on
+  purpose — but so was the one tool that reopens what it already read. It went ahead and
+  guessed clip lengths from filenames. That tool now stays available.
+- **The "going in circles" detector actually runs.** It was checking the wrong thing and had
+  been silently passing every run, which is why a run that kept re-reading the same footage
+  was never stopped and redirected.
+- **`trim_clip` says what it cannot do.** Moving a clip's edges also moves what it reads
+  from the footage; the description now says so, and names the way to change one without the
+  other. (ADR 0127)
 
 - **A hallucinated analysis request can no longer reach the media engine.** On the retired
   planning path, the arguments the model wrote for an analysis step were passed to the engine

@@ -227,7 +227,12 @@ use a second styling representation:
    A whole recording is always divided into separate readable phrase cues; one full-duration
    `add_caption_layer` is rejected. Each accepted cue persists its mapped words and current
    timeline revision so verification can prove what it represents.
-2. `discover_caption_styles` supplies real bundled fonts and template ids.
+2. `discover_caption_styles` supplies real bundled fonts and template ids. It returns the whole
+   matching catalog by default — `set_track_caption_style` rejects an id that never appeared in
+   a result, so a partial list is a list the agent cannot act on (see
+   [ADR 0128](../adr/0128-retrieval-the-run-can-actually-use.md)). `get_timeline` reports the
+   style a caption track already carries, so "use a different style" is answerable without
+   guessing at what the current one is.
 3. The AI selects a sparse set of exact spoken anchors and calls `auto_emphasize_captions`. The
    tool rejects invented words and may set the track's template, font, x/y position, size,
    rotation, width, alignment, spacing, background, animation and safe-area behavior in the same
