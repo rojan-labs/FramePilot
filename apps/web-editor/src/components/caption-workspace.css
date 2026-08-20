@@ -423,12 +423,11 @@
   min-width: 0;
 }
 
-.caption-row-select input {
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  accent-color: var(--accent);
-  cursor: pointer;
+/* The cell holds the token-styled `Checkbox` primitive now, not a native input, so it
+   needs no size or accent of its own — the primitive owns both. Only the label wrapper's
+   default gap has to go: there is no visible text beside the box in this cell. */
+.caption-row-select .checkbox {
+  gap: 0;
 }
 
 .caption-workspace-row .cue-time {

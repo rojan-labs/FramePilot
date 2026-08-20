@@ -6,11 +6,7 @@
 import { createRef } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  createTurnEmitter,
-  type AiEvent,
-  type EditResult,
-} from '@framepilot/ai-sdk';
+import { createTurnEmitter, type AiEvent, type EditResult } from '@framepilot/ai-sdk';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import { createConversation } from '../../ai/conversation.js';
 import { MemoryPersistence } from '../../ai/conversationPersistence.js';
@@ -380,6 +376,32 @@ describe('AiSidebar', () => {
     expect(session.aborts).toBe(1);
     expect(screen.getByText(/Edit your video with AI/i)).toBeTruthy();
     expect(screen.queryByText('Trim the intro')).toBeNull();
+  });
+
+  it('copies the active conversation as a full Markdown transcript from the header menu', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(
+      <AiSidebar
+        project={project}
+        session={new FakeSession()}
+        persistence={new MemoryPersistence()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Message FramePilot'), {
+      target: { value: 'Trim the intro' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Send'));
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'More options' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Copy transcript' }));
+    });
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const md = String(writeText.mock.calls[0]?.[0]);
+    expect(md).toContain('### 👤 You');
+    expect(md).toContain('Trim the intro');
   });
 
   it('renders unplanned agent activity as ordered step-local thinking and tool rows, with no plan node', async () => {
@@ -1637,7 +1659,6 @@ describe('AiSidebar', () => {
     expect(screen.queryByLabelText('Apply mode')).toBeNull();
     expect(screen.queryByRole('menuitemradio', { name: /Manual/ })).toBeNull();
   });
-
 
   it('dispatches Agent-mode commands to the auto path, which classifies read-only questions to chat (ADR 0055)', async () => {
     // Routing moved into the orchestrator: the sidebar dispatches `auto` for every Agent-mode

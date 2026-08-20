@@ -121,6 +121,22 @@ layout animation. Every motion path must remain correct under
 - **`Switch`** — the canonical accessible binary preference control. Feature
   components own label/hint layout, while Switch owns `role="switch"`, checked
   state, and interaction semantics.
+
+  **Which on/off control to reach for.** The app has exactly three, and the choice
+  is decided by what the control does, not by where it sits:
+
+  | Use                             | When                                                                                 | Example                                                   |
+  | ------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------- |
+  | `Switch`                        | A preference that takes effect the moment it changes                                 | "Plan first", "Keep inside safe area", every Settings row |
+  | `Checkbox` (web-editor)         | Selecting items, or a form field applied later                                       | Selecting caption rows                                    |
+  | Icon button with `aria-pressed` | A tool state in a dense toolbar, where a pill would not fit and an icon reads faster | Snapping, ripple-on-delete                                |
+
+  Never a bare `<input type="checkbox">`: the `Checkbox` primitive keeps a real
+  input for keyboard and screen readers but hides it behind a token-styled box, so
+  the app never shows the browser's own control. There is deliberately no global
+  `accent-color` rule for checkboxes — one existed, and it quietly made a native
+  checkbox look almost-right, which is how two of them shipped.
+
 - **`SegmentedControl`** — the canonical immediately-applied single-choice group
   for compact preferences.
 - **`WorkspaceShell`** — shared resizable editor workspace behavior.

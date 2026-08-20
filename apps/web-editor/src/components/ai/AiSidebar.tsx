@@ -68,6 +68,8 @@ import { latestStreamingAssistantText } from '../../ai/liveAnnouncement.js';
 import { getBridge } from '../../editor/bridge.js';
 import {
   ArrowDown,
+  Copy,
+  Download,
   History,
   ICON_SIZE,
   Key,
@@ -84,7 +86,8 @@ import { Tooltip } from '../Tooltip.js';
 import { Switch } from '@framepilot/ui';
 import type { AiStreamAnswerMessage } from '@framepilot/shared-types';
 import { EventNode, type RevealHandler } from './EventNode.js';
-import { HistoryDrawer } from './HistoryDrawer.js';
+import { copyText, downloadText, HistoryDrawer } from './HistoryDrawer.js';
+import { toMarkdown } from '../../ai/conversationExport.js';
 import { TaskRunView } from './TaskRunView.js';
 import { PlanApprovalCard } from './PlanApprovalCard.js';
 import { PlanAccordion } from './PlanAccordion.js';
@@ -1227,7 +1230,6 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     lastTurn.current !== null &&
     (view.status === 'failed' || view.status === 'cancelled');
 
-
   const items = virtualizer.getVirtualItems();
   const ModeIcon = MODE_META[mode].Icon;
   const modelNotReady = activeProvider?.ready === false;
@@ -1254,7 +1256,6 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     },
     [session],
   );
-
 
   // The run's own edits, newest run only: what "Undo run" would take back.
   //
@@ -1286,11 +1287,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     const owned = new Set<string>(lastRunPatchIds);
     const storeEntries = editor?.history?.entries.slice(0, editor.history.cursor) ?? [];
     const entries = (
-      storeEntries.length > 0
-        ? storeEntries
-        : Array.isArray(project.history)
-          ? project.history
-          : []
+      storeEntries.length > 0 ? storeEntries : Array.isArray(project.history) ? project.history : []
     ) as readonly { patch?: { patchId?: string } }[];
     let count = 0;
     for (let index = entries.length - 1; index >= 0; index -= 1) {
@@ -1337,8 +1334,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       (appliedNodes[node.id] === 'failed' || node.commit?.state === 'stale');
     // An edit that did not apply opens expanded, as does an invalid one, so the reason is
     // visible without hunting for it.
-    const defaultExpanded =
-      node.kind === 'diff' && (!node.edit.validation.valid || failedToApply);
+    const defaultExpanded = node.kind === 'diff' && (!node.edit.validation.valid || failedToApply);
     return (
       <EventNode
         node={node}
@@ -1441,6 +1437,33 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
                   }}
                 >
                   {historyOpen ? 'Hide history' : 'History'}
+                </MenuItem>
+                {/* Transcript export for the CONVERSATION ON SCREEN. The history
+                    drawer exports any row; this is the one people ask for during a
+                    run they are watching go wrong. Both write the same complete
+                    Markdown (`toMarkdown`) — every message, thought, tool call with
+                    its arguments and raw result, proposed edit, status and cost. */}
+                <MenuItem
+                  icon={<Copy size={ICON_SIZE.sm} />}
+                  disabled={!active}
+                  onSelect={() => {
+                    if (active) void copyText(toMarkdown(active));
+                    close();
+                  }}
+                >
+                  Copy transcript
+                </MenuItem>
+                <MenuItem
+                  icon={<Download size={ICON_SIZE.sm} />}
+                  disabled={!active}
+                  onSelect={() => {
+                    if (active) {
+                      downloadText(`${active.id}.md`, toMarkdown(active), 'text/markdown');
+                    }
+                    close();
+                  }}
+                >
+                  Export transcript
                 </MenuItem>
                 <MenuItem
                   icon={<Settings size={ICON_SIZE.sm} />}
