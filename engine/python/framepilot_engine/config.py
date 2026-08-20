@@ -69,6 +69,7 @@ class AIProvider(StrEnum):
     ANTHROPIC = "anthropic"
     NVIDIA = "nvidia"
     OPENROUTER = "openrouter"
+    VERCEL_GATEWAY = "vercel-gateway"
     GROQ = "groq"
     GOOGLE = "google"
     OLLAMA = "ollama"
