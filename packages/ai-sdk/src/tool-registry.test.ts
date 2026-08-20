@@ -1650,6 +1650,27 @@ describe('get_mapped_transcript — windowing the edited-timeline transcript', (
     };
     expect(result.words.map((w) => w.word)).toEqual(['hello']);
   });
+
+  it('describes each run by bounds and count, never by repeating its words', () => {
+    // The payload used to be exactly twice the size of the information in it, because
+    // `MappedTranscript.runs[].words` repeats every object already in `words`. On a real
+    // project that was 81 words in 27 KB, and a run that needed the transcript spent six
+    // turns paging it back out of the evidence store one recall budget at a time.
+    const result = getTool('get_mapped_transcript')?.read?.({}, ctx) as {
+      words: unknown[];
+      runs: Record<string, unknown>[];
+    };
+    expect(result.runs.length).toBeGreaterThan(0);
+    for (const run of result.runs) {
+      expect(run).not.toHaveProperty('words');
+      expect(typeof run.start).toBe('number');
+      expect(typeof run.end).toBe('number');
+      expect(typeof run.wordCount).toBe('number');
+    }
+    // Every word is owned by exactly one run, so the counts account for all of them.
+    const counted = result.runs.reduce((sum, r) => sum + Number(r.wordCount), 0);
+    expect(counted).toBe(result.words.length);
+  });
 });
 
 describe('toolDescriptors byte-stable ordering (E3.3)', () => {

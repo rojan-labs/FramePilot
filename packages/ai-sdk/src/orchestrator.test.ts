@@ -1315,11 +1315,18 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
     }));
     const note = summarizeReadResult('get_mapped_transcript', {
       words,
-      runs: [{ clipId: 'c', words }],
+      // The wire shape runs carry: bounds and a count, never copies of the words. See
+      // domain-tools/timeline.ts — repeating them made the payload exactly twice the size
+      // of the information in it.
+      runs: [{ clipId: 'c', assetId: 'a', start: 0, end: 20.2, wordCount: 81 }],
       droppedCount: 3,
       revision: 749,
     });
-    expect(note).toContain('81 mapped words, 3 dropped by cuts, revision 749');
+    // The run bounds ride in the HEAD, because that first line becomes the run's durable
+    // fact and the bounds are the only place a cue may not be broken across.
+    expect(note).toContain(
+      '81 mapped words, 3 dropped by cuts in 1 speech run (0–20.2s), revision 749',
+    );
     for (const w of words) expect(note).toContain(w.word);
   });
 

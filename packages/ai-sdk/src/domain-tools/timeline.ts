@@ -289,22 +289,44 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       description:
         'The transcript as it plays on the EDITED timeline: only words that survived ' +
         'the cuts, each with its sequence time, its original source time, and the clip ' +
-        'carrying it — grouped into runs that never cross a cut. This is what captions, ' +
-        'markers, and any "quote the video at time T" answer must be built from. Words ' +
-        'in deleted footage are gone, so anything you read here is genuinely audible.',
+        'carrying it. Also returns the RUNS — the stretches of continuous audio, with ' +
+        'their sequence bounds and word counts. A run boundary is a break in the ' +
+        'speech: a caption cue may span as many picture cuts as you like but must never ' +
+        'cross a run boundary, because the words either side were never spoken in one ' +
+        'breath. Partition the words by run bounds to segment cues. This is what ' +
+        'captions, markers, and any "quote the video at time T" answer must be built ' +
+        'from. Words in deleted footage are gone, so anything you read here is ' +
+        'genuinely audible.',
     },
     transcriptWindowSchema,
     (a, ctx) => {
       const map = buildTimelineMap(ctx.project.timeline);
       const mapped = mapTranscript(map, ctx.project.transcript);
-      if (a.start === undefined && a.end === undefined) return mapped;
       const start = a.start ?? Number.NEGATIVE_INFINITY;
       const end = a.end ?? Number.POSITIVE_INFINITY;
-      return {
-        ...mapped,
-        words: mapped.words.filter((w) => w.end > start && w.start < end),
-        runs: mapped.runs.filter((r) => r.end > start && r.start < end),
-      };
+      const words = mapped.words.filter((w) => w.end > start && w.start < end);
+      // WHY runs do not carry their words: `MappedTranscript.runs[].words` repeats every
+      // word object already in `words`, so the payload was exactly twice the size of the
+      // information in it — 81 words serialized to 27 KB. A run recall then cost six
+      // turns of paging at the recall budget, which is how a caption run spent its whole
+      // step allowance retrieving a transcript it had already been given.
+      //
+      // Nothing is lost. A run is a time span, and the words inside it are the words
+      // whose midpoint falls in that span — the same ownership rule `verify_captions`
+      // applies, so what this returns and what the verifier enforces cannot disagree.
+      const runs = mapped.runs
+        .filter((r) => r.end > start && r.start < end)
+        .map((run) => ({
+          clipId: run.clipId,
+          assetId: run.assetId,
+          start: run.start,
+          end: run.end,
+          wordCount: words.filter((w) => {
+            const mid = (w.start + w.end) / 2;
+            return mid >= run.start - 1e-6 && mid <= run.end + 1e-6;
+          }).length,
+        }));
+      return { words, runs, droppedCount: mapped.droppedCount, revision: mapped.revision };
     },
   ),
   readTool(

@@ -1442,7 +1442,21 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
         typeof obj.droppedCount === 'number' && obj.droppedCount > 0
           ? `, ${obj.droppedCount} dropped by cuts`
           : '';
-      const head = `${words.length} mapped words${dropped}, revision ${String(obj.revision ?? '?')}`;
+      // The RUN bounds ride in the head, because they are the segmentation contract: a cue
+      // may cross any number of picture cuts and no run boundary. This line becomes the
+      // run's durable fact (`briefing.ts#distil` keeps the first line), so a later turn
+      // knows where it may break a cue without re-reading anything.
+      const runs = (Array.isArray(obj.runs) ? obj.runs : []) as Record<string, unknown>[];
+      const runPart =
+        runs.length === 0
+          ? ''
+          : ` in ${runs.length} speech run${runs.length === 1 ? '' : 's'} (${runs
+              .slice(0, 8)
+              .map((r) => `${round3(Number(r.start))}–${round3(Number(r.end))}s`)
+              .join(', ')}${runs.length > 8 ? ', …' : ''})`;
+      const head = `${words.length} mapped words${dropped}${runPart}, revision ${String(
+        obj.revision ?? '?',
+      )}`;
       // Sequence times only: the source times are in the payload for anyone who recalls
       // it, but a cue is authored against the sequence and doubling the numbers here
       // halves how many words fit.

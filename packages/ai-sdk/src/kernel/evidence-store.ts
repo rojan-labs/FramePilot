@@ -35,8 +35,24 @@ const log = createLogger('ai-sdk:kernel:evidence-store');
 /** Characters of payload rendered into a model-facing preview before truncation. */
 export const EVIDENCE_PREVIEW_CHARS = 900;
 
-/** Characters returned by an explicit {@link EvidenceStore.recall}, which asked for more. */
-export const EVIDENCE_RECALL_CHARS = 4_000;
+/**
+ * Characters returned by an explicit {@link EvidenceStore.recall}, which asked for more.
+ *
+ * WHY it is this large. ADR 0128 gave `recall` an `offset` so nothing stored is
+ * unreachable, which fixed correctness and left the economics wrong: at 4,000 characters
+ * a real read takes several round trips, and a round trip is a whole model turn. A
+ * caption run spent six of its nine turns paging one 27 KB transcript back out of the
+ * store, then hit the convergence guard with no edit applied. Reachable-in-principle is
+ * not the same as affordable.
+ *
+ * 16,000 characters (~4,000 tokens) returns essentially every real read whole in one
+ * call, and the offset remains for the genuinely large ones. The cost is bounded and
+ * transient: a recall's result rides in the action-log note, whose payload
+ * `compactAgentLog` clears after two turns (`orchestrator.ts#AGENT_LOG_PAYLOAD_FRESH`), so it occupies
+ * the prompt for two turns rather than the run. Against a million-token window that is a
+ * rounding error; against six wasted turns it is the whole difference.
+ */
+export const EVIDENCE_RECALL_CHARS = 16_000;
 
 /** The operation type that rewrites the transcript (see `project-operations.ts`). */
 const TRANSCRIPT_OPERATION = 'set_transcript';
