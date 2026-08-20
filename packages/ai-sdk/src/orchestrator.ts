@@ -1159,9 +1159,21 @@ function timelineDigest(tracks: readonly Track[]): string {
   // Head line first, because the first line of a digest becomes the run's FACT about
   // this read (`distil`). Without it the fact was one arbitrary track's clip list.
   const clips = tracks.reduce((sum, t) => sum + t.clips.length, 0);
+  // The committed caption style belongs in the HEAD, not on the per-track line below it.
+  // ADR 0128 added it to this digest so the answer would survive the rolling log window —
+  // but `distil` keeps only the first line, so it never reached the fact, and the run that
+  // asked "use a different caption style" still had a memory that said
+  // `5 tracks, 87 clips: layer_caption_4(40), …` and went looking for what it had read.
+  // Only caption/overlay tracks carry a style and a project has one or two, so this costs
+  // a clause, not a paragraph.
+  const styled = tracks
+    .filter((t) => t.captionStyle !== undefined)
+    .map((t) => `${t.id} style: ${captionStyleLine(t.captionStyle as CaptionStyle)}`);
   const head = `${tracks.length} track${tracks.length === 1 ? '' : 's'}, ${clips} clip${
     clips === 1 ? '' : 's'
-  }: ${tracks.map((t) => `${t.id}(${t.clips.length})`).join(', ')}`;
+  }: ${tracks.map((t) => `${t.id}(${t.clips.length})`).join(', ')}${
+    styled.length > 0 ? ` — ${styled.join('; ')}` : ''
+  }`;
   return [head]
     .concat(
       tracks.map((t) => {

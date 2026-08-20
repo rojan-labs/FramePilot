@@ -23,6 +23,7 @@ import type { AiCompletionRequest, AiProvider, AiResponse, ToolCall } from './pr
 import { type ContextInput, estimateTokens } from './context-builder.js';
 import { TOOL_REGISTRY, getTool } from './tool-registry.js';
 import { classifyTool } from './tool-classification.js';
+import { distil } from './kernel/briefing.js';
 import { makeProject } from './__fixtures__/project.js';
 import { DIMINISHING_RETURNS_TURNS, STALL_CONFIRM_TURNS } from './kernel/conductor.js';
 
@@ -1242,8 +1243,39 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
         },
       ],
     });
-    expect(note).toContain('template=headline');
-    expect(note).toContain('accent=keywords (3 keywords)');
+    // In the FIRST LINE specifically. Containing it anywhere was not enough: `distil`
+    // keeps only line one as the run's fact, so the style sat on a per-track line below
+    // the head and the fact still said "5 tracks, 87 clips" — the digest was fixed and
+    // the memory was not, which is the half of the defect this assertion pins.
+    const head = note.split('\n')[0]!;
+    expect(head).toContain('template=headline');
+    expect(head).toContain('accent=keywords (3 keywords)');
+  });
+
+  it("get_timeline: the DISTILLED FACT carries the style, not just the digest", () => {
+    // End to end through the surface that actually matters. A digest nobody distils is a
+    // digest the next turn never sees.
+    const note = summarizeReadResult('get_timeline', {
+      tracks: [
+        {
+          id: 'layer_caption_4',
+          type: 'caption',
+          clips: [],
+          captionStyle: { templateId: 'headline', display: 'phrase', fontFamily: 'Merriweather' },
+        },
+        { id: 'video_main', type: 'video', clips: [] },
+      ],
+    });
+    const fact = distil({
+      toolName: 'get_timeline',
+      role: 'inspection',
+      descriptor: 'Reading the timeline',
+      summary: note,
+      scope: 'timeline_dependent',
+      status: 'completed',
+      fromCache: false,
+    });
+    expect(fact?.statement).toContain('template=headline');
   });
 
   it('get_timeline: says so plainly when a caption track carries no style at all', () => {
