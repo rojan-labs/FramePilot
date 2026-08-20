@@ -8,6 +8,32 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Captions on a fast-cut video can be checked again.** Asked to improve the captions on a
+  20-second montage, the AI would read the footage, think it through, and then change
+  nothing. The caption checker was the reason: it treated every *picture* cut as a place a
+  caption must not cross. On a montage with a shot every half-second that is impossible to
+  satisfy — there is nowhere to put a caption, and even a single word fails — so the AI
+  correctly refused to make an edit it could not get right. It also called all 40 captions
+  "out of date" simply because the project had been edited since, even though every one of
+  them was still perfectly in time.
+
+  A caption may now sit over as many shots as you like. It is only flagged when it would
+  bridge a genuine break in the **speech** — two pieces of audio that were never spoken in
+  one breath — which is the thing a viewer actually notices. And a caption is called out of
+  date when it has really drifted off its words, not because you graded a clip afterwards.
+  What used to be 68 confusing warnings is now a short, readable list you can act on.
+
+- **The AI remembers more of what it read.** Sixteen of its inspection tools handed back a
+  raw, mid-sentence slice of data, so a moment later the AI only "remembered" a fragment of
+  gibberish — including, in one case, the result of its own caption check. It then went
+  looking for answers it had already been given. Those tools now report their findings in
+  plain terms (how many silent gaps and how long, where every cut is, which effects and
+  transitions exist, what a check found and what is wrong), and a new safeguard means a tool
+  can no longer be added without one.
+
+  Reading the transcript of an edited timeline is also half the size it was and comes back in
+  one go instead of four, so the AI spends its turns editing rather than re-fetching.
+
 - **Exporting an AI conversation now gives you the whole run.** The Markdown export used to
   keep only the messages, so everything that explains an outcome — the thinking, each tool
   call with its arguments and raw result, every proposed edit with its operations and

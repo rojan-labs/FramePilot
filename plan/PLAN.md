@@ -134,6 +134,10 @@ ADR 0127 with `file:line`:
       is no longer permanently occupied. What remains is the model-facing seam itself: no tool
       or turn hook calls `setObjective`, so nothing yet writes the interpretation the slot is
       now open for. Keep this item until that caller exists.
+      **Still open after the caption run (2026-08-20, ADR 0129):** re-examined and confirmed
+      to be a REPORTING defect, not the cause of that failure — the run failed honestly on
+      `no traceable project mutation`, and the echoed criterion made the verdict vague rather
+      than wrong. Priority stays below correctness work for that reason.
 - [ ] **The decision-recording seam is unwired.** `addDecision`/`commitDecision`/
       `reviseDecision`/`recordObjective`/`setBlocker` have no production callers.
 - [ ] **`stage-policy.ts#planningExhausted` is dead code** duplicating
@@ -142,6 +146,59 @@ ADR 0127 with `file:line`:
 - [ ] **No agent-usable in-place `sourceStart` change.** `professional_edit`'s `slip` needs a
       live selection plus the clip's asset in the source monitor; delete + re-`add_clip` is
       the only path an autonomous run has, and only the tool description now says so.
+
+**Fourth run, "enhance the captions" (2026-08-20, deepseek-v4-pro, 9 calls, $0.64, 6m43s,
+failed with zero mutations):** `[x]` fixed — and the first of the four whose cause was NOT
+retrieval. The model had every fact it needed and correctly declined to edit, because the
+acceptance test it was given was unsatisfiable. `verify_captions` returned 68 issues across 40
+cues and **none of them was real**:
+
+1. `checkCueBoundaries` filtered `map.spans`, which `buildTimelineMap` fills from every video
+   AND audio clip, so it flagged **picture** cuts. The generator disagrees and says so in its
+   own docstring: `deriveCaptionCues` segments per `MappedRun` (grouped on the AUDIO clipId)
+   and calls runs "what guarantees no cue crosses a cut". So the canonical generator's output
+   was rejected by the canonical verifier on every project whose picture is cut more finely
+   than its audio — every montage, every B-roll edit, every multicam. Here it was
+   unsatisfiable, not merely strict: 46 shots averaging 0.43s under continuous narration
+   leaves nowhere to put a cue, and single words fail too (`heart,` 3.84–4.37s across a cut at
+   4.209s). The rule's own message — "its words were never spoken together" — is true of a
+   speech break and false of a picture cut. Fixed: the rule tests speech runs, the code is
+   `caption_spans_speech_break`, and `get_mapped_transcript` now returns and explains the run
+   bounds.
+2. `caption_stale` compared `derivedFromRevision !== map.revision` — a change-detector for the
+   whole project, not a staleness test. 65 revisions of colour and effects marked all 40 cues
+   stale while `checkCueSync` passed on all 40 and `speechCoverage` was 1. Fixed: staleness is
+   measured against the words that currently play across the cue (count, text, drift), by
+   midpoint ownership so it agrees with `speechCoverage`.
+3. Sixteen read tools had **no digest arm** and fell to `previewJson`, so — because `distil`
+   keeps a digest's first line as the run's fact — the run's memory of its own verification was
+   `{"ok":false,"issues":[{"code":"caption_spans_cut","clipId":"cap` cut mid-string. Digests
+   added for `verify_captions`, `verify_transitions`, `list_edit_boundaries`, `analyze_silence`,
+   `detect_scenes`, `discover_effects`, `discover_transitions`; the remaining nine are an
+   explicit allowlist with a reason each, asserted against the registry both ways, so a new
+   read tool now fails CI until somebody decides.
+4. **ADR 0128 §3 was half done.** It put the caption style in the `get_timeline` digest so the
+   answer would survive the log window, but on the per-track line — and `distil` keeps only
+   the head, so the fact still said `5 tracks, 87 clips: layer_caption_4(40), …`. The style now
+   rides in the head, with a test that goes through `distil` itself.
+5. **Reachable is not affordable.** `get_mapped_transcript` returned `MappedTranscript`
+   verbatim and `runs[].words` repeats every word already in `words[]` — 81 words in 27,647
+   characters, seven pages at the 4,000-char recall budget. The run spent six of its nine turns
+   paging a transcript it had already been given. Runs now carry bounds + count (13,885 chars,
+   −49.8%) and `EVIDENCE_RECALL_CHARS` is 16,000.
+
+`verify.ts` at 100% line and branch; `orchestrator.ts` branch 96.44% → 96.61%. Ten golden
+corpora and one snapshot regenerated (token estimates only — the two rewritten tool
+descriptions are longer; no event, operation or status changed). See
+`docs/adr/0129-one-definition-of-a-cut.md`.
+
+Examined and deliberately NOT changed, with the reason recorded so a later agent does not
+"fix" it back: `analyze` is still left only by attempting a mutation, and `recall_evidence`
+still survives the action-recovery turn. Withholding it was already tried and was worse — a run
+built 46 clips on durations inferred from clip-id suffixes because the bin it had read twice
+was unreachable (ADR 0127). A recall produces no `callFact`, so a recall-only recovery turn is
+correctly scored as no progress and the convergence guard closes the run two turns later. That
+two-turn tail is the price of the recovery turn being survivable.
 
 **Status snapshot (2026-08-18):** `[x]` **FramePilot 9.5 Phase 1 — runtime convergence.**
 FramePilot now has ONE mutating AI execution runtime (ADR 0126). The `planned_edit` route and
