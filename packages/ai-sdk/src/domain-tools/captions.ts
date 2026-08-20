@@ -155,11 +155,15 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
       name: 'verify_captions',
       description:
         'Check the caption track against the edited timeline and report what is ' +
-        'actually wrong: cues outside the sequence, cues spanning a cut, cues over ' +
-        'deleted speech, cues out of sync with the mapped word timings, stale cues from ' +
-        'an older timeline revision, and retained speech with no caption. Returns ' +
-        '{ ok, cueCount, issues[] }. Run this before saying captions are done — an ' +
-        'operation returning "applied" is not evidence that anything is synchronized.',
+        'actually wrong: cues outside the sequence, cues over deleted speech or a gap, ' +
+        'cues out of sync with the mapped word timings, cues whose words a later edit ' +
+        'replaced, cues bridging a break in the SPEECH (two stretches of audio never ' +
+        'spoken in one breath), and retained speech with no caption. A cue sitting over ' +
+        'several picture cuts is fine and is not reported — only an audio discontinuity ' +
+        'is. Returns { ok, cueCount, issues[] }. Run this before saying captions are ' +
+        'done: an operation returning "applied" is not evidence that anything is ' +
+        'synchronized. It checks TIMING only — it cannot see whether a cue is legible, ' +
+        'clipped by the frame edge, or sitting on a face.',
       capabilities: ['captions'],
     },
     z.object({ toleranceSeconds: seconds.optional() }).strict(),

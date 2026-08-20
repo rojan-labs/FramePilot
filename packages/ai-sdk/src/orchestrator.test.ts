@@ -3,6 +3,7 @@
  * validated patch. Covers chat/plan/edit/autocomplete and the tool-boundary
  * gate (unknown / unavailable / invalid-args).
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   Orchestrator,
@@ -21,6 +22,7 @@ import { MockProvider } from './providers/mock.js';
 import type { AiCompletionRequest, AiProvider, AiResponse, ToolCall } from './providers/types.js';
 import { type ContextInput, estimateTokens } from './context-builder.js';
 import { TOOL_REGISTRY, getTool } from './tool-registry.js';
+import { classifyTool } from './tool-classification.js';
 import { makeProject } from './__fixtures__/project.js';
 import { DIMINISHING_RETURNS_TURNS, STALL_CONFIRM_TURNS } from './kernel/conductor.js';
 
@@ -1086,6 +1088,137 @@ describe('callNoveltyKey (reconnaissance vs the analysis spin)', () => {
     expect(callNoveltyKey(c('get_clip', { clipId: 'a', trackId: 't' }))).toBe(
       callNoveltyKey(c('get_clip', { trackId: 't', clipId: 'a' })),
     );
+  });
+});
+
+/**
+ * The module's own text, so the audit below asserts which `case` labels the digest switch
+ * actually has rather than a hand-kept copy of them that could drift from it. Same
+ * technique as the tool-parity fixture guard: rebuild the claim from the live source.
+ */
+const summarizeReadResultSource = readFileSync(new URL('./orchestrator.ts', import.meta.url), 'utf8');
+
+/**
+ * Reads that are honestly served by the bounded JSON preview, each with the reason.
+ *
+ * The `default` arm of `summarizeReadResult` is a floor, not an answer. Ten read tools
+ * had reached it by accident — every one of them a tool whose payload is a record list,
+ * a catalog or a findings report, handed to the model as a 1200-escaped-character slice
+ * ending in a bare `…`, and distilled into the run's durable memory as the first 180
+ * characters of that slice. Three stalled runs came out of it (ADR 0127, ADR 0128, and
+ * the caption run that could not read its own verification report).
+ *
+ * So membership here is a DECISION a reader can check, not a gap. Adding a read tool now
+ * fails CI until somebody either writes its digest or states here why it does not need
+ * one.
+ */
+const READS_SERVED_BY_JSON_PREVIEW: Readonly<Record<string, string>> = {
+  get_transcript: 'the source word list, which the model asked for verbatim',
+  get_selected_range: 'two numbers and an id',
+  get_frame: 'a frame handle; the picture itself rides as image content',
+  measure_color: 'a handful of scalar measurements, all of them named in the payload',
+  map_footage: 'a per-asset mapping already keyed by the ids the model passed in',
+  index_media: 'a progress/count acknowledgement, not a record list',
+  transcribe: 'an acknowledgement; the words arrive via get_transcript',
+  propose_edits: 'a proposal the model reads whole and acts on in the same turn',
+  detect_faces: 'unavailable in this build — it returns a refusal, not a payload',
+};
+
+describe('every read tool can be summarized (no silent previewJson fallthrough)', () => {
+  it('either has a digest arm or is listed as served by the JSON preview, with a reason', () => {
+    const digested = new Set(
+      [...summarizeReadResultSource.matchAll(/case '([a-z_]+)':/g)].map((m) => m[1] as string),
+    );
+    const undigested = TOOL_REGISTRY.filter((tool) => {
+      const role = classifyTool(tool.name, tool.kind).role;
+      return role === 'inspection' || role === 'analysis' || role === 'guidance';
+    })
+      .map((tool) => tool.name)
+      .filter((name) => !digested.has(name) && !(name in READS_SERVED_BY_JSON_PREVIEW));
+    expect(undigested).toEqual([]);
+  });
+
+  it('does not list a tool as preview-served that actually has a digest', () => {
+    const digested = new Set(
+      [...summarizeReadResultSource.matchAll(/case '([a-z_]+)':/g)].map((m) => m[1] as string),
+    );
+    const contradictory = Object.keys(READS_SERVED_BY_JSON_PREVIEW).filter((name) =>
+      digested.has(name),
+    );
+    expect(contradictory).toEqual([]);
+  });
+});
+
+describe('summarizeReadResult carries a verification report the run can act on', () => {
+  it('groups issues by code instead of handing back escaped JSON', () => {
+    // The live failure: 40 cues x 2 problems = 68 near-identical issues, previewJson'd to
+    // a blob cut mid-string, whose first 180 characters became the run's only memory of
+    // its own verification. The first line must now say what is wrong.
+    const issues = [
+      ...Array.from({ length: 40 }, (_, i) => ({
+        code: 'caption_stale',
+        clipId: `cap_${i}`,
+        at: i,
+        detail: `Caption at ${i}s shows 3 words but 2 now play across it.`,
+      })),
+      ...Array.from({ length: 28 }, (_, i) => ({
+        code: 'caption_spans_speech_break',
+        clipId: `cap_${i}`,
+        at: i,
+        detail: `Caption at ${i}s bridges the speech break at ${i + 1}s.`,
+      })),
+    ];
+    const note = summarizeReadResult('verify_captions', { ok: false, cueCount: 40, issues });
+    const first = note.split('\n')[0]!;
+    expect(first).toContain('NOT verified');
+    expect(first).toContain('40 cues checked');
+    expect(first).toContain('40x caption_stale');
+    expect(first).toContain('28x caption_spans_speech_break');
+    // One worked example per kind, not 68 lines of prose.
+    expect(note.split('\n')).toHaveLength(3);
+  });
+
+  it('says so plainly when nothing is wrong', () => {
+    const note = summarizeReadResult('verify_captions', { ok: true, cueCount: 21, issues: [] });
+    expect(note).toBe('verified clean, 21 cues checked');
+  });
+
+  it('lists every cut, because a transition can only go at one of them', () => {
+    const boundaries = Array.from({ length: 45 }, (_, i) => ({
+      trackId: 'video_main',
+      at: i * 0.5,
+      fromClipId: `clip_${i}`,
+      toClipId: `clip_${i + 1}`,
+      maxTransitionSeconds: 0.25,
+    }));
+    const note = summarizeReadResult('list_edit_boundaries', boundaries);
+    expect(note.split('\n')[0]).toBe('45 cuts:');
+    expect(note).toContain('clip_0 → clip_1');
+    expect(note).toContain('max transition 0.25s');
+  });
+
+  it('lists every effect id, grouped, because the ids ARE the deliverable', () => {
+    const note = summarizeReadResult('discover_effects', {
+      matched: 78,
+      returned: 2,
+      effects: [
+        { effectId: 'vhs-tape', category: 'stylize' },
+        { effectId: 'film-grain', category: 'stylize' },
+      ],
+    });
+    expect(note.split('\n')[0]).toBe('2 of 78 matching effects');
+    expect(note).toContain('stylize: vhs-tape, film-grain');
+  });
+
+  it('names the total silence, not just the gap count', () => {
+    const note = summarizeReadResult('analyze_silence', {
+      assetId: 'a1',
+      ranges: [
+        { start: 1, end: 2.5, duration: 1.5 },
+        { start: 4, end: 4.25, duration: 0.25 },
+      ],
+    });
+    expect(note.split('\n')[0]).toBe('2 silent gaps, 1.75s total, in a1:');
   });
 });
 

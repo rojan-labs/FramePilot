@@ -1048,6 +1048,81 @@ function boundedRecords<T>(
   return lines.join('\n');
 }
 
+/**
+ * Digest a verification report: the verdict, then the issue KINDS with counts, then one
+ * worked example of each.
+ *
+ * WHY not previewJson: `verify_captions` and `verify_transitions` had no digest arm, so
+ * both fell to a 1200-escaped-character JSON slice — and because `briefing.ts#distil`
+ * takes the FIRST LINE of a digest as the run's durable fact, the run's memory of its own
+ * verification became `{"ok":false,"issues":[{"code":"caption_spans_cut","clipId":"cap…`,
+ * cut mid-string. A run cannot act on that: it knows something failed and not what.
+ *
+ * Forty cues with two problems each is also sixty-eight lines of near-identical prose,
+ * which is the other half of the same defect — a report nobody can read is a report
+ * nobody acts on. Grouping by code answers "what is wrong here" in one line and keeps
+ * one full detail per kind so the fix is still specific.
+ */
+function verificationDigest(obj: Record<string, unknown>, subject: string): string | undefined {
+  // Absent `issues` is not "no issues" — it is a payload of a different shape, and saying
+  // "verified clean" about one would be the exact dishonesty this module exists to end.
+  // Undefined hands the caller back to the bounded JSON preview.
+  if (!Array.isArray(obj.issues)) return undefined;
+  const issues = obj.issues as Record<string, unknown>[];
+  const count = typeof obj[`${subject}Count`] === 'number' ? obj[`${subject}Count`] : undefined;
+  const checked = count === undefined ? '' : `, ${String(count)} ${subject}${count === 1 ? '' : 's'} checked`;
+  if (obj.ok === true || issues.length === 0) {
+    return `verified clean${checked}`;
+  }
+  const byCode = new Map<string, Record<string, unknown>[]>();
+  for (const issue of issues) {
+    const code = String(issue.code ?? 'unknown');
+    byCode.set(code, [...(byCode.get(code) ?? []), issue]);
+  }
+  const kinds = [...byCode.entries()].sort((a, b) => b[1].length - a[1].length);
+  const head = `NOT verified${checked} — ${issues.length} issue${
+    issues.length === 1 ? '' : 's'
+  } of ${kinds.length} kind${kinds.length === 1 ? '' : 's'}: ${kinds
+    .map(([code, group]) => `${group.length}x ${code}`)
+    .join(', ')}`;
+  const examples = kinds.map(([code, group]) => {
+    const first = group[0] as Record<string, unknown>;
+    return `${code}: ${String(first.detail ?? '')}`;
+  });
+  return [head, ...examples].join('\n');
+}
+
+/**
+ * Digest a catalog whose IDS are the deliverable, grouped by category.
+ *
+ * `apply_effect` and `add_transition` refuse an id that is not in the catalog — correctly
+ * — so a catalog the model cannot read whole is a catalog it cannot use, and it is right
+ * to refuse to guess. This is the same defect ADR 0128 fixed for
+ * `discover_caption_styles`, on the two sibling catalogs it did not reach.
+ */
+function catalogDigest(
+  obj: Record<string, unknown>,
+  key: string,
+  idField: string,
+  noun: string,
+): string | undefined {
+  if (!Array.isArray(obj[key])) return undefined;
+  const entries = obj[key] as Record<string, unknown>[];
+  if (entries.length === 0) return `no ${noun} match (${String(obj.matched ?? 0)} in catalog)`;
+  const head = `${String(obj.returned ?? entries.length)} of ${String(
+    obj.matched ?? entries.length,
+  )} matching ${noun}`;
+  const byCategory = new Map<string, string[]>();
+  for (const entry of entries) {
+    const category = String(entry.category ?? 'other');
+    byCategory.set(category, [...(byCategory.get(category) ?? []), String(entry[idField])]);
+  }
+  return [
+    head,
+    ...[...byCategory.entries()].map(([category, ids]) => `${category}: ${ids.join(', ')}`),
+  ].join('\n');
+}
+
 function assetsDigest(assets: readonly Asset[]): string {
   return `${assets.length} asset${assets.length === 1 ? '' : 's'}:\n${boundedRecords(
     assets,
@@ -1434,9 +1509,76 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
       // present by SkillSchema — no defensive branching needed for them here.
       return `${String(obj.name)} — ${String(obj.description)}\n\n${obj.body}`;
     }
+    case 'verify_captions':
+      return verificationDigest(obj, 'cue') ?? previewJson(value, ANALYSIS_PREVIEW_MAX);
+    case 'verify_transitions':
+      return verificationDigest(obj, 'transition') ?? previewJson(value, ANALYSIS_PREVIEW_MAX);
+    case 'list_edit_boundaries': {
+      // The cut list is what caption and transition placement is authored against: a
+      // transition can only go at one of these, and a cue may not bridge one. It had no
+      // digest, so a 45-cut sequence (~12.8 KB) reached the run as four escaped records
+      // and a bare `…`, and its durable fact was the first 180 characters of that.
+      if (!Array.isArray(value)) return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const boundaries = value as Record<string, unknown>[];
+      if (boundaries.length === 0) return 'no cuts — the sequence is one continuous clip per track';
+      return `${boundaries.length} cut${boundaries.length === 1 ? '' : 's'}:\n${boundedRecords(
+        boundaries,
+        (b) =>
+          `${round3(Number(b.at))}s ${String(b.trackId)} ${String(b.fromClipId)} → ${String(
+            b.toClipId,
+          )} (max transition ${round2(Number(b.maxTransitionSeconds))}s)`,
+        'cuts',
+      )}`;
+    }
+    case 'analyze_silence': {
+      // An empty `ranges` really does mean "ran and found nothing"; an ABSENT one means
+      // this is not a silence response, and reporting silence about it would be a lie.
+      if (!Array.isArray(obj.ranges)) return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const ranges = obj.ranges as Record<string, unknown>[];
+      if (ranges.length === 0) {
+        return typeof obj.reason === 'string' && obj.reason !== ''
+          ? `no silence detected — ${obj.reason}`
+          : 'no silent gaps found in the audio';
+      }
+      const total = ranges.reduce((sum, r) => sum + Number(r.duration ?? 0), 0);
+      return `${ranges.length} silent gap${ranges.length === 1 ? '' : 's'}, ${round2(
+        total,
+      )}s total, in ${String(obj.assetId ?? '?')}:\n${boundedRecords(
+        ranges,
+        (r) => `${round3(Number(r.start))}–${round3(Number(r.end))}s (${round2(Number(r.duration))}s)`,
+        'gaps',
+        'raise minSilenceSeconds to see only the long ones',
+      )}`;
+    }
+    case 'detect_scenes': {
+      if (!Array.isArray(obj.cuts)) return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const cuts = obj.cuts as Record<string, unknown>[];
+      if (cuts.length === 0) return `no scene cuts detected in ${String(obj.assetId ?? '?')}`;
+      return `${cuts.length} scene cut${cuts.length === 1 ? '' : 's'} in ${String(
+        obj.assetId ?? '?',
+      )}:\n${boundedRecords(
+        cuts,
+        (c) => `${round3(Number(c.time))}s`,
+        'cuts',
+        'raise threshold to see only the strong ones',
+      )}`;
+    }
+    case 'discover_effects':
+      return (
+        catalogDigest(obj, 'effects', 'effectId', 'effects') ??
+        previewJson(value, ANALYSIS_PREVIEW_MAX)
+      );
+    case 'discover_transitions':
+      return (
+        catalogDigest(obj, 'transitions', 'kind', 'transitions') ??
+        previewJson(value, ANALYSIS_PREVIEW_MAX)
+      );
     default:
-      // get_transcript / get_selected_range / any other read: no ids to preserve, so a
-      // (generously) bounded JSON preview is fine.
+      // Reads whose payload is a handful of scalars, or prose the model asked for
+      // verbatim: a (generously) bounded JSON preview is honest for those. The set is
+      // asserted explicitly in `orchestrator.test.ts` — "every read tool either has a
+      // digest or is on the list of reads that do not need one" — so a new read tool
+      // cannot land here by accident the way ten of them already had.
       return previewJson(value, ANALYSIS_PREVIEW_MAX);
   }
 }
