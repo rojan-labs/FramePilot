@@ -333,6 +333,50 @@ describe('verifyCaptions', () => {
     expect(stale[0]!.detail).toMatch(/regenerate the cue from the current mapped transcript/i);
   });
 
+  it('catches a cue whose words drifted off their timings, same text and count', () => {
+    // The subtle staleness: nothing was added or removed, so the count and the text still
+    // match — the cue just no longer sits on the words. A revision compare cannot see
+    // this at all (the revision need not have changed), which is why it was replaced by a
+    // measurement.
+    const drifted = correctCaptions(1).map((clip, i) =>
+      i !== 0
+        ? clip
+        : {
+            ...clip,
+            captionCue: {
+              ...clip.captionCue!,
+              words: clip.captionCue!.words.map((w) => ({
+                ...w,
+                start: w.start + 0.5,
+                end: w.end + 0.5,
+              })),
+            },
+          },
+    );
+    const stale = verifyCaptions(projectDoc(drifted)).issues.filter(
+      (i) => i.code === 'caption_stale',
+    );
+    expect(stale).toHaveLength(1);
+    expect(stale[0]!.detail).toMatch(/0\.5s away, past the 0\.084s tolerance/);
+  });
+
+  it('counts words in the singular when a one-word cue is the stale one', () => {
+    // Cosmetic but asserted: the report is read by a person as often as by the model, and
+    // "shows 1 words" is the kind of detail that makes a verifier look untrustworthy.
+    const first = correctCaptions(1)[0]!;
+    const oneWord: Clip[] = [
+      {
+        ...first,
+        captionCue: { ...first.captionCue!, words: [first.captionCue!.words[0]!] },
+      },
+    ];
+    const stale = verifyCaptions(projectDoc(oneWord)).issues.filter(
+      (i) => i.code === 'caption_stale',
+    );
+    expect(stale).toHaveLength(1);
+    expect(stale[0]!.detail).toContain('shows 1 word but');
+  });
+
   it('refuses to call a cue of unknown provenance verified', () => {
     const noProvenance = correctCaptions().map((c) => ({
       ...c,

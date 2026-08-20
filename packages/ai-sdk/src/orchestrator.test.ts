@@ -1211,6 +1211,107 @@ describe('summarizeReadResult carries a verification report the run can act on',
     expect(note).toContain('stylize: vhs-tape, film-grain');
   });
 
+  it('falls back to the JSON preview when a payload is not the shape it expects', () => {
+    // The house rule for every digest: an ABSENT array is a payload of a different shape,
+    // not an empty result. Saying "verified clean" or "no silence" about one would be the
+    // dishonesty these digests exist to end.
+    const wrong = { unexpected: true };
+    for (const tool of [
+      'verify_captions',
+      'verify_transitions',
+      'analyze_silence',
+      'detect_scenes',
+      'discover_effects',
+      'discover_transitions',
+      'list_edit_boundaries',
+    ]) {
+      const note = summarizeReadResult(tool, wrong);
+      expect(note, tool).toContain('unexpected');
+      expect(note, tool).not.toMatch(/verified clean|no silence|no scene cuts|no cuts —/);
+    }
+  });
+
+  it('distinguishes "ran and found nothing" from "no result"', () => {
+    // An empty array really does mean the analysis ran and found nothing, and each of
+    // these says so in the editor's terms rather than handing back `[]`.
+    expect(summarizeReadResult('analyze_silence', { assetId: 'a1', ranges: [] })).toBe(
+      'no silent gaps found in the audio',
+    );
+    expect(
+      summarizeReadResult('analyze_silence', { assetId: 'a1', ranges: [], reason: 'no audio track' }),
+    ).toBe('no silence detected — no audio track');
+    expect(summarizeReadResult('detect_scenes', { assetId: 'a1', cuts: [] })).toBe(
+      'no scene cuts detected in a1',
+    );
+    expect(summarizeReadResult('list_edit_boundaries', [])).toBe(
+      'no cuts — the sequence is one continuous clip per track',
+    );
+    expect(summarizeReadResult('discover_effects', { matched: 0, effects: [] })).toBe(
+      'no effects match (0 in catalog)',
+    );
+    expect(
+      summarizeReadResult('verify_transitions', { ok: true, transitionCount: 1, issues: [] }),
+    ).toBe('verified clean, 1 transition checked');
+  });
+
+  it('reads in the singular, and truncates a long run list rather than growing the fact', () => {
+    const one = summarizeReadResult('verify_captions', {
+      ok: false,
+      cueCount: 1,
+      issues: [{ code: 'caption_stale', detail: 'one thing' }],
+    }).split('\n')[0]!;
+    expect(one).toContain('1 cue checked');
+    expect(one).toContain('1 issue of 1 kind');
+    // A report with no count at all still reads as a sentence.
+    expect(
+      summarizeReadResult('verify_captions', { ok: false, issues: [{ detail: 'x' }] }).split(
+        '\n',
+      )[0],
+    ).toBe('NOT verified — 1 issue of 1 kind: 1x unknown');
+    // Ten runs must not put ten ranges in the run's durable fact.
+    const head = summarizeReadResult('get_mapped_transcript', {
+      words: [{ word: 'a', start: 0, end: 0.1 }],
+      runs: Array.from({ length: 10 }, (_, i) => ({ start: i, end: i + 0.5, wordCount: 1 })),
+      revision: 3,
+    }).split('\n')[0]!;
+    expect(head).toContain('in 10 speech runs');
+    expect(head).toContain(', …)');
+    // No runs at all (a transcript with nothing mapped) omits the clause entirely.
+    expect(
+      summarizeReadResult('get_mapped_transcript', {
+        words: [{ word: 'a', start: 0, end: 0.1 }],
+        runs: [],
+        revision: 3,
+      }).split('\n')[0],
+    ).toBe('1 mapped words, revision 3:');
+  });
+
+  it('stays a readable sentence when a payload omits its optional fields', () => {
+    // Every `?? default` and every plural in these digests, exercised. A digest is read by
+    // a person on the tool card as well as by the model in the log, and one that renders
+    // "1 cuts in undefined" is one nobody trusts the rest of.
+    expect(
+      summarizeReadResult('verify_captions', { ok: false, issues: [{ code: 'caption_stale' }] }),
+    ).toBe('NOT verified — 1 issue of 1 kind: 1x caption_stale\ncaption_stale: ');
+    expect(summarizeReadResult('discover_effects', { effects: [] })).toBe(
+      'no effects match (0 in catalog)',
+    );
+    expect(summarizeReadResult('discover_effects', { effects: [{ effectId: 'vhs' }] })).toBe(
+      '1 of 1 matching effects\nother: vhs',
+    );
+    expect(
+      summarizeReadResult('list_edit_boundaries', [
+        { trackId: 'v', at: 1, fromClipId: 'a', toClipId: 'b', maxTransitionSeconds: 0.2 },
+      ]).split('\n')[0],
+    ).toBe('1 cut:');
+    expect(summarizeReadResult('detect_scenes', { cuts: [] })).toBe(
+      'no scene cuts detected in ?',
+    );
+    expect(summarizeReadResult('detect_scenes', { cuts: [{ time: 2 }] }).split('\n')[0]).toBe(
+      '1 scene cut in ?:',
+    );
+  });
+
   it('names the total silence, not just the gap count', () => {
     const note = summarizeReadResult('analyze_silence', {
       assetId: 'a1',
