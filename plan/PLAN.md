@@ -13,6 +13,28 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-20):** `[x]` **Fix: two tool schemas broke the native Claude
+Messages API.**
+
+Calling the real Claude Messages API through the `openai-compatible` provider against the
+`trial/` auth2api proxy (which forwards the OpenAI-shaped request into a real Anthropic
+call) failed with `400: tools.23.custom.input_schema: input_schema does not support
+oneOf, allOf, or anyOf at the top level`. Two advertised tool schemas — `map_time`
+(`tool-input-contract.ts`) and `professional_audio` (`domain-tools/professional-audio.ts`)
+— put a top-level `oneOf`/`anyOf` directly under `parameters`, which Anthropic's real API
+rejects outright. Both are now flat object schemas: `map_time` documents its
+sourceTime/sequenceTime exclusivity in prose (enforced at runtime by the unchanged
+`assertMapTime`), and `professional_audio` merges its six intent variants into one
+property bag with an `intent` enum (enforced at runtime by the unchanged
+`AudioObjectiveSchema.parse`). Added a standing regression test
+(`tool-registry.test.ts`) asserting no tool ever advertises `oneOf`/`anyOf`/`allOf` at the
+top level. Regenerated every fixture the token-estimate shift touched (five
+`langchain-anthropic-sessions` sessions, ten `golden-sessions`, the `streamAgent-golden`
+snapshot, `ts_tool_registry.json`).
+
+Evidence: ai-sdk test suite green; rebuilt `ai-sdk` dist confirms `toolDescriptors()`
+carries zero top-level `oneOf`/`anyOf`/`allOf` across all tools.
+
 **Status snapshot (2026-08-20):** `[x]` **Third stalled agent run — caption restyle
 ("can you use differnt caption style and emphasize the captions as well", deepseek-v4-pro, two
 runs, 11 calls, $0.48, zero mutations).** Same failure family as the two montage runs below and

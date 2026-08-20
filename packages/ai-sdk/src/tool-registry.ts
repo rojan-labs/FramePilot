@@ -425,7 +425,7 @@ export function concurrencySafe(tool: ToolSpec, args: unknown): boolean {
  * Each entry is built through {@link withToolInputContract} — the same immutable,
  * per-tool wrapper `selectTools`/`selectAutonomousTools` (`tool-scope.ts`) apply — so a
  * provider always sees the relational/semantic schema tightening (e.g. `map_time`'s
- * one-domain `oneOf`, the `add_keyframes` property enum, `add_transition`'s
+ * one-domain description, the `add_keyframes` property enum, `add_transition`'s
  * `discover_transitions` wording) instead of the raw registry entry. `TOOL_REGISTRY`
  * itself is never mutated; wrapping happens fresh on every call.
  *

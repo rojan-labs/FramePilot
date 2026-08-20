@@ -10,18 +10,75 @@ import type { ToolContext } from '../tool-context.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { validateProfessionalOperationBatch } from './professional-batch.js';
 
+/** One variant's JSON Schema, as `z.toJSONSchema` emits it inside `anyOf`. */
+interface ObjectiveVariantSchema {
+  readonly properties?: Record<string, { readonly const?: string }>;
+}
+
 /**
- * The objective is a union — one variant per intent — so the schema the model reads
- * carries the rule that each intent owns exactly one family of settings.
+ * Union every variant's non-discriminator properties into one flat property bag.
  *
- * Zod emits that as a bare `anyOf`; it is republished here as a `oneOf` under an
- * object type, matching `map_time`'s contracted shape. Every registered tool
- * advertises `type: 'object'` (tool-registry shape test), and the variants are
- * mutually exclusive by discriminator, so exactly one can ever match.
+ * `target` is the only name more than one variant declares differently: every
+ * non-duck variant advertises the full `this|these|playhead` enum, and the two duck
+ * variants narrow it to a fixed `this` (ducking derives its targets from roles/
+ * selection, never a referent — see `DuckSelectionObjectiveSchema`/
+ * `DuckRolesObjectiveSchema`). `LevelObjectiveSchema` is first in
+ * `AudioObjectiveSchema`'s variant list, so first-seen-wins keeps the wider
+ * declaration; every other shared name (`reductionDb`) is declared identically by
+ * every variant that has it, so first-seen is also just the only declaration.
+ */
+function mergedProperties(
+  variants: readonly ObjectiveVariantSchema[],
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  for (const variant of variants) {
+    for (const [name, propertySchema] of Object.entries(variant.properties ?? {})) {
+      if (name === 'intent' || name in merged) continue;
+      merged[name] = propertySchema;
+    }
+  }
+  return merged;
+}
+
+/** The `intent` discriminator's values, read off each variant's `const`. */
+function intentEnum(variants: readonly ObjectiveVariantSchema[]): string[] {
+  return variants
+    .map((variant) => variant.properties?.intent?.const)
+    .filter((value): value is string => typeof value === 'string');
+}
+
+/**
+ * The objective is a union — one variant per intent — so each intent owns exactly one
+ * family of settings, and the runtime enforcement (`AudioObjectiveSchema.parse`,
+ * unchanged) is exactly that strict.
+ *
+ * The JSON Schema the model reads cannot carry that as a top-level `oneOf`: Anthropic's
+ * Messages API rejects `oneOf`/`anyOf`/`allOf` directly under a tool's `input_schema`.
+ * So this flattens the six variants into one object schema — every field from every
+ * intent, all optional except the `intent` enum itself — and relies on the tool's rich
+ * `description` (which fields belong to which intent) plus each field's own
+ * `.describe()` text to carry the "pick one intent's fields" rule instead. A call that
+ * mixes intents, or omits a field its intent requires, is still refused at parse time
+ * with the same `foreignKeyError`/`requiredBy` messages as before — only the advertised
+ * shape got less strict, never the actual validation.
  */
 function jsonSchema(schema: z.ZodDiscriminatedUnion): Record<string, unknown> {
-  const { $schema: _dialect, anyOf, ...rest } = z.toJSONSchema(schema) as Record<string, unknown>;
-  return { type: 'object', ...rest, oneOf: anyOf };
+  const generated = z.toJSONSchema(schema) as { anyOf?: ObjectiveVariantSchema[] };
+  const variants = generated.anyOf ?? [];
+  return {
+    type: 'object',
+    properties: {
+      intent: {
+        type: 'string',
+        enum: intentEnum(variants),
+        description:
+          'Which mixing operation to perform. Only the fields that belong to this intent are read — see the tool description for the field list per intent — so provide exactly one intent\'s fields, never a mix.',
+      },
+      ...mergedProperties(variants),
+    },
+    required: ['intent'],
+    additionalProperties: false,
+  };
 }
 
 function buildProfessionalAudio(rawArgs: unknown, ctx: ToolContext) {

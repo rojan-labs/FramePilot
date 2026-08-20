@@ -56,6 +56,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Calling the real Claude API through a self-hosted bridge no longer fails outright.**
+  Two of the AI's tool descriptions (`map_time` and the professional audio mixer) told the
+  model "pick exactly one of these shapes" in a way Anthropic's own Messages API refuses
+  to accept from any tool — a call through a bridge that forwards straight to Claude's real
+  API came back `input_schema does not support oneOf, allOf, or anyOf`. Both tools now
+  describe the same rule in plain language instead, and nothing about what they actually
+  accept or reject changed. A standing check now catches any future tool that makes the
+  same mistake.
+
 - **Asking the AI to restyle your captions no longer sends it in circles.** "Use a different
   caption style and emphasize the captions" could end a run with nothing applied: the read
   that reports the style your captions already use summarised it as a track and clip count,

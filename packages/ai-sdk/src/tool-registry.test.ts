@@ -120,6 +120,19 @@ describe('tool registry — shape', () => {
     }
   });
 
+  it('never advertises oneOf/anyOf/allOf at the top level of a tool schema', () => {
+    // Anthropic's native Messages API rejects a tool `input_schema` that carries
+    // `oneOf`/`anyOf`/`allOf` directly under `parameters` (as opposed to nested inside a
+    // property) — see `map_time` and `professional_audio`, both of which used to advertise
+    // exactly that and were flattened for it. This guards every tool, present and future,
+    // against the same mistake.
+    for (const tool of toolDescriptors()) {
+      expect(tool.parameters).not.toHaveProperty('oneOf');
+      expect(tool.parameters).not.toHaveProperty('anyOf');
+      expect(tool.parameters).not.toHaveProperty('allOf');
+    }
+  });
+
   it('analysis tools are available, non-mutating, and schema-validated (no buildOps/read)', () => {
     for (const name of ['analyze_silence', 'detect_scenes']) {
       const tool = getTool(name)!;

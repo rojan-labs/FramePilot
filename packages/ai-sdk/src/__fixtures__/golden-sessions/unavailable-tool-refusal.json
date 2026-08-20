@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19435,
+      "usedTokens": 19210,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -141,16 +141,16 @@
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15935,
+            "tokenEstimate": 15710,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19435,
+          "estimatedInputTokensBeforeSend": 19210,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172373,
+          "estimatedRemainingCapacity": 172598,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -326,7 +326,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19495,
+      "usedTokens": 19270,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -359,16 +359,16 @@
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15935,
+            "tokenEstimate": 15710,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19495,
+          "estimatedInputTokensBeforeSend": 19270,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172313,
+          "estimatedRemainingCapacity": 172538,
           "calculationSource": "local_estimate"
         },
         "compaction": {
