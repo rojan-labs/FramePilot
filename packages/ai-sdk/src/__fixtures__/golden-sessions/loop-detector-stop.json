@@ -30,6 +30,7 @@
         "objective": {
           "request": "what is on the timeline?",
           "outcome": "what is on the timeline?",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -107,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19221,
+      "usedTokens": 19287,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -133,23 +134,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1779,
+            "tokenEstimate": 1699,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15786,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19221,
+          "estimatedInputTokensBeforeSend": 19287,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172587,
+          "estimatedRemainingCapacity": 172521,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -271,6 +272,7 @@
         "objective": {
           "request": "what is on the timeline?",
           "outcome": "what is on the timeline?",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -287,7 +289,7 @@
           {
             "id": "fact_1",
             "kind": "project",
-            "statement": "Reading the timeline → Reading the timeline",
+            "statement": "Reading the timeline → 2 tracks, 2 clips: video_1(2), audio_1(0)",
             "evidenceIds": [
               "ev_1"
             ],
@@ -362,7 +364,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19293,
+      "usedTokens": 19380,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -388,23 +390,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1851,
+            "tokenEstimate": 1792,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15786,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19293,
+          "estimatedInputTokensBeforeSend": 19380,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172515,
+          "estimatedRemainingCapacity": 172428,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -421,7 +423,7 @@
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: what is on the timeline?"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -527,6 +529,7 @@
         "objective": {
           "request": "what is on the timeline?",
           "outcome": "what is on the timeline?",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -543,7 +546,7 @@
           {
             "id": "fact_1",
             "kind": "project",
-            "statement": "Reading the timeline → Reading the timeline",
+            "statement": "Reading the timeline → 2 tracks, 2 clips: video_1(2), audio_1(0)",
             "evidenceIds": [
               "ev_1"
             ],
@@ -618,7 +621,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 14523,
+      "usedTokens": 14760,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -644,23 +647,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 2089,
+            "tokenEstimate": 2073,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 10632,
+            "tokenEstimate": 10885,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 14523,
+          "estimatedInputTokensBeforeSend": 14760,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 177285,
+          "estimatedRemainingCapacity": 177048,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -677,7 +680,7 @@
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: what is on the timeline?"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -746,6 +749,7 @@
         "objective": {
           "request": "what is on the timeline?",
           "outcome": "what is on the timeline?",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -762,7 +766,7 @@
           {
             "id": "fact_1",
             "kind": "project",
-            "statement": "Reading the timeline → Reading the timeline",
+            "statement": "Reading the timeline → 2 tracks, 2 clips: video_1(2), audio_1(0)",
             "evidenceIds": [
               "ev_1"
             ],
@@ -844,6 +848,7 @@
         "objective": {
           "request": "what is on the timeline?",
           "outcome": "what is on the timeline?",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -860,7 +865,7 @@
           {
             "id": "fact_1",
             "kind": "project",
-            "statement": "Reading the timeline → Reading the timeline",
+            "statement": "Reading the timeline → 2 tracks, 2 clips: video_1(2), audio_1(0)",
             "evidenceIds": [
               "ev_1"
             ],

@@ -107,7 +107,12 @@ const discoverCaptionStylesSchema = z
         'cinematic',
       ])
       .optional(),
-    limit: numeric(z.number().int().positive().max(45)).optional(),
+    // Capped at the catalog size, not below it. The old ceiling of 45 against a
+    // 51-template catalog meant NO call could return the whole thing, and the default of
+    // 20 hid the rest — a run that needed the template already applied to the project
+    // (`headline`, past the cut) could not name it or pick a deliberate alternative, and
+    // `set_track_caption_style` rejects an id that never appeared in a result.
+    limit: numeric(z.number().int().positive().max(CAPTION_TEMPLATE_CATALOG.length)).optional(),
   })
   .strict();
 
@@ -189,7 +194,11 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
           ].some((value) => value.toLocaleLowerCase().includes(query)),
         );
       }
-      const limited = templates.slice(0, a.limit ?? 20);
+      // Default to the whole matching set: the ids ARE the deliverable, the digest
+      // renders them grouped by category (a few compact lines), and the full payload
+      // stays retrievable by handle. A partial catalog by default is what made the
+      // model reason about templates it had never been shown.
+      const limited = templates.slice(0, a.limit ?? CAPTION_TEMPLATE_CATALOG.length);
       return {
         matched: templates.length,
         returned: limited.length,

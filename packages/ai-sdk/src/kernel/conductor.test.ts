@@ -146,6 +146,41 @@ describe('onCommand', () => {
     expect(events[0]).toMatchObject({ type: 'status', status: 'thinking' });
   });
 
+  it('records the objective as provisional, so an interpretation can still land', () => {
+    const { state } = onCommand(idle, command());
+    expect(state.working.objective.outcome).toBe('tighten the intro');
+    expect(state.working.objective.provisional).toBe(true);
+  });
+
+  it('resolves a bare "continue" to the request underneath it, not to the nudge', () => {
+    // The whole failure this closes: a turn whose message was "contine" recorded that word
+    // as the outcome, the acceptance criterion, the committed decision AND the criterion
+    // verification checked — so the run lost its goal and could only report itself
+    // inconclusive. The referent was in the history the entire time.
+    const nudged: Command = {
+      kind: 'submit_turn',
+      mode: 'agent',
+      stream,
+      input: {
+        project: makeProject(),
+        userPrompt: 'contine',
+        history: [
+          { role: 'user', content: 'use a different caption style and emphasize the captions' },
+          { role: 'assistant', content: 'I read the timeline.' },
+        ],
+      },
+    };
+    const { working } = onCommand(idle, nudged).state;
+    const goal = 'use a different caption style and emphasize the captions';
+    expect(working.objective.outcome).toBe(goal);
+    expect(working.objective.acceptance[0]!.description).toBe(goal);
+    // The decision and the objective verification reports against must name the real work.
+    expect(working.decisions[0]!.decision).toBe(goal);
+    expect(working.objectives[0]!.description).toBe(goal);
+    // The raw request is still preserved verbatim — the nudge is what the editor typed.
+    expect(working.objective.request).toBe('contine');
+  });
+
   it('resolves config from agentOptions, else defaults', () => {
     expect(onCommand(idle, command()).state.config).toEqual({
       maxSteps: 300,

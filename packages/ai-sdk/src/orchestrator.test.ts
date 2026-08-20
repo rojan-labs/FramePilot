@@ -1090,6 +1090,228 @@ describe('callNoveltyKey (reconnaissance vs the analysis spin)', () => {
 });
 
 describe('summarizeReadResult (agent must never invent ids)', () => {
+  it('get_timeline: carries a caption track\'s committed STYLE, not just its clip count', () => {
+    // The failure this closes: asked to "use a different caption style", a run read the
+    // timeline — whose payload holds `templateId: headline` and the accent already applied
+    // — but the digest rendered only ids and clip counts. The distilled fact was "5
+    // tracks, 87 clips", the raw payload aged out of the rolling log window, and the run
+    // spent the rest of its budget hunting for the answer it had already been given.
+    const note = summarizeReadResult('get_timeline', {
+      tracks: [
+        {
+          id: 'layer_caption_4',
+          type: 'caption',
+          clips: [],
+          captionStyle: {
+            templateId: 'headline',
+            accent: { mode: 'keywords', keywords: ['route', 'heart', 'searching'] },
+          },
+        },
+      ],
+    });
+    expect(note).toContain('template=headline');
+    expect(note).toContain('accent=keywords (3 keywords)');
+  });
+
+  it('get_timeline: says so plainly when a caption track carries no style at all', () => {
+    const note = summarizeReadResult('get_timeline', {
+      tracks: [{ id: 'layer_caption_4', type: 'caption', clips: [], captionStyle: {} }],
+    });
+    expect(note).toContain('template=none');
+    // An accent of 'none' is not a fact worth a word; only a real one is named.
+    expect(note).not.toContain('accent=');
+  });
+
+  it('get_timeline: names the accent mode even when it accents no explicit keywords', () => {
+    const note = summarizeReadResult('get_timeline', {
+      tracks: [
+        {
+          id: 'c',
+          type: 'caption',
+          clips: [],
+          captionStyle: {
+            templateId: 'karaoke',
+            display: 'phrase',
+            fontFamily: 'Inter',
+            accent: { mode: 'last-word' },
+          },
+        },
+      ],
+    });
+    expect(note).toContain('template=karaoke · phrase · Inter · accent=last-word');
+  });
+
+  it('discover_caption_styles: lists every template id, grouped, because the ids ARE the deliverable', () => {
+    // set_track_caption_style rejects an id that is not in the catalog, so a truncated
+    // list is a list the run cannot act on. previewJson cut this after ~18 of 51 — and
+    // the style already applied to the project was past the cut, so the run could
+    // neither name what it had nor choose something deliberately different.
+    const templates = Array.from({ length: 51 }, (_, i) => ({
+      templateId: `tpl_${i}`,
+      label: `T${i}`,
+      category: i % 2 === 0 ? 'phrase' : 'karaoke',
+      suggestedWordsPerLine: 3,
+      fontFamily: 'Inter',
+      display: 'phrase',
+    }));
+    const note = summarizeReadResult('discover_caption_styles', {
+      matched: 51,
+      returned: 51,
+      fonts: [{ family: 'Inter', category: 'sans', minWeight: 100, maxWeight: 900 }],
+      templates,
+      compositionFields: ['fontFamily'],
+    });
+    for (const t of templates) expect(note).toContain(t.templateId);
+    expect(note).toContain('51 of 51 matching templates, 1 bundled fonts');
+    expect(note).toContain('fonts: Inter');
+  });
+
+  it('discover_caption_styles: reports an empty match instead of an empty list', () => {
+    expect(
+      summarizeReadResult('discover_caption_styles', { matched: 0, returned: 0, fonts: [], templates: [] }),
+    ).toContain('no caption templates match');
+  });
+
+  it('get_mapped_transcript: keeps every mapped word with its SEQUENCE timing', () => {
+    const words = Array.from({ length: 81 }, (_, i) => ({
+      word: `w${i}`,
+      start: i * 0.25,
+      end: i * 0.25 + 0.2,
+      sourceStart: i * 0.25,
+      sourceEnd: i * 0.25 + 0.2,
+    }));
+    const note = summarizeReadResult('get_mapped_transcript', {
+      words,
+      runs: [{ clipId: 'c', words }],
+      droppedCount: 3,
+      revision: 749,
+    });
+    expect(note).toContain('81 mapped words, 3 dropped by cuts, revision 749');
+    for (const w of words) expect(note).toContain(w.word);
+  });
+
+  it('get_mapped_transcript: omits a drop count when the cuts dropped nothing', () => {
+    const note = summarizeReadResult('get_mapped_transcript', {
+      words: [{ word: 'hello', start: 0, end: 0.4 }],
+      runs: [],
+    });
+    expect(note).toContain('1 mapped words, revision ?');
+    expect(note).not.toContain('dropped');
+  });
+
+  it('get_clip: renders a bare clip without inventing effects, an override or a cue', () => {
+    const note = summarizeReadResult('get_clip', {
+      clip: { id: 'clip_1', assetId: 'a', trackId: 'video_main', start: 0, end: 2 },
+    });
+    expect(note).toContain('clip_1');
+    expect(note).not.toContain('effects:');
+    expect(note).not.toContain('cue');
+  });
+
+  it('discover_caption_styles: falls back to the template count when the payload omits totals', () => {
+    const note = summarizeReadResult('discover_caption_styles', {
+      templates: [{ templateId: 'stamp' }],
+      fonts: [],
+    });
+    expect(note).toContain('1 of 1 matching templates, 0 bundled fonts');
+    // A template with no category still has to be listed; it is a usable id.
+    expect(note).toContain('other: stamp');
+  });
+
+  it('get_mapped_transcript: says plainly when the edit left no speech', () => {
+    expect(summarizeReadResult('get_mapped_transcript', { words: [], runs: [] })).toContain(
+      'no mapped words',
+    );
+  });
+
+  it('get_timeline_summary: keeps the per-track rows that are its only reason to exist', () => {
+    const note = summarizeReadResult('get_timeline_summary', {
+      durationSeconds: 21.867,
+      trackCount: 2,
+      clipCount: 87,
+      tracks: [
+        { id: 'layer_caption_4', type: 'caption', clipCount: 40, firstClipStart: 0.09, lastClipEnd: 19.75 },
+        { id: 'audio_music', type: 'audio', clipCount: 0, firstClipStart: null, lastClipEnd: null },
+      ],
+      markerCount: 1,
+      transcriptWordCount: 81,
+    });
+    expect(note).toContain('sequence 21.87s, 2 tracks, 87 clips, 81 transcript words');
+    expect(note).toContain('layer_caption_4 [caption] 40 clips 0.09–19.75s');
+    // A track with no clips has no span to name; it must not invent one, and a row that
+    // omits clipCount entirely reads as 0 rather than as "undefined clips".
+    expect(note).toContain('audio_music [audio] 0 clips');
+    expect(
+      summarizeReadResult('get_timeline_summary', {
+        trackCount: 1,
+        tracks: [{ id: 'fx', type: 'effect' }],
+      }),
+    ).toContain('fx [effect] 0 clips');
+  });
+
+  it('get_timeline_summary: degrades to the head line when a payload carries no tracks', () => {
+    expect(summarizeReadResult('get_timeline_summary', { trackCount: 0, tracks: [] })).toContain(
+      'sequence ?, 0 tracks',
+    );
+  });
+
+  it('get_clip: keeps ids, both time pairs, the cue and any per-cue style override', () => {
+    const note = summarizeReadResult('get_clip', {
+      trackId: 'layer_caption_4',
+      clip: {
+        id: 'caption_layer_caption_4_90',
+        assetId: '__caption__',
+        trackId: 'layer_caption_4',
+        start: 0.09,
+        end: 1.28,
+        sourceStart: 0,
+        sourceEnd: 1.19,
+        effects: [{ id: 'e1', type: 'caption', params: {} }],
+        captionStyle: { maxWidthPercent: 15, templateId: 'stamp' },
+        captionCue: {
+          text: 'Car,\ntake a new route,',
+          words: [{ word: 'Car,', start: 0.09, end: 0.27 }],
+          derivedFromRevision: 684,
+        },
+      },
+    });
+    expect(note).toContain('caption_layer_caption_4_90');
+    expect(note).toContain('layer_caption_4');
+    expect(note).toContain('effects: caption');
+    expect(note).toContain('cue style override: template=stamp');
+    expect(note).toContain('cue (1 words, from revision 684): Car, / take a new route,');
+  });
+
+  it('get_clip: keeps a cue whose word list is missing rather than dropping the text', () => {
+    const note = summarizeReadResult('get_clip', {
+      clip: {
+        id: 'clip_1',
+        assetId: 'a',
+        trackId: 't',
+        start: 0,
+        end: 1,
+        captionCue: { text: 'hello' },
+      },
+    });
+    expect(note).toContain('cue (0 words, from revision ?): hello');
+  });
+
+  it('get_mapped_transcript: treats a payload with no word list as no speech', () => {
+    expect(summarizeReadResult('get_mapped_transcript', { revision: 3 })).toContain(
+      'no mapped words',
+    );
+  });
+
+  it('discover_caption_styles: reports an empty catalog for a payload with no template list', () => {
+    expect(summarizeReadResult('discover_caption_styles', {})).toBe(
+      'no caption templates match (0 in catalog)',
+    );
+  });
+
+  it('get_clip: falls back to a JSON preview for a payload that is not a clip', () => {
+    expect(summarizeReadResult('get_clip', { clip: null })).toContain('clip');
+  });
+
   it('list_assets: keeps every asset id so the agent has real ids to reference', () => {
     const assets = Array.from({ length: 50 }, (_, i) => ({
       id: `asset_img_${i}`,
@@ -1102,6 +1324,125 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
     // 240-char slice. A missing id is what drove the model to fabricate asset_img_9723…
     for (const a of assets) expect(note).toContain(a.id);
     expect(note).toContain('50 assets');
+  });
+
+  it('get_timeline_map: gives the model every clip SOURCE in-point, not the first four', () => {
+    // The run that motivated this: 41 video clips + one music bed, asked for "more
+    // precise montage cuts, at least 45 clips, don't keep the clips from the starting
+    // offset". Answering it needs each clip's sourceStart — and this payload had no
+    // digest case, so it fell through to previewJson at 1200 escaped chars: about four
+    // spans of forty-two, followed by a bare `…`. The model could not obtain the number
+    // it was asked to vary, and reasoned about clips it had never been shown.
+    const spans = Array.from({ length: 41 }, (_, i) => ({
+      clipId: `clip__layer_video_main_asset_cropped_search_${Math.round(i * 533)}`,
+      assetId: 'asset_cropped_search',
+      trackId: 'layer_video_main',
+      start: Math.round(i * 533) / 1000,
+      end: Math.round((i + 1) * 533) / 1000,
+      sourceStart: Math.round(i * 611) / 1000,
+      sourceEnd: Math.round(i * 611 + 533) / 1000,
+      speed: 1,
+    }));
+    const note = summarizeReadResult('get_timeline_map', {
+      spans,
+      duration: 21.867,
+      revision: 12,
+    });
+    expect(note).toContain('timeline map, 41 clips');
+    expect(note).toContain('sequence duration 21.87s');
+    expect(note).toContain('revision 12');
+    for (const span of spans) {
+      expect(note).toContain(span.clipId);
+      // The source half of the timing is the half no other surface shows: the context
+      // block renders `clipId[start–end s]` and get_timeline's digest the same.
+      // Same 2-dp rounding the digest uses, trailing zeros dropped (`22`, not `22.00`).
+      expect(note).toContain(`src ${Math.round(span.sourceStart * 100) / 100}–`);
+    }
+    expect(note).not.toContain('…"');
+  });
+
+  it('get_timeline_map: omits 1x speed and marks a retimed clip', () => {
+    const note = summarizeReadResult('get_timeline_map', {
+      spans: [
+        {
+          clipId: 'c1',
+          assetId: 'a',
+          trackId: 't',
+          start: 0,
+          end: 1,
+          sourceStart: 0,
+          sourceEnd: 1,
+          speed: 1,
+        },
+        {
+          clipId: 'c2',
+          assetId: 'a',
+          trackId: 't',
+          start: 1,
+          end: 2,
+          sourceStart: 4,
+          sourceEnd: 6,
+          speed: 2,
+        },
+      ],
+      duration: 2,
+      revision: 3,
+    });
+    expect(note).toContain('c1 asset=a track=t seq 0–1s src 0–1s');
+    expect(note).toContain('c2 asset=a track=t seq 1–2s src 4–6s ×2');
+  });
+
+  it("get_timeline_map: falls back to the JSON preview for map_time's other shapes", () => {
+    // `map_time` answers three shapes; only the argument-less one is the whole map.
+    const note = summarizeReadResult('map_time', {
+      at: { clipId: 'c1', sourceTime: 3 },
+      revision: 4,
+    });
+    expect(note).toContain('sourceTime');
+    expect(note).not.toContain('timeline map');
+  });
+
+  it('get_clips: keeps every row of a page and says how to reach the rest', () => {
+    const clips = Array.from({ length: 50 }, (_, i) => ({
+      id: `clip_${i}`,
+      trackId: 'layer_video_main',
+      assetId: 'asset_1',
+      start: i,
+      end: i + 1,
+      sourceStart: i * 2,
+      sourceEnd: i * 2 + 1,
+      effectCount: 0,
+      keyframeCount: 0,
+    }));
+    const note = summarizeReadResult('get_clips', { clips, total: 120, hasMore: true });
+    for (const clip of clips) expect(note).toContain(clip.id);
+    expect(note).toContain('50 clips');
+    // A blind character cut told the model nothing was missing. This says what to do.
+    expect(note).toContain('raise offset');
+    expect(note).toContain('total 120');
+  });
+
+  it('get_clips: reports the exact total when the page is the whole listing', () => {
+    const note = summarizeReadResult('get_clips', {
+      clips: [
+        {
+          id: 'clip_1',
+          trackId: 't',
+          assetId: 'a',
+          start: 0,
+          end: 1,
+          sourceStart: 9,
+          sourceEnd: 10,
+          effectCount: 2,
+          keyframeCount: 3,
+        },
+      ],
+      total: 1,
+      hasMore: false,
+    });
+    expect(note).toContain('1 clip of 1 total');
+    expect(note).toContain('src 9–10s fx=2 kf=3');
+    expect(note).not.toContain('raise offset');
   });
 
   it('detect_beats: gives the model every exact onset, not a BPM approximation (W4)', () => {
@@ -1578,14 +1919,22 @@ describe('route-scoped tool surface (E5)', () => {
     expect(names).toContain('get_timeline');
   });
 
-  it('action recovery advertises mutation and ask tools, never another read', () => {
+  it('action recovery advertises mutation, ask, and recall — never a fresh read', () => {
     const names = orchestrator.agentTools('action-recovery').map((tool) => tool.name);
     expect(names).toContain('add_clip');
     expect(names).toContain('ask_user');
+    // The turn asserts the run already has its evidence; that is only true if it can
+    // reach it. A real montage run was told to recall rather than re-read, found no
+    // recall tool, and placed forty-six clips on asset durations it had inferred from
+    // clip-id suffixes because the media bin it had read twice was unreachable.
+    expect(names).toContain('recall_evidence');
     expect(names).not.toContain('get_timeline');
     expect(names).not.toContain('list_assets');
     expect(names).not.toContain('detect_beats');
-    for (const name of names) expect(['mutate', 'ask']).toContain(getTool(name)!.kind);
+    for (const name of names) {
+      if (name === 'recall_evidence') continue;
+      expect(['mutate', 'ask']).toContain(getTool(name)!.kind);
+    }
   });
 
   it('scoping never touches the registry itself (the MCP surface is unaffected)', () => {

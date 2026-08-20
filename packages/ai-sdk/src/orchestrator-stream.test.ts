@@ -1594,11 +1594,14 @@ describe('streamAgent', () => {
     // edit. The model gets another turn; only when it repeats the same no-progress
     // call (spinning) does the loop stop.
     //
-    // Three steps, not two, since ADR 0075: the second barren turn trips the
-    // meaningful-progress guard, which spends one deterministic recovery turn (reads
-    // withheld, a concrete next action supplied) before giving up. A run that can still
-    // be pushed into acting gets that push; only when it spins THROUGH recovery does the
-    // loop stop — still well short of maxSteps=5.
+    // Two steps. It was three while the Conductor's `stageAdvanced` was an object
+    // comparison that missed turn 1's real interpret → inspect advance: the run was
+    // credited with no progress, tripped the meaningful-progress guard on turn 2, and
+    // spent a deterministic recovery turn before giving up. Turn 1 genuinely advanced a
+    // stage, so no-progress does not start accruing there, and turn 2 — the identical
+    // call again — is caught by the exact-repeat guard instead. Same outcome (`failed`,
+    // no edit), one fewer wasted turn. The recovery push itself is unchanged and still
+    // fires for the run it exists for: one that keeps gathering without editing.
     const provider = new FakeProvider({
       text: 'try',
       toolCalls: [{ id: 'u', name: 'no_such_tool', arguments: {} }],
@@ -1606,7 +1609,7 @@ describe('streamAgent', () => {
     const events = await drain(
       new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 5 }),
     );
-    expect(events.filter((e) => e.type === 'tool_call' && e.status === 'running')).toHaveLength(3);
+    expect(events.filter((e) => e.type === 'tool_call' && e.status === 'running')).toHaveLength(2);
     // An unknown no-op tool never lands an edit — ADR 0081 ends the run `failed`.
     expect(events.at(-1)).toMatchObject({ status: 'failed' });
   });

@@ -573,7 +573,7 @@ export async function runAiStream(
    * Reads this project's visual-index status line (see `HubOptions.visualStatusFor`).
    * Awaited once per run, before the first model call, and never allowed to fail the run.
    */
-  visualStatusFor?: (projectId: string) => Promise<string | undefined>,
+  visualStatusFor?: (projectId: string, canSeeFrames: boolean) => Promise<string | undefined>,
   /** Reads this project's cached footage-map digest (see `HubOptions.footageMapFor`). */
   footageMapFor?: (projectId: string) => Promise<string | undefined>,
 ): Promise<void> {
@@ -587,8 +587,15 @@ export async function runAiStream(
   // rather than delaying or failing an otherwise good run.
   // Both reads are best-effort context enrichment and are independent, so they overlap
   // rather than queueing one behind the other at the head of every run.
+  // The status line advises what to reach for when content search is unavailable, so it
+  // has to know whether THIS run can look at a frame — the orchestrator owns that answer
+  // and its tool list already acts on it (`Orchestrator#canSeeFrames`).
+  const canSeeFrames = orchestrator.canSeeFrames();
+  const readVisualStatus = visualStatusFor
+    ? (projectId: string) => visualStatusFor(projectId, canSeeFrames)
+    : undefined;
   const [visualStatus, footageMap] = await Promise.all([
-    readOptionalContext(visualStatusFor, project.id, 'visual status'),
+    readOptionalContext(readVisualStatus, project.id, 'visual status'),
     readOptionalContext(footageMapFor, project.id, 'footage map'),
   ]);
   const input: ContextInput = {
@@ -696,7 +703,10 @@ interface HubOptions {
    * footage by content before it tries. Optional and fail-soft: without it the context
    * block is simply absent, exactly as before.
    */
-  readonly visualStatusFor?: (projectId: string) => Promise<string | undefined>;
+  readonly visualStatusFor?: (
+    projectId: string,
+    canSeeFrames: boolean,
+  ) => Promise<string | undefined>;
   /**
    * Reads the compact footage-map digest — the time-ordered chapters of what is IN the
    * footage — for a project. Must be a CACHE-ONLY read (`cachedOnly`): this runs before

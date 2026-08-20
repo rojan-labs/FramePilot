@@ -94,6 +94,89 @@ function render(data: unknown): string {
   }
 }
 
+/**
+ * The records a payload is a list OF, for {@link EvidenceStore.recall}'s filter.
+ *
+ * A recall used to split its payload on newlines. `JSON.stringify` emits none, so every
+ * object payload was one single "line": a query either matched the whole blob (returning
+ * it truncated at {@link EVIDENCE_RECALL_CHARS}, i.e. the same head the preview already
+ * showed) or matched nothing at all. The one read this mattered most for is the timeline
+ * map — a 42-clip project serialises to ~8.8 KB, so `recall_evidence` handed back the
+ * first ~18 clips however narrowly it was asked, and a run trying to check clip 30's
+ * source in-point could not get there by any query.
+ *
+ * So a payload that IS a list — a bare array, or an object with array-valued properties
+ * (`{ spans, duration, revision }`, `{ clips, total, hasMore }`) — is filtered by RECORD.
+ * Anything else keeps the line split, which is right for prose.
+ *
+ * WHY every array and not just a lone one: the previous `arrays.length === 1` guard meant
+ * a payload with TWO record lists fell back to the single-line JSON path, where the only
+ * matchable "part" is the entire blob. That covered the two reads a caption run depends
+ * on — `discover_caption_styles` (`fonts` + `templates` + `compositionFields`) and
+ * `get_mapped_transcript` (`words` + `runs`) — so every query against them reported no
+ * match. Flattening all of them cannot drop half a payload the way *picking* one would,
+ * because nothing is excluded; each record is still rendered whole, and {@link
+ * EvidenceStore.recall} falls back to the line split when no record matches, so a query
+ * aimed at a scalar sibling field still lands.
+ */
+function recordsOf(data: unknown): unknown[] | undefined {
+  if (Array.isArray(data)) return data;
+  if (typeof data !== 'object' || data === null) return undefined;
+  const arrays = Object.values(data as Record<string, unknown>).filter((value): value is unknown[] =>
+    Array.isArray(value),
+  );
+  return arrays.length > 0 ? arrays.flat() : undefined;
+}
+
+/**
+ * Rank `parts` against a query, keeping only those that match something.
+ *
+ * The old filter tested `part.includes(wholeQuery)`: one literal substring. Models do not
+ * write queries that way — they write keyword bags ("captionStyle track layer_caption_4
+ * style"), which can only match if that exact 47-character string appears inside a single
+ * record. It never does, so a correct query returned "no match" and the run's only
+ * retrieval surface looked empty. Scoring instead of filtering keeps the precise case
+ * best (a full-phrase hit outranks everything) while still answering the keyword bag.
+ */
+function rank(parts: readonly unknown[], phrase: string, terms: readonly string[]): string[] {
+  const scored = parts
+    .map((part) => {
+      const text = render(part);
+      const haystack = text.toLowerCase();
+      // A whole-phrase hit is worth more than any number of scattered term hits, so an
+      // exact query still sorts to the top of a keyword-shaped result.
+      const exact = haystack.includes(phrase) ? terms.length + 1 : 0;
+      const hits = terms.filter((term) => haystack.includes(term)).length;
+      return { text, score: exact + hits };
+    })
+    .filter((entry) => entry.score > 0);
+  // Stable by construction: equal scores keep payload order, so a recall is reproducible.
+  return scored
+    .map((entry, index) => ({ ...entry, index }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((entry) => entry.text);
+}
+
+/**
+ * Return the `limit` characters of `text` starting at `from`, naming the next offset when
+ * more remains.
+ *
+ * WHY an offset exists at all: `recall` used to answer every unqueried call with
+ * `text.slice(0, EVIDENCE_RECALL_CHARS)`. For any payload larger than that the tail was
+ * unreachable by ANY argument — a run that recalled the caption-style catalog three times
+ * received the identical head, cut mid-template, each time. Truncation the caller cannot
+ * page past is the same deadlock as a memo that refuses to return its data.
+ */
+function page(text: string, from: number, limit: number, id: string): string {
+  if (from > 0 && from >= text.length) {
+    return `Offset ${from} is past the end of ${id}, which holds ${text.length} characters.`;
+  }
+  const slice = text.slice(from, from + limit);
+  const end = from + slice.length;
+  if (end >= text.length) return slice;
+  return `${slice}… (truncated at ${end} of ${text.length} characters — call recall_evidence with "${id}" and offset ${end} for the next part)`;
+}
+
 /** Cut `text` to `limit`, marking the cut so the model knows more is retrievable. */
 function clip(text: string, limit: number, id: string): string {
   if (text.length <= limit) return text;
@@ -166,29 +249,37 @@ export class EvidenceStore {
   }
 
   /**
-   * Retrieve a stored payload, optionally narrowed by a free-text query. The query is a
-   * plain case-insensitive line/word filter rather than a semantic search: the caller
-   * already knows which handle it wants, and a deterministic filter is auditable and
-   * needs no model call.
+   * Retrieve a stored payload, optionally narrowed by a free-text query and windowed by
+   * `offset`. The query is a deterministic case-insensitive keyword match over records
+   * (see {@link rank}) rather than a semantic search: the caller already knows which
+   * handle it wants, and a deterministic filter is auditable and needs no model call.
+   *
+   * `offset` pages through a result larger than {@link EVIDENCE_RECALL_CHARS}; the
+   * returned text names the next offset whenever more remains, so no part of a stored
+   * payload is unreachable.
    *
    * Returns `undefined` for an unknown handle so the caller can say so honestly instead
    * of inventing an answer.
    */
-  public recall(id: string, query?: string): string | undefined {
+  public recall(id: string, query?: string, offset?: number): string | undefined {
     const entry = this.byId.get(id);
     if (!entry) return undefined;
     const full = render(entry.data);
-    if (!query?.trim()) return clip(full, EVIDENCE_RECALL_CHARS, id);
+    const from = Number.isFinite(offset) ? Math.max(0, Math.trunc(offset as number)) : 0;
+    if (!query?.trim()) return page(full, from, EVIDENCE_RECALL_CHARS, id);
 
-    const needle = query.trim().toLowerCase();
-    const parts = Array.isArray(entry.data)
-      ? entry.data.map((item) => render(item))
-      : full.split('\n');
-    const hits = parts.filter((part) => part.toLowerCase().includes(needle));
-    if (hits.length === 0) {
+    const phrase = query.trim().toLowerCase();
+    const terms = [...new Set(phrase.split(/\s+/).filter((term) => term.length > 0))];
+    const lines = () => full.split('\n');
+    const records = recordsOf(entry.data);
+    // Records first; then the line split, which is both the prose path and the way a
+    // query aimed at a scalar sibling ("matched", "revision") still finds its field.
+    const hits = records ? rank(records, phrase, terms) : [];
+    const matched = hits.length > 0 ? hits : rank(lines(), phrase, terms);
+    if (matched.length === 0) {
       return `No part of ${id} (${entry.descriptor}) matches "${query.trim()}".`;
     }
-    return clip(hits.join('\n'), EVIDENCE_RECALL_CHARS, id);
+    return page(matched.join('\n'), from, EVIDENCE_RECALL_CHARS, id);
   }
 
   /**

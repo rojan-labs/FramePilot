@@ -30,6 +30,7 @@
         "objective": {
           "request": "make the opening punchier",
           "outcome": "make the opening punchier",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -107,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 19222,
+      "usedTokens": 19288,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -133,23 +134,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1780,
+            "tokenEstimate": 1700,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15786,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19222,
+          "estimatedInputTokensBeforeSend": 19288,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 852778,
+          "estimatedRemainingCapacity": 852712,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -210,21 +211,21 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1780,
+            "tokenEstimate": 1700,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15786,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19222,
+          "estimatedInputTokensBeforeSend": 19288,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -307,6 +308,7 @@
         "objective": {
           "request": "make the opening punchier",
           "outcome": "make the opening punchier",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -386,7 +388,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 19311,
+      "usedTokens": 19381,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -412,23 +414,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1869,
+            "tokenEstimate": 1793,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15786,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19311,
+          "estimatedInputTokensBeforeSend": 19381,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 852689,
+          "estimatedRemainingCapacity": 852619,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -445,7 +447,7 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: make the opening punchier"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -499,21 +501,21 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1869,
+            "tokenEstimate": 1793,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15786,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19311,
+          "estimatedInputTokensBeforeSend": 19381,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -534,7 +536,7 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: make the opening punchier"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -564,6 +566,7 @@
         "objective": {
           "request": "make the opening punchier",
           "outcome": "make the opening punchier",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -646,6 +649,7 @@
         "objective": {
           "request": "make the opening punchier",
           "outcome": "make the opening punchier",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",

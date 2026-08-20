@@ -30,6 +30,7 @@
         "objective": {
           "request": "tighten the intro using your pacing playbook",
           "outcome": "tighten the intro using your pacing playbook",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -107,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19246,
+      "usedTokens": 19292,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -133,23 +134,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1804,
+            "tokenEstimate": 1704,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15786,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19246,
+          "estimatedInputTokensBeforeSend": 19292,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172562,
+          "estimatedRemainingCapacity": 172516,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -262,6 +263,7 @@
         "objective": {
           "request": "tighten the intro using your pacing playbook",
           "outcome": "tighten the intro using your pacing playbook",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -279,7 +281,7 @@
           {
             "id": "fact_1",
             "kind": "derived",
-            "statement": "Reading the pacing playbook → Reading the pacing playbook",
+            "statement": "Reading the pacing playbook → Unknown skill \"pacing\". Available: audio-polish, beat-synced-editing, broll-and-layering, caption-design, cinematic-storytelling, color-grading, cut-a",
             "evidenceIds": [
               "ev_1"
             ],
@@ -354,7 +356,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19424,
+      "usedTokens": 19491,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -380,23 +382,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1982,
+            "tokenEstimate": 1903,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15786,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19424,
+          "estimatedInputTokensBeforeSend": 19491,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172384,
+          "estimatedRemainingCapacity": 172317,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -413,7 +415,7 @@
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue analyze: tighten the intro using your pacing playbook"
+          "nextAction": "Continue analyze: finish the analysis the plan depends on."
         }
       }
     },
@@ -610,6 +612,7 @@
         "objective": {
           "request": "tighten the intro using your pacing playbook",
           "outcome": "tighten the intro using your pacing playbook",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -629,7 +632,7 @@
           {
             "id": "fact_1",
             "kind": "derived",
-            "statement": "Reading the pacing playbook → Reading the pacing playbook",
+            "statement": "Reading the pacing playbook → Unknown skill \"pacing\". Available: audio-polish, beat-synced-editing, broll-and-layering, caption-design, cinematic-storytelling, color-grading, cut-a",
             "evidenceIds": [
               "ev_1"
             ],
@@ -718,7 +721,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 16133,
+      "usedTokens": 16196,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -744,23 +747,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 2007,
+            "tokenEstimate": 1924,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 12324,
+            "tokenEstimate": 12470,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 16133,
+          "estimatedInputTokensBeforeSend": 16196,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 175675,
+          "estimatedRemainingCapacity": 175612,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -777,7 +780,7 @@
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue apply: tighten the intro using your pacing playbook"
+          "nextAction": "Continue apply: apply the committed plan."
         }
       }
     },
@@ -825,6 +828,7 @@
         "objective": {
           "request": "tighten the intro using your pacing playbook",
           "outcome": "tighten the intro using your pacing playbook",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -844,7 +848,7 @@
           {
             "id": "fact_1",
             "kind": "derived",
-            "statement": "Reading the pacing playbook → Reading the pacing playbook",
+            "statement": "Reading the pacing playbook → Unknown skill \"pacing\". Available: audio-polish, beat-synced-editing, broll-and-layering, caption-design, cinematic-storytelling, color-grading, cut-a",
             "evidenceIds": [
               "ev_1"
             ],
@@ -936,6 +940,7 @@
         "objective": {
           "request": "tighten the intro using your pacing playbook",
           "outcome": "tighten the intro using your pacing playbook",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -958,7 +963,7 @@
           {
             "id": "fact_1",
             "kind": "derived",
-            "statement": "Reading the pacing playbook → Reading the pacing playbook",
+            "statement": "Reading the pacing playbook → Unknown skill \"pacing\". Available: audio-polish, beat-synced-editing, broll-and-layering, caption-design, cinematic-storytelling, color-grading, cut-a",
             "evidenceIds": [
               "ev_1"
             ],

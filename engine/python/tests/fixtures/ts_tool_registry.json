@@ -1305,7 +1305,7 @@
             "type": [
               "integer"
             ],
-            "maximum": 45,
+            "maximum": 51,
             "exclusiveMinimum": 0
           },
           "query": {
@@ -2931,6 +2931,12 @@
             "type": [
               "string"
             ]
+          },
+          "offset": {
+            "type": [
+              "integer"
+            ],
+            "minimum": 0
           },
           "query": {
             "type": [

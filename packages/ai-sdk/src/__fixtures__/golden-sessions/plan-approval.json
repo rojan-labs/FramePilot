@@ -30,6 +30,7 @@
         "objective": {
           "request": "tighten the intro",
           "outcome": "tighten the intro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -119,6 +120,7 @@
         "objective": {
           "request": "tighten the intro",
           "outcome": "tighten the intro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -211,7 +213,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19268,
+      "usedTokens": 19395,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -237,23 +239,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1805,
+            "tokenEstimate": 1786,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15786,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19268,
+          "estimatedInputTokensBeforeSend": 19395,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172540,
+          "estimatedRemainingCapacity": 172413,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -507,6 +509,7 @@
         "objective": {
           "request": "tighten the intro",
           "outcome": "tighten the intro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -615,7 +618,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19305,
+      "usedTokens": 19433,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -641,23 +644,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1842,
+            "tokenEstimate": 1824,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15786,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19305,
+          "estimatedInputTokensBeforeSend": 19433,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172503,
+          "estimatedRemainingCapacity": 172375,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -730,6 +733,7 @@
         "objective": {
           "request": "tighten the intro",
           "outcome": "tighten the intro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -842,7 +846,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 14425,
+      "usedTokens": 14703,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -868,23 +872,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1970,
+            "tokenEstimate": 1995,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 10632,
+            "tokenEstimate": 10885,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 14425,
+          "estimatedInputTokensBeforeSend": 14703,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 177383,
+          "estimatedRemainingCapacity": 177105,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -949,6 +953,7 @@
         "objective": {
           "request": "tighten the intro",
           "outcome": "tighten the intro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -1064,6 +1069,7 @@
         "objective": {
           "request": "tighten the intro",
           "outcome": "tighten the intro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",

@@ -28,7 +28,6 @@ import {
   type FactScope,
   type RunWorkingState,
   committedDecisions,
-  remainingObjectives,
 } from './working-state.js';
 import { type ToolRole } from './stage-policy.js';
 
@@ -76,7 +75,17 @@ export function distil(args: {
   if (args.role === 'recall' || args.role === 'other' || args.role === 'mutation') {
     return undefined;
   }
-  const finding = args.summary.replace(/\s+/g, ' ').trim();
+  // The FIRST line of a read digest is its conclusion ("timeline map, 46 clips,
+  // sequence duration 21.87s, revision 701"); the rest is the records themselves, which
+  // belong in the evidence store and not in a briefing that has to stay flat in project
+  // duration. Flattening the whole digest here and cutting it at 180 characters would
+  // put four of forty-six clips into the fact and call it what the run knows.
+  const headline = args.summary.split('\n', 1)[0] ?? '';
+  const finding = headline.replace(/\s+/g, ' ').trim();
+  // A read whose digest says nothing beyond its own label ("Reading the timeline →
+  // Reading the timeline") is not a fact. Recording it taught a run that its memory was
+  // noise; omitting it lets the caller see the gap instead of a restatement.
+  if (finding === '' || finding === args.descriptor.trim()) return undefined;
   const statement = `${args.descriptor} → ${finding}`.slice(0, STATEMENT_CHARS);
   return {
     statement,
@@ -101,9 +110,29 @@ function renderFact(fact: Fact): string {
  */
 export function buildStateBriefing(state: RunWorkingState): string {
   const sections: string[] = [];
+  // Is this text just the editor's request back again?
+  //
+  // The conductor seeds the objective, its single acceptance criterion, the committed
+  // plan's single decision and the run's single objective ALL from `userPrompt`, before
+  // any turn runs. So a briefing rendered naively printed the same sentence five times
+  // under five headings — WHAT DONE LOOKS LIKE, DECIDED, OBJECTIVES, DO THIS NOW, and the
+  // request itself. Repetition is the mild cost. The real one is that "DECIDED" listing
+  // the request tells the model that nothing has been decided while claiming something
+  // has, and "OBJECTIVES 0/1" restates the request as an unmet checkbox no tool can tick.
+  // A heading with nothing behind it is worse than an absent heading: the run reads its
+  // own memory as noise and re-derives what it should be carrying forward.
+  //
+  // Suppressing the echoes is not a substitute for a real interpretation — that needs a
+  // seam for the model to write one, tracked separately. It is the honest rendering of
+  // the state that exists: the request is known, nothing else is.
+  const echoesRequest = (text: string): boolean =>
+    text.trim() === state.objective.request.trim();
 
-  if (state.objective.outcome) {
-    const criteria = state.objective.acceptance.map((c) => `- ${c.description}`).join('\n');
+  if (state.objective.outcome && !echoesRequest(state.objective.outcome)) {
+    const criteria = state.objective.acceptance
+      .filter((c) => !echoesRequest(c.description))
+      .map((c) => `- ${c.description}`)
+      .join('\n');
     sections.push(
       `WHAT DONE LOOKS LIKE\n${state.objective.outcome}${criteria ? `\n${criteria}` : ''}`,
     );
@@ -118,7 +147,7 @@ export function buildStateBriefing(state: RunWorkingState): string {
     sections.push(`ESTABLISHED — do not gather again\n${state.facts.map(renderFact).join('\n')}`);
   }
 
-  const decisions = committedDecisions(state);
+  const decisions = committedDecisions(state).filter((d) => !echoesRequest(d.decision));
   if (decisions.length > 0) {
     sections.push(
       `DECIDED — keep unless the stated trigger fires\n${decisions
@@ -127,11 +156,11 @@ export function buildStateBriefing(state: RunWorkingState): string {
     );
   }
 
-  const remaining = remainingObjectives(state);
-  if (state.objectives.length > 0) {
-    const done = state.objectives.length - remaining.length;
+  const objectives = state.objectives.filter((o) => !echoesRequest(o.description));
+  if (objectives.length > 0) {
+    const done = objectives.filter((o) => o.status === 'satisfied').length;
     sections.push(
-      `OBJECTIVES (${done}/${state.objectives.length} satisfied)\n${state.objectives
+      `OBJECTIVES (${done}/${objectives.length} satisfied)\n${objectives
         .map((o) => `- [${o.status === 'satisfied' ? 'x' : ' '}] ${o.description}`)
         .join('\n')}`,
     );

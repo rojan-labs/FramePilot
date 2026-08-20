@@ -239,7 +239,9 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         'original footage to a moment on the edit. Never compute that relationship ' +
         'yourself from clip durations, and never reuse a mapping you read earlier: ' +
         'any cut, trim, move or speed change makes it wrong, and the revision tells ' +
-        'you it did.',
+        'you it did. It returns EVERY clip and takes no arguments — on a long ' +
+        'timeline read a window with get_clips (same source in/out, filtered by ' +
+        'track/time and paginated) instead.',
     },
     noArgs,
     (_args, ctx) => buildTimelineMap(ctx.project.timeline),
@@ -376,7 +378,10 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       name: 'trim_clip',
       description:
         "Set a clip's new start/end in timeline seconds; the source in/out shifts by " +
-        "the same amount. Use to tighten or extend one clip's edges.",
+        "the same amount. Use to tighten or extend one clip's edges. It cannot change " +
+        'WHERE IN THE ASSET a clip reads from while keeping its timeline position and ' +
+        'length — to do that, delete_clip it and add_clip the same span with a different ' +
+        'sourceStart.',
     },
     trimSchema,
     (a) => [{ type: 'trim_clip', clipId: a.clipId, start: a.start, end: a.end }],

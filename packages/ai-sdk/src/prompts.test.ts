@@ -192,10 +192,14 @@ describe('agentActionRecoveryBlock', () => {
     expect(agentActionRecoveryBlock(false)).toBe('');
     const block = agentActionRecoveryBlock(true);
     expect(block).toContain('ACTION RECOVERY');
-    expect(block).toContain('Read and analysis tools are withheld');
+    expect(block).toContain('Fresh reads and analysis are withheld');
     expect(block).toContain('mutation');
     expect(block).toContain('ask_user');
     expect(block).toContain('Do not claim the editing request is complete');
+    // The turn's premise is that the run already HAS its evidence. Telling it to act
+    // while withholding the only tool that returns what it gathered is why a real run
+    // built forty-six clips on asset durations it inferred from clip-id suffixes.
+    expect(block).toContain('recall_evidence');
   });
 
   it('states no cause that is false for either trigger', () => {

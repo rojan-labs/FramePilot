@@ -47,6 +47,7 @@ import {
   createTurnEmitter,
 } from '../events.js';
 import type { Command } from './commands.js';
+import { deriveObjectiveText } from './continuation.js';
 import { type ToolRole, settledStageFor } from './stage-policy.js';
 import {
   MAX_NO_PROGRESS_TURNS,
@@ -860,16 +861,25 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
     attemptId: command.stream.turnId,
     projectRevision: command.input.project.timeline.revision ?? 0,
   });
+  // What the run is actually being asked to do. A message that only says "continue"
+  // names no work of its own, so it resolves to the request underneath it: seeding the
+  // objective from the literal nudge made "contine" the run's outcome, its acceptance
+  // criterion, its committed decision AND the criterion verification checked — so the run
+  // both forgot the real goal and could only report itself inconclusive.
+  const objectiveText = deriveObjectiveText(command.input.userPrompt, command.input.history);
+  // Provisional: this is the run's own deterministic reading of the request, not an
+  // interpretation a turn recorded. It holds the field open so the stage guards can pass
+  // (an empty outcome blocks every stage past `interpret`) and yields to the first real
+  // interpretation instead of permanently occupying the slot.
   const interpreted = setObjective(created, {
-    outcome: command.input.userPrompt.trim(),
-    acceptance: [{ description: command.input.userPrompt.trim() }],
+    outcome: objectiveText,
+    acceptance: [{ description: objectiveText }],
+    provisional: true,
   });
   // When the creator disables the visible detailed-planning turn, commit a minimal
   // objective-backed authorization record from the persisted request itself. It is
   // machine-readable and durable before the first tool turn, never inferred from prose.
-  const freshWorking = planning
-    ? interpreted
-    : commitExecutionPlan(interpreted, [command.input.userPrompt.trim()], 0);
+  const freshWorking = planning ? interpreted : commitExecutionPlan(interpreted, [objectiveText], 0);
   const started: ConductorState = {
     phase: resuming ? 'resuming' : planning ? 'planning' : 'executing',
     turnRef: command.stream,
@@ -1078,6 +1088,11 @@ export function onTurnResult(
   // nothing, which is the point. `advanceStage` refuses any move the transition table
   // does not permit, so this can only fail to advance, never corrupt.
   const roles = r.callFacts.map((f) => f.role ?? 'other');
+  // Captured BEFORE the stage walk and the fact fold below, because "did this turn
+  // advance the run?" is asked much later — after `state.working` has been replaced by
+  // the fact-folded copy — and asking it by object identity there answered a different
+  // question. See `stageAdvanced`.
+  const stageBefore = state.working.stage;
   const target = settledStageFor(state.working.stage, roles, r.applied);
   const staged =
     target === state.working.stage
@@ -1338,7 +1353,15 @@ export function onTurnResult(
   // freshly it words itself each time.
   const intent = normalizeIntent(r.rationale ?? '');
   const recentIntents = [...state.recentIntents, intent].slice(-SEMANTIC_LOOP_TURNS);
-  const stageAdvanced = staged !== state.working;
+  // The STAGE, not "anything at all changed". This was `staged !== state.working`, an
+  // object comparison against a `state.working` that the fact fold above had already
+  // replaced — so it read true on any turn that recorded a fact, and a re-orienting run
+  // records one every turn. That silently disabled the escape hatch's inverse: a genuine
+  // loop always looked like "repeating an intent while advancing", so `isSemanticLoop`
+  // never fired in production. It appeared to work only where the reads produced
+  // duplicate conclusions, which `recordFact` deduplicates into a no-op — an accident
+  // that ended the moment a read's fact carried its actual finding.
+  const stageAdvanced = stageBefore !== state.working.stage;
   const looping = isSemanticLoop(recentIntents, {
     stageAdvanced,
     decisionCommitted: false,

@@ -16,6 +16,7 @@ import { createLogger } from '@framepilot/shared-types';
 import {
   TranscriptWordSchema,
   type Asset,
+  type CaptionStyle,
   type Clip,
   type Folder,
   type Project,
@@ -295,8 +296,6 @@ function costFromUsage(
   const output = usage.outputTokens ?? 0;
   return { tokens: input + output, usd: estimateUsd(tier, { input, output }) };
 }
-
-
 
 /**
  * Default cap on agent turns (safety backstop against a non-terminating model). Mirrors
@@ -905,6 +904,20 @@ interface AgentCallOutcome {
   ops: AnyOperation[];
   note: string;
   summary: string;
+  /**
+   * What this call CONCLUDED, for `distil` to record as a fact — as opposed to
+   * {@link summary}, which is the short action label the tool card shows.
+   *
+   * They are the same string for most calls, and for an in-process read they must not
+   * be: a read's `summary` is its descriptor ("Reading the timeline"), so the fact
+   * `distil` built read "Reading the timeline → Reading the timeline". A run's whole
+   * memory of what it had learned was a list of restatements of what it had DONE, which
+   * is why a real montage run re-derived the project's shape on six consecutive turns,
+   * re-read the media bin it had already read, and spent 391 seconds in one thinking
+   * block. The digest that belongs there was already being computed one line away, for
+   * the action log. Absent ⇒ `summary` is the conclusion too.
+   */
+  finding?: string;
   status: ToolStatus;
   data?: unknown;
   /** The working copy advanced by this call's validated ops (mutating calls only). */
@@ -971,6 +984,50 @@ const clipLine = (c: Clip): string =>
   `${c.id} asset=${c.assetId} ${round2(c.start)}–${round2(c.end)}s`;
 
 /**
+ * One line per clip record that carries SOURCE timing — the `get_clips` row shape and the
+ * `get_timeline_map` span shape, which differ only in their id field and their tail.
+ *
+ * Why source in/out is spelled out rather than left in the JSON: the sequence half of a
+ * clip's timing reaches the model from three places (the context block's
+ * `clipId[start–end s]`, `get_timeline`'s digest, this line), and the source half reached
+ * it from none of them once the payload was cut. A run asked to vary where each clip
+ * STARTS IN ITS ASSET was then reading the millisecond suffix of the clip id as if it were
+ * a source offset — it encodes the timeline start (`deriveClipId`), so that guess is a
+ * trap, and the only cure is to print the real number.
+ *
+ * `speed` is shown only when it is not 1x: at 1x it is noise on every row, and off 1x it
+ * is the reason source and sequence spans disagree.
+ */
+function sourceTimedClipLine(record: Record<string, unknown>): string {
+  const id = String(record.id ?? record.clipId ?? 'unknown-clip');
+  const num = (value: unknown): string => (typeof value === 'number' ? round2(value) : '?');
+  const speed = typeof record.speed === 'number' ? record.speed : 1;
+  const rate = speed === 1 ? '' : ` ×${round2(speed)}`;
+  const effects =
+    typeof record.effectCount === 'number' && record.effectCount > 0
+      ? ` fx=${record.effectCount}`
+      : '';
+  const keyframes =
+    typeof record.keyframeCount === 'number' && record.keyframeCount > 0
+      ? ` kf=${record.keyframeCount}`
+      : '';
+  return (
+    `- ${id} asset=${String(record.assetId ?? '?')} track=${String(record.trackId ?? '?')} ` +
+    `seq ${num(record.start)}–${num(record.end)}s ` +
+    `src ${num(record.sourceStart)}–${num(record.sourceEnd)}s${rate}${effects}${keyframes}`
+  );
+}
+
+/** The records of a clip-listing payload, or `undefined` when this is not one. */
+function clipRecords(
+  obj: Record<string, unknown>,
+  key: string,
+): Record<string, unknown>[] | undefined {
+  const value = obj[key];
+  return Array.isArray(value) ? (value as Record<string, unknown>[]) : undefined;
+}
+
+/**
  * Render up to {@link READ_DIGEST_MAX_ITEMS} records, then collapse the remainder to a
  * "(… N more …)" line so a huge library/timeline stays bounded WITHOUT silently cutting
  * a partial JSON that reads as complete. `narrow` (when given) tells the model how to
@@ -1000,18 +1057,49 @@ function assetsDigest(assets: readonly Asset[]): string {
   )}`;
 }
 
+/**
+ * One-line rendering of a caption track's committed style.
+ *
+ * WHY the digest must carry this: `timelineDigest` rendered track id/type/flags/clips and
+ * nothing else, so the fact distilled from a `get_timeline` read was "5 tracks, 87 clips:
+ * …". The style — the single field a "restyle the captions" request is ABOUT — lived only
+ * in the raw payload, which sits in a rolling last-N-steps log window. Two turns later the
+ * run had forgotten the answer it had already read and went looking for it again. A digest
+ * that omits the field the request names is what turns a read into a loop.
+ */
+function captionStyleLine(style: CaptionStyle): string {
+  const parts: string[] = [`template=${style.templateId ?? 'none'}`];
+  if (style.display) parts.push(style.display);
+  if (style.fontFamily) parts.push(style.fontFamily);
+  const accent = style.accent;
+  if (accent && accent.mode !== 'none') {
+    const words = accent.keywords?.length ? ` (${accent.keywords.length} keywords)` : '';
+    parts.push(`accent=${accent.mode}${words}`);
+  }
+  return parts.join(' · ');
+}
+
 function timelineDigest(tracks: readonly Track[]): string {
   if (tracks.length === 0) return 'timeline: no tracks';
-  return tracks
-    .map((t) => {
+  // Head line first, because the first line of a digest becomes the run's FACT about
+  // this read (`distil`). Without it the fact was one arbitrary track's clip list.
+  const clips = tracks.reduce((sum, t) => sum + t.clips.length, 0);
+  const head = `${tracks.length} track${tracks.length === 1 ? '' : 's'}, ${clips} clip${
+    clips === 1 ? '' : 's'
+  }: ${tracks.map((t) => `${t.id}(${t.clips.length})`).join(', ')}`;
+  return [head]
+    .concat(
+      tracks.map((t) => {
       const flags = [t.locked && 'locked', t.hidden && 'hidden', t.muted && 'muted']
         .filter(Boolean)
         .join(',');
-      const head = `${t.id} [${t.type}${flags ? ` ${flags}` : ''}]`;
-      const body =
-        t.clips.length === 0 ? 'empty' : `\n${boundedRecords(t.clips, clipLine, 'clips')}`;
-      return `${head}: ${body}`;
-    })
+        const style = t.captionStyle ? ` style: ${captionStyleLine(t.captionStyle)}` : '';
+        const trackHead = `${t.id} [${t.type}${flags ? ` ${flags}` : ''}]${style}`;
+        const body =
+          t.clips.length === 0 ? 'empty' : `\n${boundedRecords(t.clips, clipLine, 'clips')}`;
+        return `${trackHead}: ${body}`;
+      }),
+    )
     .join('\n');
 }
 
@@ -1164,6 +1252,45 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
       const tracks = (obj.tracks ?? []) as Track[];
       return timelineDigest(tracks);
     }
+    // Every read whose whole point is SOURCE timing used to land in the `default` arm
+    // below, which is `previewJson` at 1200 escaped characters — about four records. A
+    // 42-clip project's timeline map is ~8.8 KB, a 50-row `get_clips` page ~12 KB, so the
+    // run was handed the first four rows, a bare `…`, and no way to tell how much was
+    // missing. It then reasoned about the clips it could not see: this is the identical
+    // defect the `detect_beats` digest below already exists to fix, on the tools that
+    // answer "where in the asset does this clip start?" — the question the montage run was
+    // actually asked. Bound by whole records, ids and both time pairs intact.
+    case 'get_clips': {
+      const clips = clipRecords(obj, 'clips');
+      // Defensive: a payload without a `clips` array is not this shape.
+      if (!clips) return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const total = typeof obj.total === 'number' ? obj.total : clips.length;
+      const more =
+        obj.hasMore === true
+          ? ` — more remain; raise offset to page on (total ${total})`
+          : ` of ${total} total`;
+      return `${clips.length} clip${clips.length === 1 ? '' : 's'}${more}:\n${boundedRecords(
+        clips,
+        sourceTimedClipLine,
+        'clips',
+        'narrow get_clips by trackId/start/end or page with offset',
+      )}`;
+    }
+    case 'get_timeline_map':
+    case 'map_time': {
+      // `map_time` answers three shapes; only the no-argument one is the whole map.
+      const spans = clipRecords(obj, 'spans');
+      if (!spans) return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const duration = typeof obj.duration === 'number' ? round2(obj.duration) : '?';
+      return `timeline map, ${spans.length} clip${
+        spans.length === 1 ? '' : 's'
+      }, sequence duration ${duration}s, revision ${String(obj.revision ?? '?')}:\n${boundedRecords(
+        spans,
+        sourceTimedClipLine,
+        'clips',
+        'read a window with get_clips (trackId/start/end, offset/limit) instead',
+      )}`;
+    }
     case 'detect_beats': {
       // The beat grid is the whole deliverable — and it went through the default JSON
       // preview, which sliced a 366-beat / 13.6 KB payload at 1200 escaped chars: the
@@ -1187,6 +1314,98 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
       const span = `from ${round3(first)}s to ${round3(last)}s`;
       return `${times.length} exact beat onsets${bpm}, ${span}:\n${exactGrid}`;
     }
+    case 'get_timeline_summary': {
+      // The cheap orientation read. Through `previewJson` its per-track rows were the
+      // first thing cut, which defeats the only reason to prefer it over get_timeline.
+      const tracks = (Array.isArray(obj.tracks) ? obj.tracks : []) as Record<string, unknown>[];
+      const duration =
+        typeof obj.durationSeconds === 'number' ? `${round2(obj.durationSeconds)}s` : '?';
+      const head = `sequence ${duration}, ${String(obj.trackCount ?? tracks.length)} tracks, ${String(
+        obj.clipCount ?? '?',
+      )} clips, ${String(obj.transcriptWordCount ?? 0)} transcript words`;
+      if (tracks.length === 0) return head;
+      return `${head}:\n${boundedRecords(
+        tracks,
+        (t) =>
+          `${String(t.id)} [${String(t.type)}] ${String(t.clipCount ?? 0)} clips${
+            typeof t.firstClipStart === 'number' && typeof t.lastClipEnd === 'number'
+              ? ` ${round2(t.firstClipStart)}–${round2(t.lastClipEnd)}s`
+              : ''
+          }`,
+        'tracks',
+      )}`;
+    }
+    case 'get_clip': {
+      // A single clip read for its ids and BOTH time pairs; JSON-escaped at 1200 chars a
+      // caption clip's cue words alone could push its style and source range off the end.
+      const clip = (obj.clip ?? {}) as Record<string, unknown>;
+      if (typeof clip.id !== 'string') return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const cue = clip.captionCue as Record<string, unknown> | undefined;
+      const lines = [`${sourceTimedClipLine(clip)} on ${String(obj.trackId ?? clip.trackId)}`];
+      const effects = (Array.isArray(clip.effects) ? clip.effects : []) as Record<
+        string,
+        unknown
+      >[];
+      if (effects.length > 0) {
+        lines.push(`effects: ${effects.map((e) => String(e.type)).join(', ')}`);
+      }
+      if (clip.captionStyle) {
+        lines.push(`cue style override: ${captionStyleLine(clip.captionStyle as CaptionStyle)}`);
+      }
+      if (cue && typeof cue.text === 'string') {
+        const words = Array.isArray(cue.words) ? cue.words.length : 0;
+        lines.push(`cue (${words} words, from revision ${String(cue.derivedFromRevision ?? '?')}): ${cue.text.replace(/\n/g, ' / ')}`);
+      }
+      return lines.join('\n');
+    }
+    case 'get_mapped_transcript': {
+      // The words carry the SEQUENCE timings every cue is built from. previewJson gave
+      // back about four of them, so a run asked to caption 81 words received five.
+      const words = (Array.isArray(obj.words) ? obj.words : []) as Record<string, unknown>[];
+      if (words.length === 0) return 'no mapped words — the edited timeline carries no speech';
+      const dropped =
+        typeof obj.droppedCount === 'number' && obj.droppedCount > 0
+          ? `, ${obj.droppedCount} dropped by cuts`
+          : '';
+      const head = `${words.length} mapped words${dropped}, revision ${String(obj.revision ?? '?')}`;
+      // Sequence times only: the source times are in the payload for anyone who recalls
+      // it, but a cue is authored against the sequence and doubling the numbers here
+      // halves how many words fit.
+      return `${head}:\n${boundedRecords(
+        words,
+        (w) => `${round3(Number(w.start))}–${round3(Number(w.end))}s ${String(w.word)}`,
+        'words',
+        'narrow get_mapped_transcript to a window',
+      )}`;
+    }
+    case 'discover_caption_styles': {
+      // The template IDS are the whole deliverable: `set_track_caption_style` rejects an
+      // id that is not in the catalog, so a truncated list is a list the run cannot use.
+      // previewJson cut it mid-entry after ~18 of 51, and the style actually applied to
+      // the project was past the cut — the run could neither name what it had nor pick
+      // something different, and stalled without making an edit.
+      const templates = (Array.isArray(obj.templates) ? obj.templates : []) as Record<
+        string,
+        unknown
+      >[];
+      const fonts = (Array.isArray(obj.fonts) ? obj.fonts : []) as Record<string, unknown>[];
+      if (templates.length === 0) return `no caption templates match (${String(obj.matched ?? 0)} in catalog)`;
+      const head = `${String(obj.returned ?? templates.length)} of ${String(
+        obj.matched ?? templates.length,
+      )} matching templates, ${fonts.length} bundled fonts`;
+      const byCategory = new Map<string, string[]>();
+      for (const t of templates) {
+        const category = String(t.category ?? 'other');
+        const ids = byCategory.get(category) ?? [];
+        ids.push(String(t.templateId));
+        byCategory.set(category, ids);
+      }
+      const catalog = [...byCategory.entries()].map(
+        ([category, ids]) => `${category}: ${ids.join(', ')}`,
+      );
+      const fontList = `fonts: ${fonts.map((f) => String(f.family)).join(', ')}`;
+      return [head, ...catalog, fontList].join('\n');
+    }
     case 'load_skill': {
       // ADR 0057 §6: load_skill returns the FULL skill — the body IS the deliverable,
       // and the model asked for it precisely because it does not already know it. The
@@ -1199,8 +1418,16 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
       // whole is budgeted, not unbounded. Rendered as prose (not JSON) so the markdown
       // reads as the playbook it is rather than an escaped blob.
       if (typeof obj.body !== 'string') {
-        // The unknown-skill shape ({ error, available }) — a short object the bounded
-        // JSON preview renders fine, and which the model uses to self-correct.
+        // The unknown-skill shape ({ error, available }). Rendered as a sentence rather
+        // than escaped JSON: its first line also becomes the run's FACT about this call
+        // (`distil`), and a fact cut off mid-way through a JSON array of skill names is
+        // not a conclusion the next turn can act on.
+        if (typeof obj.error === 'string') {
+          const available = Array.isArray(obj.available)
+            ? obj.available.filter((n): n is string => typeof n === 'string')
+            : [];
+          return `${obj.error}${available.length > 0 ? ` Available: ${available.join(', ')}.` : ''}`;
+        }
         return previewJson(value, ANALYSIS_PREVIEW_MAX);
       }
       // A string `body` means this is a parsed Skill, so `name`/`description` are
@@ -1563,9 +1790,11 @@ export class Orchestrator {
    *   As of E5.5 the question route (`streamChat`) really sends this surface and
    *   executes its calls — including `ask_user` (P12), which pauses on the run's
    *   AskUser gate exactly as in agent mode. Out-of-scope calls are refused there.
-   * - `'action-recovery'`: a one-turn mutation/ask-only surface after the prior turn
-   *   requested only memo-served information. This makes duplicate suppression an
-   *   executable constraint rather than another ignored prompt warning.
+   * - `'action-recovery'`: a one-turn mutate/ask surface — plus `recall_evidence` —
+   *   after the prior turn requested only memo-served information. This makes duplicate
+   *   suppression an executable constraint rather than another ignored prompt warning.
+   *   The recall exception is load-bearing: the turn's whole premise is that the run
+   *   already HAS what it needs, which is false if it cannot reach it.
    *
    * `stage` narrows any of the above further (ADR 0075 §3.6). Once the run is executing
    * against a locked plan, analysis and guidance descriptors are withheld: the evidence
@@ -1579,6 +1808,19 @@ export class Orchestrator {
    * `TOOL_REGISTRY`. Public so hosts and tests can inspect the exact advertised surface
    * per route.
    */
+  /**
+   * Can this run's model read an image?
+   *
+   * The same predicate {@link agentTools} filters `vision` descriptors with and
+   * `agentModeInstruction` gates its get_frame paragraph on — exposed so context that is
+   * assembled OUTSIDE the orchestrator can agree with it. `summarizeVisualStatus` is the
+   * case: it advises what to reach for when content search is unavailable, and advising a
+   * sightless run to look at a frame contradicts the tool list the same turn carries.
+   */
+  public canSeeFrames(): boolean {
+    return supportsVision(this.provider.name, this.provider.modelId);
+  }
+
   public agentTools(
     scope: 'agent' | 'question' | 'action-recovery' = 'agent',
     stage?: RunStage,
@@ -1594,7 +1836,16 @@ export class Orchestrator {
     const sighted = supportsVision(this.provider.name, this.provider.modelId);
     return toolDescriptors((tool) => {
       if (!sighted && tool.capabilities?.includes('vision')) return false;
-      if (scope === 'action-recovery') return tool.kind === 'mutate' || tool.kind === 'ask';
+      // `recall_evidence` survives the recovery turn. Everything else read-shaped is
+      // withheld there on purpose — the run has gathered enough and must act — but this
+      // one returns what it ALREADY gathered, costs no engine work, and cannot change
+      // under it. Withholding it made the turn unsurvivable: the instruction says to
+      // recall rather than re-read, so the model looked for the tool, found it missing,
+      // and built forty-six clips on asset durations it inferred from clip-id suffixes
+      // because the media bin it had read twice was no longer reachable.
+      if (scope === 'action-recovery') {
+        return tool.kind === 'mutate' || tool.kind === 'ask' || tool.name === 'recall_evidence';
+      }
       if (questionScope !== undefined && !questionScope.has(tool.name)) return false;
       return stage === undefined || stageAllowsRole(stage, toolRole(tool.name, tool.mutates));
     });
@@ -1992,12 +2243,13 @@ export class Orchestrator {
           const args = sanitizeToolArgs(tool, call.arguments) as {
             evidenceId: string;
             query?: string;
+            offset?: number;
           };
           if (!host.evidence) {
             const note = `${desc} → this run keeps no evidence store, so nothing can be recalled; work from what your context already shows.`;
             return { ops: [], note, summary: desc, status: 'warning', data: note };
           }
-          const recalled = host.evidence.recall(args.evidenceId, args.query);
+          const recalled = host.evidence.recall(args.evidenceId, args.query, args.offset);
           if (recalled === undefined) {
             const known = host.evidence
               .entries()
@@ -2050,6 +2302,10 @@ export class Orchestrator {
                 : 'loaded — its full playbook is now in the Skills section of your context.'
             }`,
             summary: desc,
+            // Naming the playbook is the whole fact: a briefing that says "Reading the
+            // pacing playbook → Reading the pacing playbook" does not tell the next turn
+            // which craft instructions it is already holding.
+            finding: `${skill.name} playbook loaded — its instructions are pinned in your context`,
             status: 'completed',
             data: value,
           };
@@ -2093,6 +2349,8 @@ export class Orchestrator {
           ops: [],
           note,
           summary: desc,
+          // The card wants the label; the run's memory wants the conclusion.
+          finding: preview,
           status: 'completed',
           data: value,
         };
@@ -3126,7 +3384,7 @@ export class Orchestrator {
             toolName: call.name,
             role,
             descriptor: describeToolCall(call, turnNames),
-            summary: outcome.summary,
+            summary: outcome.finding ?? outcome.summary,
             scope: evidenceScopeFor(call.name),
             status: outcome.status,
             fromCache: outcome.fromCache === true,
@@ -3651,12 +3909,7 @@ export class Orchestrator {
       // the `edit` route emits one `scope:'run'` diff). Findings still need a
       // monotonic key to compare against later edits.
       let turnOrdinal = 0;
-      for await (const event of this.legacyEditorRun(
-        input,
-        options,
-        request,
-        effectiveControls,
-      )) {
+      for await (const event of this.legacyEditorRun(input, options, request, effectiveControls)) {
         if (event.type === 'diff' && event.edit.validation.valid && event.edit.diff) {
           const before = event.scope === 'turn' ? workingProject : input.project;
           workingProject = applyProjectPatch(before, event.edit.patch);

@@ -30,6 +30,7 @@
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -107,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 19230,
+      "usedTokens": 19289,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -133,23 +134,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1788,
+            "tokenEstimate": 1701,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15786,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19230,
+          "estimatedInputTokensBeforeSend": 19289,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 852770,
+          "estimatedRemainingCapacity": 852711,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -210,21 +211,21 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1788,
+            "tokenEstimate": 1701,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15786,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19230,
+          "estimatedInputTokensBeforeSend": 19289,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -432,6 +433,7 @@
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -525,7 +527,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 19271,
+      "usedTokens": 19333,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -551,23 +553,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1829,
+            "tokenEstimate": 1745,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15786,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19271,
+          "estimatedInputTokensBeforeSend": 19333,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 852729,
+          "estimatedRemainingCapacity": 852667,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -584,7 +586,7 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: tighten the intro and the outro"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -629,21 +631,21 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1829,
+            "tokenEstimate": 1745,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15786,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19271,
+          "estimatedInputTokensBeforeSend": 19333,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -664,7 +666,7 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: tighten the intro and the outro"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -866,6 +868,7 @@
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -972,7 +975,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 19289,
+      "usedTokens": 19351,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -998,23 +1001,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1847,
+            "tokenEstimate": 1763,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15786,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19289,
+          "estimatedInputTokensBeforeSend": 19351,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 852711,
+          "estimatedRemainingCapacity": 852649,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -1031,7 +1034,7 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: tighten the intro and the outro"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -1085,21 +1088,21 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1847,
+            "tokenEstimate": 1763,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15786,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19289,
+          "estimatedInputTokensBeforeSend": 19351,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -1120,7 +1123,7 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: tighten the intro and the outro"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -1150,6 +1153,7 @@
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -1259,6 +1263,7 @@
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
