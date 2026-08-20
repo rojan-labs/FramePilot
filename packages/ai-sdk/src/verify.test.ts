@@ -101,6 +101,101 @@ function correctCaptions(revision = 1): Clip[] {
   );
 }
 
+const MUSIC = 'asset_song';
+const BROLL = 'asset_broll';
+
+/** Turn generator output into caption clips, the way the caption tools do. */
+function cuesToClips(cues: readonly ReturnType<typeof deriveCaptionCues>[number][]): Clip[] {
+  return cues.map((cue, i) => ({
+    id: `mcap_${i}`,
+    assetId: '__caption__',
+    trackId: 'caption_1',
+    start: cue.start,
+    end: cue.end,
+    sourceStart: 0,
+    sourceEnd: cue.end - cue.start,
+    effects: [],
+    keyframes: [],
+    captionCue: {
+      text: cue.text,
+      words: [...cue.words],
+      derivedFromRevision: cue.revision,
+      source: {
+        assetId: cue.assetId,
+        clipId: cue.clipId,
+        start: cue.sourceStart,
+        end: cue.sourceEnd,
+      },
+    },
+  }));
+}
+
+/**
+ * The shape that broke the old rule: ONE continuous 20s music/vocal bed carrying every
+ * transcript word, under 40 half-second B-roll shots. Speech is continuous; the picture
+ * is cut 40 times.
+ */
+function montageDoc(captionClips: Clip[] = []): Project {
+  const shots: Clip[] = Array.from({ length: 40 }, (_, i) => ({
+    id: `shot_${i}`,
+    assetId: BROLL,
+    trackId: 'video_1',
+    start: i * 0.5,
+    end: (i + 1) * 0.5,
+    sourceStart: i * 0.5,
+    sourceEnd: (i + 1) * 0.5,
+    effects: [],
+    keyframes: [],
+  }));
+  return {
+    id: 'p2',
+    name: 'montage',
+    version: 1,
+    fps: 30,
+    resolution: { width: 1080, height: 1920 },
+    assets: [
+      { id: BROLL, path: '/b.mp4', kind: 'video', durationSeconds: 60 },
+      { id: MUSIC, path: '/s.wav', kind: 'audio', durationSeconds: 60 },
+    ],
+    folders: [],
+    timeline: {
+      revision: 7,
+      tracks: [
+        { id: 'video_1', type: 'video', clips: shots },
+        {
+          id: 'audio_1',
+          type: 'audio',
+          clips: [
+            {
+              id: 'song',
+              assetId: MUSIC,
+              trackId: 'audio_1',
+              start: 0,
+              end: 20,
+              sourceStart: 0,
+              sourceEnd: 20,
+              effects: [],
+              keyframes: [],
+            },
+          ],
+        },
+        { id: 'caption_1', type: 'caption', clips: captionClips },
+      ],
+    },
+    // A word every 0.5s for the whole bed, attributed to the SONG, so every word maps
+    // through the one audio span and the mapping yields exactly one run.
+    transcript: Array.from({ length: 40 }, (_, i) => ({
+      word: `lyric${i}`,
+      start: i * 0.5,
+      end: i * 0.5 + 0.4,
+      assetId: MUSIC,
+    })),
+    markers: [],
+    aiMemory: {},
+    history: [],
+  };
+}
+
 describe('verifyCaptions', () => {
   it('passes captions derived through the timeline mapping', () => {
     const report = verifyCaptions(projectDoc(correctCaptions()));
@@ -161,9 +256,9 @@ describe('verifyCaptions', () => {
     expect(report.issues.map((i) => i.code)).toContain('caption_text_mismatch');
   });
 
-  it('catches a cue running across a cut', () => {
+  it('catches a cue bridging a speech break', () => {
     // Spans 9–11, straddling the 10s boundary between two source ranges whose
-    // words were never spoken together.
+    // words really were never spoken together — source 10–20 then source 50–60.
     const straddling: Clip[] = [
       {
         ...correctCaptions()[0]!,
@@ -173,15 +268,69 @@ describe('verifyCaptions', () => {
       },
     ];
     const report = verifyCaptions(projectDoc(straddling));
-    expect(report.issues.map((i) => i.code)).toContain('caption_spans_cut');
+    expect(report.issues.map((i) => i.code)).toContain('caption_spans_speech_break');
   });
 
-  it('catches captions left behind by a later edit', () => {
-    // Cues derived at revision 1, timeline now at revision 4.
+  it('passes cues over a montage whose picture is cut finer than its audio', () => {
+    // The live failure this rule was rewritten for: continuous narration under many
+    // short shots. Every cue the canonical generator produces crosses several picture
+    // cuts, and every one of them is correct — the words WERE spoken together. The old
+    // rule filtered every video and audio span, so it reported one defect per cue and
+    // left the run no placement that could satisfy it.
+    const project = montageDoc();
+    const cues = deriveCaptionCues(
+      buildTimelineMap(project.timeline),
+      project.transcript,
+      captionSegmentConfig('subtitle'),
+    );
+    expect(cues.length).toBeGreaterThan(3);
+    // The test only means something if the cues really do cross picture cuts: that is
+    // the input the old rule rejected. Shot boundaries are every 0.5s.
+    const shotStarts = Array.from({ length: 39 }, (_, i) => (i + 1) * 0.5);
+    const crossing = cues.filter((cue) =>
+      shotStarts.some((t) => t > cue.start + 1e-6 && t < cue.end - 1e-6),
+    );
+    expect(crossing.length).toBeGreaterThan(0);
+    const report = verifyCaptions(montageDoc(cuesToClips(cues)));
+    expect(report.issues).toEqual([]);
+    expect(report.ok).toBe(true);
+  });
+
+  it('does not call a correct cue stale just because the project revision moved on', () => {
+    // Cues derived at revision 1, project now at revision 4, arrangement UNCHANGED.
+    // A colour grade or an effect layer bumps the revision without moving a word, and
+    // reporting forty perfectly-timed cues as stale is how a run learns to ignore its
+    // own verifier.
     const report = verifyCaptions(projectDoc(correctCaptions(1), 4));
-    const stale = report.issues.filter((i) => i.code === 'caption_stale');
+    expect(report.issues.filter((i) => i.code === 'caption_stale')).toEqual([]);
+  });
+
+  it('catches a cue whose words a later edit actually replaced', () => {
+    // The real staleness case: cues derived against source 50–60 on the second clip,
+    // then that clip re-reads source 30–40. The cue text is now describing speech that
+    // no longer plays there, and the revision is not what proves it — the words are.
+    const derived = correctCaptions(1);
+    const moved = projectDoc(derived, 4);
+    const videoTrack = moved.timeline.tracks[0]!;
+    const relinked: Project = {
+      ...moved,
+      timeline: {
+        ...moved.timeline,
+        tracks: [
+          {
+            ...videoTrack,
+            clips: [
+              videoTrack.clips[0]!,
+              { ...videoTrack.clips[1]!, sourceStart: 30, sourceEnd: 40 },
+            ],
+          },
+          ...moved.timeline.tracks.slice(1),
+        ],
+      },
+    };
+    const stale = verifyCaptions(relinked).issues.filter((i) => i.code === 'caption_stale');
     expect(stale.length).toBeGreaterThan(0);
-    expect(stale[0]!.detail).toMatch(/revision 1.*revision 4/);
+    expect(stale[0]!.detail).toMatch(/regenerate the cue from the current mapped transcript/i);
   });
 
   it('refuses to call a cue of unknown provenance verified', () => {
@@ -257,10 +406,12 @@ describe('verifyCaptions', () => {
       i === 0 ? { ...c, start: c.start + 1.5, end: c.end + 1.5 } : c,
     );
     const report = verifyCaptions(projectDoc(drifted));
-    const sync = report.issues.find(
-      (i) => i.code === 'caption_out_of_sync' || i.code === 'caption_spans_cut',
-    );
-    expect(sync?.detail).toMatch(/\d/);
+    // Asserted by code, not by a disjunction: this used to accept either
+    // `caption_out_of_sync` or `caption_spans_cut`, which meant it could not tell a
+    // drift measurement from a boundary complaint and passed while the boundary rule
+    // was firing on every cue in the project.
+    const sync = report.issues.find((i) => i.code === 'caption_out_of_sync');
+    expect(sync?.detail).toMatch(/1\.5/);
   });
 
   it('skips sync checks for a cue whose captionCue carries no words (nothing to compare)', () => {
