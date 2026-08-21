@@ -17,15 +17,24 @@
  * which is slow, so the first (uncached) build gets a staged long-wait experience.
  *
  * Honest-unavailable is a first-class state, never hidden: an unreachable engine, an
- * unindexed project (`not_indexed`), a plan without generative understanding
+ * unread project (`not_indexed`), a plan without generative understanding
  * (`pegasus_unavailable`), or a missing key each render a plain-language reason and a
  * next step — never a fabricated map (AGENTS.md invariant 6). Desktop-first (CLAUDE.md).
+ *
+ * Unread footage is the one state with work to do, so it gets a real action rather than
+ * advice: "Read this footage" runs the same preparation pass an import runs, streaming
+ * its progress here. Without it the panel was a dead end — it pointed at a media-bin
+ * action that does not exist, and Rebuild re-fetched a map that could never appear.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import type { Variants } from 'framer-motion';
 import type { Asset, Project } from '@framepilot/timeline-schema';
-import type { FootageChapter, FootageMap } from '@framepilot/ai-sdk';
+import type {
+  EnsureMediaUnderstandingResult,
+  FootageChapter,
+  FootageMap,
+} from '@framepilot/ai-sdk';
 import { createLogger } from '@framepilot/shared-types';
 import { Button } from '@framepilot/ui';
 import {
@@ -44,7 +53,7 @@ import type { LucideIcon } from './icons.js';
 import { Tooltip } from './Tooltip.js';
 import type { UseEditor } from '../editor/useEditor.js';
 import { useAiConfig } from '../editor/useAiConfig.js';
-import { fetchFootageMap } from '../editor/visualIndex.js';
+import { ensureProjectMediaUnderstanding, fetchFootageMap } from '../editor/visualIndex.js';
 import { assetDisplayName } from '../editor/selectors.js';
 import { sourceToTimeline, timelineToSource } from '../editor/footageProjection.js';
 
@@ -208,7 +217,47 @@ function LearnCards({ onDismiss }: { readonly onDismiss: () => void }): JSX.Elem
 type ViewState =
   | { readonly kind: 'loading' }
   | { readonly kind: 'unreachable' }
+  /** Reading the footage for the first time (the paced index job), with live progress. */
+  | { readonly kind: 'preparing'; readonly message: string }
+  /** Reading the footage was attempted and honestly failed — the reason is shown. */
+  | { readonly kind: 'blocked'; readonly message: string }
   | { readonly kind: 'map'; readonly map: FootageMap };
+
+/** True when the ONE next step is "read this footage" — the action the panel offers. */
+function isUnindexed(map: FootageMap | undefined): boolean {
+  return map !== undefined && map.available !== false && map.reason === 'not_indexed';
+}
+
+/**
+ * Plain-language reason a read attempt failed, in editor language. Keyed off the
+ * runtime's typed reason so each failure names its own next step — a wrong key is not
+ * a network problem, and a still-running index is not a failure.
+ */
+function unreadableMessage(result: EnsureMediaUnderstandingResult): string {
+  if (result.status === 'ready') return '';
+  switch (result.reason) {
+    case 'unconfigured':
+      return 'No understanding key is configured. Add a TwelveLabs or embeddings key in Settings, then read the footage.';
+    case 'invalid_api_key':
+      return 'The configured understanding key was rejected. Check the key in Settings and try again.';
+    case 'quota_exceeded':
+      return 'The understanding provider reports no remaining credit for this account.';
+    case 'rate_limited':
+      return 'The understanding provider is rate-limiting this account. Wait a moment and try again.';
+    case 'offline':
+      return 'Can’t reach the understanding provider. Check the connection and try again.';
+    case 'indexing':
+      return 'Still reading this footage. Leave it running and reopen this panel in a moment.';
+    case 'source_missing':
+      return 'The media file for this footage can’t be found on disk any more.';
+    case 'cancelled':
+      return 'Reading the footage was cancelled.';
+    case 'timeout':
+      return 'Reading the footage timed out before it finished. Try again.';
+    default:
+      return `Reading the footage didn’t finish: ${result.message}`;
+  }
+}
 
 /** `m:ss` for a source/timeline second, so spans read like a video scrubber. */
 function clock(seconds: number): string {
@@ -265,7 +314,8 @@ function coverageMessage(map: FootageMap): string {
   }
   switch (map.reason) {
     case 'not_indexed':
-      return 'This footage is not indexed yet. Index it (in the media bin or via the AI) so the map can be built.';
+      // No "go do it elsewhere" — the button next to this line reads the footage.
+      return 'The AI hasn’t watched this footage yet, so there’s no map to show. Read it once and it’s cached from then on.';
     case 'pegasus_unavailable':
       return 'Generative understanding is not available on this TwelveLabs plan. Once the footage is indexed, the built-in structure is shown instead.';
     case 'no_api_key':
@@ -463,15 +513,16 @@ export function FootageUnderstandingPanel({
     }
   }, []);
 
+  // Asset-native: the map does NOT depend on the timeline (no `editor.state.timeline`
+  // here), so editing never invalidates it and an empty timeline still maps.
+  const assetProject = useMemo<Project>(
+    () => ({ ...project, assets: editor.state.assets as Project['assets'] }),
+    [project, editor.state.assets],
+  );
+
   const load = useCallback(
     async (refresh: boolean): Promise<void> => {
       setView({ kind: 'loading' });
-      // Asset-native: the map does NOT depend on the timeline (no `editor.state.timeline`
-      // here), so editing never invalidates it and an empty timeline still maps.
-      const assetProject: Project = {
-        ...project,
-        assets: editor.state.assets as Project['assets'],
-      };
       const map = await fetchFootageMap({
         project: assetProject,
         config,
@@ -486,8 +537,37 @@ export function FootageUnderstandingPanel({
       setView({ kind: 'map', map });
     },
     // Intentionally not keyed on the timeline — understanding is asset-based.
-    [project, editor.state.assets, config],
+    [assetProject, config],
   );
+
+  /**
+   * Read the footage, then show its map. WHY this lives here: the map can only be built
+   * from footage the AI has actually watched, and until now an unread clip was a dead
+   * end — the panel said "index it in the media bin", where no such action exists, and
+   * Rebuild only re-asked for a map that could never appear. This is the one action that
+   * makes the empty state true: it runs the same preparation pass the app runs after an
+   * import (paced, joinable, honest when it fails) and reports its live progress instead
+   * of a spinner. Explicit, never automatic — on a hosted backend it spends credits.
+   */
+  const prepare = useCallback(async (): Promise<void> => {
+    setView({ kind: 'preparing', message: 'Reading the footage…' });
+    log.action('understanding → read footage', { projectId: project.id });
+    const result = await ensureProjectMediaUnderstanding({
+      project: assetProject,
+      config,
+      onEvent: (event) => {
+        if (event.type === 'progress' || event.type === 'cache' || event.type === 'coverage') {
+          setView({ kind: 'preparing', message: event.message });
+        }
+      },
+    });
+    if (result.status !== 'ready') {
+      log.warn('understanding → read failed', { reason: result.reason });
+      setView({ kind: 'blocked', message: unreadableMessage(result) });
+      return;
+    }
+    await load(false);
+  }, [assetProject, config, load, project.id]);
 
   // Fetch when the panel opens. The engine serves this from its content-hash cache,
   // so a normal open never re-hits the API (refresh is reserved for "Rebuild").
@@ -505,6 +585,10 @@ export function FootageUnderstandingPanel({
   }, [open, onClose]);
 
   const loading = useLoadingStage(view.kind === 'loading');
+  // The header action does the useful thing for the state we are in: read the footage
+  // when there is nothing to map, otherwise re-read an existing map.
+  const needsRead = view.kind === 'map' && isUnindexed(view.map);
+  const busy = view.kind === 'loading' || view.kind === 'preparing';
 
   const assetLabel = useCallback(
     (assetId: string | null): string => {
@@ -557,14 +641,21 @@ export function FootageUnderstandingPanel({
                 </Button>
               </Tooltip>
             )}
-            <Tooltip label="Rebuild map (re-reads the footage)" placement="bottom">
+            <Tooltip
+              label={
+                needsRead
+                  ? 'Read this footage and build the map'
+                  : 'Rebuild map (re-reads the footage)'
+              }
+              placement="bottom"
+            >
               <Button
                 variant="ghost"
                 className="icon-btn"
                 type="button"
                 aria-label="Rebuild the footage map"
-                disabled={view.kind === 'loading'}
-                onClick={() => void load(true)}
+                disabled={busy}
+                onClick={() => void (needsRead ? prepare() : load(true))}
               >
                 <RotateCcw size={ICON_SIZE.sm} aria-hidden="true" />
               </Button>
@@ -592,6 +683,23 @@ export function FootageUnderstandingPanel({
               <LoadingChapters />
             </>
           )}
+          {view.kind === 'preparing' && (
+            <>
+              <p className="understanding-status" role="status" aria-live="polite">
+                {view.message}
+              </p>
+              <LoadingChapters />
+            </>
+          )}
+          {view.kind === 'blocked' && (
+            <div className="understanding-empty" role="status">
+              <AlertTriangle size={20} aria-hidden="true" className="understanding-empty-icon" />
+              <p className="understanding-empty-text">{view.message}</p>
+              <Button variant="secondary" type="button" onClick={() => void prepare()}>
+                Try again
+              </Button>
+            </div>
+          )}
           {view.kind === 'unreachable' && (
             <div className="understanding-empty" role="status">
               <AlertTriangle size={20} aria-hidden="true" className="understanding-empty-icon" />
@@ -607,6 +715,11 @@ export function FootageUnderstandingPanel({
             <div className="understanding-empty" role="status">
               <MapIcon size={20} aria-hidden="true" className="understanding-empty-icon" />
               <p className="understanding-empty-text">{coverageMessage(map)}</p>
+              {needsRead && (
+                <Button variant="secondary" type="button" onClick={() => void prepare()}>
+                  Read this footage
+                </Button>
+              )}
             </div>
           )}
           {map !== undefined && hasChapters && (

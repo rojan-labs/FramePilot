@@ -37,7 +37,7 @@ never to FramePilot. It is never written to logs.
 | Capability                           | Built-in backend                                  | TwelveLabs backend                                                                          |
 | ------------------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | Visual search (`search_visual`)      | local vectors + FTS fusion                        | TwelveLabs clips (visual + audio + speech)                                                  |
-| Indexing                             | frame sampling → NVIDIA embeddings → `sqlite-vec` | upload → TwelveLabs Marengo **+ Pegasus** index                                             |
+| Indexing                             | frame sampling → NVIDIA embeddings → `sqlite-vec` | upload → TwelveLabs asset → Marengo index (search) + Pegasus over the asset (map)           |
 | Captions & transcript                | local whisper (word timestamps)                   | TwelveLabs' own word-level transcription (from the indexed audio), when explicitly selected |
 | `describe_footage` (scene walk)      | enumerates local spans                            | walks the Pegasus chapter map in time order                                                 |
 | `map_footage` (whole-footage digest) | derived from local spans/captions                 | TwelveLabs Pegasus chapters + highlights + summary                                          |
@@ -57,19 +57,29 @@ a time-ordered digest of the whole footage with **no query**, made of chapters
 (`{ t0, t1, title, summary }`) and highlights (`{ t0, t1, label, score }`) in
 timeline seconds, plus a one-paragraph summary.
 
-- On the **TwelveLabs** backend the map is produced by **Pegasus** via the
+- On the **TwelveLabs** backend the map is produced by **Pegasus 1.5** via the
   `/analyze` endpoint (one call each for chapters, highlights, and summary, each
   with a JSON-schema `response_format`), cached per video by content hash so it is
   computed once and rebuilt only when the footage is re-indexed. (The older
   `/summarize` and `/gist` endpoints this used were sunset by TwelveLabs on
   2026-02-15 — a live index answers HTTP 410 for them — so the client migrated to
   `/analyze`, which returns the same structured chapters/highlights/summary.)
-  - **`/analyze` requires a Pegasus model on the index.** FramePilot creates every
-    index with both Marengo (search) and `pegasus1.2` (generate), so new footage
-    supports the map out of the box. An index created before this (Marengo-only)
-    answers HTTP 400 `index_not_supported_for_generate`; the map then degrades to
-    the built-in span/caption derivation until you re-index (which recreates the
-    index with Pegasus).
+  - **Pegasus is not an index model any more.** `pegasus1.2` was sunset for
+    indexing: `POST /indexes` rejects it with HTTP 400 `parameter_invalid`. Because
+    FramePilot asked for it on every index, the FIRST index a project created failed
+    — nothing indexed, and every footage map reported `not_indexed` forever. Indexes
+    now carry **Marengo only**, and `pegasus1.5` analyses the **uploaded asset**
+    directly (`video: {type: "asset_id", …}`; `video_id` is rejected for 1.5), so the
+    map needs no Pegasus-enabled index at all.
+  - **The uploaded asset id is persisted** on each asset's mapping
+    (`sourceAssetId`), because it is a different id from the indexed `video_id` the
+    search path uses. Mappings written before this recover it once from
+    `GET /indexes/{index}/indexed-assets/{video}` and store it, so footage indexed by
+    an earlier version maps without re-uploading (no re-billing).
+  - **Structured output is decoded tolerantly.** Pegasus 1.5 sometimes mis-escapes
+    the JSON string it returns for a multi-string schema and then repeats the tail;
+    the client unescapes and reads the valid object at the head, and retries once with
+    the schema described in the prompt if that still fails, rather than blanking the map.
 - On the **built-in** backend the map is derived from the already-indexed visual
   spans and captions (chapters only; highlights need a salience signal the local
   index does not have).
@@ -87,7 +97,10 @@ icon in the top bar) lists the chapters and highlights; click one to seek to it.
 
 ### Honest states (footage map)
 
-- **Not indexed** → `not_indexed`: index the footage first.
+- **Not indexed** → `not_indexed`: the footage has not been read yet. The
+  **Footage understanding** panel offers a **Read this footage** button for exactly
+  this state (it runs the same paced preparation pass an import runs and streams its
+  progress); the AI reaches the same path through the ensure gate.
 - **No Pegasus entitlement** (valid key, plan without generative understanding) →
   `pegasus_unavailable`: search/index still work; the built-in structure is shown
   once indexed. Marengo (search/index) is unaffected.

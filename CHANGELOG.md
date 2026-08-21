@@ -8,6 +8,22 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Footage understanding works again — and reading a clip is now something you can actually
+  do.** New footage never got read at all: the very first time a project prepared its
+  understanding, the provider rejected the request outright (the generative model it asked for
+  has been retired for this step), so nothing was ever prepared. Footage understanding then
+  told you your clip "is not indexed yet" and pointed you at the media bin — which has no such
+  action — while Rebuild kept re-asking for a map that could never exist. Nothing showed
+  progress because nothing was running.
+
+  Preparation now uses the provider's current models, so it goes through. Understanding is
+  read straight from your footage rather than requiring it to be filed against a search index
+  first, which is also what makes clips prepared in earlier versions readable without paying
+  to re-upload them. And when a clip hasn't been read, the panel offers a **Read this footage**
+  button that does it, streams its progress while it runs, and says plainly what went wrong
+  when it can't — a wrong key, no remaining credit, no connection — instead of leaving you at a
+  dead end.
+
 - **The AI no longer talks to you about its own bookkeeping.** On longer jobs it had started
   opening its replies with things like *"I'll continue from the interpret stage"* or *"I'll
   continue from where the run left off"* — a status report on its internal state machine,

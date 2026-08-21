@@ -13,6 +13,32 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-21):** `[x]` **Footage understanding showed nothing for new
+footage — nothing was ever indexed.** The panel said the clip "is not indexed yet" and pointed
+at a media-bin action that does not exist; Rebuild re-asked for a map that could never appear;
+no progress showed because nothing was running.
+
+Root cause was one call: `create_index` asked TwelveLabs for Marengo **and** `pegasus1.2`
+(`/analyze` used to require a Pegasus model on the index). TwelveLabs sunset `pegasus1.2` for
+indexing, so `POST /indexes` — the FIRST call any project's first indexing slice makes —
+answers HTTP 400 `parameter_invalid`. The job died there, so the brain had zero visual spans
+and zero `tl:video` rows, and every honest surface downstream correctly reported
+`not_indexed` forever.
+
+Fixed: indexes carry **Marengo only**, and `pegasus1.5` analyses the **uploaded asset**
+directly (`video: {type: "asset_id"}`; it rejects `video_id`). The uploaded asset id is
+persisted on the existing `tl:video` row (`sourceAssetId`, no schema change) and recovered
+once from the index for older mappings, so footage indexed by an earlier version maps without
+a billable re-upload. Pegasus' own JSON mis-escaping is decoded tolerantly with one
+schema-in-prompt retry, so a provider formatting bug no longer reads as "no structure".
+And unread footage now gets an ACTION: a **Read this footage** button running the same paced
+preparation pass an import runs, streaming its progress and naming its failures. ADR 0134.
+
+Evidence: live-API probes established each contract change; engine tests cover the
+index-create regression, the `/analyze` request shape, the mis-escape recovery, the single
+retry and the legacy id lookup (2584 engine tests green, ruff + mypy clean); panel tests cover
+unread → read → map and each honest failure.
+
 **Status snapshot (2026-08-21):** `[x]` **The agent leaked its own run state into the
 chat, and into the edit history.** A captured run opened 21 of its replies with harness
 bookkeeping — *"I'll continue from the interpret stage."*, *"I'll continue from where the
