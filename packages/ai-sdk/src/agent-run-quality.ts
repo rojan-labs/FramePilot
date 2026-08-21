@@ -72,6 +72,16 @@ export interface AgentRunQualityMetrics {
   readonly cacheMemoHitCount: number;
   readonly tokens: AgentRunTokenUsage;
   readonly wallClockMs?: number;
+  /**
+   * Milliseconds from the first event of the run to the first moment the editor could SEE
+   * the timeline change — the first `timeline_action` or `diff`.
+   *
+   * Distinct from `wallClockMs`, and the metric that actually separates "an editor working"
+   * from "a research agent deliberating": a run can finish quickly and still feel broken if
+   * it spends its first ninety seconds reading before anything moves. Absent when the run
+   * never produced a visible edit, which is itself the answer.
+   */
+  readonly timeToFirstEditMs?: number;
   readonly analysisReviewMs?: number;
   readonly operations: AgentRunOperationCounts;
   readonly revisions: AgentRunRevisionRange;
@@ -104,6 +114,11 @@ export interface CaptureAgentRunQualityInput {
   readonly humanEditorialScore?: number;
   /** Full host-observed run latency. Preferred over the event-envelope fallback. */
   readonly wallClockMs?: number;
+  /**
+   * Host-observed time to the first visible timeline change. Preferred over the
+   * event-derived fallback, for a host that can time the paint rather than the event.
+   */
+  readonly timeToFirstEditMs?: number;
   /** Override when analysis/review work happens outside the AiEvent timestamp envelope. */
   readonly analysisReviewMs?: number;
 }
@@ -161,6 +176,35 @@ function eventEnvelopeWallClockMs(events: readonly AiEvent[]): number | undefine
 }
 
 /**
+ * Time from the run's first event to the first VISIBLE timeline change.
+ *
+ * `timeline_action` is the action card the host draws the moment an operation lands, and
+ * `diff` is the reviewable patch itself — whichever arrives first is the first instant the
+ * editor sees their project move. Reads, analysis, planning and reasoning all precede it and
+ * all count against it, which is the point: this is the number that says whether the agent
+ * behaves like an editor or like a researcher.
+ *
+ * Returns `undefined` for a run that never moved the timeline (no visible edit to time) and
+ * for events with a non-finite clock, mirroring {@link eventEnvelopeWallClockMs} — a
+ * fabricated zero would read as "instant" for a run that did nothing.
+ */
+function eventTimeToFirstEditMs(events: readonly AiEvent[]): number | undefined {
+  if (events.length === 0) return undefined;
+  let start = Number.POSITIVE_INFINITY;
+  for (const event of events) {
+    if (!Number.isFinite(event.ts)) return undefined;
+    start = Math.min(start, event.ts);
+  }
+  let firstEdit = Number.POSITIVE_INFINITY;
+  for (const event of events) {
+    if (event.type === 'timeline_action' || event.type === 'diff') {
+      firstEdit = Math.min(firstEdit, event.ts);
+    }
+  }
+  return Number.isFinite(firstEdit) ? Math.max(0, firstEdit - start) : undefined;
+}
+
+/**
  * Approximate only the event-visible analysis/review interval. Callers with host-side review
  * timings should pass `analysisReviewMs`, which takes precedence over this projection.
  */
@@ -197,11 +241,13 @@ export function captureAgentRunQuality(input: CaptureAgentRunQualityInput): Agen
   );
   const providerCacheHits = turns.filter((turn) => (turn.cacheReadInputTokens ?? 0) > 0).length;
   const inputTokens = turns.reduce(
-    (sum, turn, index) => sum + nonNegativeInteger(`capturedTurns[${String(index)}].inputTokens`, turn.inputTokens),
+    (sum, turn, index) =>
+      sum + nonNegativeInteger(`capturedTurns[${String(index)}].inputTokens`, turn.inputTokens),
     0,
   );
   const outputTokens = turns.reduce(
-    (sum, turn, index) => sum + nonNegativeInteger(`capturedTurns[${String(index)}].outputTokens`, turn.outputTokens),
+    (sum, turn, index) =>
+      sum + nonNegativeInteger(`capturedTurns[${String(index)}].outputTokens`, turn.outputTokens),
     0,
   );
   const runOutcome = latestTerminalStatus(input.events);
@@ -216,7 +262,11 @@ export function captureAgentRunQuality(input: CaptureAgentRunQualityInput): Agen
   };
   const humanEditorialScore = input.humanEditorialScore;
   const measuredWallClockMs =
-    optionalNonNegativeNumber('wallClockMs', input.wallClockMs) ?? eventEnvelopeWallClockMs(input.events);
+    optionalNonNegativeNumber('wallClockMs', input.wallClockMs) ??
+    eventEnvelopeWallClockMs(input.events);
+  const measuredTimeToFirstEditMs =
+    optionalNonNegativeNumber('timeToFirstEditMs', input.timeToFirstEditMs) ??
+    eventTimeToFirstEditMs(input.events);
   const measuredAnalysisReviewMs =
     optionalNonNegativeNumber('analysisReviewMs', input.analysisReviewMs) ??
     eventVisibleAnalysisReviewMs(input.events);
@@ -234,13 +284,17 @@ export function captureAgentRunQuality(input: CaptureAgentRunQualityInput): Agen
   );
 
   if (operationCounts.applied + operationCounts.rejected > operationCounts.attempted) {
-    throw new RangeError('operations.applied + operations.rejected cannot exceed operations.attempted.');
+    throw new RangeError(
+      'operations.applied + operations.rejected cannot exceed operations.attempted.',
+    );
   }
   if (
     runOutcome !== 'cancelled' &&
     (cancellationLatencyMs !== undefined || input.cancellationIntegrity !== undefined)
   ) {
-    throw new RangeError('Cancellation evidence may only be supplied for a terminal cancelled run.');
+    throw new RangeError(
+      'Cancellation evidence may only be supplied for a terminal cancelled run.',
+    );
   }
   if (
     humanEditorialScore !== undefined &&
@@ -268,6 +322,9 @@ export function captureAgentRunQuality(input: CaptureAgentRunQualityInput): Agen
     cacheMemoHitCount: providerCacheHits + countOrZero('memoHitCount', input.memoHitCount),
     tokens: { input: inputTokens, output: outputTokens },
     ...(measuredWallClockMs !== undefined ? { wallClockMs: measuredWallClockMs } : {}),
+    ...(measuredTimeToFirstEditMs !== undefined
+      ? { timeToFirstEditMs: measuredTimeToFirstEditMs }
+      : {}),
     ...(measuredAnalysisReviewMs !== undefined
       ? { analysisReviewMs: measuredAnalysisReviewMs }
       : {}),
@@ -371,7 +428,9 @@ const ADVERSARIAL_TERMINAL_OUTCOMES: Readonly<
   'E08-transition-handles': ['completed', 'failed'],
 };
 
-function acceptedTerminalOutcomes(scenario: AgentOutcomeEvalScenario): readonly TerminalRunStatus[] {
+function acceptedTerminalOutcomes(
+  scenario: AgentOutcomeEvalScenario,
+): readonly TerminalRunStatus[] {
   return ADVERSARIAL_TERMINAL_OUTCOMES[scenario.id] ?? ['completed'];
 }
 
@@ -425,7 +484,11 @@ export function buildAgentOutcomeEvalRunRecord(
   }
   if (input.metrics.runOutcome === undefined) {
     failures.push('Terminal run outcome was not observed.');
-  } else if (!acceptedTerminalOutcomes(input.scenario).includes(input.metrics.runOutcome as TerminalRunStatus)) {
+  } else if (
+    !acceptedTerminalOutcomes(input.scenario).includes(
+      input.metrics.runOutcome as TerminalRunStatus,
+    )
+  ) {
     failures.push(
       `Terminal run outcome "${input.metrics.runOutcome}" is not accepted for scenario ${input.scenario.id}.`,
     );
@@ -457,7 +520,11 @@ export function buildAgentOutcomeEvalRunRecord(
 export function serializeAgentOutcomeEvalRunRecords(
   records: readonly AgentOutcomeEvalRunRecord[],
 ): string {
-  return `${JSON.stringify([...records].sort((a, b) => a.scenarioId.localeCompare(b.scenarioId)), null, 2)}\n`;
+  return `${JSON.stringify(
+    [...records].sort((a, b) => a.scenarioId.localeCompare(b.scenarioId)),
+    null,
+    2,
+  )}\n`;
 }
 
 export interface PercentilePair {
@@ -468,6 +535,11 @@ export interface PercentilePair {
 export interface AgentOutcomeTopLineScore {
   readonly tierSuccessRate: Readonly<Record<AgentOutcomeEvalTier, number | undefined>>;
   readonly latencyMs: PercentilePair;
+  /**
+   * Time-to-first-visible-edit across the set — the budget FRAMEPILOT-95 Phase E is about.
+   * Runs that never moved the timeline contribute nothing rather than a zero.
+   */
+  readonly timeToFirstEditMs: PercentilePair;
   readonly toolCalls: PercentilePair;
   readonly revisionRate: number | undefined;
   readonly cancellationIntegrity: number | undefined;
@@ -500,7 +572,8 @@ export function summarizeAgentOutcomeRuns(
     }),
   ) as Readonly<Record<AgentOutcomeEvalTier, number | undefined>>;
   const withRevisions = records.filter(
-    (record) => record.metrics.revisions.before !== undefined && record.metrics.revisions.after !== undefined,
+    (record) =>
+      record.metrics.revisions.before !== undefined && record.metrics.revisions.after !== undefined,
   );
   const revised = withRevisions.filter(
     (record) => record.metrics.revisions.after !== record.metrics.revisions.before,
@@ -514,10 +587,16 @@ export function summarizeAgentOutcomeRuns(
     (record) => record.metrics.cancellation.integrity === 'passed',
   );
   const rendered = records.filter(
-    (record) => record.metrics.renderEvidence === 'passed' || record.metrics.renderEvidence === 'failed',
+    (record) =>
+      record.metrics.renderEvidence === 'passed' || record.metrics.renderEvidence === 'failed',
   );
   return {
     tierSuccessRate,
+    timeToFirstEditMs: percentilePair(
+      records.flatMap((record) =>
+        record.metrics.timeToFirstEditMs === undefined ? [] : [record.metrics.timeToFirstEditMs],
+      ),
+    ),
     latencyMs: percentilePair(
       records.flatMap((record) =>
         record.metrics.wallClockMs === undefined ? [] : [record.metrics.wallClockMs],
@@ -532,6 +611,7 @@ export function summarizeAgentOutcomeRuns(
     renderValidity:
       rendered.length === 0
         ? undefined
-        : rendered.filter((record) => record.metrics.renderEvidence === 'passed').length / rendered.length,
+        : rendered.filter((record) => record.metrics.renderEvidence === 'passed').length /
+          rendered.length,
   };
 }
