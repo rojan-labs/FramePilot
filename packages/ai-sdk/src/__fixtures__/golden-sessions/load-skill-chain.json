@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19216,
+      "usedTokens": 19384,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -127,14 +127,14 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1704,
+            "tokenEstimate": 1764,
             "included": true
           },
           {
@@ -148,9 +148,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19216,
+          "estimatedInputTokensBeforeSend": 19384,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172592,
+          "estimatedRemainingCapacity": 172424,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -356,7 +356,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19415,
+      "usedTokens": 19582,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -375,14 +375,14 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1903,
+            "tokenEstimate": 1962,
             "included": true
           },
           {
@@ -396,9 +396,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19415,
+          "estimatedInputTokensBeforeSend": 19582,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172393,
+          "estimatedRemainingCapacity": 172226,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -721,7 +721,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 16044,
+      "usedTokens": 16212,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -740,14 +740,14 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1924,
+            "tokenEstimate": 1984,
             "included": true
           },
           {
@@ -761,9 +761,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 16044,
+          "estimatedInputTokensBeforeSend": 16212,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 175764,
+          "estimatedRemainingCapacity": 175596,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -1053,7 +1053,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "assistant_message",
-      "text": "**Applied 1 edit** in 1 step — review the proposed change below.\n\n- Deleted range: 0s–3s"
+      "text": "**Applied 1 edit** in 1 step — review the proposed change below.\n\n- Deleted range Video 1 · 0s–3s"
     },
     {
       "id": "turn_golden:status:14",

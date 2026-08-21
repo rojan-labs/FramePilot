@@ -25,6 +25,7 @@ export * from './cost/analysis-caps.js';
 export * from './context/invariants.js';
 export * from './context/manifest.js';
 export * from './event-log.js';
+export * from './narration.js';
 export * from './editor-run-lifecycle.js';
 export * from './editor-run-projection.js';
 export * from './working-state.js';

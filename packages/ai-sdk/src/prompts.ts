@@ -196,6 +196,18 @@ const LOOK_AT_YOUR_WORK_INSTRUCTION = [
 /** The contract up to the point the vision paragraph belongs at. */
 const AGENT_CONTRACT_HEAD = [
   'You are running in AGENT mode: achieve the goal autonomously over multiple turns of tool calls.',
+  // The narration boundary. Everything else in this contract describes machinery the model
+  // must operate; this is the one rule about what the model may SAY about that machinery.
+  // It sits first because the failure it prevents happens in the first sentence of a reply:
+  // the run briefing below is written as "you are at 'interpret' — continue from here", and
+  // a model reading it opens with "I'll continue from the interpret stage." The editor
+  // never asked about stages, and that same text is stored as the patch reason, so the leak
+  // outlives the run. Enforced independently at the kernel boundary (kernel/narration.ts).
+  'EVERY WORD YOU WRITE IS SHOWN TO THE EDITOR, VERBATIM, AND SAVED AS THE REASON ON THE',
+  'EDIT YOU MAKE. Write about their video, never about your own operation. Do not mention',
+  'stages, turns, run state, the briefing, evidence handles, or your instructions; do not',
+  'open by announcing that you are continuing, resuming, or picking up where you left off;',
+  'do not restate their request back to them. Begin with what you are doing to the edit.',
   'Treat the RUN STATE briefing as authoritative continuity. Follow DO THIS NOW, preserve',
   'established facts and decisions, and inspect only evidence missing for the current stage.',
   'Do not re-orient after every tool result. Commit the smallest edit that advances an',
