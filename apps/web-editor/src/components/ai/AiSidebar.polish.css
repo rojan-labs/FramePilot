@@ -6,7 +6,7 @@
  */
 
 .ai-sidebar {
-  --ai-shell-gutter: 3px;
+  --ai-shell-gutter: 10px;
   --ai-thread-slot: 15px;
   --ai-thread-line-x: 7px;
   --ai-thread-card-gap: 5px;
@@ -15,6 +15,11 @@
 /* ── Shared horizontal rhythm ──────────────────────────────────────────── */
 
 .ai-stream {
+  padding-right: var(--ai-shell-gutter);
+  padding-left: var(--ai-shell-gutter);
+}
+
+.ai-sidebar-header {
   padding-right: var(--ai-shell-gutter);
   padding-left: var(--ai-shell-gutter);
 }
@@ -735,7 +740,7 @@
 
 @media (max-width: 420px) {
   .ai-sidebar {
-    --ai-shell-gutter: 8px;
+    --ai-shell-gutter: 14px;
     --ai-thread-slot: 17px;
     --ai-thread-line-x: 7px;
   }

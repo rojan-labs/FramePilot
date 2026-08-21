@@ -277,7 +277,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       ),
     [injectedPersistence, project.id],
   );
-  const conversations = useConversations(persistence);
+  const conversations = useConversations(persistence, project.id);
   const { hydrate } = conversations;
   useEffect(() => {
     void hydrate();
