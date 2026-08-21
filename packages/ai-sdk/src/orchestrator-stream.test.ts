@@ -1533,9 +1533,13 @@ describe('streamAgent', () => {
   });
 
   it('caps the completion report at 10 lines and reports skipped work (U3)', () => {
-    const ops = Array.from({ length: 12 }, () => ({
+    // Twelve DISTINCT edits — the cap is about how many different things a report will list.
+    // (Identical edits collapse instead; that is the next test.)
+    const ops = Array.from({ length: 12 }, (_, i) => ({
       type: 'delete_range',
       trackId: 'video_1',
+      start: i,
+      end: i + 0.5,
     })) as unknown as AnyOperation[];
     const report = agentCompletionReport({
       ops,
@@ -1548,6 +1552,27 @@ describe('streamAgent', () => {
     expect(report).toMatch(
       /\*\*Skipped:\*\* 2 proposed changes did not validate \(overlaps a neighbour\)/,
     );
+  });
+
+  it('collapses edits that read identically instead of repeating the line', () => {
+    // The captured caption run closed with eight rows of "Set track caption style:" — the
+    // same sentence eight times, over a dangling colon. Eight restyles of one track are ONE
+    // outcome to the editor reviewing it: the last one is what they see.
+    const ops = Array.from({ length: 8 }, () => ({
+      type: 'set_track_caption_style',
+      trackId: 'caption_1',
+    })) as unknown as AnyOperation[];
+    const report = agentCompletionReport({
+      ops,
+      steps: 8,
+      rejectedOpCount: 0,
+      rejectionReasons: [],
+    });
+    expect(report).toMatch(/\*\*Applied 8 edits\*\* in 8 steps/);
+    expect(report).toContain('(×8)');
+    // One row, not eight — and no line ends in a colon over nothing.
+    expect(report.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1);
+    expect(report).not.toMatch(/:\s*$/m);
   });
 
   it('uses singular wording for exactly one skipped change', () => {

@@ -215,9 +215,11 @@ describe('agent mode', () => {
     expect(run.result.validation.valid).toBe(true);
     expect(run.result.patch.operations[0]?.type).toBe('delete_range');
     expect(run.result.patch.createdBy).toBe('agent');
-    // One applied step, then a step that detects the repeat (no progress).
+    // One applied step, then a step whose edit was already on the timeline. The note says
+    // exactly that rather than "no progress": a run that recomputes an edit it already made
+    // has nothing to fix, and telling it otherwise is what drives a retry loop.
     expect(run.steps.filter((s) => s.applied)).toHaveLength(1);
-    expect(run.steps.some((s) => /no progress/.test(s.note))).toBe(true);
+    expect(run.steps.some((s) => /already in place/.test(s.note))).toBe(true);
     expect(run.log.length).toBeGreaterThan(0);
     expect(run.critique.checks.length).toBe(8);
   });

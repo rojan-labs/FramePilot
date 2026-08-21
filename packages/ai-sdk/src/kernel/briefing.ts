@@ -27,6 +27,7 @@ import {
   type FactKind,
   type FactScope,
   type RunWorkingState,
+  type VerificationRecord,
   committedDecisions,
 } from './working-state.js';
 import { type ToolRole } from './stage-policy.js';
@@ -125,8 +126,7 @@ export function buildStateBriefing(state: RunWorkingState): string {
   // Suppressing the echoes is not a substitute for a real interpretation — that needs a
   // seam for the model to write one, tracked separately. It is the honest rendering of
   // the state that exists: the request is known, nothing else is.
-  const echoesRequest = (text: string): boolean =>
-    text.trim() === state.objective.request.trim();
+  const echoesRequest = (text: string): boolean => text.trim() === state.objective.request.trim();
 
   if (state.objective.outcome && !echoesRequest(state.objective.outcome)) {
     const criteria = state.objective.acceptance
@@ -182,14 +182,31 @@ export function buildStateBriefing(state: RunWorkingState): string {
   }
 
   if (state.verifications.length > 0) {
-    sections.push(
-      `VERIFIED\n${state.verifications
-        .map(
-          (v) =>
-            `- ${v.passed ? 'PASS' : 'FAIL'} ${v.criterion}${v.detail ? ` — ${v.detail}` : ''}`,
-        )
-        .join('\n')}`,
-    );
+    // The same echo the sections above suppress, with a sharper edge.
+    //
+    // Objectives are seeded from `userPrompt`, and the verify fold records one verification
+    // per objective with `criterion: objective.description`. So a run whose objective is
+    // still the raw request rendered its deterministic Critic pass as:
+    //
+    //   - PASS hey can you enhance the experience of captions… and add prper effects — All
+    //     checks passed.
+    //
+    // The observed run that produced that line had called no effect or transition tool at
+    // all. The checks that passed are timeline-consistency checks; they cannot know whether
+    // effects were added, and stating the request back as the thing that PASSED tells the
+    // model its whole compound job is done. This is exactly the overclaim the contract's
+    // CLAIMS OF COMPLETION rule forbids the model from making — arriving through the run's
+    // own memory, where that rule cannot reach it.
+    //
+    // Naming the real scope keeps the signal (the checks did pass, and a FAIL here still
+    // matters) without laundering it into a claim about the request.
+    const renderVerification = (v: VerificationRecord): string => {
+      const criterion = echoesRequest(v.criterion)
+        ? 'the timeline consistency checks (NOT the request itself)'
+        : v.criterion;
+      return `- ${v.passed ? 'PASS' : 'FAIL'} ${criterion}${v.detail ? ` — ${v.detail}` : ''}`;
+    };
+    sections.push(`VERIFIED\n${state.verifications.map(renderVerification).join('\n')}`);
   }
 
   if (state.blockedOn) {
@@ -216,6 +233,15 @@ export function buildStateBriefing(state: RunWorkingState): string {
     '',
     'RUN STATE — this run is already in progress. Continue it; do not restart your',
     'analysis, and do not repeat anything listed as established or applied.',
+    // The briefing is written in the imperative second person, and a model told to
+    // "continue from here" opens its reply by saying so ("I'll continue from the interpret
+    // stage…"). That sentence is this machinery talking to itself in front of the editor,
+    // and because the reply text is also the patch reason it gets persisted into the edit
+    // history. The prohibition lives here, attached to the text that provokes it, rather
+    // than only in the distant mode contract (kernel/narration.ts).
+    'This section is PRIVATE working state, not something the editor can see. Never',
+    'mention it, the stage, the turn, or the fact that you are resuming — no "continuing',
+    'from…", no "picking up where the run left off". Write only about the video.',
     '',
     ...sections.join('\n\n').split('\n'),
   ].join('\n');

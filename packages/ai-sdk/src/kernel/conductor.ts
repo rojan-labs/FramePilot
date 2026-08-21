@@ -574,6 +574,16 @@ export interface AgentTurnResult {
   readonly rejectionNotes: readonly string[];
   /** The validator accepted and applied this turn. */
   readonly applied: boolean;
+  /**
+   * The turn produced a valid edit that landed nothing because the timeline ALREADY
+   * matched it — the same operations were applied earlier in this run.
+   *
+   * Distinct from `applied: false` alone, which otherwise means "rejected". A run that
+   * recomputes an edit it already made has not failed at anything; there is no cause to
+   * fix and nothing to retry. Recording it as a failure is what kept the captured caption
+   * run re-attempting emphasis that was already on the timeline, twenty-four times.
+   */
+  readonly satisfied?: boolean;
   /** The validated operations that applied (empty when `applied` is false). */
   readonly appliedOps: readonly AnyOperation[];
   /** Pre-described applied ops for the reducer's `timeline_action` cards. */
@@ -879,7 +889,9 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
   // When the creator disables the visible detailed-planning turn, commit a minimal
   // objective-backed authorization record from the persisted request itself. It is
   // machine-readable and durable before the first tool turn, never inferred from prose.
-  const freshWorking = planning ? interpreted : commitExecutionPlan(interpreted, [objectiveText], 0);
+  const freshWorking = planning
+    ? interpreted
+    : commitExecutionPlan(interpreted, [objectiveText], 0);
   const started: ConductorState = {
     phase: resuming ? 'resuming' : planning ? 'planning' : 'executing',
     turnRef: command.stream,
@@ -1293,11 +1305,18 @@ export function onTurnResult(
   // fix the cause (per-call validation in the turn handler makes a whole-turn rejection
   // rare — repeated edits and cross-call conflicts). Remember why for the empty-run notice.
   const attemptedEdit = r.turnOpCount > 0;
+  // An already-satisfied turn attempted an edit but was not REJECTED by anything, so it must
+  // not feed the rejection tally. That tally becomes the completion report's
+  // "**Skipped:** N proposed changes did not validate (…)" line — and in the captured run it
+  // told the editor two changes had failed validation when both had validated perfectly and
+  // were simply already on the timeline. A run that misreports its own outcome to the person
+  // reviewing it is worse than one that says nothing.
+  const rejected = attemptedEdit && r.satisfied !== true;
   const rejectionReasons =
-    attemptedEdit && withPlan.rejectionReasons.length < MAX_REJECTION_REASONS
+    rejected && withPlan.rejectionReasons.length < MAX_REJECTION_REASONS
       ? [...withPlan.rejectionReasons, r.note]
       : withPlan.rejectionReasons;
-  const rejectedOpCount = withPlan.rejectedOpCount + (attemptedEdit ? r.turnOpCount : 0);
+  const rejectedOpCount = withPlan.rejectedOpCount + (rejected ? r.turnOpCount : 0);
 
   // Did this no-edit turn make PROGRESS? The harness does not judge the model's intent —
   // only whether the run can still move forward. A turn progresses if it attempted an edit
@@ -1332,18 +1351,27 @@ export function onTurnResult(
   // A turn that proposed operations and lost them to the validator is recorded too: the
   // ledger must show what the run TRIED, or a failure looks identical to never having
   // attempted anything (the distinction ADR 0074's empty-run notice turns on).
+  // A turn whose edit was already on the timeline is recorded as SUCCEEDED, not failed:
+  // the state it was trying to reach is the state that exists. Filing it as a failure put
+  // it under the briefing's "FAILED — fix the cause, do not retry unchanged", which is
+  // advice with no cause behind it; as a success it lands under "ALREADY APPLIED — do not
+  // repeat", which is both true and the instruction the run actually needs.
   const workingAfterTurn = attemptedEdit
     ? recordOperation(state.working, {
         intent: r.signature,
-        status: 'failed',
-        failureReason: r.note,
+        status: r.satisfied === true ? 'succeeded' : 'failed',
+        ...(r.satisfied === true ? {} : { failureReason: r.note }),
         planId: state.working.plan.id!,
         decisionId:
           state.working.plan.decisionIds[
             Math.min(r.planStepIndex, state.working.plan.decisionIds.length - 1)
           ]!,
+        // The key carries the outcome so a signature that failed once and is later found
+        // already-satisfied does not overwrite its own failure record in place — the two
+        // are different facts about the run, and `recordOperation` keys updates on this.
         idempotencyKey:
-          `${state.working.runId}:${state.working.plan.id!}:` + `${r.signature}:failed`,
+          `${state.working.runId}:${state.working.plan.id!}:` +
+          `${r.signature}:${r.satisfied === true ? 'satisfied' : 'failed'}`,
         projectRevisionBefore: state.working.currentProjectRevision,
         projectRevisionAfter: state.working.currentProjectRevision,
       })
