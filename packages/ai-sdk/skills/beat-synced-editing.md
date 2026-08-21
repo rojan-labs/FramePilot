@@ -1,7 +1,7 @@
 ---
 name: beat-synced-editing
 description: Build music-driven edits from detected onset evidence, scored visual opportunities, variable rhythm, motion continuity, and preview-based refinement rather than a fixed grid.
-tools: [detect_beats, map_footage, describe_footage, search_visual, index_media, propose_edits, get_timeline, map_time, list_assets, add_clip, split_clip, trim_clip, set_clip_speed, add_transition, render_preview, verify_transitions]
+tools: [detect_beats, map_footage, describe_footage, search_visual, propose_edits, get_timeline, get_clips, map_time, list_assets, add_clip, split_clip, trim_clip, set_clip_speed, add_transition, render_preview, verify_transitions]
 ---
 
 # Beat-synced editing

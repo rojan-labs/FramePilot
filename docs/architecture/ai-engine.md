@@ -60,16 +60,18 @@ The orchestrator selects one of six modes per request:
 | `autocomplete` | Suggest the next-best edit on triggers (playhead stop, selection, long silence) | Via patch (on accept)      | Optional            |
 | `review`       | Run the Critic over the current/proposed state                                  | No                         | May render to check |
 
-The sidebar's `auto` entry point first classifies the command. Read-only questions and
-deterministic recipes retain their narrow paths; ordinary edits enter the sequential agent.
-An analysis-dependent change uses `planned_edit`: a bounded task graph acquires evidence
-before the model proposes operations. Beat synchronization is deliberately routed here so
-`detect_beats` and footage analysis settle before any `add_clip` operations are assembled,
-validated, and returned as one reversible patch. The plan driver also checks every
-beat-analysis-backed `add_clip` boundary against the mapped detected onsets (within half a
-project frame); an off-grid proposal is rejected and receives the one bounded proposer
-correction path rather than landing an approximately synchronized edit. Every EditProposer
-request also carries exhaustive, separately named asset and track identities. After tool
+The sidebar's `auto` entry point first classifies the command into one of three routes:
+`chitchat`, `question` (read-only, may still LOOK), and `edit`. **Every** project change —
+simple, creative, multi-step, or analysis-dependent — takes the `edit` route into the agent.
+
+There is exactly one mutating AI runtime (ADR 0126). Analysis-dependent work is not a
+separate route: beat synchronization is the agent calling `detect_beats` and footage
+analysis, reading the evidence, and then assembling `add_clip` operations that are validated
+and returned as one reversible patch. The earlier `planned_edit` route ran that same work
+through a second execution universe (intent parser → planner → task graph → scheduler); it
+was retired after a parity harness showed it carried no unique capability, cost no fewer
+model calls, and dispatched Planner-authored arguments to the host analysis engine without a
+schema check. After tool
 schema parsing, the complete typed operation batch is validated against the working
 timeline, asset set, and folders before the proposal task may complete. Invalid references,
 overlaps, or ranges receive bounded, actionable correction feedback; dependent assembly and
@@ -83,7 +85,9 @@ tail by adding final assembly and verification nodes that cover every mutation. 
 refinement after a verified checkpoint exhausts its bounded proposal attempts, the task
 emits a visible warning and the validated earlier edit still reaches final verification;
 mutations without that checkpoint remain fail-closed. See
-[ADR 0085](../adr/0085-multi-stage-planned-edit-continuity.md).
+[ADR 0085](../adr/0085-multi-stage-planned-edit-continuity.md) (superseded for the retired
+planned-edit route by [ADR 0126](../adr/0126-one-mutating-ai-runtime.md); its continuity
+requirements now apply to the agent runtime).
 
 The planner receives the exact effect kind/name pairs its driver can execute. If its
 intent or graph is malformed or outside that bounded contract, auto mode carries the same
@@ -99,7 +103,7 @@ store learning log.
 ### Unified editor-run lifecycle
 
 Every timeline-mutating host now enters through `streamEditorRun`, regardless of whether routing
-selected edit, recipe, planned-edit, or agent execution. The existing `AiEvent` stream remains the
+selected single-shot `edit` or `agent` execution. The existing `AiEvent` stream remains the
 UI/presentation contract. A separate optional lifecycle observer receives serialisable, strictly
 sequenced stage events for understand → resolve → inspect → plan → compile → execute → verify →
 review → finalize. Repair is the only legal re-entry stage.
@@ -115,9 +119,9 @@ The observer is a transport seam, not durable storage by itself. Electron main b
 existing authoritative run WAL as `run.editor_lifecycle`, ordered in the same per-run lane as
 `run.stream_event`. Recovery validates the stage payload and advances the snapshot cursor without
 injecting it into conversation rendering. The host waits for all queued stage writes before terminal
-settlement. Desktop recipe and planned-edit modes use this same main-process path; neither has a
-renderer-local execution exception. Browser edit, recipe, planned-edit, agent, and routed-auto
-mutations also always install the lifecycle and temporal-review controls. If its sidecar is not
+settlement. Desktop modes use this same main-process path; none has a renderer-local
+execution exception. Browser edit, agent, and routed-auto mutations also always install the
+lifecycle and temporal-review controls. If its sidecar is not
 configured, the run ends failed with an explicitly unverified proposal for manual review rather
 than bypassing the gate.
 

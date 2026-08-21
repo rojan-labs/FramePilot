@@ -159,6 +159,7 @@ from framepilot_engine.brain.twelvelabs_index import (
     read_video_mapping,
     store_cached_pegasus,
     store_index_id,
+    store_video_mapping,
     video_to_asset_map,
 )
 from framepilot_engine.brain.vector_store import VisualVectorStore
@@ -2846,6 +2847,8 @@ def create_app(
         *,
         content_hash: str,
         video_id: str | None,
+        source_asset_id: str | None,
+        index_id: str | None,
         can_fetch: bool,
         refresh: bool,
     ) -> tuple[list[Any], list[Any], str] | None:
@@ -2863,6 +2866,11 @@ def create_app(
         forces a re-fetch past the cache — the explicit "rebuild" escape hatch, never
         the default. Raises the typed TwelveLabs errors so the route degrades honestly
         (auth / pegasus_unavailable / transport) — never a fabricated map.
+
+        Pegasus 1.5 generates from the UPLOADED asset, so a fetch needs
+        ``source_asset_id``. Mappings written before that id was persisted fall back to
+        looking it up from the index once (``index_id`` + ``video_id``); a mapping we
+        cannot resolve is an honest miss rather than a fabricated map.
         """
         if not refresh:
             cached = read_cached_pegasus(store, asset_id, content_hash=content_hash)
@@ -2872,9 +2880,28 @@ def create_app(
         if not can_fetch or video_id is None:
             # No cache and no live index to fetch from: honest miss, no API call.
             return None
-        chapters = client.summarize_chapters(video_id)
-        highlights = client.summarize_highlights(video_id)
-        gist = client.summarize_gist(video_id)
+        asset_ref = source_asset_id
+        if asset_ref is None and index_id is not None:
+            asset_ref = client.source_asset_id(index_id, video_id)
+            if asset_ref is not None:
+                # Backfill so the next miss (new bytes) needs no extra round trip.
+                store_video_mapping(
+                    store,
+                    asset_id,
+                    content_hash=content_hash,
+                    status="ready",
+                    video_id=video_id,
+                    source_asset_id=asset_ref,
+                )
+        if asset_ref is None:
+            _log.info(
+                "twelvelabs pegasus map: no uploaded asset id for asset=%s — re-index to map it",
+                asset_id,
+            )
+            return None
+        chapters = client.summarize_chapters(asset_ref)
+        highlights = client.summarize_highlights(asset_ref)
+        gist = client.summarize_gist(asset_ref)
         # Persist even an empty-but-successful result so an unchanged asset is never
         # re-charged on the next open (plan FI2.3).
         store_cached_pegasus(
@@ -2953,6 +2980,10 @@ def create_app(
                         asset_id,
                         content_hash=content_hash,
                         video_id=mapping.video_id if mapping is not None else None,
+                        source_asset_id=(
+                            mapping.source_asset_id if mapping is not None else None
+                        ),
+                        index_id=index_id,
                         # `cached_only` withdraws permission to fetch: a miss returns
                         # nothing rather than paying Pegasus for a caller that only
                         # wanted whatever was already there.
@@ -3301,6 +3332,8 @@ def create_app(
                     req.asset_id,
                     content_hash=mapping.content_hash,
                     video_id=mapping.video_id,
+                    source_asset_id=mapping.source_asset_id,
+                    index_id=index_id,
                     can_fetch=True,
                     refresh=False,
                 )

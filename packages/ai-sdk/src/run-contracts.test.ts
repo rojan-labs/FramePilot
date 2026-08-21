@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  DURABLE_RUN_MODES,
   JsonValueSchema,
   RUN_PROTOCOL_SCHEMA_VERSION,
   RunCommandEnvelopeSchema,
@@ -49,17 +50,36 @@ describe('parseRunCommand', () => {
     }
   });
 
-  it.each(['planned-edit'] as const)(
-    'accepts the %s desktop route in the durable protocol',
-    (mode) => {
-      const command = parseRunCommand({
+  it('still parses a pre-ADR-0126 planned-edit start command, normalized to agent', () => {
+    // Persisted `start` commands are re-parsed from the durable event log during recovery
+    // (`run-coordinator-base.ts#commandFromEvent`). A run that was in flight when the user
+    // upgraded past the `planned_edit` retirement must still replay, so the retired mode is
+    // accepted on READ and mapped to the runtime that absorbed it — never rejected, which
+    // would make that run unrecoverable, and never left as-is, which would name a route
+    // that no longer exists.
+    const command = parseRunCommand({
+      ...base,
+      kind: 'start',
+      payload: { userPrompt: 'continue the edit', mode: 'planned-edit' },
+    });
+    expect(command).toMatchObject({ kind: 'start', payload: { mode: 'agent' } });
+  });
+
+  it('rejects a start command naming a mode that never existed', () => {
+    expect(() =>
+      parseRunCommand({
         ...base,
         kind: 'start',
-        payload: { userPrompt: 'continue the edit', mode },
-      });
-      expect(command).toMatchObject({ kind: 'start', payload: { mode } });
-    },
-  );
+        payload: { userPrompt: 'go', mode: 'teleport' },
+      }),
+    ).toThrow();
+  });
+
+  it.each(DURABLE_RUN_MODES)('accepts the live %s run mode unchanged', (mode) => {
+    expect(
+      parseRunCommand({ ...base, kind: 'start', payload: { userPrompt: 'go', mode } }),
+    ).toMatchObject({ kind: 'start', payload: { mode } });
+  });
 
   it.each([
     ['approve_plan', { planId: 'plan_1' }],

@@ -271,13 +271,17 @@ export interface ReviewCard {
 // ---------------------------------------------------------------------------
 
 /**
- * `'planned-edit'` (P3.1) is distinct from `'plan'` — `'plan'` is the pre-existing PRD §7.3
- * "produce a read-only step-by-step plan, no mutation" mode (`Orchestrator.streamPlan`).
- * `'planned-edit'` drives the live kernel planner path (`Orchestrator.streamPlannedEdit`):
- * IntentParser → Planner → the scheduler, for plans built from `RECIPE_LEAVES` primitives.
- * Browser only for now (see `BrowserAiSession`/`DesktopAiSession`).
+ * `'plan'` is the PRD §7.3 "produce a read-only step-by-step plan, no mutation" mode
+ * (`Orchestrator.streamPlan`).
+ *
+ * There used to be a sixth mode, `'planned-edit'`, driving a second mutating execution
+ * universe (IntentParser → Planner → task graph → scheduler). Phase 1 of the 9.5
+ * convergence retired it (ADR 0126) after measuring both routes on the same goals: the
+ * agent runtime covered every capability, cost no more model calls, and validated tool
+ * arguments the planner path passed straight through to the host. Analysis-dependent edits
+ * are now ordinary `'auto'`/`'agent'` work.
  */
-export type AiSessionMode = 'auto' | 'chat' | 'plan' | 'edit' | 'agent' | 'planned-edit';
+export type AiSessionMode = 'auto' | 'chat' | 'plan' | 'edit' | 'agent';
 
 /** Input for one streaming run: the project, prompt, and the conversation/turn ids. */
 export interface AiSessionInput {
@@ -330,12 +334,11 @@ export interface AiSessionInput {
    * Opt-in "give me alternatives" (H1.5 / AGENT-NATIVE-COMPLETION-PLAN.md P13.1 —
    * "variations / A-B compare"). `edit`-mode ONLY: proposes `EDIT_VARIATION_COUNT`
    * independent candidate takes on the same request instead of one, each a REAL,
-   * separately-billed model call — never the default, and never applied to a
-   * planned-edit/agent run (those are deterministic or already-converged single
-   * proposals; "variations" of them would just be the identical result twice). Browser
-   * only for now — {@link DesktopAiSession} does not thread this over IPC yet (see its
-   * `run` method), mirroring the same "browser-only, gated" precedent as `planned-edit`
-   * (P3.1); the composer only offers the toggle when no Electron bridge is present.
+   * separately-billed model call — never the default, and never applied to an agent run
+   * (an agent run is an already-converged single proposal; "variations" of it would just
+   * be the identical result twice). Browser only for now — {@link DesktopAiSession} does
+   * not thread this over IPC yet (see its `run` method); the composer only offers the
+   * toggle when no Electron bridge is present.
    */
   readonly variations?: boolean;
   /**
@@ -343,7 +346,7 @@ export interface AiSessionInput {
    * (P8.7 narrow slice — the H1.5c-deferred pin-context picker), independent of the
    * auto-derived `selection`. Threaded into the model context by the browser session
    * (`context-builder.ts`'s "Pinned context" block). Browser-only for now, same
-   * precedent as `selection`/`variations`/`planned-edit` above — `DesktopAiSession`
+   * precedent as `selection`/`variations` above — `DesktopAiSession`
    * does not forward it over IPC yet (an explicit, documented gap; the natural home
    * is the P6 cross-surface parity pass, not silently dropped here). Deferred:
    * `@range`/`@marker`/`@track` entity kinds (P8.7 full scope stays open).
@@ -555,15 +558,6 @@ export class BrowserAiSession implements AiSession {
           context,
           options,
           { route: 'agent', agentOptions: input.agentOptions ?? {} },
-          this.editorRunControls(input, recorder),
-        ));
-        return;
-      case 'planned-edit':
-        // The live kernel planner path (P3.1) — browser only for now.
-        yield* persist(this.orchestrator.streamEditorRun(
-          context,
-          options,
-          { route: 'planned_edit' },
           this.editorRunControls(input, recorder),
         ));
         return;

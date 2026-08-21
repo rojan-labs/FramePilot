@@ -1533,9 +1533,13 @@ describe('streamAgent', () => {
   });
 
   it('caps the completion report at 10 lines and reports skipped work (U3)', () => {
-    const ops = Array.from({ length: 12 }, () => ({
+    // Twelve DISTINCT edits — the cap is about how many different things a report will list.
+    // (Identical edits collapse instead; that is the next test.)
+    const ops = Array.from({ length: 12 }, (_, i) => ({
       type: 'delete_range',
       trackId: 'video_1',
+      start: i,
+      end: i + 0.5,
     })) as unknown as AnyOperation[];
     const report = agentCompletionReport({
       ops,
@@ -1548,6 +1552,27 @@ describe('streamAgent', () => {
     expect(report).toMatch(
       /\*\*Skipped:\*\* 2 proposed changes did not validate \(overlaps a neighbour\)/,
     );
+  });
+
+  it('collapses edits that read identically instead of repeating the line', () => {
+    // The captured caption run closed with eight rows of "Set track caption style:" — the
+    // same sentence eight times, over a dangling colon. Eight restyles of one track are ONE
+    // outcome to the editor reviewing it: the last one is what they see.
+    const ops = Array.from({ length: 8 }, () => ({
+      type: 'set_track_caption_style',
+      trackId: 'caption_1',
+    })) as unknown as AnyOperation[];
+    const report = agentCompletionReport({
+      ops,
+      steps: 8,
+      rejectedOpCount: 0,
+      rejectionReasons: [],
+    });
+    expect(report).toMatch(/\*\*Applied 8 edits\*\* in 8 steps/);
+    expect(report).toContain('(×8)');
+    // One row, not eight — and no line ends in a colon over nothing.
+    expect(report.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1);
+    expect(report).not.toMatch(/:\s*$/m);
   });
 
   it('uses singular wording for exactly one skipped change', () => {
@@ -1594,11 +1619,14 @@ describe('streamAgent', () => {
     // edit. The model gets another turn; only when it repeats the same no-progress
     // call (spinning) does the loop stop.
     //
-    // Three steps, not two, since ADR 0075: the second barren turn trips the
-    // meaningful-progress guard, which spends one deterministic recovery turn (reads
-    // withheld, a concrete next action supplied) before giving up. A run that can still
-    // be pushed into acting gets that push; only when it spins THROUGH recovery does the
-    // loop stop — still well short of maxSteps=5.
+    // Two steps. It was three while the Conductor's `stageAdvanced` was an object
+    // comparison that missed turn 1's real interpret → inspect advance: the run was
+    // credited with no progress, tripped the meaningful-progress guard on turn 2, and
+    // spent a deterministic recovery turn before giving up. Turn 1 genuinely advanced a
+    // stage, so no-progress does not start accruing there, and turn 2 — the identical
+    // call again — is caught by the exact-repeat guard instead. Same outcome (`failed`,
+    // no edit), one fewer wasted turn. The recovery push itself is unchanged and still
+    // fires for the run it exists for: one that keeps gathering without editing.
     const provider = new FakeProvider({
       text: 'try',
       toolCalls: [{ id: 'u', name: 'no_such_tool', arguments: {} }],
@@ -1606,7 +1634,7 @@ describe('streamAgent', () => {
     const events = await drain(
       new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 5 }),
     );
-    expect(events.filter((e) => e.type === 'tool_call' && e.status === 'running')).toHaveLength(3);
+    expect(events.filter((e) => e.type === 'tool_call' && e.status === 'running')).toHaveLength(2);
     // An unknown no-op tool never lands an edit — ADR 0081 ends the run `failed`.
     expect(events.at(-1)).toMatchObject({ status: 'failed' });
   });

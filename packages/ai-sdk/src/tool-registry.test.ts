@@ -120,6 +120,19 @@ describe('tool registry — shape', () => {
     }
   });
 
+  it('never advertises oneOf/anyOf/allOf at the top level of a tool schema', () => {
+    // Anthropic's native Messages API rejects a tool `input_schema` that carries
+    // `oneOf`/`anyOf`/`allOf` directly under `parameters` (as opposed to nested inside a
+    // property) — see `map_time` and `professional_audio`, both of which used to advertise
+    // exactly that and were flattened for it. This guards every tool, present and future,
+    // against the same mistake.
+    for (const tool of toolDescriptors()) {
+      expect(tool.parameters).not.toHaveProperty('oneOf');
+      expect(tool.parameters).not.toHaveProperty('anyOf');
+      expect(tool.parameters).not.toHaveProperty('allOf');
+    }
+  });
+
   it('analysis tools are available, non-mutating, and schema-validated (no buildOps/read)', () => {
     for (const name of ['analyze_silence', 'detect_scenes']) {
       const tool = getTool(name)!;
@@ -1649,6 +1662,27 @@ describe('get_mapped_transcript — windowing the edited-timeline transcript', (
       words: { word: string }[];
     };
     expect(result.words.map((w) => w.word)).toEqual(['hello']);
+  });
+
+  it('describes each run by bounds and count, never by repeating its words', () => {
+    // The payload used to be exactly twice the size of the information in it, because
+    // `MappedTranscript.runs[].words` repeats every object already in `words`. On a real
+    // project that was 81 words in 27 KB, and a run that needed the transcript spent six
+    // turns paging it back out of the evidence store one recall budget at a time.
+    const result = getTool('get_mapped_transcript')?.read?.({}, ctx) as {
+      words: unknown[];
+      runs: Record<string, unknown>[];
+    };
+    expect(result.runs.length).toBeGreaterThan(0);
+    for (const run of result.runs) {
+      expect(run).not.toHaveProperty('words');
+      expect(typeof run.start).toBe('number');
+      expect(typeof run.end).toBe('number');
+      expect(typeof run.wordCount).toBe('number');
+    }
+    // Every word is owned by exactly one run, so the counts account for all of them.
+    const counted = result.runs.reduce((sum, r) => sum + Number(r.wordCount), 0);
+    expect(counted).toBe(result.words.length);
   });
 });
 

@@ -439,19 +439,18 @@ describe('runAiStream', () => {
     expect(lifecycle.at(-1)).toMatchObject({ stage: 'finalize', state: 'completed' });
   });
 
-  it('routes planned-edit through the shared editor lifecycle in main', async () => {
-    for (const streamRequest of [request('planned-edit')]) {
-      const lifecycle: unknown[] = [];
-      await runAiStream(
+  it('rejects a retired planned-edit mode instead of silently running something else', async () => {
+    // ADR 0126 removed the route. A renderer still asking for it is a version mismatch:
+    // failing loudly is the honest outcome, because quietly substituting another runtime
+    // would run an edit the caller did not ask for.
+    await expect(
+      runAiStream(
         new Orchestrator(new MockProvider()),
-        streamRequest,
+        { ...request('agent'), mode: 'planned-edit' } as never,
         () => undefined,
         new AbortController().signal,
-        { onLifecycleEvent: (event) => lifecycle.push(event) },
-      );
-      expect(lifecycle[0]).toMatchObject({ stage: 'understand', state: 'entered' });
-      expect(lifecycle.at(-1)).toMatchObject({ stage: 'finalize' });
-    }
+      ),
+    ).rejects.toThrow();
   });
 
   it('forwards a cancelled terminal when pre-aborted', async () => {

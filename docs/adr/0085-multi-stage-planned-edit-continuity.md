@@ -1,6 +1,8 @@
 # 0085. Preserve multi-stage planned-edit continuity through final verification
 
-- Status: Accepted
+- Status: Superseded by [ADR 0126](0126-one-mutating-ai-runtime.md) — the planned-edit
+  execution route this decision governs was retired in the 9.5 convergence. The record is
+  kept for history; its reasoning no longer describes a live code path.
 - Date: 2026-07-28
 
 ## Context

@@ -219,16 +219,46 @@ describe('professional_audio domain tool', () => {
     ).toThrow(/gainDb belongs to the level intent, not automate_gain/);
   });
 
-  it('advertises one variant per intent, so no illegal combination is representable', () => {
+  it('advertises a flat object schema naming every intent and every field, with no top-level union', () => {
+    // Anthropic's Messages API rejects `oneOf`/`anyOf`/`allOf` directly under a tool's
+    // `input_schema`, so the advertised shape cannot be a top-level union of six variants
+    // the way the six-intent rule would otherwise suggest. Real mutual exclusivity is
+    // still enforced by `AudioObjectiveSchema.parse` (see the intent/field tests above and
+    // below) — only the advertised schema is flat.
     const schema = PROFESSIONAL_AUDIO_TOOL.parameters as {
-      oneOf: { properties: Record<string, unknown>; required: string[] }[];
+      type: string;
+      oneOf?: unknown;
+      anyOf?: unknown;
+      allOf?: unknown;
+      properties: Record<string, { const?: string; enum?: string[] }>;
+      required: string[];
     };
-    expect(schema.oneOf).toHaveLength(6);
-    const eq = schema.oneOf.find((variant) => 'eqBands' in variant.properties);
-    expect(eq?.required).toContain('eqBands');
-    // The whole point: the eq variant never offers the level fields the flat
-    // schema used to advertise, so the model cannot author a mixed call.
-    expect(Object.keys(eq?.properties ?? {})).toEqual(['intent', 'target', 'eqBands']);
+    expect(schema.type).toBe('object');
+    expect(schema.oneOf).toBeUndefined();
+    expect(schema.anyOf).toBeUndefined();
+    expect(schema.allOf).toBeUndefined();
+    expect(schema.required).toEqual(['intent']);
+    expect(schema.properties.intent?.enum).toEqual([
+      'level',
+      'eq',
+      'compress',
+      'automate_gain',
+      'duck_selection',
+      'duck_roles',
+    ]);
+    // Every intent's own field is present somewhere in the flat bag.
+    for (const field of [
+      'gainDb',
+      'fadeInFrames',
+      'eqBands',
+      'dynamics',
+      'automationPoints',
+      'reductionDb',
+      'bedRole',
+      'sidechainRole',
+    ]) {
+      expect(schema.properties).toHaveProperty(field);
+    }
   });
 
   it.each([

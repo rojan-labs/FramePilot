@@ -172,10 +172,19 @@ So generation runs in this order (`captions/derive.ts`, ADR 0076):
 4. **Segment** each run independently and clamp each cue to it, so a cue cannot
    begin before its footage or outlive it.
 
+A run is a stretch of **continuous audio**, so a run boundary is a break in the
+speech. That is deliberately not the same thing as a picture cut. A cue may sit
+over as many shots as the edit contains — captioning across B-roll is normal and
+correct — and may never bridge two pieces of audio the speaker did not say in one
+breath, because those words were never heard together.
+
 This is why **generating captions before the cuts are settled is the wrong
-order**: cues describe where footage plays, and moving the footage invalidates
-them. Each cue records the timeline revision it was built against, so a stale
-caption is detectable rather than assumed — regenerate rather than nudging.
+order**: cues describe where speech plays, and re-cutting the audio invalidates
+them. Each cue records the timeline revision it was built against as provenance —
+but staleness is *measured*, by comparing the cue's words against the words that
+currently play across it, not inferred from the revision number. Grading a clip
+bumps the revision and moves no word, and a caption track that is still correct
+must not be reported as broken.
 
 Captioning a timeline with no media correctly produces nothing: there is no
 footage for the words to sit on.
@@ -227,7 +236,12 @@ use a second styling representation:
    A whole recording is always divided into separate readable phrase cues; one full-duration
    `add_caption_layer` is rejected. Each accepted cue persists its mapped words and current
    timeline revision so verification can prove what it represents.
-2. `discover_caption_styles` supplies real bundled fonts and template ids.
+2. `discover_caption_styles` supplies real bundled fonts and template ids. It returns the whole
+   matching catalog by default — `set_track_caption_style` rejects an id that never appeared in
+   a result, so a partial list is a list the agent cannot act on (see
+   [ADR 0128](../adr/0128-retrieval-the-run-can-actually-use.md)). `get_timeline` reports the
+   style a caption track already carries, so "use a different style" is answerable without
+   guessing at what the current one is.
 3. The AI selects a sparse set of exact spoken anchors and calls `auto_emphasize_captions`. The
    tool rejects invented words and may set the track's template, font, x/y position, size,
    rotation, width, alignment, spacing, background, animation and safe-area behavior in the same
@@ -259,15 +273,18 @@ nested provider call.
 - **The preview is an approximation.** The engine's pixels are authoritative
   (the render-vs-preview rule); the DOM overlay is the live approximation built
   from the same resolved style.
-- **Editing the cuts after captioning makes the captions stale.** They are not
-  silently repaired: they keep the timing they were generated with and report as
-  stale against the new timeline revision. Regenerate to bring them back in sync.
+- **Editing the SPEECH after captioning makes the captions stale.** They are not
+  silently repaired: they keep the timing they were generated with, and
+  verification reports the ones whose words no longer match what plays across
+  them — by count, by text, or by drift. Regenerate to bring them back in sync.
+  Re-cutting the picture underneath continuous audio does not make a caption
+  stale, and is not reported as such.
 - **Captions generated before schema v12** carry no record of what they were
   built from, so they report unknown provenance — they are shown, but never
   claimed to be verified. Regenerating establishes it.
 - **Timing and legibility are checked separately, because they fail separately.**
   `verify_captions` reads timeline state: it catches cues that are out of sync, over
-  deleted speech, across a cut, or stale, and refuses paragraph-sized transcript
+  deleted speech, bridging a break in the speech, or stale, and refuses paragraph-sized transcript
   fallback blocks, empty caption sets over retained speech, and title/lower-third
   overlays masquerading in the cue count. What it cannot see is a cue that is
   perfectly synchronized and still unreadable — clipped at the frame edge, sitting on
