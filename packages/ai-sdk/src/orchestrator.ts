@@ -88,6 +88,9 @@ import { type AnalysisBudget, createAnalysisBudget } from './kernel/cost/analysi
 import { estimateUsd } from './kernel/cost/cost-meter.js';
 import { stageAllowsRole, toolRole } from './kernel/stage-policy.js';
 import { buildStateBriefing, distil } from './kernel/briefing.js';
+import { createNarrationFilter } from './kernel/narration.js';
+import { alignBeatBackedBoundaries } from './kernel/beat-grid/beat-alignment.js';
+import { beatGridFor } from './kernel/semantic-index/semantic-index.js';
 import { describeUnrecovered, ensureContextInvariants } from './kernel/context/invariants.js';
 import { EvidenceStore, evidenceScopeFor } from './kernel/evidence-store.js';
 import type { RunStage, RunWorkingState } from './kernel/working-state.js';
@@ -670,19 +673,103 @@ function* trimNotices(
 }
 
 /**
+ * Apply the beat-grid boundary rule to one turn's operations, when — and only when — this
+ * run gathered beat evidence.
+ *
+ * ## The gate is the agent's own decision
+ *
+ * `detect_beats` is a tool the model elects. If it never called it, this returns the
+ * operations untouched and nothing about the run changes. There is no beat-sync mode, no
+ * request classifier deciding a prompt "is rhythmic", and no user-facing toggle — which is
+ * exactly the property that makes this an execution guarantee rather than a hardcoded
+ * technique. The model decides that the music matters; the runtime then makes sure the cuts
+ * actually land on it, because that is frame arithmetic against 300 onsets and no model
+ * should be doing it in its head (ADR 0076's two-timebases rule, same reasoning).
+ *
+ * ## Why the project grid is resolved here
+ *
+ * `alignBeatBackedBoundaries` can recover a grid from a proposal that places the music
+ * itself, but not from music placed on an EARLIER turn — it would report the asset as
+ * absent and reject a perfectly good cut. {@link beatGridFor} translates the analyzed
+ * asset's onsets through the clips already on the timeline, which is the normal case once a
+ * montage is under way, and the module falls back to the proposal when that comes back
+ * empty.
+ *
+ * Returns the operations unchanged when there is no beat evidence, so a run that never
+ * looked at the music pays one map lookup.
+ */
+function alignTurnToBeatGrid(
+  working: Project,
+  turnOps: AnyOperation[],
+  rawBeats: unknown,
+): { ok: true; operations: AnyOperation[] } | { ok: false; error: string } {
+  if (rawBeats === undefined) return { ok: true, operations: turnOps };
+
+  const projectGrid = beatGridFor(working, rawBeats)?.times;
+  const aligned = alignBeatBackedBoundaries(working, turnOps, projectGrid, rawBeats);
+  return aligned.ok ? { ok: true, operations: [...aligned.operations] } : aligned;
+}
+
+/**
+ * One operation as a line an editor can read: the action, WHAT it happened to, and the
+ * detail when there is one.
+ *
+ * The subject is the point. `describeOperation` returns an empty `detail` for anything with
+ * no start/end — every caption-style op, among others — so a caller that renders
+ * `${action}: ${detail}` unconditionally produced the captured run's completion report:
+ *
+ *     - Set track caption style:
+ *     - Set track caption style:
+ *     …eight times, each a dangling colon over nothing.
+ *
+ * Naming the track instead ("Set track caption style Caption 1") is the difference between a
+ * receipt and a shrug. Shared by the tool-result note and the completion report so the two
+ * cannot drift into describing the same edit differently.
+ */
+function operationLine(op: AnyOperation, names?: ProjectNames): string {
+  const described = describeOperation(op, names);
+  const ref = described.refs[0]?.label;
+  const head = [described.action, ref].filter(Boolean).join(' ');
+  return described.detail ? `${head} · ${described.detail}` : head;
+}
+
+/**
  * Summarize applied operations into one past-tense line for a tool-result note /
  * agent log, e.g. `Trimmed Intro.mp4 · 0s–3.2s; Added captions`. Uses `names` to
  * resolve clip/track/asset ids to friendly labels. Returns '' for no ops.
+ *
+ * ## Why the CALL is named when the operations cannot name it
+ *
+ * Several tools are higher-level intents that compile down to a shared operation.
+ * `auto_emphasize_captions` — "read the transcript, pick the words that carry the meaning,
+ * and accent them" — emits one `set_track_caption_style`, exactly like the plain
+ * `set_track_caption_style` tool does. Described by its operation alone, both calls produce
+ * the identical line:
+ *
+ *     Set track caption style Caption 1
+ *
+ * That line is not just a cosmetic mismatch with the activity card, which correctly reads
+ * "Emphasising key words in the captions". It is what the RUN remembers: this note is the
+ * tool result, the agent log entry, and the `ALREADY APPLIED — do not repeat` row in the
+ * state briefing. In the captured run the model therefore could not tell its four styling
+ * calls apart from its emphasis attempts; it read "the track style has been set multiple
+ * times" turn after turn, kept re-deriving what was still outstanding, and the emphasis it
+ * was actually trying to land never did.
+ *
+ * So when the call's own name is not among the operations it produced, the note leads with
+ * what was ASKED FOR and follows with what CHANGED — the same `intent → outcome` idiom the
+ * briefing's {@link distil} uses. When the tool and the operation are the same thing
+ * (`trim_clip` → `trim_clip`), naming both would only restate it, and the line is unchanged.
  */
-function summarizeOperations(ops: readonly AnyOperation[], names?: ProjectNames): string {
-  return ops
-    .map((op) => {
-      const described = describeOperation(op, names);
-      const ref = described.refs[0]?.label;
-      const head = [described.action, ref].filter(Boolean).join(' ');
-      return described.detail ? `${head} · ${described.detail}` : head;
-    })
-    .join('; ');
+function summarizeOperations(
+  ops: readonly AnyOperation[],
+  names?: ProjectNames,
+  call?: { readonly name: string; readonly arguments: unknown },
+): string {
+  const outcome = ops.map((op) => operationLine(op, names)).join('; ');
+  if (!call || outcome === '') return outcome;
+  if (ops.some((op) => op.type === call.name)) return outcome;
+  return `${describeToolCall(call, names)} → ${outcome}`;
 }
 
 /**
@@ -865,6 +952,16 @@ interface HostCallContext {
    * which is always safe (reads are side-effect free).
    */
   readonly evidence?: EvidenceStore;
+  /**
+   * The run's most recent raw `detect_beats` payload, for the beat-grid boundary rule
+   * (`kernel/beat-grid/beat-alignment.ts`).
+   *
+   * A per-run mutable box rather than a field on the Orchestrator, which serves concurrent
+   * runs — exactly the threading ADR 0126 named as the missing piece. Analysis results are
+   * NOT kept in the evidence store (only reads and `measure_color` are), so this is the one
+   * place the payload survives the turn that fetched it.
+   */
+  readonly beatEvidence?: { current?: unknown };
   /**
    * The run's analysis budget (plan B5.4). Threaded into the host executor so a
    * capped call (frames extracted, ffmpeg seconds, transcription minutes) that
@@ -1070,7 +1167,8 @@ function verificationDigest(obj: Record<string, unknown>, subject: string): stri
   if (!Array.isArray(obj.issues)) return undefined;
   const issues = obj.issues as Record<string, unknown>[];
   const count = typeof obj[`${subject}Count`] === 'number' ? obj[`${subject}Count`] : undefined;
-  const checked = count === undefined ? '' : `, ${String(count)} ${subject}${count === 1 ? '' : 's'} checked`;
+  const checked =
+    count === undefined ? '' : `, ${String(count)} ${subject}${count === 1 ? '' : 's'} checked`;
   if (obj.ok === true || issues.length === 0) {
     return `verified clean${checked}`;
   }
@@ -1177,9 +1275,9 @@ function timelineDigest(tracks: readonly Track[]): string {
   return [head]
     .concat(
       tracks.map((t) => {
-      const flags = [t.locked && 'locked', t.hidden && 'hidden', t.muted && 'muted']
-        .filter(Boolean)
-        .join(',');
+        const flags = [t.locked && 'locked', t.hidden && 'hidden', t.muted && 'muted']
+          .filter(Boolean)
+          .join(',');
         const style = t.captionStyle ? ` style: ${captionStyleLine(t.captionStyle)}` : '';
         const trackHead = `${t.id} [${t.type}${flags ? ` ${flags}` : ''}]${style}`;
         const body =
@@ -1441,7 +1539,9 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
       }
       if (cue && typeof cue.text === 'string') {
         const words = Array.isArray(cue.words) ? cue.words.length : 0;
-        lines.push(`cue (${words} words, from revision ${String(cue.derivedFromRevision ?? '?')}): ${cue.text.replace(/\n/g, ' / ')}`);
+        lines.push(
+          `cue (${words} words, from revision ${String(cue.derivedFromRevision ?? '?')}): ${cue.text.replace(/\n/g, ' / ')}`,
+        );
       }
       return lines.join('\n');
     }
@@ -1490,7 +1590,8 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
         unknown
       >[];
       const fonts = (Array.isArray(obj.fonts) ? obj.fonts : []) as Record<string, unknown>[];
-      if (templates.length === 0) return `no caption templates match (${String(obj.matched ?? 0)} in catalog)`;
+      if (templates.length === 0)
+        return `no caption templates match (${String(obj.matched ?? 0)} in catalog)`;
       const head = `${String(obj.returned ?? templates.length)} of ${String(
         obj.matched ?? templates.length,
       )} matching templates, ${fonts.length} bundled fonts`;
@@ -1571,7 +1672,8 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
         total,
       )}s total, in ${String(obj.assetId ?? '?')}:\n${boundedRecords(
         ranges,
-        (r) => `${round3(Number(r.start))}–${round3(Number(r.end))}s (${round2(Number(r.duration))}s)`,
+        (r) =>
+          `${round3(Number(r.start))}–${round3(Number(r.end))}s (${round2(Number(r.duration))}s)`,
         'gaps',
         'raise minSilenceSeconds to see only the long ones',
       )}`;
@@ -2318,6 +2420,11 @@ export class Orchestrator {
       /* v8 ignore stop */
       const outcome: HostToolOutcome = result.outcome;
       const runtimeCached = result.cached;
+      // Keep the beat grid for the rest of the run. A later re-analysis at a different
+      // sensitivity replaces it: the grid the model is cutting to is the one it last saw.
+      if (call.name === 'detect_beats' && outcome.status === 'completed' && host.beatEvidence) {
+        host.beatEvidence.current = outcome.data;
+      }
       const colorEvidence =
         call.name === 'measure_color' &&
         outcome.status === 'completed' &&
@@ -2581,7 +2688,7 @@ export class Orchestrator {
           rejectedOpCount: ops.length,
         };
       }
-      const note = summarizeOperations(ops, names);
+      const note = summarizeOperations(ops, names, call);
       orchestratorLog.action('tool produced ops', { tool: call.name, opCount: ops.length, note });
       // Invalidate what this patch actually changed — the ARRANGEMENT — and nothing more
       // (§3.7). This used to be a blanket `clear()`, which threw away the transcript and
@@ -2643,6 +2750,8 @@ export class Orchestrator {
     report: CritiqueReport;
     stepIndex: number;
     appliedPatchIds: Set<string>;
+    /** This run's beat payload, so a repair is held to the grid like any other turn. */
+    rawBeats?: unknown;
     maxOpsPerTurn: number;
     /** The run's abort signal, so Stop cancels the repair `complete()` call too. */
     signal?: AbortSignal;
@@ -2758,6 +2867,7 @@ export class Orchestrator {
       turnOps,
       working: args.working,
       appliedPatchIds: args.appliedPatchIds,
+      rawBeats: args.rawBeats,
     });
     const record: AgentStep = { ...step.record, note: `Repair pass: ${step.record.note}` };
     return step.applied
@@ -2812,6 +2922,7 @@ export class Orchestrator {
     // unchanged working copy is served from here, marked non-novel, so it never looks
     // like progress — and, unlike the memo it replaces, it serves the DATA back.
     const evidence = new EvidenceStore();
+    const beatEvidence: { current?: unknown } = {};
     // ADR 0057: per-run skill ledger — see the streaming loop's identical comment.
     const loadedSkills = new Map<string, string>();
     // Per-run analysis budget (B5.4): caps frames/ffmpeg-seconds/transcription across
@@ -2892,6 +3003,7 @@ export class Orchestrator {
           {
             effectRuntime,
             evidence,
+            beatEvidence,
             loadedSkills,
             analysisBudget,
             ...(wipeGuard ? { wipeGuard } : {}),
@@ -2934,6 +3046,7 @@ export class Orchestrator {
         turnOps,
         working,
         appliedPatchIds,
+        rawBeats: beatEvidence.current,
       });
       steps.push(step.record);
       log.push(`Step ${index}: ${rationale ? `${rationale} — ` : ''}${step.record.note}`);
@@ -3003,6 +3116,7 @@ export class Orchestrator {
         report,
         stepIndex: steps.length + 1,
         appliedPatchIds,
+        rawBeats: beatEvidence.current,
         maxOpsPerTurn,
         effectRuntime,
         loadedSkills,
@@ -3053,19 +3167,61 @@ export class Orchestrator {
     turnOps: AnyOperation[];
     working: Project;
     appliedPatchIds: Set<string>;
-  }): { record: AgentStep; applied: boolean; working: Project; edit?: EditResult } {
-    const { index, rationale, toolCalls, notes, turnOps, working, appliedPatchIds } = args;
+    /**
+     * This run's raw `detect_beats` payload, when it gathered one. Passed per call rather
+     * than held on the Orchestrator, which serves concurrent runs (ADR 0126's note on this
+     * exact wiring point).
+     */
+    rawBeats?: unknown;
+  }): {
+    record: AgentStep;
+    applied: boolean;
+    /** The turn landed nothing because the timeline already matched it (see below). */
+    satisfied?: boolean;
+    working: Project;
+    edit?: EditResult;
+  } {
+    const { index, rationale, toolCalls, notes, working, appliedPatchIds } = args;
     // Every tool call contributes exactly one note, so a turn that reached here
     // (calls.length > 0) always has a non-empty baseNote.
     const baseNote = notes.join('; ');
 
-    if (turnOps.length === 0) {
+    if (args.turnOps.length === 0) {
       return {
         record: { index, rationale, toolCalls, applied: false, note: baseNote },
         applied: false,
         working,
       };
     }
+
+    // THE BEAT GRID (ADR 0126's open follow-up; `kernel/beat-grid/beat-alignment.ts`).
+    //
+    // This is NOT a beat-sync mode and there is no flag that turns it on. The gate is
+    // evidence the AGENT chose to gather: the rule engages only when this run actually
+    // called `detect_beats`. A run that never asked about the music is untouched, and no
+    // conditional anywhere decides that a request "is a beat-sync request" — the model
+    // decides that by electing the tool, and the runtime then guarantees the mechanical
+    // accuracy the model cannot deliver by arithmetic. The roadmap's governing split:
+    // the runtime controls execution and safety, the model controls editorial strategy.
+    //
+    // The module handles its own exemptions (audio/caption boundaries, the sequence's
+    // outer edges) and snaps interior near-misses rather than rejecting them, so a cut two
+    // frames off a real onset becomes frame-accurate sync instead of a wasted repair turn.
+    const beatAligned = alignTurnToBeatGrid(working, args.turnOps, args.rawBeats);
+    if (!beatAligned.ok) {
+      return {
+        record: {
+          index,
+          rationale,
+          toolCalls,
+          applied: false,
+          note: `${baseNote}; rejected by the beat grid: ${beatAligned.error}`,
+        },
+        applied: false,
+        working,
+      };
+    }
+    const turnOps = beatAligned.operations;
 
     const edit = assembleEdit(working, turnOps, rationale || 'Agent step', 'agent');
     /* v8 ignore start -- defense in depth: every op in `turnOps` already passed its own
@@ -3092,6 +3248,15 @@ export class Orchestrator {
       };
     }
     /* v8 ignore stop */
+    // The patch id is a hash of the operations, so an identical id means this turn
+    // recomputed an edit the run already applied — the timeline already says what the turn
+    // was asking it to say. That is a NO-OP, and the distinction from a rejection matters
+    // more than it looks: the reducer files a landed-nothing turn as a `failed` operation,
+    // which the state briefing renders under "FAILED — fix the cause, do not retry
+    // unchanged". In the captured run that told the model its caption emphasis had failed
+    // twenty-four times, when in fact it had succeeded and was sitting on the timeline. The
+    // model dutifully looked for a cause to fix, found none, and tried again. `satisfied`
+    // carries the truth through to the reducer so the run is told it is DONE, not broken.
     if (appliedPatchIds.has(edit.patch.patchId)) {
       return {
         record: {
@@ -3100,9 +3265,10 @@ export class Orchestrator {
           toolCalls,
           patch: edit.patch,
           applied: false,
-          note: `${baseNote}; no progress (repeated edit)`,
+          note: `${baseNote}; already in place — this exact change is already on the timeline`,
         },
         applied: false,
+        satisfied: true,
         working,
       };
     }
@@ -3195,6 +3361,14 @@ export class Orchestrator {
     },
   ): AsyncGenerator<AiEvent, { text: string; calls: ToolCall[]; aborted: boolean; usage?: Usage }> {
     let text = '';
+    // The narration boundary (kernel/narration.ts). Assistant text reaches the UI as live
+    // deltas, so this has to sit on the delta path rather than on the settled string: a
+    // filter that only ran at the end would let "I'll continue from the interpret stage."
+    // render and then snap away. `text` accumulates what the filter LET THROUGH, so the
+    // string the editor read, the string stored as the patch reason, and the string the
+    // reducer signatures the turn by are all the same string — there is no second, dirtier
+    // copy of the message anywhere downstream.
+    const narration = createNarrationFilter();
     const calls: ToolCall[] = [];
     // Real usage this call reported (C1), if any — a caller (e.g. the agent loop's
     // `runTurn`) folds this into the run's cost accumulator. Never fabricated: stays
@@ -3283,14 +3457,26 @@ export class Orchestrator {
       for await (const chunk of chunks) {
         if (signal?.aborted) {
           settled = true;
+          // A cancelled turn still owns whatever the narration filter was holding: it is a
+          // half-written sentence about the edit, not chatter (chatter was already dropped
+          // the moment its terminator arrived), and swallowing it would make a cancelled
+          // reply read as if the model said nothing at all.
+          const tail = narration.flush();
+          if (tail !== '') {
+            text += tail;
+            if (sink.kind === 'assistant') yield emit.delta(sink.id, tail);
+          }
           const settle = settleReasoning();
           if (settle) yield settle;
           return { text, calls, aborted: true, ...(usage ? { usage } : {}) };
         }
         if (chunk.type === 'text-delta') {
-          text += chunk.text;
-          if (sink.kind === 'assistant') {
-            yield emit.delta(sink.id, chunk.text);
+          const surfaced = narration.push(chunk.text);
+          if (surfaced !== '') {
+            text += surfaced;
+            if (sink.kind === 'assistant') {
+              yield emit.delta(sink.id, surfaced);
+            }
           }
         } else if (chunk.type === 'reasoning-delta') {
           if (captureReasoning) {
@@ -3310,6 +3496,13 @@ export class Orchestrator {
         // 'done' carries the final canonical text, already accumulated from deltas.
       }
       settled = true;
+      // Release the tail the filter never got a terminator for (a message that ends without
+      // punctuation). `flush` still refuses it when it is unmistakable run chatter.
+      const tail = narration.flush();
+      if (tail !== '') {
+        text += tail;
+        if (sink.kind === 'assistant') yield emit.delta(sink.id, tail);
+      }
       const settle = settleReasoning();
       if (settle) yield settle;
       // Replace the estimate with what the provider actually charged, keeping the
@@ -3365,6 +3558,12 @@ export class Orchestrator {
     wipeGuard?: WipeGuardContext,
     /** Enforce an exceptional route-scoped descriptor set at execution time. */
     allowedToolNames?: ReadonlySet<string>,
+    /**
+     * The run's beat-payload box (see `HostCallContext.beatEvidence`). Absent on routes
+     * that never edit — the question route can call `detect_beats` to answer a question,
+     * but has no turn to hold to a grid.
+     */
+    beatEvidence?: { current?: unknown },
   ): AsyncGenerator<
     AiEvent,
     {
@@ -3402,6 +3601,7 @@ export class Orchestrator {
       ...(signal ? { signal } : {}),
       effectRuntime,
       evidence,
+      ...(beatEvidence ? { beatEvidence } : {}),
       loadedSkills,
       ...(askUser ? { askUser } : {}),
       // `analysisBudget` is created once up front (always truthy) and threaded
@@ -4587,6 +4787,7 @@ export class Orchestrator {
     // unchanged working copy is served from here and marked non-novel, so re-reading is
     // never mistaken for progress. Cleared inside `runAgentCall` when an edit lands.
     const evidence = new EvidenceStore();
+    const beatEvidence: { current?: unknown } = {};
     // ADR 0057: per-run skill ledger — shared across the run's turns AND its repair
     // pass, so a playbook is fetched once and stays pinned in context for the rest of
     // the run (see `HostCallContext.loadedSkills` / `agentSkillsBlock`).
@@ -4992,6 +5193,7 @@ export class Orchestrator {
             effect.actionRecovery
               ? new Set(self.agentTools('action-recovery').map((tool) => tool.name))
               : undefined,
+            beatEvidence,
           );
         // Hand this turn's frames to the NEXT request (see `pendingFrames`).
         pendingFrames = frames;
@@ -5040,6 +5242,7 @@ export class Orchestrator {
           turnOps,
           working,
           appliedPatchIds,
+          rawBeats: beatEvidence.current,
         });
         log.push(`Step ${index}: ${applied.record.note}`);
         const describedActions: DescribedAction[] = [];
@@ -5081,6 +5284,7 @@ export class Orchestrator {
           appliedOps: applied.applied ? [...turnOps] : [],
           describedActions,
           note: applied.record.note,
+          ...(applied.satisfied === true ? { satisfied: true } : {}),
         });
       },
 
@@ -5106,6 +5310,7 @@ export class Orchestrator {
             report,
             stepIndex: state.planSteps.length + 1,
             appliedPatchIds,
+            rawBeats: beatEvidence.current,
             maxOpsPerTurn,
             effectRuntime,
             loadedSkills,
@@ -5252,11 +5457,21 @@ export function agentCompletionReport(args: {
   rejectionReasons: readonly string[];
 }): string {
   const maxLines = 10;
-  const lines = args.ops.slice(0, maxLines).map((op) => {
-    const described = describeOperation(op, args.names);
-    return `- ${described.action}: ${described.detail}`;
-  });
-  const more = args.ops.length - maxLines;
+  // Collapse lines that render identically. Eight successive restyles of one caption track
+  // describe ONE outcome to the person reviewing it — the last one is what they will see —
+  // and printing the same sentence eight times reads as a malfunction rather than a receipt.
+  // Only the RENDERED line is compared, so two edits that differ in any way the editor can
+  // see still get their own row; this hides repetition, never distinct work.
+  const counts = new Map<string, number>();
+  for (const op of args.ops) {
+    const line = operationLine(op, args.names);
+    counts.set(line, (counts.get(line) ?? 0) + 1);
+  }
+  const distinct = [...counts.entries()];
+  const lines = distinct
+    .slice(0, maxLines)
+    .map(([line, count]) => `- ${line}${count > 1 ? ` (×${count})` : ''}`);
+  const more = distinct.length - maxLines;
   if (more > 0) lines.push(`- …and ${more} more`);
   const head = `**Applied ${args.ops.length} edit${args.ops.length === 1 ? '' : 's'}** in ${args.steps} step${args.steps === 1 ? '' : 's'} — review the proposed change below.`;
   const skipped =
