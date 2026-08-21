@@ -2,27 +2,23 @@
  * @framepilot/ai-sdk/kernel/beat-grid/beat-alignment — the deterministic beat-grid
  * boundary rule for a beat-backed montage proposal.
  *
- * ## ⚠️ Currently unwired (ADR 0126)
+ * ## Where this runs (ADR 0132)
  *
- * Its only caller was the planned-edit graph driver, retired in the 9.5 Phase-1
- * convergence. **No path enforces this rule today**, including the agent runtime that
- * absorbed beat-synced montage work: the agent can call `detect_beats` and place clips, but
- * nothing checks those `add_clip` boundaries against the detected onsets.
+ * `Orchestrator#applyAgentTurn`, which both turn loops and the repair pass funnel through.
+ * It engages only when the run gathered beat evidence — the agent elected `detect_beats` —
+ * and the raw payload is threaded per run through `applyAgentTurn`'s arguments (a box on
+ * `HostCallContext.beatEvidence`), never held on the Orchestrator, which serves concurrent
+ * runs.
  *
- * It is kept rather than deleted because it is a real editorial guarantee that the one
- * runtime should have, and re-deriving it later from the three observed failure modes below
- * would be strictly harder than wiring what already exists and is tested.
+ * There is deliberately no beat-sync mode, flag, or request classifier: the MODEL decides
+ * that the music matters by choosing to analyze it, and the RUNTIME then guarantees the
+ * frame-accuracy that decision implies. A run that never asks about the music is untouched.
  *
- * Wiring it is roadmap PR 5 ("close primary-agent capability gaps"). The choke point is
- * `Orchestrator#applyAgentTurn`, which both turn loops funnel through and which already
- * holds the working project and the turn's operations. What is missing is the run's beat
- * evidence: the raw `detect_beats` payload must be threaded through `applyAgentTurn`'s
- * arguments rather than held on the Orchestrator instance, which serves concurrent runs.
- *
- * Note this was never a hard invariant in shipped behavior: the planned-edit route only ran
- * when the classifier chose it AND the compiled plan passed the structural gate, and
- * otherwise fell back to the agent — with no beat-snap. It was a guarantee on a
- * sometimes-taken path, which is why its absence is a tracked gap rather than a stop-ship.
+ * Between the 9.5 Phase-1 convergence (which retired its only caller, the planned-edit graph
+ * driver) and ADR 0132, no path enforced this rule at all. Note it was never a hard invariant
+ * even before that: the planned-edit route only ran when the classifier chose it AND the
+ * compiled plan passed the structural gate, and otherwise fell back to the agent with no
+ * beat-snap.
  *
  * ## Why this exists as its own module
  *
