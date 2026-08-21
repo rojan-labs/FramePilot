@@ -328,7 +328,10 @@ A 9.5 system must also satisfy these binary rules:
 - **1** authoritative project source of truth.
 - **1** authoritative final-render path.
 - **1** authoritative editor command/transaction semantics per supported edit.
-- **1** mutating AI runtime after convergence.
+- **1** mutating AI RUNTIME after convergence — one loop, one conductor, one durable
+  checkpointing authority. Deliberately not "one mutating entry point": the single-shot
+  `edit` proposal surface has no loop, no conductor, no checkpointing, and no authority the
+  agent lacks, and it is retained (maintainer decision, ADR 0133).
 - **100%** of applied AI edits inspectable through a diff/receipt.
 - **100%** of applied AI runs undoable according to their advertised scope.
 
@@ -634,7 +637,22 @@ later reader does not mistake an unmeasured dimension for a proven one.
 
 ### Follow-up opened by this phase
 
-- [ ] **Beat-grid boundary enforcement is unwired (roadmap PR 5).**
+- [x] **Beat-grid boundary enforcement is wired (ADR 0132, 2026-08-21).** Closed exactly as
+      described below: the choke point is `Orchestrator#applyAgentTurn` (both turn loops and
+      the repair pass), and the raw `detect_beats` payload is threaded per run through a
+      `HostCallContext.beatEvidence` box rather than held on the Orchestrator. The gate is
+      the agent's own decision — the rule engages only when the run called `detect_beats`,
+      so there is no beat-sync mode, flag, or classifier. `beatGridFor()` (a narrow export of
+      the semantic index's existing `deriveBeats`) resolves the timeline-time grid so music
+      placed on an EARLIER turn is found, which the module alone could not do.
+      Evidence: `beat-grid-wiring.test.ts` drives real `streamAgent` runs — near-misses
+      snapped, far-off cuts rejected naming the nearest onset and never reaching the
+      timeline, and a run without `detect_beats` completely untouched. Mutation-tested.
+      One limitation recorded in the ADR: the rule governs `add_clip`/`trim_clip`/
+      `split_clip` picture boundaries, not montages assembled via `move_clip`/ripple ops.
+      Note the original text below, kept for the record:
+
+- [x] ~~**Beat-grid boundary enforcement is unwired (roadmap PR 5).**~~
       `kernel/beat-grid/beat-alignment.ts` snapped near-miss `add_clip` boundaries onto
       detected onsets and rejected off-grid ones naming the nearest legal onset. Its only
       caller was the planner path; the agent does not enforce it, so no path does today. The
@@ -649,13 +667,18 @@ later reader does not mistake an unmeasured dimension for a proven one.
       clips, so no boundary was ever off-grid. A parity row proves parity only for the
       behavior it exercises — worth remembering when the next route is compared.
 
-- [ ] **The single-shot `edit` route is a second mutating entry point.** It is a proposal
-      surface, not a second runtime — no loop, no conductor, no durable checkpointing, and no
-      authority the agent lacks — but §4's "1 mutating AI runtime" is not literally true while
-      it exists. Its user-facing value (one quick reviewable edit; browser-only `variations`
-      A/B takes) is real, so it was deliberately NOT folded into the agent in this phase.
-      Converging it means running Edit mode as a turn-bounded agent run and deciding what
-      happens to `variations`. Tracked here rather than silently claimed as done.
+- [x] **The single-shot `edit` route stays. Closed as WON'T DO (maintainer decision
+      2026-08-21, ADR 0133).** It is a proposal surface, not a second runtime — no loop, no
+      conductor, no durable checkpointing, and no authority the agent lacks. The criterion in
+      §4 was the thing that was wrong, and it has been corrected to say one mutating
+      *runtime* rather than one mutating entry point.
+
+      Converging it would have meant either deleting `variations` (a shipped, working
+      browser capability, removed only to satisfy a sentence in a plan) or re-implementing it
+      on top of a turn-bounded agent run — the larger blast radius, for no user-visible gain.
+      Neither trade is worth making: convergence is for removing PARALLEL IMPLEMENTATIONS of
+      the same authority, and `edit` is not one. Recorded so a later agent does not "finish"
+      this by deleting a feature.
 
 ---
 
@@ -678,18 +701,56 @@ MCP -------------+
 
 ## 7.1 Canonical command contract
 
+**Audited 2026-08-21.** `listEditorCapabilities()` is this contract, and it already carried
+most of it. Status per row:
+
 Every supported professional edit should have one semantic contract with:
 
-- deterministic target requirements;
-- explicit time domain;
-- preconditions;
-- compilation to typed operations;
-- validation;
-- apply;
-- invert/undo;
-- human-readable description;
-- diff/receipt representation;
-- replay semantics where applicable.
+- [x] deterministic target requirements — `appliesTo` (clip / edit_point / track /
+      source_range);
+- [x] **explicit time domain — added 2026-08-21.** `editor-core` encoded this in the type
+      system as `FrameDelta<'source'>` vs `FrameDelta<'sequence'>`, which is the right place
+      to CHECK it, but a phantom type parameter vanishes at runtime, so the discovery surface
+      the model reads never carried it. Capabilities now declare `timeDomains`, read off each
+      command's own interface: `slip` is `['source']`, `slide` is `['sequence']`,
+      `insert`/`overwrite` are `['sequence', 'source']` (they position in sequence and trim in
+      source), `lift`/`extract` are `[]`. Pinned by `editor-capabilities.test.ts`, which also
+      asserts every timeline command is accounted for, so a new command cannot arrive
+      undeclared. This matters because ADR 0076 calls the two-timebases confusion the single
+      most expensive thing to get wrong AND invisible when wrong;
+- [x] **preconditions — added 2026-08-21.** `compileEditorCommand` already refused with
+      structured codes rather than prose, but only the compiler's source said which command
+      could raise which, so no UI or MCP client could ask "what can go wrong with a roll?"
+      `editor-core` now exports `COMMAND_REJECTION_CODES`, and capabilities republish it as
+      `preconditions` (`timeline.roll` carries `not_adjacent`, `different_tracks`,
+      `clip_too_short`, `retimed_boundary_unsupported` on top of the shared set).
+      A deliberate **superset**: codes raised by shared helpers (`assertLocations`,
+      `trackForCommand`, `assetForCommand`, `ensureHandle`, `placementSource`,
+      `locationsForClipSet`) are listed for every command, because proving which helper each
+      command reaches needs a call-graph pass. Over-listing is safe for these consumers;
+      under-listing would not be.
+      Kept honest by `command-preconditions.audit.test.ts`, which reads the compiler's source
+      and fails when a command raises a code the table does not declare. That audit earned its
+      place immediately: it caught two errors in the first hand-written draft, where a helper
+      defined between two compilers had its codes attributed to the one above it.
+- [x] compilation to typed operations — `compiler` + `operationTypes`;
+- [x] validation — `verifier` (`editor-core:validatePatch`);
+- [x] apply — the shared patch authority;
+- [x] invert/undo — `inverter` (`editor-core:invertPatch`);
+- [x] **human-readable description — added 2026-08-21.** Every capability now carries one
+      sentence naming the MECHANISM, not the label: what moves and what stays fixed. That is
+      the part a person needs to choose between the confusable pairs — slip "changes which
+      part of the source a clip shows, without moving the clip", slide "moves a clip while its
+      neighbours absorb the change"; lift "leaves the gap behind", extract "closes the gap".
+      Written from each compiler's verified behaviour (slip shifts `sourceStart`/`sourceEnd`
+      with the timeline span fixed; lift compiles to `delete_range`, extract to
+      `ripple_delete`), not from the command's name. Property capabilities derive theirs from
+      the property and domain. `tracking_mask.automatic_subject_track` says plainly that it is
+      not available. Tested for presence, distinctness, and the slip/slide and lift/extract
+      distinctions specifically;
+- [~] diff/receipt representation — `describeOperation` produces it, but the capability does
+      not reference it, so the link is by convention;
+- [ ] replay semantics where applicable — not represented.
 
 Do not create AI-only editor mechanics for operations that already have or should have canonical editor semantics.
 
@@ -697,34 +758,115 @@ Do not create AI-only editor mechanics for operations that already have or shoul
 
 Track every supported capability through the full spine:
 
-| Capability | UI | AI | deterministic target | command | validate | undo | preview | export | tests |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| trim/ripple | | | | | | | | | |
-| roll | | | | | | | | | |
-| slip/slide | | | | | | | | | |
-| insert/overwrite | | | | | | | | | |
-| lift/extract/replace | | | | | | | | | |
-| transitions | | | | | | | | | |
-| transforms/keyframes | | | | | | | | | |
-| captions | | | | | | | | | |
-| audio | | | | | | | | | |
-| color | | | | | | | | | |
-| masks/tracking | | | | | | | | | |
-| multicam | | | | | | | | | |
+**Audited 2026-08-21 against code.** `✓` verified present, `✗` verified absent, `~` present
+but incomplete, `?` not audited. Sources: `listEditorCapabilities()` (34 registered
+capabilities carrying commandType/tool/compiler/verifier/inverter/operationTypes),
+`TOOL_REGISTRY` (43 mutating tools), and a grep of the web-editor for each surface.
+
+| Capability | UI | AI | command | validate | undo | preview | export | tests |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| trim/ripple | ✓ *(bypasses cmd)* | ✓ | ✓ `ripple_trim_edit` | ✓ | ✓ | ? | ? | ✓ |
+| roll | ✗ | ✓ | ✓ `roll_edit` | ✓ | ✓ | ? | ? | ✓ |
+| slip/slide | ✗ | ✓ | ✓ `slip_edit`/`slide_edit` | ✓ | ✓ | ? | ? | ✓ |
+| insert/overwrite | ✗ | ✓ | ✓ `insert_edit`/`overwrite_edit` | ✓ | ✓ | ? | ? | ✓ |
+| lift/extract/replace | ✗ | ✓ | ✓ `lift_/extract_/replace_edit` | ✓ | ✓ | ? | ? | ✓ |
+| transitions | ✓ | ✓ `add_transition` | ✗ *no capability entry* | ✓ | ✓ | ? | ? | ✓ |
+| transforms/keyframes | ✓ | ✓ `professional_motion` | ~ *property, not command* | ✓ | ✓ | ? | ? | ✓ |
+| captions | ✓ | ✓ | ✗ *no capability entry* | ✓ | ✓ | ? | ? | ✓ |
+| audio | ✓ | ✓ `professional_audio` (8 props) | ~ *property, not command* | ✓ | ✓ | ? | ? | ✓ |
+| color | ✓ | ✓ `professional_color` (7 props) | ~ *property, not command* | ✓ | ✓ | ? | ? | ✓ |
+| masks/tracking | ~ *see below* | ✓ manual; automatic **unavailable** | ~ | ✓ | ✓ | ✗ | ✓ | ✓ |
+| multicam | ✗ *0 components* | ✓ `switch_angle` | ✓ `switch_angle_edit` | ✓ | ✓ | ? | ? | ✓ |
 
 A schema, tool, backend, or preview-only implementation does not make a row complete.
 
+### The structural finding
+
+**The UI does not go through `EditorCommand`. The AI and MCP do.**
+
+`compileEditorCommand` has exactly three non-test consumers: `domain-tools/professional-edit.ts`
+(the AI path), `editor-capabilities.ts` (discovery), and the evals. **No UI file imports it.**
+The web-editor instead builds raw operations directly in
+`apps/web-editor/src/editor/patch-builders-base.ts` (`trim_clip`, `split_clip`, `move_clip`,
+`ripple_delete`, `add_mask`, …). MCP converges, because `packages/mcp-server/src/tools.ts`
+derives its surface from `TOOL_REGISTRY`.
+
+So today's shape is:
+
+```text
+AI  --+--> EditorCommand --> operations --+
+MCP --+                                   +--> validate --> apply --> revision
+UI  --------------------------------------+   (bypasses the command layer)
+```
+
+The `validate → apply → revision` authority IS shared — that invariant holds, and the
+operation-algebra property suite (§7.3) now proves its laws. What is not shared is
+**command semantics**: `roll`, `slip`, `slide`, `insert`, `overwrite`, `lift`, `extract`,
+`replace`, `j_cut`, `l_cut` and `switch_angle` exist ONLY for the AI. A human editor cannot
+perform them at all — there is no keyboard shortcut, menu item, or control that reaches them.
+
+That is Phase 2's real work, now precisely located: it is not "converge two implementations of
+roll", it is "the UI has no roll at all, and the eleven professional edits the command layer
+already compiles are unreachable by hand."
+
+### Row notes
+
+- **transitions / captions** have working UI and AI but **no `listEditorCapabilities()` entry**,
+  so they sit outside the capability registry that §7.1's contract is meant to cover. Either
+  they belong in it or the registry's scope needs stating.
+- **motion / colour / audio** are registered as `kind: 'property'`, not `kind: 'command'` —
+  they have no `commandType` and compile straight to operations. Whether §7.1's "canonical
+  command contract" is meant to cover properties is unresolved.
+- **masks**: the Inspector dispatches `addMaskPatch`, but `bounds` is **hardcoded** to the
+  centre 60% (`patch-builders-base.ts`, "until point editing lands") — there are no canvas
+  handles and no numeric fields, so a user cannot place a mask. Polygon falls back to a
+  rectangle. The engine rasterizes all three shapes correctly; the preview draws none of them.
+  Engine ✓, UI operable ✗.
+- **automatic subject tracking** is registered `unavailable` by deliberate decision, not by
+  omission.
+- **preview / export columns are NOT audited** and are marked `?` rather than guessed. Doing
+  them honestly means checking each capability against `canvasPreviewEligible` and the Python
+  compiler, which is its own pass.
+
 ## 7.3 Operation algebra and property tests
+
+**Partially delivered (2026-08-21):** `packages/editor-core/src/operation-algebra.property.test.ts`
+covers the rows below over GENERATED sequences (seeded PRNG, 8 fixed seeds, 8-11
+applied operations each, spanning trim/split/delete_range/ripple_delete/text-overlay). It found
+**no defects** — the algebra held on every sequence. Mutation-tested and load-bearing: a stale
+inverse state (inverse computed against the original timeline instead of the running one — the
+classic composition bug) fails 12 of its 25 cases vs 2 of 27 in `patch.test.ts`, and its
+per-prefix law names the operation index where divergence starts. The remaining rows (stale
+staleness row is covered on the command path by `professional-commands.ts`, not by this
+suite; see its annotation below.
 
 For core deterministic operations, add property-oriented coverage for:
 
-- apply then invert restores exact project state;
-- operation composition preserves schema validity;
-- invalid preconditions fail closed;
-- stale revisions cannot silently apply;
-- no operation can escape project authority;
-- serialization/reload does not change meaning;
-- generated operation sequences cannot corrupt timeline structure.
+- [x] apply then invert restores exact project state (content; `revision` is a monotonic clock
+      and is asserted to advance rather than rewind, which is correct behaviour), and every
+      PREFIX inverts independently, which localizes a bad inverse to one operation;
+- [x] operation composition preserves schema validity;
+- [x] invalid preconditions fail closed;
+- [x] stale revisions cannot silently apply — **on the command path**, and the counter's
+      accuracy is proven independently. Two halves:
+      (a) `revision` advances iff the source↔sequence mapping changed (ADR 0076); both a
+      missed bump and a spurious bump are caught by `operation-algebra.property.test.ts`.
+      (b) Every `EditorCommand` is revision-bound by construction — `EditorCommandBase`
+      carries `timelineRevision` — and `compileEditorCommand` runs `validateAuthority`
+      **before every dispatch**, rejecting `stale_timeline` when the command's revision does
+      not match the timeline's. Covered by `professional-commands.test.ts`.
+      **Correction:** an earlier pass on 2026-08-21 recorded "editor-core has no revision
+      precondition". That was wrong — it came from grepping for `baseRevision`/
+      `expectedRevision`/`atRevision` and missing `timelineRevision`/`stale_timeline`.
+      **The real gap is narrower and more useful:** the guard protects the COMMAND path only.
+      Raw `applyPatch` has no revision precondition, and per §7.2 the UI uses exactly that raw
+      path. So a stale UI edit is unguarded while a stale AI command is rejected;
+- [x] no operation can escape project authority — `applyPatch` never mutates its input, so no
+      edit can change state without a recorded, invertible operation;
+- [x] serialization/reload does not change meaning — equal after a JSON round-trip, and
+      behaviourally identical under the next operation;
+- [x] generated operation sequences cannot corrupt timeline structure (checked after every
+      prefix, not just at the end).
 
 ## Phase 2 exit criteria
 
@@ -1351,7 +1493,7 @@ Track these counts over time:
 
 | Complexity metric | Target | Measured 2026-08-18 |
 | --- | ---: | --- |
-| mutating AI runtimes | 1 | **1** agent runtime, plus the single-shot `edit` proposal surface (Phase-1 follow-up) |
+| mutating AI runtimes | 1 | **1** agent runtime. The single-shot `edit` proposal surface is retained by decision (ADR 0133) — no loop/conductor/checkpointing, so not a runtime |
 | project mutation authorities | 1 | **1** — `editor-core` |
 | final render authorities | 1 | **1** — Python/FFmpeg |
 | review writers | 0 | **0** — asserted per scenario by the conformance suite |
@@ -1631,8 +1773,8 @@ The FramePilot 9.5 Convergence Program is complete when:
 - [ ] the benchmark table has measured evidence rather than subjective baseline estimates;
 - [ ] canonical supported agent-edit scenarios achieve >=95% target success;
 - [ ] the north-star raw-footage-to-finished-edit workflow is publishable-quality across representative projects;
-- [~] there is one mutating AI runtime — `planned_edit` retired (ADR 0126); the single-shot
-      `edit` proposal surface remains, see the Phase-1 follow-up;
+- [x] there is one mutating AI runtime — `planned_edit` retired (ADR 0126); the single-shot
+      `edit` proposal surface is retained by decision (ADR 0133) and is not a second runtime;
 - [ ] there is one authoritative editor command/transaction semantics per supported edit;
 - [ ] there is one project truth and one final-render authority;
 - [ ] review is read-only and cannot become a second writer;

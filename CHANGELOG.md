@@ -6,6 +6,51 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **The AI no longer talks to you about its own bookkeeping.** On longer jobs it had started
+  opening its replies with things like *"I'll continue from the interpret stage"* or *"I'll
+  continue from where the run left off"* — a status report on its internal state machine,
+  which is not something you asked for and not something that means anything to an editor.
+  The same sentence was also saved as the reason on the edit it made, so it reappeared every
+  time you reviewed that change in the history.
+
+  It now writes about your video and nothing else. The internal notes it keeps between steps
+  are explicitly marked private to it, and the app enforces the same rule independently, so
+  the sentence cannot reach you even if the AI forgets — on a normal run, a cancelled one, a
+  retried one, or one that fails partway.
+
+- **The AI stops redoing work it has already done.** In one caption job it applied your
+  emphasis seven times over and still believed it had never managed it once — so it kept
+  trying, kept looking, and finished without telling you the job was done. Two of its own
+  notes were misleading it. Emphasising words and restyling a caption track were being
+  written into its history under the same description, so it could not tell the two apart;
+  and when it re-made a change that was already on your timeline, it recorded that as a
+  *failure* and went looking for a cause to fix. Neither is true any more: each action is
+  now recorded as the thing it actually was, and work already in place is reported as done
+  rather than broken.
+
+- **The summary at the end of an AI edit is readable again.** It had been listing every
+  change as `Set track caption style:` — the same line eight times over, each one trailing a
+  colon and then nothing, with no mention of which track was touched. It now names what was
+  changed and where, and says each thing once with a count instead of repeating itself. It
+  also no longer claims changes "did not validate" when they validated fine and were simply
+  already in place.
+
+- **The AI stops telling itself your whole request has passed.** Its internal check confirms
+  the timeline is consistent — it cannot know whether the effects you asked for were added.
+  It had been recording that check against your request word-for-word, so a job with half the
+  work missing still read as passed. The check is now labelled for what it actually covers.
+
+- **Cuts made to music actually land on the beat.** When you ask the AI to cut to a track, it
+  analyses the music and gets the exact position of every beat — but nothing was checking its
+  cuts against them, so a cut could sit just off and the montage would feel loose for no
+  visible reason. Now, whenever it has measured the music, a cut that is very slightly off is
+  moved onto the beat for you, and one that is badly off is refused with the nearest real beat
+  named so it can correct itself. There is no setting for this: the AI decides whether the
+  music matters, and if it does, the timing is guaranteed. Edits where it never looked at the
+  music are unaffected.
+
 ### Changed
 
 - **Captions on a fast-cut video can be checked again.** Asked to improve the captions on a

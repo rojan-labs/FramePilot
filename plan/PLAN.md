@@ -13,6 +13,277 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-21):** `[x]` **The agent leaked its own run state into the
+chat, and into the edit history.** A captured run opened 21 of its replies with harness
+bookkeeping — *"I'll continue from the interpret stage."*, *"I'll continue from where the
+run left off."* — and because the run has one text channel, the same sentence was stored as
+the patch `reason` and rendered as the proposed edit's Summary and Reason.
+
+Root cause: `buildStateBriefing` hands the model an imperative second-person briefing
+("You are at 'interpret'. Continue from here."), and nothing in the contract said which of
+that machinery the editor may see. Every rule governed what the model should *do*; none
+governed what it may *say about itself*. Not a truncation/retry/cancellation artifact — the
+leaking turns were ordinary successful ones.
+
+Fixed at the contract (a privacy clause on the briefing itself, and a NARRATION rule opening
+the agent contract) **and** independently at the kernel (`kernel/narration.ts`, filtering the
+assistant delta stream in `streamProvider` — the one point every route's model text passes
+through). `text` now accumulates what the filter let through, so the string the editor read,
+the string stored as the patch reason, and the string the reducer signatures the turn by are
+the same string. ADR 0130.
+
+Evidence: 3091 ai-sdk tests green, lint + typecheck clean, `narration.ts` at 100%
+line/branch/function coverage. Both new test files mutation-tested — with `isRunChatter`
+forced to `false`, all six run-level guards (clean, complete()-only, cancelled mid-sentence,
+provider throws, truncated, retried turn) fail. All 15 golden fixtures re-recorded; the
+complete diff is token-estimate deltas (+167/request, ~0.9%) with **zero** event, ordering or
+behavioural divergence.
+
+**Status snapshot (2026-08-21):** `[x]` **The same run's other two defects: the agent could
+not tell its own actions apart, and was told success was failure.** In that capture
+`auto_emphasize_captions` ran eight times and **succeeded seven**, yet the run finished
+believing emphasis had never landed. Two records were lying, and they compounded:
+
+1. `summarizeOperations` built the tool-result note from the OPERATION, so
+   `auto_emphasize_captions` and `set_track_caption_style` — which both emit
+   `set_track_caption_style` — logged the identical line "Set track caption style Caption 1"
+   (28 times in the capture). That note is the tool result, the agent log, AND the
+   `ALREADY APPLIED` row, so the run's memory showed only styling and never emphasis.
+   Fixed: when a tool's name is not among the ops it produced, the note reads
+   `intent → outcome` ("Emphasising key words in the captions Caption 1 → Set track caption
+   style Caption 1"). A runtime rule, not a table — every such tool benefits.
+2. A turn refused by the repeated-patch guard was recorded as a `failed` operation, which the
+   briefing renders under `FAILED — fix the cause, do not retry unchanged`. That appeared
+   **24 times** for emphasis that was correctly on the timeline. The model looked for a cause,
+   found none, retried, produced the same patch id, and got the same "failure". Fixed:
+   `AgentTurnResult.satisfied` marks the no-op branch, the reducer records `succeeded` with no
+   failure reason, and it lands under `ALREADY APPLIED`. Genuine rejections are unchanged.
+
+3. The completion report rendered `${action}: ${detail}` unconditionally, and
+   `describeOperation` returns an empty detail for any op without start/end — so the run
+   closed with eight rows of `Set track caption style:`, a dangling colon over nothing, and
+   no mention of which track. Its "Skipped: 2 proposed changes did not validate" counted the
+   already-applied no-ops. Fixed: a shared `operationLine` (action + subject + detail) used by
+   both the note and the report, identical lines collapsed to one row with `(×N)`, and
+   satisfied turns excluded from the rejection tally.
+4. The verify fold records `criterion: objective.description`, and objectives are seeded from
+   `userPrompt` — so the run's memory ended with `PASS <the entire request> — All checks
+   passed.` on a run that called **no effect or transition tool at all**. `buildStateBriefing`
+   feeds that straight back to the model under `VERIFIED`: the CLAIMS OF COMPLETION overclaim
+   the contract forbids, arriving through the one channel the contract cannot reach.
+   `briefing.ts` already suppresses this echo in three other sections; `VERIFIED` was missed.
+   Fixed: an echoed criterion renders as `the timeline consistency checks (NOT the request
+   itself)`; a real criterion is untouched.
+
+ADR 0131. Evidence: `agent-call-note.test.ts` (end-to-end through `streamAgent`),
+`kernel/already-satisfied.test.ts` (through the real reducer, 9 cases) and
+`orchestrator-stream.test.ts`, every fix mutation-tested; 3111 ai-sdk tests and all workspace
+tasks green. Only golden movement is the report gaining its subject
+(`- Deleted range: 0s–3s` → `- Deleted range Video 1 · 0s–3s`), which is the fix.
+
+**Status snapshot (2026-08-21):** `[~]` **FRAMEPILOT-95 Phase 2 §7.3 started: property coverage
+over generated operation sequences.** `packages/editor-core/src/operation-algebra.property.test.ts`
+generates legal operation chains (seeded PRNG, 8 fixed seeds, 8-11 applied ops each, spanning
+trim/split/delete_range/ripple_delete/text-overlay) and asserts the algebra's laws:
+apply-then-invert is identity on content, every PREFIX inverts independently (localizes a bad
+inverse to one step), composition never corrupts structure (checked after every prefix), and a
+stale target fails closed.
+
+**Result: no defects found — the algebra is sound.** Recorded plainly; a property suite that
+finds nothing is evidence, not a failure. Load-bearing per mutation testing: a stale inverse
+state fails 12 of its 25 cases vs 2 of 27 in `patch.test.ts`.
+
+Two flaws were mine, not the engine's, and are worth remembering: (1) `delete_clip` is a TOOL
+name, not an operation type — editor-core's delete vocabulary is range-based, and the engine
+correctly rejected the unknown op rather than no-op'ing; (2) `applyPatch` advances `revision`,
+so apply-then-invert is identity on CONTENT while the revision clock moves forward — an undo
+is a new revision, not a rewind. The test asserts both halves separately.
+
+Extended to cover **six of §7.3's seven rows**: added the revision-clock IFF law (`revision`
+advances iff the source↔sequence mapping changed per ADR 0076 — the signature it compares
+against is written independently of `mappingChanged`, since a test reusing the function under
+test proves only that it equals itself), serialization round-trip (equal after JSON round-trip
+AND behaviourally identical under the next operation), and input immutability (a
+shared-reference leak would let state change with no operation recorded to invert). All three
+mutation-tested: always-bump fails 7/49, never-bump fails 16/49, mutating-the-input fails
+24/49.
+
+**CORRECTION (same day, found while auditing §7.1).** I earlier recorded that "editor-core has
+no revision precondition" and left the staleness row open. **That was wrong.** It came from
+grepping for `baseRevision`/`expectedRevision`/`atRevision` and missing the real names:
+`EditorCommandBase.timelineRevision` and the `stale_timeline` rejection. Every `EditorCommand`
+is revision-bound by construction, and `compileEditorCommand` runs `validateAuthority` **before
+every dispatch**, already covered by `professional-commands.test.ts:464`.
+
+The real gap is narrower and more useful than the one I reported: **the guard protects the
+COMMAND path only.** Raw `applyPatch` has no revision precondition, and per the §7.2 audit the
+web-editor uses exactly that raw path. So a stale AI command is rejected while a stale UI edit
+is not. That is a concrete, testable follow-up, and a better lead than "no guard exists".
+
+**§7.2's capability matrix is now audited against code** (not filled in by guess): 12 rows ×
+8 columns, sourced from `listEditorCapabilities()` (34 registered capabilities carrying
+commandType/tool/compiler/verifier/inverter/operationTypes), `TOOL_REGISTRY` (43 mutating
+tools), and a per-surface grep of the web-editor. Preview/export columns are marked `?` — NOT
+audited, not guessed.
+
+**The structural finding: the UI does not go through `EditorCommand`; the AI and MCP do.**
+`compileEditorCommand` has three non-test consumers — the AI professional-edit tool, capability
+discovery, and the evals. No UI file imports it; the web-editor builds raw operations in
+`apps/web-editor/src/editor/patch-builders-base.ts`. MCP converges via `TOOL_REGISTRY`.
+
+The shared `validate → apply → revision` authority DOES hold. What is not shared is command
+semantics: `roll`, `slip`, `slide`, `insert`, `overwrite`, `lift`, `extract`, `replace`,
+`j_cut`, `l_cut`, `switch_angle` exist **only for the AI** — a human editor cannot perform any
+of them; there is no shortcut, menu item, or control that reaches them. So Phase 2's real work
+is not "converge two implementations of roll", it is "the UI has no roll at all".
+
+Other audited findings: transitions and captions have working UI+AI but **no capability-registry
+entry**; motion/colour/audio are registered as `property`, not `command`, so whether §7.1's
+contract covers them is unresolved; multicam has **zero** UI components; the mask Inspector
+dispatches but `bounds` is **hardcoded** to the centre 60% with no handles or fields, so a user
+cannot place a mask (engine ✓, UI operable ✗ — matching the 2026-08-16 audit, which my own
+quick grep initially contradicted before I checked the source).
+
+**§7.1 audited, and its most load-bearing gap closed.** `listEditorCapabilities()` IS the
+canonical contract and already carried 5 of the 10 required elements (deterministic target,
+compilation, validation, apply, invert). Added the sixth: **explicit time domain**.
+
+`editor-core` already encoded this as `FrameDelta<'source'>` vs `FrameDelta<'sequence'>` in the
+command interfaces, which is the right place to check it, but a phantom type parameter vanishes
+at runtime, so the discovery surface the model actually reads never carried it. Capabilities now
+declare `timeDomains`, read off each command's own signature rather than guessed: `slip` is
+`['source']`, `slide` is `['sequence']`, `insert`/`overwrite` are `['sequence','source']` (they
+position in sequence and trim in source), `lift`/`extract` are `[]`. Property capabilities
+(motion/colour/audio) are `[]` — declaring a timebase on a value that has none would invite a
+conversion that makes no sense.
+
+This matters specifically because ADR 0076 calls two-timebase confusion the single most
+expensive thing to get wrong AND invisible when wrong. `editor-capabilities.test.ts` pins every
+row against the command signatures and asserts the full command set is accounted for, so a new
+command cannot arrive undeclared. Mutation-tested: declaring slip as `sequence` fails 2 of 10.
+
+**§7.1 preconditions: SHIPPED (later the same day).** I first declined this as needing a
+call-graph pass. On re-examination the honest answer was a declared **superset**, which is
+accurate and useful without one. `editor-core` now exports `COMMAND_REJECTION_CODES` and
+capabilities republish it as `preconditions`, so a UI can grey out a roll and say
+`not_adjacent` rather than parsing tool prose. Helper-raised codes are listed for every
+command (over-listing is safe for these consumers; under-listing would not be), and
+`command-preconditions.audit.test.ts` reads the compiler's source and fails when a command
+raises an undeclared code. Mutation-tested. The audit paid for itself immediately: it caught
+two errors in my first hand-written table, where a helper defined between two compilers had
+its codes attributed to the one above it. §7.1 is now 7 of 10 elements.
+
+Formerly-missing, superseded by the above: the
+vocabulary already exists as structured rejection codes from `compileEditorCommand`
+(`not_adjacent`, `clip_too_short`, `insufficient_source_handle`, `locked_track`, …), which is
+exactly what a UI needs to grey a command out and say why. I did NOT ship the field: those
+codes are only partly derivable per command. Seven compilers raise theirs inline, but
+`compileInsert` and `compileOverwrite` raise none directly — theirs come from shared helpers
+(`trackForCommand`, `assertLocations`, `ensureHandle`, `compilePatch`), so declaring `[]` for
+those two would assert "no preconditions", which is false. Doing it right needs a call-graph
+pass, or better, moving each command's codes into a declared table the compiler reads FROM, so
+contract and enforcement cannot diverge. Left undone rather than shipped half-correct.
+**§7.1 human-readable description: SHIPPED.** Every capability carries one sentence naming the
+mechanism rather than the label, since that is what distinguishes the confusable pairs (slip
+vs slide, lift vs extract). Written from each compiler's verified behaviour, not from the
+command name. §7.1 is now **8 of 10**. Remaining: replay semantics, and the diff/receipt link
+is still convention (`describeOperation` produces it; the capability does not reference it).
+
+Also missing: **human-readable description** (lives on the AI tool, so UI/MCP cannot render a
+capability without parsing tool prose), **replay semantics**, and the diff/receipt link is by
+convention (`describeOperation` produces it; the capability does not reference it).
+
+Phase 2 is NOT complete.
+
+**Status snapshot (2026-08-21):** `[x]` **FRAMEPILOT-95 Phase 1 follow-up #2 closed as WON'T
+DO: the single-shot `edit` route stays (maintainer decision, ADR 0133).** The roadmap's
+"1 mutating AI runtime" criterion was literally false while `edit` existed. The criterion was
+what was wrong, not the code: `edit` has no loop, no conductor, no durable checkpointing, and
+no authority the agent lacks — it makes one model call and goes through the SAME
+`assembleEdit` validate/diff path. It is a proposal surface over the one runtime, not a
+parallel implementation of it.
+
+Converging it would have meant deleting `variations` (a shipped browser capability, removed
+to satisfy a sentence in a plan) or rebuilding it on a turn-bounded agent run — which risks
+reintroducing fabricated cost numbers, since `editVariations` deliberately uses `complete()`
+because a stream cannot carry real token usage on its terminal chunk. Neither buys the user
+anything.
+
+§4 now reads "1 mutating AI RUNTIME … explicitly not one mutating entry point"; the exit
+criterion and benchmark table are updated to match. Recorded in ADR 0133 specifically so a
+later agent does not "finish" this by deleting a feature. Reopens if `edit` ever grows its own
+retry/checkpointing/validation authority. No code changed.
+
+**Status snapshot (2026-08-21):** `[x]` **FRAMEPILOT-95 Phase 1 follow-up closed: the beat
+grid has a caller.** `kernel/beat-grid/beat-alignment.ts` — a complete, tested editorial
+guarantee — had **zero callers** since ADR 0126 retired the planned-edit driver. The agent
+could call `detect_beats`, receive 300 exact onsets, and place cuts anywhere, with nothing
+checking one against the other.
+
+Wired at `Orchestrator#applyAgentTurn` (both turn loops + the repair pass), exactly where the
+module's own header said to. The raw payload is threaded per run via a
+`HostCallContext.beatEvidence` box, not held on the Orchestrator (concurrent runs). It could
+NOT come from the evidence store: analysis results are never stored there — only reads and
+`measure_color` are — which is recorded in ADR 0132 because it is the first thing a later
+reader will ask.
+
+**The gate is the agent's own decision**, which is the Phase C property: the rule engages only
+when the run elected `detect_beats`. No beat-sync mode, flag, or classifier exists, and a run
+that never analyzed the music is provably untouched (asserted by test). Runtime owns execution
+and safety; the model owns editorial strategy.
+
+Added `beatGridFor()` — a narrow export of the semantic index's existing `deriveBeats` — so
+music placed on an EARLIER turn resolves, which the module alone could not do. Narrow on
+purpose: the full `SemanticTimelineIndex` would compute scenes/silences/music/chapters every
+turn to read one array.
+
+Evidence: `beat-grid-wiring.test.ts` drives real `streamAgent` runs — near-misses snapped,
+far-off cuts rejected naming the nearest onset and never reaching the timeline, no-beats run
+untouched. Mutation-tested (unwiring fails 2 of 3, third correctly unaffected). 3114 ai-sdk
+tests green. Limitation in ADR 0132: governs add_clip/trim_clip/split_clip picture boundaries,
+not move_clip/ripple assembly.
+
+**Status snapshot (2026-08-21):** `[~]` **FRAMEPILOT-95 Phase E — time-to-first-visible-edit
+is now measurable; the number is NOT yet measured.** Added `timeToFirstEditMs` to the existing
+Phase-0 harness (`agent-run-quality.ts`) — ms from the run's first event to the first
+`timeline_action`/`diff`, i.e. the first instant the editor sees the timeline move. Distinct
+from `wallClockMs`: a run can finish fast and still feel broken if nothing moves for ninety
+seconds. Absent (never zero) when the run produced no visible edit — the captured run's exact
+shape, where a zero would report the worst run as the fastest. Percentiles join the existing
+top-line score via `summarizeAgentOutcomeRuns`. Derived from events the harness already
+captures, so a real-media run reports it with no new instrumentation.
+
+The measuring rig now accepts REAL MEDIA. `eval/foundation-real-eval.ts` drove every scenario
+against `makeProject()` — a few seconds of synthetic fixture — so its latency numbers could
+never have supported a footage claim (goal.md: "Do not use tiny fixtures alone to support a
+long-form performance claim"). It now loads a real project from `FRAMEPILOT_EVAL_PROJECT`,
+parsed through the canonical `parseProject` so a stale/malformed file fails loudly instead of
+silently measuring the wrong thing. Every artifact and job summary is stamped
+`media: 'fixture' | 'real-project'`, and a fixture run prints "these latency figures do not
+support any claim about real footage" — so a fixture number can never be mistaken later for a
+real one. `timeToFirstEditMs` p50/p95 is now a row in the job summary.
+
+So measurement is one command once media + keys exist:
+`FRAMEPILOT_EVAL_PROJECT=/path/to/real.fp.json GOOGLE_API_KEY=… pnpm eval:agent:foundation:real`
+(env var mirrored into `.env.example` + `turbo.json` globalEnv per CLAUDE.md §2).
+
+**No latency, cost, or editorial-quality number is claimed.** Per the maintainer's decision,
+measurement waits on real desktop-scale media and a `TWELVELABS_API_KEY`; a scripted provider
+cannot produce either (the same reason the roadmap's Phase 1 latency condition was waived).
+`plan/FRAMEPILOT-95-CONVERGENCE-ROADMAP.md` Phases 2-11 remain not started.
+
+Known gap left open deliberately: the repeated-patch guard keys on operation content alone,
+so returning the timeline to an earlier state (style S → T → S) is still refused as
+already-applied though it is a real change. Not the cause of this failure; fixing it means
+comparing against the working project rather than a hash set.
+
+Correction to a premise carried in the request that prompted this work: there is **no**
+hardcoded beat-sync conditional or mode flag to remove. The classifier routes only
+`chitchat | question | edit` (ADR 0126); beat sync is already a tool the agent elects. The
+real open item is the reverse — `kernel/beat-grid/beat-alignment.ts` has **no callers** and
+is unwired, tracked as the Phase 1 follow-up in
+`plan/FRAMEPILOT-95-CONVERGENCE-ROADMAP.md`.
+
 **Status snapshot (2026-08-20):** `[x]` **Fix: two tool schemas broke the native Claude
 Messages API.**
 
