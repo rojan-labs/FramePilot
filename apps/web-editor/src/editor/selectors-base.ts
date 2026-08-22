@@ -1592,25 +1592,6 @@ export function isFullFrameCrop(crop: CropRect): boolean {
   );
 }
 
-/**
- * An **approximate** CSS `clip-path: inset(...)` for a crop rect, for the live
- * program monitor only. This masks the element to the cropped region in place —
- * it does NOT zoom the region to fill the frame the way the engine's actual
- * render does, since that would require composing with the H4 on-canvas
- * transform's scale/translate math (a bigger lift deferred per plan/PLAN.md
- * H1.2h). It is a rough "which part survives" preview, not a pixel-accurate one;
- * the deterministic result is always the Python render. Returns `'none'` for a
- * full-frame (no-op) crop.
- */
-export function cropClipPath(crop: CropRect): string {
-  if (isFullFrameCrop(crop)) return 'none';
-  const top = crop.y * 100;
-  const left = crop.x * 100;
-  const right = Math.max(0, (1 - (crop.x + crop.width)) * 100);
-  const bottom = Math.max(0, (1 - (crop.y + crop.height)) * 100);
-  return `inset(${top}% ${right}% ${bottom}% ${left}%)`;
-}
-
 // ---------------------------------------------------------------------------
 // Waveform rendering (Phase 8 — real waveforms from engine-derived Asset.media)
 // ---------------------------------------------------------------------------

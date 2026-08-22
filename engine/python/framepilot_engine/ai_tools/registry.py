@@ -34,6 +34,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
+from framepilot_engine.render.caption_templates import load_catalog
 from framepilot_engine.timeline.models import BlendMode, CaptionStyle, CropRect
 
 _log = logging.getLogger(__name__)
@@ -362,6 +363,9 @@ class RecallEvidenceArgs(BaseModel):
     model_config = _STRICT
     evidence_id: str = Field(alias="evidenceId")
     query: FilterStr = None
+    # Character offset into the stored payload, so the tail of a result larger than the
+    # recall budget stays reachable (mirrors the TS ``offset``).
+    offset: int | None = Field(default=None, ge=0)
 
 
 class TranscriptWindowArgs(BaseModel):
@@ -516,6 +520,17 @@ class AutoEmphasizeCaptionsArgs(BaseModel):
         return cleaned
 
 
+def caption_template_count() -> int:
+    """How many caption templates the catalog holds, for the ``limit`` ceiling.
+
+    Read from the committed catalog artifact rather than hardcoded: the ceiling used to be
+    a literal 45 against a 51-template catalog, so no single ``discover_caption_styles``
+    call could return everything and the ids past the cut were unusable — and
+    ``set_track_caption_style`` rejects an id the model was never shown.
+    """
+    return len(load_catalog())
+
+
 class DiscoverCaptionStylesArgs(BaseModel):
     """Filter the bundled caption templates while always returning bundled fonts."""
 
@@ -529,7 +544,9 @@ class DiscoverCaptionStylesArgs(BaseModel):
         ]
         | None
     ) = None
-    limit: int | None = Field(default=None, ge=1, le=45)
+    # Mirrors the TS ceiling: the catalog's own size, so the whole catalog is reachable
+    # in one call. A ceiling below it meant no call could return everything.
+    limit: int | None = Field(default=None, ge=1, le=caption_template_count())
 
 
 class SetClipSpeedArgs(BaseModel):
@@ -628,12 +645,17 @@ class DetectBeatsArgs(BaseModel):
 
     ``asset_id`` selects which media to analyse; omit it to analyse the first
     audio-bearing asset. ``sensitivity`` tunes the onset peak picker (lower
-    finds more, softer beats). Mirrors the TS ``detectBeatsSchema``.
+    finds more, softer beats). ``hard_sync`` is an EDITORIAL declaration rather than an
+    analysis parameter — the analyzer ignores it entirely; it tells the calling runtime that
+    every interior picture cut is meant to land exactly on an onset, and is what decides
+    whether an off-grid cut is refused or merely reported (see the TS
+    ``kernel/beat-grid/beat-alignment.ts``). Mirrors the TS ``detectBeatsSchema``.
     """
 
     model_config = _STRICT
     asset_id: FilterStr = Field(default=None, alias="assetId")
     sensitivity: float | None = Field(default=None, ge=0.5, le=4.0)
+    hard_sync: bool | None = Field(default=None, alias="hardSync")
 
 
 class SearchMediaArgs(BaseModel):
@@ -740,7 +762,7 @@ class MapFootageArgs(BaseModel):
 
 
 class _ChapterArg(BaseModel):
-    """One chapter signal fed into ``propose_edits`` (mirrors the TS chapter shape)."""
+    """One chapter signal fed into ``read_edit_signals`` (mirrors the TS chapter shape)."""
 
     model_config = _STRICT
     t0: float
@@ -750,7 +772,7 @@ class _ChapterArg(BaseModel):
 
 
 class _HighlightArg(BaseModel):
-    """One highlight signal fed into ``propose_edits`` (mirrors the TS highlight shape)."""
+    """One highlight signal fed into ``read_edit_signals`` (mirrors the TS highlight shape)."""
 
     model_config = _STRICT
     t0: float
@@ -760,7 +782,7 @@ class _HighlightArg(BaseModel):
 
 
 class _SilenceArg(BaseModel):
-    """One silence-gap signal fed into ``propose_edits``."""
+    """One silence-gap signal fed into ``read_edit_signals``."""
 
     model_config = _STRICT
     start: float
@@ -977,7 +999,9 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "that handle to get the full result back, optionally narrowed by a word or "
         "phrase. Use this instead of re-running the read — it is free, it cannot "
         "change under you, and it returns more of the payload than the log preview "
-        "shows.",
+        "shows. A query matches on any of its words, so several keywords are fine. "
+        "When a result says it was truncated at N characters, call again with offset "
+        "N to read on from there.",
         kind="read",
         input_model=RecallEvidenceArgs,
     ),
@@ -1469,16 +1493,19 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         kind="analysis",
         input_model=MapFootageArgs,
     ),
-    "propose_edits": _spec(
-        "propose_edits",
-        "Turn footage understanding into GROUNDED, citable edit candidates — the bridge "
-        'from "what is in the footage" to "where the moves go". Pass the signals you have '
-        "already gathered (map_footage chapters/highlights, analyze_silence ranges, "
-        "detect_scenes cuts, and whether the target is vertical); returns a ranked list of "
-        "candidates [{ kind: punch_in|reframe|speed|cut|broll, t0, t1, why, cite, score }] "
-        "in timeline seconds, each citing the real span it came from. Deterministic — every "
-        "candidate is real; YOU choose which to apply and emit the patch. Does not edit the "
-        "timeline. Reads transcript emphasis from the project automatically.",
+    "read_edit_signals": _spec(
+        "read_edit_signals",
+        "Describe what is measurably THERE across a stretch of the edit — the facts a move "
+        "should be chosen from, never the move itself. Pass the signals you have already "
+        "gathered (map_footage chapters/highlights, analyze_silence ranges, detect_scenes "
+        "cuts); returns them in TIME order as [{ kind: highlight|chapter|silence|emphasis|"
+        "scene_change, t0, t1, observation, from }] in timeline seconds, with each chapter's "
+        "shape (length, highlights inside, words spoken) and each silence long enough to "
+        "notice. Transcript emphasis is measured from the project for you. `from` says "
+        "whether a signal was supplied by you or measured here — a chapter you did not read "
+        "from the footage is still only your own claim. WHICH move each observation deserves "
+        "— a punch-in, a reframe, a ramp, a cut, nothing at all — is your judgement, and this "
+        "tool deliberately does not rank or recommend. Does not edit the timeline.",
         kind="read",
         input_model=ProposeEditsArgs,
     ),

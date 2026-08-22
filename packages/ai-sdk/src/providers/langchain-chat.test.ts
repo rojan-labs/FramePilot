@@ -12,6 +12,7 @@ import {
   mergeArgs,
   mergeUsage,
   reasoningFromKwargs,
+  stopReasonFrom,
   textAndReasoning,
   toChatMessages,
   usageFromMetadata,
@@ -221,5 +222,34 @@ describe('toChatMessages', () => {
     expect(toChatMessages(request([{ role: 'user', content: 'exact text' }]))[0]?.content).toBe(
       'exact text',
     );
+  });
+});
+
+describe('stopReasonFrom', () => {
+  // A reply the provider cut off for want of output room is the one case the orchestrator
+  // must retry rather than publish: judging the prose instead retries finished two-word
+  // answers and still misses a fragment that ends on a period.
+  it('reads a truncation from every spelling a gateway uses', () => {
+    expect(stopReasonFrom({ finish_reason: 'length' })).toBe(true);
+    expect(stopReasonFrom({ stop_reason: 'max_tokens' })).toBe(true);
+    expect(stopReasonFrom({ finishReason: 'length' })).toBe(true);
+    expect(stopReasonFrom({ finish_reason: 'MAX_TOKENS' })).toBe(true);
+  });
+
+  it('reads a normal stop as not truncated', () => {
+    expect(stopReasonFrom({ finish_reason: 'stop' })).toBe(false);
+    expect(stopReasonFrom({ stop_reason: 'end_turn' })).toBe(false);
+    expect(stopReasonFrom({ finish_reason: 'tool_calls' })).toBe(false);
+  });
+
+  it('says NOTHING when the chunk does not mention why it stopped', () => {
+    // `undefined`, not `false`: only the last chunk carries a reason, so an earlier silent
+    // chunk must not overwrite a verdict a later one gives.
+    expect(stopReasonFrom(undefined)).toBeUndefined();
+    expect(stopReasonFrom({})).toBeUndefined();
+    expect(stopReasonFrom({ finish_reason: '' })).toBeUndefined();
+    expect(stopReasonFrom({ finish_reason: 7 })).toBeUndefined();
+    expect(stopReasonFrom('length')).toBeUndefined();
+    expect(stopReasonFrom(null)).toBeUndefined();
   });
 });

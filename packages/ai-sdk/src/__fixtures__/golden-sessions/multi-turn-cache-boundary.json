@@ -30,6 +30,7 @@
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -107,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19230,
+      "usedTokens": 19435,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -126,30 +127,30 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1788,
+            "tokenEstimate": 1763,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19230,
+          "estimatedInputTokensBeforeSend": 19435,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172578,
+          "estimatedRemainingCapacity": 172373,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -362,6 +363,7 @@
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -455,7 +457,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19271,
+      "usedTokens": 19478,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -474,30 +476,30 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1829,
+            "tokenEstimate": 1806,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19271,
+          "estimatedInputTokensBeforeSend": 19478,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172537,
+          "estimatedRemainingCapacity": 172330,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -514,7 +516,7 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: tighten the intro and the outro"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -725,6 +727,7 @@
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -831,7 +834,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19289,
+      "usedTokens": 19497,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -850,30 +853,30 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1847,
+            "tokenEstimate": 1825,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19289,
+          "estimatedInputTokensBeforeSend": 19497,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172519,
+          "estimatedRemainingCapacity": 172311,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -890,7 +893,7 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: tighten the intro and the outro"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -938,6 +941,7 @@
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -1027,7 +1031,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "notification",
-      "text": "Self-check: All checks passed."
+      "text": "Deterministic self-check: All checks passed."
     },
     {
       "id": "turn_golden:run-state",
@@ -1047,6 +1051,7 @@
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -1160,7 +1165,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "assistant_message",
-      "text": "**Applied 2 edits** in 2 steps — review the proposed change below.\n\n- Deleted range: 0s–2s\n- Deleted range: 8s–9s"
+      "text": "**Applied 2 edits** in 2 steps — review the proposed change below.\n\n- Deleted range Video 1 · 0s–2s\n- Deleted range Video 1 · 8s–9s"
     },
     {
       "id": "turn_golden:status:16",

@@ -206,6 +206,33 @@ export function analysisBody(
   return body;
 }
 
+/**
+ * Attach the reading of an EMPTY deterministic analysis to its own payload.
+ *
+ * An empty result is not knowledge, and the model has no other way to tell the difference.
+ * `detect_scenes` returning `cuts: []` on a 575-second single take is the case that matters:
+ * without this note the run recorded a satisfied "footage" fact and then chose thirty seconds
+ * of material with no content evidence at all. The note says what the emptiness means and
+ * what to reach for instead — it never invents a cut.
+ */
+export function withEmptyAnalysisReading(
+  name: string,
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  if (name === 'detect_scenes' && Array.isArray(payload.cuts) && payload.cuts.length === 0) {
+    return {
+      ...payload,
+      interpretation:
+        'No hard cut was detected anywhere in this asset, so this is one continuous take rather ' +
+        'than edited material. Scene detection therefore tells you nothing about WHERE the ' +
+        'interesting moments are. Ground any selection in content evidence — map_footage / ' +
+        'describe_footage / search_visual for what is on screen, or get_frame at candidate ' +
+        'times — and do not present timings chosen without it as "the best moments".',
+    };
+  }
+  return payload;
+}
+
 /** One human line summarizing an analysis result for the tool card. */
 export function summarizeAnalysis(name: string, data: unknown): string {
   const record = (data ?? {}) as Record<string, unknown>;
@@ -226,6 +253,11 @@ export function summarizeAnalysis(name: string, data: unknown): string {
   }
   if (name === 'detect_scenes' && Array.isArray(record.cuts)) {
     const n = record.cuts.length;
+    // "Found 0 scene cuts" reads as an answer. It is the absence of one: an unedited
+    // single take has no hard cut anywhere in it, and a run that files that as an
+    // established footage fact goes on to pick moments out of 575 seconds with nothing
+    // to go on. Say which of the two happened.
+    if (n === 0) return 'No hard cuts in this footage — it is one continuous take';
     return `Found ${n} scene cut${n === 1 ? '' : 's'}`;
   }
   if (name === 'detect_beats' && Array.isArray(record.beats)) {
@@ -294,7 +326,10 @@ export function unwrapUnifiedAnalysis(name: string, data: unknown): HostToolOutc
     }
     return { status: 'failed', summary: `"${name}" failed: ${reason}`, data: reason };
   }
-  const payload = { assetId, ...(entry.result as Record<string, unknown>) };
+  const payload = withEmptyAnalysisReading(name, {
+    assetId,
+    ...(entry.result as Record<string, unknown>),
+  });
   const cached = entry.cached === true ? ' (from project brain)' : '';
   return {
     status: 'completed',
@@ -934,7 +969,8 @@ export function planSidecarCall(
       if (typeof reason === 'string' && reason.length > 0) {
         return { status: 'warning', summary: `"${name}": ${reason}` };
       }
-      return { status: 'completed', summary: summarizeAnalysis(name, data), data };
+      const payload = withEmptyAnalysisReading(name, (data ?? {}) as Record<string, unknown>);
+      return { status: 'completed', summary: summarizeAnalysis(name, payload), data: payload };
     },
   };
 }

@@ -16,12 +16,14 @@ import { createLogger } from '@framepilot/shared-types';
 import {
   TranscriptWordSchema,
   type Asset,
+  type CaptionStyle,
   type Clip,
   type Folder,
   type Project,
   type Track,
 } from '@framepilot/timeline-schema';
 import type { AgentOptions, AgentRun, AgentStep, ReviewResult } from './agent.js';
+import { asksForRenderedFile, checkableAcceptance } from './acceptance.js';
 import { type EditResult, assembleEdit } from './assemble.js';
 import {
   TOOL_CONCURRENCY_ENV,
@@ -60,6 +62,7 @@ import {
   FALLBACK_CLASSIFICATION,
   buildClassifierMessages,
   parseClassification,
+  projectHeaderOf,
 } from './kernel/command-classifier.js';
 import type { Command } from './kernel/commands.js';
 import type {
@@ -86,6 +89,9 @@ import { type AnalysisBudget, createAnalysisBudget } from './kernel/cost/analysi
 import { estimateUsd } from './kernel/cost/cost-meter.js';
 import { stageAllowsRole, toolRole } from './kernel/stage-policy.js';
 import { buildStateBriefing, distil } from './kernel/briefing.js';
+import { createNarrationFilter } from './kernel/narration.js';
+import { alignBeatBackedBoundaries } from './kernel/beat-grid/beat-alignment.js';
+import { beatGridFor } from './kernel/semantic-index/semantic-index.js';
 import { describeUnrecovered, ensureContextInvariants } from './kernel/context/invariants.js';
 import { EvidenceStore, evidenceScopeFor } from './kernel/evidence-store.js';
 import type { RunStage, RunWorkingState } from './kernel/working-state.js';
@@ -93,22 +99,13 @@ import { type ConductorHandlers, runAgentGraph } from './kernel/agent-graph.js';
 import {
   type EffectRuntime,
   type EffectRuntimeObserver,
-  type ModelEffectResult,
   type StructuredEffectExecutor,
   createEffectRuntime,
 } from './kernel/effect-runtime.js';
-import { compilePlan } from './kernel/plan-compiler.js';
 import { EditorRunLifecycleProjector } from './kernel/editor-run-projection.js';
 import type { EditorRunStageEvent } from './kernel/editor-run-lifecycle.js';
-import { executePlannedEdit } from './kernel/plan-driver.js';
-import { intentParser, projectHeaderOf } from './kernel/proposers/intent-parser.js';
-import { planner, summarizeSemanticIndex, toolCapabilities } from './kernel/proposers/planner.js';
 import { type ModelTier } from './kernel/proposers/types.js';
-import { RECIPE_LEAVES } from './kernel/recipe-leaves.js';
 import { type RunRecording, createRecordingEffectRuntime } from './kernel/replay/replay.js';
-import { boundSemanticIndexSlice, getSlice } from './kernel/semantic-index/semantic-index-slice.js';
-import type { AnalysisResultsBag } from './kernel/semantic-index/semantic-index.js';
-import { semanticIndexFor } from './kernel/semantic-index/semantic-index.js';
 import type { TemporalEvidenceAcquirer } from './temporal-evidence-client.js';
 import {
   planTemporalEvidenceForEdit,
@@ -165,6 +162,7 @@ import { createSteeringQueue } from './run-controls.js';
 import { combineSignals } from './reliability/signals.js';
 import {
   REVIEW_CONCURRENCY_ENV,
+  REVIEW_STEERING_PREAMBLE,
   ReviewFindingQueue,
   resolveReviewConcurrency,
   touchedRegionOf,
@@ -181,14 +179,11 @@ import {
   operationsForCall,
   sanitizeToolArgs,
 } from './tool-dispatch.js';
-import {
-  withReplayedImageNote,
-  type HostToolExecutor,
-  type HostToolOutcome,
-} from './tool-executor.js';
+import { type HostToolExecutor, type HostToolOutcome } from './tool-executor.js';
 import { withToolInputContract } from './tool-input-contract.js';
-import { TOOL_REGISTRY, concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
-import { QUESTION_ROUTE_PERMISSIONS, selectTools } from './tool-scope.js';
+import { concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
+import { recordToolRun } from './run-log.js';
+import { IMPLICIT_ONLY_TOOL_NAMES, QUESTION_ROUTE_PERMISSIONS, selectTools } from './tool-scope.js';
 import { type WipeGuardContext, detectTimelineWipe, wipeGuardFor } from './wipe-guard.js';
 
 export type { EditResult } from './assemble.js';
@@ -305,24 +300,6 @@ function costFromUsage(
 }
 
 /**
- * Sum two costs. `modelCalls` adds too — the point of the field is that a call whose
- * provider reported no tokens still increments it, so a $0 total with a nonzero call
- * count reads as "spent, amount unknown" rather than "free".
- */
-function addCost(left: RunCostSeed, right: RunCostSeed): Required<RunCostSeed> {
-  return {
-    tokens: left.tokens + right.tokens,
-    usd: left.usd + right.usd,
-    /* v8 ignore next -- unreachable today: both call sites pass a `Required<RunCostSeed>` on the left (this function's own return type) and stamp `modelCalls: 1` explicitly on the right, so the `?? 0` fallbacks guard a shape `addCost` accepts but never actually sees. */
-    modelCalls: (left.modelCalls ?? 0) + (right.modelCalls ?? 0),
-  };
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
-}
-
-/**
  * Default cap on agent turns (safety backstop against a non-terminating model). Mirrors
  * `kernel/conductor.ts#DEFAULT_MAX_AGENT_STEPS` exactly — see that file's comment for
  * why this was raised from 8 to 30 (movie/documentary-length plans need real headroom).
@@ -360,61 +337,75 @@ const QUESTION_ROUTE_TOOL_TURNS = 4;
 const MAX_PINNED_SKILLS = 8;
 
 /**
- * `streamPlannedEdit` (P3.1, widened by P11.1) recognises a growing but still-bounded set
- * of plan shapes — {@link RECIPE_LEAVES} plus {@link RECOGNIZED_MODEL_TASKS}. A request
- * that parses to anything else ends honestly with this notice instead of fabricating a
- * run; `AiSidebar` detects it and falls back to the sequential agent loop. Exported so the
- * sidebar imports the identical string rather than re-deriving it.
+ * Tools whose successful result is EVIDENCE ABOUT WHAT IS IN THE FOOTAGE.
  *
- * P11.2 additionally threads a machine-inspectable {@link PlannerFallbackReason} (and a
- * specific human `detail`) on the `notification` event that carries this text — see
- * {@link plannedEditFallback} — so a caller can distinguish WHY the planner path declined
- * (unparseable intent vs. an unrecognised task shape vs. …) rather than seeing one opaque
- * string every time. `text` itself is unchanged (existing string-matching callers, e.g.
- * `AiSidebar`'s `tryPlannedEditFirst` probe, keep working); the reason/detail are additive.
+ * `detect_scenes` is deliberately absent: it reports where hard cuts are, and on an unedited
+ * single take it legitimately returns none — which says nothing about where the interesting
+ * moments sit (see `withEmptyAnalysisReading`). Metadata, timings and the timeline summary are
+ * not evidence about content either.
  */
-export const PLANNED_EDIT_UNSUPPORTED_NOTICE =
-  'This request needs the general planner path, which is not live yet.';
+const CONTENT_EVIDENCE_TOOLS: ReadonlySet<string> = new Set([
+  'map_footage',
+  'describe_footage',
+  'search_visual',
+  'get_frame',
+  'get_mapped_transcript',
+  'transcribe',
+]);
 
 /**
- * Machine-inspectable tag for WHY {@link Orchestrator.streamPlannedEdit} declined a
- * request (P11.2 — "honest, inspectable fallback", not a silent discard). Carried on the
- * `notification` event's `reason` field alongside {@link PLANNED_EDIT_UNSUPPORTED_NOTICE}.
+ * How many new picture clips a run may place on the strength of no content evidence at all
+ * before its report says so.
+ *
+ * Not a block — the editor may well want the first thirty seconds, and refusing that would be
+ * worse than saying nothing. But a montage assembled from a long recording with nothing read
+ * about what is IN it is a guess, and in the captured run the guess was presented as though it
+ * were grounded ("the footage map gives chapters" — no footage map was ever read). Three is
+ * the point where "I trimmed this" becomes "I chose these moments".
  */
-export type PlannerFallbackReason =
-  /** IntentParser's response wasn't valid, schema-matching JSON. */
-  | 'intent_unparseable'
-  /** The Planner's response wasn't valid, schema-matching JSON. */
-  | 'plan_unparseable'
-  /** The proposed plan's steps don't compile to a valid DAG (dangling dep, cycle, …). */
-  | 'plan_uncompilable'
-  /** The compiled plan names a task/tool shape this driver does not (yet) execute. */
-  | 'unrecognized_task_shape'
-  /** The gate passed but execution still reported `unsupported` (defense in depth). */
-  | 'execution_unsupported';
+const UNEVIDENCED_SHOT_CAVEAT_THRESHOLD = 3;
 
-/**
- * The creator-facing sentence for a genuinely failed planned edit. Names the step and
- * its reason rather than one opaque sentence for every cause — a rejected proposal, a
- * missing argument, and an engine that was not running all used to read the same.
- */
-function plannedEditFailureMessage(
-  failure: { readonly label: string; readonly reason: string } | undefined,
-): string {
-  if (failure) {
-    return `The planned edit stopped at "${failure.label}": ${failure.reason}`;
-    /* v8 ignore next 3 -- unreachable: every runTask path records its failure, so a `failed` terminal always carries one; the fallback below is a total-function default, not a live path today. (Placement note: this directive must stay HERE, inside the `if` after its `return` — moving it changes which branch-map entry the report attributes it to.) */
-  }
-  return 'The planned edit could not complete.';
+/** Did this call produce real evidence about what is in the footage? */
+function isContentEvidenceFact(fact: { readonly key: string; readonly status: string }): boolean {
+  if (fact.status !== 'completed') return false;
+  const name = fact.key.split(':')[0] ?? '';
+  return CONTENT_EVIDENCE_TOOLS.has(name);
 }
 
-/** Build the honest `notification` this run ends on when the planner path declines. */
-function plannedEditFallback(
-  emit: TurnEmitter,
-  reason: PlannerFallbackReason,
-  detail: string,
-): AiEvent {
-  return emit.notification(PLANNED_EDIT_UNSUPPORTED_NOTICE, { reason, detail });
+/**
+ * How many times one agent step re-issues its model call after an UNUSABLE response.
+ *
+ * Two failures land after a 200 and so cannot be retried by `ResilientProvider` (which
+ * replays a stream only before its first chunk): an empty completion, and a reply that stops
+ * mid-clause without asking for a tool. Both are the provider dropping work, not the model
+ * having nothing to say — and both used to end the run. One extra attempt is enough to ride
+ * out a dropped request without turning a real dead end into a loop.
+ */
+const MAX_UNUSABLE_TURN_RETRIES = 1;
+
+/**
+ * Why this step's response cannot be used, or `undefined` when it can.
+ *
+ * - `empty` — no prose and no tool call at all. There is nothing to act on and nothing to
+ *   show; the provider reported silence.
+ * - `truncated` — the PROVIDER said it stopped early (`finish_reason: 'length'` /
+ *   `stop_reason: 'max_tokens'`) and the reply asked for no tool, so the step ends on an
+ *   unfinished sentence with nothing proposed. Only the provider's own verdict counts here:
+ *   judging the prose instead would retry finished two-word answers ("all done") and still
+ *   miss a fragment that happens to end on a period.
+ */
+export function unusableTurnReason(
+  turn: { readonly text: string; readonly calls: readonly unknown[]; readonly truncated?: boolean },
+  appliedOpsSoFar: number,
+  stage: RunStage | undefined,
+): 'empty' | 'truncated' | undefined {
+  if (turn.calls.length > 0) return undefined;
+  if (turn.text.trim() === '') return 'empty';
+  // A truncated reply after work has landed is survivable — the run keeps the edits and the
+  // reducer settles it — and a run already at verify/complete is allowed to finish on prose.
+  if (appliedOpsSoFar > 0) return undefined;
+  if (stage === 'verify' || stage === 'complete') return undefined;
+  return turn.truncated === true ? 'truncated' : undefined;
 }
 
 // Named `orchestratorLog` (not `log`) because the agent-run closure has a local
@@ -425,45 +416,6 @@ const orchestratorLog = createLogger('ai-sdk:orchestrator');
 const DEFAULT_CHITCHAT_REPLY =
   "Hi! I'm your editing copilot. Tell me what you'd like to do with your timeline — " +
   'trim silences, add captions, punch in, build an intro, or anything else.';
-
-/** `model` task names {@link executePlannedEdit} actually implements (P3.2). */
-const RECOGNIZED_MODEL_TASKS: ReadonlySet<string> = new Set(['propose_edit']);
-
-/**
- * The structural gate: does every task in the compiled plan name an effect this driver
- * actually knows how to run? Deliberately structural, not a guess at the model's intent
- * text or a fixed named "shape" (P3.1's `isMontageShapedPlan` only accepted one exact
- * scenario) — a plan built entirely from known primitives is accepted regardless of what
- * it's for; anything else honestly isn't supported yet. New capability widens this check
- * by construction: an analysis tool becomes usable the day it lands in `TOOL_REGISTRY` as
- * `available` (no gate change), and a new derived-analysis leaf is a `recipe-leaves.ts`-style
- * addition to {@link RECIPE_LEAVES} (also no gate change) — only a genuinely new `model`
- * task kind needs a one-line addition here.
- *
- * The `analysis` case recognizes every already-shipped, already-tested {@link RECIPE_LEAVES}
- * primitive (ripple-delete synthesis, caption/hook/pacing/filler-cleanup synthesis, …), the
- * same registry {@link executePlannedEdit} defaults to — so a Planner proposal can compose
- * these proven pure functions into a novel plan shape.
- */
-function isRecognizedPlan(graph: ReturnType<typeof compilePlan>): boolean {
-  return graph.nodes.every((node) => {
-    const { effect } = node;
-    switch (effect.kind) {
-      case 'host_tool': {
-        const tool = getTool(effect.name);
-        return tool !== undefined && tool.available && tool.kind === 'analysis';
-      }
-      case 'model':
-        return RECOGNIZED_MODEL_TASKS.has(effect.name);
-      case 'analysis':
-        return effect.name in RECIPE_LEAVES;
-      case 'patch':
-        return effect.name === 'assemble_patch';
-      case 'verify':
-        return effect.name === 'verify';
-    }
-  });
-}
 
 /**
  * Marker replacing an old, re-derivable read/analysis payload in the action log
@@ -612,10 +564,6 @@ export type EditorRunRequest =
   | {
       readonly route: 'edit';
       readonly variations?: boolean;
-    }
-  | {
-      readonly route: 'planned_edit';
-      readonly initialCost?: RunCostSeed;
     }
   | {
       readonly route: 'agent';
@@ -796,19 +744,109 @@ function* trimNotices(
 }
 
 /**
+ * Apply the beat-grid boundary rule to one turn's operations, when — and only when — this
+ * run gathered beat evidence.
+ *
+ * ## The gate is the agent's own decision
+ *
+ * `detect_beats` is a tool the model elects. If it never called it, this returns the
+ * operations untouched and nothing about the run changes. There is no beat-sync mode, no
+ * request classifier deciding a prompt "is rhythmic", and no user-facing toggle — which is
+ * exactly the property that makes this an execution guarantee rather than a hardcoded
+ * technique. The model decides that the music matters; the runtime then makes sure the cuts
+ * actually land on it, because that is frame arithmetic against 300 onsets and no model
+ * should be doing it in its head (ADR 0076's two-timebases rule, same reasoning).
+ *
+ * ## Why the project grid is resolved here
+ *
+ * `alignBeatBackedBoundaries` can recover a grid from a proposal that places the music
+ * itself, but not from music placed on an EARLIER turn — it would report the asset as
+ * absent and reject a perfectly good cut. {@link beatGridFor} translates the analyzed
+ * asset's onsets through the clips already on the timeline, which is the normal case once a
+ * montage is under way, and the module falls back to the proposal when that comes back
+ * empty.
+ *
+ * Returns the operations unchanged when there is no beat evidence, so a run that never
+ * looked at the music pays one map lookup.
+ */
+function alignTurnToBeatGrid(
+  working: Project,
+  turnOps: AnyOperation[],
+  rawBeats: unknown,
+  hardSync = false,
+): { ok: true; operations: AnyOperation[]; offGrid?: string } | { ok: false; error: string } {
+  if (rawBeats === undefined) return { ok: true, operations: turnOps };
+
+  const projectGrid = beatGridFor(working, rawBeats)?.times;
+  const aligned = alignBeatBackedBoundaries(working, turnOps, projectGrid, rawBeats, hardSync);
+  if (!aligned.ok) return aligned;
+  return {
+    ok: true,
+    operations: [...aligned.operations],
+    ...(aligned.offGrid ? { offGrid: aligned.offGrid } : {}),
+  };
+}
+
+/**
+ * One operation as a line an editor can read: the action, WHAT it happened to, and the
+ * detail when there is one.
+ *
+ * The subject is the point. `describeOperation` returns an empty `detail` for anything with
+ * no start/end — every caption-style op, among others — so a caller that renders
+ * `${action}: ${detail}` unconditionally produced the captured run's completion report:
+ *
+ *     - Set track caption style:
+ *     - Set track caption style:
+ *     …eight times, each a dangling colon over nothing.
+ *
+ * Naming the track instead ("Set track caption style Caption 1") is the difference between a
+ * receipt and a shrug. Shared by the tool-result note and the completion report so the two
+ * cannot drift into describing the same edit differently.
+ */
+function operationLine(op: AnyOperation, names?: ProjectNames): string {
+  const described = describeOperation(op, names);
+  const ref = described.refs[0]?.label;
+  const head = [described.action, ref].filter(Boolean).join(' ');
+  return described.detail ? `${head} · ${described.detail}` : head;
+}
+
+/**
  * Summarize applied operations into one past-tense line for a tool-result note /
  * agent log, e.g. `Trimmed Intro.mp4 · 0s–3.2s; Added captions`. Uses `names` to
  * resolve clip/track/asset ids to friendly labels. Returns '' for no ops.
+ *
+ * ## Why the CALL is named when the operations cannot name it
+ *
+ * Several tools are higher-level intents that compile down to a shared operation.
+ * `auto_emphasize_captions` — "read the transcript, pick the words that carry the meaning,
+ * and accent them" — emits one `set_track_caption_style`, exactly like the plain
+ * `set_track_caption_style` tool does. Described by its operation alone, both calls produce
+ * the identical line:
+ *
+ *     Set track caption style Caption 1
+ *
+ * That line is not just a cosmetic mismatch with the activity card, which correctly reads
+ * "Emphasising key words in the captions". It is what the RUN remembers: this note is the
+ * tool result, the agent log entry, and the `ALREADY APPLIED — do not repeat` row in the
+ * state briefing. In the captured run the model therefore could not tell its four styling
+ * calls apart from its emphasis attempts; it read "the track style has been set multiple
+ * times" turn after turn, kept re-deriving what was still outstanding, and the emphasis it
+ * was actually trying to land never did.
+ *
+ * So when the call's own name is not among the operations it produced, the note leads with
+ * what was ASKED FOR and follows with what CHANGED — the same `intent → outcome` idiom the
+ * briefing's {@link distil} uses. When the tool and the operation are the same thing
+ * (`trim_clip` → `trim_clip`), naming both would only restate it, and the line is unchanged.
  */
-function summarizeOperations(ops: readonly AnyOperation[], names?: ProjectNames): string {
-  return ops
-    .map((op) => {
-      const described = describeOperation(op, names);
-      const ref = described.refs[0]?.label;
-      const head = [described.action, ref].filter(Boolean).join(' ');
-      return described.detail ? `${head} · ${described.detail}` : head;
-    })
-    .join('; ');
+function summarizeOperations(
+  ops: readonly AnyOperation[],
+  names?: ProjectNames,
+  call?: { readonly name: string; readonly arguments: unknown },
+): string {
+  const outcome = ops.map((op) => operationLine(op, names)).join('; ');
+  if (!call || outcome === '') return outcome;
+  if (ops.some((op) => op.type === call.name)) return outcome;
+  return `${describeToolCall(call, names)} → ${outcome}`;
 }
 
 /**
@@ -954,7 +992,7 @@ export interface OrchestratorOptions {
   readonly executor?: HostToolExecutor;
   /**
    * Dev/debug affordance (P7.3, plan/AGENT-NATIVE-COMPLETION-PLAN.md): when true, every
-   * effect `streamRecipe`/`streamPlannedEdit` runs is captured via
+   * effect an agent run executes is captured via
    * `createRecordingEffectRuntime` and, once the run settles, handed to
    * {@link OrchestratorOptions.onRecording} — a dev console or test can then replay it
    * with `createReplayEffectRuntime` and **zero** provider/host calls (`replay.ts`).
@@ -964,16 +1002,6 @@ export interface OrchestratorOptions {
   readonly recordEffects?: boolean;
   /** Receives the just-completed run's {@link RunRecording} when `recordEffects` is on. */
   readonly onRecording?: (recording: RunRecording) => void;
-  /**
-   * Run-start analysis warming from the project brain (plan B1.4): given the
-   * project's id, returns the persisted {@link AnalysisResultsBag} to seed
-   * `semanticIndexFor()` with — so a planner run starts knowing what previous
-   * runs already analyzed instead of an empty index. Hosts wire
-   * `createAnalysisBagWarmer` (brain-client.ts) here; absent (browser build,
-   * no sidecar) or failing, runs proceed bag-less exactly as before — the
-   * hook can never break a run.
-   */
-  readonly warmAnalysis?: (projectId: string) => Promise<AnalysisResultsBag | undefined>;
   /** Awaited durable audit observer for every fine-grained runtime effect. */
   readonly effectObserver?: EffectRuntimeObserver;
 }
@@ -1002,6 +1030,16 @@ interface HostCallContext {
    */
   readonly evidence?: EvidenceStore;
   /**
+   * The run's most recent raw `detect_beats` payload, for the beat-grid boundary rule
+   * (`kernel/beat-grid/beat-alignment.ts`).
+   *
+   * A per-run mutable box rather than a field on the Orchestrator, which serves concurrent
+   * runs — exactly the threading ADR 0126 named as the missing piece. Analysis results are
+   * NOT kept in the evidence store (only reads and `measure_color` are), so this is the one
+   * place the payload survives the turn that fetched it.
+   */
+  readonly beatEvidence?: { current?: unknown; hardSync?: boolean };
+  /**
    * The run's analysis budget (plan B5.4). Threaded into the host executor so a
    * capped call (frames extracted, ffmpeg seconds, transcription minutes) that
    * would exceed the per-run budget fails honestly instead of running. Non-optional:
@@ -1025,6 +1063,11 @@ interface HostCallContext {
    */
   readonly askUser?: AskUser;
   /**
+   * Records a durable note for later runs (see `AgentRunControls.rememberDecision`).
+   * Optional and fire-and-forget: absent ⇒ nothing is recorded.
+   */
+  readonly rememberDecision?: (note: { readonly title: string; readonly body: string }) => void;
+  /**
    * The run's timeline wipe guard (agent continuity): a delete op that would
    * clear a whole multi-clip track of pre-run work is rejected with a
    * corrective note instead of applied — the deterministic backstop for the
@@ -1040,6 +1083,20 @@ interface AgentCallOutcome {
   ops: AnyOperation[];
   note: string;
   summary: string;
+  /**
+   * What this call CONCLUDED, for `distil` to record as a fact — as opposed to
+   * {@link summary}, which is the short action label the tool card shows.
+   *
+   * They are the same string for most calls, and for an in-process read they must not
+   * be: a read's `summary` is its descriptor ("Reading the timeline"), so the fact
+   * `distil` built read "Reading the timeline → Reading the timeline". A run's whole
+   * memory of what it had learned was a list of restatements of what it had DONE, which
+   * is why a real montage run re-derived the project's shape on six consecutive turns,
+   * re-read the media bin it had already read, and spent 391 seconds in one thinking
+   * block. The digest that belongs there was already being computed one line away, for
+   * the action log. Absent ⇒ `summary` is the conclusion too.
+   */
+  finding?: string;
   status: ToolStatus;
   data?: unknown;
   /** The working copy advanced by this call's validated ops (mutating calls only). */
@@ -1106,6 +1163,50 @@ const clipLine = (c: Clip): string =>
   `${c.id} asset=${c.assetId} ${round2(c.start)}–${round2(c.end)}s`;
 
 /**
+ * One line per clip record that carries SOURCE timing — the `get_clips` row shape and the
+ * `get_timeline_map` span shape, which differ only in their id field and their tail.
+ *
+ * Why source in/out is spelled out rather than left in the JSON: the sequence half of a
+ * clip's timing reaches the model from three places (the context block's
+ * `clipId[start–end s]`, `get_timeline`'s digest, this line), and the source half reached
+ * it from none of them once the payload was cut. A run asked to vary where each clip
+ * STARTS IN ITS ASSET was then reading the millisecond suffix of the clip id as if it were
+ * a source offset — it encodes the timeline start (`deriveClipId`), so that guess is a
+ * trap, and the only cure is to print the real number.
+ *
+ * `speed` is shown only when it is not 1x: at 1x it is noise on every row, and off 1x it
+ * is the reason source and sequence spans disagree.
+ */
+function sourceTimedClipLine(record: Record<string, unknown>): string {
+  const id = String(record.id ?? record.clipId ?? 'unknown-clip');
+  const num = (value: unknown): string => (typeof value === 'number' ? round2(value) : '?');
+  const speed = typeof record.speed === 'number' ? record.speed : 1;
+  const rate = speed === 1 ? '' : ` ×${round2(speed)}`;
+  const effects =
+    typeof record.effectCount === 'number' && record.effectCount > 0
+      ? ` fx=${record.effectCount}`
+      : '';
+  const keyframes =
+    typeof record.keyframeCount === 'number' && record.keyframeCount > 0
+      ? ` kf=${record.keyframeCount}`
+      : '';
+  return (
+    `- ${id} asset=${String(record.assetId ?? '?')} track=${String(record.trackId ?? '?')} ` +
+    `seq ${num(record.start)}–${num(record.end)}s ` +
+    `src ${num(record.sourceStart)}–${num(record.sourceEnd)}s${rate}${effects}${keyframes}`
+  );
+}
+
+/** The records of a clip-listing payload, or `undefined` when this is not one. */
+function clipRecords(
+  obj: Record<string, unknown>,
+  key: string,
+): Record<string, unknown>[] | undefined {
+  const value = obj[key];
+  return Array.isArray(value) ? (value as Record<string, unknown>[]) : undefined;
+}
+
+/**
  * Render up to {@link READ_DIGEST_MAX_ITEMS} records, then collapse the remainder to a
  * "(… N more …)" line so a huge library/timeline stays bounded WITHOUT silently cutting
  * a partial JSON that reads as complete. `narrow` (when given) tells the model how to
@@ -1126,6 +1227,82 @@ function boundedRecords<T>(
   return lines.join('\n');
 }
 
+/**
+ * Digest a verification report: the verdict, then the issue KINDS with counts, then one
+ * worked example of each.
+ *
+ * WHY not previewJson: `verify_captions` and `verify_transitions` had no digest arm, so
+ * both fell to a 1200-escaped-character JSON slice — and because `briefing.ts#distil`
+ * takes the FIRST LINE of a digest as the run's durable fact, the run's memory of its own
+ * verification became `{"ok":false,"issues":[{"code":"caption_spans_cut","clipId":"cap…`,
+ * cut mid-string. A run cannot act on that: it knows something failed and not what.
+ *
+ * Forty cues with two problems each is also sixty-eight lines of near-identical prose,
+ * which is the other half of the same defect — a report nobody can read is a report
+ * nobody acts on. Grouping by code answers "what is wrong here" in one line and keeps
+ * one full detail per kind so the fix is still specific.
+ */
+function verificationDigest(obj: Record<string, unknown>, subject: string): string | undefined {
+  // Absent `issues` is not "no issues" — it is a payload of a different shape, and saying
+  // "verified clean" about one would be the exact dishonesty this module exists to end.
+  // Undefined hands the caller back to the bounded JSON preview.
+  if (!Array.isArray(obj.issues)) return undefined;
+  const issues = obj.issues as Record<string, unknown>[];
+  const count = typeof obj[`${subject}Count`] === 'number' ? obj[`${subject}Count`] : undefined;
+  const checked =
+    count === undefined ? '' : `, ${String(count)} ${subject}${count === 1 ? '' : 's'} checked`;
+  if (obj.ok === true || issues.length === 0) {
+    return `verified clean${checked}`;
+  }
+  const byCode = new Map<string, Record<string, unknown>[]>();
+  for (const issue of issues) {
+    const code = String(issue.code ?? 'unknown');
+    byCode.set(code, [...(byCode.get(code) ?? []), issue]);
+  }
+  const kinds = [...byCode.entries()].sort((a, b) => b[1].length - a[1].length);
+  const head = `NOT verified${checked} — ${issues.length} issue${
+    issues.length === 1 ? '' : 's'
+  } of ${kinds.length} kind${kinds.length === 1 ? '' : 's'}: ${kinds
+    .map(([code, group]) => `${group.length}x ${code}`)
+    .join(', ')}`;
+  const examples = kinds.map(([code, group]) => {
+    const first = group[0] as Record<string, unknown>;
+    return `${code}: ${String(first.detail ?? '')}`;
+  });
+  return [head, ...examples].join('\n');
+}
+
+/**
+ * Digest a catalog whose IDS are the deliverable, grouped by category.
+ *
+ * `apply_effect` and `add_transition` refuse an id that is not in the catalog — correctly
+ * — so a catalog the model cannot read whole is a catalog it cannot use, and it is right
+ * to refuse to guess. This is the same defect ADR 0128 fixed for
+ * `discover_caption_styles`, on the two sibling catalogs it did not reach.
+ */
+function catalogDigest(
+  obj: Record<string, unknown>,
+  key: string,
+  idField: string,
+  noun: string,
+): string | undefined {
+  if (!Array.isArray(obj[key])) return undefined;
+  const entries = obj[key] as Record<string, unknown>[];
+  if (entries.length === 0) return `no ${noun} match (${String(obj.matched ?? 0)} in catalog)`;
+  const head = `${String(obj.returned ?? entries.length)} of ${String(
+    obj.matched ?? entries.length,
+  )} matching ${noun}`;
+  const byCategory = new Map<string, string[]>();
+  for (const entry of entries) {
+    const category = String(entry.category ?? 'other');
+    byCategory.set(category, [...(byCategory.get(category) ?? []), String(entry[idField])]);
+  }
+  return [
+    head,
+    ...[...byCategory.entries()].map(([category, ids]) => `${category}: ${ids.join(', ')}`),
+  ].join('\n');
+}
+
 function assetsDigest(assets: readonly Asset[]): string {
   return `${assets.length} asset${assets.length === 1 ? '' : 's'}:\n${boundedRecords(
     assets,
@@ -1135,18 +1312,61 @@ function assetsDigest(assets: readonly Asset[]): string {
   )}`;
 }
 
+/**
+ * One-line rendering of a caption track's committed style.
+ *
+ * WHY the digest must carry this: `timelineDigest` rendered track id/type/flags/clips and
+ * nothing else, so the fact distilled from a `get_timeline` read was "5 tracks, 87 clips:
+ * …". The style — the single field a "restyle the captions" request is ABOUT — lived only
+ * in the raw payload, which sits in a rolling last-N-steps log window. Two turns later the
+ * run had forgotten the answer it had already read and went looking for it again. A digest
+ * that omits the field the request names is what turns a read into a loop.
+ */
+function captionStyleLine(style: CaptionStyle): string {
+  const parts: string[] = [`template=${style.templateId ?? 'none'}`];
+  if (style.display) parts.push(style.display);
+  if (style.fontFamily) parts.push(style.fontFamily);
+  const accent = style.accent;
+  if (accent && accent.mode !== 'none') {
+    const words = accent.keywords?.length ? ` (${accent.keywords.length} keywords)` : '';
+    parts.push(`accent=${accent.mode}${words}`);
+  }
+  return parts.join(' · ');
+}
+
 function timelineDigest(tracks: readonly Track[]): string {
   if (tracks.length === 0) return 'timeline: no tracks';
-  return tracks
-    .map((t) => {
-      const flags = [t.locked && 'locked', t.hidden && 'hidden', t.muted && 'muted']
-        .filter(Boolean)
-        .join(',');
-      const head = `${t.id} [${t.type}${flags ? ` ${flags}` : ''}]`;
-      const body =
-        t.clips.length === 0 ? 'empty' : `\n${boundedRecords(t.clips, clipLine, 'clips')}`;
-      return `${head}: ${body}`;
-    })
+  // Head line first, because the first line of a digest becomes the run's FACT about
+  // this read (`distil`). Without it the fact was one arbitrary track's clip list.
+  const clips = tracks.reduce((sum, t) => sum + t.clips.length, 0);
+  // The committed caption style belongs in the HEAD, not on the per-track line below it.
+  // ADR 0128 added it to this digest so the answer would survive the rolling log window —
+  // but `distil` keeps only the first line, so it never reached the fact, and the run that
+  // asked "use a different caption style" still had a memory that said
+  // `5 tracks, 87 clips: layer_caption_4(40), …` and went looking for what it had read.
+  // Only caption/overlay tracks carry a style and a project has one or two, so this costs
+  // a clause, not a paragraph.
+  const styled = tracks
+    .filter((t) => t.captionStyle !== undefined)
+    .map((t) => `${t.id} style: ${captionStyleLine(t.captionStyle as CaptionStyle)}`);
+  const head = `${tracks.length} track${tracks.length === 1 ? '' : 's'}, ${clips} clip${
+    clips === 1 ? '' : 's'
+  }: ${tracks.map((t) => `${t.id}(${t.clips.length})`).join(', ')}${
+    styled.length > 0 ? ` — ${styled.join('; ')}` : ''
+  }`;
+  return [head]
+    .concat(
+      tracks.map((t) => {
+        const flags = [t.locked && 'locked', t.hidden && 'hidden', t.muted && 'muted']
+          .filter(Boolean)
+          .join(',');
+        const style = t.captionStyle ? ` style: ${captionStyleLine(t.captionStyle)}` : '';
+        const trackHead = `${t.id} [${t.type}${flags ? ` ${flags}` : ''}]${style}`;
+        const body =
+          t.clips.length === 0 ? 'empty' : `\n${boundedRecords(t.clips, clipLine, 'clips')}`;
+        return `${trackHead}: ${body}`;
+      }),
+    )
     .join('\n');
 }
 
@@ -1299,6 +1519,45 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
       const tracks = (obj.tracks ?? []) as Track[];
       return timelineDigest(tracks);
     }
+    // Every read whose whole point is SOURCE timing used to land in the `default` arm
+    // below, which is `previewJson` at 1200 escaped characters — about four records. A
+    // 42-clip project's timeline map is ~8.8 KB, a 50-row `get_clips` page ~12 KB, so the
+    // run was handed the first four rows, a bare `…`, and no way to tell how much was
+    // missing. It then reasoned about the clips it could not see: this is the identical
+    // defect the `detect_beats` digest below already exists to fix, on the tools that
+    // answer "where in the asset does this clip start?" — the question the montage run was
+    // actually asked. Bound by whole records, ids and both time pairs intact.
+    case 'get_clips': {
+      const clips = clipRecords(obj, 'clips');
+      // Defensive: a payload without a `clips` array is not this shape.
+      if (!clips) return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const total = typeof obj.total === 'number' ? obj.total : clips.length;
+      const more =
+        obj.hasMore === true
+          ? ` — more remain; raise offset to page on (total ${total})`
+          : ` of ${total} total`;
+      return `${clips.length} clip${clips.length === 1 ? '' : 's'}${more}:\n${boundedRecords(
+        clips,
+        sourceTimedClipLine,
+        'clips',
+        'narrow get_clips by trackId/start/end or page with offset',
+      )}`;
+    }
+    case 'get_timeline_map':
+    case 'map_time': {
+      // `map_time` answers three shapes; only the no-argument one is the whole map.
+      const spans = clipRecords(obj, 'spans');
+      if (!spans) return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const duration = typeof obj.duration === 'number' ? round2(obj.duration) : '?';
+      return `timeline map, ${spans.length} clip${
+        spans.length === 1 ? '' : 's'
+      }, sequence duration ${duration}s, revision ${String(obj.revision ?? '?')}:\n${boundedRecords(
+        spans,
+        sourceTimedClipLine,
+        'clips',
+        'read a window with get_clips (trackId/start/end, offset/limit) instead',
+      )}`;
+    }
     case 'detect_beats': {
       // The beat grid is the whole deliverable — and it went through the default JSON
       // preview, which sliced a 366-beat / 13.6 KB payload at 1200 escaped chars: the
@@ -1322,6 +1581,115 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
       const span = `from ${round3(first)}s to ${round3(last)}s`;
       return `${times.length} exact beat onsets${bpm}, ${span}:\n${exactGrid}`;
     }
+    case 'get_timeline_summary': {
+      // The cheap orientation read. Through `previewJson` its per-track rows were the
+      // first thing cut, which defeats the only reason to prefer it over get_timeline.
+      const tracks = (Array.isArray(obj.tracks) ? obj.tracks : []) as Record<string, unknown>[];
+      const duration =
+        typeof obj.durationSeconds === 'number' ? `${round2(obj.durationSeconds)}s` : '?';
+      const head = `sequence ${duration}, ${String(obj.trackCount ?? tracks.length)} tracks, ${String(
+        obj.clipCount ?? '?',
+      )} clips, ${String(obj.transcriptWordCount ?? 0)} transcript words`;
+      if (tracks.length === 0) return head;
+      return `${head}:\n${boundedRecords(
+        tracks,
+        (t) =>
+          `${String(t.id)} [${String(t.type)}] ${String(t.clipCount ?? 0)} clips${
+            typeof t.firstClipStart === 'number' && typeof t.lastClipEnd === 'number'
+              ? ` ${round2(t.firstClipStart)}–${round2(t.lastClipEnd)}s`
+              : ''
+          }`,
+        'tracks',
+      )}`;
+    }
+    case 'get_clip': {
+      // A single clip read for its ids and BOTH time pairs; JSON-escaped at 1200 chars a
+      // caption clip's cue words alone could push its style and source range off the end.
+      const clip = (obj.clip ?? {}) as Record<string, unknown>;
+      if (typeof clip.id !== 'string') return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const cue = clip.captionCue as Record<string, unknown> | undefined;
+      const lines = [`${sourceTimedClipLine(clip)} on ${String(obj.trackId ?? clip.trackId)}`];
+      const effects = (Array.isArray(clip.effects) ? clip.effects : []) as Record<
+        string,
+        unknown
+      >[];
+      if (effects.length > 0) {
+        lines.push(`effects: ${effects.map((e) => String(e.type)).join(', ')}`);
+      }
+      if (clip.captionStyle) {
+        lines.push(`cue style override: ${captionStyleLine(clip.captionStyle as CaptionStyle)}`);
+      }
+      if (cue && typeof cue.text === 'string') {
+        const words = Array.isArray(cue.words) ? cue.words.length : 0;
+        lines.push(
+          `cue (${words} words, from revision ${String(cue.derivedFromRevision ?? '?')}): ${cue.text.replace(/\n/g, ' / ')}`,
+        );
+      }
+      return lines.join('\n');
+    }
+    case 'get_mapped_transcript': {
+      // The words carry the SEQUENCE timings every cue is built from. previewJson gave
+      // back about four of them, so a run asked to caption 81 words received five.
+      const words = (Array.isArray(obj.words) ? obj.words : []) as Record<string, unknown>[];
+      if (words.length === 0) return 'no mapped words — the edited timeline carries no speech';
+      const dropped =
+        typeof obj.droppedCount === 'number' && obj.droppedCount > 0
+          ? `, ${obj.droppedCount} dropped by cuts`
+          : '';
+      // The RUN bounds ride in the head, because they are the segmentation contract: a cue
+      // may cross any number of picture cuts and no run boundary. This line becomes the
+      // run's durable fact (`briefing.ts#distil` keeps the first line), so a later turn
+      // knows where it may break a cue without re-reading anything.
+      const runs = (Array.isArray(obj.runs) ? obj.runs : []) as Record<string, unknown>[];
+      const runPart =
+        runs.length === 0
+          ? ''
+          : ` in ${runs.length} speech run${runs.length === 1 ? '' : 's'} (${runs
+              .slice(0, 8)
+              .map((r) => `${round3(Number(r.start))}–${round3(Number(r.end))}s`)
+              .join(', ')}${runs.length > 8 ? ', …' : ''})`;
+      const head = `${words.length} mapped words${dropped}${runPart}, revision ${String(
+        obj.revision ?? '?',
+      )}`;
+      // Sequence times only: the source times are in the payload for anyone who recalls
+      // it, but a cue is authored against the sequence and doubling the numbers here
+      // halves how many words fit.
+      return `${head}:\n${boundedRecords(
+        words,
+        (w) => `${round3(Number(w.start))}–${round3(Number(w.end))}s ${String(w.word)}`,
+        'words',
+        'narrow get_mapped_transcript to a window',
+      )}`;
+    }
+    case 'discover_caption_styles': {
+      // The template IDS are the whole deliverable: `set_track_caption_style` rejects an
+      // id that is not in the catalog, so a truncated list is a list the run cannot use.
+      // previewJson cut it mid-entry after ~18 of 51, and the style actually applied to
+      // the project was past the cut — the run could neither name what it had nor pick
+      // something different, and stalled without making an edit.
+      const templates = (Array.isArray(obj.templates) ? obj.templates : []) as Record<
+        string,
+        unknown
+      >[];
+      const fonts = (Array.isArray(obj.fonts) ? obj.fonts : []) as Record<string, unknown>[];
+      if (templates.length === 0)
+        return `no caption templates match (${String(obj.matched ?? 0)} in catalog)`;
+      const head = `${String(obj.returned ?? templates.length)} of ${String(
+        obj.matched ?? templates.length,
+      )} matching templates, ${fonts.length} bundled fonts`;
+      const byCategory = new Map<string, string[]>();
+      for (const t of templates) {
+        const category = String(t.category ?? 'other');
+        const ids = byCategory.get(category) ?? [];
+        ids.push(String(t.templateId));
+        byCategory.set(category, ids);
+      }
+      const catalog = [...byCategory.entries()].map(
+        ([category, ids]) => `${category}: ${ids.join(', ')}`,
+      );
+      const fontList = `fonts: ${fonts.map((f) => String(f.family)).join(', ')}`;
+      return [head, ...catalog, fontList].join('\n');
+    }
     case 'load_skill': {
       // ADR 0057 §6: load_skill returns the FULL skill — the body IS the deliverable,
       // and the model asked for it precisely because it does not already know it. The
@@ -1334,17 +1702,93 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
       // whole is budgeted, not unbounded. Rendered as prose (not JSON) so the markdown
       // reads as the playbook it is rather than an escaped blob.
       if (typeof obj.body !== 'string') {
-        // The unknown-skill shape ({ error, available }) — a short object the bounded
-        // JSON preview renders fine, and which the model uses to self-correct.
+        // The unknown-skill shape ({ error, available }). Rendered as a sentence rather
+        // than escaped JSON: its first line also becomes the run's FACT about this call
+        // (`distil`), and a fact cut off mid-way through a JSON array of skill names is
+        // not a conclusion the next turn can act on.
+        if (typeof obj.error === 'string') {
+          const available = Array.isArray(obj.available)
+            ? obj.available.filter((n): n is string => typeof n === 'string')
+            : [];
+          return `${obj.error}${available.length > 0 ? ` Available: ${available.join(', ')}.` : ''}`;
+        }
         return previewJson(value, ANALYSIS_PREVIEW_MAX);
       }
       // A string `body` means this is a parsed Skill, so `name`/`description` are
       // present by SkillSchema — no defensive branching needed for them here.
       return `${String(obj.name)} — ${String(obj.description)}\n\n${obj.body}`;
     }
+    case 'verify_captions':
+      return verificationDigest(obj, 'cue') ?? previewJson(value, ANALYSIS_PREVIEW_MAX);
+    case 'verify_transitions':
+      return verificationDigest(obj, 'transition') ?? previewJson(value, ANALYSIS_PREVIEW_MAX);
+    case 'list_edit_boundaries': {
+      // The cut list is what caption and transition placement is authored against: a
+      // transition can only go at one of these, and a cue may not bridge one. It had no
+      // digest, so a 45-cut sequence (~12.8 KB) reached the run as four escaped records
+      // and a bare `…`, and its durable fact was the first 180 characters of that.
+      if (!Array.isArray(value)) return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const boundaries = value as Record<string, unknown>[];
+      if (boundaries.length === 0) return 'no cuts — the sequence is one continuous clip per track';
+      return `${boundaries.length} cut${boundaries.length === 1 ? '' : 's'}:\n${boundedRecords(
+        boundaries,
+        (b) =>
+          `${round3(Number(b.at))}s ${String(b.trackId)} ${String(b.fromClipId)} → ${String(
+            b.toClipId,
+          )} (max transition ${round2(Number(b.maxTransitionSeconds))}s)`,
+        'cuts',
+      )}`;
+    }
+    case 'analyze_silence': {
+      // An empty `ranges` really does mean "ran and found nothing"; an ABSENT one means
+      // this is not a silence response, and reporting silence about it would be a lie.
+      if (!Array.isArray(obj.ranges)) return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const ranges = obj.ranges as Record<string, unknown>[];
+      if (ranges.length === 0) {
+        return typeof obj.reason === 'string' && obj.reason !== ''
+          ? `no silence detected — ${obj.reason}`
+          : 'no silent gaps found in the audio';
+      }
+      const total = ranges.reduce((sum, r) => sum + Number(r.duration ?? 0), 0);
+      return `${ranges.length} silent gap${ranges.length === 1 ? '' : 's'}, ${round2(
+        total,
+      )}s total, in ${String(obj.assetId ?? '?')}:\n${boundedRecords(
+        ranges,
+        (r) =>
+          `${round3(Number(r.start))}–${round3(Number(r.end))}s (${round2(Number(r.duration))}s)`,
+        'gaps',
+        'raise minSilenceSeconds to see only the long ones',
+      )}`;
+    }
+    case 'detect_scenes': {
+      if (!Array.isArray(obj.cuts)) return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const cuts = obj.cuts as Record<string, unknown>[];
+      if (cuts.length === 0) return `no scene cuts detected in ${String(obj.assetId ?? '?')}`;
+      return `${cuts.length} scene cut${cuts.length === 1 ? '' : 's'} in ${String(
+        obj.assetId ?? '?',
+      )}:\n${boundedRecords(
+        cuts,
+        (c) => `${round3(Number(c.time))}s`,
+        'cuts',
+        'raise threshold to see only the strong ones',
+      )}`;
+    }
+    case 'discover_effects':
+      return (
+        catalogDigest(obj, 'effects', 'effectId', 'effects') ??
+        previewJson(value, ANALYSIS_PREVIEW_MAX)
+      );
+    case 'discover_transitions':
+      return (
+        catalogDigest(obj, 'transitions', 'kind', 'transitions') ??
+        previewJson(value, ANALYSIS_PREVIEW_MAX)
+      );
     default:
-      // get_transcript / get_selected_range / any other read: no ids to preserve, so a
-      // (generously) bounded JSON preview is fine.
+      // Reads whose payload is a handful of scalars, or prose the model asked for
+      // verbatim: a (generously) bounded JSON preview is honest for those. The set is
+      // asserted explicitly in `orchestrator.test.ts` — "every read tool either has a
+      // digest or is on the list of reads that do not need one" — so a new read tool
+      // cannot land here by accident the way ten of them already had.
       return previewJson(value, ANALYSIS_PREVIEW_MAX);
   }
 }
@@ -1402,24 +1846,19 @@ export class Orchestrator {
   private readonly recordEffects: boolean;
   private readonly onRecording: ((recording: RunRecording) => void) | undefined;
   private readonly effectObserver: EffectRuntimeObserver | undefined;
-  /** Run-start brain warming (plan B1.4) — see {@link OrchestratorOptions.warmAnalysis}. */
-  private readonly warmAnalysis:
-    | ((projectId: string) => Promise<AnalysisResultsBag | undefined>)
-    | undefined;
 
   public constructor(
     private readonly provider: AiProvider,
     options: OrchestratorOptions = {},
   ) {
     this.executor = options.executor;
-    this.warmAnalysis = options.warmAnalysis;
     this.recordEffects = options.recordEffects ?? false;
     this.onRecording = options.onRecording;
     this.effectObserver = options.effectObserver;
   }
 
   /**
-   * Build the {@link EffectRuntime} for one `streamRecipe`/`streamPlannedEdit` run, wrapped
+   * Build the {@link EffectRuntime} for one run, wrapped
    * in {@link createRecordingEffectRuntime} when `recordEffects` is on (P7.3). `finish` must
    * be called once the run settles (on every terminal path) so a recording run always hands
    * its `RunRecording` to `onRecording` — plain (non-recording) runs get a no-op `finish`.
@@ -1505,24 +1944,6 @@ export class Orchestrator {
     };
   }
 
-  /**
-   * The brain-warmed {@link AnalysisResultsBag} for a run start (plan B1.4), or
-   * `undefined`. Never throws: a broken/slow warm hook degrades to the bag-less
-   * pre-B1.4 behavior with a warning — warming is an accelerant, not a dependency.
-   */
-  private async warmedAnalysisBag(projectId: string): Promise<AnalysisResultsBag | undefined> {
-    if (!this.warmAnalysis) return undefined;
-    try {
-      const bag = await this.warmAnalysis(projectId);
-      if (bag) orchestratorLog.action('warmed analysis bag from project brain', { projectId });
-      return bag;
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      orchestratorLog.warn('analysis warm hook failed; starting bag-less', { projectId, reason });
-      return undefined;
-    }
-  }
-
   /** Complete one model request through the caller's run runtime. */
   private async completeModel(
     request: AiCompletionRequest,
@@ -1591,10 +2012,16 @@ export class Orchestrator {
   ): CritiqueOptions {
     const durationTargetSeconds =
       options.durationTargetSeconds ?? explicitDurationTargetSeconds(input.userPrompt);
+    // The conditions the request stated in checkable terms (see `acceptance.ts`). The same
+    // reading is recorded on the run's objective, so the criterion the ledger reports against
+    // and the check that settles it can never be two different things.
+    const { minShotCount, coverage } = checkableAcceptance(input.userPrompt, durationTargetSeconds);
     return {
       userPrompt: input.userPrompt,
       ...(producedChanges !== undefined ? { producedChanges } : {}),
       ...(durationTargetSeconds !== undefined ? { durationTargetSeconds } : {}),
+      ...(minShotCount !== undefined ? { minShotCount } : {}),
+      ...(coverage !== undefined ? { coverage } : {}),
       ...(options.targetPlatform !== undefined ? { targetPlatform: options.targetPlatform } : {}),
       ...(options.render !== undefined ? { render: options.render } : {}),
     };
@@ -1721,9 +2148,11 @@ export class Orchestrator {
    *   As of E5.5 the question route (`streamChat`) really sends this surface and
    *   executes its calls — including `ask_user` (P12), which pauses on the run's
    *   AskUser gate exactly as in agent mode. Out-of-scope calls are refused there.
-   * - `'action-recovery'`: a one-turn mutation/ask-only surface after the prior turn
-   *   requested only memo-served information. This makes duplicate suppression an
-   *   executable constraint rather than another ignored prompt warning.
+   * - `'action-recovery'`: a one-turn mutate/ask surface — plus `recall_evidence` —
+   *   after the prior turn requested only memo-served information. This makes duplicate
+   *   suppression an executable constraint rather than another ignored prompt warning.
+   *   The recall exception is load-bearing: the turn's whole premise is that the run
+   *   already HAS what it needs, which is false if it cannot reach it.
    *
    * `stage` narrows any of the above further (ADR 0075 §3.6). Once the run is executing
    * against a locked plan, analysis and guidance descriptors are withheld: the evidence
@@ -1737,6 +2166,19 @@ export class Orchestrator {
    * `TOOL_REGISTRY`. Public so hosts and tests can inspect the exact advertised surface
    * per route.
    */
+  /**
+   * Can this run's model read an image?
+   *
+   * The same predicate {@link agentTools} filters `vision` descriptors with and
+   * `agentModeInstruction` gates its get_frame paragraph on — exposed so context that is
+   * assembled OUTSIDE the orchestrator can agree with it. `summarizeVisualStatus` is the
+   * case: it advises what to reach for when content search is unavailable, and advising a
+   * sightless run to look at a frame contradicts the tool list the same turn carries.
+   */
+  public canSeeFrames(): boolean {
+    return supportsVision(this.provider.name, this.provider.modelId);
+  }
+
   public agentTools(
     scope: 'agent' | 'question' | 'action-recovery' = 'agent',
     stage?: RunStage,
@@ -1751,8 +2193,23 @@ export class Orchestrator {
     // rather than let it be called and fail (see `supportsVision`).
     const sighted = supportsVision(this.provider.name, this.provider.modelId);
     return toolDescriptors((tool) => {
+      // Lifecycle work the orchestrator owns is never model-selectable. `tool-scope.ts`
+      // declares this and `autonomous-tool-contract.ts` throws over it, but the filter lived
+      // only in `selectTools` — so the ONE surface with a live editor in front of it offered
+      // `index_media` as an ordinary call, and a model could start a paced, billable indexing
+      // job inside a run whose budget assumed it could not.
+      if ((IMPLICIT_ONLY_TOOL_NAMES as readonly string[]).includes(tool.name)) return false;
       if (!sighted && tool.capabilities?.includes('vision')) return false;
-      if (scope === 'action-recovery') return tool.kind === 'mutate' || tool.kind === 'ask';
+      // `recall_evidence` survives the recovery turn. Everything else read-shaped is
+      // withheld there on purpose — the run has gathered enough and must act — but this
+      // one returns what it ALREADY gathered, costs no engine work, and cannot change
+      // under it. Withholding it made the turn unsurvivable: the instruction says to
+      // recall rather than re-read, so the model looked for the tool, found it missing,
+      // and built forty-six clips on asset durations it inferred from clip-id suffixes
+      // because the media bin it had read twice was no longer reachable.
+      if (scope === 'action-recovery') {
+        return tool.kind === 'mutate' || tool.kind === 'ask' || tool.name === 'recall_evidence';
+      }
       if (questionScope !== undefined && !questionScope.has(tool.name)) return false;
       return stage === undefined || stageAllowsRole(stage, toolRole(tool.name, tool.mutates));
     });
@@ -2014,6 +2471,14 @@ export class Orchestrator {
       }
       /* v8 ignore stop */
       const answerText = answer.answer;
+      // The editor just told the run something only they knew. Record it durably, or the
+      // next run asks again — or worse, proceeds on its own guess: in the captured session
+      // the editor chose the vertical framing in answer to this very question, and the
+      // following run rebuilt the montage with no crop at all.
+      host.rememberDecision?.({
+        title: `The editor answered: ${parsed.question}`,
+        body: `They said: ${answerText}. Follow this on later turns unless they change it.`,
+      });
       return {
         ops: [],
         // The answer IS the result: it lands in the action log, so the next turn plans
@@ -2057,6 +2522,17 @@ export class Orchestrator {
       /* v8 ignore stop */
       const outcome: HostToolOutcome = result.outcome;
       const runtimeCached = result.cached;
+      // Keep the beat grid for the rest of the run. A later re-analysis at a different
+      // sensitivity replaces it: the grid the model is cutting to is the one it last saw.
+      if (call.name === 'detect_beats' && outcome.status === 'completed' && host.beatEvidence) {
+        host.beatEvidence.current = outcome.data;
+        // The run's own editorial declaration, not an analysis parameter: whether it intends
+        // every interior cut to sit exactly on an onset. Sticky for the run once set, because
+        // a later re-analysis at a different sensitivity does not change the intent.
+        if ((call.arguments as { hardSync?: unknown }).hardSync === true) {
+          host.beatEvidence.hardSync = true;
+        }
+      }
       const colorEvidence =
         call.name === 'measure_color' &&
         outcome.status === 'completed' &&
@@ -2110,19 +2586,20 @@ export class Orchestrator {
       // summary text — the summary can be data-derived ("No silent ranges") and would
       // otherwise read as a freshly fabricated result rather than a served-from-cache one.
       const base = runtimeCached ? desc : outcome.summary;
-      // A cached replay carries no image: the runtime memo stores the outcome, so the
-      // picture is genuinely still there, but a frame's whole value is that it shows the
-      // timeline AS IT IS NOW. Re-showing a pre-edit frame under a post-edit question is
-      // the one failure this tool exists to prevent.
-      const replayed = runtimeCached && outcome.images !== undefined && outcome.images.length > 0;
-      // ...but dropping the picture while forwarding a payload that SAYS a picture is
-      // attached is worse than either honest option. `get_frame`'s data carries
-      // `note: 'The frame itself is attached to this turn as an image.'`, and passing that
-      // through unchanged on a memo hit told the model to look at an image it was never
-      // sent — so it answered "I can't see the attached frame" on a question it had the
-      // evidence to answer, or described the picture from imagination. Say what actually
-      // happened instead, and say how to get the picture back.
-      const data = replayed ? withReplayedImageNote(outcome.data) : outcome.data;
+      // A CACHED REPLAY RE-ATTACHES ITS PICTURE. The memo key for an image-bearing read
+      // carries the timeline revision (`idempotencyKeyFor`'s `project_revision` scope), so a
+      // hit is proof the timeline has not moved since the frame was rendered — the stored
+      // picture IS the current one, and the "a frame is only worth looking at as the
+      // timeline is now" objection cannot apply to a hit by construction.
+      //
+      // Dropping it was the more expensive mistake. Frames ride ONE request and are then
+      // stripped from the transcript, so from the turn after a look the model has no image
+      // and no way to get one: the replay told it "you were shown this, answer from what you
+      // saw" about a picture that had already left its context, and said asking again was
+      // futile. In the captured run that produced a confident, wrong diagnosis of the
+      // framing — the model reasoned about a frame it could not see — and two turns of
+      // edits chasing it. Re-attaching costs one image; being blind cost the run.
+      const data = outcome.data;
       // Built from `data`, NOT `outcome.data`: this preview is what the model actually
       // reads (the payload is digested into the note), so a rewrite that skipped it would
       // fix the card and leave the model with the same false claim.
@@ -2134,9 +2611,7 @@ export class Orchestrator {
         status: outcome.status,
         ...(runtimeCached ? { fromCache: true } : {}),
         ...(data !== undefined ? { data } : {}),
-        ...(!runtimeCached && outcome.images && outcome.images.length > 0
-          ? { images: outcome.images }
-          : {}),
+        ...(outcome.images && outcome.images.length > 0 ? { images: outcome.images } : {}),
       };
     }
     if (tool.kind === 'read' && tool.read) {
@@ -2150,12 +2625,13 @@ export class Orchestrator {
           const args = sanitizeToolArgs(tool, call.arguments) as {
             evidenceId: string;
             query?: string;
+            offset?: number;
           };
           if (!host.evidence) {
             const note = `${desc} → this run keeps no evidence store, so nothing can be recalled; work from what your context already shows.`;
             return { ops: [], note, summary: desc, status: 'warning', data: note };
           }
-          const recalled = host.evidence.recall(args.evidenceId, args.query);
+          const recalled = host.evidence.recall(args.evidenceId, args.query, args.offset);
           if (recalled === undefined) {
             const known = host.evidence
               .entries()
@@ -2208,6 +2684,10 @@ export class Orchestrator {
                 : 'loaded — its full playbook is now in the Skills section of your context.'
             }`,
             summary: desc,
+            // Naming the playbook is the whole fact: a briefing that says "Reading the
+            // pacing playbook → Reading the pacing playbook" does not tell the next turn
+            // which craft instructions it is already holding.
+            finding: `${skill.name} playbook loaded — its instructions are pinned in your context`,
             status: 'completed',
             data: value,
           };
@@ -2251,6 +2731,8 @@ export class Orchestrator {
           ops: [],
           note,
           summary: desc,
+          // The card wants the label; the run's memory wants the conclusion.
+          finding: preview,
           status: 'completed',
           data: value,
         };
@@ -2313,7 +2795,7 @@ export class Orchestrator {
           rejectedOpCount: ops.length,
         };
       }
-      const note = summarizeOperations(ops, names);
+      const note = summarizeOperations(ops, names, call);
       orchestratorLog.action('tool produced ops', { tool: call.name, opCount: ops.length, note });
       // Invalidate what this patch actually changed — the ARRANGEMENT — and nothing more
       // (§3.7). This used to be a blanket `clear()`, which threw away the transcript and
@@ -2375,6 +2857,10 @@ export class Orchestrator {
     report: CritiqueReport;
     stepIndex: number;
     appliedPatchIds: Set<string>;
+    /** This run's beat payload, so a repair is held to the grid like any other turn. */
+    rawBeats?: unknown;
+    /** The run's hard-sync declaration, so a repair inherits the same policy. */
+    beatHardSync?: boolean;
     maxOpsPerTurn: number;
     /** The run's abort signal, so Stop cancels the repair `complete()` call too. */
     signal?: AbortSignal;
@@ -2490,6 +2976,8 @@ export class Orchestrator {
       turnOps,
       working: args.working,
       appliedPatchIds: args.appliedPatchIds,
+      rawBeats: args.rawBeats,
+      beatHardSync: args.beatHardSync === true,
     });
     const record: AgentStep = { ...step.record, note: `Repair pass: ${step.record.note}` };
     return step.applied
@@ -2544,6 +3032,7 @@ export class Orchestrator {
     // unchanged working copy is served from here, marked non-novel, so it never looks
     // like progress — and, unlike the memo it replaces, it serves the DATA back.
     const evidence = new EvidenceStore();
+    const beatEvidence: { current?: unknown; hardSync?: boolean } = {};
     // ADR 0057: per-run skill ledger — see the streaming loop's identical comment.
     const loadedSkills = new Map<string, string>();
     // Per-run analysis budget (B5.4): caps frames/ffmpeg-seconds/transcription across
@@ -2624,6 +3113,7 @@ export class Orchestrator {
           {
             effectRuntime,
             evidence,
+            beatEvidence,
             loadedSkills,
             analysisBudget,
             ...(wipeGuard ? { wipeGuard } : {}),
@@ -2666,6 +3156,8 @@ export class Orchestrator {
         turnOps,
         working,
         appliedPatchIds,
+        rawBeats: beatEvidence.current,
+        beatHardSync: beatEvidence.hardSync === true,
       });
       steps.push(step.record);
       log.push(`Step ${index}: ${rationale ? `${rationale} — ` : ''}${step.record.note}`);
@@ -2735,6 +3227,7 @@ export class Orchestrator {
         report,
         stepIndex: steps.length + 1,
         appliedPatchIds,
+        rawBeats: beatEvidence.current,
         maxOpsPerTurn,
         effectRuntime,
         loadedSkills,
@@ -2785,19 +3278,93 @@ export class Orchestrator {
     turnOps: AnyOperation[];
     working: Project;
     appliedPatchIds: Set<string>;
-  }): { record: AgentStep; applied: boolean; working: Project; edit?: EditResult } {
-    const { index, rationale, toolCalls, notes, turnOps, working, appliedPatchIds } = args;
+    /**
+     * This run's raw `detect_beats` payload, when it gathered one. Passed per call rather
+     * than held on the Orchestrator, which serves concurrent runs (ADR 0126's note on this
+     * exact wiring point).
+     */
+    rawBeats?: unknown;
+    /**
+     * Whether the run DECLARED hard sync (`detect_beats({ hardSync: true })`). Without it an
+     * off-grid interior cut is reported to the model, not rejected — see
+     * `kernel/beat-grid/beat-alignment.ts`.
+     */
+    beatHardSync?: boolean;
+  }): {
+    record: AgentStep;
+    applied: boolean;
+    /** The turn landed nothing because the timeline already matched it (see below). */
+    satisfied?: boolean;
+    /**
+     * WHY the turn was rejected, with nothing else in it.
+     *
+     * The record's `note` is the model-facing log line, and every tool call in the turn
+     * contributes to it — reads included. Reporting THAT to the editor as the reason a
+     * change did not validate printed a media-bin JSON dump under "Skipped: 8 proposed
+     * changes did not validate", with the actual reason at the end of it. The user-facing
+     * line is built from this field instead.
+     */
+    rejection?: string;
+    /**
+     * Interior cuts left deliberately off the beat grid, as a measurement to report. Only
+     * set when the run did NOT declare hard sync — see `kernel/beat-grid/beat-alignment.ts`.
+     */
+    offGrid?: string;
+    working: Project;
+    edit?: EditResult;
+  } {
+    const { index, rationale, toolCalls, notes, working, appliedPatchIds } = args;
     // Every tool call contributes exactly one note, so a turn that reached here
     // (calls.length > 0) always has a non-empty baseNote.
     const baseNote = notes.join('; ');
 
-    if (turnOps.length === 0) {
+    if (args.turnOps.length === 0) {
       return {
         record: { index, rationale, toolCalls, applied: false, note: baseNote },
         applied: false,
         working,
       };
     }
+
+    // THE BEAT GRID (ADR 0126's open follow-up; `kernel/beat-grid/beat-alignment.ts`).
+    //
+    // This is NOT a beat-sync mode and there is no flag that turns it on. The gate is
+    // evidence the AGENT chose to gather: the rule engages only when this run actually
+    // called `detect_beats`. A run that never asked about the music is untouched, and no
+    // conditional anywhere decides that a request "is a beat-sync request" — the model
+    // decides that by electing the tool, and the runtime then guarantees the mechanical
+    // accuracy the model cannot deliver by arithmetic. The roadmap's governing split:
+    // the runtime controls execution and safety, the model controls editorial strategy.
+    //
+    // The module handles its own exemptions (audio/caption boundaries, the sequence's
+    // outer edges) and snaps interior near-misses rather than rejecting them, so a cut two
+    // frames off a real onset becomes frame-accurate sync instead of a wasted repair turn.
+    // A cut too far to snap is REPORTED unless the run declared hard sync: quantising every
+    // cut is a style, not a correctness property, and holding a run to it uninvited rewrote
+    // the rhythm a captured brief had asked for in so many words.
+    const beatAligned = alignTurnToBeatGrid(
+      working,
+      args.turnOps,
+      args.rawBeats,
+      args.beatHardSync === true,
+    );
+    if (!beatAligned.ok) {
+      return {
+        record: {
+          index,
+          rationale,
+          toolCalls,
+          applied: false,
+          note: `${baseNote}; rejected by the beat grid: ${beatAligned.error}`,
+        },
+        applied: false,
+        rejection: `rejected by the beat grid: ${beatAligned.error}`,
+        working,
+      };
+    }
+    const turnOps = beatAligned.operations;
+    // The measurement rides with the turn's note, which is what the model reads next turn.
+    const beatNote = beatAligned.offGrid ? `${baseNote}; ${beatAligned.offGrid}` : baseNote;
 
     const edit = assembleEdit(working, turnOps, rationale || 'Agent step', 'agent');
     /* v8 ignore start -- defense in depth: every op in `turnOps` already passed its own
@@ -2820,10 +3387,20 @@ export class Orchestrator {
           note: `${baseNote}; rejected by validator: ${problems}`,
         },
         applied: false,
+        rejection: `rejected by the validator: ${problems}`,
         working,
       };
     }
     /* v8 ignore stop */
+    // The patch id is a hash of the operations, so an identical id means this turn
+    // recomputed an edit the run already applied — the timeline already says what the turn
+    // was asking it to say. That is a NO-OP, and the distinction from a rejection matters
+    // more than it looks: the reducer files a landed-nothing turn as a `failed` operation,
+    // which the state briefing renders under "FAILED — fix the cause, do not retry
+    // unchanged". In the captured run that told the model its caption emphasis had failed
+    // twenty-four times, when in fact it had succeeded and was sitting on the timeline. The
+    // model dutifully looked for a cause to fix, found none, and tried again. `satisfied`
+    // carries the truth through to the reducer so the run is told it is DONE, not broken.
     if (appliedPatchIds.has(edit.patch.patchId)) {
       return {
         record: {
@@ -2832,9 +3409,10 @@ export class Orchestrator {
           toolCalls,
           patch: edit.patch,
           applied: false,
-          note: `${baseNote}; no progress (repeated edit)`,
+          note: `${beatNote}; already in place — this exact change is already on the timeline`,
         },
         applied: false,
+        satisfied: true,
         working,
       };
     }
@@ -2844,8 +3422,9 @@ export class Orchestrator {
     // manage_assets) and edit the timeline in the same run.
     const nextWorking: Project = applyProjectPatch(working, edit.patch);
     return {
-      record: { index, rationale, toolCalls, patch: edit.patch, applied: true, note: baseNote },
+      record: { index, rationale, toolCalls, patch: edit.patch, applied: true, note: beatNote },
       applied: true,
+      ...(beatAligned.offGrid ? { offGrid: beatAligned.offGrid } : {}),
       working: nextWorking,
       edit,
     };
@@ -2925,13 +3504,27 @@ export class Orchestrator {
       tier: 'mid',
       contextWindow: capabilitiesFor(this.provider.name, this.provider.modelId).contextWindow,
     },
-  ): AsyncGenerator<AiEvent, { text: string; calls: ToolCall[]; aborted: boolean; usage?: Usage }> {
+  ): AsyncGenerator<
+    AiEvent,
+    { text: string; calls: ToolCall[]; aborted: boolean; usage?: Usage; truncated?: boolean }
+  > {
     let text = '';
+    // The narration boundary (kernel/narration.ts). Assistant text reaches the UI as live
+    // deltas, so this has to sit on the delta path rather than on the settled string: a
+    // filter that only ran at the end would let "I'll continue from the interpret stage."
+    // render and then snap away. `text` accumulates what the filter LET THROUGH, so the
+    // string the editor read, the string stored as the patch reason, and the string the
+    // reducer signatures the turn by are all the same string — there is no second, dirtier
+    // copy of the message anywhere downstream.
+    const narration = createNarrationFilter();
     const calls: ToolCall[] = [];
     // Real usage this call reported (C1), if any — a caller (e.g. the agent loop's
     // `runTurn`) folds this into the run's cost accumulator. Never fabricated: stays
     // `undefined` when no `usage` chunk arrives (see `providerChunks`).
     let usage: Usage | undefined;
+    // The provider's own "I stopped because I ran out of room" (see `ProviderChunk`'s
+    // `done.truncated`). Never inferred from the prose.
+    let truncated = false;
     // Built once, just before the call, and reused when the provider settles.
     let manifest: ContextManifest | undefined;
     const captureReasoning = sink.kind === 'assistant' && sink.captureReasoning === true;
@@ -3015,14 +3608,26 @@ export class Orchestrator {
       for await (const chunk of chunks) {
         if (signal?.aborted) {
           settled = true;
+          // A cancelled turn still owns whatever the narration filter was holding: it is a
+          // half-written sentence about the edit, not chatter (chatter was already dropped
+          // the moment its terminator arrived), and swallowing it would make a cancelled
+          // reply read as if the model said nothing at all.
+          const tail = narration.flush();
+          if (tail !== '') {
+            text += tail;
+            if (sink.kind === 'assistant') yield emit.delta(sink.id, tail);
+          }
           const settle = settleReasoning();
           if (settle) yield settle;
           return { text, calls, aborted: true, ...(usage ? { usage } : {}) };
         }
         if (chunk.type === 'text-delta') {
-          text += chunk.text;
-          if (sink.kind === 'assistant') {
-            yield emit.delta(sink.id, chunk.text);
+          const surfaced = narration.push(chunk.text);
+          if (surfaced !== '') {
+            text += surfaced;
+            if (sink.kind === 'assistant') {
+              yield emit.delta(sink.id, surfaced);
+            }
           }
         } else if (chunk.type === 'reasoning-delta') {
           if (captureReasoning) {
@@ -3038,10 +3643,20 @@ export class Orchestrator {
           calls.push(chunk.call);
         } else if (chunk.type === 'usage') {
           usage = chunk.usage;
+        } else if (chunk.type === 'done') {
+          // The text is already accumulated from the deltas; what only 'done' carries is
+          // whether the provider cut the reply off.
+          truncated = chunk.truncated === true;
         }
-        // 'done' carries the final canonical text, already accumulated from deltas.
       }
       settled = true;
+      // Release the tail the filter never got a terminator for (a message that ends without
+      // punctuation). `flush` still refuses it when it is unmistakable run chatter.
+      const tail = narration.flush();
+      if (tail !== '') {
+        text += tail;
+        if (sink.kind === 'assistant') yield emit.delta(sink.id, tail);
+      }
       const settle = settleReasoning();
       if (settle) yield settle;
       // Replace the estimate with what the provider actually charged, keeping the
@@ -3055,7 +3670,13 @@ export class Orchestrator {
           manifest: settled,
         });
       }
-      return { text, calls, aborted: signal?.aborted ?? false, ...(usage ? { usage } : {}) };
+      return {
+        text,
+        calls,
+        aborted: signal?.aborted ?? false,
+        ...(usage ? { usage } : {}),
+        ...(truncated ? { truncated: true } : {}),
+      };
     } finally {
       if (!settled) {
         const settle = settleReasoning();
@@ -3097,6 +3718,14 @@ export class Orchestrator {
     wipeGuard?: WipeGuardContext,
     /** Enforce an exceptional route-scoped descriptor set at execution time. */
     allowedToolNames?: ReadonlySet<string>,
+    /**
+     * The run's beat-payload box (see `HostCallContext.beatEvidence`). Absent on routes
+     * that never edit — the question route can call `detect_beats` to answer a question,
+     * but has no turn to hold to a grid.
+     */
+    beatEvidence?: { current?: unknown; hardSync?: boolean },
+    /** Durable note sink for what the editor tells the run (see `rememberDecision`). */
+    rememberDecision?: (note: { readonly title: string; readonly body: string }) => void,
   ): AsyncGenerator<
     AiEvent,
     {
@@ -3134,8 +3763,10 @@ export class Orchestrator {
       ...(signal ? { signal } : {}),
       effectRuntime,
       evidence,
+      ...(beatEvidence ? { beatEvidence } : {}),
       loadedSkills,
       ...(askUser ? { askUser } : {}),
+      ...(rememberDecision ? { rememberDecision } : {}),
       // `analysisBudget` is created once up front (always truthy) and threaded
       // through every turn of this loop — see `HostCallContext.analysisBudget`.
       analysisBudget,
@@ -3268,6 +3899,24 @@ export class Orchestrator {
         turnOps.push(...outcome.ops);
         notes.push(outcome.note);
         turnStatuses.push(outcome.status);
+        // Dev-only hit counter (opt-in via FRAMEPILOT_RUNS_LOG) — see run-log.ts.
+        {
+          const tool = getTool(call.name);
+          const argsSummary = summarizeArgs(call.arguments);
+          recordToolRun({
+            ts: new Date().toISOString(),
+            tool: call.name,
+            ...(tool ? { kind: tool.kind, mutates: tool.mutates } : {}),
+            status: outcome.status,
+            runtimeMs,
+            summary: outcome.summary,
+            fromCache: outcome.fromCache === true,
+            ...(argsSummary ? { argsSummary } : {}),
+            ...(outcome.status === 'failed' && typeof outcome.data === 'string'
+              ? { error: outcome.data }
+              : {}),
+          });
+        }
         // Frames ride their own channel to the next request as real image content; the
         // action log gets only the FACTS about them (see `AgentCallOutcome.images`).
         if (outcome.images) frames.push(...outcome.images);
@@ -3284,7 +3933,7 @@ export class Orchestrator {
             toolName: call.name,
             role,
             descriptor: describeToolCall(call, turnNames),
-            summary: outcome.summary,
+            summary: outcome.finding ?? outcome.summary,
             scope: evidenceScopeFor(call.name),
             status: outcome.status,
             fromCache: outcome.fromCache === true,
@@ -3467,91 +4116,6 @@ export class Orchestrator {
           ...(autoOptions.controls ? { controls: autoOptions.controls } : {}),
         });
         return;
-      case 'planned_edit': {
-        // Analysis-dependent edits prefer a bounded graph (for beat sync: detect
-        // beats/scenes in parallel, then propose validated add_clip operations). If the
-        // model proposes a graph outside that executable contract, continue through the
-        // evidence-grounded general agent instead of ending the user's request inert.
-        const classifierCost = costFromUsage(classifierUsage, 'small');
-        let fallback = false;
-        let plannedUsage: Extract<AiEvent, { type: 'usage' }> | undefined;
-        let trailing: AiEvent[] | undefined;
-        for await (const event of this.streamEditorRun(
-          input,
-          options,
-          { route: 'planned_edit', initialCost: classifierCost },
-          sharedEditorControls,
-        )) {
-          if (event.type === 'notification' && event.text === PLANNED_EDIT_UNSUPPORTED_NOTICE) {
-            fallback = true;
-            continue;
-          }
-          // Defer the terminal usage + tail until we know whether the bounded planner
-          // completed or declined. On fallback that spend seeds the SAME agent run;
-          // emitting it separately would double-count one user request.
-          if (event.type === 'usage') {
-            plannedUsage = event;
-            trailing = [];
-            continue;
-          }
-          if (trailing) trailing.push(event);
-          else yield event;
-        }
-        if (!fallback) {
-          if (plannedUsage) yield plannedUsage;
-          if (trailing) {
-            for (const event of trailing) yield event;
-          }
-          return;
-        }
-        /* v8 ignore start -- not exercisable deterministically with a synchronous mock
-           provider: every `options.signal?.aborted` check inside `streamPlannedEdit`
-           itself runs strictly BEFORE `isRecognizedPlan` on every code path, so any abort
-           visible by then already exits with `fallback` still false — the ONLY way to
-           reach this block with `fallback` true is an abort that lands in the narrow
-           window between the unsupported-plan notification already being yielded and this
-           loop's very next (synchronous) check, which requires a real async timing race a
-           deterministic test provider cannot reproduce. Real defensive coverage for a
-           production timing window, not dead code. */
-        if (options.signal?.aborted) {
-          if (plannedUsage) yield plannedUsage;
-          yield emit.status('cancelled');
-          return;
-        }
-        /* v8 ignore stop */
-        /* v8 ignore next 10 -- unreachable: every plannedEditFallback path in streamPlannedEdit is preceded or followed by an unconditional emit.usage() before the generator returns, so by the time `fallback` is observed true here, `plannedUsage` has always already been captured; classifierCost is a total-function fallback, not a live path today. */
-        const fallbackCost: RunCostSeed = plannedUsage
-          ? {
-              tokens: plannedUsage.tokens,
-              usd: plannedUsage.usd,
-              // The planner's own usage event already covers the classifier call and every
-              // planning call; when it reported a call count, carry it, otherwise the
-              // classifier alone is the one call we know for certain happened.
-              modelCalls: plannedUsage.modelCalls ?? 1,
-            }
-          : { ...classifierCost, modelCalls: 1 };
-        orchestratorLog.warn('streamAuto → bounded planner declined; continuing in agent mode', {
-          conversationId: options.conversationId,
-          tokensSpent: fallbackCost.tokens,
-        });
-        yield emit.notification(
-          'The bounded planner could not execute that task graph, so the general agent is continuing with the same request.',
-        );
-        yield* this.streamEditorRun(
-          input,
-          options,
-          {
-            route: 'agent',
-            agentOptions: autoOptions.agentOptions ?? {},
-            initialCost: fallbackCost,
-          },
-          {
-            ...sharedEditorControls,
-            agent: autoOptions.controls ?? {},
-          },
-        );
-        return;
-      }
       case 'edit':
         // Mark the turn as editing up front so an edit that ultimately applies nothing
         // still gets the sidebar's honest "nothing changed" notice — independent of which
@@ -3691,6 +4255,12 @@ export class Orchestrator {
             options.signal,
             Date.now,
             analysisBudget,
+            // A question turn can `ask_user` too, and an answer given there is just as
+            // worth keeping as one given mid-edit.
+            undefined,
+            undefined,
+            undefined,
+            chatOptions.controls?.rememberDecision,
           );
           notes.push(...executed.notes);
           if (executed.turnStatuses.includes('cancelled')) {
@@ -3878,28 +4448,36 @@ export class Orchestrator {
       for (const finding of resolved) yield findingEvent(finding, true);
       for (const finding of live) yield findingEvent(finding, false);
     };
-    const steerFindings = (live: readonly ReviewFinding[]): void => {
-      if (live.length === 0) return;
-      steering.push(
-        [
-          'Perceptual review of the edits you already applied found the following.',
-          'Fix only these, then carry on with the request:',
-          ...live.map((finding, index) => `${String(index + 1)}. ${finding.detail}`),
-        ].join('\n'),
-      );
-      findings.markDelivered(live);
+    /**
+     * Hand fresh findings to the agent — once per defect class.
+     *
+     * A finding whose class has already had its attempt is NOT re-pushed: it stays on the
+     * user's screen as an open finding, but it no longer buys a turn. Unbounded re-steering
+     * is what turned one unfixable defect (a black frame at every cut, caused by the
+     * transition model rather than by any proposal) into a run that spent its whole budget
+     * being told to fix it. The cap lives in `review-findings.ts`.
+     */
+    const steerFindings = (live: readonly ReviewFinding[]): readonly ReviewFinding[] => {
+      if (live.length === 0) return [];
+      const { steer, exhausted } = findings.admitForSteering(live);
+      if (steer.length > 0) {
+        steering.push(
+          [
+            REVIEW_STEERING_PREAMBLE,
+            'Fix only these, then carry on with the request:',
+            ...steer.map((finding, index) => `${String(index + 1)}. ${finding.detail}`),
+          ].join('\n'),
+        );
+        findings.markDelivered(steer);
+      }
+      return exhausted;
     };
     try {
       // Fallback ordinal for routes whose diffs carry no `turnIndex` (the single-proposal
-      // recipe/planned-edit routes emit one `scope:'run'` diff). Findings still need a
+      // the `edit` route emits one `scope:'run'` diff). Findings still need a
       // monotonic key to compare against later edits.
       let turnOrdinal = 0;
-      for await (const event of this.legacyEditorRun(
-        input,
-        options,
-        request,
-        effectiveControls,
-      )) {
+      for await (const event of this.legacyEditorRun(input, options, request, effectiveControls)) {
         if (event.type === 'diff' && event.edit.validation.valid && event.edit.diff) {
           const before = event.scope === 'turn' ? workingProject : input.project;
           workingProject = applyProjectPatch(before, event.edit.patch);
@@ -3942,8 +4520,19 @@ export class Orchestrator {
           if (reviewRequested) {
             const settled = await findings.drainSettled();
             const repaired = findings.takeResolved();
-            steerFindings(settled);
+            const exhausted = steerFindings(settled);
             yield* publishFindings(settled, repaired);
+            // Say it out loud the moment the run stops retrying, rather than letting the
+            // editor watch the same finding reappear and assume something is still working
+            // on it. Named per defect, not per frame.
+            for (const finding of exhausted) {
+              yield {
+                ...evidenceBase(),
+                id: `${options.turnId}:finding-unfixed:${finding.id}`,
+                type: 'warning',
+                text: `The review still reports this after a correction attempt, so the run is not retrying it again: ${finding.detail} It is likely a render or transition-model defect rather than something this edit can fix.`,
+              };
+            }
           }
           continue;
         }
@@ -3955,6 +4544,20 @@ export class Orchestrator {
           const remaining = await findings.drainAll();
           const repaired = findings.takeResolved();
           yield* publishFindings(remaining, repaired);
+          // The completion summary was already written from the DETERMINISTIC self-check, so
+          // a run could tell the editor "all checks passed" while its own perceptual review
+          // was still holding an unresolved defect. Amend the account here: the edits did
+          // land and are valid, and this is what the review found about them.
+          if (remaining.length > 0) {
+            const notice: AiEvent = {
+              ...evidenceBase(),
+              id: `${options.turnId}:review-unresolved`,
+              type: 'warning',
+              text: `The perceptual review finished with ${String(remaining.length)} unresolved finding${remaining.length === 1 ? '' : 's'}. Your edits are applied and validated, but they are not perceptually clean: ${remaining.map((finding) => finding.detail).join(' ')}`,
+            };
+            projector?.observe(notice);
+            yield notice;
+          }
           // An unreachable reviewer is not a verdict about the edit, so it neither fails the
           // run nor lets it claim the work was checked. Say plainly which of the two happened.
           const failures = findings.reviewFailures;
@@ -4194,12 +4797,6 @@ export class Orchestrator {
     switch (request.route) {
       case 'edit':
         return this.streamEdit(input, options, request.variations ? { variations: true } : {});
-      case 'planned_edit':
-        return this.streamPlannedEdit(
-          input,
-          options,
-          request.initialCost ?? { tokens: 0, usd: 0, modelCalls: 0 },
-        );
       case 'agent':
         return this.streamAgent(
           input,
@@ -4316,257 +4913,6 @@ export class Orchestrator {
   }
 
   /**
-   * Streaming **planned edit** run (plan/AGENT-NATIVE-COMPLETION-PLAN.md P3.1) — the live
-   * planner path's first vertical slice: IntentParser → Planner → `compilePlan` → the
-   * same scheduler the recipe path already proves live ({@link executePlannedEdit}). The
-   * model is consulted a bounded number of times (IntentParser + Planner + one
-   * `propose_edit` step, not once per turn of a long agent loop).
-   *
-   * `isRecognizedPlan`'s effect coverage spans any plan built from {@link RECIPE_LEAVES}'s
-   * proven pure leaves plus a `propose_edit` model step — a bounded, structural gate, never
-   * a guess at intent. A parsed intent/plan this driver STILL
-   * doesn't recognise ends the run honestly with {@link PLANNED_EDIT_UNSUPPORTED_NOTICE}
-   * (plus a {@link PlannerFallbackReason} — P11.2) rather than fabricate a run — the
-   * {@link streamAuto} continues through the general agent on that notice; direct
-   * planned-edit consumers receive the machine-readable unsupported event.
-   */
-  public async *streamPlannedEdit(
-    input: ContextInput,
-    options: StreamOptions,
-    initialCost: RunCostSeed = { tokens: 0, usd: 0, modelCalls: 0 },
-  ): AsyncGenerator<AiEvent> {
-    orchestratorLog.action('streamPlannedEdit start', {
-      provider: this.provider.name,
-      prompt: input.userPrompt?.slice(0, 200),
-    });
-    const emit = createTurnEmitter(options);
-    yield emit.status('editing');
-    const { runtime, finish } = this.createRunRuntime();
-    let planningCost: Required<RunCostSeed> = {
-      tokens: initialCost.tokens,
-      usd: initialCost.usd,
-      modelCalls: initialCost.modelCalls ?? 0,
-    };
-
-    const header = projectHeaderOf(input.project, input.targetPlatform);
-    const intentRequest = intentParser.buildRequest({
-      userText: input.userPrompt,
-      header,
-      ...(input.selection ? { selection: input.selection } : {}),
-    });
-    // Understanding and planning are two model calls that take tens of seconds on
-    // a real request, and they run BEFORE the plan exists — so until now the
-    // sidebar had nothing at all to show for them. In a measured session that was
-    // 38 seconds between "accepted" and the first visible step: the run looked
-    // idle for the entire time it was deciding what to do. They are announced as
-    // tasks for the same reason the review is: the wait is real, so name it.
-    let intentRaw: Awaited<ReturnType<EffectRuntime['run']>>;
-    yield emit.taskStarted('understand', 'Understand the request', 'model');
-    try {
-      intentRaw = await runtime.run(intentRequest, options.signal);
-    } catch (error) {
-      finish();
-      yield emit.taskFinished(
-        'understand',
-        options.signal?.aborted || isAbortError(error) ? 'cancelled' : 'failed',
-      );
-      if (options.signal?.aborted || isAbortError(error)) {
-        yield emit.usage(planningCost);
-        yield emit.status('cancelled');
-        return;
-      }
-      throw error;
-    }
-    yield emit.taskFinished('understand', 'completed');
-    const intentResponse = (intentRaw as ModelEffectResult).response;
-    /* v8 ignore next 3 -- unreachable: intentParser.buildRequest always stamps tier: 'small', so the 'mid' fallback here never runs. */
-    planningCost = addCost(planningCost, {
-      ...costFromUsage(intentResponse.usage, intentRequest.tier ?? 'mid'),
-      modelCalls: 1,
-    });
-    if (options.signal?.aborted) {
-      yield emit.usage(planningCost);
-      finish();
-      yield emit.status('cancelled');
-      return;
-    }
-    const intent = intentParser.parseResponse(intentResponse.text);
-    if (!intent.ok) {
-      yield plannedEditFallback(
-        emit,
-        'intent_unparseable',
-        `IntentParser's response could not be parsed: ${intent.error}`,
-      );
-      yield emit.usage(planningCost);
-      finish();
-      yield emit.status('completed');
-      return;
-    }
-
-    // No analysis has run in THIS run yet — but the project brain may hold results
-    // from previous runs (plan B1.3), so warm the bag from it (B1.4) instead of
-    // starting empty. Warming is best-effort: absent/failed → the honest bag-less
-    // state, exactly the pre-B1.4 behavior. P4.1 ingestion still feeds the LATER
-    // model steps inside `executePlannedEdit` (e.g. `propose_edit`) once this run's
-    // own `detect_scenes`/`analyze_silence`/`detect_beats` tasks complete
-    // (`plan-driver.ts`).
-    const warmedBag = await this.warmedAnalysisBag(input.project.id);
-    const semanticIndex = semanticIndexFor(input.project, warmedBag);
-    const index = summarizeSemanticIndex(semanticIndex);
-    const slice = boundSemanticIndexSlice(getSlice(semanticIndex));
-    const capabilities = toolCapabilities(TOOL_REGISTRY.filter((t) => t.available));
-    const plannerRequest = planner.buildRequest({
-      intent: intent.value,
-      index,
-      slice,
-      capabilities,
-      executableEffects: {
-        host_tool: capabilities.filter((tool) => tool.kind === 'analysis').map((tool) => tool.name),
-        analysis: Object.keys(RECIPE_LEAVES),
-        model: [...RECOGNIZED_MODEL_TASKS],
-        patch: ['assemble_patch'],
-        verify: ['verify'],
-      },
-    });
-    let plannerRaw: Awaited<ReturnType<EffectRuntime['run']>>;
-    // The longest pre-plan wait — 25s in the measured session, and the one the
-    // user is most likely to read as the app having hung.
-    yield emit.taskStarted('plan', 'Draft a plan', 'model');
-    try {
-      plannerRaw = await runtime.run(plannerRequest, options.signal);
-    } catch (error) {
-      finish();
-      yield emit.taskFinished(
-        'plan',
-        options.signal?.aborted || isAbortError(error) ? 'cancelled' : 'failed',
-      );
-      if (options.signal?.aborted || isAbortError(error)) {
-        yield emit.usage(planningCost);
-        yield emit.status('cancelled');
-        return;
-      }
-      throw error;
-    }
-    yield emit.taskFinished('plan', 'completed');
-    const plannerResponse = (plannerRaw as ModelEffectResult).response;
-    /* v8 ignore next 3 -- unreachable: planner.buildRequest always stamps tier: 'mid', so this fallback never runs. */
-    planningCost = addCost(planningCost, {
-      ...costFromUsage(plannerResponse.usage, plannerRequest.tier ?? 'mid'),
-      modelCalls: 1,
-    });
-    if (options.signal?.aborted) {
-      yield emit.usage(planningCost);
-      finish();
-      yield emit.status('cancelled');
-      return;
-    }
-    const proposedPlan = planner.parseResponse(plannerResponse.text);
-    if (!proposedPlan.ok) {
-      yield plannedEditFallback(
-        emit,
-        'plan_unparseable',
-        `The Planner's proposed plan could not be parsed: ${proposedPlan.error}`,
-      );
-      yield emit.usage(planningCost);
-      finish();
-      yield emit.status('completed');
-      return;
-    }
-
-    let graph: ReturnType<typeof compilePlan>;
-    try {
-      graph = compilePlan(proposedPlan.value);
-    } catch (error) {
-      /* v8 ignore next -- compilePlan throws only TaskGraphError (an Error subclass); the String(error) branch is defensive. */
-      const message = error instanceof Error ? error.message : String(error);
-      yield plannedEditFallback(
-        emit,
-        'plan_uncompilable',
-        `The proposed plan does not compile to a valid task graph: ${message}`,
-      );
-      yield emit.usage(planningCost);
-      finish();
-      yield emit.status('completed');
-      return;
-    }
-    if (!isRecognizedPlan(graph)) {
-      yield plannedEditFallback(
-        emit,
-        'unrecognized_task_shape',
-        'The proposed plan names a task/tool shape this planner path does not yet execute.',
-      );
-      yield emit.usage(planningCost);
-      finish();
-      yield emit.status('completed');
-      return;
-    }
-
-    const result = yield* executePlannedEdit(
-      graph,
-      {
-        project: input.project,
-        runtime,
-        emit,
-        reason: `Planned edit: ${intent.value.goal}`,
-      },
-      options.signal,
-    );
-    // P7.1/P7.2: the run's real, priced cost (a planned edit's `propose_edit`
-    // model tasks price real usage) — raw numbers, folded into creator language by the
-    // sidebar. Emitted on every terminal path, same as `streamRecipe`.
-    yield emit.usage({
-      tokens: planningCost.tokens + result.cost.tokens,
-      usd: planningCost.usd + result.cost.usd,
-      modelCalls: planningCost.modelCalls,
-    });
-    // P7.3 dev/debug affordance — see `streamRecipe`'s identical call for why this sits
-    // right after the graph settles rather than after every one of the early "unsupported"
-    // returns above (those never reach the graph executor at all).
-    finish();
-
-    if (result.status === 'cancelled') {
-      yield emit.status('cancelled');
-      return;
-    }
-    if (result.status === 'failed' && !result.unsupported) {
-      // Name the step and its reason. The bare sentence was unactionable — a missing
-      // argument, a rejected proposal and an engine that was not running all read the
-      // same — and a `model` step publishes no tool result to inspect instead.
-      const failure = result.failure;
-      yield emit.error(plannedEditFailureMessage(failure), { retryable: true });
-      yield emit.status('failed');
-      return;
-    }
-    /* v8 ignore start -- defense in depth: `isRecognizedPlan` (above) and
-       `executePlannedEdit`'s own task dispatch are built from the same primitives
-       (`RECOGNIZED_MODEL_TASKS`, `RECIPE_LEAVES`), so a plan that passes the gate can no
-       longer produce `unsupported: true` today. Kept as a safety net against the two
-       drifting apart (e.g. a new `model` task kind added to one list but not the other) —
-       `plan-driver.test.ts` exercises this fold directly against `executePlannedEdit`. */
-    if (result.unsupported) {
-      yield plannedEditFallback(
-        emit,
-        'execution_unsupported',
-        'A task in the compiled plan reported unsupported at execution time (gate/driver drift).',
-      );
-      yield emit.status('completed');
-      return;
-    }
-    /* v8 ignore stop */
-    if (result.status !== 'completed' || !result.edit) {
-      yield emit.status('completed');
-      return;
-    }
-    const names = projectNames(input.project);
-    for (const op of result.edit.patch.operations) {
-      const described = describeOperation(op, names);
-      yield emit.timelineAction(described.action, described.detail, described.refs);
-    }
-    yield emit.diff(result.edit);
-    yield emit.status('completed');
-  }
-
-  /**
    * Streaming agent run (PRD §7.4): the multi-step tool-calling agent, emitting live
    * `reasoning`/`plan`/`tool_call`/`tool_result`/`timeline_action` events and a terminal
    * combined {@link DiffEvent}. As of K1.3 this is a thin driver over the Conductor
@@ -4666,6 +5012,7 @@ export class Orchestrator {
     // unchanged working copy is served from here and marked non-novel, so re-reading is
     // never mistaken for progress. Cleared inside `runAgentCall` when an edit lands.
     const evidence = new EvidenceStore();
+    const beatEvidence: { current?: unknown; hardSync?: boolean } = {};
     // ADR 0057: per-run skill ledger — shared across the run's turns AND its repair
     // pass, so a playbook is fetched once and stays pinned in context for the rest of
     // the run (see `HostCallContext.loadedSkills` / `agentSkillsBlock`).
@@ -4693,6 +5040,29 @@ export class Orchestrator {
     let usageTokens = initialCost.tokens;
     let usageUsd = initialCost.usd;
     /**
+     * Did any call this run return real evidence about what is IN the footage?
+     *
+     * The completion report says so when a montage was assembled without any (see
+     * `UNEVIDENCED_SHOT_CAVEAT_THRESHOLD`) — the captured run chose nine source spans out of
+     * 575 seconds with nothing read about the content, and told the editor its choices came
+     * from a footage map it had never asked for.
+     */
+    let sawContentEvidence = false;
+    /**
+     * Did this run's request ask for a rendered FILE? The agent cannot make one — render and
+     * export have no route from the panel — so the completion account says so rather than
+     * reporting a finished job over a deliverable that was never produced.
+     */
+    const asksForFile = asksForRenderedFile(input.userPrompt);
+    /**
+     * The last applying turn's off-grid measurement, for the completion account.
+     *
+     * A cut a few frames off the beat is ordinary editing, not a failure — but the editor
+     * should still be told, in the same breath as the edits themselves, rather than finding
+     * out by watching it.
+     */
+    let offGridNote: string | undefined;
+    /**
      * Frames the LAST turn rendered, waiting to be shown to the model on the next one.
      *
      * WHY only the last turn's, and why they are cleared once sent: a frame is only
@@ -4707,7 +5077,7 @@ export class Orchestrator {
     // sidebar tell a deterministic recipe (0 calls, honestly free) apart from a run
     // whose provider returned no usage report (calls > 0, cost unknown, and emphatically
     // not "no AI needed"). See `UsageEvent.modelCalls`.
-    /* v8 ignore next -- unreachable today: every caller either omits `initialCost` entirely (the default already sets `modelCalls: 0`) or passes it with `modelCalls` explicitly stamped (see `streamAuto`'s planned-edit fallback), so the `?? 0` never actually fires. */
+    /* v8 ignore next -- unreachable today: every caller either omits `initialCost` entirely (the default already sets `modelCalls: 0`) or passes it with `modelCalls` explicitly stamped (see `streamAuto`'s edit route), so the `?? 0` never actually fires. */
     let modelCalls = initialCost.modelCalls ?? 0;
     // The emitter of the handler currently executing; `settle` reads its seq so a mid-run
     // throw continues the run's one-off id sequence exactly where it stopped. Seeded with a
@@ -4903,7 +5273,18 @@ export class Orchestrator {
         const steeringMessage = controls.steering?.take();
         if (steeringMessage) {
           log.push(`Steering: "${steeringMessage}"`);
-          yield emit.notification(`Steering applied: "${steeringMessage}"`);
+          // An editor's own words are echoed back verbatim — that IS the receipt, and the
+          // steering input clears its "queued" note off this exact text. The review's
+          // instruction is not the editor's words: it is an internal prompt carrying request
+          // ids and raw measurements, and echoing it printed
+          // "edit_audio_0: Audio peak 0.08913551514039704 dBFS exceeds -0.1 dBFS" on screen
+          // as product copy. The findings already have their own cards, so this says only
+          // that the run is acting on them.
+          yield emit.notification(
+            steeringMessage.startsWith(REVIEW_STEERING_PREAMBLE)
+              ? 'Acting on what the review found in the edits so far.'
+              : `Steering applied: "${steeringMessage}"`,
+          );
         }
 
         const names = projectNames(working);
@@ -4930,54 +5311,97 @@ export class Orchestrator {
         // any) are even known — `generating` is the specific, honest status for that
         // phase (vs. the generic `editing` the caller set for the whole run).
         yield emit.status('generating');
-        const turn = yield* self.streamAssistant(
-          emit,
-          {
-            messages: self.agentMessages(
-              input,
-              working,
-              log,
-              loadedSkills,
-              plan,
-              steeringMessage,
-              effect.actionRecovery,
-              taskMemory,
-              pendingFrames,
-            ),
-            // Stage-scoped surface (ADR 0075 §3.6): action recovery still wins when it
-            // fires, but an executing run is closed to fresh reconnaissance regardless.
-            tools: effect.actionRecovery
-              ? self.agentTools('action-recovery')
-              : self.agentTools('agent', effect.stage),
-          },
-          signal,
-          // Per-step thinking (U3, redesign §12): each step captures the model's
-          // reasoning into its OWN node `${turnId}:reasoning:${index}`, so an agent run's
-          // thinking blocks stay distinct, ordered, and interleaved with that step's tool
-          // cards — never a single per-run accordion that later steps overwrite.
-          { kind: 'assistant', id: segmentId, captureReasoning: true, reasoningKey: index },
-          effectRuntime,
-          {
-            tier: 'mid',
-            contextWindow: contextWindowFor(input, self.provider),
-            reservedOutputTokens: reservedOutputFor(input, self.provider),
-            // The run's durable memory rides with the request so the composer can say
-            // "memory intact" while the prompt itself shrinks between turns.
-            /* v8 ignore next -- taskMemory is always defined on the live path (see the effect.working guard above), so the empty-object fallback never runs. */
-            ...(taskMemory ? { memory: memoryStatusFrom(taskMemory) } : {}),
-          },
-        );
-        // The frames just went out with that request; they must not ride the next one
-        // too (see `pendingFrames`). Cleared here rather than before the call so an
-        // aborted request does not silently discard evidence that was never sent.
-        pendingFrames = [];
-        // The turn made its model call whether or not the provider priced it.
+        /** One attempt at this turn's model call. Re-callable — see the retry below. */
+        const streamOnce = (attempt: number) =>
+          self.streamAssistant(
+            emit,
+            {
+              messages: self.agentMessages(
+                input,
+                working,
+                log,
+                loadedSkills,
+                plan,
+                steeringMessage,
+                effect.actionRecovery,
+                taskMemory,
+                pendingFrames,
+              ),
+              // Stage-scoped surface (ADR 0075 §3.6): action recovery still wins when it
+              // fires, but an executing run is closed to fresh reconnaissance regardless.
+              tools: effect.actionRecovery
+                ? self.agentTools('action-recovery')
+                : self.agentTools('agent', effect.stage),
+            },
+            signal,
+            // Per-step thinking (U3, redesign §12): each step captures the model's
+            // reasoning into its OWN node `${turnId}:reasoning:${index}`, so an agent run's
+            // thinking blocks stay distinct, ordered, and interleaved with that step's tool
+            // cards — never a single per-run accordion that later steps overwrite. A retry
+            // gets its own segment id so it cannot overwrite the attempt it replaces.
+            {
+              kind: 'assistant',
+              id: attempt === 0 ? segmentId : `${segmentId}:retry-${String(attempt)}`,
+              captureReasoning: true,
+              reasoningKey: index,
+            },
+            effectRuntime,
+            {
+              tier: 'mid',
+              contextWindow: contextWindowFor(input, self.provider),
+              reservedOutputTokens: reservedOutputFor(input, self.provider),
+              // The run's durable memory rides with the request so the composer can say
+              // "memory intact" while the prompt itself shrinks between turns.
+              /* v8 ignore next -- taskMemory is always defined on the live path (see the effect.working guard above), so the empty-object fallback never runs. */
+              ...(taskMemory ? { memory: memoryStatusFrom(taskMemory) } : {}),
+            },
+          );
+        let turn = yield* streamOnce(0);
         modelCalls += 1;
+        // A DROPPED OR CUT-OFF STEP IS NOT AN ANSWER, so retry it here rather than let the
+        // run end on it. `ResilientProvider` cannot help: it retries a stream only before
+        // the first chunk, and both failures arrive after a 200 — an empty completion, or a
+        // reply that stops mid-clause with no tool call. In the captured run the second one
+        // ended a three-and-a-half-minute turn on the words "Rebuilding the 30 seconds as a
+        // 23-shot", and the first failed a whole run the UI had labelled retryable.
+        let unusable = unusableTurnReason(turn, state.cumulativeOps.length, effect.stage);
+        for (
+          let attempt = 1;
+          unusable !== undefined && !turn.aborted && attempt <= MAX_UNUSABLE_TURN_RETRIES;
+          attempt += 1
+        ) {
+          log.push(`Step ${index}: ${unusable} model response — retrying (attempt ${attempt}).`);
+          // The attempt being replaced was still billed, so fold its usage in before it is
+          // overwritten; the surviving attempt is folded in by the block below, once.
+          if (turn.usage) {
+            const supersededCost = costFromUsage(turn.usage);
+            usageTokens += supersededCost.tokens;
+            usageUsd += supersededCost.usd;
+          }
+          turn = yield* streamOnce(attempt);
+          modelCalls += 1;
+          unusable = unusableTurnReason(turn, state.cumulativeOps.length, effect.stage);
+        }
+        // The frames went out with that request; they must not ride the next turn's too
+        // (see `pendingFrames`). Cleared after the retry loop rather than before it, so a
+        // retried attempt still carries evidence the failed attempt never got to use, and
+        // an aborted request does not silently discard it either.
+        pendingFrames = [];
         // C1: fold this turn's real model-call usage into the run's cost accumulator.
         if (turn.usage) {
           const cost = costFromUsage(turn.usage);
           usageTokens += cost.tokens;
           usageUsd += cost.usd;
+        }
+        if (unusable === 'truncated' && !turn.aborted) {
+          // Publishing the fragment would make a cut-off sentence the run's last word.
+          yield emit.warning(
+            'The model ran out of output room mid-reply and asked for no tool call, on every attempt. Nothing was applied. Retry, or ask for a smaller step.',
+          );
+          return turnBase(index, emit.seq(), {
+            done: true,
+            note: 'The model response was truncated before it proposed anything.',
+          });
         }
         if (turn.aborted) return turnBase(index, emit.seq(), { aborted: true });
 
@@ -4990,9 +5414,12 @@ export class Orchestrator {
           // timeline nothing had touched. Say what actually happened instead: honour work
           // earlier turns already landed, and fail loudly when there is none.
           if (!turn.text.trim()) {
+            // The bounded retry above has already been spent, so this is the provider
+            // failing repeatedly rather than a single dropped request.
             const detail =
-              'The model returned an empty response — no answer and no tool call. This is ' +
-              'usually the provider dropping the request (overloaded or rate-limited).';
+              'The model returned an empty response — no answer and no tool call, on every ' +
+              'attempt. This is usually the provider dropping the request (overloaded or ' +
+              'rate-limited).';
             if (state.cumulativeOps.length > 0) {
               log.push(`Step ${index}: empty model response — keeping the edits already applied.`);
               yield emit.warning(`${detail} The edits from earlier steps are kept.`);
@@ -5071,7 +5498,10 @@ export class Orchestrator {
             effect.actionRecovery
               ? new Set(self.agentTools('action-recovery').map((tool) => tool.name))
               : undefined,
+            beatEvidence,
+            controls.rememberDecision,
           );
+        if (callFacts.some(isContentEvidenceFact)) sawContentEvidence = true;
         // Hand this turn's frames to the NEXT request (see `pendingFrames`).
         pendingFrames = frames;
         const anyToolFailed = turnStatuses.includes('failed');
@@ -5119,7 +5549,10 @@ export class Orchestrator {
           turnOps,
           working,
           appliedPatchIds,
+          rawBeats: beatEvidence.current,
+          beatHardSync: beatEvidence.hardSync === true,
         });
+        if (applied.offGrid) offGridNote = applied.offGrid;
         log.push(`Step ${index}: ${applied.record.note}`);
         const describedActions: DescribedAction[] = [];
         if (applied.applied) {
@@ -5160,6 +5593,8 @@ export class Orchestrator {
           appliedOps: applied.applied ? [...turnOps] : [],
           describedActions,
           note: applied.record.note,
+          ...(applied.rejection === undefined ? {} : { rejection: applied.rejection }),
+          ...(applied.satisfied === true ? { satisfied: true } : {}),
         });
       },
 
@@ -5185,6 +5620,8 @@ export class Orchestrator {
             report,
             stepIndex: state.planSteps.length + 1,
             appliedPatchIds,
+            rawBeats: beatEvidence.current,
+            beatHardSync: beatEvidence.hardSync === true,
             maxOpsPerTurn,
             effectRuntime,
             loadedSkills,
@@ -5249,7 +5686,7 @@ export class Orchestrator {
         const emit = createTurnEmitter(state.turnRef, state.seq);
         // C1: the run's real, combined cost (classifier + every turn + any repair pass) —
         // emitted once at the terminal boundary, mirroring `streamRecipe`/
-        // `streamPlannedEdit`'s identical `emit.usage(...)` call.
+        // the single terminal `emit.usage(...)` contract every route shares.
         yield emit.usage({ tokens: usageTokens, usd: usageUsd, modelCalls });
         if (!effect.cancelled && !effect.failed && effect.ops.length > 0) {
           yield emit.assistant(
@@ -5260,6 +5697,9 @@ export class Orchestrator {
               steps: Math.max(effect.appliedTurns, 1),
               rejectedOpCount: effect.rejectedOpCount,
               rejectionReasons: effect.rejectionReasons,
+              contentEvidence: sawContentEvidence,
+              ...(offGridNote ? { offGrid: offGridNote } : {}),
+              ...(asksForFile ? { deliverableFileRequested: true } : {}),
             }),
           );
         }
@@ -5329,20 +5769,64 @@ export function agentCompletionReport(args: {
   steps: number;
   rejectedOpCount: number;
   rejectionReasons: readonly string[];
+  /**
+   * Whether any call this run made returned real evidence about what is IN the footage
+   * (see `CONTENT_EVIDENCE_TOOLS`). Absent ⇒ treated as evidence gathered, so callers that
+   * do not track it are unchanged.
+   */
+  contentEvidence?: boolean;
+  /**
+   * Interior cuts the run left deliberately off the detected beat grid, as measured. Present
+   * only when the run analyzed beats and did not declare hard sync.
+   */
+  offGrid?: string;
+  /**
+   * True when the request asked for a rendered/exported file. The panel cannot produce one, so
+   * the report says where to get it instead of leaving the editor to notice the absence.
+   */
+  deliverableFileRequested?: boolean;
 }): string {
   const maxLines = 10;
-  const lines = args.ops.slice(0, maxLines).map((op) => {
-    const described = describeOperation(op, args.names);
-    return `- ${described.action}: ${described.detail}`;
-  });
-  const more = args.ops.length - maxLines;
+  // Collapse lines that render identically. Eight successive restyles of one caption track
+  // describe ONE outcome to the person reviewing it — the last one is what they will see —
+  // and printing the same sentence eight times reads as a malfunction rather than a receipt.
+  // Only the RENDERED line is compared, so two edits that differ in any way the editor can
+  // see still get their own row; this hides repetition, never distinct work.
+  const counts = new Map<string, number>();
+  for (const op of args.ops) {
+    const line = operationLine(op, args.names);
+    counts.set(line, (counts.get(line) ?? 0) + 1);
+  }
+  const distinct = [...counts.entries()];
+  const lines = distinct
+    .slice(0, maxLines)
+    .map(([line, count]) => `- ${line}${count > 1 ? ` (×${count})` : ''}`);
+  const more = distinct.length - maxLines;
   if (more > 0) lines.push(`- …and ${more} more`);
   const head = `**Applied ${args.ops.length} edit${args.ops.length === 1 ? '' : 's'}** in ${args.steps} step${args.steps === 1 ? '' : 's'} — review the proposed change below.`;
   const skipped =
     args.rejectedOpCount > 0
       ? `\n\n**Skipped:** ${args.rejectedOpCount} proposed change${args.rejectedOpCount === 1 ? '' : 's'} did not validate (${args.rejectionReasons.join('; ')}).`
       : '';
-  return `${head}\n\n${lines.join('\n')}${skipped}`;
+  // An honest receipt for a montage chosen blind. The captured run picked nine spans out of
+  // 575 seconds having read nothing about the content, and told the editor the choices came
+  // from a footage map it never asked for. The edit still stands — the editor may well have
+  // wanted exactly this — but they should know what it was based on.
+  const placedShots = args.ops.filter((op) => op.type === 'add_clip').length;
+  const unevidenced =
+    args.contentEvidence === false && placedShots >= UNEVIDENCED_SHOT_CAVEAT_THRESHOLD
+      ? `\n\nHeads up: these ${String(placedShots)} shots were chosen from timings alone — nothing was read about what is actually in the footage. Ask for a footage map, or for specific moments, if you want the selection grounded in content.`
+      : '';
+  // Reported, never apologised for: the cut stands, and the editor gets the number.
+  const offGrid = args.offGrid === undefined ? '' : `\n\n${args.offGrid}`;
+  // The deliverable the panel cannot make. Run 2's brief closed with "One final rendered 30s
+  // vertical MP4"; the run never attempted it, never mentioned it, and reported completed.
+  const deliverable =
+    args.deliverableFileRequested === true
+      ? '\n\nThis asks for a rendered file, which the AI panel cannot produce — the edits are ' +
+        'on your timeline; use the Export dialog to render them out.'
+      : '';
+  return `${head}\n\n${lines.join('\n')}${skipped}${unevidenced}${offGrid}${deliverable}`;
 }
 
 /** Render a {@link CritiqueReport} as a compact human-readable block. */

@@ -123,13 +123,13 @@ export function stageAllowsRole(stage: RunStage, role: ToolRole): boolean {
   return role !== 'analysis' && role !== 'guidance';
 }
 
-/**
- * Should the planning phase be forced closed? True once the run has spent `budget`
- * consecutive turns gathering without attempting an edit — at which point it has, by
- * construction, enough to act on. Mirrors ADR 0074's research budget so the two rails
- * agree rather than compete; this one expresses it as a STAGE change so the closure is
- * durable instead of lasting a single turn.
+/*
+ * `planningExhausted(researchStreak, budget)` used to live here. It was a byte-for-byte
+ * duplicate of the Conductor's `researchBudgetSpent`, it had no caller, and its docstring
+ * claimed it "expresses it as a STAGE change so the closure is durable instead of lasting
+ * a single turn" — which nothing in the run ever did. Two copies of one predicate, one of
+ * them dead and describing behaviour the product did not have, is worse than one: a reader
+ * checking whether the research budget closes the stage durably would have found this and
+ * believed it. The live rail is `conductor.ts#researchBudgetSpent` + `RESEARCH_BUDGET_TURNS`,
+ * which withholds reconnaissance descriptors for the following turn.
  */
-export function planningExhausted(researchStreak: number, budget: number): boolean {
-  return researchStreak >= budget;
-}

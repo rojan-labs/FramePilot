@@ -240,25 +240,21 @@ export function parseToolArguments(tool: ToolSpec, rawArgs: unknown): unknown {
 
 function mapTimeParameters(): ToolParameterSchema {
   const time = { type: 'number', minimum: 0 };
+  // A flat object, not a top-level oneOf: Anthropic's Messages API rejects
+  // oneOf/anyOf/allOf directly under `input_schema`. The real mutual-exclusivity
+  // rule (sourceTime+assetId XOR sequenceTime XOR neither) is enforced at runtime
+  // by `assertMapTime`, not by the advertised schema, so it is safe to describe
+  // the constraint in prose here.
   return {
     type: 'object',
     description:
-      'Map one time domain at a time. Use sourceTime (+ optional assetId), sequenceTime, or no arguments for the full map.',
-    oneOf: [
-      {
-        type: 'object',
-        properties: { sourceTime: time, assetId: { type: 'string' } },
-        required: ['sourceTime'],
-        additionalProperties: false,
-      },
-      {
-        type: 'object',
-        properties: { sequenceTime: time },
-        required: ['sequenceTime'],
-        additionalProperties: false,
-      },
-      { type: 'object', properties: {}, additionalProperties: false },
-    ],
+      'Map one time domain at a time. Provide sourceTime (+ optional assetId) to convert source time to sequence time, or sequenceTime to convert sequence time to source time, or no arguments to get the full mapping. Never provide both sourceTime and sequenceTime, and only provide assetId alongside sourceTime.',
+    properties: {
+      sourceTime: { ...time, description: 'Source-domain time in seconds. Mutually exclusive with sequenceTime.' },
+      assetId: { type: 'string', description: 'Only valid together with sourceTime.' },
+      sequenceTime: { ...time, description: 'Sequence-domain time in seconds. Mutually exclusive with sourceTime.' },
+    },
+    additionalProperties: false,
   };
 }
 

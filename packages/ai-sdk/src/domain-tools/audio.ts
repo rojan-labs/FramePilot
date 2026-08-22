@@ -31,6 +31,10 @@ const detectBeatsSchema = z
   .object({
     assetId: filterString(),
     sensitivity: numeric(z.number().min(0.5).max(4)).optional(),
+    // The EDITORIAL declaration, not an analysis parameter (the engine never sees it):
+    // whether you intend every interior picture cut to land exactly on an onset. See the
+    // tool description and `kernel/beat-grid/beat-alignment.ts`.
+    hardSync: z.boolean().optional(),
   })
   .strict();
 
@@ -66,7 +70,12 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
         "Detect musical beat/onset timestamps in an asset's audio (energy-flux onset " +
         'detection) plus an estimated BPM. Use for beat-synced montage cuts. Returns ' +
         'beat times in seconds; does not edit the timeline. Needs an asset that has an ' +
-        "audio track — silent footage has no beats, so pass the music asset's id.",
+        "audio track — silent footage has no beats, so pass the music asset's id. " +
+        'Set hardSync ONLY when you intend every interior picture cut to sit exactly on an ' +
+        'onset: the runtime then holds you to it and rejects a cut it cannot place there. ' +
+        'Leave it off — the default — for the far more common case where the music informs ' +
+        'the rhythm but the picture leads: near-misses are still snapped for you, and a cut ' +
+        'that is deliberately off the grid is reported to you rather than refused.',
     },
     detectBeatsSchema,
   ),

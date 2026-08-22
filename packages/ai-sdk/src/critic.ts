@@ -19,6 +19,7 @@
  */
 import { CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID } from '@framepilot/editor-core';
 import type { Clip, Effect, Project, Timeline } from '@framepilot/timeline-schema';
+import { COVERAGE_LABEL, type CoverageTreatment } from './acceptance.js';
 import type { TargetPlatform } from './context-builder.js';
 import type { TemporalReviewReport } from './temporal-review.js';
 import type { VisionReviewReport } from './vision-review.js';
@@ -30,6 +31,9 @@ export type CheckStatus = 'pass' | 'warn' | 'fail' | 'skipped';
 export type CheckId =
   | 'request_match'
   | 'duration_target'
+  | 'shot_count'
+  | 'reframe_coverage'
+  | 'treatment_coverage'
   | 'caption_alignment'
   | 'safe_area'
   | 'audio_clipping'
@@ -77,6 +81,16 @@ export interface CritiqueOptions {
   readonly durationTargetSeconds?: number;
   /** Allowed deviation from {@link durationTargetSeconds}. Defaults to 2s. */
   readonly durationToleranceSeconds?: number;
+  /**
+   * Fewest distinct shots the request asked for ("use at least 20 moments"), if it named a
+   * number. Read deterministically from the prompt by `acceptance.ts`.
+   */
+  readonly minShotCount?: number;
+  /**
+   * Treatments the request demanded of EVERY clip ("every clip reframed", "grade across
+   * clips"), read deterministically from the prompt by `acceptance.ts`.
+   */
+  readonly coverage?: readonly CoverageTreatment[];
   /** Target platform, used to sanity-check export aspect ratio/orientation. */
   readonly targetPlatform?: TargetPlatform;
   /** Results of an auto preview render's validation, if one was run. */
@@ -219,6 +233,161 @@ function checkDurationTarget(timeline: Timeline, options: CritiqueOptions): Crit
     'Duration on target',
     'fail',
     `Timeline is ${round(actual)}s but the target is ${round(target)}s (off by ${round(delta)}s).`,
+  );
+}
+
+/**
+ * Did the cut use as many shots as the request asked for?
+ *
+ * The captured run was asked for "20+ different best moments" and delivered eight, and
+ * nothing noticed: the run's only acceptance criterion was the request's own text, so no
+ * check could be derived from it. Counted as picture clips — text/caption overlays are not
+ * shots — because that is what an editor means by a shot count.
+ */
+function checkShotCount(timeline: Timeline, options: CritiqueOptions): CriticCheck {
+  const target = options.minShotCount;
+  if (target === undefined) {
+    return check('shot_count', 'Shot count on target', 'skipped', 'No shot count was asked for.');
+  }
+  const shots = allClips(timeline).filter((clip) => !isOverlayClip(clip)).length;
+  if (shots >= target) {
+    return check(
+      'shot_count',
+      'Shot count on target',
+      'pass',
+      `The cut uses ${String(shots)} shots (at least ${String(target)} asked for).`,
+    );
+  }
+  return check(
+    'shot_count',
+    'Shot count on target',
+    'fail',
+    `The cut uses ${String(shots)} shots but at least ${String(target)} were asked for.`,
+  );
+}
+
+/** Does one clip carry the treatment the request demanded of every clip? */
+function clipCarries(clip: Clip, treatment: CoverageTreatment): boolean {
+  switch (treatment) {
+    case 'crop':
+      return clip.crop !== undefined;
+    case 'grade':
+      return clip.effects.some((effect) => effect.type === 'color_grade');
+    case 'motion':
+      return clip.keyframes.length > 0;
+    case 'speed':
+      return clip.speed !== undefined || (clip.speedRamp?.length ?? 0) > 0;
+  }
+}
+
+/**
+ * Did every clip get the treatment the request asked for every clip to have?
+ *
+ * The defect this closes: a brief demanding a reframe, a grade and a Ken Burns move on EVERY
+ * clip was answered with one graded clip and one moved clip out of forty-seven, and every
+ * criterion the run had — a duration and a shot count, both counts of the whole — was
+ * satisfied. "All checks passed" over a cut that had been polished for two seconds and
+ * abandoned. Coverage is the question those counts cannot ask.
+ */
+function checkTreatmentCoverage(timeline: Timeline, options: CritiqueOptions): CriticCheck {
+  const wanted = options.coverage ?? [];
+  if (wanted.length === 0) {
+    return check(
+      'treatment_coverage',
+      'Per-clip work is complete',
+      'skipped',
+      'The request asked for nothing of every clip.',
+    );
+  }
+  const picture = allClips(timeline).filter((clip) => !isOverlayClip(clip));
+  if (picture.length === 0) {
+    return check('treatment_coverage', 'Per-clip work is complete', 'skipped', 'No picture clips.');
+  }
+  const shortfalls: string[] = [];
+  for (const treatment of wanted) {
+    const carried = picture.filter((clip) => clipCarries(clip, treatment)).length;
+    if (carried < picture.length) {
+      shortfalls.push(
+        `${COVERAGE_LABEL[treatment]}: ${String(carried)} of ${String(picture.length)} clips`,
+      );
+    }
+  }
+  if (shortfalls.length === 0) {
+    return check(
+      'treatment_coverage',
+      'Per-clip work is complete',
+      'pass',
+      `All ${String(picture.length)} picture clips carry every treatment the request asked for.`,
+    );
+  }
+  return check(
+    'treatment_coverage',
+    'Per-clip work is complete',
+    'fail',
+    `The request asked for this on every clip, and it is not there yet — ${shortfalls.join('; ')}.`,
+  );
+}
+
+/**
+ * Is the reframing CONSISTENT across the picture — or is half the cut full-bleed and half of
+ * it letterboxed?
+ *
+ * A crop is how a clip fills a frame whose aspect differs from its source's: the engine crops
+ * and then scales the cropped picture to the canvas, so an uncropped 16:9 clip in a 9:16
+ * sequence renders with black bars (`_place_video_clip` fits, it does not cover). Nothing
+ * checked this, and two captured runs failed the same way — the editor asked for a full-bleed
+ * vertical cut, the agent reframed the opening shots, stopped, and the run reported "All
+ * checks passed" over a timeline that was 9 shots reframed and 38 not.
+ *
+ * Asked as a consistency question rather than a geometry one, because the project does not
+ * carry each asset's pixel dimensions: nobody deliberately reframes a fifth of a sequence, so
+ * a MIX of reframed and unreframed picture is a defect regardless of what the sources are. A
+ * sequence with no crops at all cannot be judged the same way — it may be a same-aspect edit
+ * that needs none — so a portrait frame with nothing reframed is a warning, not a failure.
+ */
+function checkReframeCoverage(project: Project, timeline: Timeline): CriticCheck {
+  const picture = allClips(timeline).filter((clip) => !isOverlayClip(clip));
+  if (picture.length === 0) {
+    return check('reframe_coverage', 'Reframing is consistent', 'skipped', 'No picture clips.');
+  }
+  const reframed = picture.filter((clip) => clip.crop !== undefined);
+  const { width, height } = project.resolution;
+  if (reframed.length === 0) {
+    if (height <= width) {
+      return check(
+        'reframe_coverage',
+        'Reframing is consistent',
+        'skipped',
+        'No clip is reframed, and the frame is not portrait.',
+      );
+    }
+    return check(
+      'reframe_coverage',
+      'Reframing is consistent',
+      'warn',
+      `No clip is reframed in a ${String(width)}x${String(height)} portrait frame — any ` +
+        'landscape source will render with black bars. Crop each shot to fill the frame if ' +
+        'that is not intended.',
+    );
+  }
+  if (reframed.length === picture.length) {
+    return check(
+      'reframe_coverage',
+      'Reframing is consistent',
+      'pass',
+      `All ${String(picture.length)} picture clips are reframed.`,
+    );
+  }
+  const missing = picture.filter((clip) => clip.crop === undefined);
+  const named = missing.slice(0, 3).map((clip) => clip.id);
+  const rest = missing.length - named.length;
+  return check(
+    'reframe_coverage',
+    'Reframing is consistent',
+    'fail',
+    `${String(reframed.length)} of ${String(picture.length)} picture clips are reframed, so ` +
+      `${String(missing.length)} will not match: ${named.join(', ')}` +
+      `${rest > 0 ? `, plus ${String(rest)} more` : ''}.`,
   );
 }
 
@@ -473,6 +642,9 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
   const checks: CriticCheck[] = [
     checkRequestMatch(options),
     checkDurationTarget(timeline, options),
+    checkShotCount(timeline, options),
+    checkReframeCoverage(project, timeline),
+    checkTreatmentCoverage(timeline, options),
     checkCaptionAlignment(timeline),
     checkSafeArea(timeline),
     checkAudioClipping(options),

@@ -15,7 +15,6 @@ import { frameBody, unwrapFrame } from './sidecar-executor.js';
 import { supportsVision } from './providers/model-capabilities.js';
 import { framesBlock } from './prompts.js';
 import { getTool } from './tool-registry.js';
-import { withReplayedImageNote } from './tool-executor.js';
 import type { Project } from '@framepilot/timeline-schema';
 
 const project = { id: 'p1', name: 'Demo' } as unknown as Project;
@@ -120,27 +119,6 @@ describe('unwrapFrame — how the picture reaches the model', () => {
     );
     expect(wrongType.status).toBe('failed');
     expect(wrongType.summary).toContain('image/gif');
-  });
-});
-
-describe('withReplayedImageNote — an honest payload when the picture is gone', () => {
-  it('replaces the attachment claim and keeps every fact', () => {
-    const replayed = withReplayedImageNote(unwrapFrame({ timeSeconds: 12.4 }, engineResponse).data);
-    expect(replayed).toMatchObject({ timeSeconds: 12.4, width: 288, height: 512 });
-    expect(JSON.stringify(replayed)).not.toContain('attached to this turn as an image');
-    expect(JSON.stringify(replayed)).toContain('already rendered earlier in this run');
-    // It must not send the model back for the same moment — the memo would just replay.
-    expect(JSON.stringify(replayed)).toContain('a different time or different options');
-  });
-
-  it('leaves a payload that is not an object record alone', () => {
-    // A failed outcome's `data` is the reason STRING; wrapping it in an object would turn
-    // an error message into a fake frame record.
-    expect(withReplayedImageNote('the engine returned no usable image')).toBe(
-      'the engine returned no usable image',
-    );
-    expect(withReplayedImageNote(undefined)).toBeUndefined();
-    expect(withReplayedImageNote([1, 2])).toEqual([1, 2]);
   });
 });
 

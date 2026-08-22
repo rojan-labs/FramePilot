@@ -36,6 +36,13 @@ function ModeBadge({ mode }: { mode: Conversation['mode'] }): JSX.Element {
   );
 }
 
+/** Copy `content` to the clipboard (no-op where the clipboard API is unavailable). */
+async function copyText(content: string): Promise<void> {
+  /* v8 ignore start -- browser-only clipboard glue, verified manually */
+  await navigator.clipboard?.writeText(content);
+  /* v8 ignore stop */
+}
+
 /** Trigger a client-side download of `content` as `filename` (no-op without a DOM). */
 function downloadText(filename: string, content: string, type: string): void {
   /* v8 ignore start -- browser-only download glue, verified manually */
@@ -147,6 +154,15 @@ function Row({
                 }}
               >
                 Export Markdown
+              </MenuItem>
+              <MenuItem
+                icon={<Copy size={ICON_SIZE.sm} aria-hidden="true" />}
+                onSelect={() => {
+                  void copyText(toMarkdown(conversation));
+                  close();
+                }}
+              >
+                Copy Markdown
               </MenuItem>
               <MenuItem
                 icon={<Trash2 size={ICON_SIZE.sm} aria-hidden="true" />}
@@ -273,4 +289,4 @@ export function HistoryDrawer({
   );
 }
 
-export { downloadText, toJson };
+export { copyText, downloadText, toJson };

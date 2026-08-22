@@ -68,8 +68,14 @@ export const MAX_LOADED_CONVERSATIONS = 3;
  * across it is a restore, never a merge: the run keeps streaming into the same records it
  * was already writing to, and the autosave diff (`prevById`) rides along so the restore
  * does not re-write every conversation it just recovered.
+ *
+ * Scoped by `projectId`: the same `App.tsx` remount key (`project.id:reloadNonce`) also
+ * fires on an actual project switch, not just a same-project auto-commit. Without the
+ * `projectId` guard, `hydrate`'s merge-only reducer case never evicts the previous
+ * project's conversations, so they kept accumulating in the history list across switches.
  */
 let remountCache: {
+  projectId: string | null;
   state: ConversationsState;
   prevById: ConversationsState['byId'];
   /** Ids whose event log is NOT in memory — see {@link MAX_LOADED_CONVERSATIONS}. */
@@ -206,28 +212,33 @@ export interface UseConversations {
  *
  * @param persistence - Storage backend (desktop/IndexedDB/memory). When `null`, the
  *   store is in-memory only (no autosave, no hydrate).
+ * @param projectId - Scopes the cross-remount cache (see {@link remountCache}) so a
+ *   project switch starts from an empty store instead of inheriting the previous
+ *   project's conversations. Pass the same value the `persistence` was scoped with.
  */
 export function useConversations(
   persistence: ConversationPersistence | null = null,
+  projectId: string | null = null,
 ): UseConversations {
+  const cached = remountCache?.projectId === projectId ? remountCache : null;
   const [state, dispatch] = useReducer(
     reducer,
     undefined,
-    () => remountCache?.state ?? createConversationsState(),
+    () => cached?.state ?? createConversationsState(),
   );
 
   // Debounced autosave: persist a conversation whose identity changed, delete those
   // that disappeared. Keyed timers coalesce a burst of streamed appends into one write.
   const persistenceRef = useRef(persistence);
   persistenceRef.current = persistence;
-  const prevById = useRef<ConversationsState['byId']>(remountCache?.prevById ?? {});
+  const prevById = useRef<ConversationsState['byId']>(cached?.prevById ?? {});
   /**
    * Conversations present in the store as metadata only. Tracked as the EXCEPTION rather
    * than tracking loaded ones, so anything this hook has not explicitly stubbed stays
    * saveable — the safe direction, since the failure it guards against is writing an
    * empty log over a full record on disk.
    */
-  const stubIds = useRef<Set<string>>(new Set(remountCache?.stubIds ?? []));
+  const stubIds = useRef<Set<string>>(new Set(cached?.stubIds ?? []));
   /** Loaded ids, most-recently-opened last — the eviction order. */
   const recency = useRef<string[]>([]);
   // The pending write rides WITH its timer so an unmount can still perform it (see the
@@ -244,7 +255,7 @@ export function useConversations(
     // must find the state as of the LAST append, not as of some teardown that may never
     // run in order. `prevById` is the pre-update snapshot the restored mount continues
     // its autosave diff from.
-    remountCache = { state, prevById: prev, stubIds: new Set(stubIds.current) };
+    remountCache = { projectId, state, prevById: prev, stubIds: new Set(stubIds.current) };
     if (!adapter) return;
 
     for (const [id, conversation] of Object.entries(state.byId)) {

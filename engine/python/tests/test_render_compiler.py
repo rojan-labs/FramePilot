@@ -1384,13 +1384,21 @@ def _catalog_transition_project(
     *,
     alignment: str | None = None,
 ) -> Any:
-    """Two adjacent clips with a catalog transition at the cut between them."""
-    src = media_factory("cat.mp4", seconds=2.0, with_audio=False, color="red", size="320x240")
-    (tmp_project_dir / "cat.mp4").write_bytes(src.read_bytes())
+    """Two adjacent clips, from VISUALLY DIFFERENT media, with a catalog transition at the cut.
+
+    Different colours on either side is what makes a transition observable at all: with one
+    asset on both sides every frame of the ramp is the same picture, so neither "the pass did
+    something" nor "the ramp reveals the outgoing shot" can be told apart from a black flash.
+    Each source is twice the clip it feeds, so both clips have handle material for the ramp.
+    """
+    red = media_factory("cat_a.mp4", seconds=2.0, with_audio=False, color="red", size="320x240")
+    blue = media_factory("cat_b.mp4", seconds=2.0, with_audio=False, color="blue", size="320x240")
+    (tmp_project_dir / "cat_a.mp4").write_bytes(red.read_bytes())
+    (tmp_project_dir / "cat_b.mp4").write_bytes(blue.read_bytes())
     first = _clip("c0", "v", 0, 1, asset="a1")
-    second = _clip("c1", "v", 1, 2, asset="a1")
-    second["sourceStart"] = 1.0
-    second["sourceEnd"] = 2.0
+    second = _clip("c1", "v", 1, 2, asset="a2")
+    second["sourceStart"] = 0.5
+    second["sourceEnd"] = 1.5
     params: dict[str, Any] = {"kind": kind, "durationSeconds": 0.5, "fromClipId": "c0"}
     if alignment is not None:
         params["alignment"] = alignment
@@ -1413,7 +1421,10 @@ def _catalog_transition_project(
         ]
     return _project(
         [{"id": "v", "type": "video", "clips": [first, second]}],
-        assets=[{"id": "a1", "path": "cat.mp4", "kind": "video"}],
+        assets=[
+            {"id": "a1", "path": "cat_a.mp4", "kind": "video"},
+            {"id": "a2", "path": "cat_b.mp4", "kind": "video"},
+        ],
     )
 
 
@@ -1434,7 +1445,156 @@ def test_compile_renders_a_catalog_transition(
         mid = np.asarray(composite.get_frame(1.2)).astype(np.float64)
         settled = np.asarray(composite.get_frame(1.9)).astype(np.float64)
         assert mid.shape[2] == 3
-        assert abs(float(mid.mean()) - float(settled.mean())) > 0.5, f"{kind} did nothing"
+        # Compared per pixel, not by frame mean: two shots of similar brightness (red then
+        # blue) average almost identically while looking nothing alike, so a mean-only check
+        # reads a working transition as "did nothing".
+        assert float(np.abs(mid - settled).mean()) > 1.0, f"{kind} did nothing"
+    finally:
+        composite.close()
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+@pytest.mark.parametrize(
+    "kind", ["cross-dissolve", "glitch", "circular-wipe", "whip-pan-left", "pixel-dissolve"]
+)
+def test_a_transition_reveals_the_outgoing_shot_not_black(
+    kind: str, tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    """No frame of a transition ramp is black — the shot being left is underneath it.
+
+    A transition is stamped on BUTT-JOINED clips, so during the incoming clip's reveal the
+    outgoing clip has already ended. Without an under-layer the reveal composites against the
+    background: a "cross dissolve" dissolved up from black and a whip pan whipped in over
+    black, at every cut. The perceptual reviewer reported exactly that on a real run
+    ("Unexpected black frame(s): 90, 91, 92" at each of seven cuts) and no edit the agent
+    could propose would have fixed it.
+    """
+    project = _catalog_transition_project(tmp_project_dir, media_factory, kind)
+    composite = compile_timeline(project, _index(project, tmp_project_dir), REELS)
+    try:
+        # The cut is at 1.0s and the ramp is 0.5s long; sample its whole width, the first
+        # frame included (that is the one that used to be fully black).
+        for time in (1.0, 1.05, 1.15, 1.25, 1.35, 1.45):
+            frame = np.asarray(composite.get_frame(time)).astype(np.float64)
+            black_ratio = float((frame.max(axis=2) < 26).mean())
+            assert black_ratio < 0.98, f"{kind} is black at {time}s (ratio {black_ratio})"
+    finally:
+        composite.close()
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_a_transition_ramp_shows_both_shots(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    """Mid-dissolve carries some of BOTH shots, which is what a dissolve means.
+
+    Stronger than "not black": it pins that the under-layer is the neighbour's real picture
+    rather than any filler. Red on the way out, blue on the way in, so the mid-ramp frame must
+    show measurable red AND measurable blue.
+    """
+    project = _catalog_transition_project(tmp_project_dir, media_factory, "cross-dissolve")
+    composite = compile_timeline(project, _index(project, tmp_project_dir), REELS)
+    try:
+        mid = np.asarray(composite.get_frame(1.25)).astype(np.float64)
+        # Only the framed picture counts; the letterbox around it is legitimately black.
+        lit = mid[mid.max(axis=2) > 26]
+        assert lit.size > 0, "the mid-ramp frame is entirely black"
+        assert float(lit[:, 0].mean()) > 8, "no red left from the outgoing shot"
+        assert float(lit[:, 2].mean()) > 8, "no blue arrived from the incoming shot"
+    finally:
+        composite.close()
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_a_transition_holds_the_edge_frame_when_there_is_no_handle(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    """A neighbour cut to the very end of its asset still shows, held, under the ramp.
+
+    Handle material is what a transition normally borrows. When there is none — the outgoing
+    clip already plays to the last frame of its source — the alternative is not black: hold
+    the edge frame. Under a fast ramp a held frame reads as continuous; black reads as a flash.
+    """
+    red = media_factory("edge_a.mp4", seconds=1.0, with_audio=False, color="red", size="320x240")
+    blue = media_factory("edge_b.mp4", seconds=2.0, with_audio=False, color="blue", size="320x240")
+    (tmp_project_dir / "edge_a.mp4").write_bytes(red.read_bytes())
+    (tmp_project_dir / "edge_b.mp4").write_bytes(blue.read_bytes())
+    # The outgoing clip consumes its whole 1s source, so it has no handle at all.
+    first = _clip("c0", "v", 0, 1, asset="a1")
+    first["sourceStart"] = 0.0
+    first["sourceEnd"] = 1.0
+    second = _clip("c1", "v", 1, 2, asset="a2")
+    second["sourceStart"] = 0.5
+    second["sourceEnd"] = 1.5
+    second["effects"] = [
+        {
+            "id": "c1__transition",
+            "type": "transition",
+            "params": {"kind": "cross-dissolve", "durationSeconds": 0.4, "fromClipId": "c0"},
+            "keyframes": [],
+        }
+    ]
+    project = _project(
+        [{"id": "v", "type": "video", "clips": [first, second]}],
+        assets=[
+            {"id": "a1", "path": "edge_a.mp4", "kind": "video"},
+            {"id": "a2", "path": "edge_b.mp4", "kind": "video"},
+        ],
+    )
+    composite = compile_timeline(project, _index(project, tmp_project_dir), REELS)
+    try:
+        frame = np.asarray(composite.get_frame(1.05)).astype(np.float64)
+        assert float((frame.max(axis=2) < 26).mean()) < 0.98, "the ramp is black"
+        lit = frame[frame.max(axis=2) > 26]
+        assert float(lit[:, 0].mean()) > 8, "the held outgoing frame is missing"
+    finally:
+        composite.close()
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_a_transition_holds_the_edge_when_the_neighbour_has_no_out_point(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    """An outgoing clip with no ``sourceEnd`` plays to the end of its asset — no handle.
+
+    Reading an absent out-point as 0.0 would borrow the asset's OPENING for the ramp: the right
+    shot at emphatically the wrong moment, and indistinguishable from a working transition in
+    any check that only looks for "not black".
+    """
+    red = media_factory("open_a.mp4", seconds=1.0, with_audio=False, color="red", size="320x240")
+    blue = media_factory("open_b.mp4", seconds=2.0, with_audio=False, color="blue", size="320x240")
+    (tmp_project_dir / "open_a.mp4").write_bytes(red.read_bytes())
+    (tmp_project_dir / "open_b.mp4").write_bytes(blue.read_bytes())
+    first = _clip("c0", "v", 0, 1, asset="a1")
+    first["sourceStart"] = 0.0
+    first.pop("sourceEnd", None)
+    second = _clip("c1", "v", 1, 2, asset="a2")
+    second["sourceStart"] = 0.5
+    second["sourceEnd"] = 1.5
+    second["effects"] = [
+        {
+            "id": "c1__transition",
+            "type": "transition",
+            "params": {"kind": "cross-dissolve", "durationSeconds": 0.4, "fromClipId": "c0"},
+            "keyframes": [],
+        }
+    ]
+    project = _project(
+        [{"id": "v", "type": "video", "clips": [first, second]}],
+        assets=[
+            {"id": "a1", "path": "open_a.mp4", "kind": "video"},
+            {"id": "a2", "path": "open_b.mp4", "kind": "video"},
+        ],
+    )
+    composite = compile_timeline(project, _index(project, tmp_project_dir), REELS)
+    try:
+        frame = np.asarray(composite.get_frame(1.05)).astype(np.float64)
+        assert float((frame.max(axis=2) < 26).mean()) < 0.98, "the ramp is black"
+        lit = frame[frame.max(axis=2) > 26]
+        # The outgoing shot is red on both its first and last frame here, so this pins the
+        # under-layer exists; the guard against borrowing the opening is the code path itself
+        # (an absent out-point resolves to the asset's end, not to 0.0).
+        assert float(lit[:, 0].mean()) > 8
     finally:
         composite.close()
 
@@ -1445,9 +1605,10 @@ def test_centre_alignment_ramps_the_outgoing_clip_too(
 ) -> None:
     """A centred transition starts BEFORE the cut.
 
-    With start alignment (the historical placement) the frame just before the cut
-    is the untouched outgoing shot; with centre alignment the outgoing clip is
-    already half dissolved away, which over black means visibly darker.
+    With start alignment (the historical placement) the frame just before the cut is the
+    untouched outgoing shot; with centre alignment that same frame is already half-way into
+    the incoming one. Asserted as "the picture differs", not "it is darker" — the ramp now has
+    the neighbour's picture underneath rather than black, which was the whole defect.
     """
     started = _catalog_transition_project(tmp_project_dir, media_factory, "circular-wipe")
     centred = _catalog_transition_project(
@@ -1457,9 +1618,12 @@ def test_centre_alignment_ramps_the_outgoing_clip_too(
     b = compile_timeline(centred, _index(centred, tmp_project_dir), REELS)
     try:
         before_cut = 0.9
-        assert float(np.asarray(b.get_frame(before_cut)).mean()) < float(
-            np.asarray(a.get_frame(before_cut)).mean()
-        )
+        start_aligned = np.asarray(a.get_frame(before_cut)).astype(np.float64)
+        centre_aligned = np.asarray(b.get_frame(before_cut)).astype(np.float64)
+        assert float(np.abs(start_aligned - centre_aligned).mean()) > 1.0
+        # And neither is black: the pre-cut ramp reveals the shot arriving, not the ground.
+        for frame in (start_aligned, centre_aligned):
+            assert float((frame.max(axis=2) < 26).mean()) < 0.98
     finally:
         a.close()
         b.close()

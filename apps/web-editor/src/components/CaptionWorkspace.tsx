@@ -24,7 +24,8 @@ import {
   DEFAULT_CAPTION_TEMPLATE_ID,
   type CaptionTemplateCategory,
 } from '@framepilot/timeline-schema/caption-templates';
-import { Button, Input } from '@framepilot/ui';
+import { Button, Input, Switch } from '@framepilot/ui';
+import { Checkbox } from './Checkbox.js';
 import { observeElementRect, useVirtualizer } from '@tanstack/react-virtual';
 import {
   memo,
@@ -509,14 +510,15 @@ const CueRow = memo(function CueRow({
         transform: `translateY(${virtualStart}px)`,
       }}
     >
-      <label className="caption-row-select">
-        <input
-          type="checkbox"
+      {/* Selection of a row, not a preference — a checkbox, but the app's token-styled
+          one. The raw input here rendered as the browser's own control. */}
+      <span className="caption-row-select">
+        <Checkbox
           checked={selected}
-          aria-label={`Select caption at ${cueClock(clip.start)}`}
+          ariaLabel={`Select caption at ${cueClock(clip.start)}`}
           onChange={onToggleSelection}
         />
-      </label>
+      </span>
       <button
         type="button"
         className="cue-time tabular"
@@ -1654,14 +1656,21 @@ export function CaptionWorkspace({
                 </button>
               ))}
             </div>
-            <label className="caption-check">
-              <input
-                type="checkbox"
+            {/* A preference that takes effect the moment it changes, so it reads as a
+                switch — the same control the AI sidebar's "Plan first" and every row in
+                Settings use. It was a bare native checkbox, which is both a second
+                checkbox design (the app has a token-styled `Checkbox` primitive) and the
+                wrong affordance for an immediate on/off. */}
+            <div className="caption-toggle-row">
+              <span className="caption-toggle-label" id="caption-safe-area-label">
+                Keep inside safe area
+              </span>
+              <Switch
                 checked={overrides.safeArea ?? resolvedCurrent.safeArea ?? true}
-                onChange={(event) => commitStyleChange({ safeArea: event.target.checked })}
+                label="Keep inside safe area"
+                onCheckedChange={(checked) => commitStyleChange({ safeArea: checked })}
               />
-              <span>Keep inside safe area</span>
-            </label>
+            </div>
             <p className="caption-hint">
               Drag a selected caption in the preview to place it. Preview changes remain
               synchronized with the timeline.

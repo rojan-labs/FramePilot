@@ -158,11 +158,11 @@
     },
     {
       "name": "plan_edit_candidates",
-      "description": "Generate evidence-cited candidate edit ranges from footage signals without mutating the project.",
+      "description": "Describe the measurable signals across a stretch of the edit — highlights, chapter shape, silence, scene changes, spoken emphasis — in time order, without ranking them or recommending a move.",
       "stages": ["edit"],
       "status": "ready",
       "kind": "registry",
-      "internalRoutes": ["propose_edits"],
+      "internalRoutes": ["read_edit_signals"],
       "inputSchema": {
         "type": "object",
         "properties": {

@@ -107,7 +107,12 @@ const discoverCaptionStylesSchema = z
         'cinematic',
       ])
       .optional(),
-    limit: numeric(z.number().int().positive().max(45)).optional(),
+    // Capped at the catalog size, not below it. The old ceiling of 45 against a
+    // 51-template catalog meant NO call could return the whole thing, and the default of
+    // 20 hid the rest — a run that needed the template already applied to the project
+    // (`headline`, past the cut) could not name it or pick a deliberate alternative, and
+    // `set_track_caption_style` rejects an id that never appeared in a result.
+    limit: numeric(z.number().int().positive().max(CAPTION_TEMPLATE_CATALOG.length)).optional(),
   })
   .strict();
 
@@ -150,11 +155,15 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
       name: 'verify_captions',
       description:
         'Check the caption track against the edited timeline and report what is ' +
-        'actually wrong: cues outside the sequence, cues spanning a cut, cues over ' +
-        'deleted speech, cues out of sync with the mapped word timings, stale cues from ' +
-        'an older timeline revision, and retained speech with no caption. Returns ' +
-        '{ ok, cueCount, issues[] }. Run this before saying captions are done — an ' +
-        'operation returning "applied" is not evidence that anything is synchronized.',
+        'actually wrong: cues outside the sequence, cues over deleted speech or a gap, ' +
+        'cues out of sync with the mapped word timings, cues whose words a later edit ' +
+        'replaced, cues bridging a break in the SPEECH (two stretches of audio never ' +
+        'spoken in one breath), and retained speech with no caption. A cue sitting over ' +
+        'several picture cuts is fine and is not reported — only an audio discontinuity ' +
+        'is. Returns { ok, cueCount, issues[] }. Run this before saying captions are ' +
+        'done: an operation returning "applied" is not evidence that anything is ' +
+        'synchronized. It checks TIMING only — it cannot see whether a cue is legible, ' +
+        'clipped by the frame edge, or sitting on a face.',
       capabilities: ['captions'],
     },
     z.object({ toleranceSeconds: seconds.optional() }).strict(),
@@ -189,7 +198,11 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
           ].some((value) => value.toLocaleLowerCase().includes(query)),
         );
       }
-      const limited = templates.slice(0, a.limit ?? 20);
+      // Default to the whole matching set: the ids ARE the deliverable, the digest
+      // renders them grouped by category (a few compact lines), and the full payload
+      // stays retrievable by handle. A partial catalog by default is what made the
+      // model reason about templates it had never been shown.
+      const limited = templates.slice(0, a.limit ?? CAPTION_TEMPLATE_CATALOG.length);
       return {
         matched: templates.length,
         returned: limited.length,
