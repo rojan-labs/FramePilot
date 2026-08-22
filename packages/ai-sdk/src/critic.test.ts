@@ -47,12 +47,51 @@ describe('explicitDurationTargetSeconds', () => {
   });
 });
 
+describe('shot count', () => {
+  it('fails a cut that used fewer shots than the request asked for', () => {
+    // The captured run: "at least of 20+ different best moments", delivered as eight shots,
+    // reported as a success because the run's only criterion was the request's own text.
+    const timeline = {
+      tracks: [
+        {
+          id: 'v',
+          type: 'video',
+          clips: Array.from({ length: 8 }, (_, index) => ({
+            id: `c${String(index)}`,
+            assetId: 'a1',
+            trackId: 'v',
+            start: index,
+            end: index + 1,
+            sourceStart: 0,
+            sourceEnd: 1,
+            effects: [],
+            keyframes: [],
+          })),
+        },
+      ],
+    };
+    const project = makeProject({ timeline } as never);
+    const failed = critique(project, { minShotCount: 20 });
+    expect(failed.checks.find((c) => c.id === 'shot_count')).toMatchObject({ status: 'fail' });
+    expect(failed.ok).toBe(false);
+    const passed = critique(project, { minShotCount: 8 });
+    expect(passed.checks.find((c) => c.id === 'shot_count')).toMatchObject({ status: 'pass' });
+  });
+
+  it('skips when the request named no number', () => {
+    expect(critique(makeProject(), {}).checks.find((c) => c.id === 'shot_count')).toMatchObject({
+      status: 'skipped',
+    });
+  });
+});
+
 describe('critique — shape', () => {
   it('preserves the existing PRD §8.6 check set when no temporal review ran', () => {
     const report = critique(makeProject());
     expect(report.checks.map((c) => c.id)).toEqual([
       'request_match',
       'duration_target',
+      'shot_count',
       'caption_alignment',
       'safe_area',
       'audio_clipping',

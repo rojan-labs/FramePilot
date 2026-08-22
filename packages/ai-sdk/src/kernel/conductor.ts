@@ -46,6 +46,12 @@ import {
   type TurnRef,
   createTurnEmitter,
 } from '../events.js';
+import {
+  acceptanceCriteria,
+  checkableAcceptance,
+  hasCheckableAcceptance,
+} from '../acceptance.js';
+import { explicitDurationTargetSeconds } from '../critic.js';
 import type { Command } from './commands.js';
 import { deriveObjectiveText } from './continuation.js';
 import { type ToolRole, settledStageFor } from './stage-policy.js';
@@ -882,14 +888,28 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
   // criterion, its committed decision AND the criterion verification checked — so the run
   // both forgot the real goal and could only report itself inconclusive.
   const objectiveText = deriveObjectiveText(command.input.userPrompt, command.input.history);
-  // Provisional: this is the run's own deterministic reading of the request, not an
-  // interpretation a turn recorded. It holds the field open so the stage guards can pass
-  // (an empty outcome blocks every stage past `interpret`) and yields to the first real
-  // interpretation instead of permanently occupying the slot.
+  // WHAT DONE MEANS, in terms something can check. `acceptance.ts` reads the conditions the
+  // request actually stated — a deliverable length, a minimum shot count — and the Critic
+  // checks those same numbers, so the criterion the ledger reports against and the check that
+  // settles it are one reading rather than two.
+  //
+  // Recording them is what makes the objective more than a copy of the request. Until now the
+  // outcome, the single acceptance criterion, the committed decision and the criterion
+  // verification reported against were all the same sentence the editor typed, so
+  // verification could only ever answer "did any operation succeed" — a request for "20+
+  // different best moments" was satisfied, as far as the ledger knew, by eight shots.
+  //
+  // `provisional` still marks a reading with nothing checkable in it: the request's prose is
+  // the objective, and the field stays open for a turn that records a real interpretation.
+  const checkable = checkableAcceptance(
+    command.input.userPrompt,
+    explicitDurationTargetSeconds(command.input.userPrompt),
+  );
+  const criteria = acceptanceCriteria(objectiveText, checkable);
   const interpreted = setObjective(created, {
     outcome: objectiveText,
-    acceptance: [{ description: objectiveText }],
-    provisional: true,
+    acceptance: criteria.map((description) => ({ description })),
+    provisional: !hasCheckableAcceptance(checkable),
   });
   // When the creator disables the visible detailed-planning turn, commit a minimal
   // objective-backed authorization record from the persisted request itself. It is

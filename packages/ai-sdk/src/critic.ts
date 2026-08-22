@@ -30,6 +30,7 @@ export type CheckStatus = 'pass' | 'warn' | 'fail' | 'skipped';
 export type CheckId =
   | 'request_match'
   | 'duration_target'
+  | 'shot_count'
   | 'caption_alignment'
   | 'safe_area'
   | 'audio_clipping'
@@ -77,6 +78,11 @@ export interface CritiqueOptions {
   readonly durationTargetSeconds?: number;
   /** Allowed deviation from {@link durationTargetSeconds}. Defaults to 2s. */
   readonly durationToleranceSeconds?: number;
+  /**
+   * Fewest distinct shots the request asked for ("use at least 20 moments"), if it named a
+   * number. Read deterministically from the prompt by `acceptance.ts`.
+   */
+  readonly minShotCount?: number;
   /** Target platform, used to sanity-check export aspect ratio/orientation. */
   readonly targetPlatform?: TargetPlatform;
   /** Results of an auto preview render's validation, if one was run. */
@@ -219,6 +225,36 @@ function checkDurationTarget(timeline: Timeline, options: CritiqueOptions): Crit
     'Duration on target',
     'fail',
     `Timeline is ${round(actual)}s but the target is ${round(target)}s (off by ${round(delta)}s).`,
+  );
+}
+
+/**
+ * Did the cut use as many shots as the request asked for?
+ *
+ * The captured run was asked for "20+ different best moments" and delivered eight, and
+ * nothing noticed: the run's only acceptance criterion was the request's own text, so no
+ * check could be derived from it. Counted as picture clips — text/caption overlays are not
+ * shots — because that is what an editor means by a shot count.
+ */
+function checkShotCount(timeline: Timeline, options: CritiqueOptions): CriticCheck {
+  const target = options.minShotCount;
+  if (target === undefined) {
+    return check('shot_count', 'Shot count on target', 'skipped', 'No shot count was asked for.');
+  }
+  const shots = allClips(timeline).filter((clip) => !isOverlayClip(clip)).length;
+  if (shots >= target) {
+    return check(
+      'shot_count',
+      'Shot count on target',
+      'pass',
+      `The cut uses ${String(shots)} shots (at least ${String(target)} asked for).`,
+    );
+  }
+  return check(
+    'shot_count',
+    'Shot count on target',
+    'fail',
+    `The cut uses ${String(shots)} shots but at least ${String(target)} were asked for.`,
   );
 }
 
@@ -473,6 +509,7 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
   const checks: CriticCheck[] = [
     checkRequestMatch(options),
     checkDurationTarget(timeline, options),
+    checkShotCount(timeline, options),
     checkCaptionAlignment(timeline),
     checkSafeArea(timeline),
     checkAudioClipping(options),

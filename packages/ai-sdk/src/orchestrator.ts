@@ -23,6 +23,7 @@ import {
   type Track,
 } from '@framepilot/timeline-schema';
 import type { AgentOptions, AgentRun, AgentStep, ReviewResult } from './agent.js';
+import { checkableAcceptance } from './acceptance.js';
 import { type EditResult, assembleEdit } from './assemble.js';
 import {
   TOOL_CONCURRENCY_ENV,
@@ -1966,10 +1967,15 @@ export class Orchestrator {
   ): CritiqueOptions {
     const durationTargetSeconds =
       options.durationTargetSeconds ?? explicitDurationTargetSeconds(input.userPrompt);
+    // The conditions the request stated in checkable terms (see `acceptance.ts`). The same
+    // reading is recorded on the run's objective, so the criterion the ledger reports against
+    // and the check that settles it can never be two different things.
+    const { minShotCount } = checkableAcceptance(input.userPrompt, durationTargetSeconds);
     return {
       userPrompt: input.userPrompt,
       ...(producedChanges !== undefined ? { producedChanges } : {}),
       ...(durationTargetSeconds !== undefined ? { durationTargetSeconds } : {}),
+      ...(minShotCount !== undefined ? { minShotCount } : {}),
       ...(options.targetPlatform !== undefined ? { targetPlatform: options.targetPlatform } : {}),
       ...(options.render !== undefined ? { render: options.render } : {}),
     };

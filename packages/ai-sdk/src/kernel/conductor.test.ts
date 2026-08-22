@@ -146,10 +146,34 @@ describe('onCommand', () => {
     expect(events[0]).toMatchObject({ type: 'status', status: 'thinking' });
   });
 
-  it('records the objective as provisional, so an interpretation can still land', () => {
+  it('records the objective as provisional when the request states nothing checkable', () => {
     const { state } = onCommand(idle, command());
     expect(state.working.objective.outcome).toBe('tighten the intro');
     expect(state.working.objective.provisional).toBe(true);
+  });
+
+  it('records the checkable conditions a request DID state as acceptance criteria', () => {
+    // Until now the outcome, the single criterion, the committed decision and the criterion
+    // verification reported against were all the same sentence the editor typed — so a
+    // request for "20+ different best moments" was satisfied, as far as the ledger knew, by
+    // eight shots. See `acceptance.ts`.
+    const asked: Command = {
+      kind: 'submit_turn',
+      mode: 'agent',
+      stream,
+      input: {
+        project: makeProject(),
+        userPrompt: 'make a 30 second reel from at least 20 different best moments',
+      },
+    };
+    const { working } = onCommand(idle, asked).state;
+    const descriptions = working.objective.acceptance.map((entry) => entry.description);
+    expect(descriptions.some((text) => text.includes('30s'))).toBe(true);
+    expect(descriptions.some((text) => text.includes('20 distinct shots'))).toBe(true);
+    // The request itself is still a criterion — it is the part no check settles.
+    expect(descriptions.at(-1)).toBe('make a 30 second reel from at least 20 different best moments');
+    // A reading with something checkable in it is not a placeholder.
+    expect(working.objective.provisional).toBe(false);
   });
 
   it('resolves a bare "continue" to the request underneath it, not to the nudge', () => {
