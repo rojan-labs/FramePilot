@@ -25,10 +25,10 @@ export default function PricingPage() {
           <header className="max-w-4xl">
             <p className="eyebrow-tc mb-6">Pricing</p>
             <h1 className="font-display text-[length:var(--text-h1)] leading-[var(--text-h1--line-height)] tracking-[var(--text-h1--letter-spacing)]">
-              Pay for the editor. Keep the workflow simple.
+              Pay for the editor. That&rsquo;s the whole model.
             </h1>
             <p className="mt-7 max-w-2xl text-[16px] leading-7 text-fg-secondary sm:text-[17px]">
-              FramePilot is one desktop editing product. Choose monthly or annual billing. There is no per-export meter.
+              One desktop app, one subscription, monthly or annual. Nothing meters your exports. FramePilot is pre-release software and still changing quickly, which is worth knowing before you subscribe.
             </p>
           </header>
 
@@ -39,15 +39,15 @@ export default function PricingPage() {
           <div className="mt-12 grid gap-6 border-t border-line pt-7 sm:grid-cols-3">
             <div>
               <p className="text-[13px] font-medium">Local-first</p>
-              <p className="mt-1 text-[12px] leading-5 text-fg-tertiary">Projects and source media remain on your machine.</p>
+              <p className="mt-1 text-[12px] leading-5 text-fg-tertiary">Editing and rendering happen on your machine. Hosted AI runs only if you set it up.</p>
             </div>
             <div>
               <p className="text-[13px] font-medium">Freemius checkout</p>
-              <p className="mt-1 text-[12px] leading-5 text-fg-tertiary">Secure payment and license activation through the existing licensing flow.</p>
+              <p className="mt-1 text-[12px] leading-5 text-fg-tertiary">Freemius handles the payment and sends your license key.</p>
             </div>
             <div>
               <p className="text-[13px] font-medium">14-day guarantee</p>
-              <p className="mt-1 text-[12px] leading-5 text-fg-tertiary">Try the product with your workflow and request a refund within the guarantee window.</p>
+              <p className="mt-1 text-[12px] leading-5 text-fg-tertiary">Use it on real work. Want your money back inside 14 days, just ask.</p>
             </div>
           </div>
         </div>
