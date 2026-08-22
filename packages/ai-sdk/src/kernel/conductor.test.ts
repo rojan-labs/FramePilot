@@ -965,7 +965,7 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
     );
     expect(state.phase).toBe('review');
     expect(types(events)).toEqual(['notification', 'warning']);
-    expect(events[0]).toMatchObject({ text: 'Self-check: one issue' });
+    expect(events[0]).toMatchObject({ text: 'Deterministic self-check: one issue' });
     expect(effects[0]).toMatchObject({ kind: 'finalize', ops: s.cumulativeOps, cancelled: false });
   });
 
@@ -997,7 +997,7 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
     const events = onEffectResult(s, verify()).events;
     const warn = events.find((e) => e.type === 'warning');
     expect((warn as { text: string }).text).toContain('No edits were applied');
-    expect(events.some((e) => e.type === 'notification' && /Self-check/.test(e.text))).toBe(false);
+    expect(events.some((e) => e.type === 'notification' && /self-check/i.test(e.text))).toBe(false);
   });
 
   it('emits no empty-run notice when the run applied edits', () => {

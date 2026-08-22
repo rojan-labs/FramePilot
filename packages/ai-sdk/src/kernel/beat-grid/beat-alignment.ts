@@ -61,8 +61,12 @@
  *   continuous.
  * - A boundary with no onset inside that window is rejected with the **nearest legal onset**
  *   named, which is what a correction turn actually needs.
+ * - A proposal that declares **no picture boundary at all** — crops, transforms, keyframes,
+ *   transitions, text, gain — is outside the rule and passes untouched, whatever the state of
+ *   the grid. Relevance is decided before groundedness, or the ungrounded rejection below
+ *   becomes a turn-level veto over work the grid has no opinion about.
  * - When the graph analyzed beats but neither the project nor the proposal places the
- *   analyzed asset, the grid is unknowable and the proposal is rejected as ungrounded — the
+ *   analyzed asset, a proposal that DOES cut picture is rejected as ungrounded — the
  *   old silent pass is gone. Nothing here ever fabricates an onset.
  */
 import { createLogger } from '@framepilot/shared-types';
@@ -274,13 +278,22 @@ export function alignBeatBackedBoundaries(
   projectGrid: readonly number[] | undefined,
   rawBeats: unknown,
 ): BeatAlignmentResult {
+  // WHAT THIS PROPOSAL EVEN PROPOSES, FIRST. The grid governs picture CUTS and nothing
+  // else, so a proposal that declares no cut has nothing for the rule to hold it to — and
+  // asking whether the grid is knowable before asking whether it is relevant made the
+  // ungrounded rejection a turn-level veto over unrelated work. In the captured run a step
+  // of eight `set_clip_crop` calls — the vertical reframe the editor had asked for, with no
+  // boundary in it at all — was rejected with "the analyzed audio asset is not on the
+  // timeline", because `detect_beats` had run earlier and the music bed had since been
+  // removed. The reframe never landed, and the model learned to delete and re-place the
+  // music on every step to appease a rule that was never about crops.
+  const boundaries = structuralBoundaries(project, operations);
+  if (boundaries.length === 0) return { ok: true, operations, snapped: 0 };
+
   const resolved = resolveGrid(projectGrid, rawBeats, operations);
   if ('error' in resolved) return { ok: false, error: resolved.error };
   const grid = resolved.grid;
   if (grid.length === 0) return { ok: true, operations, snapped: 0 };
-
-  const boundaries = structuralBoundaries(project, operations);
-  if (boundaries.length === 0) return { ok: true, operations, snapped: 0 };
 
   const onGridTolerance = 0.5 / project.fps;
   const firstOnset = grid[0]!;

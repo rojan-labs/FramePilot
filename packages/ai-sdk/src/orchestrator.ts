@@ -4261,16 +4261,29 @@ export class Orchestrator {
       for (const finding of resolved) yield findingEvent(finding, true);
       for (const finding of live) yield findingEvent(finding, false);
     };
-    const steerFindings = (live: readonly ReviewFinding[]): void => {
-      if (live.length === 0) return;
-      steering.push(
-        [
-          'Perceptual review of the edits you already applied found the following.',
-          'Fix only these, then carry on with the request:',
-          ...live.map((finding, index) => `${String(index + 1)}. ${finding.detail}`),
-        ].join('\n'),
-      );
-      findings.markDelivered(live);
+    /**
+     * Hand fresh findings to the agent — once per defect class.
+     *
+     * A finding whose class has already had its attempt is NOT re-pushed: it stays on the
+     * user's screen as an open finding, but it no longer buys a turn. Unbounded re-steering
+     * is what turned one unfixable defect (a black frame at every cut, caused by the
+     * transition model rather than by any proposal) into a run that spent its whole budget
+     * being told to fix it. The cap lives in `review-findings.ts`.
+     */
+    const steerFindings = (live: readonly ReviewFinding[]): readonly ReviewFinding[] => {
+      if (live.length === 0) return [];
+      const { steer, exhausted } = findings.admitForSteering(live);
+      if (steer.length > 0) {
+        steering.push(
+          [
+            'Perceptual review of the edits you already applied found the following.',
+            'Fix only these, then carry on with the request:',
+            ...steer.map((finding, index) => `${String(index + 1)}. ${finding.detail}`),
+          ].join('\n'),
+        );
+        findings.markDelivered(steer);
+      }
+      return exhausted;
     };
     try {
       // Fallback ordinal for routes whose diffs carry no `turnIndex` (the single-proposal
@@ -4320,8 +4333,19 @@ export class Orchestrator {
           if (reviewRequested) {
             const settled = await findings.drainSettled();
             const repaired = findings.takeResolved();
-            steerFindings(settled);
+            const exhausted = steerFindings(settled);
             yield* publishFindings(settled, repaired);
+            // Say it out loud the moment the run stops retrying, rather than letting the
+            // editor watch the same finding reappear and assume something is still working
+            // on it. Named per defect, not per frame.
+            for (const finding of exhausted) {
+              yield {
+                ...evidenceBase(),
+                id: `${options.turnId}:finding-unfixed:${finding.id}`,
+                type: 'warning',
+                text: `The review still reports this after a correction attempt, so the run is not retrying it again: ${finding.detail} It is likely a render or transition-model defect rather than something this edit can fix.`,
+              };
+            }
           }
           continue;
         }
@@ -4333,6 +4357,20 @@ export class Orchestrator {
           const remaining = await findings.drainAll();
           const repaired = findings.takeResolved();
           yield* publishFindings(remaining, repaired);
+          // The completion summary was already written from the DETERMINISTIC self-check, so
+          // a run could tell the editor "all checks passed" while its own perceptual review
+          // was still holding an unresolved defect. Amend the account here: the edits did
+          // land and are valid, and this is what the review found about them.
+          if (remaining.length > 0) {
+            const notice: AiEvent = {
+              ...evidenceBase(),
+              id: `${options.turnId}:review-unresolved`,
+              type: 'warning',
+              text: `The perceptual review finished with ${String(remaining.length)} unresolved finding${remaining.length === 1 ? '' : 's'}. Your edits are applied and validated, but they are not perceptually clean: ${remaining.map((finding) => finding.detail).join(' ')}`,
+            };
+            projector?.observe(notice);
+            yield notice;
+          }
           // An unreachable reviewer is not a verdict about the edit, so it neither fails the
           // run nor lets it claim the work was checked. Say plainly which of the two happened.
           const failures = findings.reviewFailures;

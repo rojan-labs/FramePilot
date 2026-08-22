@@ -887,7 +887,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "blockedOn": {
           "atStage": "verify",
           "missing": "VERIFICATION_INCONCLUSIVE",
-          "reason": "Verification found that one or more deterministic acceptance checks still fail.",
+          "reason": "Verification found: Deterministic acceptance checks still fail — 1 check(s) failed.",
         },
         "completedStages": [
           "interpret",
@@ -924,7 +924,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
               "atVersion": 13,
               "blocking": true,
               "code": "VERIFICATION_INCONCLUSIVE",
-              "message": "Verification found that one or more deterministic acceptance checks still fail.",
+              "message": "Verification found: Deterministic acceptance checks still fail — 1 check(s) failed.",
               "stage": "verify",
             },
           ],
@@ -994,7 +994,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
           {
             "atRevision": 2,
             "criterion": "tighten the intro",
-            "detail": "1 check(s) failed.",
+            "detail": "Deterministic acceptance checks still fail — 1 check(s) failed.",
             "id": "verify_1",
             "passed": false,
           },
@@ -2261,7 +2261,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "blockedOn": {
           "atStage": "interpret",
           "missing": "VERIFICATION_INCONCLUSIVE",
-          "reason": "Verification found no traceable project mutation for the committed plan.",
+          "reason": "Verification found: No traceable project mutation for the committed plan.",
         },
         "completedStages": [],
         "currentProjectRevision": 0,
@@ -2291,7 +2291,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
               "atVersion": 3,
               "blocking": true,
               "code": "VERIFICATION_INCONCLUSIVE",
-              "message": "Verification found no traceable project mutation for the committed plan.",
+              "message": "Verification found: No traceable project mutation for the committed plan.",
               "stage": "verify",
             },
           ],
@@ -2335,7 +2335,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
           {
             "atRevision": 0,
             "criterion": "tighten the intro",
-            "detail": "Passed with 1 warning(s).",
+            "detail": "No traceable project mutation for the committed plan.",
             "id": "verify_1",
             "passed": false,
           },
@@ -2860,7 +2860,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "blockedOn": {
           "atStage": "inspect",
           "missing": "VERIFICATION_INCONCLUSIVE",
-          "reason": "Verification found no traceable project mutation for the committed plan.",
+          "reason": "Verification found: No traceable project mutation for the committed plan.",
         },
         "completedStages": [
           "interpret",
@@ -2892,7 +2892,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
               "atVersion": 4,
               "blocking": true,
               "code": "VERIFICATION_INCONCLUSIVE",
-              "message": "Verification found no traceable project mutation for the committed plan.",
+              "message": "Verification found: No traceable project mutation for the committed plan.",
               "stage": "verify",
             },
           ],
@@ -2936,7 +2936,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
           {
             "atRevision": 0,
             "criterion": "tighten the intro",
-            "detail": "Passed with 1 warning(s).",
+            "detail": "No traceable project mutation for the committed plan.",
             "id": "verify_1",
             "passed": false,
           },
@@ -5453,7 +5453,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "blockedOn": {
           "atStage": "inspect",
           "missing": "VERIFICATION_INCONCLUSIVE",
-          "reason": "Verification found no traceable project mutation for the committed plan.",
+          "reason": "Verification found: No traceable project mutation for the committed plan.",
         },
         "completedStages": [
           "interpret",
@@ -5485,7 +5485,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
               "atVersion": 4,
               "blocking": true,
               "code": "VERIFICATION_INCONCLUSIVE",
-              "message": "Verification found no traceable project mutation for the committed plan.",
+              "message": "Verification found: No traceable project mutation for the committed plan.",
               "stage": "verify",
             },
           ],
@@ -5529,7 +5529,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
           {
             "atRevision": 0,
             "criterion": "tighten the intro",
-            "detail": "Passed with 1 warning(s).",
+            "detail": "No traceable project mutation for the committed plan.",
             "id": "verify_1",
             "passed": false,
           },
@@ -6615,7 +6615,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "blockedOn": {
           "atStage": "verify",
           "missing": "VERIFICATION_INCONCLUSIVE",
-          "reason": "Verification is inconclusive because committed plan deliverables are incomplete.",
+          "reason": "Verification found: The committed plan still has incomplete deliverables.",
         },
         "completedStages": [
           "interpret",
@@ -6660,7 +6660,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
               "atVersion": 13,
               "blocking": true,
               "code": "VERIFICATION_INCONCLUSIVE",
-              "message": "Verification is inconclusive because committed plan deliverables are incomplete.",
+              "message": "Verification found: The committed plan still has incomplete deliverables.",
               "stage": "verify",
             },
           ],
@@ -7298,7 +7298,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "blockedOn": {
           "atStage": "interpret",
           "missing": "VERIFICATION_INCONCLUSIVE",
-          "reason": "Verification found no traceable project mutation for the committed plan.",
+          "reason": "Verification found: No traceable project mutation for the committed plan.",
         },
         "completedStages": [],
         "currentProjectRevision": 0,
@@ -7328,7 +7328,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
               "atVersion": 3,
               "blocking": true,
               "code": "VERIFICATION_INCONCLUSIVE",
-              "message": "Verification found no traceable project mutation for the committed plan.",
+              "message": "Verification found: No traceable project mutation for the committed plan.",
               "stage": "verify",
             },
           ],
@@ -7372,7 +7372,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
           {
             "atRevision": 0,
             "criterion": "tighten the intro",
-            "detail": "All checks passed.",
+            "detail": "No traceable project mutation for the committed plan.",
             "id": "verify_1",
             "passed": false,
           },
@@ -9808,7 +9808,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "blockedOn": {
           "atStage": "inspect",
           "missing": "VERIFICATION_INCONCLUSIVE",
-          "reason": "Verification found no traceable project mutation for the committed plan.",
+          "reason": "Verification found: No traceable project mutation for the committed plan.",
         },
         "completedStages": [
           "interpret",
@@ -9852,7 +9852,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
               "atVersion": 6,
               "blocking": true,
               "code": "VERIFICATION_INCONCLUSIVE",
-              "message": "Verification found no traceable project mutation for the committed plan.",
+              "message": "Verification found: No traceable project mutation for the committed plan.",
               "stage": "verify",
             },
           ],
@@ -9900,7 +9900,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
           {
             "atRevision": 0,
             "criterion": "tighten the intro",
-            "detail": "Passed with 1 warning(s).",
+            "detail": "No traceable project mutation for the committed plan.",
             "id": "verify_1",
             "passed": false,
           },

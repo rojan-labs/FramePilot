@@ -173,6 +173,64 @@ describe('alignBeatBackedBoundaries', () => {
       expect(result.error).toContain('music_1');
       expect(result.error).toContain('not on the timeline');
     });
+
+    // The captured run's real failure: `detect_beats` had run, the music bed had since been
+    // deleted, and every proposal after that — including a crop-only reframe with no cut in
+    // it — was rejected as ungrounded. Relevance must be decided before groundedness.
+    it.each([
+      [
+        'crop-only',
+        [
+          {
+            type: 'set_clip_crop',
+            clipId: 'clip_a',
+            crop: { x: 0.3418, y: 0, width: 0.3164, height: 1 },
+          },
+        ] as unknown as AnyOperation[],
+      ],
+      [
+        'transition-only',
+        [
+          {
+            type: 'add_transition',
+            fromClipId: 'clip_a',
+            toClipId: 'clip_b',
+            kind: 'cross_dissolve',
+            durationSeconds: 0.4,
+          },
+        ] as unknown as AnyOperation[],
+      ],
+      [
+        'keyframe-only',
+        [
+          {
+            type: 'set_clip_transform',
+            clipId: 'clip_a',
+            keyframes: [{ property: 'scale', time: 0, value: 1.02, easing: 'linear' }],
+          },
+        ] as unknown as AnyOperation[],
+      ],
+    ])('leaves a %s proposal alone even when the grid is ungrounded', (_label, operations) => {
+      const beats = rawBeats('music_1', [3.0, 4.5]);
+      const result = alignBeatBackedBoundaries(makeProject(), operations, undefined, beats);
+      expect(result).toMatchObject({ ok: true, snapped: 0 });
+    });
+
+    it('still rejects a mixed proposal whose cuts are ungrounded', () => {
+      const operations = [
+        {
+          type: 'set_clip_crop',
+          clipId: 'clip_a',
+          crop: { x: 0.3418, y: 0, width: 0.3164, height: 1 },
+        } as unknown as AnyOperation,
+        addClip({ start: 0.4, end: 1.9, sourceEnd: 1.5 }),
+      ];
+      const beats = rawBeats('music_1', [3.0, 4.5]);
+      const result = alignBeatBackedBoundaries(makeProject(), operations, undefined, beats);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toContain('not on the timeline');
+    });
   });
 
   it('holds nobody to a grid when beat detection returned nothing usable', () => {

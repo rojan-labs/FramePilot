@@ -262,6 +262,37 @@ export function resolveReviewConcurrency(rawEnvValue: string | undefined): numbe
 /** Start a turn's review. Called by the queue when a slot frees, not by the caller. */
 export type ReviewStarter = (signal?: AbortSignal) => Promise<readonly ReviewFinding[]>;
 
+/**
+ * How many times one defect class may steer the agent before the run stops retrying it.
+ *
+ * One. A perceptual finding tells the agent something it could not see; if the first
+ * correction attempt does not clear it, repeating the same instruction is not a second
+ * chance, it is a loop — and the defect is then far more likely to live in the render or
+ * operation semantics than in the proposal the agent can change.
+ */
+export const MAX_STEERINGS_PER_CLASS = 1;
+
+/**
+ * The DEFECT CLASS a finding belongs to: its wording with every number removed.
+ *
+ * Frame indices and measured values are what make two reports of one cause look like two
+ * defects ("black frame(s): 90, 91, 92" vs "black frame(s): 300"). Collapsing them is what
+ * makes the steering cap mean "we tried to fix this cause once", which is the useful unit.
+ */
+function findingClass(finding: ReviewFinding): string {
+  return (
+    finding.detail
+      .toLowerCase()
+      .replace(/-?\d+(?:\.\d+)?/g, '#')
+      // A list of frame indices is one report, however many entries it happens to carry:
+      // "frames #, #, #" and "frame #" must land in the same class or the cap counts frames
+      // instead of causes.
+      .replace(/#(?:\s*,\s*#)+/g, '#')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
+}
+
 interface QueuedReview {
   readonly turnIndex: number;
   readonly start: ReviewStarter;
@@ -281,6 +312,8 @@ export class ReviewFindingQueue {
   private readonly failures: string[] = [];
   private readonly delivered: ReviewFinding[] = [];
   private readonly verifiedResolved: ReviewFinding[] = [];
+  /** How many times each defect class has already been steered on (see `admitForSteering`). */
+  private readonly steeringAttempts = new Map<string, number>();
   /** Admitted but not yet started, oldest first. */
   private readonly queued: QueuedReview[] = [];
   /** Started and not yet settled, by turn. */
@@ -439,6 +472,46 @@ export class ReviewFindingQueue {
   /** Remember findings that were actually handed to the agent. */
   public markDelivered(findings: readonly ReviewFinding[]): void {
     this.delivered.push(...findings);
+  }
+
+  /**
+   * Split live findings into the ones worth steering the agent with and the ones it has
+   * already been told about and failed to fix.
+   *
+   * WHY there is a cap at all. Steering was unbounded: every turn that touched a region
+   * re-reviewed it, re-detected the same defect, and pushed the same instruction again. When
+   * the defect is not something a proposal can fix — in the captured run, a black frame at
+   * every cut, which comes from the transition model rather than from the edit — the run
+   * spends its whole budget being told to fix the unfixable, and the request the editor
+   * actually made never advances.
+   *
+   * A defect CLASS gets exactly {@link MAX_STEERINGS_PER_CLASS} attempt. After that the
+   * finding is still published — the editor must see it — but it stops consuming turns. The
+   * class deliberately ignores the numbers in the detail so "black frames at 90, 91, 92" and
+   * "black frames at 300" count as one defect: they are one cause, and steering the model
+   * once per affected frame is the same loop with more steps.
+   */
+  public admitForSteering(findings: readonly ReviewFinding[]): {
+    readonly steer: readonly ReviewFinding[];
+    readonly exhausted: readonly ReviewFinding[];
+  } {
+    const steer: ReviewFinding[] = [];
+    const exhausted: ReviewFinding[] = [];
+    for (const finding of findings) {
+      const seen = this.steeringAttempts.get(findingClass(finding)) ?? 0;
+      if (seen >= MAX_STEERINGS_PER_CLASS) exhausted.push(finding);
+      else steer.push(finding);
+    }
+    for (const finding of steer) {
+      const key = findingClass(finding);
+      this.steeringAttempts.set(key, (this.steeringAttempts.get(key) ?? 0) + 1);
+    }
+    return { steer, exhausted };
+  }
+
+  /** True once a defect class has spent its steering budget without being resolved. */
+  public hasExhaustedSteering(finding: ReviewFinding): boolean {
+    return (this.steeringAttempts.get(findingClass(finding)) ?? 0) >= MAX_STEERINGS_PER_CLASS;
   }
 
   /**

@@ -1504,7 +1504,7 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
   // actual edit; finalize emits the specific empty-run failure below.
   const events: AiEvent[] = [];
   if (state.cumulativeOps.length > 0) {
-    events.push(em.notification(`Self-check: ${r.summary}`));
+    events.push(em.notification(`Deterministic self-check: ${r.summary}`));
     for (const check of r.failedChecks) {
       events.push(em.warning(`${check.label}: ${check.detail}`));
     }
@@ -1566,13 +1566,30 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
   // already had its chance before this fold; if a check still fails, keep the partial
   // validated edits reviewable but settle the run honestly as failed.
   const verificationPassed = r.ok && planReconciled && deliveredWork;
+  /**
+   * Why this verification did not pass, or `undefined` when it did.
+   *
+   * ONE derivation, two consumers: the per-objective `detail` and the blocking diagnostic.
+   * They used to be computed independently, and the `detail` arm only looked at
+   * `planReconciled` — so a run that failed for "no traceable mutation" was filed as
+   * `{ passed: false, detail: "Passed with 1 warning(s)." }`. A record that contradicts
+   * itself is worse than a terse one: the creator reading it cannot tell which half is
+   * true, and neither can a later turn reading the briefing.
+   */
+  const failureReason = (deliverableReached: boolean): string | undefined => {
+    if (!planReconciled) return 'The committed plan still has incomplete deliverables.';
+    if (!deliveredWork) return 'No traceable project mutation for the committed plan.';
+    if (!r.ok) return `Deterministic acceptance checks still fail — ${r.summary}`;
+    if (!deliverableReached) return 'This deliverable was not completed by the run.';
+    return undefined;
+  };
   for (const [index, objective] of working.objectives.entries()) {
     const deliverableReached =
       state.ledgerLength === 0 ? deliveredWork : state.planSteps[index]?.status === 'completed';
     working = recordVerification(working, {
       criterion: objective.description,
       passed: verificationPassed && deliverableReached,
-      detail: !planReconciled ? 'The committed plan still has incomplete deliverables.' : r.summary,
+      detail: failureReason(deliverableReached) ?? r.summary,
       objectiveId: objective.id,
     });
   }
@@ -1581,11 +1598,7 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
   } else {
     working = addDiagnostic(working, {
       code: 'VERIFICATION_INCONCLUSIVE',
-      message: !planReconciled
-        ? 'Verification is inconclusive because committed plan deliverables are incomplete.'
-        : !deliveredWork
-          ? 'Verification found no traceable project mutation for the committed plan.'
-          : 'Verification found that one or more deterministic acceptance checks still fail.',
+      message: `Verification found: ${failureReason(false) ?? r.summary}`,
       stage: 'verify',
       blocking: true,
     });

@@ -1886,7 +1886,7 @@ describe('streamAgent robustness (parity with agent())', () => {
         autoRepair: false,
       }),
     );
-    expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Self-check:'))).toBe(
+    expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Deterministic self-check:'))).toBe(
       true,
     );
     expect(events.some((e) => e.type === 'warning' && e.text.includes('Duration'))).toBe(true);
@@ -2013,7 +2013,7 @@ describe('streamAgent robustness (parity with agent())', () => {
         durationTargetSeconds: 1,
       }),
     );
-    expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Self-check:'))).toBe(
+    expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Deterministic self-check:'))).toBe(
       false,
     );
     expect(events.at(-1)).toMatchObject({ status: 'cancelled' });
