@@ -354,24 +354,40 @@ describe('read tools', () => {
     expect(JSON.stringify(state)).not.toContain('peaks');
   });
 
-  it('propose_edits forwards whatever gathered signals are present, plus the project transcript', () => {
-    const result = getTool('propose_edits')?.read?.(
+  it('read_edit_signals describes every supplied signal in TIME order, with no verdicts', () => {
+    const result = getTool('read_edit_signals')?.read?.(
       {
         chapters: [{ t0: 0, t1: 30, title: 'Setup' }],
         highlights: [{ t0: 5, t1: 6, label: 'moment', score: 0.8 }],
         silences: [{ start: 1, end: 3 }],
         sceneCuts: [10, 20],
+        // Accepted and ignored: which move a vertical target deserves is the agent's call.
         verticalTarget: true,
       },
       ctx,
-    ) as { kind: string }[];
-    expect(Array.isArray(result)).toBe(true);
-    expect(result.some((c) => c.kind === 'reframe')).toBe(true);
+    ) as { kind: string; t0: number; observation: string; from: string }[];
+    expect(result.map((s) => s.kind)).toEqual([
+      'chapter',
+      'silence',
+      'highlight',
+      'scene_change',
+      'scene_change',
+    ]);
+    // Time order, not a ranking — ranking would be the judgement this tool no longer makes.
+    expect(result.map((s) => s.t0)).toEqual([...result.map((s) => s.t0)].sort((a, b) => a - b));
+    // No move, no score, no canned rationale anywhere in the payload.
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain('punch_in');
+    expect(serialized).not.toContain('score');
+    expect(serialized).not.toContain('makes it land');
+    // A supplied signal says it was supplied: a chapter the caller never read from the
+    // footage is still only the caller's own claim.
+    expect(result.find((s) => s.kind === 'chapter')).toMatchObject({ from: 'supplied' });
+    expect(result.find((s) => s.kind === 'chapter')?.observation).toContain('1 highlight(s)');
   });
 
-  it('propose_edits works with no gathered signals at all (still reads the project transcript)', () => {
-    const result = getTool('propose_edits')?.read?.({}, ctx);
-    expect(result).toEqual([]);
+  it('read_edit_signals returns nothing when nothing was gathered', () => {
+    expect(getTool('read_edit_signals')?.read?.({}, ctx)).toEqual([]);
   });
 });
 

@@ -762,7 +762,7 @@ class MapFootageArgs(BaseModel):
 
 
 class _ChapterArg(BaseModel):
-    """One chapter signal fed into ``propose_edits`` (mirrors the TS chapter shape)."""
+    """One chapter signal fed into ``read_edit_signals`` (mirrors the TS chapter shape)."""
 
     model_config = _STRICT
     t0: float
@@ -772,7 +772,7 @@ class _ChapterArg(BaseModel):
 
 
 class _HighlightArg(BaseModel):
-    """One highlight signal fed into ``propose_edits`` (mirrors the TS highlight shape)."""
+    """One highlight signal fed into ``read_edit_signals`` (mirrors the TS highlight shape)."""
 
     model_config = _STRICT
     t0: float
@@ -782,7 +782,7 @@ class _HighlightArg(BaseModel):
 
 
 class _SilenceArg(BaseModel):
-    """One silence-gap signal fed into ``propose_edits``."""
+    """One silence-gap signal fed into ``read_edit_signals``."""
 
     model_config = _STRICT
     start: float
@@ -1493,16 +1493,19 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         kind="analysis",
         input_model=MapFootageArgs,
     ),
-    "propose_edits": _spec(
-        "propose_edits",
-        "Turn footage understanding into GROUNDED, citable edit candidates — the bridge "
-        'from "what is in the footage" to "where the moves go". Pass the signals you have '
-        "already gathered (map_footage chapters/highlights, analyze_silence ranges, "
-        "detect_scenes cuts, and whether the target is vertical); returns a ranked list of "
-        "candidates [{ kind: punch_in|reframe|speed|cut|broll, t0, t1, why, cite, score }] "
-        "in timeline seconds, each citing the real span it came from. Deterministic — every "
-        "candidate is real; YOU choose which to apply and emit the patch. Does not edit the "
-        "timeline. Reads transcript emphasis from the project automatically.",
+    "read_edit_signals": _spec(
+        "read_edit_signals",
+        "Describe what is measurably THERE across a stretch of the edit — the facts a move "
+        "should be chosen from, never the move itself. Pass the signals you have already "
+        "gathered (map_footage chapters/highlights, analyze_silence ranges, detect_scenes "
+        "cuts); returns them in TIME order as [{ kind: highlight|chapter|silence|emphasis|"
+        "scene_change, t0, t1, observation, from }] in timeline seconds, with each chapter's "
+        "shape (length, highlights inside, words spoken) and each silence long enough to "
+        "notice. Transcript emphasis is measured from the project for you. `from` says "
+        "whether a signal was supplied by you or measured here — a chapter you did not read "
+        "from the footage is still only your own claim. WHICH move each observation deserves "
+        "— a punch-in, a reframe, a ramp, a cut, nothing at all — is your judgement, and this "
+        "tool deliberately does not rank or recommend. Does not edit the timeline.",
         kind="read",
         input_model=ProposeEditsArgs,
     ),

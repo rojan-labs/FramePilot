@@ -82,7 +82,7 @@ describe('selectTools', () => {
         'search_visual',
         'describe_footage',
         'map_footage',
-        'propose_edits',
+        'read_edit_signals',
         'session_context',
         'transcribe',
       ].sort(),
@@ -93,7 +93,7 @@ describe('selectTools', () => {
     expect(IMPLICIT_ONLY_TOOL_NAMES).toEqual(['index_media']);
     const visual = selectTools({ capabilities: ['visual'] });
     expect(visual.map((tool) => tool.name).sort()).toEqual(
-      ['describe_footage', 'map_footage', 'propose_edits', 'search_visual'].sort(),
+      ['describe_footage', 'map_footage', 'read_edit_signals', 'search_visual'].sort(),
     );
     expect(
       selectTools({ permissions: ['analysis'] }).some((tool) => tool.name === 'index_media'),

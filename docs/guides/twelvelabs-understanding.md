@@ -86,11 +86,14 @@ timeline seconds, plus a one-paragraph summary.
 
 The AI reaches it with the **`map_footage`** tool (called first on long or
 unfamiliar footage, then drilling in with `describe_footage` / `search_visual`),
-and from the map it can propose **grounded, cited edit candidates** — punch-ins on
-reveals/emphasis, reframes for a vertical target, speed ramps over low-information
-stretches, cuts over dead air, b-roll over narration — via the `propose_edits`
-tool. Every candidate cites the real span it came from; the AI chooses which to
-apply and each becomes a normal, reversible timeline patch.
+and can then lay the map's chapters and highlights alongside silence, scene cuts
+and spoken emphasis through the **`read_edit_signals`** tool, which describes what
+is measurably there — a chapter's length and how many highlights sit inside it, a
+gap long enough to notice, a word the speaker leaned on — in time order, and says
+of each whether it was supplied or measured. It deliberately does not rank those
+observations or recommend a move: which of them earns a punch-in, a reframe, a
+ramp or nothing at all is the AI's judgement, and each move it chooses becomes a
+normal, reversible timeline patch.
 
 You can see the same map yourself: the **Footage understanding** panel (the map
 icon in the top bar) lists the chapters and highlights; click one to seek to it.
