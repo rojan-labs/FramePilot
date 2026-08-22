@@ -357,6 +357,145 @@ def _place_video_clip(
     return placed.with_position(position_at)
 
 
+#: How close two clips must sit to count as one cut. A frame at 240fps is ~4ms, so this is
+#: below any real edit boundary while still absorbing float noise from time quantization.
+_CUT_ADJACENCY_TOLERANCE = 1e-3
+
+#: How much of a neighbour's handle a transition under-layer may borrow, as a multiple of
+#: the ramp itself. Slightly over 1 so a rounding error at the tail cannot leave the last
+#: frame of the ramp uncovered.
+_UNDERLAY_HANDLE_SLACK = 1.05
+
+
+def transition_underlay_window(
+    clip: Clip, neighbour: Clip, role: str
+) -> tuple[float, float] | None:
+    """The sequence span a transition on ``clip`` needs picture underneath it.
+
+    A transition is stamped on butt-joined clips as an effect, not as an overlap: the
+    incoming clip animates in over its own first ``in_seconds``, by which time the outgoing
+    clip has already ended. Nothing is beneath it, so the reveal composites against the
+    black background — a "cross dissolve" dissolves up from black, and a whip pan whips in
+    over black. Both were reported by the perceptual reviewer as "unexpected black frames"
+    at every cut, and no proposal the agent could make would fix them, because the fault is
+    here.
+
+    :param clip: The clip carrying the transition effect.
+    :param neighbour: The clip on the other side of the cut.
+    :param role: ``"in"`` (ramp after the cut, on the incoming clip) or ``"out"``.
+    :returns: ``(start, end)`` in sequence seconds, or ``None`` when the two clips are not
+        actually adjacent (a transition on a non-cut renders nothing and needs no underlay).
+    """
+    transition = transitions.resolve_from_clip(clip, role)
+    if transition is None or transition.is_cut or transition.duration <= 0.0:
+        return None
+    in_seconds, out_seconds = transitions.transition_window(
+        transition.alignment, transition.duration
+    )
+    span = in_seconds if role == "in" else out_seconds
+    if span <= 0.0:
+        return None
+    if role == "in":
+        # The outgoing clip must end where this one begins, or there is no cut here.
+        if abs(neighbour.end - clip.start) > _CUT_ADJACENCY_TOLERANCE:
+            return None
+        return (clip.start, min(clip.end, clip.start + span))
+    if abs(clip.end - neighbour.start) > _CUT_ADJACENCY_TOLERANCE:
+        return None
+    return (max(clip.start, clip.end - span), clip.end)
+
+
+def _transition_neighbour(
+    clip: Clip,
+    role: str,
+    adjacent: Clip | None,
+    by_id: Mapping[str, Clip],
+) -> Clip | None:
+    """The clip a transition on ``clip`` is transitioning with, or ``None``.
+
+    The effect names its counterpart (``fromClipId`` on the incoming half, ``toClipId`` on
+    the outgoing one), and that name is authoritative — it is what the operation validated
+    against. Sequence adjacency is only the fallback for a hand-written project whose params
+    omit it.
+    """
+    wanted = "transition" if role == "in" else transitions.TRANSITION_OUT_EFFECT_TYPE
+    effect = next((entry for entry in clip.effects if entry.type == wanted), None)
+    if effect is None:
+        return None
+    key = "fromClipId" if role == "in" else "toClipId"
+    named = effect.params.get(key)
+    if isinstance(named, str) and named in by_id:
+        return by_id[named]
+    return adjacent
+
+
+def _underlay_layer(
+    video_file_clip_cls: Any,
+    image_clip_cls: Any,
+    neighbour: Clip,
+    role: str,
+    window: tuple[float, float],
+    path: str,
+    target: tuple[int, int],
+    lut_base_dir: Path,
+    max_decode_dimension: int | None,
+    opened: list[Any],
+) -> Any:
+    """Build the picture that sits UNDER a transition ramp, from the neighbour's handle.
+
+    The neighbour keeps playing (or, when it has no material left, holds its edge frame) for
+    exactly the ramp, framed and graded exactly as it is on the timeline — so a dissolve
+    resolves into the shot the editor actually cut from, and a whip pan whips off it.
+
+    :param neighbour: The clip on the other side of the cut, whose material and look the
+        under-layer borrows.
+    :param role: ``"in"`` ⇒ the ramp is after the cut, so this continues the neighbour PAST
+        its out-point; ``"out"`` ⇒ the ramp is before the cut, so this is the neighbour's
+        pre-roll BEFORE its in-point.
+    :param window: The sequence span to cover, from :func:`transition_underlay_window`.
+    :param opened: The compiler's resource ledger; everything opened here is appended so a
+        failed compile still closes it.
+    """
+    start, end = window
+    span = end - start
+    reader = _open_source_reader(video_file_clip_cls, path, max_decode_dimension)
+    opened.append(reader)
+    source_duration = float(reader.duration)
+    borrow = span * _UNDERLAY_HANDLE_SLACK
+    if role == "in":
+        # Continue past the out-point, if the asset has anything left there.
+        handle_start = float(neighbour.source_end if neighbour.source_end is not None else 0.0)
+        available = max(0.0, source_duration - handle_start)
+        edge_time = max(0.0, min(handle_start, source_duration - _CUT_ADJACENCY_TOLERANCE))
+    else:
+        # Roll back before the in-point, if there is anything before it.
+        handle_start = max(0.0, float(neighbour.source_start) - borrow)
+        available = float(neighbour.source_start) - handle_start
+        edge_time = max(
+            0.0,
+            min(float(neighbour.source_start), source_duration - _CUT_ADJACENCY_TOLERANCE),
+        )
+
+    if available >= span:
+        material = reader.subclipped(handle_start, handle_start + span)
+    else:
+        # No handle left (the neighbour is cut to the very edge of its asset). Hold its edge
+        # frame rather than reveal black: a held frame under a fast ramp reads as continuous;
+        # black reads as a flash, which is the defect this exists to remove.
+        held = image_clip_cls(reader.get_frame(edge_time)).with_duration(span)
+        opened.append(held)
+        material = held
+
+    material = _apply_crop(material, neighbour)
+    material = _apply_color_grade(material, neighbour, lut_base_dir)
+    # Placed with the NEIGHBOUR's framing, but without its transition (an under-layer is
+    # plain picture — it is the thing being revealed, never a second reveal) and without its
+    # keyframed motion, which is timed to the neighbour's own clip-local clock.
+    plain = neighbour.model_copy(update={"keyframes": []})
+    placed = _place_video_clip(material, plain, target, None)
+    return placed.with_start(start).with_duration(span)
+
+
 def _apply_transition_blur(
     source: VideoClip, transition: transitions.Transition | None
 ) -> VideoClip:
@@ -734,7 +873,11 @@ def compile_timeline(
     try:
         for track in project.timeline.tracks:
             track_pictures: list[tuple[Any, str | None]] = []
-            for clip in track.clips:
+            # Clips in sequence order, so a transition can find the shot on the other side of
+            # its cut and borrow that shot's material for the ramp (see `_underlay_layer`).
+            ordered = sorted(track.clips, key=lambda entry: entry.start)
+            by_id = {entry.id: entry for entry in ordered}
+            for position, clip in enumerate(ordered):
                 kind = clip_kind(clip, asset_kinds)
                 if kind in _PICTURE_KINDS:
                     if track.hidden:
@@ -761,6 +904,36 @@ def compile_timeline(
                         source = _attach_mask(source, clip, transition)
                         source = _apply_catalog_transition(source, clip, use_legacy)
                         placed = _place_video_clip(source, clip, target, transition)
+                        # UNDER-LAYERS FIRST: a transition reveals the shot on the other side
+                        # of its cut, and butt-joined clips leave nothing there — so the
+                        # neighbour's handle is placed beneath the ramp before the clip itself
+                        # goes on top. Appended in this order because a later entry in the
+                        # list composites above an earlier one.
+                        for role, neighbour in (
+                            ("in", ordered[position - 1] if position > 0 else None),
+                            ("out", ordered[position + 1] if position + 1 < len(ordered) else None),
+                        ):
+                            resolved_neighbour = _transition_neighbour(clip, role, neighbour, by_id)
+                            if resolved_neighbour is None:
+                                continue
+                            if clip_kind(resolved_neighbour, asset_kinds) != "video":
+                                continue
+                            window = transition_underlay_window(clip, resolved_neighbour, role)
+                            if window is None:
+                                continue
+                            underlay = _underlay_layer(
+                                VideoFileClip,
+                                ImageClip,
+                                resolved_neighbour,
+                                role,
+                                window,
+                                _resolve_clip_asset(resolved_neighbour, asset_index),
+                                target,
+                                lut_base_dir,
+                                max_decode_dimension,
+                                opened,
+                            )
+                            track_pictures.append((underlay, resolved_neighbour.blend_mode))
                         track_pictures.append((placed.with_start(clip.start), clip.blend_mode))
                 elif kind == "audio":
                     if track.muted:

@@ -34,6 +34,7 @@ import { presentationIndexAtOrBefore } from '../demux/mp4-demuxer.js';
 import { AudioMasterClock } from '../clock/audio-clock.js';
 import { GlEffectChain } from '../effects/gl-effect-chain.js';
 import type { TimedEffectLayer } from '../effects/gl-effect-chain.js';
+import { heldFrameIsPreviousSegment } from '../held-frame.js';
 import {
   type ClipCompositing,
   colorGradeCssFilter,
@@ -171,6 +172,24 @@ export class WebCodecsPreviewEngine {
   private ring = new FrameRing<TaggedFrame>(RING_CAPACITY);
 
   private segments: ResolvedSegment[] = [];
+  /**
+   * The last frame painted for the PREVIOUS picture segment, kept so a transition has the
+   * shot it is transitioning from underneath it.
+   *
+   * A transition is stamped on butt-joined clips: while the incoming clip eases in, the
+   * outgoing one has already ended and this engine draws exactly one source per frame. The
+   * reveal therefore composited against the cleared canvas — a dissolve up from black, a whip
+   * pan over black, at every cut. The export had the same defect for the same reason (see the
+   * render compiler's transition under-layer), and a real run's perceptual review reported it
+   * as unexpected black frames at all seven of its cuts.
+   *
+   * One held frame, snapshotted at the cut, is what the DOM monitor shows and what the
+   * compiler falls back to when a clip has no handle left. The deterministic render remains
+   * the authority for the exact frames inside the ramp.
+   */
+  private heldFrame: { canvas: HTMLCanvasElement; forSegmentStart: number } | null = null;
+  /** Which segment the canvas last painted, so a cut can be noticed as it happens. */
+  private lastPaintedSegmentStart: number | null = null;
   /** Text/caption overlays composited on top of every picture draw (P3b),
    * ordered back-to-front. Independent of the picture EDL — an overlay can
    * span cuts and gaps — so refreshed via `setOverlays`, never reloaded. */
@@ -707,6 +726,36 @@ export class WebCodecsPreviewEngine {
     this.ctx2d.drawImage(source, bx + (bw - dw) / 2, by + (bh - dh) / 2, dw, dh);
   }
 
+  /** Copy what is on the canvas now, as the held frame belonging to `forSegmentStart`. */
+  private holdCurrentFrame(forSegmentStart: number, width: number, height: number): void {
+    const canvas = this.heldFrame?.canvas ?? document.createElement('canvas');
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+    const held = canvas.getContext('2d');
+    /* v8 ignore next -- a 2d context on a fresh canvas is only null when the browser refuses
+       one entirely (no GPU, no software fallback), in which case the engine never started. */
+    if (!held) return;
+    held.clearRect(0, 0, width, height);
+    held.drawImage(this.ctx2d.canvas, 0, 0);
+    this.heldFrame = { canvas, forSegmentStart };
+  }
+
+  /**
+   * Blit the held frame of the segment immediately BEFORE `segmentStartSec`, if that is what
+   * is held.
+   *
+   * The identity check matters after a seek: a held frame from an unrelated part of the
+   * timeline is not the shot this cut is coming from, and painting it would be a worse lie
+   * than the black it replaces.
+   */
+  private drawHeldFrame(segmentStartSec: number, width: number, height: number): void {
+    const held = this.heldFrame;
+    if (!heldFrameIsPreviousSegment(this.segments, segmentStartSec, held?.forSegmentStart)) return;
+    this.ctx2d.drawImage(held!.canvas, 0, 0, width, height);
+  }
+
   /**
    * Clear the canvas and draw one picture source (decoded `VideoFrame` or a
    * still `<img>`) composited exactly as the DOM `PreviewPlayer` does via CSS:
@@ -726,6 +775,13 @@ export class WebCodecsPreviewEngine {
     const ctx = this.ctx2d;
     const cw = ctx.canvas.width;
     const ch = ctx.canvas.height;
+    // At a cut, the canvas still holds the outgoing shot's last painted frame. Keep it before
+    // clearing: a transition on the incoming clip needs that picture underneath it (see
+    // `heldFrame`), and this is the only moment it exists.
+    if (this.lastPaintedSegmentStart !== null && this.lastPaintedSegmentStart !== segmentStartSec) {
+      this.holdCurrentFrame(this.lastPaintedSegmentStart, cw, ch);
+    }
+    this.lastPaintedSegmentStart = segmentStartSec;
     ctx.clearRect(0, 0, cw, ch);
 
     const clipTime = Math.max(0, projectTimeSec - segmentStartSec);
@@ -763,6 +819,12 @@ export class WebCodecsPreviewEngine {
     const envelope = compositing?.transition ?? null;
     const transition: TransitionEnvelope | null =
       envelope !== null && transitionActiveAt(envelope, clipTime) ? envelope : null;
+
+    // The shot being transitioned FROM, under the ramp. Drawn before the picture so the
+    // reveal happens over it — without this the ramp composited against the cleared canvas,
+    // which is a dissolve from black rather than from the previous shot.
+    const rampingNow = transition !== null || catalog !== null;
+    if (rampingNow) this.drawHeldFrame(segmentStartSec, cw, ch);
 
     if (
       (!compositing || isIdentityCompositing(compositing)) &&

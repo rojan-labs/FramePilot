@@ -88,6 +88,7 @@ import {
   opacityAt as transitionOpacityAt,
   scaleAt as transitionScaleAt,
   transitionActiveAt,
+  transitionCounterpartId,
   transitionFromClip,
   wipeCssMask,
   wipeProgressAt,
@@ -188,6 +189,16 @@ const NO_SOLO: ReadonlySet<string> = new Set();
 
 /** The pool slot indices, for rendering one persistent element per slot. */
 const POOL_SLOTS: readonly number[] = Array.from({ length: PREVIEW_POOL_SIZE }, (_, i) => i);
+
+/**
+ * How far back from a clip's out-point the shot UNDER a transition ramp is parked.
+ *
+ * Its out-point is exclusive, so seeking exactly there lands on the first frame the clip does
+ * not include (or past the end of a clip cut to its asset's edge, which decodes nothing at
+ * all and paints black — the very thing the under-layer exists to prevent). One frame at a
+ * conservative 24fps is inside every clip long enough to carry a transition.
+ */
+const UNDERLAY_EDGE_FRAME_SECONDS = 1 / 24;
 
 export function PreviewPlayer({
   editor,
@@ -780,6 +791,22 @@ export function PreviewPlayer({
   // Soft-edged directional reveal — the CSS analog of the engine's wipe mask.
   const wipeMask = transition ? wipeCssMask(transition, transitionWipeProgress) : undefined;
 
+  // THE SHOT UNDERNEATH THE RAMP. A transition sits on butt-joined clips, so while the
+  // incoming clip eases in the outgoing one has already ended — and every other slot is
+  // painted at opacity 0. The reveal therefore happened over the empty monitor: a dissolve
+  // from black, a whip pan over black, at every cut. The export had the same defect for the
+  // same reason (see the render compiler's transition under-layer), and the perceptual
+  // reviewer reported it as unexpected black frames on a real run.
+  //
+  // The pool usually still holds the outgoing clip on a warm slot, so it is shown at full
+  // opacity beneath the ramping front. It is parked on that clip's LAST frame rather than
+  // playing its handle (see `slotSeekTarget`) — a held frame under a sub-second ramp reads as
+  // continuous, and the deterministic render remains the authority for the exact frames.
+  const underlayClipId = videoClip && transition ? transitionCounterpartId(videoClip) : null;
+  const underlaySlot = underlayClipId
+    ? POOL_SLOTS.find((slot) => slot !== visibleSlot && pool.loaded[slot] === underlayClipId)
+    : undefined;
+
   // Video slots are only mounted once there is video to show or pre-warm; a
   // still-image or empty timeline needs no <video> at all (keeps the DOM honest).
   const showBuffers = isVideoElement || pool.loaded.some((id) => id !== null);
@@ -798,6 +825,11 @@ export function PreviewPlayer({
     // Front slot showing the active clip → the live source time; any other slot
     // (a pre-warmed upcoming clip) → its own in-point, decoded and ready to swap.
     if (slot === pool.front && frontHoldsActive && sourceTime !== null) return sourceTime;
+    // The slot showing the shot UNDER a transition ramp is the exception: what belongs on
+    // screen there is where that shot left off, not where it began.
+    if (slot === underlaySlot && clip.sourceEnd !== undefined) {
+      return Math.max(clip.sourceStart, clip.sourceEnd - UNDERLAY_EDGE_FRAME_SECONDS);
+    }
     return clip.sourceStart;
   };
 
@@ -849,6 +881,9 @@ export function PreviewPlayer({
                 // has a decoded frame (a held frame reads as seamless; a
                 // not-yet-painted element reads as a black flicker).
                 const isVisible = slot === visibleSlot;
+                // Painted beneath the ramping front slot (a lower stacking order), at full
+                // opacity and with its OWN crop — it is a different shot, framed its own way.
+                const isUnderlay = slot === underlaySlot;
                 // Prefer the engine-generated low-res proxy (H3): decodes/seeks far
                 // cheaper than the original, so scrubbing and cuts stay smooth on
                 // heavy footage. Export still renders from the original.
@@ -871,10 +906,24 @@ export function PreviewPlayer({
                       // ramping fade/dissolve envelope scales that opacity.
                       opacity:
                         isVisible && videoClip !== null && !(isImageClip && imageReady)
-                          ? transition
+                          ? // The ramp belongs to the clip that CARRIES the transition, so it
+                            // only modulates the slot actually holding that clip. When the
+                            // incoming slot has no decoded frame yet the monitor keeps showing
+                            // the outgoing shot (the anti-flicker hold) — fading THAT down was
+                            // the same dissolve-to-black defect from the other side.
+                            transition && pool.loaded[slot] === activePictureId
                             ? transitionOpacityAt(transition, clipTime)
                             : 1
-                          : 0,
+                          : isUnderlay
+                            ? 1
+                            : 0,
+                      ...(isUnderlay ? { zIndex: 0 } : isVisible ? { zIndex: 1 } : {}),
+                      ...(isUnderlay && clip
+                        ? (() => {
+                            const underlayCrop = cropClipPath(clipCropRect(clip));
+                            return underlayCrop === 'none' ? {} : { clipPath: underlayCrop };
+                          })()
+                        : {}),
                       // Live clip transform (H4) composed with the transition
                       // envelope's translate/scale ramp at the playhead.
                       ...(isVisible && visibleTransform ? { transform: visibleTransform } : {}),
