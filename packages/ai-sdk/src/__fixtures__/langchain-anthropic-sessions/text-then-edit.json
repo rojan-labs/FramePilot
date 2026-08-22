@@ -799,7 +799,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "notification",
-      "text": "Self-check: All checks passed."
+      "text": "Deterministic self-check: All checks passed."
     },
     {
       "id": "turn_parity:run-state",

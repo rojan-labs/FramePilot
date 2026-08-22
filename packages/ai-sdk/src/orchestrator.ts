@@ -337,6 +337,42 @@ const QUESTION_ROUTE_TOOL_TURNS = 4;
  */
 const MAX_PINNED_SKILLS = 8;
 
+/**
+ * How many times one agent step re-issues its model call after an UNUSABLE response.
+ *
+ * Two failures land after a 200 and so cannot be retried by `ResilientProvider` (which
+ * replays a stream only before its first chunk): an empty completion, and a reply that stops
+ * mid-clause without asking for a tool. Both are the provider dropping work, not the model
+ * having nothing to say — and both used to end the run. One extra attempt is enough to ride
+ * out a dropped request without turning a real dead end into a loop.
+ */
+const MAX_UNUSABLE_TURN_RETRIES = 1;
+
+/**
+ * Why this step's response cannot be used, or `undefined` when it can.
+ *
+ * - `empty` — no prose and no tool call at all. There is nothing to act on and nothing to
+ *   show; the provider reported silence.
+ * - `truncated` — the PROVIDER said it stopped early (`finish_reason: 'length'` /
+ *   `stop_reason: 'max_tokens'`) and the reply asked for no tool, so the step ends on an
+ *   unfinished sentence with nothing proposed. Only the provider's own verdict counts here:
+ *   judging the prose instead would retry finished two-word answers ("all done") and still
+ *   miss a fragment that happens to end on a period.
+ */
+export function unusableTurnReason(
+  turn: { readonly text: string; readonly calls: readonly unknown[]; readonly truncated?: boolean },
+  appliedOpsSoFar: number,
+  stage: RunStage | undefined,
+): 'empty' | 'truncated' | undefined {
+  if (turn.calls.length > 0) return undefined;
+  if (turn.text.trim() === '') return 'empty';
+  // A truncated reply after work has landed is survivable — the run keeps the edits and the
+  // reducer settles it — and a run already at verify/complete is allowed to finish on prose.
+  if (appliedOpsSoFar > 0) return undefined;
+  if (stage === 'verify' || stage === 'complete') return undefined;
+  return turn.truncated === true ? 'truncated' : undefined;
+}
+
 // Named `orchestratorLog` (not `log`) because the agent-run closure has a local
 // `log: string[]` action ledger that would otherwise shadow it.
 const orchestratorLog = createLogger('ai-sdk:orchestrator');
@@ -3359,7 +3395,10 @@ export class Orchestrator {
       tier: 'mid',
       contextWindow: capabilitiesFor(this.provider.name, this.provider.modelId).contextWindow,
     },
-  ): AsyncGenerator<AiEvent, { text: string; calls: ToolCall[]; aborted: boolean; usage?: Usage }> {
+  ): AsyncGenerator<
+    AiEvent,
+    { text: string; calls: ToolCall[]; aborted: boolean; usage?: Usage; truncated?: boolean }
+  > {
     let text = '';
     // The narration boundary (kernel/narration.ts). Assistant text reaches the UI as live
     // deltas, so this has to sit on the delta path rather than on the settled string: a
@@ -3374,6 +3413,9 @@ export class Orchestrator {
     // `runTurn`) folds this into the run's cost accumulator. Never fabricated: stays
     // `undefined` when no `usage` chunk arrives (see `providerChunks`).
     let usage: Usage | undefined;
+    // The provider's own "I stopped because I ran out of room" (see `ProviderChunk`'s
+    // `done.truncated`). Never inferred from the prose.
+    let truncated = false;
     // Built once, just before the call, and reused when the provider settles.
     let manifest: ContextManifest | undefined;
     const captureReasoning = sink.kind === 'assistant' && sink.captureReasoning === true;
@@ -3492,8 +3534,11 @@ export class Orchestrator {
           calls.push(chunk.call);
         } else if (chunk.type === 'usage') {
           usage = chunk.usage;
+        } else if (chunk.type === 'done') {
+          // The text is already accumulated from the deltas; what only 'done' carries is
+          // whether the provider cut the reply off.
+          truncated = chunk.truncated === true;
         }
-        // 'done' carries the final canonical text, already accumulated from deltas.
       }
       settled = true;
       // Release the tail the filter never got a terminator for (a message that ends without
@@ -3516,7 +3561,13 @@ export class Orchestrator {
           manifest: settled,
         });
       }
-      return { text, calls, aborted: signal?.aborted ?? false, ...(usage ? { usage } : {}) };
+      return {
+        text,
+        calls,
+        aborted: signal?.aborted ?? false,
+        ...(usage ? { usage } : {}),
+        ...(truncated ? { truncated: true } : {}),
+      };
     } finally {
       if (!settled) {
         const settle = settleReasoning();
@@ -5090,54 +5141,97 @@ export class Orchestrator {
         // any) are even known — `generating` is the specific, honest status for that
         // phase (vs. the generic `editing` the caller set for the whole run).
         yield emit.status('generating');
-        const turn = yield* self.streamAssistant(
-          emit,
-          {
-            messages: self.agentMessages(
-              input,
-              working,
-              log,
-              loadedSkills,
-              plan,
-              steeringMessage,
-              effect.actionRecovery,
-              taskMemory,
-              pendingFrames,
-            ),
-            // Stage-scoped surface (ADR 0075 §3.6): action recovery still wins when it
-            // fires, but an executing run is closed to fresh reconnaissance regardless.
-            tools: effect.actionRecovery
-              ? self.agentTools('action-recovery')
-              : self.agentTools('agent', effect.stage),
-          },
-          signal,
-          // Per-step thinking (U3, redesign §12): each step captures the model's
-          // reasoning into its OWN node `${turnId}:reasoning:${index}`, so an agent run's
-          // thinking blocks stay distinct, ordered, and interleaved with that step's tool
-          // cards — never a single per-run accordion that later steps overwrite.
-          { kind: 'assistant', id: segmentId, captureReasoning: true, reasoningKey: index },
-          effectRuntime,
-          {
-            tier: 'mid',
-            contextWindow: contextWindowFor(input, self.provider),
-            reservedOutputTokens: reservedOutputFor(input, self.provider),
-            // The run's durable memory rides with the request so the composer can say
-            // "memory intact" while the prompt itself shrinks between turns.
-            /* v8 ignore next -- taskMemory is always defined on the live path (see the effect.working guard above), so the empty-object fallback never runs. */
-            ...(taskMemory ? { memory: memoryStatusFrom(taskMemory) } : {}),
-          },
-        );
-        // The frames just went out with that request; they must not ride the next one
-        // too (see `pendingFrames`). Cleared here rather than before the call so an
-        // aborted request does not silently discard evidence that was never sent.
-        pendingFrames = [];
-        // The turn made its model call whether or not the provider priced it.
+        /** One attempt at this turn's model call. Re-callable — see the retry below. */
+        const streamOnce = (attempt: number) =>
+          self.streamAssistant(
+            emit,
+            {
+              messages: self.agentMessages(
+                input,
+                working,
+                log,
+                loadedSkills,
+                plan,
+                steeringMessage,
+                effect.actionRecovery,
+                taskMemory,
+                pendingFrames,
+              ),
+              // Stage-scoped surface (ADR 0075 §3.6): action recovery still wins when it
+              // fires, but an executing run is closed to fresh reconnaissance regardless.
+              tools: effect.actionRecovery
+                ? self.agentTools('action-recovery')
+                : self.agentTools('agent', effect.stage),
+            },
+            signal,
+            // Per-step thinking (U3, redesign §12): each step captures the model's
+            // reasoning into its OWN node `${turnId}:reasoning:${index}`, so an agent run's
+            // thinking blocks stay distinct, ordered, and interleaved with that step's tool
+            // cards — never a single per-run accordion that later steps overwrite. A retry
+            // gets its own segment id so it cannot overwrite the attempt it replaces.
+            {
+              kind: 'assistant',
+              id: attempt === 0 ? segmentId : `${segmentId}:retry-${String(attempt)}`,
+              captureReasoning: true,
+              reasoningKey: index,
+            },
+            effectRuntime,
+            {
+              tier: 'mid',
+              contextWindow: contextWindowFor(input, self.provider),
+              reservedOutputTokens: reservedOutputFor(input, self.provider),
+              // The run's durable memory rides with the request so the composer can say
+              // "memory intact" while the prompt itself shrinks between turns.
+              /* v8 ignore next -- taskMemory is always defined on the live path (see the effect.working guard above), so the empty-object fallback never runs. */
+              ...(taskMemory ? { memory: memoryStatusFrom(taskMemory) } : {}),
+            },
+          );
+        let turn = yield* streamOnce(0);
         modelCalls += 1;
+        // A DROPPED OR CUT-OFF STEP IS NOT AN ANSWER, so retry it here rather than let the
+        // run end on it. `ResilientProvider` cannot help: it retries a stream only before
+        // the first chunk, and both failures arrive after a 200 — an empty completion, or a
+        // reply that stops mid-clause with no tool call. In the captured run the second one
+        // ended a three-and-a-half-minute turn on the words "Rebuilding the 30 seconds as a
+        // 23-shot", and the first failed a whole run the UI had labelled retryable.
+        let unusable = unusableTurnReason(turn, state.cumulativeOps.length, effect.stage);
+        for (
+          let attempt = 1;
+          unusable !== undefined && !turn.aborted && attempt <= MAX_UNUSABLE_TURN_RETRIES;
+          attempt += 1
+        ) {
+          log.push(`Step ${index}: ${unusable} model response — retrying (attempt ${attempt}).`);
+          // The attempt being replaced was still billed, so fold its usage in before it is
+          // overwritten; the surviving attempt is folded in by the block below, once.
+          if (turn.usage) {
+            const supersededCost = costFromUsage(turn.usage);
+            usageTokens += supersededCost.tokens;
+            usageUsd += supersededCost.usd;
+          }
+          turn = yield* streamOnce(attempt);
+          modelCalls += 1;
+          unusable = unusableTurnReason(turn, state.cumulativeOps.length, effect.stage);
+        }
+        // The frames went out with that request; they must not ride the next turn's too
+        // (see `pendingFrames`). Cleared after the retry loop rather than before it, so a
+        // retried attempt still carries evidence the failed attempt never got to use, and
+        // an aborted request does not silently discard it either.
+        pendingFrames = [];
         // C1: fold this turn's real model-call usage into the run's cost accumulator.
         if (turn.usage) {
           const cost = costFromUsage(turn.usage);
           usageTokens += cost.tokens;
           usageUsd += cost.usd;
+        }
+        if (unusable === 'truncated' && !turn.aborted) {
+          // Publishing the fragment would make a cut-off sentence the run's last word.
+          yield emit.warning(
+            'The model ran out of output room mid-reply and asked for no tool call, on every attempt. Nothing was applied. Retry, or ask for a smaller step.',
+          );
+          return turnBase(index, emit.seq(), {
+            done: true,
+            note: 'The model response was truncated before it proposed anything.',
+          });
         }
         if (turn.aborted) return turnBase(index, emit.seq(), { aborted: true });
 
@@ -5150,9 +5244,12 @@ export class Orchestrator {
           // timeline nothing had touched. Say what actually happened instead: honour work
           // earlier turns already landed, and fail loudly when there is none.
           if (!turn.text.trim()) {
+            // The bounded retry above has already been spent, so this is the provider
+            // failing repeatedly rather than a single dropped request.
             const detail =
-              'The model returned an empty response — no answer and no tool call. This is ' +
-              'usually the provider dropping the request (overloaded or rate-limited).';
+              'The model returned an empty response — no answer and no tool call, on every ' +
+              'attempt. This is usually the provider dropping the request (overloaded or ' +
+              'rate-limited).';
             if (state.cumulativeOps.length > 0) {
               log.push(`Step ${index}: empty model response — keeping the edits already applied.`);
               yield emit.warning(`${detail} The edits from earlier steps are kept.`);

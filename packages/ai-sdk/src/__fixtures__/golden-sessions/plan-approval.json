@@ -1049,7 +1049,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "notification",
-      "text": "Self-check: All checks passed."
+      "text": "Deterministic self-check: All checks passed."
     },
     {
       "id": "turn_golden:run-state",
@@ -1171,7 +1171,7 @@
           "objectiveId": "objective_2"
         },
         "blockedOn": {
-          "reason": "Verification is inconclusive because committed plan deliverables are incomplete.",
+          "reason": "Verification found: The committed plan still has incomplete deliverables.",
           "missing": "VERIFICATION_INCONCLUSIVE",
           "atStage": "verify"
         },
@@ -1180,7 +1180,7 @@
           "diagnostics": [
             {
               "code": "VERIFICATION_INCONCLUSIVE",
-              "message": "Verification is inconclusive because committed plan deliverables are incomplete.",
+              "message": "Verification found: The committed plan still has incomplete deliverables.",
               "stage": "verify",
               "blocking": true,
               "atVersion": 13

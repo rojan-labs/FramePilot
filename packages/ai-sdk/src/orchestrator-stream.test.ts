@@ -112,6 +112,24 @@ class ScriptedProvider implements AiProvider {
   }
 }
 
+/** Streams a DIFFERENT scripted chunk list per call, so a retried step can differ. */
+class ScriptedStreamProvider implements AiProvider {
+  public readonly name = 'mock' as const;
+  private index = 0;
+  /** How many times the loop opened a stream — the retry count under test. */
+  public calls = 0;
+  public constructor(private readonly scripts: readonly (readonly ProviderChunk[])[]) {}
+  public async complete(): Promise<AiResponse> {
+    return { text: '' };
+  }
+  public async *stream(): AsyncIterable<ProviderChunk> {
+    this.calls += 1;
+    const script = this.scripts[Math.min(this.index, this.scripts.length - 1)]!;
+    this.index += 1;
+    for (const chunk of script) yield chunk;
+  }
+}
+
 /** An in-scope read-only call for the question route's tool loop. */
 const getTimeline = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
 
@@ -834,6 +852,76 @@ describe('streamAgent', () => {
       retryable: true,
     });
     expect(events.at(-1)).toMatchObject({ status: 'failed' });
+  });
+
+  it('retries a dropped step in place, and uses the retry\'s answer', async () => {
+    // The provider dropping ONE request must not end the run: `ResilientProvider` cannot
+    // replay it (the failure lands after a 200), so the step retries here.
+    const provider = new ScriptedStreamProvider([
+      [{ type: 'done', text: '' }],
+      [
+        { type: 'tool-call', call: deleteRange('c1', 0, 3) },
+        { type: 'done', text: 'trimmed the head' },
+      ],
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+    expect(provider.calls).toBeGreaterThan(1);
+    expect(events.some((e) => e.type === 'diff')).toBe(true);
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+  });
+
+  it('gives up after the bounded retry when every attempt is empty', async () => {
+    const provider = new ScriptedStreamProvider([[{ type: 'done', text: '' }]]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+    // One attempt plus one retry, then an honest failure — never an unbounded loop.
+    expect(provider.calls).toBe(2);
+    expect(events.find((e) => e.type === 'error')).toMatchObject({
+      message: expect.stringContaining('empty response'),
+      retryable: true,
+    });
+    expect(events.at(-1)).toMatchObject({ status: 'failed' });
+  });
+
+  it('never ends a run on a reply the provider says it cut off', async () => {
+    // The captured run ended on the words "Rebuilding the 30 seconds as a 23-shot" with
+    // nothing applied, and published that fragment as its final message.
+    const provider = new ScriptedStreamProvider([
+      [
+        { type: 'text-delta', text: 'Rebuilding the 30 seconds as a 23-shot' },
+        { type: 'done', text: 'Rebuilding the 30 seconds as a 23-shot', truncated: true },
+      ],
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+    expect(provider.calls).toBe(2);
+    expect(events.some((e) => e.type === 'warning' && /ran out of output room/.test(e.text))).toBe(
+      true,
+    );
+    // The fragment is not the run's last word.
+    expect(
+      events.some((e) => e.type === 'assistant_message' && /23-shot/.test((e as { text: string }).text)),
+    ).toBe(false);
+    expect(events.at(-1)).toMatchObject({ status: 'failed' });
+  });
+
+  it('lets a truncated reply stand once work has landed', async () => {
+    // A cut-off summary AFTER an edit is survivable: the edits are the deliverable, and
+    // retrying would re-bill a turn that already did its job.
+    const provider = new ScriptedStreamProvider([
+      [
+        { type: 'tool-call', call: deleteRange('c1', 0, 3) },
+        { type: 'done', text: 'trimmed' },
+      ],
+      [
+        { type: 'text-delta', text: 'and then I' },
+        { type: 'done', text: 'and then I', truncated: true },
+      ],
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+    expect(provider.calls).toBe(2);
+    expect(events.some((e) => e.type === 'warning' && /ran out of output room/.test(e.text))).toBe(
+      false,
+    );
+    expect(events.some((e) => e.type === 'diff')).toBe(true);
   });
 
   it('keeps applied edits when a LATER turn comes back empty', async () => {

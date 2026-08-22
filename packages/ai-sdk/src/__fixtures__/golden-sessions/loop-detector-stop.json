@@ -912,7 +912,7 @@
             "criterion": "what is on the timeline?",
             "passed": false,
             "atRevision": 0,
-            "detail": "Passed with 1 warning(s)."
+            "detail": "No traceable project mutation for the committed plan."
           }
         ],
         "nextAction": {
@@ -921,7 +921,7 @@
           "objectiveId": "objective_1"
         },
         "blockedOn": {
-          "reason": "Verification found no traceable project mutation for the committed plan.",
+          "reason": "Verification found: No traceable project mutation for the committed plan.",
           "missing": "VERIFICATION_INCONCLUSIVE",
           "atStage": "inspect"
         },
@@ -930,7 +930,7 @@
           "diagnostics": [
             {
               "code": "VERIFICATION_INCONCLUSIVE",
-              "message": "Verification found no traceable project mutation for the committed plan.",
+              "message": "Verification found: No traceable project mutation for the committed plan.",
               "stage": "verify",
               "blocking": true,
               "atVersion": 6
