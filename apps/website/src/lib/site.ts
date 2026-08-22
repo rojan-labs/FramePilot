@@ -5,7 +5,7 @@
 
 export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? 'https://framepilot.app').replace(/\/$/, '');
 
-export const GITHUB_REPO = 'rjach/FramePilot';
+export const GITHUB_REPO = 'rojan-labs/FramePilot';
 export const GITHUB_URL = `https://github.com/${GITHUB_REPO}`;
 
 export const site = {

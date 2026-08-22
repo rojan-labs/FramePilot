@@ -35,13 +35,13 @@ export const FEATURES: Feature[] = [
     icon: GitBranch,
     title: 'One undo for the entire run',
     description:
-      'Every agent change is a concrete operation with a diff attached. Read what it did, disagree, and reverse the run without rebuilding your edit from scratch.',
+      'Every agent change is a concrete operation with a diff attached. Read what it did, disagree, and reverse the run without rebuilding your edit. You can also stop a run mid-flight, and it survives a crash.',
   },
   {
     icon: ScanSearch,
-    title: "It knows what's in your footage",
+    title: 'It looks at the actual frames',
     description:
-      'Transcription, scene detection, beat analysis, frame inspection, and project memory. The agent works from what the media actually contains instead of guessing from filenames.',
+      'Transcription, scene detection, beat analysis, and a searchable index of your footage. Before claiming a shot looks right, a vision-capable model can render that frame through the export compiler and check. When a key or analysis is missing it says so rather than inventing an answer.',
   },
   {
     icon: ShieldCheck,

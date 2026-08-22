@@ -28,7 +28,7 @@ export default function PricingPage() {
               Pay for the editor. That&rsquo;s the whole model.
             </h1>
             <p className="mt-7 max-w-2xl text-[16px] leading-7 text-fg-secondary sm:text-[17px]">
-              One desktop app, one subscription, monthly or annual. Nothing meters your exports.
+              One desktop app, one subscription, monthly or annual. Nothing meters your exports. FramePilot is pre-release software and still changing quickly, which is worth knowing before you subscribe.
             </p>
           </header>
 
@@ -39,7 +39,7 @@ export default function PricingPage() {
           <div className="mt-12 grid gap-6 border-t border-line pt-7 sm:grid-cols-3">
             <div>
               <p className="text-[13px] font-medium">Local-first</p>
-              <p className="mt-1 text-[12px] leading-5 text-fg-tertiary">Your projects and footage never leave your computer.</p>
+              <p className="mt-1 text-[12px] leading-5 text-fg-tertiary">Editing and rendering happen on your machine. Hosted AI runs only if you set it up.</p>
             </div>
             <div>
               <p className="text-[13px] font-medium">Freemius checkout</p>
