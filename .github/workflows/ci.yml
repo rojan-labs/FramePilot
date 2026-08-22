@@ -45,7 +45,7 @@ jobs:
       # vitest workers for all 11 packages at once, which intermittently
       # corrupts module resolution for workspace packages under contention
       # (a function that exists in source resolves to undefined at runtime).
-      - run: pnpm test:coverage -- --concurrency=4
+      - run: pnpm exec turbo run test:coverage --concurrency=4
       # - name: Upload coverage report
       #   if: always()
       #   uses: actions/upload-artifact@v4
