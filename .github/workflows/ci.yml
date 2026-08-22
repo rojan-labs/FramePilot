@@ -40,7 +40,12 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       # - run: pnpm format:check
-      - run: pnpm test:coverage
+      # Capped concurrency: the GitHub-hosted runner's 2 vCPUs can't sustain
+      # turbo's default per-package parallelism across coverage-instrumented
+      # vitest workers for all 11 packages at once, which intermittently
+      # corrupts module resolution for workspace packages under contention
+      # (a function that exists in source resolves to undefined at runtime).
+      - run: pnpm test:coverage -- --concurrency=4
       # - name: Upload coverage report
       #   if: always()
       #   uses: actions/upload-artifact@v4
