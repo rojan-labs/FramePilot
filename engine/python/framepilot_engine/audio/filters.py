@@ -174,8 +174,40 @@ def peak_normalize_gain_db(src: Path, target_dbfs: float = -1.0) -> float:
     return 0.0 if peak is None else target_dbfs - peak
 
 
+def _sanitize_ffmpeg_args(args: Sequence[str]) -> list[str]:
+    """Validate and normalize ffmpeg argv before subprocess execution.
+
+    Prevents passing malformed control characters and guards against option
+    confusion by terminating option parsing before path-like positional values.
+    """
+    argv = list(args)
+    if not argv:
+        raise ValueError("Command arguments must not be empty.")
+
+    for part in argv:
+        if not part:
+            raise ValueError("Command arguments must not contain empty values.")
+        if "\x00" in part or "\n" in part or "\r" in part:
+            raise ValueError("Command arguments contain invalid control characters.")
+
+    normalized: list[str] = []
+    i = 0
+    while i < len(argv):
+        token = argv[i]
+        normalized.append(token)
+        if token in {"-i", "-af", "-c:a", "-c:v", "-f"} and i + 1 < len(argv):
+            value = argv[i + 1]
+            if value.startswith("-"):
+                normalized.append("--")
+            normalized.append(value)
+            i += 2
+            continue
+        i += 1
+    return normalized
+
+
 def _default_runner(args: Sequence[str]) -> None:
-    subprocess.run(list(args), check=True, capture_output=True)
+    subprocess.run(_sanitize_ffmpeg_args(args), check=True, capture_output=True)
 
 
 def apply_audio_filter(
