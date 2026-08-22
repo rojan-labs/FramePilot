@@ -152,7 +152,14 @@ export function checkContextInvariants(working: RunWorkingState): InvariantRepor
 /** The instruction a stage implies when the run failed to write one. */
 function defaultActionFor(working: RunWorkingState): string {
   const owed = remainingObjectives(working)[0];
-  if (owed) return `Continue ${working.stage}: ${owed.description}`;
+  // Naming the owed objective is the point — unless it is the editor's request verbatim,
+  // which is what the conductor seeds it with. "Continue analyze: <the whole request>"
+  // reads as an instruction and carries none: the model already has the request, twice,
+  // and this told it to start over on it. The per-stage default below says what the
+  // stage actually owes.
+  if (owed && owed.description.trim() !== working.objective.request.trim()) {
+    return `Continue ${working.stage}: ${owed.description}`;
+  }
   switch (working.stage) {
     case 'inspect':
       return 'Continue inspect: read only what the objective still needs.';

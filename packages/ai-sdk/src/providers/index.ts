@@ -21,6 +21,7 @@ import {
   OLLAMA_DEFAULT_MODEL,
   OPENAI_COMPATIBLE_DEFAULT_MODEL,
   OPENROUTER_DEFAULT_MODEL,
+  VERCEL_GATEWAY_DEFAULT_MODEL,
 } from './provider-defaults.js';
 import { MockProvider } from './mock.js';
 import {
@@ -115,6 +116,17 @@ export function resolveProviderConfig(name: ProviderName): ProviderConfig {
         apiKey: 'OPENROUTER_API_KEY',
         model: 'OPENROUTER_MODEL',
         baseUrl: 'OPENROUTER_BASE_URL',
+      });
+    // `AI_GATEWAY_API_KEY` is Vercel's own name for this credential (what `vercel env
+    // pull` writes and what the gateway docs use), so a host that already runs other
+    // Vercel tooling needs no second variable. OIDC tokens are deliberately not read:
+    // they are short-lived and refreshed by the Vercel CLI, which a desktop editor
+    // cannot assume is installed.
+    case 'vercel-gateway':
+      return buildConfig(name, {
+        apiKey: 'AI_GATEWAY_API_KEY',
+        model: 'AI_GATEWAY_MODEL',
+        baseUrl: 'AI_GATEWAY_BASE_URL',
       });
     case 'groq':
       return buildConfig(name, {
@@ -223,6 +235,7 @@ const LANGCHAIN_DEFAULT_MODELS: Partial<Record<ProviderName, string>> = {
   ollama: OLLAMA_DEFAULT_MODEL,
   deepseek: DEEPSEEK_DEFAULT_MODEL,
   openrouter: OPENROUTER_DEFAULT_MODEL,
+  'vercel-gateway': VERCEL_GATEWAY_DEFAULT_MODEL,
   nvidia: NVIDIA_DEFAULT_MODEL,
   'openai-compatible': OPENAI_COMPATIBLE_DEFAULT_MODEL,
 };

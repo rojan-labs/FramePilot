@@ -30,6 +30,7 @@
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -107,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 19230,
+      "usedTokens": 19381,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -126,30 +127,30 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1788,
+            "tokenEstimate": 1761,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15710,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19230,
+          "estimatedInputTokensBeforeSend": 19381,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 852770,
+          "estimatedRemainingCapacity": 852619,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -203,28 +204,28 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1788,
+            "tokenEstimate": 1761,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15710,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19230,
+          "estimatedInputTokensBeforeSend": 19381,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -432,6 +433,7 @@
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -525,7 +527,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 19271,
+      "usedTokens": 19424,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -544,30 +546,30 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1829,
+            "tokenEstimate": 1804,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15710,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19271,
+          "estimatedInputTokensBeforeSend": 19424,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 852729,
+          "estimatedRemainingCapacity": 852576,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -584,7 +586,7 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: tighten the intro and the outro"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -622,28 +624,28 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1829,
+            "tokenEstimate": 1804,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15710,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19271,
+          "estimatedInputTokensBeforeSend": 19424,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -664,7 +666,7 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: tighten the intro and the outro"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -866,6 +868,7 @@
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -972,7 +975,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 19289,
+      "usedTokens": 19443,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -991,30 +994,30 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1847,
+            "tokenEstimate": 1823,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15710,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19289,
+          "estimatedInputTokensBeforeSend": 19443,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 852711,
+          "estimatedRemainingCapacity": 852557,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -1031,7 +1034,7 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: tighten the intro and the outro"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -1078,28 +1081,28 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1847,
+            "tokenEstimate": 1823,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15710,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19289,
+          "estimatedInputTokensBeforeSend": 19443,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -1120,7 +1123,7 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: tighten the intro and the outro"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -1150,6 +1153,7 @@
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -1259,6 +1263,7 @@
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -1372,7 +1377,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "assistant_message",
-      "text": "**Applied 2 edits** in 2 steps — review the proposed change below.\n\n- Deleted range: 0s–2s\n- Deleted range: 8s–9s"
+      "text": "**Applied 2 edits** in 2 steps — review the proposed change below.\n\n- Deleted range Video 1 · 0s–2s\n- Deleted range Video 1 · 8s–9s"
     },
     {
       "id": "turn_parity:status:16",

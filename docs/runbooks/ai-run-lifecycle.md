@@ -60,7 +60,7 @@ the handle; after a reload, a nonterminal snapshot is first durably closed as `i
 `process_restart`, then its error/status projection is shown. Recovery never calls the orchestrator
 or patch bridge.
 
-The browser route matrix covers edit, recipe, planned edit, agent, and auto-routed editing. Each
+The browser route matrix covers single-shot edit, agent, and auto-routed editing. Each
 must leave a terminal snapshot in the same store and clear its normally consumed recovery handle.
 When a route releases a patch, the browser appends `run.patch_proposed` and stores a pending
 decision. Accept/reject appends one idempotent decision event after the checked editor authority has
@@ -71,7 +71,7 @@ Desktop protects the project authority independently. If delivery retries the id
 and byte-identical patch after it is already in persisted history, the command service returns the
 current full project and revision without writing, checkpointing, advancing the revision, or
 returning a compact transport the renderer could apply again. Reusing a patch id with different
-content fails closed. The route matrix includes a deterministic planned-edit provider/executor
+content fails closed. The route matrix includes a deterministic agent provider/executor
 fixture that produces a real reversible proposal, so browser and desktop acceptance project the
 same `completed_with_changes` outcome instead of treating a no-change mock as mutation coverage.
 

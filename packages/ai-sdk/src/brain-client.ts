@@ -425,27 +425,43 @@ export function createVisualStatusReader(options: BrainClientOptions): VisualSta
  * - available but nothing indexed → search is not ready yet;
  * - available and indexed → coverage, vector count, and backend, and that it can search.
  *
- * Two things this line must never say, both of which it used to. It must not tell the
+ * Three things this line must never say, all of which it used to. It must not tell the
  * model to `index_media`: indexing is implicit lifecycle work driven by the app
  * (`ensureMediaUnderstanding`), the tool is withheld from every model-facing scope
  * (`IMPLICIT_ONLY_TOOL_NAMES`), and naming it sends the model after a capability it does
- * not have. And it must not say the model "cannot see": `get_frame` renders any moment of
+ * not have. It must not say the model "cannot see": `get_frame` renders any moment of
  * the timeline as an image, independently of the visual INDEX, so the accurate claim is
  * that it cannot SEARCH the footage by content — a model told it is blind stops looking.
  *
+ * And — `canSeeFrames` — it must not name `get_frame` to a run that was never offered it.
+ * `Orchestrator#agentTools` withholds every `vision`-capability descriptor from a
+ * text-only model, and `agentModeInstruction` already gates its own get_frame paragraph on
+ * the same flag; this line did not, so a sightless run was told three different ways to
+ * look at a frame with no such tool in its list. The observed cost is not a failed call —
+ * it is reasoning: the run stops to work out which of its two contradictory briefings is
+ * true. Required rather than defaulted, so a new call site has to decide rather than
+ * inherit whichever answer happened to be safe here.
+ *
  * Pure + deterministic — the reader is what does I/O.
  */
-export function summarizeVisualStatus(status: VisualStatusResponse): string {
+export function summarizeVisualStatus(
+  status: VisualStatusResponse,
+  options: { readonly canSeeFrames: boolean },
+): string {
+  // What to reach for INSTEAD of content search, phrased for what this run actually has.
+  const fallback = options.canSeeFrames
+    ? 'Look at a specific moment with get_frame'
+    : 'You cannot look at a frame either, so ground content claims in the transcript, the timeline structure, and what the editor tells you';
   if (!status.available) {
     const reason = status.reason ?? 'no project sandbox is configured';
-    return `Visual index: unavailable (${reason}) — you cannot SEARCH this footage by content. Look at a specific moment with get_frame, or rely on the transcript and ask the editor.`;
+    return `Visual index: unavailable (${reason}) — you cannot SEARCH this footage by content. ${fallback}, or rely on the transcript and ask the editor.`;
   }
   if (!status.keyConfigured) {
-    return 'Visual index: no embeddings key configured, so search_visual and describe_footage return nothing — there is no content search. Look at a specific moment with get_frame instead; never guess what is on screen.';
+    return `Visual index: no embeddings key configured, so search_visual and describe_footage return nothing — there is no content search. ${fallback}; never guess what is on screen.`;
   }
   const vectors = status.counts.vectors ?? 0;
   if (status.indexedAssets === 0 || vectors === 0) {
-    return `Visual index: 0/${status.totalAssets} assets indexed — indexing runs automatically in the background, so search_visual and describe_footage stay empty until it finishes. Look at a specific moment with get_frame instead of waiting.`;
+    return `Visual index: 0/${status.totalAssets} assets indexed — indexing runs automatically in the background, so search_visual and describe_footage stay empty until it finishes. ${fallback} rather than waiting.`;
   }
   const backend = status.backend ? `, ${status.backend} backend` : '';
   return `Visual index: ${status.indexedAssets}/${status.totalAssets} assets, ${vectors} vector${vectors === 1 ? '' : 's'}${backend} — use search_visual to ground content-dependent edits and describe_footage to read an asset in order.`;
@@ -458,11 +474,11 @@ export function summarizeVisualStatus(status: VisualStatusResponse): string {
  */
 export function createVisualStatusDigester(
   options: BrainClientOptions,
-): (projectId: string) => Promise<string | undefined> {
+): (projectId: string, canSeeFrames: boolean) => Promise<string | undefined> {
   const read = createVisualStatusReader(options);
-  return async (projectId) => {
+  return async (projectId, canSeeFrames) => {
     const status = await read(projectId);
     if (!status) return undefined;
-    return summarizeVisualStatus(status);
+    return summarizeVisualStatus(status, { canSeeFrames });
   };
 }

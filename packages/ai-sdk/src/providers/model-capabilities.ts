@@ -114,6 +114,13 @@ const PROVIDER_DEFAULTS: Readonly<Record<ProviderName, ModelCapabilities>> = Obj
   anthropic: { contextWindow: 200_000, maxOutputTokens: 64_000, source: 'provider_default' },
   nvidia: { contextWindow: 128_000, maxOutputTokens: 4_096, source: 'provider_default' },
   openrouter: { contextWindow: 128_000, maxOutputTokens: 8_192, source: 'provider_default' },
+  // An aggregator like OpenRouter: the id names the real vendor, so a known slug resolves
+  // from the catalog and only an unknown one lands here. Same floor, same reasoning.
+  'vercel-gateway': {
+    contextWindow: 128_000,
+    maxOutputTokens: 8_192,
+    source: 'provider_default',
+  },
   groq: { contextWindow: 131_072, maxOutputTokens: 32_768, source: 'provider_default' },
   google: { contextWindow: 1_048_576, maxOutputTokens: 65_536, source: 'provider_default' },
   ollama: { contextWindow: 32_768, maxOutputTokens: 4_096, source: 'provider_default' },

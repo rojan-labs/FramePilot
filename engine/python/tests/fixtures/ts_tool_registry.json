@@ -1305,7 +1305,7 @@
             "type": [
               "integer"
             ],
-            "maximum": 45,
+            "maximum": 51,
             "exclusiveMinimum": 0
           },
           "query": {
@@ -2020,373 +2020,245 @@
       "available": true,
       "hostUiOnly": true,
       "schema": {
-        "anyOf": [
-          {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "intent"
+        ],
+        "properties": {
+          "automationPoints": {
             "type": [
-              "object"
+              "array"
             ],
-            "additionalProperties": false,
-            "required": [
-              "automationPoints",
-              "intent"
-            ],
-            "properties": {
-              "automationPoints": {
-                "type": [
-                  "array"
-                ],
-                "items": {
+            "items": {
+              "type": [
+                "object"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "frame",
+                "gainDb"
+              ],
+              "properties": {
+                "easing": {
                   "type": [
-                    "object"
+                    "string"
                   ],
-                  "additionalProperties": false,
-                  "required": [
-                    "frame",
-                    "gainDb"
+                  "enum": [
+                    "ease-in",
+                    "ease-in-out",
+                    "ease-out",
+                    "hold",
+                    "linear"
+                  ]
+                },
+                "frame": {
+                  "type": [
+                    "integer"
                   ],
-                  "properties": {
-                    "easing": {
-                      "type": [
-                        "string"
-                      ],
-                      "enum": [
-                        "ease-in",
-                        "ease-in-out",
-                        "ease-out",
-                        "hold",
-                        "linear"
-                      ]
-                    },
-                    "frame": {
-                      "type": [
-                        "integer"
-                      ],
-                      "minimum": 0
-                    },
-                    "gainDb": {
-                      "type": [
-                        "number"
-                      ],
-                      "minimum": -120,
-                      "maximum": 24
-                    }
-                  }
+                  "minimum": 0
+                },
+                "gainDb": {
+                  "type": [
+                    "number"
+                  ],
+                  "minimum": -120,
+                  "maximum": 24
                 }
-              },
-              "intent": {
-                "type": [
-                  "string"
-                ]
-              },
-              "target": {
-                "type": [
-                  "string"
-                ],
-                "enum": [
-                  "playhead",
-                  "these",
-                  "this"
-                ]
               }
             }
           },
-          {
+          "bedRole": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "dialogue",
+              "music",
+              "sfx"
+            ]
+          },
+          "dynamics": {
             "type": [
               "object"
             ],
             "additionalProperties": false,
             "required": [
-              "bedRole",
-              "intent",
-              "sidechainRole"
+              "attackMs",
+              "ratio",
+              "releaseMs",
+              "thresholdDb"
             ],
             "properties": {
-              "bedRole": {
+              "attackMs": {
                 "type": [
-                  "string"
+                  "number"
                 ],
-                "enum": [
-                  "dialogue",
-                  "music",
-                  "sfx"
-                ]
+                "minimum": 1,
+                "maximum": 200
               },
-              "intent": {
-                "type": [
-                  "string"
-                ]
-              },
-              "reductionDb": {
+              "makeupGainDb": {
                 "type": [
                   "number"
                 ],
                 "minimum": 0,
-                "maximum": 60
-              },
-              "sidechainRole": {
-                "type": [
-                  "string"
-                ],
-                "enum": [
-                  "dialogue",
-                  "music",
-                  "sfx"
-                ]
-              },
-              "target": {
-                "type": [
-                  "string"
-                ]
-              }
-            }
-          },
-          {
-            "type": [
-              "object"
-            ],
-            "additionalProperties": false,
-            "required": [
-              "dynamics",
-              "intent"
-            ],
-            "properties": {
-              "dynamics": {
-                "type": [
-                  "object"
-                ],
-                "additionalProperties": false,
-                "required": [
-                  "attackMs",
-                  "ratio",
-                  "releaseMs",
-                  "thresholdDb"
-                ],
-                "properties": {
-                  "attackMs": {
-                    "type": [
-                      "number"
-                    ],
-                    "minimum": 1,
-                    "maximum": 200
-                  },
-                  "makeupGainDb": {
-                    "type": [
-                      "number"
-                    ],
-                    "minimum": 0,
-                    "maximum": 24
-                  },
-                  "ratio": {
-                    "type": [
-                      "number"
-                    ],
-                    "minimum": 1,
-                    "maximum": 20
-                  },
-                  "releaseMs": {
-                    "type": [
-                      "number"
-                    ],
-                    "minimum": 5,
-                    "maximum": 2000
-                  },
-                  "thresholdDb": {
-                    "type": [
-                      "number"
-                    ],
-                    "minimum": -60,
-                    "maximum": 0
-                  }
-                }
-              },
-              "intent": {
-                "type": [
-                  "string"
-                ]
-              },
-              "target": {
-                "type": [
-                  "string"
-                ],
-                "enum": [
-                  "playhead",
-                  "these",
-                  "this"
-                ]
-              }
-            }
-          },
-          {
-            "type": [
-              "object"
-            ],
-            "additionalProperties": false,
-            "required": [
-              "eqBands",
-              "intent"
-            ],
-            "properties": {
-              "eqBands": {
-                "type": [
-                  "array"
-                ],
-                "items": {
-                  "type": [
-                    "object"
-                  ],
-                  "additionalProperties": false,
-                  "required": [
-                    "frequencyHz",
-                    "kind"
-                  ],
-                  "properties": {
-                    "frequencyHz": {
-                      "type": [
-                        "number"
-                      ],
-                      "minimum": 20,
-                      "maximum": 20000
-                    },
-                    "gainDb": {
-                      "type": [
-                        "number"
-                      ],
-                      "minimum": -24,
-                      "maximum": 24
-                    },
-                    "kind": {
-                      "type": [
-                        "string"
-                      ],
-                      "enum": [
-                        "high-pass",
-                        "high-shelf",
-                        "low-pass",
-                        "low-shelf",
-                        "peaking"
-                      ]
-                    },
-                    "q": {
-                      "type": [
-                        "number"
-                      ],
-                      "minimum": 0.1,
-                      "maximum": 18
-                    }
-                  }
-                }
-              },
-              "intent": {
-                "type": [
-                  "string"
-                ]
-              },
-              "target": {
-                "type": [
-                  "string"
-                ],
-                "enum": [
-                  "playhead",
-                  "these",
-                  "this"
-                ]
-              }
-            }
-          },
-          {
-            "type": [
-              "object"
-            ],
-            "additionalProperties": false,
-            "required": [
-              "intent"
-            ],
-            "properties": {
-              "fadeCurve": {
-                "type": [
-                  "string"
-                ],
-                "enum": [
-                  "equal-power",
-                  "linear",
-                  "smooth"
-                ]
-              },
-              "fadeInFrames": {
-                "type": [
-                  "integer"
-                ],
-                "minimum": 0
-              },
-              "fadeOutFrames": {
-                "type": [
-                  "integer"
-                ],
-                "minimum": 0
-              },
-              "gainDb": {
-                "type": [
-                  "number"
-                ],
-                "minimum": -120,
                 "maximum": 24
               },
-              "intent": {
-                "type": [
-                  "string"
-                ]
-              },
-              "muted": {
-                "type": [
-                  "boolean"
-                ]
-              },
-              "normalize": {
-                "type": [
-                  "boolean"
-                ]
-              },
-              "target": {
-                "type": [
-                  "string"
-                ],
-                "enum": [
-                  "playhead",
-                  "these",
-                  "this"
-                ]
-              }
-            }
-          },
-          {
-            "type": [
-              "object"
-            ],
-            "additionalProperties": false,
-            "required": [
-              "intent"
-            ],
-            "properties": {
-              "intent": {
-                "type": [
-                  "string"
-                ]
-              },
-              "reductionDb": {
+              "ratio": {
                 "type": [
                   "number"
                 ],
-                "minimum": 0,
-                "maximum": 60
+                "minimum": 1,
+                "maximum": 20
               },
-              "target": {
+              "releaseMs": {
                 "type": [
-                  "string"
-                ]
+                  "number"
+                ],
+                "minimum": 5,
+                "maximum": 2000
+              },
+              "thresholdDb": {
+                "type": [
+                  "number"
+                ],
+                "minimum": -60,
+                "maximum": 0
               }
             }
+          },
+          "eqBands": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "object"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "frequencyHz",
+                "kind"
+              ],
+              "properties": {
+                "frequencyHz": {
+                  "type": [
+                    "number"
+                  ],
+                  "minimum": 20,
+                  "maximum": 20000
+                },
+                "gainDb": {
+                  "type": [
+                    "number"
+                  ],
+                  "minimum": -24,
+                  "maximum": 24
+                },
+                "kind": {
+                  "type": [
+                    "string"
+                  ],
+                  "enum": [
+                    "high-pass",
+                    "high-shelf",
+                    "low-pass",
+                    "low-shelf",
+                    "peaking"
+                  ]
+                },
+                "q": {
+                  "type": [
+                    "number"
+                  ],
+                  "minimum": 0.1,
+                  "maximum": 18
+                }
+              }
+            }
+          },
+          "fadeCurve": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "equal-power",
+              "linear",
+              "smooth"
+            ]
+          },
+          "fadeInFrames": {
+            "type": [
+              "integer"
+            ],
+            "minimum": 0
+          },
+          "fadeOutFrames": {
+            "type": [
+              "integer"
+            ],
+            "minimum": 0
+          },
+          "gainDb": {
+            "type": [
+              "number"
+            ],
+            "minimum": -120,
+            "maximum": 24
+          },
+          "intent": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "automate_gain",
+              "compress",
+              "duck_roles",
+              "duck_selection",
+              "eq",
+              "level"
+            ]
+          },
+          "muted": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "normalize": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "reductionDb": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 60
+          },
+          "sidechainRole": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "dialogue",
+              "music",
+              "sfx"
+            ]
+          },
+          "target": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "playhead",
+              "these",
+              "this"
+            ]
           }
-        ]
+        }
       }
     },
     "professional_color": {
@@ -2931,6 +2803,12 @@
             "type": [
               "string"
             ]
+          },
+          "offset": {
+            "type": [
+              "integer"
+            ],
+            "minimum": 0
           },
           "query": {
             "type": [

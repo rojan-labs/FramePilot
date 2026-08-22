@@ -300,6 +300,19 @@ export const WorkingStateSchema = z.object({
     request: z.string(),
     outcome: z.string(),
     acceptance: z.array(AcceptanceCriterionSchema).default([]),
+    /**
+     * True while `outcome` is the run's own deterministic reading of the request rather
+     * than an interpretation the turn recorded.
+     *
+     * WHY this flag exists: every stage past `interpret` is gated on a NON-EMPTY outcome
+     * (see {@link stageEntryViolation}), so the outcome cannot simply start blank and wait
+     * to be written — a run with nothing there cannot move. It is therefore seeded from
+     * the request, which then made {@link setObjective}'s write-once rule permanent: the
+     * seed occupied the field, so a real interpretation could never land. Marking the seed
+     * provisional keeps write-once where it belongs — on an interpretation — while letting
+     * the first genuine one replace a placeholder.
+     */
+    provisional: z.boolean().default(false),
   }),
   stage: RunStageSchema,
   completedStages: z.array(RunStageSchema).default([]),
@@ -349,7 +362,7 @@ export function initialWorkingState(args: {
       attemptId: args.attemptId ?? args.runId,
     },
     version: 0,
-    objective: { request, outcome: '', acceptance: [] },
+    objective: { request, outcome: '', acceptance: [], provisional: false },
     stage: 'interpret',
     completedStages: [],
     stageEnteredAtTurn: 0,
@@ -976,22 +989,33 @@ export function liveEvidence(state: RunWorkingState): readonly EvidenceHandle[] 
 // ---------------------------------------------------------------------------
 
 /**
- * Write the interpreted objective. Idempotent by intent: once an outcome is recorded it
- * is never rewritten, because re-interpreting the request mid-run is exactly the drift
- * this module exists to prevent. A genuinely new request is a new run.
+ * Write the objective. Idempotent by intent: once an INTERPRETED outcome is recorded it is
+ * never rewritten, because re-interpreting the request mid-run is exactly the drift this
+ * module exists to prevent. A genuinely new request is a new run.
+ *
+ * `provisional` marks a deterministic placeholder derived from the request itself (see
+ * {@link RunWorkingState}'s `objective.provisional`). A placeholder holds the field open so
+ * the stage guards can pass, and yields to the first interpretation — which is what the
+ * write-once rule was always meant to protect, rather than protecting the seed from ever
+ * being improved.
  */
 export function setObjective(
   state: RunWorkingState,
   objective: {
     readonly outcome: string;
     readonly acceptance: readonly { readonly description: string }[];
+    readonly provisional?: boolean;
   },
 ): RunWorkingState {
-  if (state.objective.outcome) return state;
+  const provisional = objective.provisional === true;
+  // A committed interpretation stands. A placeholder stands only against another one, so
+  // the first real interpretation wins and a second placeholder cannot undo it.
+  if (state.objective.outcome && (!state.objective.provisional || provisional)) return state;
   return bump(state, {
     objective: {
       request: state.objective.request,
       outcome: objective.outcome,
+      provisional,
       acceptance: objective.acceptance.map((a, i) => ({
         id: `criterion_${i + 1}`,
         description: a.description,

@@ -15,8 +15,10 @@ import { FootageUnderstandingPanel } from './FootageUnderstandingPanel.js';
 
 // The panel's two external seams: the sidecar fetch and the AI config slot.
 const fetchFootageMap = vi.fn();
+const ensureProjectMediaUnderstanding = vi.fn();
 vi.mock('../editor/visualIndex.js', () => ({
   fetchFootageMap: (input: unknown) => fetchFootageMap(input),
+  ensureProjectMediaUnderstanding: (input: unknown) => ensureProjectMediaUnderstanding(input),
 }));
 // A STABLE config ref (the real hook memoizes) — a fresh object each render would
 // change `load`'s identity and spin the open-effect forever.
@@ -191,6 +193,69 @@ describe('FootageUnderstandingPanel', () => {
     ).toBeTruthy();
   });
 
+  it('offers to read unread footage instead of a dead end, and shows the map after', async () => {
+    /* Regression: unread footage used to say "index it in the media bin", where no such
+       action exists, and Rebuild only re-fetched a map that could never appear. */
+    const unread: FootageMap = {
+      available: true,
+      backend: 'twelvelabs',
+      reason: 'not_indexed',
+      durationSec: 0,
+      summary: '',
+      chapters: [],
+      highlights: [],
+    };
+    fetchFootageMap.mockResolvedValue(unread);
+    ensureProjectMediaUnderstanding.mockImplementation(
+      async (input: { onEvent?: (e: unknown) => void }) => {
+        input.onEvent?.({ type: 'progress', backend: 'twelvelabs', message: 'Preparing (1/2).' });
+        return { status: 'ready', backend: 'twelvelabs', cache: 'miss' };
+      },
+    );
+    render(
+      <FootageUnderstandingPanel editor={fakeEditor()} project={project} open onClose={vi.fn()} />,
+    );
+    const read = await screen.findByRole('button', { name: /Read this footage/i });
+
+    // Once the footage IS read, the same fetch returns a real map.
+    fetchFootageMap.mockResolvedValue({
+      available: true,
+      backend: 'twelvelabs',
+      reason: null,
+      durationSec: 30,
+      summary: 'A demo.',
+      chapters: [{ t0: 0, t1: 10, title: 'Intro', summary: 'setup', assetId: 'vid' }],
+      highlights: [],
+    } satisfies FootageMap);
+    fireEvent.click(read);
+    expect(await screen.findByText('Intro')).toBeTruthy();
+    expect(ensureProjectMediaUnderstanding).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports honestly when reading the footage fails, and offers a retry', async () => {
+    fetchFootageMap.mockResolvedValue({
+      available: true,
+      backend: 'twelvelabs',
+      reason: 'not_indexed',
+      durationSec: 0,
+      summary: '',
+      chapters: [],
+      highlights: [],
+    } satisfies FootageMap);
+    ensureProjectMediaUnderstanding.mockResolvedValue({
+      status: 'unavailable',
+      backend: 'twelvelabs',
+      reason: 'invalid_api_key',
+      message: 'nope',
+    });
+    render(
+      <FootageUnderstandingPanel editor={fakeEditor()} project={project} open onClose={vi.fn()} />,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /Read this footage/i }));
+    expect(await screen.findByText(/key was rejected/i)).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /Try again/i })).toBeTruthy();
+  });
+
   it('renders the honest coverage message for a not_indexed map', async () => {
     fetchFootageMap.mockResolvedValue({
       available: true,
@@ -204,7 +269,7 @@ describe('FootageUnderstandingPanel', () => {
     render(
       <FootageUnderstandingPanel editor={fakeEditor()} project={project} open onClose={vi.fn()} />,
     );
-    expect(await screen.findByText(/not indexed yet/i)).toBeTruthy();
+    expect(await screen.findByText(/hasn’t watched this footage yet/i)).toBeTruthy();
   });
 
   it('surfaces an unreachable engine honestly', async () => {

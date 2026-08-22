@@ -34,6 +34,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
+from framepilot_engine.render.caption_templates import load_catalog
 from framepilot_engine.timeline.models import BlendMode, CaptionStyle, CropRect
 
 _log = logging.getLogger(__name__)
@@ -362,6 +363,9 @@ class RecallEvidenceArgs(BaseModel):
     model_config = _STRICT
     evidence_id: str = Field(alias="evidenceId")
     query: FilterStr = None
+    # Character offset into the stored payload, so the tail of a result larger than the
+    # recall budget stays reachable (mirrors the TS ``offset``).
+    offset: int | None = Field(default=None, ge=0)
 
 
 class TranscriptWindowArgs(BaseModel):
@@ -516,6 +520,17 @@ class AutoEmphasizeCaptionsArgs(BaseModel):
         return cleaned
 
 
+def caption_template_count() -> int:
+    """How many caption templates the catalog holds, for the ``limit`` ceiling.
+
+    Read from the committed catalog artifact rather than hardcoded: the ceiling used to be
+    a literal 45 against a 51-template catalog, so no single ``discover_caption_styles``
+    call could return everything and the ids past the cut were unusable — and
+    ``set_track_caption_style`` rejects an id the model was never shown.
+    """
+    return len(load_catalog())
+
+
 class DiscoverCaptionStylesArgs(BaseModel):
     """Filter the bundled caption templates while always returning bundled fonts."""
 
@@ -529,7 +544,9 @@ class DiscoverCaptionStylesArgs(BaseModel):
         ]
         | None
     ) = None
-    limit: int | None = Field(default=None, ge=1, le=45)
+    # Mirrors the TS ceiling: the catalog's own size, so the whole catalog is reachable
+    # in one call. A ceiling below it meant no call could return everything.
+    limit: int | None = Field(default=None, ge=1, le=caption_template_count())
 
 
 class SetClipSpeedArgs(BaseModel):
@@ -977,7 +994,9 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "that handle to get the full result back, optionally narrowed by a word or "
         "phrase. Use this instead of re-running the read — it is free, it cannot "
         "change under you, and it returns more of the payload than the log preview "
-        "shows.",
+        "shows. A query matches on any of its words, so several keywords are fine. "
+        "When a result says it was truncated at N characters, call again with offset "
+        "N to read on from there.",
         kind="read",
         input_model=RecallEvidenceArgs,
     ),

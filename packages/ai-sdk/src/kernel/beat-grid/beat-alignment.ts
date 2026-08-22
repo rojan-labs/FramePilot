@@ -2,6 +2,24 @@
  * @framepilot/ai-sdk/kernel/beat-grid/beat-alignment — the deterministic beat-grid
  * boundary rule for a beat-backed montage proposal.
  *
+ * ## Where this runs (ADR 0132)
+ *
+ * `Orchestrator#applyAgentTurn`, which both turn loops and the repair pass funnel through.
+ * It engages only when the run gathered beat evidence — the agent elected `detect_beats` —
+ * and the raw payload is threaded per run through `applyAgentTurn`'s arguments (a box on
+ * `HostCallContext.beatEvidence`), never held on the Orchestrator, which serves concurrent
+ * runs.
+ *
+ * There is deliberately no beat-sync mode, flag, or request classifier: the MODEL decides
+ * that the music matters by choosing to analyze it, and the RUNTIME then guarantees the
+ * frame-accuracy that decision implies. A run that never asks about the music is untouched.
+ *
+ * Between the 9.5 Phase-1 convergence (which retired its only caller, the planned-edit graph
+ * driver) and ADR 0132, no path enforced this rule at all. Note it was never a hard invariant
+ * even before that: the planned-edit route only ran when the classifier chose it AND the
+ * compiled plan passed the structural gate, and otherwise fell back to the agent with no
+ * beat-snap.
+ *
  * ## Why this exists as its own module
  *
  * The rule used to be a private assertion inside `plan-driver.ts` that rejected any

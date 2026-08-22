@@ -54,6 +54,7 @@ from twelvelabs import IndexesCreateRequestModelsItem, SyncResponseFormat
 from twelvelabs import TwelveLabs as _TwelveLabsSDK
 from twelvelabs.core.api_error import ApiError
 from twelvelabs.core.request_options import RequestOptions
+from twelvelabs.types.video_context import VideoContext_AssetId
 
 _log = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ __all__ = [
     "DEFAULT_BASE_URL",
     "DEFAULT_INDEX_OPTIONS",
     "DEFAULT_MODEL_NAME",
+    "DEFAULT_PEGASUS_MODEL_NAME",
     "DEFAULT_SEARCH_OPTIONS",
     "DEFAULT_TIMEOUT_SECONDS",
     "DEFAULT_TRANSCRIPTION_OPTIONS",
@@ -89,14 +91,16 @@ DEFAULT_BASE_URL = "https://api.twelvelabs.io/v1.3"
 DEFAULT_MODEL_NAME = "marengo3.0"
 
 #: The Pegasus model powers **generative** understanding — the footage map
-#: (chapters / highlights / summary) via ``POST /analyze``. An index MUST include a
-#: Pegasus model or ``/analyze`` answers HTTP 400 ``index_not_supported_for_generate``
-#: (an index is Marengo-only unless Pegasus is added at creation time). Including it
-#: roughly doubles indexing cost/time, so it is explicit here rather than implied.
-DEFAULT_PEGASUS_MODEL_NAME = "pegasus1.2"
-
-#: Modalities Pegasus generates over. Same visual+audio surface as Marengo indexing.
-DEFAULT_PEGASUS_OPTIONS = ("visual", "audio")
+#: (chapters / highlights / summary) via ``POST /analyze``.
+#:
+#: WHY 1.5 and why it is NOT an index model: TwelveLabs sunset ``pegasus1.2``. It is
+#: rejected at index creation (``POST /indexes`` → HTTP 400 ``parameter_invalid``:
+#: "pegasus1.2 has been sunset"), which used to fail the FIRST index a project ever
+#: created — so nothing indexed, and every footage map reported ``not_indexed``
+#: forever. ``pegasus1.5`` needs no index at all: it analyses an **uploaded asset**
+#: directly (``video={"type": "asset_id", ...}``, and ``video_id`` is rejected). So
+#: an index carries Marengo only, and the map is generated from the asset we upload.
+DEFAULT_PEGASUS_MODEL_NAME = "pegasus1.5"
 
 #: Modalities Marengo **indexes**. These are the only values ``POST /indexes``
 #: accepts as ``model_options`` — ``transcription`` is a *search* modality derived
@@ -190,11 +194,16 @@ class TaskStatus:
     callers persist the returned value so polling remains resumable. ``video_id``
     is populated only once ``status == "ready"``; ``done`` is True for both a
     ready and a failed task.
+
+    ``source_asset_id`` is the id of the media we uploaded (``POST /assets``), which
+    is a DIFFERENT id from ``video_id`` (the indexed asset inside the index). Pegasus
+    generation needs the uploaded asset, so callers persist it alongside the mapping.
     """
 
     task_id: str
     status: str
     video_id: str | None
+    source_asset_id: str | None = None
 
     @property
     def ready(self) -> bool:
@@ -384,12 +393,14 @@ class TwelveLabsClient:
     # -- indexes ----------------------------------------------------------------
 
     def create_index(self, name: str) -> str:
-        """Create an index with **both** models (visual + audio) and return its id.
+        """Create a Marengo (visual + audio) index and return its id.
 
-        The index carries Marengo (search + embeddings) **and** Pegasus (generative
-        understanding). Pegasus is required for the footage map's ``/analyze`` calls;
-        an index missing it answers HTTP 400 ``index_not_supported_for_generate``.
-        Creating both up front means one indexing pass serves both search and the map.
+        Marengo is the only model an index carries: it powers search, embeddings and
+        the indexed transcription. Generative understanding (the footage map) is NOT
+        an index concern any more — ``pegasus1.5`` analyses the uploaded asset
+        directly (see :data:`DEFAULT_PEGASUS_MODEL_NAME`), and asking for a Pegasus
+        model here is rejected outright, which used to break index creation and with
+        it every downstream indexing job.
 
         :raises TwelveLabsError: On any API/transport failure.
         """
@@ -400,10 +411,6 @@ class TwelveLabsClient:
                     IndexesCreateRequestModelsItem(
                         model_name=self._model_name,
                         model_options=list(DEFAULT_INDEX_OPTIONS),
-                    ),
-                    IndexesCreateRequestModelsItem(
-                        model_name=DEFAULT_PEGASUS_MODEL_NAME,
-                        model_options=list(DEFAULT_PEGASUS_OPTIONS),
                     ),
                 ],
             )
@@ -486,9 +493,13 @@ class TwelveLabsClient:
         if not isinstance(asset_status, str):
             raise TwelveLabsError("TwelveLabs asset status missing.")
         if asset_status == _TASK_FAILED:
-            return TaskStatus(task_id=task_id, status=_TASK_FAILED, video_id=None)
+            return TaskStatus(
+                task_id=task_id, status=_TASK_FAILED, video_id=None, source_asset_id=asset_id
+            )
         if asset_status != _TASK_READY:
-            return TaskStatus(task_id=task_id, status=asset_status, video_id=None)
+            return TaskStatus(
+                task_id=task_id, status=asset_status, video_id=None, source_asset_id=asset_id
+            )
 
         with self._translate_errors():
             indexed = self._sdk.indexes.indexed_assets.create(index_id, asset_id=asset_id)
@@ -502,7 +513,9 @@ class TwelveLabsClient:
             index_id,
             indexed_id,
         )
-        return TaskStatus(task_id=next_task_id, status="indexing", video_id=None)
+        return TaskStatus(
+            task_id=next_task_id, status="indexing", video_id=None, source_asset_id=asset_id
+        )
 
     def _poll_indexed_asset(self, task_id: str, index_id: str, indexed_asset_id: str) -> TaskStatus:
         """Poll an asset after it has been attached to an index."""
@@ -512,12 +525,33 @@ class TwelveLabsClient:
         if not isinstance(indexed_status, str):
             raise TwelveLabsError("TwelveLabs indexed-asset status missing.")
         video_id = indexed_asset_id if indexed_status == _TASK_READY else None
+        source = getattr(indexed, "asset_id", None)
         _log.debug(
             "twelvelabs indexed asset poll: indexed_asset=%s status=%s",
             indexed_asset_id,
             indexed_status,
         )
-        return TaskStatus(task_id=task_id, status=indexed_status, video_id=video_id)
+        return TaskStatus(
+            task_id=task_id,
+            status=indexed_status,
+            video_id=video_id,
+            source_asset_id=source if isinstance(source, str) and source else None,
+        )
+
+    def source_asset_id(self, index_id: str, video_id: str) -> str | None:
+        """The UPLOADED asset id behind an indexed video, or ``None``.
+
+        Recovery path for mappings persisted before FramePilot stored the uploaded
+        asset id: Pegasus 1.5 analyses the uploaded asset, so an older mapping that
+        only knows its ``video_id`` would otherwise have no way to build a map short
+        of re-uploading the footage.
+
+        :raises TwelveLabsError: On any API/transport failure.
+        """
+        with self._translate_errors():
+            indexed = self._sdk.indexes.indexed_assets.retrieve(index_id, video_id)
+        asset_id = getattr(indexed, "asset_id", None)
+        return asset_id if isinstance(asset_id, str) and asset_id else None
 
     # -- transcription ----------------------------------------------------------
 
@@ -675,15 +709,22 @@ class TwelveLabsClient:
     }
 
     def _analyze_structured(
-        self, video_id: str, prompt: str, schema: dict[str, Any]
+        self, asset_ref: str, prompt: str, schema: dict[str, Any]
     ) -> dict[str, object]:
         """One ``POST /analyze`` with a JSON-schema ``response_format`` → parsed object.
 
+        ``asset_ref`` is the UPLOADED asset id (``POST /assets``), not the indexed
+        ``video_id``: Pegasus 1.5 rejects ``video_id`` outright and takes a video
+        context instead.
+
         ``/analyze`` returns the schema-conforming output as a **JSON string** in
-        ``data`` (not a nested object), so we decode it here. A missing or
-        non-string ``data``, or one that is not valid JSON, degrades to an empty
-        object — the summarize parsers then honestly return nothing rather than a
-        fabricated map.
+        ``data`` (not a nested object), so we decode it here. Pegasus sometimes
+        mis-escapes that string and then repeats the tail forever (a real, observed
+        failure on multi-string schemas), which is why the decode is tolerant and why
+        a mangled body is retried ONCE with the schema described in the prompt
+        instead of as a ``response_format``. Anything still unparseable degrades to an
+        empty object — the parsers then honestly return nothing rather than
+        fabricating a map.
 
         :raises TwelveLabsAuthError: On 401 (key rejected).
         :raises TwelveLabsPegasusUnavailableError: On 402/403 (no Pegasus entitlement).
@@ -691,25 +732,34 @@ class TwelveLabsClient:
         """
         with self._translate_errors(pegasus=True):
             resp = self._sdk.analyze(
-                video_id=video_id,
+                model_name=DEFAULT_PEGASUS_MODEL_NAME,
+                video=VideoContext_AssetId(asset_id=asset_ref),
                 prompt=prompt,
                 temperature=0.2,
                 response_format=SyncResponseFormat(type="json_schema", json_schema=schema),
             )
-        raw = resp.data
-        if not isinstance(raw, str) or not raw.strip():
-            return {}
-        try:
-            decoded = json.loads(raw)
-        except json.JSONDecodeError:
-            _log.warning(
-                "twelvelabs /analyze returned non-JSON structured body: video=%s", video_id
+        decoded = _decode_analyze_json(resp.data)
+        if decoded is not None:
+            return decoded
+        _log.warning(
+            "twelvelabs /analyze returned unparseable structured body, retrying without "
+            "response_format: asset=%s",
+            asset_ref,
+        )
+        with self._translate_errors(pegasus=True):
+            retry = self._sdk.analyze(
+                model_name=DEFAULT_PEGASUS_MODEL_NAME,
+                video=VideoContext_AssetId(asset_id=asset_ref),
+                prompt=(
+                    f"{prompt}\n\nReply with JSON only — no prose, no code fence — "
+                    f"matching this JSON Schema exactly:\n{json.dumps(schema)}"
+                ),
+                temperature=0.2,
             )
-            return {}
-        return decoded if isinstance(decoded, dict) else {}
+        return _decode_analyze_json(retry.data) or {}
 
-    def summarize_chapters(self, video_id: str) -> list[TLChapter]:
-        """Pegasus chapter breakdown of a ready video (``POST /analyze``, schema=chapters).
+    def summarize_chapters(self, asset_ref: str) -> list[TLChapter]:
+        """Pegasus chapter breakdown of an uploaded asset (``POST /analyze``, schema=chapters).
 
         A time-ordered map of the whole video with no query — the linchpin of
         footage comprehension (plan D1). Chapters are returned in video order; a
@@ -720,7 +770,7 @@ class TwelveLabsClient:
         :raises TwelveLabsError: On any other API/transport failure.
         """
         payload = self._analyze_structured(
-            video_id,
+            asset_ref,
             "Break this video into sequential chapters that cover the entire "
             "timeline in order, with no gaps or overlaps. For each chapter give "
             "its start and end time in seconds, a short title, and a one-sentence "
@@ -729,12 +779,12 @@ class TwelveLabsClient:
         )
         chapters = _parse_chapters(payload)
         _log.info(
-            "ACT twelvelabs pegasus chapters: video=%s → %d chapters", video_id, len(chapters)
+            "ACT twelvelabs pegasus chapters: asset=%s → %d chapters", asset_ref, len(chapters)
         )
         return chapters
 
-    def summarize_highlights(self, video_id: str) -> list[TLHighlight]:
-        """Pegasus highlight reel of a ready video (``POST /analyze``, schema=highlights).
+    def summarize_highlights(self, asset_ref: str) -> list[TLHighlight]:
+        """Pegasus highlight reel of an uploaded asset (``POST /analyze``, schema=highlights).
 
         The salient moments Pegasus judged worth surfacing, in video order. Empty
         when Pegasus found none (honest, never fabricated).
@@ -744,7 +794,7 @@ class TwelveLabsClient:
         :raises TwelveLabsError: On any other API/transport failure.
         """
         payload = self._analyze_structured(
-            video_id,
+            asset_ref,
             "Identify the most salient highlight moments in this video. For each "
             "one give its start and end time in seconds and a short label naming "
             "the moment.",
@@ -752,13 +802,13 @@ class TwelveLabsClient:
         )
         highlights = _parse_highlights(payload)
         _log.info(
-            "ACT twelvelabs pegasus highlights: video=%s → %d highlights",
-            video_id,
+            "ACT twelvelabs pegasus highlights: asset=%s → %d highlights",
+            asset_ref,
             len(highlights),
         )
         return highlights
 
-    def summarize_gist(self, video_id: str) -> TLGist:
+    def summarize_gist(self, asset_ref: str) -> TLGist:
         """Pegasus whole-video summary (``POST /analyze``, schema=summary).
 
         :raises TwelveLabsAuthError: On 401 (key rejected).
@@ -766,18 +816,18 @@ class TwelveLabsClient:
         :raises TwelveLabsError: On any other API/transport failure.
         """
         payload = self._analyze_structured(
-            video_id,
+            asset_ref,
             "Summarize this entire video in one concise paragraph describing what "
             "it shows, with no query or filtering.",
             self._SUMMARY_SCHEMA,
         )
         raw = payload.get("summary")
         summary = raw.strip() if isinstance(raw, str) else ""
-        _log.info("ACT twelvelabs pegasus summary: video=%s → %d chars", video_id, len(summary))
+        _log.info("ACT twelvelabs pegasus summary: asset=%s → %d chars", asset_ref, len(summary))
         return TLGist(summary=summary)
 
-    def analyze(self, video_id: str, prompt: str, *, temperature: float = 0.2) -> str:
-        """Open-ended Pegasus generation over a video (``POST /analyze``).
+    def analyze(self, asset_ref: str, prompt: str, *, temperature: float = 0.2) -> str:
+        """Open-ended Pegasus generation over an uploaded asset (``POST /analyze``).
 
         The escape hatch for questions the fixed summarize modes do not cover.
         Returns the generated text (empty when Pegasus produced none).
@@ -787,16 +837,57 @@ class TwelveLabsClient:
         :raises TwelveLabsError: On any other API/transport failure.
         """
         with self._translate_errors(pegasus=True):
-            resp = self._sdk.analyze(video_id=video_id, prompt=prompt, temperature=temperature)
+            resp = self._sdk.analyze(
+                model_name=DEFAULT_PEGASUS_MODEL_NAME,
+                video=VideoContext_AssetId(asset_id=asset_ref),
+                prompt=prompt,
+                temperature=temperature,
+            )
         raw = resp.data
         text = raw.strip() if isinstance(raw, str) else ""
         _log.info(
-            "ACT twelvelabs pegasus analyze: video=%s len(prompt)=%d → %d chars",
-            video_id,
+            "ACT twelvelabs pegasus analyze: asset=%s len(prompt)=%d → %d chars",
+            asset_ref,
             len(prompt),
             len(text),
         )
         return text
+
+
+def _decode_analyze_json(raw: object) -> dict[str, object] | None:
+    """Decode a ``/analyze`` body into a JSON object, tolerating Pegasus' escaping bug.
+
+    Pegasus 1.5 usually returns clean JSON, but on schemas with more than one string
+    field it can emit a body whose inner quotes are back-slash-escaped and whose tail
+    repeats forever (``…"chapter_summary\":\"…"}]}"}]}"}]}``). A strict
+    :func:`json.loads` throws on that and the whole footage map goes dark, so:
+
+    1. try the body as-is;
+    2. try the longest valid JSON object at its start (:meth:`json.JSONDecoder.raw_decode`
+       ignores the repeated tail), optionally after unescaping the stray ``\"``;
+    3. give up with ``None`` so the caller can retry or degrade honestly.
+
+    Returns ``None`` — never a partial guess — when nothing decodes to an object.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    text = raw.strip()
+    # A prose-free code fence occasionally wraps the body on the prompt-only retry.
+    if text.startswith("```"):
+        text = text.split("```")[1] if "```" in text[3:] else text[3:]
+        text = text.removeprefix("json").strip()
+    start = text.find("{")
+    if start < 0:
+        return None
+    candidates = (text, text[start:], text[start:].replace('\\"', '"'))
+    for candidate in candidates:
+        try:
+            value, _end = json.JSONDecoder().raw_decode(candidate.lstrip())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
 
 
 def _raise_typed(exc: ApiError, *, pegasus: bool) -> NoReturn:

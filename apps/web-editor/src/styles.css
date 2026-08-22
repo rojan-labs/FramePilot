@@ -416,11 +416,11 @@ select:disabled {
   cursor: not-allowed;
 }
 
-/* Checkboxes inherit the single accent (native control, themed). */
-input[type='checkbox'] {
-  accent-color: var(--accent);
-  cursor: pointer;
-}
+/* No rule for `input[type='checkbox']`. Every checkbox in the app is the `Checkbox`
+   primitive, whose real input is visually hidden behind a token-styled box (see
+   `.checkbox-native`), and every immediate on/off is the `Switch` primitive. A global
+   `accent-color` here only ever themed a native control that should not exist —
+   and made it easy to add another one without noticing. */
 input[type='checkbox']:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
@@ -4171,7 +4171,11 @@ input[type='checkbox']:focus-visible {
 
 .toast {
   display: flex;
-  align-items: center;
+  /* First line, not the middle. A one-line toast is unaffected (every child is the same
+     height), but an error message is often two or three lines, and centring floated the
+     dismiss X and the action button down beside the middle of the text instead of the
+     line they belong to. */
+  align-items: flex-start;
   gap: var(--space-3);
   padding: 0.6rem 0.75rem;
   background: var(--panel-2);
@@ -4197,6 +4201,9 @@ input[type='checkbox']:focus-visible {
 
 .toast-message {
   flex: 1;
+  /* Optical: the buttons are 20px boxes whose glyphs sit centred; text cap-height starts
+     a little lower. One pixel puts the first line on the same axis as the X. */
+  padding-top: 1px;
   line-height: 1.4;
 }
 
@@ -6866,10 +6873,18 @@ details.inspector-panel[open] > .inspector-section-head::before {
   font-size: 0.72rem;
 }
 
-.caption-check {
-  display: inline-flex;
+/* A labelled preference row: name on the left, switch hard right, both on one baseline.
+   Replaces `.caption-check`, whose bare native checkbox was the app's third on/off
+   design. Matches the Settings dialog's row so the two panels read the same. */
+.caption-toggle-row {
+  display: flex;
   align-items: center;
-  gap: var(--space-2);
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 24px;
+}
+
+.caption-toggle-label {
   font-size: 0.82rem;
   color: var(--text-secondary);
 }
@@ -8194,11 +8209,46 @@ details.inspector-panel[open] > .inspector-section-head::before {
   flex: 1;
   min-width: 0;
 }
+/* Prose rhythm for assistant messages.
+   Only `code` and `pre` were styled here, so every paragraph, list and heading fell back
+   to the browser defaults: `1em` top and bottom margins (13px at this font size, against
+   an 11.5px thread) and a 40px `padding-inline-start` on lists — a third of the sidebar's
+   width spent on indentation, with the markers sitting far off the text column every
+   other row aligns to. Tighter and aligned, with the first/last child flush so the block
+   does not add space its container already provides. */
 .ai-markdown > :first-child {
   margin-top: 0;
 }
 .ai-markdown > :last-child {
   margin-bottom: 0;
+}
+.ai-markdown p,
+.ai-markdown ul,
+.ai-markdown ol,
+.ai-markdown pre,
+.ai-markdown blockquote {
+  margin: var(--space-2) 0;
+}
+.ai-markdown h1,
+.ai-markdown h2,
+.ai-markdown h3,
+.ai-markdown h4 {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: 1em;
+  font-weight: 600;
+  line-height: var(--leading-tight);
+}
+.ai-markdown ul,
+.ai-markdown ol {
+  /* Enough to hold a marker and no more, so wrapped lines align under the text rather
+     than under the bullet. */
+  padding-left: 1.15em;
+}
+.ai-markdown li + li {
+  margin-top: 2px;
+}
+.ai-markdown li > p {
+  margin: 0;
 }
 .ai-streaming-text {
   white-space: pre-wrap;
@@ -8881,6 +8931,10 @@ details.inspector-panel[open] > .inspector-section-head::before {
    than the proposed edits it sat between. The tone now lives in a 2px leading rule
    and the icon: enough to find while scrolling, quiet enough to sit beside a
    decision you actually have to make. */
+/* Base card. The FINAL layout of a notice — icon gutter, message, action row, disclosed
+   detail, and the tone stripe — is owned by AiSidebar.polish.css, which loads after this
+   file and after AiSidebar.beautiful.css. Three files describing one card is what left
+   errors laid out differently from warnings; edit it there, not here. */
 .ai-event--notice {
   display: flex;
   align-items: flex-start;
@@ -10422,7 +10476,8 @@ details.inspector-panel[open] > .inspector-section-head::before {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   overflow: hidden;
-}.ai-preview-stage {
+}
+.ai-preview-stage {
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -10515,7 +10570,8 @@ details.inspector-panel[open] > .inspector-section-head::before {
   flex: 1;
   font-size: 12px;
   color: var(--text-tertiary);
-}.ai-preview-actions {
+}
+.ai-preview-actions {
   display: flex;
   gap: var(--space-2);
 }

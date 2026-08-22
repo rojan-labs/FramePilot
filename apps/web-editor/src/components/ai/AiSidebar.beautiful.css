@@ -26,12 +26,8 @@
   --ai-chip-radius: 7px;
   --ai-shadow-hairline: 0 0 0 1px var(--border-subtle);
   --ai-shadow-card:
-    0 0 0 1px var(--border-subtle),
-    0 1px 2px rgba(0, 0, 0, 0.12),
-    0 8px 24px rgba(0, 0, 0, 0.08);
-  --ai-shadow-raised:
-    0 0 0 1px var(--border-default),
-    0 12px 32px rgba(0, 0, 0, 0.22);
+    0 0 0 1px var(--border-subtle), 0 1px 2px rgba(0, 0, 0, 0.12), 0 8px 24px rgba(0, 0, 0, 0.08);
+  --ai-shadow-raised: 0 0 0 1px var(--border-default), 0 12px 32px rgba(0, 0, 0, 0.22);
 
   height: 100%;
   min-height: 0;
@@ -110,11 +106,11 @@
 
 .ai-sidebar-header {
   flex: 0 0 auto;
-  min-height: 44px;
+  min-height: 38px;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px 6px 10px;
+  padding: 4px 6px 4px 8px;
   border-bottom: 1px solid var(--ai-line);
   background: var(--ai-canvas);
 }
@@ -206,7 +202,7 @@
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
-  padding: 2px 4px 6px;
+  padding: 2px 3px 4px;
   scrollbar-gutter: stable;
   background: var(--ai-canvas);
 }
@@ -219,7 +215,7 @@
 .ai-event {
   min-width: 0;
   margin: 0;
-  padding: 3px 2px;
+  padding: 1px 2px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -227,7 +223,7 @@
 }
 
 .ai-event + .ai-event {
-  margin-top: 2px;
+  margin-top: 0;
 }
 
 .ai-step-slot {
@@ -254,14 +250,14 @@
 /* ── User + assistant messages / StreamingText ─────────────────────────── */
 
 .ai-event--user {
-  padding: 8px 2px 8px 20px;
+  padding: 5px 2px 5px 20px;
 }
 
 .ai-bubble--user {
   width: fit-content;
   max-width: 100%;
   margin-left: auto;
-  padding: 8px 10px;
+  padding: 6px 9px;
   border: 0;
   border-radius: 12px;
   background: var(--ai-surface);
@@ -275,7 +271,7 @@
   display: flex;
   align-items: flex-start;
   gap: 7px;
-  padding: 8px 2px;
+  padding: 5px 2px;
 }
 
 .ai-event--assistant .ai-avatar {
@@ -302,7 +298,7 @@
 }
 
 .ai-bubble--assistant p {
-  margin: 0 0 8px;
+  margin: 0 0 6px;
 }
 
 .ai-bubble--assistant p:last-child {
@@ -331,11 +327,11 @@
   display: flex;
   align-items: flex-start;
   gap: 0;
-  padding-block: 2px;
+  padding-block: 0;
 }
 
 .ai-reasoning-toggle {
-  min-height: 28px;
+  min-height: 24px;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -365,15 +361,15 @@
 }
 
 .ai-event--reasoning .ai-accordion-inner {
-  padding: 2px 2px 5px 12px;
+  padding: 1px 2px 4px 12px;
 }
 
 .ai-reasoning-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   margin-left: 3px;
-  padding: 3px 0 3px 12px;
+  padding: 2px 0 2px 12px;
   border-left: 1px solid var(--ai-line);
 }
 
@@ -390,11 +386,11 @@
   display: flex;
   align-items: flex-start;
   gap: 0;
-  padding-block: 1px;
+  padding-block: 0;
 }
 
 .ai-tool-head {
-  min-height: 28px;
+  min-height: 24px;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -402,7 +398,7 @@
 
 .ai-tool-toggle {
   min-width: 0;
-  min-height: 28px;
+  min-height: 24px;
   flex: 1 1 auto;
   display: flex;
   align-items: center;
@@ -734,8 +730,10 @@
   gap: 8px;
 }
 
-.ai-plan-steps,
-.ai-plan-list {
+/* `.ai-plan` — the class `PlanAccordion.tsx` and `EventNode.tsx` actually render. This
+   block was written for `.ai-plan-steps, .ai-plan-list`, neither of which exists in the
+   markup, so none of it applied and the step list kept styles.css's plain block layout. */
+.ai-plan {
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -1084,7 +1082,12 @@
 
 .ai-event--notice {
   min-height: 28px;
-  margin: 3px 2px 3px 20px;
+  /* Vertical only. The horizontal margin and width are owned by AiSidebar.polish.css,
+     which aligns this card to the thread's icon gutter; a shorthand here also set
+     `margin-left: 20px`, which that file then overrode — dead declaration, and a
+     misleading one to read. */
+  margin-top: 3px;
+  margin-bottom: 3px;
   padding: 5px 7px;
   border: 0;
   border-radius: 9px;
@@ -1092,16 +1095,11 @@
   box-shadow: var(--ai-shadow-hairline);
 }
 
-.ai-notice-body {
-  min-width: 0;
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-}
-
-.ai-notice-actions {
-  align-self: center;
-}
+/* Layout is a GRID, not a flex row, and it lives in AiSidebar.polish.css so the whole
+   notice — icon gutter, message, actions, disclosed detail — is described in one place.
+   As a flex row here, `.ai-notice-detail` became a third COLUMN: opening "Show details"
+   on a failed run squeezed the detail text into a sliver beside the message instead of
+   laying it out underneath. */
 
 .ai-notice-text {
   min-width: 0;
@@ -1110,7 +1108,6 @@
 }
 
 .ai-notice-actions {
-  margin-left: auto;
   display: flex;
   gap: 3px;
 }

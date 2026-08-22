@@ -1,7 +1,7 @@
 ---
 name: footage-intelligence
 description: Retrieve grounded visual evidence, compare candidate moments, and turn a large or unfamiliar media set into citable editorial choices without guessing.
-tools: [map_footage, describe_footage, search_visual, index_media, propose_edits, detect_scenes, analyze_silence]
+tools: [map_footage, describe_footage, search_visual, propose_edits, detect_scenes, analyze_silence]
 ---
 
 # Footage intelligence

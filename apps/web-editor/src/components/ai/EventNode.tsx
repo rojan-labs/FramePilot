@@ -1015,7 +1015,7 @@ function DiffCard({
 }): JSX.Element {
   // Variations / A-B compare (H1.5, AGENT-NATIVE-COMPLETION-PLAN.md P13.1): `node.variants`
   // is present only for an opt-in, genuinely model-driven multi-candidate run (never a
-  // planned-edit/agent diff — those never carry it, see `DiffEvent.variants`). The
+  // agent diff — those never carry it, see `DiffEvent.variants`). The
   // user flips between candidates by re-pointing ONE `AiReviewPlayer`/review card at
   // whichever index is selected — not N simultaneous instances.
   const variants = node.variants && node.variants.length > 1 ? node.variants : undefined;

@@ -47,8 +47,6 @@ function direct(request: EditorRunRequest): AsyncGenerator<AiEvent> {
         options,
         request.variations ? { variations: true } : {},
       );
-    case 'planned_edit':
-      return orchestrator.streamPlannedEdit(input, options);
     case 'agent':
       return orchestrator.streamAgent(input, options, request.agentOptions ?? {});
   }
@@ -103,7 +101,6 @@ function passingEvidence(
 describe('streamEditorRun route adapters', () => {
   it.each([
     { route: 'edit' },
-    { route: 'planned_edit' },
     { route: 'agent', agentOptions: { maxSteps: 1, autoRepair: false } },
   ] satisfies readonly EditorRunRequest[])(
     'preserves the exact legacy event stream for $route',

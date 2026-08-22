@@ -234,7 +234,7 @@ describe('RunCoordinator.reconcileInterruptedRuns', () => {
       projectId: 'proj',
       projectRevision: 0,
       userPrompt: 'trim the intro',
-      mode: 'planned-edit',
+      mode: 'agent',
     });
     const runId = started.snapshot.runId;
     await coordinator.recordPatchLifecycle({

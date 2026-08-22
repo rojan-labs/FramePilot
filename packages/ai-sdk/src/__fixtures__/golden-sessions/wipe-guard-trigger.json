@@ -30,6 +30,7 @@
         "objective": {
           "request": "make the opening punchier",
           "outcome": "make the opening punchier",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -107,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19222,
+      "usedTokens": 19379,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -126,30 +127,30 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1780,
+            "tokenEstimate": 1759,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15710,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19222,
+          "estimatedInputTokensBeforeSend": 19379,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172586,
+          "estimatedRemainingCapacity": 172429,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -237,6 +238,7 @@
         "objective": {
           "request": "make the opening punchier",
           "outcome": "make the opening punchier",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -316,7 +318,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19311,
+      "usedTokens": 19472,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -335,30 +337,30 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1869,
+            "tokenEstimate": 1852,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15710,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19311,
+          "estimatedInputTokensBeforeSend": 19472,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172497,
+          "estimatedRemainingCapacity": 172336,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -375,7 +377,7 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: make the opening punchier"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -423,6 +425,7 @@
         "objective": {
           "request": "make the opening punchier",
           "outcome": "make the opening punchier",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -505,6 +508,7 @@
         "objective": {
           "request": "make the opening punchier",
           "outcome": "make the opening punchier",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",

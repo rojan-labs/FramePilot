@@ -12,10 +12,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AiCompletionRequest, AiProvider, AiResponse } from '../providers/types.js';
 import { summarizeAgentOutcomeRuns, type AgentOutcomeTopLineScore } from '../agent-run-quality.js';
 import { AGENT_OUTCOME_EVAL_SCENARIOS } from '../professional-agent-evals.js';
+import { makeProject } from '../__fixtures__/project.js';
 import {
   FOUNDATION_REAL_EVAL_TIERS,
   buildRealEvalRunRecord,
   buildScenarioContextInput,
+  loadEvalProject,
   renderFoundationRealEvalJobSummary,
   requireGoogleApiKey,
   runFoundationRealEval,
@@ -66,7 +68,9 @@ describe('requireGoogleApiKey', () => {
   });
 
   it('throws when GOOGLE_API_KEY is present but blank', () => {
-    expect(() => requireGoogleApiKey({ GOOGLE_API_KEY: '   ' })).toThrow(/GOOGLE_API_KEY is not set/);
+    expect(() => requireGoogleApiKey({ GOOGLE_API_KEY: '   ' })).toThrow(
+      /GOOGLE_API_KEY is not set/,
+    );
   });
 
   it('returns the key when set', () => {
@@ -149,7 +153,11 @@ describe('writeFoundationRealEvalArtifacts', () => {
     const timestamped = await readFile(outputPath, 'utf8');
     const latest = await readFile(latestPath, 'utf8');
     expect(timestamped).toBe(latest);
-    const parsed = JSON.parse(timestamped) as { capturedAt: string; provider: string; records: unknown[] };
+    const parsed = JSON.parse(timestamped) as {
+      capturedAt: string;
+      provider: string;
+      records: unknown[];
+    };
     expect(parsed.provider).toBe('google');
     expect(parsed.capturedAt).toBe(date.toISOString());
     expect(parsed.records).toHaveLength(1);
@@ -161,6 +169,7 @@ describe('renderFoundationRealEvalJobSummary', () => {
     const summary: AgentOutcomeTopLineScore = {
       tierSuccessRate: { A: undefined, B: 0, C: 0.5, D: undefined, E: undefined },
       latencyMs: { p50: 1200, p95: 3400 },
+      timeToFirstEditMs: { p50: 800, p95: 2100 },
       toolCalls: { p50: 2, p95: 5 },
       revisionRate: undefined,
       cancellationIntegrity: undefined,
@@ -234,7 +243,9 @@ describe('runFoundationRealEval', () => {
     // regardless of how the real agent run itself terminated.
     expect(result.records.every((record) => record.status === 'failed')).toBe(true);
     expect(
-      result.records.every((record) => record.failures.includes('Project revision range was not observed.')),
+      result.records.every((record) =>
+        record.failures.includes('Project revision range was not observed.'),
+      ),
     ).toBe(true);
     expect(result.records.every((record) => record.metrics.modelCallCount > 0)).toBe(true);
     expect(result.records.every((record) => record.metrics.wallClockMs !== undefined)).toBe(true);
@@ -243,5 +254,68 @@ describe('runFoundationRealEval', () => {
 
     const latest = JSON.parse(await readFile(result.latestPath, 'utf8')) as { records: unknown[] };
     expect(latest.records).toHaveLength(2);
+  });
+});
+
+describe('measuring real media instead of the test fixture', () => {
+  const env = (over: Record<string, string | undefined> = {}) => ({
+    GOOGLE_API_KEY: 'key',
+    ...over,
+  });
+
+  it('uses the synthetic fixture when no project is named', async () => {
+    await expect(loadEvalProject(env())).resolves.toBeUndefined();
+  });
+
+  it('loads and parses a real project file', async () => {
+    const project = makeProject();
+    const loaded = await loadEvalProject(
+      env({ FRAMEPILOT_EVAL_PROJECT: '/tmp/real.fp.json' }),
+      async () => JSON.stringify(project),
+    );
+    expect(loaded?.id).toBe(project.id);
+  });
+
+  it('fails loudly when the named project cannot be read', async () => {
+    await expect(
+      loadEvalProject(env({ FRAMEPILOT_EVAL_PROJECT: '/nope.json' }), async () => {
+        throw new Error('ENOENT');
+      }),
+    ).rejects.toThrow(/could not be read/);
+  });
+
+  it('fails loudly when the named file is not a valid project', async () => {
+    // A stale-schema or malformed file must not yield numbers that describe something other
+    // than the project the operator believed they measured.
+    await expect(
+      loadEvalProject(env({ FRAMEPILOT_EVAL_PROJECT: '/bad.json' }), async () => '{"nope":1}'),
+    ).rejects.toThrow(/not a valid project file/);
+  });
+
+  it('runs the scenario against the loaded project, not the fixture', () => {
+    const scenario = selectFoundationRealEvalScenarios()[0]!;
+    const project = { ...makeProject(), id: 'proj_real' } as ReturnType<typeof makeProject>;
+    expect(buildScenarioContextInput(scenario, project).project.id).toBe('proj_real');
+    expect(buildScenarioContextInput(scenario).project.id).not.toBe('proj_real');
+  });
+
+  it('labels a fixture run as unusable for a footage claim', () => {
+    const summary: AgentOutcomeTopLineScore = {
+      tierSuccessRate: { A: undefined, B: 0, C: 0, D: undefined, E: undefined },
+      latencyMs: { p50: 1200, p95: 3400 },
+      timeToFirstEditMs: { p50: 800, p95: 2100 },
+      toolCalls: { p50: 2, p95: 5 },
+      revisionRate: undefined,
+      cancellationIntegrity: undefined,
+      renderValidity: undefined,
+    };
+    const fixture = renderFoundationRealEvalJobSummary([], summary, 'fixture');
+    expect(fixture).toContain('do not support any claim about real footage');
+    // Time-to-first-edit is reported either way — it is the Phase E budget metric.
+    expect(fixture).toContain('Time to first visible edit');
+
+    const real = renderFoundationRealEvalJobSummary([], summary, 'real-project');
+    expect(real).toContain('FRAMEPILOT_EVAL_PROJECT');
+    expect(real).not.toContain('do not support any claim');
   });
 });
