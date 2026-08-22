@@ -91,6 +91,8 @@ class MontageProvider implements AiProvider {
   public constructor(
     private readonly cuts: readonly { start: number; end: number }[],
     private readonly detectBeats: boolean,
+    /** Also read the timeline in the cut turn, so its note carries a read payload. */
+    private readonly readFirst = false,
   ) {}
   public async complete(_request: AiCompletionRequest): Promise<AiResponse> {
     this.index += 1;
@@ -103,7 +105,11 @@ class MontageProvider implements AiProvider {
     if (this.index <= 2) {
       return {
         text: '',
-        toolCalls: this.cuts.map((cut, i) => ({
+        toolCalls: [
+          ...(this.readFirst
+            ? [{ id: 'read1', name: 'get_timeline', arguments: {} as Record<string, unknown> }]
+            : []),
+          ...this.cuts.map((cut, i) => ({
           id: `c${String(i)}`,
           name: 'add_clip',
           arguments: {
@@ -113,7 +119,8 @@ class MontageProvider implements AiProvider {
             end: cut.end,
             sourceStart: cut.start,
           },
-        })),
+          })),
+        ],
       };
     }
     return { text: 'Done.', toolCalls: [] };
@@ -123,8 +130,9 @@ class MontageProvider implements AiProvider {
 async function runMontage(
   cuts: readonly { start: number; end: number }[],
   detectBeats: boolean,
+  readFirst = false,
 ): Promise<{ events: AiEvent[]; notes: string[] }> {
-  const orchestrator = new Orchestrator(new MontageProvider(cuts, detectBeats), {
+  const orchestrator = new Orchestrator(new MontageProvider(cuts, detectBeats, readFirst), {
     executor: beatExecutor,
   });
   const input: ContextInput = {
@@ -210,6 +218,35 @@ describe('beat-grid enforcement in a real agent run', () => {
     // And it really is a REJECTION: the off-grid cut never reached the timeline.
     const boundaries = appliedBoundaries(events);
     expect(boundaries.some((time) => offGridBy(time) > 0.08)).toBe(false);
+  });
+
+  it('shows the editor the rejection reason, not the turn\'s read output', async () => {
+    // The captured run's completion report read: "**Skipped:** 8 proposed changes did not
+    // validate (Recalling what it found → {"assets":[…]}; Reframed clip …; rejected by the
+    // beat grid: …)". The reason was in there, after a media-bin dump, and read tools were
+    // counted as failed changes.
+    const wayOff = 1 + 8 * FRAME;
+    const { events } = await runMontage(
+      [
+        { start: 0, end: wayOff },
+        { start: wayOff, end: 2 },
+      ],
+      true,
+      true,
+    );
+    const texts = events.flatMap((event) =>
+      typeof (event as { text?: unknown }).text === 'string'
+        ? [(event as { text: string }).text]
+        : [],
+    );
+    // The editor-facing account of what could not be applied — the "Skipped" line on a run
+    // that landed something, the empty-run message on one that landed nothing.
+    const reported = texts.find((text) => text.includes("couldn't be applied"));
+    expect(reported).toBeDefined();
+    expect(reported).toContain('rejected by the beat grid');
+    // The read that shared the turn contributed nothing to it.
+    expect(reported).not.toContain('get_timeline');
+    expect(reported).not.toContain('sequence duration');
   });
 
   it('does nothing at all when the run never gathered beat evidence', async () => {

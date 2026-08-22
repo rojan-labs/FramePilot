@@ -607,8 +607,13 @@ export interface AgentTurnResult {
    * diminishing-returns streak (no delta, no proof).
    */
   readonly usage?: { readonly inputTokens?: number; readonly outputTokens?: number };
-  /** The turn record note (the validator's reason when a real-ops turn was rejected). */
+  /** The turn record note (the model-facing log line for this turn — every call in it). */
   readonly note: string;
+  /**
+   * WHY the turn was rejected, with none of the turn's read output in it. Present only on a
+   * rejection; this is what the editor is shown, so it must never carry a tool payload.
+   */
+  readonly rejection?: string;
   /**
    * The turn's own prose, for semantic-loop detection (ADR 0075 §3.5). Optional so the
    * legacy loop and existing fixtures keep compiling; without it a turn's intent reads as
@@ -1314,7 +1319,7 @@ export function onTurnResult(
   const rejected = attemptedEdit && r.satisfied !== true;
   const rejectionReasons =
     rejected && withPlan.rejectionReasons.length < MAX_REJECTION_REASONS
-      ? [...withPlan.rejectionReasons, r.note]
+      ? [...withPlan.rejectionReasons, r.rejection ?? r.note]
       : withPlan.rejectionReasons;
   const rejectedOpCount = withPlan.rejectedOpCount + (rejected ? r.turnOpCount : 0);
 
@@ -1360,7 +1365,7 @@ export function onTurnResult(
     ? recordOperation(state.working, {
         intent: r.signature,
         status: r.satisfied === true ? 'succeeded' : 'failed',
-        ...(r.satisfied === true ? {} : { failureReason: r.note }),
+        ...(r.satisfied === true ? {} : { failureReason: r.rejection ?? r.note }),
         planId: state.working.plan.id!,
         decisionId:
           state.working.plan.decisionIds[

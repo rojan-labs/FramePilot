@@ -161,6 +161,7 @@ import { createSteeringQueue } from './run-controls.js';
 import { combineSignals } from './reliability/signals.js';
 import {
   REVIEW_CONCURRENCY_ENV,
+  REVIEW_STEERING_PREAMBLE,
   ReviewFindingQueue,
   resolveReviewConcurrency,
   touchedRegionOf,
@@ -178,7 +179,6 @@ import {
   sanitizeToolArgs,
 } from './tool-dispatch.js';
 import {
-  withReplayedImageNote,
   type HostToolExecutor,
   type HostToolOutcome,
 } from './tool-executor.js';
@@ -2514,19 +2514,20 @@ export class Orchestrator {
       // summary text — the summary can be data-derived ("No silent ranges") and would
       // otherwise read as a freshly fabricated result rather than a served-from-cache one.
       const base = runtimeCached ? desc : outcome.summary;
-      // A cached replay carries no image: the runtime memo stores the outcome, so the
-      // picture is genuinely still there, but a frame's whole value is that it shows the
-      // timeline AS IT IS NOW. Re-showing a pre-edit frame under a post-edit question is
-      // the one failure this tool exists to prevent.
-      const replayed = runtimeCached && outcome.images !== undefined && outcome.images.length > 0;
-      // ...but dropping the picture while forwarding a payload that SAYS a picture is
-      // attached is worse than either honest option. `get_frame`'s data carries
-      // `note: 'The frame itself is attached to this turn as an image.'`, and passing that
-      // through unchanged on a memo hit told the model to look at an image it was never
-      // sent — so it answered "I can't see the attached frame" on a question it had the
-      // evidence to answer, or described the picture from imagination. Say what actually
-      // happened instead, and say how to get the picture back.
-      const data = replayed ? withReplayedImageNote(outcome.data) : outcome.data;
+      // A CACHED REPLAY RE-ATTACHES ITS PICTURE. The memo key for an image-bearing read
+      // carries the timeline revision (`idempotencyKeyFor`'s `project_revision` scope), so a
+      // hit is proof the timeline has not moved since the frame was rendered — the stored
+      // picture IS the current one, and the "a frame is only worth looking at as the
+      // timeline is now" objection cannot apply to a hit by construction.
+      //
+      // Dropping it was the more expensive mistake. Frames ride ONE request and are then
+      // stripped from the transcript, so from the turn after a look the model has no image
+      // and no way to get one: the replay told it "you were shown this, answer from what you
+      // saw" about a picture that had already left its context, and said asking again was
+      // futile. In the captured run that produced a confident, wrong diagnosis of the
+      // framing — the model reasoned about a frame it could not see — and two turns of
+      // edits chasing it. Re-attaching costs one image; being blind cost the run.
+      const data = outcome.data;
       // Built from `data`, NOT `outcome.data`: this preview is what the model actually
       // reads (the payload is digested into the note), so a rewrite that skipped it would
       // fix the card and leave the model with the same false claim.
@@ -2538,9 +2539,7 @@ export class Orchestrator {
         status: outcome.status,
         ...(runtimeCached ? { fromCache: true } : {}),
         ...(data !== undefined ? { data } : {}),
-        ...(!runtimeCached && outcome.images && outcome.images.length > 0
-          ? { images: outcome.images }
-          : {}),
+        ...(outcome.images && outcome.images.length > 0 ? { images: outcome.images } : {}),
       };
     }
     if (tool.kind === 'read' && tool.read) {
@@ -3214,6 +3213,16 @@ export class Orchestrator {
     applied: boolean;
     /** The turn landed nothing because the timeline already matched it (see below). */
     satisfied?: boolean;
+    /**
+     * WHY the turn was rejected, with nothing else in it.
+     *
+     * The record's `note` is the model-facing log line, and every tool call in the turn
+     * contributes to it — reads included. Reporting THAT to the editor as the reason a
+     * change did not validate printed a media-bin JSON dump under "Skipped: 8 proposed
+     * changes did not validate", with the actual reason at the end of it. The user-facing
+     * line is built from this field instead.
+     */
+    rejection?: string;
     working: Project;
     edit?: EditResult;
   } {
@@ -3254,6 +3263,7 @@ export class Orchestrator {
           note: `${baseNote}; rejected by the beat grid: ${beatAligned.error}`,
         },
         applied: false,
+        rejection: `rejected by the beat grid: ${beatAligned.error}`,
         working,
       };
     }
@@ -3280,6 +3290,7 @@ export class Orchestrator {
           note: `${baseNote}; rejected by validator: ${problems}`,
         },
         applied: false,
+        rejection: `rejected by the validator: ${problems}`,
         working,
       };
     }
@@ -4327,7 +4338,7 @@ export class Orchestrator {
       if (steer.length > 0) {
         steering.push(
           [
-            'Perceptual review of the edits you already applied found the following.',
+            REVIEW_STEERING_PREAMBLE,
             'Fix only these, then carry on with the request:',
             ...steer.map((finding, index) => `${String(index + 1)}. ${finding.detail}`),
           ].join('\n'),
@@ -5114,7 +5125,18 @@ export class Orchestrator {
         const steeringMessage = controls.steering?.take();
         if (steeringMessage) {
           log.push(`Steering: "${steeringMessage}"`);
-          yield emit.notification(`Steering applied: "${steeringMessage}"`);
+          // An editor's own words are echoed back verbatim — that IS the receipt, and the
+          // steering input clears its "queued" note off this exact text. The review's
+          // instruction is not the editor's words: it is an internal prompt carrying request
+          // ids and raw measurements, and echoing it printed
+          // "edit_audio_0: Audio peak 0.08913551514039704 dBFS exceeds -0.1 dBFS" on screen
+          // as product copy. The findings already have their own cards, so this says only
+          // that the run is acting on them.
+          yield emit.notification(
+            steeringMessage.startsWith(REVIEW_STEERING_PREAMBLE)
+              ? 'Acting on what the review found in the edits so far.'
+              : `Steering applied: "${steeringMessage}"`,
+          );
         }
 
         const names = projectNames(working);
@@ -5419,6 +5441,7 @@ export class Orchestrator {
           appliedOps: applied.applied ? [...turnOps] : [],
           describedActions,
           note: applied.record.note,
+          ...(applied.rejection === undefined ? {} : { rejection: applied.rejection }),
           ...(applied.satisfied === true ? { satisfied: true } : {}),
         });
       },

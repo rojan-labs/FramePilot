@@ -271,6 +271,19 @@ export type ReviewStarter = (signal?: AbortSignal) => Promise<readonly ReviewFin
  * operation semantics than in the proposal the agent can change.
  */
 export const MAX_STEERINGS_PER_CLASS = 1;
+/**
+ * The first line of every steering message the perceptual review pushes.
+ *
+ * The queue carries plain strings and is shared with the editor's own mid-run steering, so
+ * this is how the two are told apart. It matters at the notice boundary: an editor's message
+ * is worth echoing back verbatim ("Steering applied: …"), while the review's is an internal
+ * instruction carrying request ids and raw measurements, and echoing THAT put
+ * `edit_audio_0: Audio peak 0.08913551514039704 dBFS exceeds -0.1 dBFS.` on screen as
+ * product copy.
+ */
+export const REVIEW_STEERING_PREAMBLE =
+  'Perceptual review of the edits you already applied found the following.';
+
 
 /**
  * The DEFECT CLASS a finding belongs to: its wording with every number removed.
