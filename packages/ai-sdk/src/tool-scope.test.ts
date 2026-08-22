@@ -1,6 +1,9 @@
 /** Tests for tool metadata, implicit lifecycle tools, and scoped descriptors. */
 import { describe, expect, it } from 'vitest';
 import { TOOL_REGISTRY, type ToolSpec } from './tool-registry.js';
+import { MockProvider } from './providers/mock.js';
+import { Orchestrator } from './orchestrator.js';
+import type { RunStage } from './kernel/working-state.js';
 import {
   IMPLICIT_ONLY_TOOL_NAMES,
   type ToolScope,
@@ -79,7 +82,7 @@ describe('selectTools', () => {
         'search_visual',
         'describe_footage',
         'map_footage',
-        'propose_edits',
+        'read_edit_signals',
         'session_context',
         'transcribe',
       ].sort(),
@@ -90,11 +93,40 @@ describe('selectTools', () => {
     expect(IMPLICIT_ONLY_TOOL_NAMES).toEqual(['index_media']);
     const visual = selectTools({ capabilities: ['visual'] });
     expect(visual.map((tool) => tool.name).sort()).toEqual(
-      ['describe_footage', 'map_footage', 'propose_edits', 'search_visual'].sort(),
+      ['describe_footage', 'map_footage', 'read_edit_signals', 'search_visual'].sort(),
     );
     expect(
       selectTools({ permissions: ['analysis'] }).some((tool) => tool.name === 'index_media'),
     ).toBe(false);
+  });
+
+  it('withholds implicit-only tools from EVERY model-facing agent scope', () => {
+    // The gap this closes: the contract was asserted here and thrown over in
+    // `autonomous-tool-contract.ts`, but the filter lived only in `selectTools` — so
+    // `agentTools`, the one surface with a live editor in front of it, offered `index_media`
+    // as an ordinary call. A model could start a paced, billable indexing job inside a run
+    // whose budget and cancellation semantics assumed it could not.
+    const orchestrator = new Orchestrator(new MockProvider());
+    const stages: readonly RunStage[] = [
+      'interpret',
+      'inspect',
+      'analyze',
+      'plan',
+      'apply',
+      'verify',
+      'complete',
+    ];
+    const surfaces = [
+      orchestrator.agentTools('agent'),
+      orchestrator.agentTools('question'),
+      orchestrator.agentTools('action-recovery'),
+      ...stages.map((stage) => orchestrator.agentTools('agent', stage)),
+    ];
+    for (const surface of surfaces) {
+      for (const implicit of IMPLICIT_ONLY_TOOL_NAMES) {
+        expect(surface.map((tool) => tool.name)).not.toContain(implicit);
+      }
+    }
   });
 
   it('lets explicit orchestrator setup select an implicit-only tool by name', () => {

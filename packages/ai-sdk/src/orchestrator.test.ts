@@ -3,6 +3,7 @@
  * validated patch. Covers chat/plan/edit/autocomplete and the tool-boundary
  * gate (unknown / unavailable / invalid-args).
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   Orchestrator,
@@ -21,6 +22,8 @@ import { MockProvider } from './providers/mock.js';
 import type { AiCompletionRequest, AiProvider, AiResponse, ToolCall } from './providers/types.js';
 import { type ContextInput, estimateTokens } from './context-builder.js';
 import { TOOL_REGISTRY, getTool } from './tool-registry.js';
+import { classifyTool } from './tool-classification.js';
+import { distil } from './kernel/briefing.js';
 import { makeProject } from './__fixtures__/project.js';
 import { DIMINISHING_RETURNS_TURNS, STALL_CONFIRM_TURNS } from './kernel/conductor.js';
 
@@ -212,11 +215,13 @@ describe('agent mode', () => {
     expect(run.result.validation.valid).toBe(true);
     expect(run.result.patch.operations[0]?.type).toBe('delete_range');
     expect(run.result.patch.createdBy).toBe('agent');
-    // One applied step, then a step that detects the repeat (no progress).
+    // One applied step, then a step whose edit was already on the timeline. The note says
+    // exactly that rather than "no progress": a run that recomputes an edit it already made
+    // has nothing to fix, and telling it otherwise is what drives a retry loop.
     expect(run.steps.filter((s) => s.applied)).toHaveLength(1);
-    expect(run.steps.some((s) => /no progress/.test(s.note))).toBe(true);
+    expect(run.steps.some((s) => /already in place/.test(s.note))).toBe(true);
     expect(run.log.length).toBeGreaterThan(0);
-    expect(run.critique.checks.length).toBe(8);
+    expect(run.critique.checks.length).toBe(11);
   });
 
   it('interleaves asset management and timeline editing in one project-scoped run', async () => {
@@ -1089,7 +1094,499 @@ describe('callNoveltyKey (reconnaissance vs the analysis spin)', () => {
   });
 });
 
+/**
+ * The module's own text, so the audit below asserts which `case` labels the digest switch
+ * actually has rather than a hand-kept copy of them that could drift from it. Same
+ * technique as the tool-parity fixture guard: rebuild the claim from the live source.
+ */
+const summarizeReadResultSource = readFileSync(new URL('./orchestrator.ts', import.meta.url), 'utf8');
+
+/**
+ * Reads that are honestly served by the bounded JSON preview, each with the reason.
+ *
+ * The `default` arm of `summarizeReadResult` is a floor, not an answer. Ten read tools
+ * had reached it by accident — every one of them a tool whose payload is a record list,
+ * a catalog or a findings report, handed to the model as a 1200-escaped-character slice
+ * ending in a bare `…`, and distilled into the run's durable memory as the first 180
+ * characters of that slice. Three stalled runs came out of it (ADR 0127, ADR 0128, and
+ * the caption run that could not read its own verification report).
+ *
+ * So membership here is a DECISION a reader can check, not a gap. Adding a read tool now
+ * fails CI until somebody either writes its digest or states here why it does not need
+ * one.
+ */
+const READS_SERVED_BY_JSON_PREVIEW: Readonly<Record<string, string>> = {
+  get_transcript: 'the source word list, which the model asked for verbatim',
+  get_selected_range: 'two numbers and an id',
+  get_frame: 'a frame handle; the picture itself rides as image content',
+  measure_color: 'a handful of scalar measurements, all of them named in the payload',
+  map_footage: 'a per-asset mapping already keyed by the ids the model passed in',
+  index_media: 'a progress/count acknowledgement, not a record list',
+  transcribe: 'an acknowledgement; the words arrive via get_transcript',
+  read_edit_signals: 'measured spans the model reads whole and acts on in the same turn',
+  detect_faces: 'unavailable in this build — it returns a refusal, not a payload',
+};
+
+describe('every read tool can be summarized (no silent previewJson fallthrough)', () => {
+  it('either has a digest arm or is listed as served by the JSON preview, with a reason', () => {
+    const digested = new Set(
+      [...summarizeReadResultSource.matchAll(/case '([a-z_]+)':/g)].map((m) => m[1] as string),
+    );
+    const undigested = TOOL_REGISTRY.filter((tool) => {
+      const role = classifyTool(tool.name, tool.kind).role;
+      return role === 'inspection' || role === 'analysis' || role === 'guidance';
+    })
+      .map((tool) => tool.name)
+      .filter((name) => !digested.has(name) && !(name in READS_SERVED_BY_JSON_PREVIEW));
+    expect(undigested).toEqual([]);
+  });
+
+  it('does not list a tool as preview-served that actually has a digest', () => {
+    const digested = new Set(
+      [...summarizeReadResultSource.matchAll(/case '([a-z_]+)':/g)].map((m) => m[1] as string),
+    );
+    const contradictory = Object.keys(READS_SERVED_BY_JSON_PREVIEW).filter((name) =>
+      digested.has(name),
+    );
+    expect(contradictory).toEqual([]);
+  });
+});
+
+describe('summarizeReadResult carries a verification report the run can act on', () => {
+  it('groups issues by code instead of handing back escaped JSON', () => {
+    // The live failure: 40 cues x 2 problems = 68 near-identical issues, previewJson'd to
+    // a blob cut mid-string, whose first 180 characters became the run's only memory of
+    // its own verification. The first line must now say what is wrong.
+    const issues = [
+      ...Array.from({ length: 40 }, (_, i) => ({
+        code: 'caption_stale',
+        clipId: `cap_${i}`,
+        at: i,
+        detail: `Caption at ${i}s shows 3 words but 2 now play across it.`,
+      })),
+      ...Array.from({ length: 28 }, (_, i) => ({
+        code: 'caption_spans_speech_break',
+        clipId: `cap_${i}`,
+        at: i,
+        detail: `Caption at ${i}s bridges the speech break at ${i + 1}s.`,
+      })),
+    ];
+    const note = summarizeReadResult('verify_captions', { ok: false, cueCount: 40, issues });
+    const first = note.split('\n')[0]!;
+    expect(first).toContain('NOT verified');
+    expect(first).toContain('40 cues checked');
+    expect(first).toContain('40x caption_stale');
+    expect(first).toContain('28x caption_spans_speech_break');
+    // One worked example per kind, not 68 lines of prose.
+    expect(note.split('\n')).toHaveLength(3);
+  });
+
+  it('says so plainly when nothing is wrong', () => {
+    const note = summarizeReadResult('verify_captions', { ok: true, cueCount: 21, issues: [] });
+    expect(note).toBe('verified clean, 21 cues checked');
+  });
+
+  it('lists every cut, because a transition can only go at one of them', () => {
+    const boundaries = Array.from({ length: 45 }, (_, i) => ({
+      trackId: 'video_main',
+      at: i * 0.5,
+      fromClipId: `clip_${i}`,
+      toClipId: `clip_${i + 1}`,
+      maxTransitionSeconds: 0.25,
+    }));
+    const note = summarizeReadResult('list_edit_boundaries', boundaries);
+    expect(note.split('\n')[0]).toBe('45 cuts:');
+    expect(note).toContain('clip_0 → clip_1');
+    expect(note).toContain('max transition 0.25s');
+  });
+
+  it('lists every effect id, grouped, because the ids ARE the deliverable', () => {
+    const note = summarizeReadResult('discover_effects', {
+      matched: 78,
+      returned: 2,
+      effects: [
+        { effectId: 'vhs-tape', category: 'stylize' },
+        { effectId: 'film-grain', category: 'stylize' },
+      ],
+    });
+    expect(note.split('\n')[0]).toBe('2 of 78 matching effects');
+    expect(note).toContain('stylize: vhs-tape, film-grain');
+  });
+
+  it('falls back to the JSON preview when a payload is not the shape it expects', () => {
+    // The house rule for every digest: an ABSENT array is a payload of a different shape,
+    // not an empty result. Saying "verified clean" or "no silence" about one would be the
+    // dishonesty these digests exist to end.
+    const wrong = { unexpected: true };
+    for (const tool of [
+      'verify_captions',
+      'verify_transitions',
+      'analyze_silence',
+      'detect_scenes',
+      'discover_effects',
+      'discover_transitions',
+      'list_edit_boundaries',
+    ]) {
+      const note = summarizeReadResult(tool, wrong);
+      expect(note, tool).toContain('unexpected');
+      expect(note, tool).not.toMatch(/verified clean|no silence|no scene cuts|no cuts —/);
+    }
+  });
+
+  it('distinguishes "ran and found nothing" from "no result"', () => {
+    // An empty array really does mean the analysis ran and found nothing, and each of
+    // these says so in the editor's terms rather than handing back `[]`.
+    expect(summarizeReadResult('analyze_silence', { assetId: 'a1', ranges: [] })).toBe(
+      'no silent gaps found in the audio',
+    );
+    expect(
+      summarizeReadResult('analyze_silence', { assetId: 'a1', ranges: [], reason: 'no audio track' }),
+    ).toBe('no silence detected — no audio track');
+    expect(summarizeReadResult('detect_scenes', { assetId: 'a1', cuts: [] })).toBe(
+      'no scene cuts detected in a1',
+    );
+    expect(summarizeReadResult('list_edit_boundaries', [])).toBe(
+      'no cuts — the sequence is one continuous clip per track',
+    );
+    expect(summarizeReadResult('discover_effects', { matched: 0, effects: [] })).toBe(
+      'no effects match (0 in catalog)',
+    );
+    expect(
+      summarizeReadResult('verify_transitions', { ok: true, transitionCount: 1, issues: [] }),
+    ).toBe('verified clean, 1 transition checked');
+  });
+
+  it('reads in the singular, and truncates a long run list rather than growing the fact', () => {
+    const one = summarizeReadResult('verify_captions', {
+      ok: false,
+      cueCount: 1,
+      issues: [{ code: 'caption_stale', detail: 'one thing' }],
+    }).split('\n')[0]!;
+    expect(one).toContain('1 cue checked');
+    expect(one).toContain('1 issue of 1 kind');
+    // A report with no count at all still reads as a sentence.
+    expect(
+      summarizeReadResult('verify_captions', { ok: false, issues: [{ detail: 'x' }] }).split(
+        '\n',
+      )[0],
+    ).toBe('NOT verified — 1 issue of 1 kind: 1x unknown');
+    // Ten runs must not put ten ranges in the run's durable fact.
+    const head = summarizeReadResult('get_mapped_transcript', {
+      words: [{ word: 'a', start: 0, end: 0.1 }],
+      runs: Array.from({ length: 10 }, (_, i) => ({ start: i, end: i + 0.5, wordCount: 1 })),
+      revision: 3,
+    }).split('\n')[0]!;
+    expect(head).toContain('in 10 speech runs');
+    expect(head).toContain(', …)');
+    // No runs at all (a transcript with nothing mapped) omits the clause entirely.
+    expect(
+      summarizeReadResult('get_mapped_transcript', {
+        words: [{ word: 'a', start: 0, end: 0.1 }],
+        runs: [],
+        revision: 3,
+      }).split('\n')[0],
+    ).toBe('1 mapped words, revision 3:');
+  });
+
+  it('stays a readable sentence when a payload omits its optional fields', () => {
+    // Every `?? default` and every plural in these digests, exercised. A digest is read by
+    // a person on the tool card as well as by the model in the log, and one that renders
+    // "1 cuts in undefined" is one nobody trusts the rest of.
+    expect(
+      summarizeReadResult('verify_captions', { ok: false, issues: [{ code: 'caption_stale' }] }),
+    ).toBe('NOT verified — 1 issue of 1 kind: 1x caption_stale\ncaption_stale: ');
+    expect(summarizeReadResult('discover_effects', { effects: [] })).toBe(
+      'no effects match (0 in catalog)',
+    );
+    expect(summarizeReadResult('discover_effects', { effects: [{ effectId: 'vhs' }] })).toBe(
+      '1 of 1 matching effects\nother: vhs',
+    );
+    expect(
+      summarizeReadResult('list_edit_boundaries', [
+        { trackId: 'v', at: 1, fromClipId: 'a', toClipId: 'b', maxTransitionSeconds: 0.2 },
+      ]).split('\n')[0],
+    ).toBe('1 cut:');
+    expect(summarizeReadResult('detect_scenes', { cuts: [] })).toBe(
+      'no scene cuts detected in ?',
+    );
+    expect(summarizeReadResult('detect_scenes', { cuts: [{ time: 2 }] }).split('\n')[0]).toBe(
+      '1 scene cut in ?:',
+    );
+  });
+
+  it('names the total silence, not just the gap count', () => {
+    const note = summarizeReadResult('analyze_silence', {
+      assetId: 'a1',
+      ranges: [
+        { start: 1, end: 2.5, duration: 1.5 },
+        { start: 4, end: 4.25, duration: 0.25 },
+      ],
+    });
+    expect(note.split('\n')[0]).toBe('2 silent gaps, 1.75s total, in a1:');
+  });
+});
+
 describe('summarizeReadResult (agent must never invent ids)', () => {
+  it('get_timeline: carries a caption track\'s committed STYLE, not just its clip count', () => {
+    // The failure this closes: asked to "use a different caption style", a run read the
+    // timeline — whose payload holds `templateId: headline` and the accent already applied
+    // — but the digest rendered only ids and clip counts. The distilled fact was "5
+    // tracks, 87 clips", the raw payload aged out of the rolling log window, and the run
+    // spent the rest of its budget hunting for the answer it had already been given.
+    const note = summarizeReadResult('get_timeline', {
+      tracks: [
+        {
+          id: 'layer_caption_4',
+          type: 'caption',
+          clips: [],
+          captionStyle: {
+            templateId: 'headline',
+            accent: { mode: 'keywords', keywords: ['route', 'heart', 'searching'] },
+          },
+        },
+      ],
+    });
+    // In the FIRST LINE specifically. Containing it anywhere was not enough: `distil`
+    // keeps only line one as the run's fact, so the style sat on a per-track line below
+    // the head and the fact still said "5 tracks, 87 clips" — the digest was fixed and
+    // the memory was not, which is the half of the defect this assertion pins.
+    const head = note.split('\n')[0]!;
+    expect(head).toContain('template=headline');
+    expect(head).toContain('accent=keywords (3 keywords)');
+  });
+
+  it("get_timeline: the DISTILLED FACT carries the style, not just the digest", () => {
+    // End to end through the surface that actually matters. A digest nobody distils is a
+    // digest the next turn never sees.
+    const note = summarizeReadResult('get_timeline', {
+      tracks: [
+        {
+          id: 'layer_caption_4',
+          type: 'caption',
+          clips: [],
+          captionStyle: { templateId: 'headline', display: 'phrase', fontFamily: 'Merriweather' },
+        },
+        { id: 'video_main', type: 'video', clips: [] },
+      ],
+    });
+    const fact = distil({
+      toolName: 'get_timeline',
+      role: 'inspection',
+      descriptor: 'Reading the timeline',
+      summary: note,
+      scope: 'timeline_dependent',
+      status: 'completed',
+      fromCache: false,
+    });
+    expect(fact?.statement).toContain('template=headline');
+  });
+
+  it('get_timeline: says so plainly when a caption track carries no style at all', () => {
+    const note = summarizeReadResult('get_timeline', {
+      tracks: [{ id: 'layer_caption_4', type: 'caption', clips: [], captionStyle: {} }],
+    });
+    expect(note).toContain('template=none');
+    // An accent of 'none' is not a fact worth a word; only a real one is named.
+    expect(note).not.toContain('accent=');
+  });
+
+  it('get_timeline: names the accent mode even when it accents no explicit keywords', () => {
+    const note = summarizeReadResult('get_timeline', {
+      tracks: [
+        {
+          id: 'c',
+          type: 'caption',
+          clips: [],
+          captionStyle: {
+            templateId: 'karaoke',
+            display: 'phrase',
+            fontFamily: 'Inter',
+            accent: { mode: 'last-word' },
+          },
+        },
+      ],
+    });
+    expect(note).toContain('template=karaoke · phrase · Inter · accent=last-word');
+  });
+
+  it('discover_caption_styles: lists every template id, grouped, because the ids ARE the deliverable', () => {
+    // set_track_caption_style rejects an id that is not in the catalog, so a truncated
+    // list is a list the run cannot act on. previewJson cut this after ~18 of 51 — and
+    // the style already applied to the project was past the cut, so the run could
+    // neither name what it had nor choose something deliberately different.
+    const templates = Array.from({ length: 51 }, (_, i) => ({
+      templateId: `tpl_${i}`,
+      label: `T${i}`,
+      category: i % 2 === 0 ? 'phrase' : 'karaoke',
+      suggestedWordsPerLine: 3,
+      fontFamily: 'Inter',
+      display: 'phrase',
+    }));
+    const note = summarizeReadResult('discover_caption_styles', {
+      matched: 51,
+      returned: 51,
+      fonts: [{ family: 'Inter', category: 'sans', minWeight: 100, maxWeight: 900 }],
+      templates,
+      compositionFields: ['fontFamily'],
+    });
+    for (const t of templates) expect(note).toContain(t.templateId);
+    expect(note).toContain('51 of 51 matching templates, 1 bundled fonts');
+    expect(note).toContain('fonts: Inter');
+  });
+
+  it('discover_caption_styles: reports an empty match instead of an empty list', () => {
+    expect(
+      summarizeReadResult('discover_caption_styles', { matched: 0, returned: 0, fonts: [], templates: [] }),
+    ).toContain('no caption templates match');
+  });
+
+  it('get_mapped_transcript: keeps every mapped word with its SEQUENCE timing', () => {
+    const words = Array.from({ length: 81 }, (_, i) => ({
+      word: `w${i}`,
+      start: i * 0.25,
+      end: i * 0.25 + 0.2,
+      sourceStart: i * 0.25,
+      sourceEnd: i * 0.25 + 0.2,
+    }));
+    const note = summarizeReadResult('get_mapped_transcript', {
+      words,
+      // The wire shape runs carry: bounds and a count, never copies of the words. See
+      // domain-tools/timeline.ts — repeating them made the payload exactly twice the size
+      // of the information in it.
+      runs: [{ clipId: 'c', assetId: 'a', start: 0, end: 20.2, wordCount: 81 }],
+      droppedCount: 3,
+      revision: 749,
+    });
+    // The run bounds ride in the HEAD, because that first line becomes the run's durable
+    // fact and the bounds are the only place a cue may not be broken across.
+    expect(note).toContain(
+      '81 mapped words, 3 dropped by cuts in 1 speech run (0–20.2s), revision 749',
+    );
+    for (const w of words) expect(note).toContain(w.word);
+  });
+
+  it('get_mapped_transcript: omits a drop count when the cuts dropped nothing', () => {
+    const note = summarizeReadResult('get_mapped_transcript', {
+      words: [{ word: 'hello', start: 0, end: 0.4 }],
+      runs: [],
+    });
+    expect(note).toContain('1 mapped words, revision ?');
+    expect(note).not.toContain('dropped');
+  });
+
+  it('get_clip: renders a bare clip without inventing effects, an override or a cue', () => {
+    const note = summarizeReadResult('get_clip', {
+      clip: { id: 'clip_1', assetId: 'a', trackId: 'video_main', start: 0, end: 2 },
+    });
+    expect(note).toContain('clip_1');
+    expect(note).not.toContain('effects:');
+    expect(note).not.toContain('cue');
+  });
+
+  it('discover_caption_styles: falls back to the template count when the payload omits totals', () => {
+    const note = summarizeReadResult('discover_caption_styles', {
+      templates: [{ templateId: 'stamp' }],
+      fonts: [],
+    });
+    expect(note).toContain('1 of 1 matching templates, 0 bundled fonts');
+    // A template with no category still has to be listed; it is a usable id.
+    expect(note).toContain('other: stamp');
+  });
+
+  it('get_mapped_transcript: says plainly when the edit left no speech', () => {
+    expect(summarizeReadResult('get_mapped_transcript', { words: [], runs: [] })).toContain(
+      'no mapped words',
+    );
+  });
+
+  it('get_timeline_summary: keeps the per-track rows that are its only reason to exist', () => {
+    const note = summarizeReadResult('get_timeline_summary', {
+      durationSeconds: 21.867,
+      trackCount: 2,
+      clipCount: 87,
+      tracks: [
+        { id: 'layer_caption_4', type: 'caption', clipCount: 40, firstClipStart: 0.09, lastClipEnd: 19.75 },
+        { id: 'audio_music', type: 'audio', clipCount: 0, firstClipStart: null, lastClipEnd: null },
+      ],
+      markerCount: 1,
+      transcriptWordCount: 81,
+    });
+    expect(note).toContain('sequence 21.87s, 2 tracks, 87 clips, 81 transcript words');
+    expect(note).toContain('layer_caption_4 [caption] 40 clips 0.09–19.75s');
+    // A track with no clips has no span to name; it must not invent one, and a row that
+    // omits clipCount entirely reads as 0 rather than as "undefined clips".
+    expect(note).toContain('audio_music [audio] 0 clips');
+    expect(
+      summarizeReadResult('get_timeline_summary', {
+        trackCount: 1,
+        tracks: [{ id: 'fx', type: 'effect' }],
+      }),
+    ).toContain('fx [effect] 0 clips');
+  });
+
+  it('get_timeline_summary: degrades to the head line when a payload carries no tracks', () => {
+    expect(summarizeReadResult('get_timeline_summary', { trackCount: 0, tracks: [] })).toContain(
+      'sequence ?, 0 tracks',
+    );
+  });
+
+  it('get_clip: keeps ids, both time pairs, the cue and any per-cue style override', () => {
+    const note = summarizeReadResult('get_clip', {
+      trackId: 'layer_caption_4',
+      clip: {
+        id: 'caption_layer_caption_4_90',
+        assetId: '__caption__',
+        trackId: 'layer_caption_4',
+        start: 0.09,
+        end: 1.28,
+        sourceStart: 0,
+        sourceEnd: 1.19,
+        effects: [{ id: 'e1', type: 'caption', params: {} }],
+        captionStyle: { maxWidthPercent: 15, templateId: 'stamp' },
+        captionCue: {
+          text: 'Car,\ntake a new route,',
+          words: [{ word: 'Car,', start: 0.09, end: 0.27 }],
+          derivedFromRevision: 684,
+        },
+      },
+    });
+    expect(note).toContain('caption_layer_caption_4_90');
+    expect(note).toContain('layer_caption_4');
+    expect(note).toContain('effects: caption');
+    expect(note).toContain('cue style override: template=stamp');
+    expect(note).toContain('cue (1 words, from revision 684): Car, / take a new route,');
+  });
+
+  it('get_clip: keeps a cue whose word list is missing rather than dropping the text', () => {
+    const note = summarizeReadResult('get_clip', {
+      clip: {
+        id: 'clip_1',
+        assetId: 'a',
+        trackId: 't',
+        start: 0,
+        end: 1,
+        captionCue: { text: 'hello' },
+      },
+    });
+    expect(note).toContain('cue (0 words, from revision ?): hello');
+  });
+
+  it('get_mapped_transcript: treats a payload with no word list as no speech', () => {
+    expect(summarizeReadResult('get_mapped_transcript', { revision: 3 })).toContain(
+      'no mapped words',
+    );
+  });
+
+  it('discover_caption_styles: reports an empty catalog for a payload with no template list', () => {
+    expect(summarizeReadResult('discover_caption_styles', {})).toBe(
+      'no caption templates match (0 in catalog)',
+    );
+  });
+
+  it('get_clip: falls back to a JSON preview for a payload that is not a clip', () => {
+    expect(summarizeReadResult('get_clip', { clip: null })).toContain('clip');
+  });
+
   it('list_assets: keeps every asset id so the agent has real ids to reference', () => {
     const assets = Array.from({ length: 50 }, (_, i) => ({
       id: `asset_img_${i}`,
@@ -1102,6 +1599,125 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
     // 240-char slice. A missing id is what drove the model to fabricate asset_img_9723…
     for (const a of assets) expect(note).toContain(a.id);
     expect(note).toContain('50 assets');
+  });
+
+  it('get_timeline_map: gives the model every clip SOURCE in-point, not the first four', () => {
+    // The run that motivated this: 41 video clips + one music bed, asked for "more
+    // precise montage cuts, at least 45 clips, don't keep the clips from the starting
+    // offset". Answering it needs each clip's sourceStart — and this payload had no
+    // digest case, so it fell through to previewJson at 1200 escaped chars: about four
+    // spans of forty-two, followed by a bare `…`. The model could not obtain the number
+    // it was asked to vary, and reasoned about clips it had never been shown.
+    const spans = Array.from({ length: 41 }, (_, i) => ({
+      clipId: `clip__layer_video_main_asset_cropped_search_${Math.round(i * 533)}`,
+      assetId: 'asset_cropped_search',
+      trackId: 'layer_video_main',
+      start: Math.round(i * 533) / 1000,
+      end: Math.round((i + 1) * 533) / 1000,
+      sourceStart: Math.round(i * 611) / 1000,
+      sourceEnd: Math.round(i * 611 + 533) / 1000,
+      speed: 1,
+    }));
+    const note = summarizeReadResult('get_timeline_map', {
+      spans,
+      duration: 21.867,
+      revision: 12,
+    });
+    expect(note).toContain('timeline map, 41 clips');
+    expect(note).toContain('sequence duration 21.87s');
+    expect(note).toContain('revision 12');
+    for (const span of spans) {
+      expect(note).toContain(span.clipId);
+      // The source half of the timing is the half no other surface shows: the context
+      // block renders `clipId[start–end s]` and get_timeline's digest the same.
+      // Same 2-dp rounding the digest uses, trailing zeros dropped (`22`, not `22.00`).
+      expect(note).toContain(`src ${Math.round(span.sourceStart * 100) / 100}–`);
+    }
+    expect(note).not.toContain('…"');
+  });
+
+  it('get_timeline_map: omits 1x speed and marks a retimed clip', () => {
+    const note = summarizeReadResult('get_timeline_map', {
+      spans: [
+        {
+          clipId: 'c1',
+          assetId: 'a',
+          trackId: 't',
+          start: 0,
+          end: 1,
+          sourceStart: 0,
+          sourceEnd: 1,
+          speed: 1,
+        },
+        {
+          clipId: 'c2',
+          assetId: 'a',
+          trackId: 't',
+          start: 1,
+          end: 2,
+          sourceStart: 4,
+          sourceEnd: 6,
+          speed: 2,
+        },
+      ],
+      duration: 2,
+      revision: 3,
+    });
+    expect(note).toContain('c1 asset=a track=t seq 0–1s src 0–1s');
+    expect(note).toContain('c2 asset=a track=t seq 1–2s src 4–6s ×2');
+  });
+
+  it("get_timeline_map: falls back to the JSON preview for map_time's other shapes", () => {
+    // `map_time` answers three shapes; only the argument-less one is the whole map.
+    const note = summarizeReadResult('map_time', {
+      at: { clipId: 'c1', sourceTime: 3 },
+      revision: 4,
+    });
+    expect(note).toContain('sourceTime');
+    expect(note).not.toContain('timeline map');
+  });
+
+  it('get_clips: keeps every row of a page and says how to reach the rest', () => {
+    const clips = Array.from({ length: 50 }, (_, i) => ({
+      id: `clip_${i}`,
+      trackId: 'layer_video_main',
+      assetId: 'asset_1',
+      start: i,
+      end: i + 1,
+      sourceStart: i * 2,
+      sourceEnd: i * 2 + 1,
+      effectCount: 0,
+      keyframeCount: 0,
+    }));
+    const note = summarizeReadResult('get_clips', { clips, total: 120, hasMore: true });
+    for (const clip of clips) expect(note).toContain(clip.id);
+    expect(note).toContain('50 clips');
+    // A blind character cut told the model nothing was missing. This says what to do.
+    expect(note).toContain('raise offset');
+    expect(note).toContain('total 120');
+  });
+
+  it('get_clips: reports the exact total when the page is the whole listing', () => {
+    const note = summarizeReadResult('get_clips', {
+      clips: [
+        {
+          id: 'clip_1',
+          trackId: 't',
+          assetId: 'a',
+          start: 0,
+          end: 1,
+          sourceStart: 9,
+          sourceEnd: 10,
+          effectCount: 2,
+          keyframeCount: 3,
+        },
+      ],
+      total: 1,
+      hasMore: false,
+    });
+    expect(note).toContain('1 clip of 1 total');
+    expect(note).toContain('src 9–10s fx=2 kf=3');
+    expect(note).not.toContain('raise offset');
   });
 
   it('detect_beats: gives the model every exact onset, not a BPM approximation (W4)', () => {
@@ -1467,7 +2083,7 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
 describe('review mode', () => {
   it('returns a deterministic critic report + readable text', async () => {
     const review = await new Orchestrator(new MockProvider()).review(input);
-    expect(review.report.checks.length).toBe(8);
+    expect(review.report.checks.length).toBe(11);
     expect(review.text).toContain(review.report.summary);
     expect(review.text).toMatch(/\[(PASS|WARN|FAIL|SKIPPED)\]/);
   });
@@ -1578,14 +2194,22 @@ describe('route-scoped tool surface (E5)', () => {
     expect(names).toContain('get_timeline');
   });
 
-  it('action recovery advertises mutation and ask tools, never another read', () => {
+  it('action recovery advertises mutation, ask, and recall — never a fresh read', () => {
     const names = orchestrator.agentTools('action-recovery').map((tool) => tool.name);
     expect(names).toContain('add_clip');
     expect(names).toContain('ask_user');
+    // The turn asserts the run already has its evidence; that is only true if it can
+    // reach it. A real montage run was told to recall rather than re-read, found no
+    // recall tool, and placed forty-six clips on asset durations it had inferred from
+    // clip-id suffixes because the media bin it had read twice was unreachable.
+    expect(names).toContain('recall_evidence');
     expect(names).not.toContain('get_timeline');
     expect(names).not.toContain('list_assets');
     expect(names).not.toContain('detect_beats');
-    for (const name of names) expect(['mutate', 'ask']).toContain(getTool(name)!.kind);
+    for (const name of names) {
+      if (name === 'recall_evidence') continue;
+      expect(['mutate', 'ask']).toContain(getTool(name)!.kind);
+    }
   });
 
   it('scoping never touches the registry itself (the MCP surface is unaffected)', () => {

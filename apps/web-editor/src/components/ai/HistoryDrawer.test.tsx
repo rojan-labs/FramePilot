@@ -81,6 +81,18 @@ describe('HistoryDrawer', () => {
     expect(conversations.rename).toHaveBeenCalledWith('Alpha', 'Renamed');
   });
 
+  it('copies the full Markdown transcript to the clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    const conversations = fakeConversations([conv('Alpha')]);
+    render(<HistoryDrawer conversations={conversations} onClose={vi.fn()} />);
+    const row = screen.getByText('Alpha').closest('li') as HTMLElement;
+    fireEvent.click(within(row).getByLabelText('Row actions'));
+    fireEvent.click(within(row).getByText('Copy Markdown'));
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(String(writeText.mock.calls[0]?.[0])).toContain('# Alpha');
+  });
+
   it('closes on Escape', () => {
     const conversations = fakeConversations([conv('Alpha')]);
     const onClose = vi.fn();

@@ -32,6 +32,8 @@
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { parseProject, type Project } from '@framepilot/timeline-schema';
 import type { ContextInput } from '../context-builder.js';
 import type { AiEvent } from '../events.js';
 import { Orchestrator } from '../orchestrator.js';
@@ -70,9 +72,51 @@ export function selectFoundationRealEvalScenarios(
   return scenarios.filter((scenario) => FOUNDATION_REAL_EVAL_TIERS.includes(scenario.tier));
 }
 
-/** Build the same synthetic-but-valid project fixture the offline suite uses, per scenario. */
-export function buildScenarioContextInput(scenario: AgentOutcomeEvalScenario): ContextInput {
-  return { project: makeProject(), userPrompt: scenario.task };
+/**
+ * The project a scenario runs against.
+ *
+ * Defaults to the same synthetic-but-valid fixture the offline suite uses. That fixture is
+ * fine for proving the contract and useless for a performance claim: it is a few seconds of
+ * media, so its latency says nothing about a real camera file minutes long. Pass a real
+ * loaded project (see `FRAMEPILOT_EVAL_PROJECT`) to measure desktop-scale media instead —
+ * which is the only basis on which the roadmap's latency rows may be reported.
+ *
+ * The choice is recorded on every artifact (`media: 'fixture' | 'real-project'`) so a
+ * fixture run can never be mistaken later for a real-media one.
+ */
+export function buildScenarioContextInput(
+  scenario: AgentOutcomeEvalScenario,
+  project: Project = makeProject(),
+): ContextInput {
+  return { project, userPrompt: scenario.task };
+}
+
+/**
+ * Load the project named by `FRAMEPILOT_EVAL_PROJECT`, or `undefined` when unset.
+ *
+ * Parsed through the canonical `parseProject`, so a malformed or stale-schema file fails
+ * loudly here rather than producing a run whose numbers describe something other than the
+ * project the operator thought they measured.
+ */
+export async function loadEvalProject(
+  env: Readonly<Record<string, string | undefined>>,
+  readFileImpl: (path: string) => Promise<string> = (path) => readFile(path, 'utf8'),
+): Promise<Project | undefined> {
+  const path = env.FRAMEPILOT_EVAL_PROJECT?.trim();
+  if (!path) return undefined;
+  let raw: string;
+  try {
+    raw = await readFileImpl(path);
+  } catch (cause) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(`FRAMEPILOT_EVAL_PROJECT could not be read ("${path}"): ${reason}`);
+  }
+  try {
+    return parseProject(JSON.parse(raw));
+  } catch (cause) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(`FRAMEPILOT_EVAL_PROJECT is not a valid project file ("${path}"): ${reason}`);
+  }
 }
 
 export interface RealEvalTurnCapture {
@@ -125,10 +169,11 @@ async function runScenario(
   scenario: AgentOutcomeEvalScenario,
   provider: AiProvider,
   now: () => number,
+  project: Project | undefined,
 ): Promise<AgentOutcomeEvalRunRecord> {
   const capture = new BaselineCaptureProvider(provider, { now });
   const orchestrator = new Orchestrator(capture);
-  const input = buildScenarioContextInput(scenario);
+  const input = buildScenarioContextInput(scenario, project);
   const started = now();
   const events: AiEvent[] = [];
   const stream = orchestrator.streamAgent(
@@ -176,11 +221,13 @@ export async function writeFoundationRealEvalArtifacts(
   summary: AgentOutcomeTopLineScore,
   date: Date,
   writeFileImpl: WriteFoundationRealEvalFile = defaultWriteFile,
+  media: EvalMediaSource = 'fixture',
 ): Promise<FoundationRealEvalArtifactPaths> {
   const payload = `${JSON.stringify(
     {
       capturedAt: date.toISOString(),
       provider: 'google',
+      media,
       tiers: FOUNDATION_REAL_EVAL_TIERS,
       summary,
       records: JSON.parse(serializeAgentOutcomeEvalRunRecords(records)) as unknown,
@@ -207,6 +254,7 @@ function formatMs(value: number | undefined): string {
 export function renderFoundationRealEvalJobSummary(
   records: readonly AgentOutcomeEvalRunRecord[],
   summary: AgentOutcomeTopLineScore,
+  media: EvalMediaSource = 'fixture',
 ): string {
   const lines = [
     '# FramePilot 9.5 Foundation — real-provider capture (Google Gemini)',
@@ -223,7 +271,15 @@ export function renderFoundationRealEvalJobSummary(
     '| Metric | p50 | p95 |',
     '| --- | --- | --- |',
     `| Wall-clock latency (ms) | ${formatMs(summary.latencyMs.p50)} | ${formatMs(summary.latencyMs.p95)} |`,
+    `| Time to first visible edit (ms) | ${formatMs(summary.timeToFirstEditMs.p50)} | ${formatMs(summary.timeToFirstEditMs.p95)} |`,
     `| Tool calls per run | ${formatMs(summary.toolCalls.p50)} | ${formatMs(summary.toolCalls.p95)} |`,
+    '',
+    media === 'real-project'
+      ? 'Media: a real project loaded from `FRAMEPILOT_EVAL_PROJECT`. Latency figures describe ' +
+        'that project.'
+      : 'Media: the synthetic test fixture (a few seconds long). **These latency figures do ' +
+        'not support any claim about real footage** — set `FRAMEPILOT_EVAL_PROJECT` to a real ' +
+        'project file to measure desktop-scale media.',
     '',
     'Failures are expected: no automated grader exists yet for Tier B-D semantic predicates or ' +
       'host settlement, so every scenario currently fails closed on missing predicate/revision ' +
@@ -238,11 +294,25 @@ export interface FoundationRealEvalDependencies {
   readonly now?: () => number;
   readonly scenarios?: readonly AgentOutcomeEvalScenario[];
   /** Override for tests; defaults to a real `ConcreteLangChainGoogleProvider`. */
-  readonly buildProvider?: (config: { readonly apiKey: string; readonly model?: string }) => AiProvider;
+  readonly buildProvider?: (config: {
+    readonly apiKey: string;
+    readonly model?: string;
+  }) => AiProvider;
   readonly outDir?: string;
   readonly writeFile?: WriteFoundationRealEvalFile;
   readonly log?: (message: string) => void;
+  /** Override for tests; defaults to reading `FRAMEPILOT_EVAL_PROJECT`. */
+  readonly loadProject?: (
+    env: Readonly<Record<string, string | undefined>>,
+  ) => Promise<Project | undefined>;
 }
+
+/**
+ * What the numbers in an artifact actually describe. Stamped on every record set because a
+ * latency figure is meaningless without it, and a fixture run left unlabelled is exactly how
+ * an unfounded performance claim gets made six months later.
+ */
+export type EvalMediaSource = 'fixture' | 'real-project';
 
 export interface FoundationRealEvalResult {
   readonly records: readonly AgentOutcomeEvalRunRecord[];
@@ -252,7 +322,10 @@ export interface FoundationRealEvalResult {
   readonly jobSummary: string;
 }
 
-function defaultBuildProvider(config: { readonly apiKey: string; readonly model?: string }): AiProvider {
+function defaultBuildProvider(config: {
+  readonly apiKey: string;
+  readonly model?: string;
+}): AiProvider {
   return new ConcreteLangChainGoogleProvider({
     name: 'google',
     apiKey: config.apiKey,
@@ -276,14 +349,18 @@ export async function runFoundationRealEval(
   const scenarios = deps.scenarios ?? selectFoundationRealEvalScenarios();
   const buildProvider = deps.buildProvider ?? defaultBuildProvider;
   const provider = buildProvider({ apiKey, ...(model !== undefined ? { model } : {}) });
+  // Loaded BEFORE any provider call: a bad path must cost nothing, and a run that silently
+  // fell back to the tiny fixture would produce latency numbers describing the wrong thing.
+  const project = await (deps.loadProject ?? loadEvalProject)(env);
+  const media: EvalMediaSource = project ? 'real-project' : 'fixture';
 
   log(
     `[foundation-real-eval] running ${String(scenarios.length)} Tier B-D scenario(s) against ` +
-      `google/${model ?? GOOGLE_DEFAULT_MODEL}…`,
+      `google/${model ?? GOOGLE_DEFAULT_MODEL}, media=${media}…`,
   );
   const records: AgentOutcomeEvalRunRecord[] = [];
   for (const scenario of scenarios) {
-    const record = await runScenario(scenario, provider, now);
+    const record = await runScenario(scenario, provider, now, project);
     records.push(record);
     log(
       `[foundation-real-eval] ${scenario.id} (${scenario.tier}): ${record.status} — ` +
@@ -301,7 +378,8 @@ export async function runFoundationRealEval(
     summary,
     new Date(),
     deps.writeFile,
+    media,
   );
-  const jobSummary = renderFoundationRealEvalJobSummary(records, summary);
+  const jobSummary = renderFoundationRealEvalJobSummary(records, summary, media);
   return { records, summary, outputPath, latestPath, jobSummary };
 }

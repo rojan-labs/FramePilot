@@ -171,12 +171,12 @@ describe('get_frame through a question run', () => {
     expect(blind.agentTools('question').map((t) => t.name)).not.toContain('get_frame');
   });
 
-  it('stops claiming attachment on a replay that carries no picture', async () => {
-    // The memo answers the second identical call, and the orchestrator drops the stored
-    // image on purpose (a frame is only worth looking at as the timeline is NOW). The bug
-    // was forwarding the payload's "the frame is attached as an image" note alongside no
-    // image: the model was told to read a picture it never received, so it answered
-    // "I can't see the attached frame" — or described one from imagination.
+  it('re-attaches the picture when the memo answers a repeated look', async () => {
+    // The memo key for get_frame carries the timeline REVISION, so a hit proves the frame
+    // still shows the timeline as it is now. Frames ride one request and are then stripped,
+    // so a replay that dropped the picture left the model with no image and a note telling
+    // it to answer from one it had been shown two turns ago — which is how the captured run
+    // produced a confident, wrong reading of its own framing.
     const provider = new ScriptedProvider([
       {
         text: 'Looking.',
@@ -193,20 +193,16 @@ describe('get_frame through a question run', () => {
     // repeat when the timeline names one (see `idempotencyKeyFor`).
     await drainChat(orchestrator, versioned);
 
-    // The fresh look carries the picture and may say so.
+    // Both the fresh look and the replay carry the picture.
     expect(imagesIn(provider.requests[1]!)).toEqual([FRAME_BASE64]);
-    // The replay carries no picture — and no longer says one is attached.
-    expect(imagesIn(provider.requests[2]!)).toEqual([]);
-    // The replay's OWN tool result — turn 1's result legitimately still says the frame
-    // was attached, because on that turn it was.
+    expect(imagesIn(provider.requests[2]!)).toEqual([FRAME_BASE64]);
+    // The replay says it is served from the memo, and its attachment claim is TRUE again.
     const replayNote = provider.requests[2]!.messages.filter((m) => m.role === 'tool').at(
       -1,
     )!.content;
     expect(replayNote).toContain('(cached)');
-    expect(replayNote).not.toContain(ATTACHED_NOTE);
-    expect(replayNote).toContain('already rendered earlier in this run');
-    // The facts the payload carried are still true, so they survive the rewrite.
     expect(replayNote).toContain('timeSeconds');
+    expect(replayNote).not.toContain('already rendered earlier in this run');
   });
 
   it('tells a sighted model that answering a visual question means looking', async () => {

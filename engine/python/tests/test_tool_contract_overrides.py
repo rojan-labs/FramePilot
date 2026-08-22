@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from framepilot_engine.ai_tools import TOOL_REGISTRY
+from framepilot_engine.ai_tools.registry import caption_template_count
 
 
 def validate(name: str, payload: dict[str, object]) -> Any:
@@ -61,7 +62,11 @@ def test_effect_contract_bounds_are_strict() -> None:
     rejects("resize_effect", {"layerId": "fx", "start": 3, "end": 2})
     rejects("discover_effects", {"limit": 81})
     rejects("discover_transitions", {"limit": 81})
-    rejects("discover_caption_styles", {"limit": 46})
+    # The ceiling is the catalog's own size, so the whole catalog is reachable in one
+    # call — a lower bound made the template ids past the cut unusable, and
+    # set_track_caption_style rejects an id the model was never shown.
+    validate("discover_caption_styles", {"limit": caption_template_count()})
+    rejects("discover_caption_styles", {"limit": caption_template_count() + 1})
 
 
 def test_frame_time_cannot_be_negative() -> None:

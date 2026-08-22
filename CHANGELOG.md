@@ -6,6 +6,292 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **The AI is told what is in your footage; it decides what to do about it.** It used to be
+  handed a ranked list of moves worked out in code — every highlight got "a push-in makes it
+  land", a chapter whose title contained a word like "reveal" got another, a long quiet
+  stretch got a speed ramp — and its job was to pick from that list. Five suggestions would
+  come back with one reason between them, and the scores looked enough like evidence that the
+  AI stopped forming its own view.
+
+  Now it gets the facts instead: how long a chapter runs and how many highlights sit inside
+  it, which gaps are long enough to notice, where the picture changes, which words were
+  emphasised — and it chooses the cut, the reframe, the zoom or the nothing-at-all itself. It
+  also now says which of those facts came from actually reading your footage and which were
+  its own assumption, so a guess can no longer be presented to you as a finding.
+
+- **Cutting to music is your call, not the app's.** If the AI had so much as analysed a track,
+  every cut was forced onto the nearest detected beat — so a request for cuts on visual action
+  ("ready to beat-sync once I add music") had its rhythm quietly replaced, and cuts sitting a
+  tenth of a second off a beat were refused outright. Cuts that are nearly on a beat are still
+  snapped exactly onto it for you; a cut you meant to sit off the beat now stands, and you are
+  told how far off it is. Hard quantising happens only when the AI is deliberately syncing to
+  the track.
+
+- **"Do this to every clip" is now something the app can check.** A brief asking for every
+  clip to be reframed, graded and given a subtle zoom could be answered with one clip done and
+  the job reported as complete, because the only things being checked were the total length
+  and the number of shots. Those per-clip requests are now checked across the whole cut, and
+  you are told the shortfall — "the grade is on 1 of 47 clips" — instead of "all checks
+  passed".
+
+- **Black bars no longer slip through.** Nothing checked whether your clips actually fill the
+  frame, so a vertical edit could ship with most shots letterboxed. Now a cut where some shots
+  are reframed and others are not is flagged with the clips that were missed, and the AI can
+  see at a glance which clips still need it.
+
+- **When the AI cannot make the file you asked for, it says so.** A brief ending "one final
+  rendered MP4" would finish with edits on the timeline, no file, and no mention of it —
+  rendering isn't something the AI panel can do. It now tells you once, plainly, and points at
+  the Export dialog.
+
+- **The AI starts a job knowing what your project already knows.** In the browser it began
+  every job blind: no footage map, no note of what was learned last session, no record of what
+  you had already told it. Asked to choose moments "from the footage map", it had none, never
+  fetched one, and described chapters it had made up. It now reads all three before it starts,
+  as the desktop app already did.
+
+- **Transitions no longer flash black at every cut.** A cross dissolve dissolved up from
+  black instead of out of the shot before it; a whip pan whipped in over black; a wipe wiped
+  in from nothing. It happened at every cut, in the monitor and in the exported file, because
+  the shot being left had already ended by the time the next one started easing in and there
+  was nothing underneath it.
+
+  A transition now reveals the shot it is coming from, as it should: the outgoing shot keeps
+  playing under the ramp (or holds its last frame, when it has been cut right to the end of
+  its source). Nothing about your timeline changes — the same cuts, the same transitions, just
+  the picture that belongs under them.
+
+- **Cropped clips fill the frame in the monitor, the way they always did on export.** A
+  vertical crop of horizontal footage showed as a small picture floating in a lot of black
+  while the exported video was full-bleed. The monitor was showing you something worse than
+  what you would get, which is the wrong way round — and if you (or the AI) "fixed" it by
+  zooming in, the export ended up over-zoomed for real. The monitor now fills the frame
+  exactly as the render does.
+
+- **A dropped reply no longer throws away the whole job.** When the AI's provider dropped a
+  request — an empty response, or a reply cut off mid-sentence — the run ended there, often
+  after minutes of work, and told you it was "retryable" without retrying anything. Worse, a
+  cut-off sentence was published as the AI's final word on your video. It now retries the
+  step once, and if the reply is still cut short it says so plainly instead of leaving you a
+  fragment.
+
+- **The AI can be held to what you actually asked for.** Ask for "a 30 second reel from at
+  least 20 moments" and it now records both as conditions and checks them against the finished
+  cut, instead of treating your whole sentence as one unmeasurable goal — which is how a
+  request for twenty moments could finish, reported as a success, with eight. Taste is
+  deliberately left out of that: "make it nice" is still the AI's judgement to exercise, not
+  something the app pretends to measure.
+
+- **The AI stops being told to fix the same thing forever — and stops claiming a clean run
+  when it is not.** Its own visual review kept reporting one defect it had no way to fix, and
+  the app kept instructing it to fix that defect, turn after turn, until the job ran out. A
+  problem now gets one correction attempt; after that you are told plainly that it is still
+  there and that the run is not going to keep retrying. And "all checks passed" no longer
+  appears while the visual review is still holding an unresolved problem.
+
+- **It stops asking you the same question twice — and stops undoing what you already
+  answered.** When the AI asked how the picture should sit in a vertical frame and you chose
+  full-bleed, the next run knew nothing about it and rebuilt the whole cut with no crop at all.
+  What you tell a job is now remembered with the project, so later jobs read it back.
+
+- **It says when a cut was chosen blind.** If it assembles a montage without reading anything
+  about what is actually in your footage, it now tells you so — and what to ask for if you want
+  the selection grounded in content — instead of describing timings it guessed as though they
+  came from a real look at the material.
+
+- **Footage understanding works again — and reading a clip is now something you can actually
+  do.** New footage never got read at all: the very first time a project prepared its
+  understanding, the provider rejected the request outright (the generative model it asked for
+  has been retired for this step), so nothing was ever prepared. Footage understanding then
+  told you your clip "is not indexed yet" and pointed you at the media bin — which has no such
+  action — while Rebuild kept re-asking for a map that could never exist. Nothing showed
+  progress because nothing was running.
+
+  Preparation now uses the provider's current models, so it goes through. Understanding is
+  read straight from your footage rather than requiring it to be filed against a search index
+  first, which is also what makes clips prepared in earlier versions readable without paying
+  to re-upload them. And when a clip hasn't been read, the panel offers a **Read this footage**
+  button that does it, streams its progress while it runs, and says plainly what went wrong
+  when it can't — a wrong key, no remaining credit, no connection — instead of leaving you at a
+  dead end.
+
+- **The AI no longer talks to you about its own bookkeeping.** On longer jobs it had started
+  opening its replies with things like *"I'll continue from the interpret stage"* or *"I'll
+  continue from where the run left off"* — a status report on its internal state machine,
+  which is not something you asked for and not something that means anything to an editor.
+  The same sentence was also saved as the reason on the edit it made, so it reappeared every
+  time you reviewed that change in the history.
+
+  It now writes about your video and nothing else. The internal notes it keeps between steps
+  are explicitly marked private to it, and the app enforces the same rule independently, so
+  the sentence cannot reach you even if the AI forgets — on a normal run, a cancelled one, a
+  retried one, or one that fails partway.
+
+- **The AI stops redoing work it has already done.** In one caption job it applied your
+  emphasis seven times over and still believed it had never managed it once — so it kept
+  trying, kept looking, and finished without telling you the job was done. Two of its own
+  notes were misleading it. Emphasising words and restyling a caption track were being
+  written into its history under the same description, so it could not tell the two apart;
+  and when it re-made a change that was already on your timeline, it recorded that as a
+  *failure* and went looking for a cause to fix. Neither is true any more: each action is
+  now recorded as the thing it actually was, and work already in place is reported as done
+  rather than broken.
+
+- **The summary at the end of an AI edit is readable again.** It had been listing every
+  change as `Set track caption style:` — the same line eight times over, each one trailing a
+  colon and then nothing, with no mention of which track was touched. It now names what was
+  changed and where, and says each thing once with a count instead of repeating itself. It
+  also no longer claims changes "did not validate" when they validated fine and were simply
+  already in place.
+
+- **The AI stops telling itself your whole request has passed.** Its internal check confirms
+  the timeline is consistent — it cannot know whether the effects you asked for were added.
+  It had been recording that check against your request word-for-word, so a job with half the
+  work missing still read as passed. The check is now labelled for what it actually covers.
+
+- **Cuts made to music actually land on the beat.** When you ask the AI to cut to a track, it
+  analyses the music and gets the exact position of every beat — but nothing was checking its
+  cuts against them, so a cut could sit just off and the montage would feel loose for no
+  visible reason. Now, whenever it has measured the music, a cut that is very slightly off is
+  moved onto the beat for you, and one that is badly off is refused with the nearest real beat
+  named so it can correct itself. There is no setting for this: the AI decides whether the
+  music matters, and if it does, the timing is guaranteed. Edits where it never looked at the
+  music are unaffected.
+
+### Changed
+
+- **Captions on a fast-cut video can be checked again.** Asked to improve the captions on a
+  20-second montage, the AI would read the footage, think it through, and then change
+  nothing. The caption checker was the reason: it treated every *picture* cut as a place a
+  caption must not cross. On a montage with a shot every half-second that is impossible to
+  satisfy — there is nowhere to put a caption, and even a single word fails — so the AI
+  correctly refused to make an edit it could not get right. It also called all 40 captions
+  "out of date" simply because the project had been edited since, even though every one of
+  them was still perfectly in time.
+
+  A caption may now sit over as many shots as you like. It is only flagged when it would
+  bridge a genuine break in the **speech** — two pieces of audio that were never spoken in
+  one breath — which is the thing a viewer actually notices. And a caption is called out of
+  date when it has really drifted off its words, not because you graded a clip afterwards.
+  What used to be 68 confusing warnings is now a short, readable list you can act on.
+
+- **The AI remembers more of what it read.** Sixteen of its inspection tools handed back a
+  raw, mid-sentence slice of data, so a moment later the AI only "remembered" a fragment of
+  gibberish — including, in one case, the result of its own caption check. It then went
+  looking for answers it had already been given. Those tools now report their findings in
+  plain terms (how many silent gaps and how long, where every cut is, which effects and
+  transitions exist, what a check found and what is wrong), and a new safeguard means a tool
+  can no longer be added without one.
+
+  Reading the transcript of an edited timeline is also half the size it was and comes back in
+  one go instead of four, so the AI spends its turns editing rather than re-fetching.
+
+- **Exporting an AI conversation now gives you the whole run.** The Markdown export used to
+  keep only the messages, so everything that explains an outcome — the thinking, each tool
+  call with its arguments and raw result, every proposed edit with its operations and
+  validation issues, run status changes, cost, and the resume checkpoint — was dropped from
+  the file you shared. It now writes the complete transcript, turn by turn, with nothing
+  from the log left out. You can also **copy** it: the conversation you are looking at has
+  "Copy transcript" and "Export transcript" in the sidebar's ⋯ menu, and every row in the
+  history drawer now offers "Copy Markdown" next to "Export Markdown".
+
+- **FramePilot now has one AI editing runtime.** Requests that needed analysis before they
+  could edit — "cut this to the music", "build a montage from the best shots" — used to run
+  through a separate planning engine with its own understanding, planning and execution steps.
+  Everything now runs through the agent you already watch work: it looks at the footage,
+  detects the beats or scenes it needs, and makes the edit, all in one visible run. In
+  practice that means those edits gain what the agent already had and the old path never did:
+  you can steer them mid-run, undo the whole run as one action, and pick them back up after a
+  crash or a restart. Cancelling stops them immediately with nothing half-applied. Beat-synced
+  cuts land on exactly the same detected onsets as before. (ADR 0126,
+  `plan/FRAMEPILOT-95-CONVERGENCE-ROADMAP.md` Phase 1)
+
+### Fixed
+
+- **Calling the real Claude API through a self-hosted bridge no longer fails outright.**
+  Two of the AI's tool descriptions (`map_time` and the professional audio mixer) told the
+  model "pick exactly one of these shapes" in a way Anthropic's own Messages API refuses
+  to accept from any tool — a call through a bridge that forwards straight to Claude's real
+  API came back `input_schema does not support oneOf, allOf, or anyOf`. Both tools now
+  describe the same rule in plain language instead, and nothing about what they actually
+  accept or reject changed. A standing check now catches any future tool that makes the
+  same mistake.
+
+- **Asking the AI to restyle your captions no longer sends it in circles.** "Use a different
+  caption style and emphasize the captions" could end a run with nothing applied: the read
+  that reports the style your captions already use summarised it as a track and clip count,
+  dropping the style itself, so two turns later the run had forgotten the one answer it
+  needed and went looking for it again. Reads that carry caption information now keep it —
+  the template a track uses and how it accents words, a clip's cue and any per-cue override,
+  every mapped word with its timing, and the full template catalog listed by family. The
+  catalog is also fully reachable now: 51 templates existed but no single request could
+  return more than 45, and the default returned 20, so the style actually applied to your
+  project could sit past the cut where the AI could neither name it nor pick something
+  different.
+- **Looking something back up mid-run now answers the question that was asked.** A query
+  had to appear word-for-word inside a single record to match, so a perfectly sensible
+  search for several terms at once came back "no match" even when every one of them was
+  there. Queries now match on any of their words, with an exact phrase ranked first. And
+  nothing is unreachable any more: a stored result larger than the recall budget used to
+  hand back the same opening section however many times it was asked for, with no way to
+  read on. It now says where it stopped and can be resumed from there.
+- **"Continue" no longer costs the AI its goal.** Typing just "continue" (or "contine")
+  made that word the run's objective, its success criterion, and the thing its own
+  verification checked — so the run both forgot what it was doing and could only report
+  itself inconclusive. A message that only asks it to keep going now resolves to the
+  request underneath it, and what you actually typed is still kept verbatim. Its first
+  reading of a request is also no longer permanent: it can be refined by a proper
+  interpretation instead of being locked in before the run has looked at anything.
+- **The AI can now see where each clip starts inside its footage.** Ask it to re-cut a
+  montage so the clips don't all begin at the head of the take, and it used to circle: the
+  reads that report each clip's in-point out of the original file were being cut off after
+  about four clips out of forty, with nothing to say the rest was missing. It now receives
+  every clip's timeline span *and* its source in/out, and on a long timeline it is told how
+  to page through the rest. Looking something back up mid-run (`recall_evidence`) can now
+  narrow to the clip you name instead of handing back the same truncated head.
+- **The AI is no longer told to use tools it does not have.** A run driven by a model that
+  cannot look at pictures was still being advised to "look at a frame", and two of the
+  editing playbooks listed a background indexing tool the AI can never call. Both are gone,
+  and a test now fails if any playbook advertises a tool the model cannot actually select.
+- **Errors in the AI panel look like errors, and line up.** A failed run's notice had lost
+  its red edge entirely, its Retry and Show details buttons sat out of line with the message
+  they belong to, and opening "Show details" squeezed the detail text into a narrow column
+  beside the message instead of laying it out underneath. Notices without an icon — plain
+  informational ones — also started 20px to the left of every warning and error above them.
+  All four came from three stylesheets describing the same card and disagreeing; one owns it
+  now.
+- **Assistant replies no longer waste a third of the panel on indentation.** Bulleted and
+  numbered lists in the AI's replies were falling back to the browser's own spacing: a 40px
+  indent in a 300px-wide panel, with markers sitting well outside the text column, and gaps
+  between paragraphs half again wider than they needed to be.
+- **One on/off control across the app.** "Keep inside safe area" in the caption panel was a
+  bare browser checkbox; it is now the same switch as "Plan first" and every Settings row.
+  Caption row selection uses the app's own checkbox instead of the browser's.
+- **The AI stops re-deciding what you asked for on every turn.** Its own notes on a run
+  recorded what it had just done ("Reading the timeline → Reading the timeline") instead of
+  what it had found, and the run brief repeated your request back to it under four different
+  headings. So each turn started over: one real montage request spent thirteen minutes and
+  six and a half minutes of that inside a single thinking step, re-deriving the same plan.
+  Its notes now carry the actual finding ("5 tracks, 87 clips…"), and the brief states your
+  request once.
+- **The AI can no longer be told to check its notes with no way to open them.** When a run
+  has gathered enough and is pushed to start editing, fresh searches are withheld on
+  purpose — but so was the one tool that reopens what it already read. It went ahead and
+  guessed clip lengths from filenames. That tool now stays available.
+- **The "going in circles" detector actually runs.** It was checking the wrong thing and had
+  been silently passing every run, which is why a run that kept re-reading the same footage
+  was never stopped and redirected.
+- **`trim_clip` says what it cannot do.** Moving a clip's edges also moves what it reads
+  from the footage; the description now says so, and names the way to change one without the
+  other. (ADR 0127)
+
+- **A hallucinated analysis request can no longer reach the media engine.** On the retired
+  planning path, the arguments the model wrote for an analysis step were passed to the engine
+  without being checked against that tool's schema. Every AI tool call is now validated at the
+  boundary before anything is dispatched, as the agent has always done.
+
 ### Added
 
 - **Vercel AI Gateway as a selectable AI provider.** Settings → AI now lists **Vercel AI

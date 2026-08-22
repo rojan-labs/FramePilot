@@ -46,7 +46,14 @@ import {
   type TurnRef,
   createTurnEmitter,
 } from '../events.js';
+import {
+  acceptanceCriteria,
+  checkableAcceptance,
+  hasCheckableAcceptance,
+} from '../acceptance.js';
+import { explicitDurationTargetSeconds } from '../critic.js';
 import type { Command } from './commands.js';
+import { deriveObjectiveText } from './continuation.js';
 import { type ToolRole, settledStageFor } from './stage-policy.js';
 import {
   MAX_NO_PROGRESS_TURNS,
@@ -573,6 +580,16 @@ export interface AgentTurnResult {
   readonly rejectionNotes: readonly string[];
   /** The validator accepted and applied this turn. */
   readonly applied: boolean;
+  /**
+   * The turn produced a valid edit that landed nothing because the timeline ALREADY
+   * matched it — the same operations were applied earlier in this run.
+   *
+   * Distinct from `applied: false` alone, which otherwise means "rejected". A run that
+   * recomputes an edit it already made has not failed at anything; there is no cause to
+   * fix and nothing to retry. Recording it as a failure is what kept the captured caption
+   * run re-attempting emphasis that was already on the timeline, twenty-four times.
+   */
+  readonly satisfied?: boolean;
   /** The validated operations that applied (empty when `applied` is false). */
   readonly appliedOps: readonly AnyOperation[];
   /** Pre-described applied ops for the reducer's `timeline_action` cards. */
@@ -596,8 +613,13 @@ export interface AgentTurnResult {
    * diminishing-returns streak (no delta, no proof).
    */
   readonly usage?: { readonly inputTokens?: number; readonly outputTokens?: number };
-  /** The turn record note (the validator's reason when a real-ops turn was rejected). */
+  /** The turn record note (the model-facing log line for this turn — every call in it). */
   readonly note: string;
+  /**
+   * WHY the turn was rejected, with none of the turn's read output in it. Present only on a
+   * rejection; this is what the editor is shown, so it must never carry a tool payload.
+   */
+  readonly rejection?: string;
   /**
    * The turn's own prose, for semantic-loop detection (ADR 0075 §3.5). Optional so the
    * legacy loop and existing fixtures keep compiling; without it a turn's intent reads as
@@ -860,16 +882,41 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
     attemptId: command.stream.turnId,
     projectRevision: command.input.project.timeline.revision ?? 0,
   });
+  // What the run is actually being asked to do. A message that only says "continue"
+  // names no work of its own, so it resolves to the request underneath it: seeding the
+  // objective from the literal nudge made "contine" the run's outcome, its acceptance
+  // criterion, its committed decision AND the criterion verification checked — so the run
+  // both forgot the real goal and could only report itself inconclusive.
+  const objectiveText = deriveObjectiveText(command.input.userPrompt, command.input.history);
+  // WHAT DONE MEANS, in terms something can check. `acceptance.ts` reads the conditions the
+  // request actually stated — a deliverable length, a minimum shot count — and the Critic
+  // checks those same numbers, so the criterion the ledger reports against and the check that
+  // settles it are one reading rather than two.
+  //
+  // Recording them is what makes the objective more than a copy of the request. Until now the
+  // outcome, the single acceptance criterion, the committed decision and the criterion
+  // verification reported against were all the same sentence the editor typed, so
+  // verification could only ever answer "did any operation succeed" — a request for "20+
+  // different best moments" was satisfied, as far as the ledger knew, by eight shots.
+  //
+  // `provisional` still marks a reading with nothing checkable in it: the request's prose is
+  // the objective, and the field stays open for a turn that records a real interpretation.
+  const checkable = checkableAcceptance(
+    command.input.userPrompt,
+    explicitDurationTargetSeconds(command.input.userPrompt),
+  );
+  const criteria = acceptanceCriteria(objectiveText, checkable);
   const interpreted = setObjective(created, {
-    outcome: command.input.userPrompt.trim(),
-    acceptance: [{ description: command.input.userPrompt.trim() }],
+    outcome: objectiveText,
+    acceptance: criteria.map((description) => ({ description })),
+    provisional: !hasCheckableAcceptance(checkable),
   });
   // When the creator disables the visible detailed-planning turn, commit a minimal
   // objective-backed authorization record from the persisted request itself. It is
   // machine-readable and durable before the first tool turn, never inferred from prose.
   const freshWorking = planning
     ? interpreted
-    : commitExecutionPlan(interpreted, [command.input.userPrompt.trim()], 0);
+    : commitExecutionPlan(interpreted, [objectiveText], 0);
   const started: ConductorState = {
     phase: resuming ? 'resuming' : planning ? 'planning' : 'executing',
     turnRef: command.stream,
@@ -1078,6 +1125,11 @@ export function onTurnResult(
   // nothing, which is the point. `advanceStage` refuses any move the transition table
   // does not permit, so this can only fail to advance, never corrupt.
   const roles = r.callFacts.map((f) => f.role ?? 'other');
+  // Captured BEFORE the stage walk and the fact fold below, because "did this turn
+  // advance the run?" is asked much later — after `state.working` has been replaced by
+  // the fact-folded copy — and asking it by object identity there answered a different
+  // question. See `stageAdvanced`.
+  const stageBefore = state.working.stage;
   const target = settledStageFor(state.working.stage, roles, r.applied);
   const staged =
     target === state.working.stage
@@ -1278,11 +1330,18 @@ export function onTurnResult(
   // fix the cause (per-call validation in the turn handler makes a whole-turn rejection
   // rare — repeated edits and cross-call conflicts). Remember why for the empty-run notice.
   const attemptedEdit = r.turnOpCount > 0;
+  // An already-satisfied turn attempted an edit but was not REJECTED by anything, so it must
+  // not feed the rejection tally. That tally becomes the completion report's
+  // "**Skipped:** N proposed changes did not validate (…)" line — and in the captured run it
+  // told the editor two changes had failed validation when both had validated perfectly and
+  // were simply already on the timeline. A run that misreports its own outcome to the person
+  // reviewing it is worse than one that says nothing.
+  const rejected = attemptedEdit && r.satisfied !== true;
   const rejectionReasons =
-    attemptedEdit && withPlan.rejectionReasons.length < MAX_REJECTION_REASONS
-      ? [...withPlan.rejectionReasons, r.note]
+    rejected && withPlan.rejectionReasons.length < MAX_REJECTION_REASONS
+      ? [...withPlan.rejectionReasons, r.rejection ?? r.note]
       : withPlan.rejectionReasons;
-  const rejectedOpCount = withPlan.rejectedOpCount + (attemptedEdit ? r.turnOpCount : 0);
+  const rejectedOpCount = withPlan.rejectedOpCount + (rejected ? r.turnOpCount : 0);
 
   // Did this no-edit turn make PROGRESS? The harness does not judge the model's intent —
   // only whether the run can still move forward. A turn progresses if it attempted an edit
@@ -1317,18 +1376,27 @@ export function onTurnResult(
   // A turn that proposed operations and lost them to the validator is recorded too: the
   // ledger must show what the run TRIED, or a failure looks identical to never having
   // attempted anything (the distinction ADR 0074's empty-run notice turns on).
+  // A turn whose edit was already on the timeline is recorded as SUCCEEDED, not failed:
+  // the state it was trying to reach is the state that exists. Filing it as a failure put
+  // it under the briefing's "FAILED — fix the cause, do not retry unchanged", which is
+  // advice with no cause behind it; as a success it lands under "ALREADY APPLIED — do not
+  // repeat", which is both true and the instruction the run actually needs.
   const workingAfterTurn = attemptedEdit
     ? recordOperation(state.working, {
         intent: r.signature,
-        status: 'failed',
-        failureReason: r.note,
+        status: r.satisfied === true ? 'succeeded' : 'failed',
+        ...(r.satisfied === true ? {} : { failureReason: r.rejection ?? r.note }),
         planId: state.working.plan.id!,
         decisionId:
           state.working.plan.decisionIds[
             Math.min(r.planStepIndex, state.working.plan.decisionIds.length - 1)
           ]!,
+        // The key carries the outcome so a signature that failed once and is later found
+        // already-satisfied does not overwrite its own failure record in place — the two
+        // are different facts about the run, and `recordOperation` keys updates on this.
         idempotencyKey:
-          `${state.working.runId}:${state.working.plan.id!}:` + `${r.signature}:failed`,
+          `${state.working.runId}:${state.working.plan.id!}:` +
+          `${r.signature}:${r.satisfied === true ? 'satisfied' : 'failed'}`,
         projectRevisionBefore: state.working.currentProjectRevision,
         projectRevisionAfter: state.working.currentProjectRevision,
       })
@@ -1338,7 +1406,15 @@ export function onTurnResult(
   // freshly it words itself each time.
   const intent = normalizeIntent(r.rationale ?? '');
   const recentIntents = [...state.recentIntents, intent].slice(-SEMANTIC_LOOP_TURNS);
-  const stageAdvanced = staged !== state.working;
+  // The STAGE, not "anything at all changed". This was `staged !== state.working`, an
+  // object comparison against a `state.working` that the fact fold above had already
+  // replaced — so it read true on any turn that recorded a fact, and a re-orienting run
+  // records one every turn. That silently disabled the escape hatch's inverse: a genuine
+  // loop always looked like "repeating an intent while advancing", so `isSemanticLoop`
+  // never fired in production. It appeared to work only where the reads produced
+  // duplicate conclusions, which `recordFact` deduplicates into a no-op — an accident
+  // that ended the moment a read's fact carried its actual finding.
+  const stageAdvanced = stageBefore !== state.working.stage;
   const looping = isSemanticLoop(recentIntents, {
     stageAdvanced,
     decisionCommitted: false,
@@ -1453,7 +1529,7 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
   // actual edit; finalize emits the specific empty-run failure below.
   const events: AiEvent[] = [];
   if (state.cumulativeOps.length > 0) {
-    events.push(em.notification(`Self-check: ${r.summary}`));
+    events.push(em.notification(`Deterministic self-check: ${r.summary}`));
     for (const check of r.failedChecks) {
       events.push(em.warning(`${check.label}: ${check.detail}`));
     }
@@ -1515,13 +1591,30 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
   // already had its chance before this fold; if a check still fails, keep the partial
   // validated edits reviewable but settle the run honestly as failed.
   const verificationPassed = r.ok && planReconciled && deliveredWork;
+  /**
+   * Why this verification did not pass, or `undefined` when it did.
+   *
+   * ONE derivation, two consumers: the per-objective `detail` and the blocking diagnostic.
+   * They used to be computed independently, and the `detail` arm only looked at
+   * `planReconciled` — so a run that failed for "no traceable mutation" was filed as
+   * `{ passed: false, detail: "Passed with 1 warning(s)." }`. A record that contradicts
+   * itself is worse than a terse one: the creator reading it cannot tell which half is
+   * true, and neither can a later turn reading the briefing.
+   */
+  const failureReason = (deliverableReached: boolean): string | undefined => {
+    if (!planReconciled) return 'The committed plan still has incomplete deliverables.';
+    if (!deliveredWork) return 'No traceable project mutation for the committed plan.';
+    if (!r.ok) return `Deterministic acceptance checks still fail — ${r.summary}`;
+    if (!deliverableReached) return 'This deliverable was not completed by the run.';
+    return undefined;
+  };
   for (const [index, objective] of working.objectives.entries()) {
     const deliverableReached =
       state.ledgerLength === 0 ? deliveredWork : state.planSteps[index]?.status === 'completed';
     working = recordVerification(working, {
       criterion: objective.description,
       passed: verificationPassed && deliverableReached,
-      detail: !planReconciled ? 'The committed plan still has incomplete deliverables.' : r.summary,
+      detail: failureReason(deliverableReached) ?? r.summary,
       objectiveId: objective.id,
     });
   }
@@ -1530,11 +1623,7 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
   } else {
     working = addDiagnostic(working, {
       code: 'VERIFICATION_INCONCLUSIVE',
-      message: !planReconciled
-        ? 'Verification is inconclusive because committed plan deliverables are incomplete.'
-        : !deliveredWork
-          ? 'Verification found no traceable project mutation for the committed plan.'
-          : 'Verification found that one or more deterministic acceptance checks still fail.',
+      message: `Verification found: ${failureReason(false) ?? r.summary}`,
       stage: 'verify',
       blocking: true,
     });

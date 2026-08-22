@@ -382,8 +382,13 @@ export interface ConversationSaveResult {
  * The streaming orchestrator modes the AI sidebar drives (Phase 11 M3, ADR 0033).
  * `auto` (ADR 0055) is the model-routed entry point: the main-process orchestrator
  * classifies the command and delegates to chat/agent internally.
+ *
+ * `planned-edit` was removed with the second mutating execution route it drove
+ * (ADR 0126). A renderer that still asks for it is a version mismatch and is rejected at
+ * the IPC boundary rather than silently run as something else; historic durable records
+ * that carry the string are normalized on read (`run-contracts.ts`).
  */
-export type AiStreamMode = 'auto' | 'chat' | 'plan' | 'edit' | 'agent' | 'planned-edit';
+export type AiStreamMode = 'auto' | 'chat' | 'plan' | 'edit' | 'agent';
 
 /**
  * AI provider names the desktop can drive. Mirrors `ProviderName` in
@@ -717,7 +722,14 @@ export interface DurableRunStartRequest {
   readonly projectId: string;
   readonly projectRevision: number;
   readonly userPrompt: string;
-  readonly mode: 'auto' | 'chat' | 'plan' | 'edit' | 'agent' | 'planned-edit' | 'review';
+  /**
+   * Modes a renderer may START a durable run in. `planned-edit` was removed with the second
+   * mutating execution route (ADR 0126) and is rejected at the IPC boundary; historic durable
+   * records that still carry it are normalized to `agent` on read. Kept in lockstep with
+   * `DURABLE_RUN_MODES` in `@framepilot/ai-sdk` by a compile-time check there (this package
+   * cannot import from that one — the dependency runs the other way).
+   */
+  readonly mode: 'auto' | 'chat' | 'plan' | 'edit' | 'agent' | 'review';
   readonly selection?: unknown;
   readonly agentOptions?: unknown;
   readonly contextHandles?: readonly string[];

@@ -449,6 +449,54 @@ describe('lazy LangChain provider roster', () => {
   });
 });
 
+describe('a stream the provider cut short', () => {
+  it('flags the done chunk when the last chunk says it ran out of room', async () => {
+    // The orchestrator retries this rather than publishing the fragment — see
+    // `unusableTurnReason`. Only the LAST chunk carries the reason, so an earlier silent
+    // chunk must not clear it.
+    const chunks = [
+      { content: 'Rebuilding the 30 seconds as a', additional_kwargs: {}, response_metadata: {} },
+      {
+        content: ' 23-shot',
+        additional_kwargs: {},
+        response_metadata: { finish_reason: 'length' },
+      },
+    ];
+    class Stubbed extends ConcreteLangChainDeepSeekProvider {
+      protected override buildModel(): never {
+        return {
+          async *stream() {
+            yield* chunks;
+          },
+        } as never;
+      }
+    }
+    const provider = new Stubbed({ name: 'deepseek', apiKey: 'k' } as ProviderConfig);
+    const emitted: { type: string; truncated?: boolean }[] = [];
+    for await (const chunk of provider.stream(request)) emitted.push(chunk);
+    expect(emitted.at(-1)).toMatchObject({ type: 'done', truncated: true });
+  });
+
+  it('leaves the flag off a normal stop', async () => {
+    const chunks = [
+      { content: 'all done', additional_kwargs: {}, response_metadata: { finish_reason: 'stop' } },
+    ];
+    class Stubbed extends ConcreteLangChainDeepSeekProvider {
+      protected override buildModel(): never {
+        return {
+          async *stream() {
+            yield* chunks;
+          },
+        } as never;
+      }
+    }
+    const provider = new Stubbed({ name: 'deepseek', apiKey: 'k' } as ProviderConfig);
+    const emitted: { type: string; truncated?: boolean }[] = [];
+    for await (const chunk of provider.stream(request)) emitted.push(chunk);
+    expect(emitted.at(-1)).toEqual({ type: 'done', text: 'all done' });
+  });
+});
+
 describe('DeepSeek reasoning transport', () => {
   it('emits reasoning as it streams, ahead of visible answer text', async () => {
     const chunks = [

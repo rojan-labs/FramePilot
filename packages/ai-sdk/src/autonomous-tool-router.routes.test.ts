@@ -241,11 +241,11 @@ describe('plan_edit_candidates', () => {
   it('forwards only the planning inputs that were supplied', () => {
     const silences = [{ start: 1, end: 2 }];
     const result = routed('plan_edit_candidates', { silences, verticalTarget: true });
-    expect(result?.name).toBe('propose_edits');
+    expect(result?.name).toBe('read_edit_signals');
     expect(result?.arguments).toEqual({ silences, verticalTarget: true });
   });
 
-  it('refuses planning signals that are not the shape propose_edits consumes', () => {
+  it('refuses planning signals that are not the shape read_edit_signals consumes', () => {
     expect(() => routeAutonomousToolCall(call('plan_edit_candidates', { silences: [1] }))).toThrow(
       /silences\[0\] must be an object/,
     );

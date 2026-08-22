@@ -86,7 +86,7 @@ AUTONOMOUS_TOOL_INDEX_JSON = r'''{
       "stages": ["edit"],
       "status": "ready",
       "kind": "registry",
-      "internalRoutes": ["propose_edits"]
+      "internalRoutes": ["read_edit_signals"]
     },
     {
       "name": "propose_timeline_patch",

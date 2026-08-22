@@ -17,6 +17,7 @@ import {
   recordOperation,
   recordVerification,
   setBlocker,
+  commitExecutionPlan,
   setNextAction,
   setObjective,
   type RunWorkingState,
@@ -41,6 +42,36 @@ describe('distil', () => {
       scope: 'revision_independent',
       evidenceId: 'ev_3',
     });
+  });
+
+  it('records the digest\'s conclusion, not the rest of its records', () => {
+    // A read digest is a head line plus its records. The head line is the conclusion; the
+    // records belong in the evidence store, and flattening them into a 180-character fact
+    // would put four of forty-six clips in the briefing and call it what the run knows.
+    const digest = [
+      '5 tracks, 87 clips: fx(0), captions(40), audio(1), music(0), video_main(46)',
+      'video_main [video]:',
+      '- v_0 asset=asset_x 0–0.47s',
+      '- v_1 asset=asset_x 0.47–0.94s',
+    ].join('\n');
+    const out = distil({ ...settled, toolName: 'get_timeline', summary: digest });
+    expect(out?.statement).toBe(
+      'Reading the transcript 0:22–0:23 → 5 tracks, 87 clips: fx(0), captions(40), audio(1), music(0), video_main(46)',
+    );
+    expect(out?.statement).not.toContain('v_0');
+  });
+
+  it('concludes nothing when the finding only restates the label', () => {
+    // Every in-process read reported its DESCRIPTOR as its summary, so the fact read
+    // "Reading the timeline → Reading the timeline". A run's entire memory of what it had
+    // learned was a list of restatements of what it had done — which is why a real
+    // montage run re-derived the project's shape on six consecutive turns, re-read the
+    // media bin, and spent 391 seconds in one thinking block. An absent fact at least
+    // shows the gap.
+    expect(
+      distil({ ...settled, summary: 'Reading the transcript 0:22–0:23' }),
+    ).toBeUndefined();
+    expect(distil({ ...settled, summary: '   ' })).toBeUndefined();
   });
 
   it('concludes nothing from a memo hit — it was recorded the first time', () => {
@@ -101,6 +132,46 @@ describe('buildStateBriefing', () => {
     const text = buildStateBriefing(state);
     expect(text).toContain('already in progress');
     expect(text).toContain('do not restart');
+  });
+
+  it('does not print the editor\'s request back under four different headings', () => {
+    // The conductor seeds objective, acceptance, the committed plan's decision and the
+    // run's objective ALL from the raw prompt before any turn runs. Rendered naively, the
+    // briefing said the same sentence five times — and "DECIDED" listing the request tells
+    // the model something was decided when nothing was, while "OBJECTIVES 0/1" restates
+    // the request as a checkbox no tool can tick.
+    const request = 'cut to 60s';
+    let state = initialWorkingState({ runId: 'run_1', request, projectRevision: 0 });
+    state = setObjective(state, { outcome: request, acceptance: [{ description: request }] });
+    state = commitExecutionPlan(state, [request], 0);
+    state = recordFact(state, {
+      kind: 'project',
+      statement: 'Reading the timeline → 5 tracks, 87 clips',
+      scope: 'timeline_dependent',
+    });
+    const text = buildStateBriefing(state);
+    expect(text).toContain('5 tracks, 87 clips');
+    expect(text).not.toContain('WHAT DONE LOOKS LIKE');
+    expect(text).not.toContain('DECIDED');
+    expect(text).not.toContain('OBJECTIVES');
+    // One mention of the request in the whole briefing is one too many: the request is
+    // already its own section of the prompt.
+    expect(text).not.toContain(request);
+  });
+
+  it('still shows an objective and a decision that say something of their own', () => {
+    let state = initialWorkingState({ runId: 'run_1', request: 'cut to 60s', projectRevision: 0 });
+    state = setObjective(state, {
+      outcome: 'A 60s cut whose hook lands in the first 3 seconds',
+      acceptance: [{ description: 'Runtime is 60s ± 1s' }],
+    });
+    state = commitExecutionPlan(state, ['Move the hook to the top'], 0);
+    const text = buildStateBriefing(state);
+    expect(text).toContain('WHAT DONE LOOKS LIKE');
+    expect(text).toContain('hook lands in the first 3 seconds');
+    expect(text).toContain('Runtime is 60s ± 1s');
+    expect(text).toContain('DECIDED');
+    expect(text).toContain('Move the hook to the top');
   });
 
   it('shows established facts with their handles, so any claim can be checked', () => {

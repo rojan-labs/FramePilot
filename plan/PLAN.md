@@ -13,6 +13,656 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-22, second pass):** `[x]` **Run 2 (`e6d5ba92`) re-tested the fixes
+above and exposed a deeper class of gap: the runtime was deciding editorial questions, and the
+completion gate could not see coverage.** The run completed, met both measurable criteria (50+
+shots, 30.0s) — and delivered the editor's most emphasised requirement on 9 clips of 47.
+
+Confirmed live from that transcript: acceptance criteria recorded and checked, the
+"Deterministic self-check" wording, a skip line carrying only its reason, the empty-scene
+reading, and the unevidenced-montage caveat — which fired correctly and whose warning the editor
+repeated back as their next instruction. Five transitions, no black-frame findings (ADR 0135
+holding, pending the verification noted in `run_report.md`).
+
+Fixed in this pass:
+
+1. **`aspect_fill`/`reframe_coverage`** — nothing checked whether picture fills the frame, so a
+   vertical cut with 38 letterboxed shots passed. Asked as a consistency question (a MIX of
+   reframed and unreframed picture is a defect whatever the sources are), because the project
+   does not carry per-asset pixel dimensions.
+2. **Crop visibility** — `get_clips` rows gained `cropped`/`graded`. Crop was the one clip
+   property with no cheap read, so "which of my 47 clips still need reframing" cost 47 calls,
+   which means it was never asked.
+3. **Coverage acceptance** — "every clip", "per clip", "across clips" plus a treatment is now a
+   criterion, and `treatment_coverage` fails naming the shortfall ("colour grade: 1 of 47").
+   Read per LINE so a quantifier cannot reach a treatment in another sentence.
+4. **The authority split — ADR 0137.** `propose_edits`'s seven hardcoded rules (a move and a
+   hand-tuned score per signal, a reveal-word regex over chapter titles) became
+   `read_edit_signals`: measurements in time order, no `kind`, no `score`, no canned `why`, and
+   a `from` field saying whether each signal was supplied or measured. The beat grid keeps
+   snapping near-misses but now REPORTS a far miss instead of refusing it, unless the run
+   declared `hardSync` on `detect_beats`. Facts and guarantees stay in the runtime; judgement
+   moved to the agent.
+5. **`index_media` withheld from the model** — the contract was asserted in two places and
+   enforced in one, so the interactive agent advertised it. One-line filter plus the scope test
+   that was actually missing.
+6. **Deliverable honesty** — a brief asking for a rendered file now hears, once, that the panel
+   cannot render and the Export dialog is where the edits become a file.
+7. **Browser context parity** — the browser session now reads the visual status, the cached
+   footage map and the session digest the desktop hub already read. Run 2 asked the agent to
+   "choose from footage map" while its context carried four section labels in total; the agent
+   invented the chapters instead.
+
+Deferred, with reasons in `run_report.md`: the 44-revision gap between turns (GAP-210 — needs
+host plumbing on both surfaces for a Medium finding whose main consequence the coverage checks
+now catch) and the track-label question (GAP-211 — unresolved whether the UI disagrees).
+
+Evidence: 3167 ai-sdk, 2597 engine, 2435 web-editor tests green; ruff/mypy/eslint/tsc clean.
+Tests that encoded the old policies were split across both modes rather than deleted.
+
+**Status snapshot (2026-08-22):** `[x]` **A captured agent run (`run.md`) was traced end to
+end against the code; nine of its defects are fixed and two of its apparent defects were
+mis-read by the analysis.** One 28-minute run, five turns, zero net edits. The gaps it proved:
+
+1. **Transitions composited over black at every cut.** A transition sits on butt-joined clips,
+   so while the incoming clip eases in the outgoing one has already ended — a cross dissolve
+   dissolved up from black, a whip pan whipped in over black, in the render and both monitors.
+   The run's perceptual reviewer reported exactly this at all seven cuts (frames 90, 195, 300,
+   405, 525, 615, 735 = 3.0/6.5/10.0/13.5/17.5/20.5/24.5s) and could never be satisfied,
+   because the fault was not in any proposal. A ramp now carries the neighbour's handle
+   material (or its held edge frame) underneath. **ADR 0135.**
+2. **`crop` masked in place in the monitor and filled the frame in the render.** The editor saw
+   a small picture in black while the export was full-bleed, reported it, and the agent wrote
+   compensating scale keyframes (3.2×, then 1.78×) which the render applies *on top of* its own
+   fill scale. `preview/crop-fill.ts` now holds one arithmetic for both monitors. **ADR 0135.**
+3. **The beat grid vetoed proposals with no cut in them.** `resolveGrid`'s ungrounded rejection
+   ran before boundary collection, so once `detect_beats` had run every later proposal was
+   rejected while the analyzed asset sat off the timeline — including an eight-call
+   `set_clip_crop` step, which is how the vertical reframe the editor asked for never landed.
+   Relevance is decided before groundedness now.
+4. **The objective was a copy of the request**, so verification could only ask "did anything
+   succeed" — a request for "20+ different best moments" was satisfied by eight shots.
+   `acceptance.ts` reads the checkable conditions and the Critic gains `shot_count`. **ADR 0136.**
+5. **A failed verification was filed with a passing detail** (`passed: false` next to
+   "Passed with 1 warning(s)"). One reason, two consumers. **ADR 0136.**
+6. **A dropped or truncated step ended the run.** Both land after a 200, where the resilient
+   provider cannot see them; one failed a run the UI called retryable, the other published
+   "Rebuilding the 30 seconds as a 23-shot" as the run's last word. One in-place retry, keyed
+   off the provider's own stop reason. **ADR 0136.**
+7. **Unbounded re-steering of an unfixable finding**, and a clean deterministic self-check
+   reported while the perceptual review still held one. One attempt per defect class; the
+   completion account is amended. **ADR 0136.**
+8. **A repeated `get_frame` was refused its own picture.** The memo key carries the revision, so
+   a hit proves the frame is current — but the image had been stripped from context a turn
+   earlier, and the replay told the model to answer from a picture it no longer had. That is how
+   the run produced a confident, wrong reading of its own framing.
+9. **Nothing the editor told a run outlived it.** `createSessionContextDigester` had no caller,
+   so the editor's answered question ("Full-bleed vertical crop") died with the run that asked
+   and the next run rebuilt the montage uncropped. Desktop now reads the session digest per run,
+   and an answered `ask_user` writes a durable note.
+
+Also: an empty `detect_scenes` result now carries its own reading (a continuous take is not
+guidance on where to cut), the two perceptual gates' thresholds live in one documented table
+with a cross-language parity test, the "Skipped: N proposed changes" line carries only the
+reason instead of a read tool's raw JSON, and a montage assembled with no content evidence says
+so in its own report.
+
+**Two findings the analysis got wrong**, corrected here so they are not re-fixed:
+`ContextInput.footageMap` DOES have a producer — `main.ts` wires `footageMapFor` with
+`cachedOnly: true`, deliberately, so a cold project simply gets no map block rather than
+stalling a run on a billable Pegasus round-trip. And the 24-tool
+`autonomous-tools.manifest.json` is not a competing surface for the interactive agent: its own
+header states it is the smaller public surface for the autonomous orchestrator, MCP projection
+and Python mirror, while the full registry stays the interactive catalog. The measured cost of
+that registry is real and unchanged (78 descriptors ≈ 15,710 tokens per request at every stage
+except `apply`, which trims to 58 ≈ 12,317) — consolidating it is a maintainer scope decision,
+not a bug fix, and was left alone.
+
+Evidence: 3161 ai-sdk, 2597 engine, 2429 web-editor tests green; ruff/mypy/eslint/tsc clean;
+per-package coverage green. `pnpm verify` passes every gate except `test:visual`, which fails
+two AI-sidebar screenshots that fail identically on a clean `main` (seven panels fail there):
+both diffs are character-identical text ghosted ~1px down the panel — a font-metric shift on
+this machine, not a content change — and none of the copy changed here appears in either
+snapshot. Those baselines have been regenerated twice before (`64e4db1`, `b19438c`);
+regenerating them again is a separate call.
+Two engine transition tests were rewritten because they encoded the defect (one solid-colour
+asset on both sides of a cut cannot tell a working transition from a black flash; another
+asserted a centred ramp is *darker* before the cut, which was only true while it faded to
+black).
+
+**Status snapshot (2026-08-21):** `[x]` **Footage understanding showed nothing for new
+footage — nothing was ever indexed.** The panel said the clip "is not indexed yet" and pointed
+at a media-bin action that does not exist; Rebuild re-asked for a map that could never appear;
+no progress showed because nothing was running.
+
+Root cause was one call: `create_index` asked TwelveLabs for Marengo **and** `pegasus1.2`
+(`/analyze` used to require a Pegasus model on the index). TwelveLabs sunset `pegasus1.2` for
+indexing, so `POST /indexes` — the FIRST call any project's first indexing slice makes —
+answers HTTP 400 `parameter_invalid`. The job died there, so the brain had zero visual spans
+and zero `tl:video` rows, and every honest surface downstream correctly reported
+`not_indexed` forever.
+
+Fixed: indexes carry **Marengo only**, and `pegasus1.5` analyses the **uploaded asset**
+directly (`video: {type: "asset_id"}`; it rejects `video_id`). The uploaded asset id is
+persisted on the existing `tl:video` row (`sourceAssetId`, no schema change) and recovered
+once from the index for older mappings, so footage indexed by an earlier version maps without
+a billable re-upload. Pegasus' own JSON mis-escaping is decoded tolerantly with one
+schema-in-prompt retry, so a provider formatting bug no longer reads as "no structure".
+And unread footage now gets an ACTION: a **Read this footage** button running the same paced
+preparation pass an import runs, streaming its progress and naming its failures. ADR 0134.
+
+Evidence: live-API probes established each contract change; engine tests cover the
+index-create regression, the `/analyze` request shape, the mis-escape recovery, the single
+retry and the legacy id lookup (2584 engine tests green, ruff + mypy clean); panel tests cover
+unread → read → map and each honest failure.
+
+**Status snapshot (2026-08-21):** `[x]` **The agent leaked its own run state into the
+chat, and into the edit history.** A captured run opened 21 of its replies with harness
+bookkeeping — *"I'll continue from the interpret stage."*, *"I'll continue from where the
+run left off."* — and because the run has one text channel, the same sentence was stored as
+the patch `reason` and rendered as the proposed edit's Summary and Reason.
+
+Root cause: `buildStateBriefing` hands the model an imperative second-person briefing
+("You are at 'interpret'. Continue from here."), and nothing in the contract said which of
+that machinery the editor may see. Every rule governed what the model should *do*; none
+governed what it may *say about itself*. Not a truncation/retry/cancellation artifact — the
+leaking turns were ordinary successful ones.
+
+Fixed at the contract (a privacy clause on the briefing itself, and a NARRATION rule opening
+the agent contract) **and** independently at the kernel (`kernel/narration.ts`, filtering the
+assistant delta stream in `streamProvider` — the one point every route's model text passes
+through). `text` now accumulates what the filter let through, so the string the editor read,
+the string stored as the patch reason, and the string the reducer signatures the turn by are
+the same string. ADR 0130.
+
+Evidence: 3091 ai-sdk tests green, lint + typecheck clean, `narration.ts` at 100%
+line/branch/function coverage. Both new test files mutation-tested — with `isRunChatter`
+forced to `false`, all six run-level guards (clean, complete()-only, cancelled mid-sentence,
+provider throws, truncated, retried turn) fail. All 15 golden fixtures re-recorded; the
+complete diff is token-estimate deltas (+167/request, ~0.9%) with **zero** event, ordering or
+behavioural divergence.
+
+**Status snapshot (2026-08-21):** `[x]` **The same run's other two defects: the agent could
+not tell its own actions apart, and was told success was failure.** In that capture
+`auto_emphasize_captions` ran eight times and **succeeded seven**, yet the run finished
+believing emphasis had never landed. Two records were lying, and they compounded:
+
+1. `summarizeOperations` built the tool-result note from the OPERATION, so
+   `auto_emphasize_captions` and `set_track_caption_style` — which both emit
+   `set_track_caption_style` — logged the identical line "Set track caption style Caption 1"
+   (28 times in the capture). That note is the tool result, the agent log, AND the
+   `ALREADY APPLIED` row, so the run's memory showed only styling and never emphasis.
+   Fixed: when a tool's name is not among the ops it produced, the note reads
+   `intent → outcome` ("Emphasising key words in the captions Caption 1 → Set track caption
+   style Caption 1"). A runtime rule, not a table — every such tool benefits.
+2. A turn refused by the repeated-patch guard was recorded as a `failed` operation, which the
+   briefing renders under `FAILED — fix the cause, do not retry unchanged`. That appeared
+   **24 times** for emphasis that was correctly on the timeline. The model looked for a cause,
+   found none, retried, produced the same patch id, and got the same "failure". Fixed:
+   `AgentTurnResult.satisfied` marks the no-op branch, the reducer records `succeeded` with no
+   failure reason, and it lands under `ALREADY APPLIED`. Genuine rejections are unchanged.
+
+3. The completion report rendered `${action}: ${detail}` unconditionally, and
+   `describeOperation` returns an empty detail for any op without start/end — so the run
+   closed with eight rows of `Set track caption style:`, a dangling colon over nothing, and
+   no mention of which track. Its "Skipped: 2 proposed changes did not validate" counted the
+   already-applied no-ops. Fixed: a shared `operationLine` (action + subject + detail) used by
+   both the note and the report, identical lines collapsed to one row with `(×N)`, and
+   satisfied turns excluded from the rejection tally.
+4. The verify fold records `criterion: objective.description`, and objectives are seeded from
+   `userPrompt` — so the run's memory ended with `PASS <the entire request> — All checks
+   passed.` on a run that called **no effect or transition tool at all**. `buildStateBriefing`
+   feeds that straight back to the model under `VERIFIED`: the CLAIMS OF COMPLETION overclaim
+   the contract forbids, arriving through the one channel the contract cannot reach.
+   `briefing.ts` already suppresses this echo in three other sections; `VERIFIED` was missed.
+   Fixed: an echoed criterion renders as `the timeline consistency checks (NOT the request
+   itself)`; a real criterion is untouched.
+
+ADR 0131. Evidence: `agent-call-note.test.ts` (end-to-end through `streamAgent`),
+`kernel/already-satisfied.test.ts` (through the real reducer, 9 cases) and
+`orchestrator-stream.test.ts`, every fix mutation-tested; 3111 ai-sdk tests and all workspace
+tasks green. Only golden movement is the report gaining its subject
+(`- Deleted range: 0s–3s` → `- Deleted range Video 1 · 0s–3s`), which is the fix.
+
+**Status snapshot (2026-08-21):** `[~]` **FRAMEPILOT-95 Phase 2 §7.3 started: property coverage
+over generated operation sequences.** `packages/editor-core/src/operation-algebra.property.test.ts`
+generates legal operation chains (seeded PRNG, 8 fixed seeds, 8-11 applied ops each, spanning
+trim/split/delete_range/ripple_delete/text-overlay) and asserts the algebra's laws:
+apply-then-invert is identity on content, every PREFIX inverts independently (localizes a bad
+inverse to one step), composition never corrupts structure (checked after every prefix), and a
+stale target fails closed.
+
+**Result: no defects found — the algebra is sound.** Recorded plainly; a property suite that
+finds nothing is evidence, not a failure. Load-bearing per mutation testing: a stale inverse
+state fails 12 of its 25 cases vs 2 of 27 in `patch.test.ts`.
+
+Two flaws were mine, not the engine's, and are worth remembering: (1) `delete_clip` is a TOOL
+name, not an operation type — editor-core's delete vocabulary is range-based, and the engine
+correctly rejected the unknown op rather than no-op'ing; (2) `applyPatch` advances `revision`,
+so apply-then-invert is identity on CONTENT while the revision clock moves forward — an undo
+is a new revision, not a rewind. The test asserts both halves separately.
+
+Extended to cover **six of §7.3's seven rows**: added the revision-clock IFF law (`revision`
+advances iff the source↔sequence mapping changed per ADR 0076 — the signature it compares
+against is written independently of `mappingChanged`, since a test reusing the function under
+test proves only that it equals itself), serialization round-trip (equal after JSON round-trip
+AND behaviourally identical under the next operation), and input immutability (a
+shared-reference leak would let state change with no operation recorded to invert). All three
+mutation-tested: always-bump fails 7/49, never-bump fails 16/49, mutating-the-input fails
+24/49.
+
+**CORRECTION (same day, found while auditing §7.1).** I earlier recorded that "editor-core has
+no revision precondition" and left the staleness row open. **That was wrong.** It came from
+grepping for `baseRevision`/`expectedRevision`/`atRevision` and missing the real names:
+`EditorCommandBase.timelineRevision` and the `stale_timeline` rejection. Every `EditorCommand`
+is revision-bound by construction, and `compileEditorCommand` runs `validateAuthority` **before
+every dispatch**, already covered by `professional-commands.test.ts:464`.
+
+The real gap is narrower and more useful than the one I reported: **the guard protects the
+COMMAND path only.** Raw `applyPatch` has no revision precondition, and per the §7.2 audit the
+web-editor uses exactly that raw path. So a stale AI command is rejected while a stale UI edit
+is not. That is a concrete, testable follow-up, and a better lead than "no guard exists".
+
+**§7.2's capability matrix is now audited against code** (not filled in by guess): 12 rows ×
+8 columns, sourced from `listEditorCapabilities()` (34 registered capabilities carrying
+commandType/tool/compiler/verifier/inverter/operationTypes), `TOOL_REGISTRY` (43 mutating
+tools), and a per-surface grep of the web-editor. Preview/export columns are marked `?` — NOT
+audited, not guessed.
+
+**The structural finding: the UI does not go through `EditorCommand`; the AI and MCP do.**
+`compileEditorCommand` has three non-test consumers — the AI professional-edit tool, capability
+discovery, and the evals. No UI file imports it; the web-editor builds raw operations in
+`apps/web-editor/src/editor/patch-builders-base.ts`. MCP converges via `TOOL_REGISTRY`.
+
+The shared `validate → apply → revision` authority DOES hold. What is not shared is command
+semantics: `roll`, `slip`, `slide`, `insert`, `overwrite`, `lift`, `extract`, `replace`,
+`j_cut`, `l_cut`, `switch_angle` exist **only for the AI** — a human editor cannot perform any
+of them; there is no shortcut, menu item, or control that reaches them. So Phase 2's real work
+is not "converge two implementations of roll", it is "the UI has no roll at all".
+
+Other audited findings: transitions and captions have working UI+AI but **no capability-registry
+entry**; motion/colour/audio are registered as `property`, not `command`, so whether §7.1's
+contract covers them is unresolved; multicam has **zero** UI components; the mask Inspector
+dispatches but `bounds` is **hardcoded** to the centre 60% with no handles or fields, so a user
+cannot place a mask (engine ✓, UI operable ✗ — matching the 2026-08-16 audit, which my own
+quick grep initially contradicted before I checked the source).
+
+**§7.1 audited, and its most load-bearing gap closed.** `listEditorCapabilities()` IS the
+canonical contract and already carried 5 of the 10 required elements (deterministic target,
+compilation, validation, apply, invert). Added the sixth: **explicit time domain**.
+
+`editor-core` already encoded this as `FrameDelta<'source'>` vs `FrameDelta<'sequence'>` in the
+command interfaces, which is the right place to check it, but a phantom type parameter vanishes
+at runtime, so the discovery surface the model actually reads never carried it. Capabilities now
+declare `timeDomains`, read off each command's own signature rather than guessed: `slip` is
+`['source']`, `slide` is `['sequence']`, `insert`/`overwrite` are `['sequence','source']` (they
+position in sequence and trim in source), `lift`/`extract` are `[]`. Property capabilities
+(motion/colour/audio) are `[]` — declaring a timebase on a value that has none would invite a
+conversion that makes no sense.
+
+This matters specifically because ADR 0076 calls two-timebase confusion the single most
+expensive thing to get wrong AND invisible when wrong. `editor-capabilities.test.ts` pins every
+row against the command signatures and asserts the full command set is accounted for, so a new
+command cannot arrive undeclared. Mutation-tested: declaring slip as `sequence` fails 2 of 10.
+
+**§7.1 preconditions: SHIPPED (later the same day).** I first declined this as needing a
+call-graph pass. On re-examination the honest answer was a declared **superset**, which is
+accurate and useful without one. `editor-core` now exports `COMMAND_REJECTION_CODES` and
+capabilities republish it as `preconditions`, so a UI can grey out a roll and say
+`not_adjacent` rather than parsing tool prose. Helper-raised codes are listed for every
+command (over-listing is safe for these consumers; under-listing would not be), and
+`command-preconditions.audit.test.ts` reads the compiler's source and fails when a command
+raises an undeclared code. Mutation-tested. The audit paid for itself immediately: it caught
+two errors in my first hand-written table, where a helper defined between two compilers had
+its codes attributed to the one above it. §7.1 is now 7 of 10 elements.
+
+Formerly-missing, superseded by the above: the
+vocabulary already exists as structured rejection codes from `compileEditorCommand`
+(`not_adjacent`, `clip_too_short`, `insufficient_source_handle`, `locked_track`, …), which is
+exactly what a UI needs to grey a command out and say why. I did NOT ship the field: those
+codes are only partly derivable per command. Seven compilers raise theirs inline, but
+`compileInsert` and `compileOverwrite` raise none directly — theirs come from shared helpers
+(`trackForCommand`, `assertLocations`, `ensureHandle`, `compilePatch`), so declaring `[]` for
+those two would assert "no preconditions", which is false. Doing it right needs a call-graph
+pass, or better, moving each command's codes into a declared table the compiler reads FROM, so
+contract and enforcement cannot diverge. Left undone rather than shipped half-correct.
+**§7.1 human-readable description: SHIPPED.** Every capability carries one sentence naming the
+mechanism rather than the label, since that is what distinguishes the confusable pairs (slip
+vs slide, lift vs extract). Written from each compiler's verified behaviour, not from the
+command name. §7.1 is now **8 of 10**. Remaining: replay semantics, and the diff/receipt link
+is still convention (`describeOperation` produces it; the capability does not reference it).
+
+Also missing: **human-readable description** (lives on the AI tool, so UI/MCP cannot render a
+capability without parsing tool prose), **replay semantics**, and the diff/receipt link is by
+convention (`describeOperation` produces it; the capability does not reference it).
+
+Phase 2 is NOT complete.
+
+**Status snapshot (2026-08-21):** `[x]` **FRAMEPILOT-95 Phase 1 follow-up #2 closed as WON'T
+DO: the single-shot `edit` route stays (maintainer decision, ADR 0133).** The roadmap's
+"1 mutating AI runtime" criterion was literally false while `edit` existed. The criterion was
+what was wrong, not the code: `edit` has no loop, no conductor, no durable checkpointing, and
+no authority the agent lacks — it makes one model call and goes through the SAME
+`assembleEdit` validate/diff path. It is a proposal surface over the one runtime, not a
+parallel implementation of it.
+
+Converging it would have meant deleting `variations` (a shipped browser capability, removed
+to satisfy a sentence in a plan) or rebuilding it on a turn-bounded agent run — which risks
+reintroducing fabricated cost numbers, since `editVariations` deliberately uses `complete()`
+because a stream cannot carry real token usage on its terminal chunk. Neither buys the user
+anything.
+
+§4 now reads "1 mutating AI RUNTIME … explicitly not one mutating entry point"; the exit
+criterion and benchmark table are updated to match. Recorded in ADR 0133 specifically so a
+later agent does not "finish" this by deleting a feature. Reopens if `edit` ever grows its own
+retry/checkpointing/validation authority. No code changed.
+
+**Status snapshot (2026-08-21):** `[x]` **FRAMEPILOT-95 Phase 1 follow-up closed: the beat
+grid has a caller.** `kernel/beat-grid/beat-alignment.ts` — a complete, tested editorial
+guarantee — had **zero callers** since ADR 0126 retired the planned-edit driver. The agent
+could call `detect_beats`, receive 300 exact onsets, and place cuts anywhere, with nothing
+checking one against the other.
+
+Wired at `Orchestrator#applyAgentTurn` (both turn loops + the repair pass), exactly where the
+module's own header said to. The raw payload is threaded per run via a
+`HostCallContext.beatEvidence` box, not held on the Orchestrator (concurrent runs). It could
+NOT come from the evidence store: analysis results are never stored there — only reads and
+`measure_color` are — which is recorded in ADR 0132 because it is the first thing a later
+reader will ask.
+
+**The gate is the agent's own decision**, which is the Phase C property: the rule engages only
+when the run elected `detect_beats`. No beat-sync mode, flag, or classifier exists, and a run
+that never analyzed the music is provably untouched (asserted by test). Runtime owns execution
+and safety; the model owns editorial strategy.
+
+Added `beatGridFor()` — a narrow export of the semantic index's existing `deriveBeats` — so
+music placed on an EARLIER turn resolves, which the module alone could not do. Narrow on
+purpose: the full `SemanticTimelineIndex` would compute scenes/silences/music/chapters every
+turn to read one array.
+
+Evidence: `beat-grid-wiring.test.ts` drives real `streamAgent` runs — near-misses snapped,
+far-off cuts rejected naming the nearest onset and never reaching the timeline, no-beats run
+untouched. Mutation-tested (unwiring fails 2 of 3, third correctly unaffected). 3114 ai-sdk
+tests green. Limitation in ADR 0132: governs add_clip/trim_clip/split_clip picture boundaries,
+not move_clip/ripple assembly.
+
+**Status snapshot (2026-08-21):** `[~]` **FRAMEPILOT-95 Phase E — time-to-first-visible-edit
+is now measurable; the number is NOT yet measured.** Added `timeToFirstEditMs` to the existing
+Phase-0 harness (`agent-run-quality.ts`) — ms from the run's first event to the first
+`timeline_action`/`diff`, i.e. the first instant the editor sees the timeline move. Distinct
+from `wallClockMs`: a run can finish fast and still feel broken if nothing moves for ninety
+seconds. Absent (never zero) when the run produced no visible edit — the captured run's exact
+shape, where a zero would report the worst run as the fastest. Percentiles join the existing
+top-line score via `summarizeAgentOutcomeRuns`. Derived from events the harness already
+captures, so a real-media run reports it with no new instrumentation.
+
+The measuring rig now accepts REAL MEDIA. `eval/foundation-real-eval.ts` drove every scenario
+against `makeProject()` — a few seconds of synthetic fixture — so its latency numbers could
+never have supported a footage claim (goal.md: "Do not use tiny fixtures alone to support a
+long-form performance claim"). It now loads a real project from `FRAMEPILOT_EVAL_PROJECT`,
+parsed through the canonical `parseProject` so a stale/malformed file fails loudly instead of
+silently measuring the wrong thing. Every artifact and job summary is stamped
+`media: 'fixture' | 'real-project'`, and a fixture run prints "these latency figures do not
+support any claim about real footage" — so a fixture number can never be mistaken later for a
+real one. `timeToFirstEditMs` p50/p95 is now a row in the job summary.
+
+So measurement is one command once media + keys exist:
+`FRAMEPILOT_EVAL_PROJECT=/path/to/real.fp.json GOOGLE_API_KEY=… pnpm eval:agent:foundation:real`
+(env var mirrored into `.env.example` + `turbo.json` globalEnv per CLAUDE.md §2).
+
+**No latency, cost, or editorial-quality number is claimed.** Per the maintainer's decision,
+measurement waits on real desktop-scale media and a `TWELVELABS_API_KEY`; a scripted provider
+cannot produce either (the same reason the roadmap's Phase 1 latency condition was waived).
+`plan/FRAMEPILOT-95-CONVERGENCE-ROADMAP.md` Phases 2-11 remain not started.
+
+Known gap left open deliberately: the repeated-patch guard keys on operation content alone,
+so returning the timeline to an earlier state (style S → T → S) is still refused as
+already-applied though it is a real change. Not the cause of this failure; fixing it means
+comparing against the working project rather than a hash set.
+
+Correction to a premise carried in the request that prompted this work: there is **no**
+hardcoded beat-sync conditional or mode flag to remove. The classifier routes only
+`chitchat | question | edit` (ADR 0126); beat sync is already a tool the agent elects. The
+real open item is the reverse — `kernel/beat-grid/beat-alignment.ts` has **no callers** and
+is unwired, tracked as the Phase 1 follow-up in
+`plan/FRAMEPILOT-95-CONVERGENCE-ROADMAP.md`.
+
+**Status snapshot (2026-08-20):** `[x]` **Fix: two tool schemas broke the native Claude
+Messages API.**
+
+Calling the real Claude Messages API through the `openai-compatible` provider against the
+`trial/` auth2api proxy (which forwards the OpenAI-shaped request into a real Anthropic
+call) failed with `400: tools.23.custom.input_schema: input_schema does not support
+oneOf, allOf, or anyOf at the top level`. Two advertised tool schemas — `map_time`
+(`tool-input-contract.ts`) and `professional_audio` (`domain-tools/professional-audio.ts`)
+— put a top-level `oneOf`/`anyOf` directly under `parameters`, which Anthropic's real API
+rejects outright. Both are now flat object schemas: `map_time` documents its
+sourceTime/sequenceTime exclusivity in prose (enforced at runtime by the unchanged
+`assertMapTime`), and `professional_audio` merges its six intent variants into one
+property bag with an `intent` enum (enforced at runtime by the unchanged
+`AudioObjectiveSchema.parse`). Added a standing regression test
+(`tool-registry.test.ts`) asserting no tool ever advertises `oneOf`/`anyOf`/`allOf` at the
+top level. Regenerated every fixture the token-estimate shift touched (five
+`langchain-anthropic-sessions` sessions, ten `golden-sessions`, the `streamAgent-golden`
+snapshot, `ts_tool_registry.json`).
+
+Evidence: ai-sdk test suite green; rebuilt `ai-sdk` dist confirms `toolDescriptors()`
+carries zero top-level `oneOf`/`anyOf`/`allOf` across all tools.
+
+**Status snapshot (2026-08-20):** `[x]` **Third stalled agent run — caption restyle
+("can you use differnt caption style and emphasize the captions as well", deepseek-v4-pro, two
+runs, 11 calls, $0.48, zero mutations).** Same failure family as the two montage runs below and
+again not an orchestration-architecture gap: the run read the answer, could not keep it, and
+could not ask for it back. Five defects, all fixed with `file:line` evidence:
+
+1. **`recall_evidence` could not match a keyword query.** `evidence-store.ts#recall` tested
+   `part.includes(wholeQuery)` — one literal substring — so `captionStyle track layer_caption_4
+   style` could only match if that exact 45-character string sat inside a single record. Every
+   queried recall in both runs returned "No part of ev_N matches" against payloads that plainly
+   contained the terms. Queries are now tokenised and scored (`rank`), with a whole-phrase hit
+   ranked above scattered term hits. This mattered most on the ACTION RECOVERY turn, where
+   recall is the ONLY retrieval tool left in scope.
+2. **No way past the recall budget.** An unqueried recall returned `slice(0, 4000)`, so the tail
+   of any larger payload was unreachable by any argument — the run recalled the caption catalog
+   three times and got the identical head, cut mid-template, each time. `recall_evidence` now
+   takes `offset` and every truncated answer names the offset to resume from (`page`).
+   `recordsOf` also stopped requiring exactly ONE array property: two record lists sent a
+   payload down the single-line JSON path, which covered both reads a caption run needs
+   (`discover_caption_styles`, `get_mapped_transcript`).
+3. **The digest dropped the field the request named.** `timelineDigest` rendered track
+   id/type/flags/clips and never `captionStyle`, so the distilled fact was "5 tracks, 87 clips"
+   while the payload held `templateId: headline` plus the accent already applied. Two turns
+   later the raw payload had aged out of the rolling log window and the run went hunting for
+   what it had already been told. `get_timeline` now carries the committed caption style, and
+   `get_clip`, `get_mapped_transcript`, `get_timeline_summary` and `discover_caption_styles`
+   have record-bounded digests instead of the blind 1200-char `previewJson` default.
+4. **The template catalog was unreachable by construction.** 51 templates exist; `limit` was
+   capped at 45 and defaulted to 20, so no call could return the catalog and `headline` — the
+   style actually applied — sat past the cut. `set_track_caption_style` rejects an id the model
+   was never shown, so the run could neither name what it had nor choose a deliberate
+   alternative. Ceiling and default are now the catalog's own size on both sides of the
+   TS↔Python contract.
+5. **"contine" became the objective.** `onCommand` seeded outcome/acceptance/decision from the
+   raw prompt, so the second turn's objective, success criterion, committed decision and the
+   criterion verification checked were all the literal word "contine" — hence
+   `VERIFICATION_INCONCLUSIVE`. `kernel/continuation.ts` resolves a bare nudge (typo-tolerant)
+   to the request underneath it from `input.history`, while `objective.request` keeps what the
+   editor actually typed; a message carrying its own content is never rewritten.
+
+Evidence: 3,030 ai-sdk tests and 2,581 engine tests green; every touched file at 100% line and
+branch coverage for the new code (`kernel/continuation.ts`, `kernel/evidence-store.ts`,
+`kernel/working-state.ts`, `kernel/conductor.ts`, `domain-tools/captions.ts` all 100%;
+`orchestrator.ts` branch 95.12 → 96.44). Ten golden corpora and one snapshot regenerated
+(`objective.provisional`, tool-definition token estimates, and pre-existing unregenerated drift
+in the `load_skill` unknown-skill finding — no event, operation or status changed). See
+`docs/adr/0128-retrieval-the-run-can-actually-use.md`; ADR 0127 amended where this closes half
+of an item it recorded as open.
+
+**Status snapshot (2026-08-20):** `[x]` **AI panel alignment/whitespace + one on/off control.**
+The notice card (errors, warnings, notices) was laid out by three stylesheets at once and they
+disagreed: `AiSidebar.beautiful.css`'s `border: 0` silenced the tone stripe `styles.css` set, so
+a failed run looked informational; `.ai-notice-body` was a flex ROW, which made the disclosed
+`<pre>` detail a third COLUMN beside the message; a `margin-top` for the old column layout
+knocked the action buttons out of line; and an info notice (no icon) started 20px left of every
+warning in the thread. A two-column grid in `AiSidebar.polish.css` now owns the whole card, and
+`tests/e2e/specs/ai-notice-layout.spec.ts` asserts the boxes — all three levels share a message
+column at x=963, the detail is full-width beneath the actions, and the stripe is an inset shadow
+that follows the 9px radius. Also: `.ai-markdown` styled only `code`/`pre`, so assistant lists
+took the browser's 40px indent and 13px paragraph margins in a 300px panel; and
+`.ai-plan-steps, .ai-plan-list` in `beautiful.css` matched no markup (the class is `.ai-plan`),
+so the plan list never got its intended flex layout. Controls: "Keep inside safe area" became a
+`Switch` (an immediate preference), caption row selection became the `Checkbox` primitive, and
+the global `input[type='checkbox'] { accent-color }` rule is gone — it only ever themed a native
+control that should not exist. The decision rule is now a table in `DESIGN_SYSTEM.md`.
+Orchestration: `stage-policy.ts#planningExhausted` deleted — a caller-less duplicate of
+`conductor.ts#researchBudgetSpent` whose docstring claimed a durable stage-level closure the
+product never had.
+
+**Measured, not fixed:** the agent ships **78 tool schemas ≈ 15.7k tokens on every turn** —
+~90% of the observed 102k-token run. The three caption tools alone are 12.5k chars (20% of the
+block), and `set_caption_style`/`set_track_caption_style` are near-duplicates at 8.4k combined.
+Reducing this is roadmap Phase 4 §9.1 (dynamic exposure by project capability) and §9.2 wants
+the telemetry before the cut; gating caption tools on "project has captions" would withhold them
+from a run about to add captions, so it needs the eval evidence rather than a guess.
+
+**Status snapshot (2026-08-19):** `[x]` **Agent read-fidelity + capability-honesty repair.**
+A real montage-refinement run ("more precise cuts, at least 45 clips, don't keep the clips from
+the starting offset") stalled without producing a patch. Root cause is not orchestration
+architecture: every timeline read that carries **source in/out** — `get_clips`, `get_clip`,
+`get_timeline_map`, `map_time` — had no entry in `summarizeReadResult`'s digest table and fell
+through to the blind 1200-char `previewJson` default, so the model received ~4 of 42 records
+with a bare `…` and no "N more" tail. It could not obtain the `sourceStart` it was asked to
+vary. Compounding it: `summarizeVisualStatus` told a text-only run to "look at a specific
+moment with `get_frame`" while `agentTools` had withheld every vision descriptor, and two
+skill manifests advertised `index_media`, which is `IMPLICIT_ONLY` and never model-selectable.
+Fixed: record-bounded digests for `get_clips`/`get_timeline_map`/`map_time` (source in/out
+included), record-aware `recall_evidence` for list payloads, `summarizeVisualStatus` gated on
+`Orchestrator#canSeeFrames()`, `validateSkillTools` rejecting implicit-only/unavailable tools,
+and `trim_clip`/`get_timeline_map` descriptions that state their limits. Five golden corpora
+and one snapshot regenerated (token estimates only). See
+`docs/adr/0127-a-read-the-model-cannot-finish-reading.md`.
+
+**Second run, same request (2026-08-19, deepseek-v4-pro, 6 calls, $0.98, 13m14s, cancelled):**
+four further defects, all fixed. (1) Every in-process read reported its own descriptor as its
+summary, so `distil` recorded "Reading the timeline → Reading the timeline" — the run's memory
+was a list of verbs; reads now carry a `finding` (the digest head line). (2) `isSemanticLoop`
+had been dead in production: the Conductor's `stageAdvanced` was an object comparison against a
+`state.working` the fact fold had already replaced, so it read true whenever a fact was
+recorded, and the detector only ever fired because degenerate facts deduplicated into a no-op —
+it now compares the stage. (3) `agentTools('action-recovery')` withheld `recall_evidence`, the
+one tool its own instruction names, so the model inferred asset durations from clip-id
+millisecond suffixes and placed 46 clips against guesses. (4) The briefing printed the raw
+request five times under five headings; the echoes are suppressed and `defaultActionFor` uses
+its per-stage instruction. Five golden corpora + one snapshot regenerated (fact statements,
+nextAction text, token estimates — no event, operation or status changed).
+
+Deliberately NOT fixed here, each needing its own reviewed slice — all four are recorded in
+ADR 0127 with `file:line`:
+- [~] **The interpretation slot holds an echo.** `conductor.ts` pre-fills the run objective
+      with the raw prompt at construction and `setObjective` is idempotent, so no turn can
+      ever write a real interpretation. The briefing no longer RENDERS the echo four times,
+      but the run's derived reading (montage length vs music bed, clip-count arithmetic,
+      visual search unavailable) is still never durable. Needs a seam for the model to write
+      an interpretation once — the remaining half of the 391-second thinking block.
+      **Half-fixed (2026-08-20, caption-restyle run below):** the seed is now recorded as
+      `objective.provisional` and `setObjective` lets the FIRST real interpretation replace a
+      placeholder while still protecting an interpretation from being rewritten — so the slot
+      is no longer permanently occupied. What remains is the model-facing seam itself: no tool
+      or turn hook calls `setObjective`, so nothing yet writes the interpretation the slot is
+      now open for. Keep this item until that caller exists.
+      **Still open after the caption run (2026-08-20, ADR 0129):** re-examined and confirmed
+      to be a REPORTING defect, not the cause of that failure — the run failed honestly on
+      `no traceable project mutation`, and the echoed criterion made the verdict vague rather
+      than wrong. Priority stays below correctness work for that reason.
+- [ ] **The decision-recording seam is unwired.** `addDecision`/`commitDecision`/
+      `reviseDecision`/`recordObjective`/`setBlocker` have no production callers.
+- [ ] **`stage-policy.ts#planningExhausted` is dead code** duplicating
+      `conductor.ts#researchBudgetSpent`; the durable stage-level planning closure its
+      docstring promises does not exist.
+- [ ] **No agent-usable in-place `sourceStart` change.** `professional_edit`'s `slip` needs a
+      live selection plus the clip's asset in the source monitor; delete + re-`add_clip` is
+      the only path an autonomous run has, and only the tool description now says so.
+
+**Fourth run, "enhance the captions" (2026-08-20, deepseek-v4-pro, 9 calls, $0.64, 6m43s,
+failed with zero mutations):** `[x]` fixed — and the first of the four whose cause was NOT
+retrieval. The model had every fact it needed and correctly declined to edit, because the
+acceptance test it was given was unsatisfiable. `verify_captions` returned 68 issues across 40
+cues and **none of them was real**:
+
+1. `checkCueBoundaries` filtered `map.spans`, which `buildTimelineMap` fills from every video
+   AND audio clip, so it flagged **picture** cuts. The generator disagrees and says so in its
+   own docstring: `deriveCaptionCues` segments per `MappedRun` (grouped on the AUDIO clipId)
+   and calls runs "what guarantees no cue crosses a cut". So the canonical generator's output
+   was rejected by the canonical verifier on every project whose picture is cut more finely
+   than its audio — every montage, every B-roll edit, every multicam. Here it was
+   unsatisfiable, not merely strict: 46 shots averaging 0.43s under continuous narration
+   leaves nowhere to put a cue, and single words fail too (`heart,` 3.84–4.37s across a cut at
+   4.209s). The rule's own message — "its words were never spoken together" — is true of a
+   speech break and false of a picture cut. Fixed: the rule tests speech runs, the code is
+   `caption_spans_speech_break`, and `get_mapped_transcript` now returns and explains the run
+   bounds.
+2. `caption_stale` compared `derivedFromRevision !== map.revision` — a change-detector for the
+   whole project, not a staleness test. 65 revisions of colour and effects marked all 40 cues
+   stale while `checkCueSync` passed on all 40 and `speechCoverage` was 1. Fixed: staleness is
+   measured against the words that currently play across the cue (count, text, drift), by
+   midpoint ownership so it agrees with `speechCoverage`.
+3. Sixteen read tools had **no digest arm** and fell to `previewJson`, so — because `distil`
+   keeps a digest's first line as the run's fact — the run's memory of its own verification was
+   `{"ok":false,"issues":[{"code":"caption_spans_cut","clipId":"cap` cut mid-string. Digests
+   added for `verify_captions`, `verify_transitions`, `list_edit_boundaries`, `analyze_silence`,
+   `detect_scenes`, `discover_effects`, `discover_transitions`; the remaining nine are an
+   explicit allowlist with a reason each, asserted against the registry both ways, so a new
+   read tool now fails CI until somebody decides.
+4. **ADR 0128 §3 was half done.** It put the caption style in the `get_timeline` digest so the
+   answer would survive the log window, but on the per-track line — and `distil` keeps only
+   the head, so the fact still said `5 tracks, 87 clips: layer_caption_4(40), …`. The style now
+   rides in the head, with a test that goes through `distil` itself.
+5. **Reachable is not affordable.** `get_mapped_transcript` returned `MappedTranscript`
+   verbatim and `runs[].words` repeats every word already in `words[]` — 81 words in 27,647
+   characters, seven pages at the 4,000-char recall budget. The run spent six of its nine turns
+   paging a transcript it had already been given. Runs now carry bounds + count (13,885 chars,
+   −49.8%) and `EVIDENCE_RECALL_CHARS` is 16,000.
+
+`verify.ts` at 100% line and branch; `orchestrator.ts` branch 96.44% → 96.61%. Ten golden
+corpora and one snapshot regenerated (token estimates only — the two rewritten tool
+descriptions are longer; no event, operation or status changed). See
+`docs/adr/0129-one-definition-of-a-cut.md`.
+
+Examined and deliberately NOT changed, with the reason recorded so a later agent does not
+"fix" it back: `analyze` is still left only by attempting a mutation, and `recall_evidence`
+still survives the action-recovery turn. Withholding it was already tried and was worse — a run
+built 46 clips on durations inferred from clip-id suffixes because the bin it had read twice
+was unreachable (ADR 0127). A recall produces no `callFact`, so a recall-only recovery turn is
+correctly scored as no progress and the convergence guard closes the run two turns later. That
+two-turn tail is the price of the recovery turn being survivable.
+
+**Status snapshot (2026-08-18):** `[x]` **FramePilot 9.5 Phase 1 — runtime convergence.**
+FramePilot now has ONE mutating AI execution runtime (ADR 0126). The `planned_edit` route and
+everything that served only it — `streamPlannedEdit`, the intent parser, the planner, the plan
+compiler, the task graph, the graph executor, the scheduler, the recipe leaves, the edit
+proposer, their prompts, and the `planned-edit` session mode across web-editor/desktop/IPC —
+are deleted. Analysis-dependent edits (beat sync, scene-driven assembly) are ordinary agent
+work: the agent acquires evidence through `detect_beats`/`detect_scenes`/`analyze_silence` and
+mutates through the same schema-validated tool boundary as every other edit.
+
+The deletion was gated on a parity harness that ran the same goal through both routes with the
+same deterministic provider and host executor
+(`docs/architecture/FRAMEPILOT-95-ROUTE-PARITY-EVIDENCE.md`). It found no unique capability, no
+model-call saving (3 vs 3 on the happy path, and `planned_edit` costing MORE on failure paths),
+and one safety defect unique to the planner path: Planner-authored `host_tool` arguments reached
+the host analysis engine with no schema check. Two dimensions — editorial outcome and wall-clock
+latency — could not be measured without a real provider and are recorded as **explicit
+maintainer waivers**, not passes.
+
+Two open follow-ups, both tracked in the roadmap rather than claimed as done. (1) The
+single-shot `edit` route is still a second mutating entry point — a proposal surface, not a
+runtime (no loop, no conductor, no durable checkpointing). (2) **Beat-grid boundary
+enforcement is unwired**: `beat-alignment.ts` snapped near-miss `add_clip` boundaries onto
+detected onsets and rejected off-grid ones, its only caller was the planner path, and the
+agent does not enforce it. Found during self-review, not by the parity harness — whose
+beat-sync row scripts perfectly on-beat clips and so never exercised off-grid rejection. The
+module is retained and documented; wiring it into `applyAgentTurn` is roadmap PR 5.
+
 **Status snapshot (2026-08-17):** `[~]` FramePilot 9.5 Foundation (`plan/FRAMEPILOT-95-CONVERGENCE-ROADMAP.md`
 Phase 0, tracked in that doc and `docs/quality/FRAMEPILOT-95-FOUNDATION-BASELINE.md` rather than
 here as its own task list) — added the **measuring infrastructure** for the two still-open

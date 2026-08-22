@@ -146,6 +146,65 @@ describe('onCommand', () => {
     expect(events[0]).toMatchObject({ type: 'status', status: 'thinking' });
   });
 
+  it('records the objective as provisional when the request states nothing checkable', () => {
+    const { state } = onCommand(idle, command());
+    expect(state.working.objective.outcome).toBe('tighten the intro');
+    expect(state.working.objective.provisional).toBe(true);
+  });
+
+  it('records the checkable conditions a request DID state as acceptance criteria', () => {
+    // Until now the outcome, the single criterion, the committed decision and the criterion
+    // verification reported against were all the same sentence the editor typed — so a
+    // request for "20+ different best moments" was satisfied, as far as the ledger knew, by
+    // eight shots. See `acceptance.ts`.
+    const asked: Command = {
+      kind: 'submit_turn',
+      mode: 'agent',
+      stream,
+      input: {
+        project: makeProject(),
+        userPrompt: 'make a 30 second reel from at least 20 different best moments',
+      },
+    };
+    const { working } = onCommand(idle, asked).state;
+    const descriptions = working.objective.acceptance.map((entry) => entry.description);
+    expect(descriptions.some((text) => text.includes('30s'))).toBe(true);
+    expect(descriptions.some((text) => text.includes('20 distinct shots'))).toBe(true);
+    // The request itself is still a criterion — it is the part no check settles.
+    expect(descriptions.at(-1)).toBe('make a 30 second reel from at least 20 different best moments');
+    // A reading with something checkable in it is not a placeholder.
+    expect(working.objective.provisional).toBe(false);
+  });
+
+  it('resolves a bare "continue" to the request underneath it, not to the nudge', () => {
+    // The whole failure this closes: a turn whose message was "contine" recorded that word
+    // as the outcome, the acceptance criterion, the committed decision AND the criterion
+    // verification checked — so the run lost its goal and could only report itself
+    // inconclusive. The referent was in the history the entire time.
+    const nudged: Command = {
+      kind: 'submit_turn',
+      mode: 'agent',
+      stream,
+      input: {
+        project: makeProject(),
+        userPrompt: 'contine',
+        history: [
+          { role: 'user', content: 'use a different caption style and emphasize the captions' },
+          { role: 'assistant', content: 'I read the timeline.' },
+        ],
+      },
+    };
+    const { working } = onCommand(idle, nudged).state;
+    const goal = 'use a different caption style and emphasize the captions';
+    expect(working.objective.outcome).toBe(goal);
+    expect(working.objective.acceptance[0]!.description).toBe(goal);
+    // The decision and the objective verification reports against must name the real work.
+    expect(working.decisions[0]!.decision).toBe(goal);
+    expect(working.objectives[0]!.description).toBe(goal);
+    // The raw request is still preserved verbatim — the nudge is what the editor typed.
+    expect(working.objective.request).toBe('contine');
+  });
+
   it('resolves config from agentOptions, else defaults', () => {
     expect(onCommand(idle, command()).state.config).toEqual({
       maxSteps: 300,
@@ -930,7 +989,7 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
     );
     expect(state.phase).toBe('review');
     expect(types(events)).toEqual(['notification', 'warning']);
-    expect(events[0]).toMatchObject({ text: 'Self-check: one issue' });
+    expect(events[0]).toMatchObject({ text: 'Deterministic self-check: one issue' });
     expect(effects[0]).toMatchObject({ kind: 'finalize', ops: s.cumulativeOps, cancelled: false });
   });
 
@@ -962,7 +1021,7 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
     const events = onEffectResult(s, verify()).events;
     const warn = events.find((e) => e.type === 'warning');
     expect((warn as { text: string }).text).toContain('No edits were applied');
-    expect(events.some((e) => e.type === 'notification' && /Self-check/.test(e.text))).toBe(false);
+    expect(events.some((e) => e.type === 'notification' && /self-check/i.test(e.text))).toBe(false);
   });
 
   it('emits no empty-run notice when the run applied edits', () => {

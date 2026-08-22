@@ -317,6 +317,15 @@ describe('the run cannot circle forever (M4)', () => {
 
     // Within the detector's window plus one, the read tools are gone from the prompt: the
     // run is structurally unable to keep gathering.
+    //
+    // This assertion is load-bearing for a bug it once masked. The Conductor's
+    // `stageAdvanced` was an object comparison against a `state.working` the fact fold had
+    // already replaced, so it read true on any turn that recorded a fact — and
+    // `isSemanticLoop` treats advancing as proof the run is not circling. The test passed
+    // only because every read reported its own descriptor as its finding, making each
+    // turn's fact a byte-identical duplicate that `recordFact` deduplicates into a no-op.
+    // Give the reads real findings and the detector goes quiet in production. It now
+    // compares the stage.
     const offered = provider.requests.map((r) => (r.tools ?? []).map((t) => t.name));
     const closed = offered.findIndex((names) => !names.includes('get_transcript'));
     expect(closed).toBeGreaterThan(0);

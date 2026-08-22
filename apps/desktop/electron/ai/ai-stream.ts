@@ -62,14 +62,7 @@ export {
 
 const log = createLogger('desktop:ai-stream');
 
-const STREAM_MODES: readonly AiStreamMode[] = [
-  'auto',
-  'chat',
-  'plan',
-  'edit',
-  'agent',
-  'planned-edit',
-];
+const STREAM_MODES: readonly AiStreamMode[] = ['auto', 'chat', 'plan', 'edit', 'agent'];
 // Sourced from the ai-sdk's own PROVIDER_NAMES rather than hand-duplicated here — a
 // renamed/added/removed provider now fails typecheck on this assignment instead of
 // silently drifting between the two independently-maintained lists.
@@ -553,8 +546,6 @@ function streamFor(
         { route: 'agent', agentOptions },
         controls,
       );
-    case 'planned-edit':
-      return orchestrator.streamEditorRun(input, options, { route: 'planned_edit' }, controls);
   }
 }
 
@@ -582,9 +573,11 @@ export async function runAiStream(
    * Reads this project's visual-index status line (see `HubOptions.visualStatusFor`).
    * Awaited once per run, before the first model call, and never allowed to fail the run.
    */
-  visualStatusFor?: (projectId: string) => Promise<string | undefined>,
+  visualStatusFor?: (projectId: string, canSeeFrames: boolean) => Promise<string | undefined>,
   /** Reads this project's cached footage-map digest (see `HubOptions.footageMapFor`). */
   footageMapFor?: (projectId: string) => Promise<string | undefined>,
+  /** Reads this project's session-memory digest (see `HubOptions.sessionContextFor`). */
+  sessionContextFor?: (projectId: string) => Promise<string | undefined>,
 ): Promise<void> {
   const project = parseProject(request.project);
   if (request.interaction) assertEditorInteractionReferences(project, request.interaction);
@@ -596,14 +589,29 @@ export async function runAiStream(
   // rather than delaying or failing an otherwise good run.
   // Both reads are best-effort context enrichment and are independent, so they overlap
   // rather than queueing one behind the other at the head of every run.
-  const [visualStatus, footageMap] = await Promise.all([
-    readOptionalContext(visualStatusFor, project.id, 'visual status'),
+  // The status line advises what to reach for when content search is unavailable, so it
+  // has to know whether THIS run can look at a frame — the orchestrator owns that answer
+  // and its tool list already acts on it (`Orchestrator#canSeeFrames`).
+  const canSeeFrames = orchestrator.canSeeFrames();
+  const readVisualStatus = visualStatusFor
+    ? (projectId: string) => visualStatusFor(projectId, canSeeFrames)
+    : undefined;
+  // The third block is what the project has LEARNED: the bin digest, the last session
+  // note, and the corrections/decisions tiers — including the questions this editor has
+  // already answered. Without it every run starts amnesiac about its own project: in a
+  // captured session the editor chose "full-bleed vertical crop" in answer to the model's
+  // own question, and the very next run re-cut the montage with no crop at all, because
+  // the answer died with the run that asked.
+  const [visualStatus, footageMap, sessionContext] = await Promise.all([
+    readOptionalContext(readVisualStatus, project.id, 'visual status'),
     readOptionalContext(footageMapFor, project.id, 'footage map'),
+    readOptionalContext(sessionContextFor, project.id, 'session context'),
   ]);
   const input: ContextInput = {
     project,
     ...(visualStatus === undefined ? {} : { visualStatus }),
     ...(footageMap === undefined ? {} : { footageMap }),
+    ...(sessionContext === undefined ? {} : { sessionContext }),
     ...(request.projectRevision === undefined ? {} : { projectRevision: request.projectRevision }),
     userPrompt: request.userPrompt,
     // The structural history/selection/userMemory shapes are validated in
@@ -705,7 +713,10 @@ interface HubOptions {
    * footage by content before it tries. Optional and fail-soft: without it the context
    * block is simply absent, exactly as before.
    */
-  readonly visualStatusFor?: (projectId: string) => Promise<string | undefined>;
+  readonly visualStatusFor?: (
+    projectId: string,
+    canSeeFrames: boolean,
+  ) => Promise<string | undefined>;
   /**
    * Reads the compact footage-map digest — the time-ordered chapters of what is IN the
    * footage — for a project. Must be a CACHE-ONLY read (`cachedOnly`): this runs before
@@ -713,6 +724,26 @@ interface HubOptions {
    * generative round-trip and bill for it. Optional and fail-soft, like the status line.
    */
   readonly footageMapFor?: (projectId: string) => Promise<string | undefined>;
+  /**
+   * Reads the project's session-memory digest (`createSessionContextDigester`) — the bin
+   * summary, the latest session note, and the corrections/decisions tiers.
+   *
+   * This is how anything a run learns outlives it. `createSessionContextDigester` has
+   * existed since the memory tiers landed and nothing called it, so every run began
+   * amnesiac: an answer the editor gave the model in one turn was gone by the next, and the
+   * run that followed re-derived (and undid) work the editor had already approved. Optional
+   * and fail-soft, like the two readers above.
+   */
+  readonly sessionContextFor?: (projectId: string) => Promise<string | undefined>;
+  /**
+   * Appends a durable note to a project's decisions tier — what the editor told a run, so
+   * the next run does not have to ask again (and does not proceed on a guess instead).
+   * Fire-and-forget: recording must never delay or fail the run it came from.
+   */
+  readonly rememberDecision?: (
+    projectId: string,
+    note: { readonly title: string; readonly body: string },
+  ) => void;
 }
 
 interface ActiveRun {
@@ -885,7 +916,19 @@ export class AiStreamHub {
           },
           controller.signal,
           {
-            agent: { askUser: askGate, ...hooks.controls },
+            agent: {
+              askUser: askGate,
+              // What the editor tells the run outlives it (see `rememberDecision`): the
+              // note lands in the project's decisions tier, which every later run reads
+              // back through `sessionContextFor`.
+              ...(this.options.rememberDecision
+                ? {
+                    rememberDecision: (note: { readonly title: string; readonly body: string }) =>
+                      this.options.rememberDecision?.(request.projectId ?? '', note),
+                  }
+                : {}),
+              ...hooks.controls,
+            },
             ...(hooks.onLifecycleEvent === undefined
               ? {}
               : { onLifecycleEvent: hooks.onLifecycleEvent }),
@@ -898,6 +941,7 @@ export class AiStreamHub {
           },
           this.options.visualStatusFor,
           this.options.footageMapFor,
+          this.options.sessionContextFor,
         );
         if (timedOut) {
           settlement = {

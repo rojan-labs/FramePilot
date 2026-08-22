@@ -16,6 +16,7 @@ from framepilot_engine.ai_tools.registry import (
     TOOL_REGISTRY,
     FilterStr,
     ToolSpec,
+    caption_template_count,
 )
 
 _STRICT = ConfigDict(extra="forbid", populate_by_name=True)
@@ -126,7 +127,10 @@ class _DiscoverCaptionStylesArgs(BaseModel):
         ]
         | None
     ) = None
-    limit: int | None = Field(default=None, gt=0, le=45)
+    # Ceiling is the catalog's own size so one call can return the whole catalog; a lower
+    # bound made the template ids past the cut unreachable, and set_track_caption_style
+    # rejects an id the model was never shown.
+    limit: int | None = Field(default=None, gt=0, le=caption_template_count())
 
 
 class _ApplyEffectArgs(BaseModel):

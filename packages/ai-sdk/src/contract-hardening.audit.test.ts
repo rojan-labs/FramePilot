@@ -268,7 +268,7 @@ describe('autonomous public contract routing', () => {
     if (route.kind !== 'registry') return;
     expect(route.calls).toHaveLength(1);
     expect(route.calls[0]).toMatchObject({
-      name: 'propose_edits',
+      name: 'read_edit_signals',
       arguments: { sceneCuts: [1, 2], verticalTarget: true },
     });
   });

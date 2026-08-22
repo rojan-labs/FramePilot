@@ -30,6 +30,7 @@
         "objective": {
           "request": "what is on the timeline?",
           "outcome": "what is on the timeline?",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -107,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19221,
+      "usedTokens": 19433,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -126,30 +127,30 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1779,
+            "tokenEstimate": 1761,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19221,
+          "estimatedInputTokensBeforeSend": 19433,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172587,
+          "estimatedRemainingCapacity": 172375,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -271,6 +272,7 @@
         "objective": {
           "request": "what is on the timeline?",
           "outcome": "what is on the timeline?",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -287,7 +289,7 @@
           {
             "id": "fact_1",
             "kind": "project",
-            "statement": "Reading the timeline → Reading the timeline",
+            "statement": "Reading the timeline → 2 tracks, 2 clips: video_1(2), audio_1(0)",
             "evidenceIds": [
               "ev_1"
             ],
@@ -362,7 +364,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19293,
+      "usedTokens": 19526,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -381,30 +383,30 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1851,
+            "tokenEstimate": 1854,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19293,
+          "estimatedInputTokensBeforeSend": 19526,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172515,
+          "estimatedRemainingCapacity": 172282,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -421,7 +423,7 @@
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: what is on the timeline?"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -527,6 +529,7 @@
         "objective": {
           "request": "what is on the timeline?",
           "outcome": "what is on the timeline?",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -543,7 +546,7 @@
           {
             "id": "fact_1",
             "kind": "project",
-            "statement": "Reading the timeline → Reading the timeline",
+            "statement": "Reading the timeline → 2 tracks, 2 clips: video_1(2), audio_1(0)",
             "evidenceIds": [
               "ev_1"
             ],
@@ -618,7 +621,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 14523,
+      "usedTokens": 14654,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -637,30 +640,30 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 2089,
+            "tokenEstimate": 2135,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 10632,
+            "tokenEstimate": 10609,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 14523,
+          "estimatedInputTokensBeforeSend": 14654,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 177285,
+          "estimatedRemainingCapacity": 177154,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -677,7 +680,7 @@
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: what is on the timeline?"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -746,6 +749,7 @@
         "objective": {
           "request": "what is on the timeline?",
           "outcome": "what is on the timeline?",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -762,7 +766,7 @@
           {
             "id": "fact_1",
             "kind": "project",
-            "statement": "Reading the timeline → Reading the timeline",
+            "statement": "Reading the timeline → 2 tracks, 2 clips: video_1(2), audio_1(0)",
             "evidenceIds": [
               "ev_1"
             ],
@@ -844,6 +848,7 @@
         "objective": {
           "request": "what is on the timeline?",
           "outcome": "what is on the timeline?",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -860,7 +865,7 @@
           {
             "id": "fact_1",
             "kind": "project",
-            "statement": "Reading the timeline → Reading the timeline",
+            "statement": "Reading the timeline → 2 tracks, 2 clips: video_1(2), audio_1(0)",
             "evidenceIds": [
               "ev_1"
             ],
@@ -907,7 +912,7 @@
             "criterion": "what is on the timeline?",
             "passed": false,
             "atRevision": 0,
-            "detail": "Passed with 1 warning(s)."
+            "detail": "No traceable project mutation for the committed plan."
           }
         ],
         "nextAction": {
@@ -916,7 +921,7 @@
           "objectiveId": "objective_1"
         },
         "blockedOn": {
-          "reason": "Verification found no traceable project mutation for the committed plan.",
+          "reason": "Verification found: No traceable project mutation for the committed plan.",
           "missing": "VERIFICATION_INCONCLUSIVE",
           "atStage": "inspect"
         },
@@ -925,7 +930,7 @@
           "diagnostics": [
             {
               "code": "VERIFICATION_INCONCLUSIVE",
-              "message": "Verification found no traceable project mutation for the committed plan.",
+              "message": "Verification found: No traceable project mutation for the committed plan.",
               "stage": "verify",
               "blocking": true,
               "atVersion": 6
