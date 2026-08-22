@@ -1700,6 +1700,27 @@ describe('streamAgent', () => {
     expect(report).not.toMatch(/:\s*$/m);
   });
 
+  it('points at Export when the request asked for a file the panel cannot render', () => {
+    const report = agentCompletionReport({
+      ops: [{ type: 'delete_range', trackId: 'video_1' } as unknown as AnyOperation],
+      steps: 1,
+      rejectedOpCount: 0,
+      rejectionReasons: [],
+      deliverableFileRequested: true,
+    });
+    expect(report).toContain('cannot produce');
+    expect(report).toContain('Export dialog');
+    // Silent when nothing was asked for — no unsolicited advice on an ordinary edit.
+    expect(
+      agentCompletionReport({
+        ops: [{ type: 'delete_range', trackId: 'video_1' } as unknown as AnyOperation],
+        steps: 1,
+        rejectedOpCount: 0,
+        rejectionReasons: [],
+      }),
+    ).not.toContain('Export dialog');
+  });
+
   it('says so when a montage was chosen with nothing read about the footage', () => {
     // The captured run picked nine source spans out of 575 seconds having read nothing about
     // the content, and told the editor the choices came from "the footage map" — which it had

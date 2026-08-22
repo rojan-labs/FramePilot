@@ -23,7 +23,7 @@ import {
   type Track,
 } from '@framepilot/timeline-schema';
 import type { AgentOptions, AgentRun, AgentStep, ReviewResult } from './agent.js';
-import { checkableAcceptance } from './acceptance.js';
+import { asksForRenderedFile, checkableAcceptance } from './acceptance.js';
 import { type EditResult, assembleEdit } from './assemble.js';
 import {
   TOOL_CONCURRENCY_ENV,
@@ -5030,6 +5030,12 @@ export class Orchestrator {
      */
     let sawContentEvidence = false;
     /**
+     * Did this run's request ask for a rendered FILE? The agent cannot make one — render and
+     * export have no route from the panel — so the completion account says so rather than
+     * reporting a finished job over a deliverable that was never produced.
+     */
+    const asksForFile = asksForRenderedFile(input.userPrompt);
+    /**
      * The last applying turn's off-grid measurement, for the completion account.
      *
      * A cut a few frames off the beat is ordinary editing, not a failure — but the editor
@@ -5674,6 +5680,7 @@ export class Orchestrator {
               rejectionReasons: effect.rejectionReasons,
               contentEvidence: sawContentEvidence,
               ...(offGridNote ? { offGrid: offGridNote } : {}),
+              ...(asksForFile ? { deliverableFileRequested: true } : {}),
             }),
           );
         }
@@ -5754,6 +5761,11 @@ export function agentCompletionReport(args: {
    * only when the run analyzed beats and did not declare hard sync.
    */
   offGrid?: string;
+  /**
+   * True when the request asked for a rendered/exported file. The panel cannot produce one, so
+   * the report says where to get it instead of leaving the editor to notice the absence.
+   */
+  deliverableFileRequested?: boolean;
 }): string {
   const maxLines = 10;
   // Collapse lines that render identically. Eight successive restyles of one caption track
@@ -5788,7 +5800,14 @@ export function agentCompletionReport(args: {
       : '';
   // Reported, never apologised for: the cut stands, and the editor gets the number.
   const offGrid = args.offGrid === undefined ? '' : `\n\n${args.offGrid}`;
-  return `${head}\n\n${lines.join('\n')}${skipped}${unevidenced}${offGrid}`;
+  // The deliverable the panel cannot make. Run 2's brief closed with "One final rendered 30s
+  // vertical MP4"; the run never attempted it, never mentioned it, and reported completed.
+  const deliverable =
+    args.deliverableFileRequested === true
+      ? '\n\nThis asks for a rendered file, which the AI panel cannot produce — the edits are ' +
+        'on your timeline; use the Export dialog to render them out.'
+      : '';
+  return `${head}\n\n${lines.join('\n')}${skipped}${unevidenced}${offGrid}${deliverable}`;
 }
 
 /** Render a {@link CritiqueReport} as a compact human-readable block. */

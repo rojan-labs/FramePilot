@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   acceptanceCriteria,
+  asksForRenderedFile,
   checkableAcceptance,
   explicitCoverage,
   explicitMinShotCount,
@@ -81,6 +82,23 @@ describe('explicitCoverage', () => {
   });
 });
 
+describe('asksForRenderedFile', () => {
+  it('recognises a request for a file, in the ways briefs write it', () => {
+    // Run 2's brief closed with exactly this, and the run reported completed without ever
+    // mentioning that the panel cannot render.
+    expect(asksForRenderedFile('One final rendered 30s vertical MP4, fully cropped')).toBe(true);
+    expect(asksForRenderedFile('export the video when done')).toBe(true);
+    expect(asksForRenderedFile('deliver an mp4')).toBe(true);
+    expect(asksForRenderedFile('render out a mov file')).toBe(true);
+  });
+
+  it('is not fooled by the words used about something that is not a file', () => {
+    expect(asksForRenderedFile('render the captions legible')).toBe(false);
+    expect(asksForRenderedFile('make it 30 seconds and punchy')).toBe(false);
+    expect(asksForRenderedFile('export settings should be 9:16')).toBe(false);
+  });
+});
+
 describe('checkableAcceptance', () => {
   it('carries the duration its caller already read, plus any shot count', () => {
     const acceptance = checkableAcceptance('a 30s reel from at least 20 moments', 30);
@@ -92,6 +110,14 @@ describe('checkableAcceptance', () => {
     const acceptance = checkableAcceptance('make this look nicer', undefined);
     expect(acceptance).toEqual({});
     expect(hasCheckableAcceptance(acceptance)).toBe(false);
+  });
+
+  it('records a requested file as a condition, so the run can say it cannot make one', () => {
+    const prompt = 'a 30s reel, delivered as a rendered mp4';
+    const acceptance = checkableAcceptance(prompt, 30);
+    expect(acceptance.deliverableFile).toBe(true);
+    const criteria = acceptanceCriteria(prompt, acceptance);
+    expect(criteria.some((line) => line.includes('Export dialog'))).toBe(true);
   });
 
   it('carries a coverage demand as a checkable condition of its own', () => {

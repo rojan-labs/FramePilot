@@ -47,6 +47,16 @@ export interface CheckableAcceptance {
    * every criterion it had and reported "All checks passed".
    */
   readonly coverage?: readonly CoverageTreatment[];
+  /**
+   * True when the request asks for a rendered/exported FILE as its deliverable.
+   *
+   * The agent cannot produce one — render and export have no route from the AI panel
+   * (`sidecar-executor.ts` refuses them with "use the Export dialog"). That is a reasonable
+   * product boundary and it was invisible: run 2's brief closed with "One final rendered 30s
+   * vertical MP4", the run never attempted it, never mentioned it, and reported completed.
+   * Recording it is what lets the run say so.
+   */
+  readonly deliverableFile?: boolean;
 }
 
 /**
@@ -142,6 +152,19 @@ export function explicitCoverage(prompt: string): readonly CoverageTreatment[] {
 }
 
 /**
+ * A request for a FILE, not just an edit: a render or export verb next to something that
+ * names a file. "Export the video" and "one final rendered MP4" both qualify; "render the
+ * captions legible" does not, because nothing there is a file.
+ */
+const DELIVERABLE_FILE =
+  /\b(render(?:ed|ing)?|export(?:ed|ing)?|deliver(?:ed|able)?)\b[^.\n]{0,60}\b(mp4|mov|webm|file|video|deliverable)\b|\b(mp4|mov|webm|file|deliverable)\b[^.\n]{0,40}\b(render(?:ed|ing)?|export(?:ed|ing)?)\b/;
+
+/** Does this request ask for a rendered or exported file as its deliverable? */
+export function asksForRenderedFile(prompt: string): boolean {
+  return DELIVERABLE_FILE.test(prompt.toLowerCase());
+}
+
+/**
  * The checkable conditions in a request, if any.
  *
  * @param prompt - The editor's request, verbatim.
@@ -158,6 +181,7 @@ export function checkableAcceptance(
     ...(durationSeconds === undefined ? {} : { durationSeconds }),
     ...(minShotCount === undefined ? {} : { minShotCount }),
     ...(coverage.length === 0 ? {} : { coverage }),
+    ...(asksForRenderedFile(prompt) ? { deliverableFile: true } : {}),
   };
 }
 
@@ -182,6 +206,9 @@ export function acceptanceCriteria(
   for (const treatment of acceptance.coverage ?? []) {
     criteria.push(`Every picture clip carries its ${COVERAGE_LABEL[treatment]}.`);
   }
+  if (acceptance.deliverableFile === true) {
+    criteria.push('A rendered file is delivered (the Export dialog, not this panel).');
+  }
   criteria.push(prompt);
   return criteria;
 }
@@ -199,6 +226,7 @@ export function hasCheckableAcceptance(acceptance: CheckableAcceptance): boolean
   return (
     acceptance.durationSeconds !== undefined ||
     acceptance.minShotCount !== undefined ||
-    (acceptance.coverage?.length ?? 0) > 0
+    (acceptance.coverage?.length ?? 0) > 0 ||
+    acceptance.deliverableFile === true
   );
 }
