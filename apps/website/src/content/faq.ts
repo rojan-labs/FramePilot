@@ -23,7 +23,7 @@ export const FAQ: FaqItem[] = [
   },
   {
     q: 'How much does FramePilot cost?',
-    a: 'The current paid plan is $25 per month or $199 per year, which works out to about $16.58 per month when billed annually. Both billing cadences unlock the same editor features while the subscription is active.',
+    a: 'The current paid plan is $25 per month or $199 per year, which works out to about $16.58 per month when billed annually. Both billing cadences get you the same editor features while the subscription is active.',
   },
   {
     q: 'How does the license work?',

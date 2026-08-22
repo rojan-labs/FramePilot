@@ -6,7 +6,7 @@ import { getChangelogEntries, formatChangelogDate } from '@/lib/changelog';
 export const metadata: Metadata = pageMetadata({
   title: 'Changelog',
   path: '/changelog',
-  description: "Everything new in FramePilot — features, improvements, and fixes.",
+  description: 'Every FramePilot release, with what changed and why it matters.',
   keywords: ['FramePilot changelog', "what's new FramePilot", 'FramePilot updates', 'FramePilot releases'],
 });
 
