@@ -31,6 +31,7 @@ export type CheckId =
   | 'request_match'
   | 'duration_target'
   | 'shot_count'
+  | 'reframe_coverage'
   | 'caption_alignment'
   | 'safe_area'
   | 'audio_clipping'
@@ -255,6 +256,69 @@ function checkShotCount(timeline: Timeline, options: CritiqueOptions): CriticChe
     'Shot count on target',
     'fail',
     `The cut uses ${String(shots)} shots but at least ${String(target)} were asked for.`,
+  );
+}
+
+/**
+ * Is the reframing CONSISTENT across the picture — or is half the cut full-bleed and half of
+ * it letterboxed?
+ *
+ * A crop is how a clip fills a frame whose aspect differs from its source's: the engine crops
+ * and then scales the cropped picture to the canvas, so an uncropped 16:9 clip in a 9:16
+ * sequence renders with black bars (`_place_video_clip` fits, it does not cover). Nothing
+ * checked this, and two captured runs failed the same way — the editor asked for a full-bleed
+ * vertical cut, the agent reframed the opening shots, stopped, and the run reported "All
+ * checks passed" over a timeline that was 9 shots reframed and 38 not.
+ *
+ * Asked as a consistency question rather than a geometry one, because the project does not
+ * carry each asset's pixel dimensions: nobody deliberately reframes a fifth of a sequence, so
+ * a MIX of reframed and unreframed picture is a defect regardless of what the sources are. A
+ * sequence with no crops at all cannot be judged the same way — it may be a same-aspect edit
+ * that needs none — so a portrait frame with nothing reframed is a warning, not a failure.
+ */
+function checkReframeCoverage(project: Project, timeline: Timeline): CriticCheck {
+  const picture = allClips(timeline).filter((clip) => !isOverlayClip(clip));
+  if (picture.length === 0) {
+    return check('reframe_coverage', 'Reframing is consistent', 'skipped', 'No picture clips.');
+  }
+  const reframed = picture.filter((clip) => clip.crop !== undefined);
+  const { width, height } = project.resolution;
+  if (reframed.length === 0) {
+    if (height <= width) {
+      return check(
+        'reframe_coverage',
+        'Reframing is consistent',
+        'skipped',
+        'No clip is reframed, and the frame is not portrait.',
+      );
+    }
+    return check(
+      'reframe_coverage',
+      'Reframing is consistent',
+      'warn',
+      `No clip is reframed in a ${String(width)}x${String(height)} portrait frame — any ` +
+        'landscape source will render with black bars. Crop each shot to fill the frame if ' +
+        'that is not intended.',
+    );
+  }
+  if (reframed.length === picture.length) {
+    return check(
+      'reframe_coverage',
+      'Reframing is consistent',
+      'pass',
+      `All ${String(picture.length)} picture clips are reframed.`,
+    );
+  }
+  const missing = picture.filter((clip) => clip.crop === undefined);
+  const named = missing.slice(0, 3).map((clip) => clip.id);
+  const rest = missing.length - named.length;
+  return check(
+    'reframe_coverage',
+    'Reframing is consistent',
+    'fail',
+    `${String(reframed.length)} of ${String(picture.length)} picture clips are reframed, so ` +
+      `${String(missing.length)} will not match: ${named.join(', ')}` +
+      `${rest > 0 ? `, plus ${String(rest)} more` : ''}.`,
   );
 }
 
@@ -510,6 +574,7 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
     checkRequestMatch(options),
     checkDurationTarget(timeline, options),
     checkShotCount(timeline, options),
+    checkReframeCoverage(project, timeline),
     checkCaptionAlignment(timeline),
     checkSafeArea(timeline),
     checkAudioClipping(options),

@@ -1379,6 +1379,50 @@ describe('token-friendly reads — get_timeline_summary / get_clips / get_clip /
     expect(JSON.stringify(summary)).not.toContain('sourceStart');
   });
 
+  it('flags cropped and graded clips so reframing coverage is ONE call', () => {
+    // The defect this closes: two captured runs reframed a handful of shots out of ~50 and
+    // reported the job done, because checking coverage cost one deep read per clip.
+    const project = makeProject();
+    const [first] = project.timeline.tracks[0]!.clips;
+    const withLook = {
+      ...project,
+      timeline: {
+        ...project.timeline,
+        tracks: project.timeline.tracks.map((track, index) =>
+          index === 0
+            ? {
+                ...track,
+                clips: track.clips.map((clip) =>
+                  clip.id === first!.id
+                    ? {
+                        ...clip,
+                        crop: { x: 0.34, y: 0, width: 0.3164, height: 1 },
+                        effects: [
+                          {
+                            id: 'g1',
+                            type: 'color_grade' as const,
+                            params: { exposure: 0.1 },
+                            keyframes: [],
+                          },
+                        ],
+                      }
+                    : clip,
+                ),
+              }
+            : track,
+        ),
+      },
+    };
+    const rows = getTool('get_clips')?.read?.({}, { ...ctx, project: withLook } as never) as {
+      clips: { id: string; cropped: boolean; graded: boolean }[];
+    };
+    expect(rows.clips.find((c) => c.id === first!.id)).toMatchObject({
+      cropped: true,
+      graded: true,
+    });
+    expect(rows.clips.filter((c) => !c.cropped)).toHaveLength(rows.clips.length - 1);
+  });
+
   it('get_clips lists compact rows, filtered by track and window, paginated', () => {
     const all = getTool('get_clips')?.read?.({}, ctx) as {
       clips: { id: string }[];
@@ -1396,6 +1440,10 @@ describe('token-friendly reads — get_timeline_summary / get_clips / get_clip /
       end: 6,
       sourceStart: 0,
       sourceEnd: 6,
+      // Crop had no cheap read at all before this: "which clips still need reframing" cost
+      // one deep read per clip, so it was never asked.
+      cropped: false,
+      graded: false,
       effectCount: 0,
       keyframeCount: 0,
     });

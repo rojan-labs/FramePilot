@@ -50,6 +50,13 @@ const clipDeleteOp = (
  * heavy nested payloads (effects, keyframes, caption style) and replaces them
  * with counts/flags, so a long-form timeline can be scanned cheaply; `get_clip`
  * returns the full clip when the detail is actually needed.
+ *
+ * `cropped` and `graded` are flags rather than payloads for the same reason — but they had to
+ * be ADDED, and their absence was expensive. Crop was the one clip property with no cheap
+ * observability: effects and keyframes had counts, speed rode along, and crop appeared in
+ * nothing but the per-clip deep read. So "which of my 47 clips still need reframing" cost 47
+ * tool calls, which means it was never asked, which is why two captured runs reframed a
+ * handful of shots, lost track, and reported the job done. A flag is one call.
  */
 const clipRow = (clip: Track['clips'][number]): Record<string, unknown> => ({
   id: clip.id,
@@ -60,6 +67,8 @@ const clipRow = (clip: Track['clips'][number]): Record<string, unknown> => ({
   sourceStart: clip.sourceStart,
   sourceEnd: clip.sourceEnd,
   ...(clip.speed !== undefined ? { speed: clip.speed } : {}),
+  cropped: clip.crop !== undefined,
+  graded: clip.effects.some((effect) => effect.type === 'color_grade'),
   effectCount: clip.effects.length,
   keyframeCount: clip.keyframes.length,
 });
@@ -346,11 +355,13 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     {
       name: 'get_clips',
       description:
-        'List clips as compact rows (ids, times, source in/out, effect/keyframe ' +
-        'counts), optionally filtered to one trackId and/or a start/end window ' +
-        '(timeline seconds), paginated with offset/limit (default 50, max 200). ' +
-        'Returns { clips, total, hasMore }. Use this instead of get_timeline on a ' +
-        'long-form project; use get_clip for one clip in full detail.',
+        'List clips as compact rows — ids, times, source in/out, `cropped` and `graded` ' +
+        'flags, effect/keyframe counts — optionally filtered to one trackId and/or a ' +
+        'start/end window (timeline seconds), paginated with offset/limit (default 50, max ' +
+        '200). Returns { clips, total, hasMore }. `cropped` is how you check reframing ' +
+        'coverage across a whole cut in ONE call: an uncropped clip whose source aspect ' +
+        'differs from the sequence renders with black bars. Use this instead of ' +
+        'get_timeline on a long-form project; use get_clip for one clip in full detail.',
     },
     getClipsSchema,
     (a, ctx) => {
