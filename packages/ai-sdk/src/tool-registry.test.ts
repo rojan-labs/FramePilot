@@ -354,24 +354,40 @@ describe('read tools', () => {
     expect(JSON.stringify(state)).not.toContain('peaks');
   });
 
-  it('propose_edits forwards whatever gathered signals are present, plus the project transcript', () => {
-    const result = getTool('propose_edits')?.read?.(
+  it('read_edit_signals describes every supplied signal in TIME order, with no verdicts', () => {
+    const result = getTool('read_edit_signals')?.read?.(
       {
         chapters: [{ t0: 0, t1: 30, title: 'Setup' }],
         highlights: [{ t0: 5, t1: 6, label: 'moment', score: 0.8 }],
         silences: [{ start: 1, end: 3 }],
         sceneCuts: [10, 20],
+        // Accepted and ignored: which move a vertical target deserves is the agent's call.
         verticalTarget: true,
       },
       ctx,
-    ) as { kind: string }[];
-    expect(Array.isArray(result)).toBe(true);
-    expect(result.some((c) => c.kind === 'reframe')).toBe(true);
+    ) as { kind: string; t0: number; observation: string; from: string }[];
+    expect(result.map((s) => s.kind)).toEqual([
+      'chapter',
+      'silence',
+      'highlight',
+      'scene_change',
+      'scene_change',
+    ]);
+    // Time order, not a ranking — ranking would be the judgement this tool no longer makes.
+    expect(result.map((s) => s.t0)).toEqual([...result.map((s) => s.t0)].sort((a, b) => a - b));
+    // No move, no score, no canned rationale anywhere in the payload.
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain('punch_in');
+    expect(serialized).not.toContain('score');
+    expect(serialized).not.toContain('makes it land');
+    // A supplied signal says it was supplied: a chapter the caller never read from the
+    // footage is still only the caller's own claim.
+    expect(result.find((s) => s.kind === 'chapter')).toMatchObject({ from: 'supplied' });
+    expect(result.find((s) => s.kind === 'chapter')?.observation).toContain('1 highlight(s)');
   });
 
-  it('propose_edits works with no gathered signals at all (still reads the project transcript)', () => {
-    const result = getTool('propose_edits')?.read?.({}, ctx);
-    expect(result).toEqual([]);
+  it('read_edit_signals returns nothing when nothing was gathered', () => {
+    expect(getTool('read_edit_signals')?.read?.({}, ctx)).toEqual([]);
   });
 });
 
@@ -1379,6 +1395,50 @@ describe('token-friendly reads — get_timeline_summary / get_clips / get_clip /
     expect(JSON.stringify(summary)).not.toContain('sourceStart');
   });
 
+  it('flags cropped and graded clips so reframing coverage is ONE call', () => {
+    // The defect this closes: two captured runs reframed a handful of shots out of ~50 and
+    // reported the job done, because checking coverage cost one deep read per clip.
+    const project = makeProject();
+    const [first] = project.timeline.tracks[0]!.clips;
+    const withLook = {
+      ...project,
+      timeline: {
+        ...project.timeline,
+        tracks: project.timeline.tracks.map((track, index) =>
+          index === 0
+            ? {
+                ...track,
+                clips: track.clips.map((clip) =>
+                  clip.id === first!.id
+                    ? {
+                        ...clip,
+                        crop: { x: 0.34, y: 0, width: 0.3164, height: 1 },
+                        effects: [
+                          {
+                            id: 'g1',
+                            type: 'color_grade' as const,
+                            params: { exposure: 0.1 },
+                            keyframes: [],
+                          },
+                        ],
+                      }
+                    : clip,
+                ),
+              }
+            : track,
+        ),
+      },
+    };
+    const rows = getTool('get_clips')?.read?.({}, { ...ctx, project: withLook } as never) as {
+      clips: { id: string; cropped: boolean; graded: boolean }[];
+    };
+    expect(rows.clips.find((c) => c.id === first!.id)).toMatchObject({
+      cropped: true,
+      graded: true,
+    });
+    expect(rows.clips.filter((c) => !c.cropped)).toHaveLength(rows.clips.length - 1);
+  });
+
   it('get_clips lists compact rows, filtered by track and window, paginated', () => {
     const all = getTool('get_clips')?.read?.({}, ctx) as {
       clips: { id: string }[];
@@ -1396,6 +1456,10 @@ describe('token-friendly reads — get_timeline_summary / get_clips / get_clip /
       end: 6,
       sourceStart: 0,
       sourceEnd: 6,
+      // Crop had no cheap read at all before this: "which clips still need reframing" cost
+      // one deep read per clip, so it was never asked.
+      cropped: false,
+      graded: false,
       effectCount: 0,
       keyframeCount: 0,
     });

@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19384,
+      "usedTokens": 19438,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -134,23 +134,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1764,
+            "tokenEstimate": 1766,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15710,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19384,
+          "estimatedInputTokensBeforeSend": 19438,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172424,
+          "estimatedRemainingCapacity": 172370,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -356,7 +356,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19582,
+      "usedTokens": 19636,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -382,23 +382,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1962,
+            "tokenEstimate": 1964,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15710,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19582,
+          "estimatedInputTokensBeforeSend": 19636,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172226,
+          "estimatedRemainingCapacity": 172172,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -721,7 +721,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 16212,
+      "usedTokens": 16263,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -747,23 +747,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1984,
+            "tokenEstimate": 1986,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 12318,
+            "tokenEstimate": 12367,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 16212,
+          "estimatedInputTokensBeforeSend": 16263,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 175596,
+          "estimatedRemainingCapacity": 175545,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -920,7 +920,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "notification",
-      "text": "Self-check: All checks passed."
+      "text": "Deterministic self-check: All checks passed."
     },
     {
       "id": "turn_golden:run-state",

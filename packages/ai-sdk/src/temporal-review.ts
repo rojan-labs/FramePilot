@@ -3,6 +3,11 @@ import { z } from 'zod/v4';
 import type { EditorCommand, EditorCommandFact } from '@framepilot/editor-core';
 import { effectLayersOf } from '@framepilot/timeline-schema';
 import type { EditResult } from './assemble.js';
+import {
+  AUDIO_PEAK_DBFS,
+  BLACK_FRAME,
+  MAX_AUDIO_BOUNDARY_JUMP_DB,
+} from './perceptual-thresholds.js';
 
 export const TEMPORAL_EVIDENCE_VERSION = 1 as const;
 
@@ -95,8 +100,8 @@ const AudioEvidenceRequestSchema = RequestBaseSchema.extend({
   kind: z.literal('audio'),
   ...frameRangeFields,
   channels: z.enum(['mix', 'dialogue', 'music', 'sfx']),
-  maxPeakDbfs: finite.max(0).default(-0.1),
-  maxBoundaryJumpDb: finite.nonnegative().default(12),
+  maxPeakDbfs: finite.max(0).default(AUDIO_PEAK_DBFS.review.value),
+  maxBoundaryJumpDb: finite.nonnegative().default(MAX_AUDIO_BOUNDARY_JUMP_DB),
   boundaryFrame: frame.optional(),
 })
   .strict()
@@ -302,7 +307,9 @@ function rangeIssues(
   const issues: string[] = [];
   const samples = sortedByFrame(result.samples);
   if (request.checks.includes('black_frames')) {
-    const black = samples.filter((sample) => sample.blackRatio >= 0.98);
+    const black = samples.filter(
+      (sample) => sample.blackRatio >= BLACK_FRAME.reviewFrameRatio.value,
+    );
     if (black.length > 0)
       issues.push(`Unexpected black frame(s): ${black.map((s) => s.frame).join(', ')}.`);
   }
@@ -844,8 +851,8 @@ export function planTemporalEvidenceForEdit(
       startFrame,
       endFrame,
       channels: 'mix',
-      maxPeakDbfs: -0.1,
-      maxBoundaryJumpDb: 12,
+      maxPeakDbfs: AUDIO_PEAK_DBFS.review.value,
+      maxBoundaryJumpDb: MAX_AUDIO_BOUNDARY_JUMP_DB,
       ...(boundaryFrame === undefined ? {} : { boundaryFrame }),
       reason: boundaryFrame === undefined ? 'Changed audio level' : 'Changed audio edit boundary',
     });
@@ -925,8 +932,8 @@ export function planTemporalEvidence(input: TemporalReviewPlanInput): TemporalEv
         startFrame,
         endFrame,
         channels: 'mix',
-        maxPeakDbfs: -0.1,
-        maxBoundaryJumpDb: 12,
+        maxPeakDbfs: AUDIO_PEAK_DBFS.review.value,
+        maxBoundaryJumpDb: MAX_AUDIO_BOUNDARY_JUMP_DB,
         ...(boundaryFrame === undefined ? {} : { boundaryFrame }),
         reason: `Audio continuity across ${input.command.type}`,
       });

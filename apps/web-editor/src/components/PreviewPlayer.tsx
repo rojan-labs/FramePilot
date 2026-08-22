@@ -47,10 +47,11 @@ import {
   clipBlendMode,
   clipKind,
   clipCropRect,
+  FULL_FRAME_CROP,
+  isFullFrameCrop,
   createPlaybackIndex,
   colorGradeCssFilter,
   colorGradeParams,
-  cropClipPath,
   dbToGain,
   effectiveMutedTrackIds,
   formatTime,
@@ -81,6 +82,7 @@ import {
   setClipTransformPatch,
   setTextParamsPatch,
 } from '../editor/patch-builders.js';
+import { cropObjectPosition } from '../preview/crop-fill.js';
 import { textOverlayStyle } from '../editor/textOverlay.js';
 import {
   blurRadiusAt,
@@ -88,6 +90,7 @@ import {
   opacityAt as transitionOpacityAt,
   scaleAt as transitionScaleAt,
   transitionActiveAt,
+  transitionCounterpartId,
   transitionFromClip,
   wipeCssMask,
   wipeProgressAt,
@@ -188,6 +191,30 @@ const NO_SOLO: ReadonlySet<string> = new Set();
 
 /** The pool slot indices, for rendering one persistent element per slot. */
 const POOL_SLOTS: readonly number[] = Array.from({ length: PREVIEW_POOL_SIZE }, (_, i) => i);
+
+/**
+ * How far back from a clip's out-point the shot UNDER a transition ramp is parked.
+ *
+ * Its out-point is exclusive, so seeking exactly there lands on the first frame the clip does
+ * not include (or past the end of a clip cut to its asset's edge, which decodes nothing at
+ * all and paints black — the very thing the under-layer exists to prevent). One frame at a
+ * conservative 24fps is inside every clip long enough to carry a transition.
+ */
+const UNDERLAY_EDGE_FRAME_SECONDS = 1 / 24;
+
+/**
+ * Where a slot should sit: its in-point normally, or its LAST frame when it is holding the
+ * shot underneath a transition ramp.
+ *
+ * One definition, because two places move that element — the load handler and the warm-slot
+ * alignment pass — and if they disagree the alignment pass wins and drags the under-layer back
+ * to the start of the outgoing shot. That reads as the right shot at emphatically the wrong
+ * moment, which is harder to spot than the black frame it replaced.
+ */
+function slotParkTime(clip: Clip, isUnderlay: boolean): number {
+  if (!isUnderlay || clip.sourceEnd === undefined) return clip.sourceStart;
+  return Math.max(clip.sourceStart, clip.sourceEnd - UNDERLAY_EDGE_FRAME_SECONDS);
+}
 
 export function PreviewPlayer({
   editor,
@@ -335,6 +362,14 @@ export function PreviewPlayer({
   // clip's last frame for the few ms in between — a held frame is invisible at
   // 30fps, a black flash is not. This is what makes the swap flicker-free.
   const [visibleSlot, setVisibleSlot] = useState(0);
+  /**
+   * The clip a transition on the ACTIVE clip is transitioning from, if any.
+   *
+   * Read here rather than beside the live envelope below because the warm-slot alignment pass
+   * needs it: that pass re-seeks every non-front slot to its in-point, which would drag the
+   * under-layer back to the start of the outgoing shot.
+   */
+  const transitionCounterpartClipId = videoClip ? transitionCounterpartId(videoClip) : null;
   /** The still-image element, when the playhead sits on an image clip. */
   const imageElRef = useRef<HTMLImageElement | null>(null);
 
@@ -627,14 +662,15 @@ export function PreviewPlayer({
       const clip = clipById.get(id);
       if (!clip) continue;
       try {
-        if (Math.abs(el.currentTime - clip.sourceStart) > WINDOW_SEEK_EPSILON) {
-          el.currentTime = clip.sourceStart;
+        const target = slotParkTime(clip, id === transitionCounterpartClipId);
+        if (Math.abs(el.currentTime - target) > WINDOW_SEEK_EPSILON) {
+          el.currentTime = target;
         }
       } catch {
         /* jsdom has no media clock. */
       }
     }
-  }, [pool, clipById]);
+  }, [pool, clipById, transitionCounterpartClipId]);
   /* v8 ignore stop */
 
   // Active caption clips render via the template-based CaptionOverlay
@@ -728,16 +764,19 @@ export function PreviewPlayer({
   const gradeFilter = showGrade ? colorGradeCssFilter(grade) : 'none';
   const isGraded = colorGradeCssFilter(grade) !== 'none';
 
-  // Approximate crop/blend-mode preview (H1.2h): native CSS primitives that
-  // "look close" to the engine's real crop/composite render without
-  // reimplementing it client-side (render-vs-preview rule). `clip-path` masks
-  // the cropped region in place (it does not zoom-to-fill — see
-  // `cropClipPath`'s doc); `mixBlendMode` is CSS's direct analog of the
-  // engine's blend modes. Speed has no preview hookup yet: the master clock
-  // above maps the front element's own currentTime 1:1 to timeline time, and
-  // making that speed-aware is deferred (documented in plan/PLAN.md H1.2h) —
-  // the committed patch and the real render are unaffected.
-  const cropPath = videoClip ? cropClipPath(clipCropRect(videoClip)) : 'none';
+  // `mixBlendMode` is CSS's direct analog of the engine's blend modes. Speed has no preview
+  // hookup yet: the master clock above maps the front element's own currentTime 1:1 to
+  // timeline time, and making that speed-aware is deferred (documented in plan/PLAN.md
+  // H1.2h) — the committed patch and the real render are unaffected.
+  // CROP FILLS THE FRAME, as the export does (`crop-fill.ts` explains the arithmetic and the
+  // divergence it closes). `object-fit: cover` plus an `object-position` derived from the crop
+  // shows the cropped column edge to edge; the old `clip-path` masked it in place over a
+  // letterboxed full frame, so the monitor showed a small picture floating in black while the
+  // export was full-bleed — and the agent wrote compensating zoom into the project to correct
+  // a picture that was already right.
+  const crop = videoClip ? clipCropRect(videoClip) : FULL_FRAME_CROP;
+  const cropped = videoClip !== null && !isFullFrameCrop(crop);
+  const [cropX, cropY] = cropObjectPosition(crop);
   const blendMode = videoClip ? clipBlendMode(videoClip) : 'normal';
 
   // Live transition envelope (same math the export uses — see
@@ -780,6 +819,22 @@ export function PreviewPlayer({
   // Soft-edged directional reveal — the CSS analog of the engine's wipe mask.
   const wipeMask = transition ? wipeCssMask(transition, transitionWipeProgress) : undefined;
 
+  // THE SHOT UNDERNEATH THE RAMP. A transition sits on butt-joined clips, so while the
+  // incoming clip eases in the outgoing one has already ended — and every other slot is
+  // painted at opacity 0. The reveal therefore happened over the empty monitor: a dissolve
+  // from black, a whip pan over black, at every cut. The export had the same defect for the
+  // same reason (see the render compiler's transition under-layer), and the perceptual
+  // reviewer reported it as unexpected black frames on a real run.
+  //
+  // The pool usually still holds the outgoing clip on a warm slot, so it is shown at full
+  // opacity beneath the ramping front. It is parked on that clip's LAST frame rather than
+  // playing its handle (see `slotSeekTarget`) — a held frame under a sub-second ramp reads as
+  // continuous, and the deterministic render remains the authority for the exact frames.
+  const underlayClipId = transition ? transitionCounterpartClipId : null;
+  const underlaySlot = underlayClipId
+    ? POOL_SLOTS.find((slot) => slot !== visibleSlot && pool.loaded[slot] === underlayClipId)
+    : undefined;
+
   // Video slots are only mounted once there is video to show or pre-warm; a
   // still-image or empty timeline needs no <video> at all (keeps the DOM honest).
   const showBuffers = isVideoElement || pool.loaded.some((id) => id !== null);
@@ -798,7 +853,9 @@ export function PreviewPlayer({
     // Front slot showing the active clip → the live source time; any other slot
     // (a pre-warmed upcoming clip) → its own in-point, decoded and ready to swap.
     if (slot === pool.front && frontHoldsActive && sourceTime !== null) return sourceTime;
-    return clip.sourceStart;
+    // The slot showing the shot UNDER a transition ramp is the exception: what belongs on
+    // screen there is where that shot left off, not where it began.
+    return slotParkTime(clip, pool.loaded[slot] === transitionCounterpartClipId);
   };
 
   /* v8 ignore start -- media events need a real pipeline: verified in e2e. */
@@ -849,6 +906,9 @@ export function PreviewPlayer({
                 // has a decoded frame (a held frame reads as seamless; a
                 // not-yet-painted element reads as a black flicker).
                 const isVisible = slot === visibleSlot;
+                // Painted beneath the ramping front slot (a lower stacking order), at full
+                // opacity and with its OWN crop — it is a different shot, framed its own way.
+                const isUnderlay = slot === underlaySlot;
                 // Prefer the engine-generated low-res proxy (H3): decodes/seeks far
                 // cheaper than the original, so scrubbing and cuts stay smooth on
                 // heavy footage. Export still renders from the original.
@@ -871,18 +931,40 @@ export function PreviewPlayer({
                       // ramping fade/dissolve envelope scales that opacity.
                       opacity:
                         isVisible && videoClip !== null && !(isImageClip && imageReady)
-                          ? transition
+                          ? // The ramp belongs to the clip that CARRIES the transition, so it
+                            // only modulates the slot actually holding that clip. When the
+                            // incoming slot has no decoded frame yet the monitor keeps showing
+                            // the outgoing shot (the anti-flicker hold) — fading THAT down was
+                            // the same dissolve-to-black defect from the other side.
+                            transition && pool.loaded[slot] === activePictureId
                             ? transitionOpacityAt(transition, clipTime)
                             : 1
-                          : 0,
+                          : isUnderlay
+                            ? 1
+                            : 0,
+                      ...(isUnderlay ? { zIndex: 0 } : isVisible ? { zIndex: 1 } : {}),
+                      ...(isUnderlay && clip && !isFullFrameCrop(clipCropRect(clip))
+                        ? (() => {
+                            const [ux, uy] = cropObjectPosition(clipCropRect(clip));
+                            return {
+                              objectFit: 'cover' as const,
+                              objectPosition: `${String(ux)}% ${String(uy)}%`,
+                            };
+                          })()
+                        : {}),
                       // Live clip transform (H4) composed with the transition
                       // envelope's translate/scale ramp at the playhead.
                       ...(isVisible && visibleTransform ? { transform: visibleTransform } : {}),
                       ...(isVisible && wipeMask
                         ? { maskImage: wipeMask, WebkitMaskImage: wipeMask }
                         : {}),
-                      // Approximate crop/blend preview (H1.2h) — see comment above.
-                      ...(isVisible && cropPath !== 'none' ? { clipPath: cropPath } : {}),
+                      // Crop fills the frame (see the note where `crop` is derived).
+                      ...(isVisible && cropped
+                        ? {
+                            objectFit: 'cover' as const,
+                            objectPosition: `${String(cropX)}% ${String(cropY)}%`,
+                          }
+                        : {}),
                       ...(isVisible && blendMode !== 'normal' ? { mixBlendMode: blendMode } : {}),
                     }}
                     {...(asset ? { 'aria-label': `preview ${asset.id}` } : { 'aria-hidden': true })}
@@ -927,7 +1009,12 @@ export function PreviewPlayer({
                 filter: gradeFilter,
                 opacity: imageReady ? 1 : 0,
                 ...(cssTransform ? { transform: cssTransform } : {}),
-                ...(cropPath !== 'none' ? { clipPath: cropPath } : {}),
+                ...(cropped
+                  ? {
+                      objectFit: 'cover' as const,
+                      objectPosition: `${String(cropX)}% ${String(cropY)}%`,
+                    }
+                  : {}),
                 ...(blendMode !== 'normal' ? { mixBlendMode: blendMode } : {}),
               }}
               onLoad={() => setImageReady(true)}

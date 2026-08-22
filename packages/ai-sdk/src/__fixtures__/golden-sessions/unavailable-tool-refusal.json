@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19377,
+      "usedTokens": 19431,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -134,23 +134,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1757,
+            "tokenEstimate": 1759,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15710,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19377,
+          "estimatedInputTokensBeforeSend": 19431,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172431,
+          "estimatedRemainingCapacity": 172377,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -326,7 +326,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19438,
+      "usedTokens": 19492,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -352,23 +352,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1818,
+            "tokenEstimate": 1820,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15710,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19438,
+          "estimatedInputTokensBeforeSend": 19492,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172370,
+          "estimatedRemainingCapacity": 172316,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -590,12 +590,12 @@
             "criterion": "who is on screen?",
             "passed": false,
             "atRevision": 0,
-            "detail": "Passed with 1 warning(s)."
+            "detail": "No traceable project mutation for the committed plan."
           }
         ],
         "nextAction": null,
         "blockedOn": {
-          "reason": "Verification found no traceable project mutation for the committed plan.",
+          "reason": "Verification found: No traceable project mutation for the committed plan.",
           "missing": "VERIFICATION_INCONCLUSIVE",
           "atStage": "analyze"
         },
@@ -604,7 +604,7 @@
           "diagnostics": [
             {
               "code": "VERIFICATION_INCONCLUSIVE",
-              "message": "Verification found no traceable project mutation for the committed plan.",
+              "message": "Verification found: No traceable project mutation for the committed plan.",
               "stage": "verify",
               "blocking": true,
               "atVersion": 6

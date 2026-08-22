@@ -13,6 +13,123 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-22, second pass):** `[x]` **Run 2 (`e6d5ba92`) re-tested the fixes
+above and exposed a deeper class of gap: the runtime was deciding editorial questions, and the
+completion gate could not see coverage.** The run completed, met both measurable criteria (50+
+shots, 30.0s) — and delivered the editor's most emphasised requirement on 9 clips of 47.
+
+Confirmed live from that transcript: acceptance criteria recorded and checked, the
+"Deterministic self-check" wording, a skip line carrying only its reason, the empty-scene
+reading, and the unevidenced-montage caveat — which fired correctly and whose warning the editor
+repeated back as their next instruction. Five transitions, no black-frame findings (ADR 0135
+holding, pending the verification noted in `run_report.md`).
+
+Fixed in this pass:
+
+1. **`aspect_fill`/`reframe_coverage`** — nothing checked whether picture fills the frame, so a
+   vertical cut with 38 letterboxed shots passed. Asked as a consistency question (a MIX of
+   reframed and unreframed picture is a defect whatever the sources are), because the project
+   does not carry per-asset pixel dimensions.
+2. **Crop visibility** — `get_clips` rows gained `cropped`/`graded`. Crop was the one clip
+   property with no cheap read, so "which of my 47 clips still need reframing" cost 47 calls,
+   which means it was never asked.
+3. **Coverage acceptance** — "every clip", "per clip", "across clips" plus a treatment is now a
+   criterion, and `treatment_coverage` fails naming the shortfall ("colour grade: 1 of 47").
+   Read per LINE so a quantifier cannot reach a treatment in another sentence.
+4. **The authority split — ADR 0137.** `propose_edits`'s seven hardcoded rules (a move and a
+   hand-tuned score per signal, a reveal-word regex over chapter titles) became
+   `read_edit_signals`: measurements in time order, no `kind`, no `score`, no canned `why`, and
+   a `from` field saying whether each signal was supplied or measured. The beat grid keeps
+   snapping near-misses but now REPORTS a far miss instead of refusing it, unless the run
+   declared `hardSync` on `detect_beats`. Facts and guarantees stay in the runtime; judgement
+   moved to the agent.
+5. **`index_media` withheld from the model** — the contract was asserted in two places and
+   enforced in one, so the interactive agent advertised it. One-line filter plus the scope test
+   that was actually missing.
+6. **Deliverable honesty** — a brief asking for a rendered file now hears, once, that the panel
+   cannot render and the Export dialog is where the edits become a file.
+7. **Browser context parity** — the browser session now reads the visual status, the cached
+   footage map and the session digest the desktop hub already read. Run 2 asked the agent to
+   "choose from footage map" while its context carried four section labels in total; the agent
+   invented the chapters instead.
+
+Deferred, with reasons in `run_report.md`: the 44-revision gap between turns (GAP-210 — needs
+host plumbing on both surfaces for a Medium finding whose main consequence the coverage checks
+now catch) and the track-label question (GAP-211 — unresolved whether the UI disagrees).
+
+Evidence: 3167 ai-sdk, 2597 engine, 2435 web-editor tests green; ruff/mypy/eslint/tsc clean.
+Tests that encoded the old policies were split across both modes rather than deleted.
+
+**Status snapshot (2026-08-22):** `[x]` **A captured agent run (`run.md`) was traced end to
+end against the code; nine of its defects are fixed and two of its apparent defects were
+mis-read by the analysis.** One 28-minute run, five turns, zero net edits. The gaps it proved:
+
+1. **Transitions composited over black at every cut.** A transition sits on butt-joined clips,
+   so while the incoming clip eases in the outgoing one has already ended — a cross dissolve
+   dissolved up from black, a whip pan whipped in over black, in the render and both monitors.
+   The run's perceptual reviewer reported exactly this at all seven cuts (frames 90, 195, 300,
+   405, 525, 615, 735 = 3.0/6.5/10.0/13.5/17.5/20.5/24.5s) and could never be satisfied,
+   because the fault was not in any proposal. A ramp now carries the neighbour's handle
+   material (or its held edge frame) underneath. **ADR 0135.**
+2. **`crop` masked in place in the monitor and filled the frame in the render.** The editor saw
+   a small picture in black while the export was full-bleed, reported it, and the agent wrote
+   compensating scale keyframes (3.2×, then 1.78×) which the render applies *on top of* its own
+   fill scale. `preview/crop-fill.ts` now holds one arithmetic for both monitors. **ADR 0135.**
+3. **The beat grid vetoed proposals with no cut in them.** `resolveGrid`'s ungrounded rejection
+   ran before boundary collection, so once `detect_beats` had run every later proposal was
+   rejected while the analyzed asset sat off the timeline — including an eight-call
+   `set_clip_crop` step, which is how the vertical reframe the editor asked for never landed.
+   Relevance is decided before groundedness now.
+4. **The objective was a copy of the request**, so verification could only ask "did anything
+   succeed" — a request for "20+ different best moments" was satisfied by eight shots.
+   `acceptance.ts` reads the checkable conditions and the Critic gains `shot_count`. **ADR 0136.**
+5. **A failed verification was filed with a passing detail** (`passed: false` next to
+   "Passed with 1 warning(s)"). One reason, two consumers. **ADR 0136.**
+6. **A dropped or truncated step ended the run.** Both land after a 200, where the resilient
+   provider cannot see them; one failed a run the UI called retryable, the other published
+   "Rebuilding the 30 seconds as a 23-shot" as the run's last word. One in-place retry, keyed
+   off the provider's own stop reason. **ADR 0136.**
+7. **Unbounded re-steering of an unfixable finding**, and a clean deterministic self-check
+   reported while the perceptual review still held one. One attempt per defect class; the
+   completion account is amended. **ADR 0136.**
+8. **A repeated `get_frame` was refused its own picture.** The memo key carries the revision, so
+   a hit proves the frame is current — but the image had been stripped from context a turn
+   earlier, and the replay told the model to answer from a picture it no longer had. That is how
+   the run produced a confident, wrong reading of its own framing.
+9. **Nothing the editor told a run outlived it.** `createSessionContextDigester` had no caller,
+   so the editor's answered question ("Full-bleed vertical crop") died with the run that asked
+   and the next run rebuilt the montage uncropped. Desktop now reads the session digest per run,
+   and an answered `ask_user` writes a durable note.
+
+Also: an empty `detect_scenes` result now carries its own reading (a continuous take is not
+guidance on where to cut), the two perceptual gates' thresholds live in one documented table
+with a cross-language parity test, the "Skipped: N proposed changes" line carries only the
+reason instead of a read tool's raw JSON, and a montage assembled with no content evidence says
+so in its own report.
+
+**Two findings the analysis got wrong**, corrected here so they are not re-fixed:
+`ContextInput.footageMap` DOES have a producer — `main.ts` wires `footageMapFor` with
+`cachedOnly: true`, deliberately, so a cold project simply gets no map block rather than
+stalling a run on a billable Pegasus round-trip. And the 24-tool
+`autonomous-tools.manifest.json` is not a competing surface for the interactive agent: its own
+header states it is the smaller public surface for the autonomous orchestrator, MCP projection
+and Python mirror, while the full registry stays the interactive catalog. The measured cost of
+that registry is real and unchanged (78 descriptors ≈ 15,710 tokens per request at every stage
+except `apply`, which trims to 58 ≈ 12,317) — consolidating it is a maintainer scope decision,
+not a bug fix, and was left alone.
+
+Evidence: 3161 ai-sdk, 2597 engine, 2429 web-editor tests green; ruff/mypy/eslint/tsc clean;
+per-package coverage green. `pnpm verify` passes every gate except `test:visual`, which fails
+two AI-sidebar screenshots that fail identically on a clean `main` (seven panels fail there):
+both diffs are character-identical text ghosted ~1px down the panel — a font-metric shift on
+this machine, not a content change — and none of the copy changed here appears in either
+snapshot. Those baselines have been regenerated twice before (`64e4db1`, `b19438c`);
+regenerating them again is a separate call.
+Two engine transition tests were rewritten because they encoded the defect (one solid-colour
+asset on both sides of a cut cannot tell a working transition from a black flash; another
+asserted a centred ramp is *darker* before the cut, which was only true while it faded to
+black).
+
 **Status snapshot (2026-08-21):** `[x]` **Footage understanding showed nothing for new
 footage — nothing was ever indexed.** The panel said the clip "is not indexed yet" and pointed
 at a media-bin action that does not exist; Rebuild re-asked for a map that could never appear;

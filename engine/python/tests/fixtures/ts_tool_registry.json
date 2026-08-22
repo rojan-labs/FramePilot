@@ -1226,6 +1226,11 @@
               "string"
             ]
           },
+          "hardSync": {
+            "type": [
+              "boolean"
+            ]
+          },
           "sensitivity": {
             "type": [
               "number"
@@ -2594,7 +2599,66 @@
         }
       }
     },
-    "propose_edits": {
+    "punch_in": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId"
+        ],
+        "properties": {
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "easing": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "bezier",
+              "ease-in",
+              "ease-in-out",
+              "ease-out",
+              "hold",
+              "linear"
+            ]
+          },
+          "endTime": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "fromScale": {
+            "type": [
+              "number"
+            ],
+            "exclusiveMinimum": 0
+          },
+          "startTime": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "toScale": {
+            "type": [
+              "number"
+            ],
+            "exclusiveMinimum": 0
+          }
+        }
+      }
+    },
+    "read_edit_signals": {
       "kind": "read",
       "mutates": false,
       "available": true,
@@ -2722,65 +2786,6 @@
             "type": [
               "boolean"
             ]
-          }
-        }
-      }
-    },
-    "punch_in": {
-      "kind": "mutate",
-      "mutates": true,
-      "available": true,
-      "hostUiOnly": false,
-      "schema": {
-        "type": [
-          "object"
-        ],
-        "additionalProperties": false,
-        "required": [
-          "clipId"
-        ],
-        "properties": {
-          "clipId": {
-            "type": [
-              "string"
-            ]
-          },
-          "easing": {
-            "type": [
-              "string"
-            ],
-            "enum": [
-              "bezier",
-              "ease-in",
-              "ease-in-out",
-              "ease-out",
-              "hold",
-              "linear"
-            ]
-          },
-          "endTime": {
-            "type": [
-              "number"
-            ],
-            "minimum": 0
-          },
-          "fromScale": {
-            "type": [
-              "number"
-            ],
-            "exclusiveMinimum": 0
-          },
-          "startTime": {
-            "type": [
-              "number"
-            ],
-            "minimum": 0
-          },
-          "toScale": {
-            "type": [
-              "number"
-            ],
-            "exclusiveMinimum": 0
           }
         }
       }

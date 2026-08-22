@@ -1,7 +1,7 @@
 ---
 name: footage-intelligence
 description: Retrieve grounded visual evidence, compare candidate moments, and turn a large or unfamiliar media set into citable editorial choices without guessing.
-tools: [map_footage, describe_footage, search_visual, propose_edits, detect_scenes, analyze_silence]
+tools: [map_footage, describe_footage, search_visual, read_edit_signals, detect_scenes, analyze_silence]
 ---
 
 # Footage intelligence
@@ -35,7 +35,7 @@ Retrieve before assuming, then decide. Evidence gathering is valuable only when 
 - Map once for global shape; describe only promising spans; search for specific content.
 - Index when available and needed; otherwise use transcript/scene evidence honestly.
 - Compare candidates by story value, visual clarity, motion completion, composition, novelty, and cost.
-- Treat `propose_edits` as candidate generation, not editorial authority.
+- `read_edit_signals` reports what is measurably there; choosing the move is yours. A signal it echoes back is only as real as the evidence you passed in.
 
 ## Decision framework
 

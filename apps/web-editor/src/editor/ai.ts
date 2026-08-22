@@ -18,6 +18,9 @@ import {
   analyzeCaptionEmphasis,
   buildCaptionEmphasisPrompt,
   createMemoryRecorder,
+  createSessionContextDigester,
+  createVisualStatusDigester,
+  summarizeFootageMap,
   createProvider,
   createProviderFromConfig,
   createSidecarExecutor,
@@ -62,6 +65,11 @@ const log = createLogger('web-editor:ai');
 import type { Project, Timeline, TranscriptWord } from '@framepilot/timeline-schema';
 import { getBridge } from './bridge.js';
 import { type BrowserAiConfig, loadBrowserAiConfig } from './aiConfigStorage.js';
+import {
+  readProjectUnderstanding,
+  type UnderstandingReads,
+} from './projectUnderstanding.js';
+import { createVisualIndexClient } from './visualIndex.js';
 import { createBrowserRunStoreIO } from './browser-run-store.js';
 import {
   BrowserRunRecorder,
@@ -432,6 +440,45 @@ export class BrowserAiSession implements AiSession {
   }
 
   /**
+   * The three understanding blocks a run should open with, or `{}` when this build has no
+   * sidecar to ask (the plain browser build's honest gap, the same one it has for proxies).
+   *
+   * Each read is independent and none may fail the run, so they overlap and every rejection
+   * degrades to an absent block. The footage map is CACHE-ONLY on purpose: this runs before
+   * every run, and a cache miss that reached for a generative understanding model would stall
+   * the run on a slow round-trip and bill for it. A cold project simply gets no map block
+   * until the understanding panel or a `map_footage` call warms it.
+   */
+  /**
+   * Build the three understanding reads for this run, or `undefined` when this build has no
+   * sidecar to ask (the plain browser build's honest gap, the same one it has for proxies).
+   *
+   * The footage map is CACHE-ONLY on purpose: this runs before every run, and a cache miss
+   * that reached for a generative understanding model would stall the run on a slow round-trip
+   * and bill for it. A cold project simply gets no map block until the understanding panel or
+   * a `map_footage` call warms it.
+   */
+  private understandingReads(input: AiSessionInput): UnderstandingReads | undefined {
+    const baseUrl = configuredEngineBaseUrl();
+    if (!baseUrl) return undefined;
+    const projectId = input.project.id;
+    const twelveLabsKey = loadBrowserAiConfig().twelveLabs?.trim();
+    return {
+      visualStatus: () =>
+        createVisualStatusDigester({ baseUrl })(projectId, this.orchestrator.canSeeFrames()),
+      footageMap: async () =>
+        summarizeFootageMap(
+          await createVisualIndexClient(baseUrl).footageMap({
+            projectId,
+            cachedOnly: true,
+            ...(twelveLabsKey ? { twelveLabsKey } : {}),
+          }),
+        ),
+      sessionContext: () => createSessionContextDigester({ baseUrl })(projectId),
+    };
+  }
+
+  /**
    * The run's live controls: the caller's own hooks plus this session's question gate.
    * A caller-supplied `askUser` wins, so a test (or a future host) can still drive the
    * gate itself.
@@ -440,7 +487,27 @@ export class BrowserAiSession implements AiSession {
     // A fresh gate per run: a question from a previous, abandoned run must never be
     // resolvable by a click in this one.
     this.askGate = createAskUserGate();
-    return { askUser: this.askGate, ...(input.controls ?? {}) };
+    const baseUrl = configuredEngineBaseUrl();
+    return {
+      askUser: this.askGate,
+      // What the editor tells the run has to outlive it, or the next run asks again — or
+      // proceeds on a guess instead, which is how a captured session lost the framing the
+      // editor had just chosen. No sidecar ⇒ no brain to write to, the same honest gap as
+      // proxies in the plain browser build.
+      ...(baseUrl
+        ? {
+            rememberDecision: (note: { readonly title: string; readonly body: string }) => {
+              void createMemoryRecorder({ baseUrl })({
+                projectId: input.project.id,
+                tier: 'decisions',
+                title: note.title,
+                body: note.body,
+              });
+            },
+          }
+        : {}),
+      ...(input.controls ?? {}),
+    };
   }
 
   /**
@@ -489,6 +556,18 @@ export class BrowserAiSession implements AiSession {
       historyLen: input.history?.length ?? 0,
     });
     this.controller = new AbortController();
+    // What this project already KNOWS, read once per run: whether its footage is indexed, the
+    // cached footage map, and the session digest (bin summary, last session note, the
+    // corrections/decisions tiers — where an answer the editor gave a previous run lives).
+    //
+    // The desktop hub has read these for a while; the browser session read none of them, so
+    // the two surfaces disagreed about what the agent knows. In a captured browser run the
+    // editor said "choose from footage map" and the agent had no map in context, never called
+    // for one, and narrated chapter titles it had invented instead. Best-effort and fail-soft
+    // exactly as on desktop: a slow or absent sidecar degrades to no block rather than
+    // delaying or failing an otherwise good run.
+    const reads = this.understandingReads(input);
+    const understanding = reads ? await readProjectUnderstanding(reads) : {};
     const context = {
       project: input.project,
       ...(input.projectRevision === undefined ? {} : { projectRevision: input.projectRevision }),
@@ -498,6 +577,7 @@ export class BrowserAiSession implements AiSession {
       ...(input.interaction ? { interaction: input.interaction } : {}),
       ...(input.userMemory ? { userMemory: input.userMemory } : {}),
       ...(input.pinned && input.pinned.length > 0 ? { pinned: input.pinned } : {}),
+      ...understanding,
     };
     const options: StreamOptions = {
       conversationId: input.conversationId,
