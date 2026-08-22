@@ -41,7 +41,7 @@ jobs:
     name: Protocol and policy (no CV stack, no weights)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v5
@@ -89,7 +89,7 @@ jobs:
           - runner: windows-latest
             platform: win32-x64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v5

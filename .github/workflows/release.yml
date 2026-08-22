@@ -59,7 +59,7 @@ jobs:
       MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
       DIST_BUCKET: ${{ secrets.DIST_BUCKET }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
