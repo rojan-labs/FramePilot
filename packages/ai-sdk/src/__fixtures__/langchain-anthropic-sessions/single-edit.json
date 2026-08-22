@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 19427,
+      "usedTokens": 19256,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -141,16 +141,16 @@
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15760,
+            "tokenEstimate": 15589,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19427,
+          "estimatedInputTokensBeforeSend": 19256,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 852573,
+          "estimatedRemainingCapacity": 852744,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -218,14 +218,14 @@
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15760,
+            "tokenEstimate": 15589,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19427,
+          "estimatedInputTokensBeforeSend": 19256,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -527,7 +527,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 19471,
+      "usedTokens": 19300,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -560,16 +560,16 @@
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15760,
+            "tokenEstimate": 15589,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19471,
+          "estimatedInputTokensBeforeSend": 19300,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 852529,
+          "estimatedRemainingCapacity": 852700,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -647,14 +647,14 @@
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15760,
+            "tokenEstimate": 15589,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19471,
+          "estimatedInputTokensBeforeSend": 19300,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",

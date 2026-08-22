@@ -179,13 +179,10 @@ import {
   operationsForCall,
   sanitizeToolArgs,
 } from './tool-dispatch.js';
-import {
-  type HostToolExecutor,
-  type HostToolOutcome,
-} from './tool-executor.js';
+import { type HostToolExecutor, type HostToolOutcome } from './tool-executor.js';
 import { withToolInputContract } from './tool-input-contract.js';
 import { concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
-import { QUESTION_ROUTE_PERMISSIONS, selectTools } from './tool-scope.js';
+import { IMPLICIT_ONLY_TOOL_NAMES, QUESTION_ROUTE_PERMISSIONS, selectTools } from './tool-scope.js';
 import { type WipeGuardContext, detectTimelineWipe, wipeGuardFor } from './wipe-guard.js';
 
 export type { EditResult } from './assemble.js';
@@ -2188,6 +2185,12 @@ export class Orchestrator {
     // rather than let it be called and fail (see `supportsVision`).
     const sighted = supportsVision(this.provider.name, this.provider.modelId);
     return toolDescriptors((tool) => {
+      // Lifecycle work the orchestrator owns is never model-selectable. `tool-scope.ts`
+      // declares this and `autonomous-tool-contract.ts` throws over it, but the filter lived
+      // only in `selectTools` — so the ONE surface with a live editor in front of it offered
+      // `index_media` as an ordinary call, and a model could start a paced, billable indexing
+      // job inside a run whose budget assumed it could not.
+      if ((IMPLICIT_ONLY_TOOL_NAMES as readonly string[]).includes(tool.name)) return false;
       if (!sighted && tool.capabilities?.includes('vision')) return false;
       // `recall_evidence` survives the recovery turn. Everything else read-shaped is
       // withheld there on purpose — the run has gathered enough and must act — but this
