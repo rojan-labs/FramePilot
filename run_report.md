@@ -9,6 +9,32 @@ The previous report covered run `cce4755e`; that close-out is preserved in git h
 
 ---
 
+## Close-out status (2026-08-22, same day)
+
+Nine of the eleven findings are fixed with tests; two are deferred with the reasoning stated.
+Decisions are in **ADR 0137** (the authority split) alongside 0135/0136 from the previous pass.
+
+| ID | Status | Where |
+|---|---|---|
+| GAP-201 | **Fixed** — `reframe_coverage` fails a cut where some shots are reframed and the rest are not, naming them; a portrait frame with no reframing at all warns | `critic.ts` |
+| GAP-202 | **Fixed** — "every/per/across clip" + a treatment is read as a criterion; `treatment_coverage` fails naming the shortfall | `acceptance.ts`, `critic.ts` |
+| GAP-203 | **Fixed (labelled, not yet enforced)** — every signal carries `from: supplied \| measured here`, so a chapter the run never read is no longer echoed back as a citation. Reading signals from the evidence store by handle is ADR 0137's stated next step | `proposers/edit-signals.ts` |
+| GAP-204 | **Fixed** — the seven rules and their scores are gone; `read_edit_signals` reports measurements in time order and the agent chooses the move | ADR 0137 |
+| GAP-205 | **Fixed** — the grid snaps near-misses, reports a far miss, and refuses one only when the run declared `hardSync` on `detect_beats` | `kernel/beat-grid/beat-alignment.ts` |
+| GAP-206 | **Fixed** — `get_clips` rows carry `cropped` and `graded` | `domain-tools/timeline.ts` |
+| GAP-207 | **Fixed** — `agentTools` applies the `implicitOnly` filter, plus the scope test that was missing | `orchestrator.ts`, `tool-scope.test.ts` |
+| GAP-208 | **Fixed** — the browser session reads visual status, cached footage map and session digest, fail-soft, with the composition unit-tested | `editor/projectUnderstanding.ts`, `editor/ai.ts` |
+| GAP-209 | **Fixed** — a request for a rendered file is recorded as a criterion and the report points at Export | `acceptance.ts`, `orchestrator.ts` |
+| GAP-210 | **Deferred** — the revision gap needs host plumbing on both surfaces (browser + desktop) to avoid re-creating the parity split GAP-208 just closed, for a Medium finding whose main consequence — stale crops going unnoticed — the new coverage checks now catch | — |
+| GAP-211 | **Deferred** — still unresolved whether the editor's timeline labels lanes the way the agent's cards do; a shared label helper is the fix if they disagree | — |
+
+**A note on what is NOT claimed.** GAP-203 is labelled rather than enforced: `read_edit_signals`
+still takes its signals as arguments, so `from: 'supplied'` is an honest label, not a guarantee
+that a citation was earned. A model determined to assert a chapter it never read can still do
+so; what it can no longer do is have the runtime dress that assertion up as evidence.
+
+---
+
 ## 0. What the editor asked for, and what arrived
 
 The brief was unusually explicit — twelve numbered requirements, one flagged as a repeat failure:

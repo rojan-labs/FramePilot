@@ -8,6 +8,50 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The AI is told what is in your footage; it decides what to do about it.** It used to be
+  handed a ranked list of moves worked out in code — every highlight got "a push-in makes it
+  land", a chapter whose title contained a word like "reveal" got another, a long quiet
+  stretch got a speed ramp — and its job was to pick from that list. Five suggestions would
+  come back with one reason between them, and the scores looked enough like evidence that the
+  AI stopped forming its own view.
+
+  Now it gets the facts instead: how long a chapter runs and how many highlights sit inside
+  it, which gaps are long enough to notice, where the picture changes, which words were
+  emphasised — and it chooses the cut, the reframe, the zoom or the nothing-at-all itself. It
+  also now says which of those facts came from actually reading your footage and which were
+  its own assumption, so a guess can no longer be presented to you as a finding.
+
+- **Cutting to music is your call, not the app's.** If the AI had so much as analysed a track,
+  every cut was forced onto the nearest detected beat — so a request for cuts on visual action
+  ("ready to beat-sync once I add music") had its rhythm quietly replaced, and cuts sitting a
+  tenth of a second off a beat were refused outright. Cuts that are nearly on a beat are still
+  snapped exactly onto it for you; a cut you meant to sit off the beat now stands, and you are
+  told how far off it is. Hard quantising happens only when the AI is deliberately syncing to
+  the track.
+
+- **"Do this to every clip" is now something the app can check.** A brief asking for every
+  clip to be reframed, graded and given a subtle zoom could be answered with one clip done and
+  the job reported as complete, because the only things being checked were the total length
+  and the number of shots. Those per-clip requests are now checked across the whole cut, and
+  you are told the shortfall — "the grade is on 1 of 47 clips" — instead of "all checks
+  passed".
+
+- **Black bars no longer slip through.** Nothing checked whether your clips actually fill the
+  frame, so a vertical edit could ship with most shots letterboxed. Now a cut where some shots
+  are reframed and others are not is flagged with the clips that were missed, and the AI can
+  see at a glance which clips still need it.
+
+- **When the AI cannot make the file you asked for, it says so.** A brief ending "one final
+  rendered MP4" would finish with edits on the timeline, no file, and no mention of it —
+  rendering isn't something the AI panel can do. It now tells you once, plainly, and points at
+  the Export dialog.
+
+- **The AI starts a job knowing what your project already knows.** In the browser it began
+  every job blind: no footage map, no note of what was learned last session, no record of what
+  you had already told it. Asked to choose moments "from the footage map", it had none, never
+  fetched one, and described chapters it had made up. It now reads all three before it starts,
+  as the desktop app already did.
+
 - **Transitions no longer flash black at every cut.** A cross dissolve dissolved up from
   black instead of out of the shot before it; a whip pan whipped in over black; a wipe wiped
   in from nothing. It happened at every cut, in the monitor and in the exported file, because

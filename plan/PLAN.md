@@ -13,6 +13,53 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-22, second pass):** `[x]` **Run 2 (`e6d5ba92`) re-tested the fixes
+above and exposed a deeper class of gap: the runtime was deciding editorial questions, and the
+completion gate could not see coverage.** The run completed, met both measurable criteria (50+
+shots, 30.0s) — and delivered the editor's most emphasised requirement on 9 clips of 47.
+
+Confirmed live from that transcript: acceptance criteria recorded and checked, the
+"Deterministic self-check" wording, a skip line carrying only its reason, the empty-scene
+reading, and the unevidenced-montage caveat — which fired correctly and whose warning the editor
+repeated back as their next instruction. Five transitions, no black-frame findings (ADR 0135
+holding, pending the verification noted in `run_report.md`).
+
+Fixed in this pass:
+
+1. **`aspect_fill`/`reframe_coverage`** — nothing checked whether picture fills the frame, so a
+   vertical cut with 38 letterboxed shots passed. Asked as a consistency question (a MIX of
+   reframed and unreframed picture is a defect whatever the sources are), because the project
+   does not carry per-asset pixel dimensions.
+2. **Crop visibility** — `get_clips` rows gained `cropped`/`graded`. Crop was the one clip
+   property with no cheap read, so "which of my 47 clips still need reframing" cost 47 calls,
+   which means it was never asked.
+3. **Coverage acceptance** — "every clip", "per clip", "across clips" plus a treatment is now a
+   criterion, and `treatment_coverage` fails naming the shortfall ("colour grade: 1 of 47").
+   Read per LINE so a quantifier cannot reach a treatment in another sentence.
+4. **The authority split — ADR 0137.** `propose_edits`'s seven hardcoded rules (a move and a
+   hand-tuned score per signal, a reveal-word regex over chapter titles) became
+   `read_edit_signals`: measurements in time order, no `kind`, no `score`, no canned `why`, and
+   a `from` field saying whether each signal was supplied or measured. The beat grid keeps
+   snapping near-misses but now REPORTS a far miss instead of refusing it, unless the run
+   declared `hardSync` on `detect_beats`. Facts and guarantees stay in the runtime; judgement
+   moved to the agent.
+5. **`index_media` withheld from the model** — the contract was asserted in two places and
+   enforced in one, so the interactive agent advertised it. One-line filter plus the scope test
+   that was actually missing.
+6. **Deliverable honesty** — a brief asking for a rendered file now hears, once, that the panel
+   cannot render and the Export dialog is where the edits become a file.
+7. **Browser context parity** — the browser session now reads the visual status, the cached
+   footage map and the session digest the desktop hub already read. Run 2 asked the agent to
+   "choose from footage map" while its context carried four section labels in total; the agent
+   invented the chapters instead.
+
+Deferred, with reasons in `run_report.md`: the 44-revision gap between turns (GAP-210 — needs
+host plumbing on both surfaces for a Medium finding whose main consequence the coverage checks
+now catch) and the track-label question (GAP-211 — unresolved whether the UI disagrees).
+
+Evidence: 3167 ai-sdk, 2597 engine, 2435 web-editor tests green; ruff/mypy/eslint/tsc clean.
+Tests that encoded the old policies were split across both modes rather than deleted.
+
 **Status snapshot (2026-08-22):** `[x]` **A captured agent run (`run.md`) was traced end to
 end against the code; nine of its defects are fixed and two of its apparent defects were
 mis-read by the analysis.** One 28-minute run, five turns, zero net edits. The gaps it proved:
