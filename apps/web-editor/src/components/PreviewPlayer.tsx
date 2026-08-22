@@ -202,6 +202,20 @@ const POOL_SLOTS: readonly number[] = Array.from({ length: PREVIEW_POOL_SIZE }, 
  */
 const UNDERLAY_EDGE_FRAME_SECONDS = 1 / 24;
 
+/**
+ * Where a slot should sit: its in-point normally, or its LAST frame when it is holding the
+ * shot underneath a transition ramp.
+ *
+ * One definition, because two places move that element — the load handler and the warm-slot
+ * alignment pass — and if they disagree the alignment pass wins and drags the under-layer back
+ * to the start of the outgoing shot. That reads as the right shot at emphatically the wrong
+ * moment, which is harder to spot than the black frame it replaced.
+ */
+function slotParkTime(clip: Clip, isUnderlay: boolean): number {
+  if (!isUnderlay || clip.sourceEnd === undefined) return clip.sourceStart;
+  return Math.max(clip.sourceStart, clip.sourceEnd - UNDERLAY_EDGE_FRAME_SECONDS);
+}
+
 export function PreviewPlayer({
   editor,
   assets,
@@ -348,6 +362,14 @@ export function PreviewPlayer({
   // clip's last frame for the few ms in between — a held frame is invisible at
   // 30fps, a black flash is not. This is what makes the swap flicker-free.
   const [visibleSlot, setVisibleSlot] = useState(0);
+  /**
+   * The clip a transition on the ACTIVE clip is transitioning from, if any.
+   *
+   * Read here rather than beside the live envelope below because the warm-slot alignment pass
+   * needs it: that pass re-seeks every non-front slot to its in-point, which would drag the
+   * under-layer back to the start of the outgoing shot.
+   */
+  const transitionCounterpartClipId = videoClip ? transitionCounterpartId(videoClip) : null;
   /** The still-image element, when the playhead sits on an image clip. */
   const imageElRef = useRef<HTMLImageElement | null>(null);
 
@@ -640,14 +662,15 @@ export function PreviewPlayer({
       const clip = clipById.get(id);
       if (!clip) continue;
       try {
-        if (Math.abs(el.currentTime - clip.sourceStart) > WINDOW_SEEK_EPSILON) {
-          el.currentTime = clip.sourceStart;
+        const target = slotParkTime(clip, id === transitionCounterpartClipId);
+        if (Math.abs(el.currentTime - target) > WINDOW_SEEK_EPSILON) {
+          el.currentTime = target;
         }
       } catch {
         /* jsdom has no media clock. */
       }
     }
-  }, [pool, clipById]);
+  }, [pool, clipById, transitionCounterpartClipId]);
   /* v8 ignore stop */
 
   // Active caption clips render via the template-based CaptionOverlay
@@ -807,7 +830,7 @@ export function PreviewPlayer({
   // opacity beneath the ramping front. It is parked on that clip's LAST frame rather than
   // playing its handle (see `slotSeekTarget`) — a held frame under a sub-second ramp reads as
   // continuous, and the deterministic render remains the authority for the exact frames.
-  const underlayClipId = videoClip && transition ? transitionCounterpartId(videoClip) : null;
+  const underlayClipId = transition ? transitionCounterpartClipId : null;
   const underlaySlot = underlayClipId
     ? POOL_SLOTS.find((slot) => slot !== visibleSlot && pool.loaded[slot] === underlayClipId)
     : undefined;
@@ -832,10 +855,7 @@ export function PreviewPlayer({
     if (slot === pool.front && frontHoldsActive && sourceTime !== null) return sourceTime;
     // The slot showing the shot UNDER a transition ramp is the exception: what belongs on
     // screen there is where that shot left off, not where it began.
-    if (slot === underlaySlot && clip.sourceEnd !== undefined) {
-      return Math.max(clip.sourceStart, clip.sourceEnd - UNDERLAY_EDGE_FRAME_SECONDS);
-    }
-    return clip.sourceStart;
+    return slotParkTime(clip, pool.loaded[slot] === transitionCounterpartClipId);
   };
 
   /* v8 ignore start -- media events need a real pipeline: verified in e2e. */
