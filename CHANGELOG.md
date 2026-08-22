@@ -8,6 +8,55 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Transitions no longer flash black at every cut.** A cross dissolve dissolved up from
+  black instead of out of the shot before it; a whip pan whipped in over black; a wipe wiped
+  in from nothing. It happened at every cut, in the monitor and in the exported file, because
+  the shot being left had already ended by the time the next one started easing in and there
+  was nothing underneath it.
+
+  A transition now reveals the shot it is coming from, as it should: the outgoing shot keeps
+  playing under the ramp (or holds its last frame, when it has been cut right to the end of
+  its source). Nothing about your timeline changes — the same cuts, the same transitions, just
+  the picture that belongs under them.
+
+- **Cropped clips fill the frame in the monitor, the way they always did on export.** A
+  vertical crop of horizontal footage showed as a small picture floating in a lot of black
+  while the exported video was full-bleed. The monitor was showing you something worse than
+  what you would get, which is the wrong way round — and if you (or the AI) "fixed" it by
+  zooming in, the export ended up over-zoomed for real. The monitor now fills the frame
+  exactly as the render does.
+
+- **A dropped reply no longer throws away the whole job.** When the AI's provider dropped a
+  request — an empty response, or a reply cut off mid-sentence — the run ended there, often
+  after minutes of work, and told you it was "retryable" without retrying anything. Worse, a
+  cut-off sentence was published as the AI's final word on your video. It now retries the
+  step once, and if the reply is still cut short it says so plainly instead of leaving you a
+  fragment.
+
+- **The AI can be held to what you actually asked for.** Ask for "a 30 second reel from at
+  least 20 moments" and it now records both as conditions and checks them against the finished
+  cut, instead of treating your whole sentence as one unmeasurable goal — which is how a
+  request for twenty moments could finish, reported as a success, with eight. Taste is
+  deliberately left out of that: "make it nice" is still the AI's judgement to exercise, not
+  something the app pretends to measure.
+
+- **The AI stops being told to fix the same thing forever — and stops claiming a clean run
+  when it is not.** Its own visual review kept reporting one defect it had no way to fix, and
+  the app kept instructing it to fix that defect, turn after turn, until the job ran out. A
+  problem now gets one correction attempt; after that you are told plainly that it is still
+  there and that the run is not going to keep retrying. And "all checks passed" no longer
+  appears while the visual review is still holding an unresolved problem.
+
+- **It stops asking you the same question twice — and stops undoing what you already
+  answered.** When the AI asked how the picture should sit in a vertical frame and you chose
+  full-bleed, the next run knew nothing about it and rebuilt the whole cut with no crop at all.
+  What you tell a job is now remembered with the project, so later jobs read it back.
+
+- **It says when a cut was chosen blind.** If it assembles a montage without reading anything
+  about what is actually in your footage, it now tells you so — and what to ask for if you want
+  the selection grounded in content — instead of describing timings it guessed as though they
+  came from a real look at the material.
+
 - **Footage understanding works again — and reading a clip is now something you can actually
   do.** New footage never got read at all: the very first time a project prepared its
   understanding, the provider rejected the request outright (the generative model it asked for
