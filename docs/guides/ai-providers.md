@@ -21,6 +21,7 @@ validation, host authorization, usage events, cancellation, and completion rules
 anthropic
 nvidia
 openrouter
+vercel-gateway
 groq
 google
 ollama
@@ -31,17 +32,18 @@ mock
 
 ## Configuration summary
 
-| Provider id  | Required or typical values                                               | Transport                              |
-| ------------ | ------------------------------------------------------------------------ | -------------------------------------- |
-| `anthropic`  | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, optional `ANTHROPIC_BASE_URL`    | Anthropic Messages API                 |
-| `nvidia`     | `NVIDIA_API_KEY`, `NVIDIA_MODEL`, optional `NVIDIA_BASE_URL`             | OpenAI-compatible chat API             |
-| `openrouter` | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, optional `OPENROUTER_BASE_URL` | OpenAI-compatible chat API             |
-| `groq`       | `GROQ_API_KEY`, `GROQ_MODEL`, optional `GROQ_BASE_URL`                   | OpenAI-compatible chat API             |
-| `google`     | `GOOGLE_API_KEY`, `GOOGLE_MODEL`, optional `GOOGLE_BASE_URL`             | Native Gemini REST API                 |
-| `ollama`     | `OLLAMA_MODEL`, optional `OLLAMA_BASE_URL` and `OLLAMA_API_KEY`          | Local OpenAI-compatible endpoint       |
-| `deepseek`   | `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, optional `DEEPSEEK_BASE_URL`       | OpenAI-compatible chat API             |
-| `openai-compatible` | **required** `FRAMEPILOT_OPENAI_COMPATIBLE_BASE_URL`, `FRAMEPILOT_OPENAI_COMPATIBLE_MODEL`, optional `FRAMEPILOT_OPENAI_COMPATIBLE_API_KEY` | OpenAI-compatible chat API |
-| `mock`       | No credentials                                                           | Deterministic in-process test provider |
+| Provider id         | Required or typical values                                                                                                                  | Transport                              |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `anthropic`         | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, optional `ANTHROPIC_BASE_URL`                                                                       | Anthropic Messages API                 |
+| `nvidia`            | `NVIDIA_API_KEY`, `NVIDIA_MODEL`, optional `NVIDIA_BASE_URL`                                                                                | OpenAI-compatible chat API             |
+| `openrouter`        | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, optional `OPENROUTER_BASE_URL`                                                                    | OpenAI-compatible chat API             |
+| `vercel-gateway`    | `AI_GATEWAY_API_KEY`, `AI_GATEWAY_MODEL`, optional `AI_GATEWAY_BASE_URL`                                                                    | OpenAI-compatible chat API             |
+| `groq`              | `GROQ_API_KEY`, `GROQ_MODEL`, optional `GROQ_BASE_URL`                                                                                      | OpenAI-compatible chat API             |
+| `google`            | `GOOGLE_API_KEY`, `GOOGLE_MODEL`, optional `GOOGLE_BASE_URL`                                                                                | Native Gemini REST API                 |
+| `ollama`            | `OLLAMA_MODEL`, optional `OLLAMA_BASE_URL` and `OLLAMA_API_KEY`                                                                             | Local OpenAI-compatible endpoint       |
+| `deepseek`          | `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, optional `DEEPSEEK_BASE_URL`                                                                          | OpenAI-compatible chat API             |
+| `openai-compatible` | **required** `FRAMEPILOT_OPENAI_COMPATIBLE_BASE_URL`, `FRAMEPILOT_OPENAI_COMPATIBLE_MODEL`, optional `FRAMEPILOT_OPENAI_COMPATIBLE_API_KEY` | OpenAI-compatible chat API             |
+| `mock`              | No credentials                                                                                                                              | Deterministic in-process test provider |
 
 The complete environment reference lives in [`.env.example`](../../.env.example) and
 [`configuration.md`](configuration.md).
@@ -116,6 +118,27 @@ OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 OpenRouter exposes many upstream models through one OpenAI-compatible endpoint. Select a
 model that supports the tools and context required by the requested edit. Model names alone
 do not guarantee reliable tool use, streaming usage, or vision.
+
+## Vercel AI Gateway
+
+```bash
+FRAMEPILOT_AI_PROVIDER=vercel-gateway
+AI_GATEWAY_API_KEY=...
+AI_GATEWAY_MODEL=anthropic/claude-sonnet-4.6
+AI_GATEWAY_BASE_URL=https://ai-gateway.vercel.sh/v1
+```
+
+Like OpenRouter, the gateway fronts many upstream vendors behind one OpenAI-compatible
+endpoint, and model ids are `provider/model` slugs — a bare id is rejected. Create the key
+in the Vercel dashboard under **AI Gateway**; `AI_GATEWAY_API_KEY` is Vercel's own name for
+it, so a machine already set up for Vercel tooling needs no second variable.
+
+FramePilot reads that static key only. Vercel's OIDC flow (`VERCEL_OIDC_TOKEN`, refreshed
+by `vercel env pull`) is deliberately not used: those tokens expire in about a day, and a
+desktop editor cannot assume the Vercel CLI is installed to renew them.
+
+Model choice still decides capability. Pick a slug whose upstream model supports the tool
+use, context, and vision the requested edit needs.
 
 ## Groq
 
@@ -204,7 +227,8 @@ The API key is optional — most self-hosted servers ignore it. A placeholder is
 none is configured, because the OpenAI client refuses to construct without one; a server
 that does check the header receives the real key.
 
-Per-request sampling settings are forwarded consistently across OpenRouter, NVIDIA, and
+Per-request sampling settings are forwarded consistently across OpenRouter, the Vercel AI
+Gateway, NVIDIA, and
 custom OpenAI-compatible servers. When FramePilot sets a temperature, the adapter sends
 that exact value; when it does not, the field is omitted so the selected model or gateway
 retains its own default.

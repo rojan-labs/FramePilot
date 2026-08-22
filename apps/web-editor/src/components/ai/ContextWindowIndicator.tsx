@@ -172,6 +172,23 @@ export function ContextWindowIndicator({
   const tooltipId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const HOVER_OPEN_DELAY_MS = 1000;
+
+  const clearHoverTimer = (): void => {
+    if (hoverTimer.current !== null) {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+  };
+
+  const scheduleOpen = (): void => {
+    clearHoverTimer();
+    hoverTimer.current = setTimeout(() => setOpen(true), HOVER_OPEN_DELAY_MS);
+  };
+
+  useEffect(() => clearHoverTimer, []);
 
   const manifest = value.manifest;
 
@@ -238,8 +255,11 @@ export function ContextWindowIndicator({
       className="ai-context"
       ref={rootRef}
       data-placement={placement}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onMouseEnter={scheduleOpen}
+      onMouseLeave={() => {
+        clearHoverTimer();
+        setOpen(false);
+      }}
     >
       <button
         type="button"

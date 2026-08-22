@@ -133,7 +133,7 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   load_skill: { role: 'guidance', scope: 'revision_independent' },
   recall_evidence: { role: 'recall', scope: 'revision_independent' },
   // Candidate edits are proposed against the current arrangement.
-  propose_edits: { role: 'analysis', scope: 'timeline_dependent' },
+  read_edit_signals: { role: 'analysis', scope: 'timeline_dependent' },
   // Verification reads: they establish whether the CURRENT timeline is correct, which is
   // a finding worth recording — but one that dies with the next patch.
   verify_captions: { role: 'inspection', scope: 'timeline_dependent' },

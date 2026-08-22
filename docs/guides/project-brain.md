@@ -78,11 +78,13 @@ fresh, unpersisted pass with a warning — never a request error.
   rows (`available: false` + reason when there is no brain to read).
 - **`packages/ai-sdk/src/brain-client.ts`** mirrors the wire shapes as Zod
   schemas (pinned by `engine/python/tests/test_brain_client_ts_parity.py`),
-  and `createAnalysisBagWarmer({ baseUrl })` composes a reader + mapper into
-  the orchestrator's `warmAnalysis` option. `streamPlannedEdit` calls it at
-  run start, so the Planner's semantic index begins warmed with previous runs'
-  shots/silences/beats instead of empty. Every failure path returns
-  `undefined` — the run proceeds exactly as before the brain existed.
+  and `createAnalysisBagWarmer({ baseUrl })` composes that reader + mapper into a
+  run-start warm hook. **It currently has no consumer:** its only caller was
+  `streamPlannedEdit`, retired with the `planned_edit` route (ADR 0126), and the
+  orchestrator's `warmAnalysis` option went with it. The read primitives
+  (`createBrainAnalysisReader`, `analysisBagFromRows`) are kept as Phase-5
+  Project Brain material rather than deleted; wiring them to the agent runtime is
+  open work, not shipped behavior. Every failure path returns `undefined`.
 - **`sidecar-executor.ts`** routes a default-parameter `analyze_silence` /
   `detect_scenes` / `detect_beats` call **with an explicit `assetId`** through
   `POST /analyze` so its result persists and repeat calls across runs hit the
@@ -239,10 +241,12 @@ ceiling. `AgentOptions.analysisCaps` overrides `DEFAULT_ANALYSIS_CAPS`.
 - Every per-turn diff of one agent run (ADR 0056) now carries a shared `runId`,
   so a host can collapse the burst into a single review/undo step while the
   per-turn diffs still stream individually.
-- A failed `host_tool` task in the planned-edit driver is routed through the
-  saga recovery table (`recoveryFor`): `route_around` when nothing downstream
-  depends on it and other work exists (the run continues), else `fail_subgraph`
-  (the run stops and names the node). Cancellation is never routed around.
+- The saga recovery table (`recoveryFor`) classified a failed `host_tool` task as
+  `route_around` (nothing downstream depended on it, so the run continued) or
+  `fail_subgraph` (stop and name the node), never routing a cancellation around.
+  Its caller was the planned-edit graph driver, retired with that route (ADR 0126);
+  in the agent runtime a failed analysis call is an observation the model reacts to
+  on the next turn, and cancellation settles the run.
 
 ### Session-start warmup (B5.6)
 

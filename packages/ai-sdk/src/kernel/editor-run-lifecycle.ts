@@ -3,7 +3,7 @@ import { z } from 'zod/v4';
 
 export const EDITOR_RUN_LIFECYCLE_VERSION = 1 as const;
 
-export const EditorRunRouteSchema = z.enum(['edit', 'planned_edit', 'agent']);
+export const EditorRunRouteSchema = z.enum(['edit', 'agent']);
 export type EditorRunRoute = z.infer<typeof EditorRunRouteSchema>;
 
 export const EditorRunStageSchema = z.enum([
@@ -46,18 +46,6 @@ export const EDITOR_RUN_ROUTE_POLICY: Readonly<Record<EditorRunRoute, EditorRunR
     resolve: 'required',
     inspect: 'conditional',
     plan: 'conditional',
-    compile: 'required',
-    execute: 'required',
-    verify: 'required',
-    review: 'required',
-    repair: 'conditional',
-    finalize: 'required',
-  },
-  planned_edit: {
-    understand: 'required',
-    resolve: 'required',
-    inspect: 'conditional',
-    plan: 'required',
     compile: 'required',
     execute: 'required',
     verify: 'required',

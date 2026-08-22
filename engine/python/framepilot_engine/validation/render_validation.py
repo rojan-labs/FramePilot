@@ -30,6 +30,10 @@ from framepilot_engine.analysis.black import (
 )
 from framepilot_engine.media.ffmpeg import FFmpegError, Runner, find_ffmpeg, run_logs
 from framepilot_engine.media.probe import MediaInfo, inspect_media
+from framepilot_engine.validation.perceptual_thresholds import (
+    EXPORT_MAX_AUDIO_DBFS,
+    EXPORT_MAX_BLACK_RATIO,
+)
 
 # volumedetect findings are emitted on stderr in this form:
 #   [Parsed_volumedetect_0 @ 0x..] max_volume: -3.1 dB
@@ -82,7 +86,7 @@ class ExpectedRender(BaseModel):
     expect_audio: bool = Field(default=True, description="Whether an audio stream is expected.")
     duration_tolerance_seconds: float = Field(default=0.1, description="Allowed duration drift.")
     max_black_ratio: float = Field(
-        default=0.95,
+        default=EXPORT_MAX_BLACK_RATIO,
         description=(
             "Fail if at least this fraction of the video duration is black — i.e. the "
             "render is (near-)entirely black, the real failure mode. Not 1.0 because "
@@ -92,7 +96,7 @@ class ExpectedRender(BaseModel):
         ),
     )
     max_audio_dbfs: float = Field(
-        default=1.0,
+        default=EXPORT_MAX_AUDIO_DBFS,
         description=(
             "Fail if peak audio reaches/exceeds this dBFS. NOT 0.0: 0 dBFS is digital "
             "full scale — the normal ceiling, not clipping. Real audio routinely peaks "

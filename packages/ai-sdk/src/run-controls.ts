@@ -176,4 +176,18 @@ export interface AgentRunControls {
   readonly planApproval?: PlanApproval;
   /** Answers the model's own questions (P12); absent ⇒ `ask_user` degrades honestly. */
   readonly askUser?: AskUser;
+  /**
+   * Records something worth outliving this run in the project's durable memory.
+   *
+   * The one thing that MUST outlive a run is an answer the editor gave it: the model asked
+   * about the framing, the editor chose "full-bleed vertical crop", and the very next run
+   * re-cut the whole montage with no crop at all — because the answer lived only in the
+   * action log of the run that asked. A durable note reaches every later run through the
+   * session-context digest.
+   *
+   * Fire-and-forget by contract: recording is a side-benefit of what the editor just did, so
+   * an unreachable brain must degrade to no note rather than fail the run. Absent ⇒ nothing
+   * is recorded (the plain browser build has no brain, the same honest gap as proxies).
+   */
+  readonly rememberDecision?: (note: { readonly title: string; readonly body: string }) => void;
 }

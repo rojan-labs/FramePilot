@@ -58,7 +58,7 @@ describe('EditorRun lifecycle', () => {
     ]);
   });
 
-  it.each(['edit', 'planned_edit', 'agent'] as const)(
+  it.each(['edit', 'agent'] as const)(
     'gives %s an explicit disposition for every stage',
     (route: EditorRunRoute) => {
       expect(Object.keys(EDITOR_RUN_ROUTE_POLICY[route])).toEqual(EDITOR_RUN_STAGES);

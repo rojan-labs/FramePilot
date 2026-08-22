@@ -86,6 +86,20 @@ const asNumber = (value: unknown, fallback: number): number => {
   return Number.isFinite(coerced) ? coerced : fallback;
 };
 
+/**
+ * The clip on the other side of a transition's cut, as the effect itself names it.
+ *
+ * The monitor needs it for the same reason the export compiler does: a transition ramps the
+ * incoming clip in over its own first frames, by which time the outgoing clip has ended, so
+ * without that shot underneath the reveal happens over the empty ground — a dissolve from
+ * black rather than from the previous shot.
+ */
+export function transitionCounterpartId(clip: Clip): string | null {
+  const effect: Effect | undefined = clip.effects.find((e) => e.type === 'transition');
+  const named = effect?.params?.['fromClipId'];
+  return typeof named === 'string' && named.length > 0 ? named : null;
+}
+
 /** Parse a clip's `transition` effect (or `null` when the clip enters on a cut). */
 export function transitionFromClip(clip: Clip): TransitionEnvelope | null {
   const effect: Effect | undefined = clip.effects.find((e) => e.type === 'transition');

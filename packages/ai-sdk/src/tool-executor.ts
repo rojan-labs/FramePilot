@@ -81,40 +81,6 @@ export interface HostToolOutcome {
 }
 
 /**
- * Rewrite a memoized image-bearing payload for a replay that carries NO image.
- *
- * The run memo answers a repeated call from its stored outcome, but the orchestrator
- * deliberately drops the stored PICTURE: a frame is only worth looking at as the
- * timeline is now, so re-showing a pre-edit frame under a post-edit question is the one
- * failure `get_frame` exists to prevent.
- *
- * Dropping the image while forwarding a payload that still SAYS an image is attached is
- * worse than either honest option. `get_frame`'s data carries "The frame itself is
- * attached to this turn as an image", and passing that through on a memo hit instructs
- * the model to read a picture it was never sent — so it either refuses a question it had
- * the evidence to answer, or describes a frame from imagination. The facts (time, size,
- * duration) are still true and still useful, so only the claim of attachment changes.
- *
- * @param data - The memoized outcome's `data`.
- * @returns The same facts under an honest note, or `data` unchanged when it is not an
- *   object payload.
- */
-export function withReplayedImageNote(data: unknown): unknown {
-  if (typeof data !== 'object' || data === null || Array.isArray(data)) return data;
-  return {
-    ...(data as Record<string, unknown>),
-    // Deliberately NOT "ask for it again": the run memo answers an identical call from the
-    // same stored outcome, so an instruction to retry the same moment is an instruction to
-    // loop until the turn budget runs out. The way back to a picture is a DIFFERENT call.
-    note:
-      'This image was already rendered earlier in this run and shown to you then, so it is ' +
-      'NOT attached to this turn — only the facts above are. Answer from what you saw and ' +
-      'from those facts. Asking again for this exact moment returns this same record and no ' +
-      'picture; to see something new, ask for a different time or different options.',
-  };
-}
-
-/**
  * Runs one analysis/action tool call on the host. Implementations MUST:
  * - resolve (never hang) — enforce their own transport timeout;
  * - honor `signal` (abort ⇒ reject with the signal's reason or return `cancelled`);

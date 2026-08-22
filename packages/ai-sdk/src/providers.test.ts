@@ -75,6 +75,8 @@ describe('provider factory', () => {
     vi.stubEnv('NVIDIA_BASE_URL', 'http://nim');
     vi.stubEnv('OPENROUTER_API_KEY', 'sk-or');
     vi.stubEnv('OPENROUTER_MODEL', 'anthropic/claude-3.5-sonnet');
+    vi.stubEnv('AI_GATEWAY_API_KEY', 'vck-1');
+    vi.stubEnv('AI_GATEWAY_MODEL', 'anthropic/claude-sonnet-4.6');
     vi.stubEnv('GROQ_API_KEY', 'gsk-x');
     vi.stubEnv('GROQ_MODEL', 'llama-3.3-70b-versatile');
     vi.stubEnv('GOOGLE_API_KEY', 'AIza-x');
@@ -86,6 +88,10 @@ describe('provider factory', () => {
     expect(resolveProviderConfig('openrouter')).toMatchObject({
       apiKey: 'sk-or',
       model: 'anthropic/claude-3.5-sonnet',
+    });
+    expect(resolveProviderConfig('vercel-gateway')).toMatchObject({
+      apiKey: 'vck-1',
+      model: 'anthropic/claude-sonnet-4.6',
     });
     expect(resolveProviderConfig('groq')).toMatchObject({
       apiKey: 'gsk-x',
@@ -103,6 +109,7 @@ describe('provider factory', () => {
     expect(createProvider('anthropic').name).toBe('anthropic');
     expect(createProvider('nvidia').name).toBe('nvidia');
     expect(createProvider('openrouter').name).toBe('openrouter');
+    expect(createProvider('vercel-gateway').name).toBe('vercel-gateway');
     expect(createProvider('groq').name).toBe('groq');
     expect(createProvider('google').name).toBe('google');
     expect(createProvider('deepseek').name).toBe('deepseek');

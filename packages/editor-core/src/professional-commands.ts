@@ -174,6 +174,101 @@ export type EditorCommandTypesAreExhaustive = AssertNever<
   Exclude<EditorCommand['type'], (typeof EDITOR_COMMAND_TYPES)[number]>
 >;
 
+/**
+ * Every rejection code a given command can return.
+ *
+ * ## Why this exists
+ *
+ * `compileEditorCommand` already rejects with structured codes rather than prose, which is
+ * exactly what a caller needs to grey out a command and say why. But the codes were only
+ * discoverable by reading the compiler, so no UI, MCP client or capability consumer could ask
+ * "what can go wrong with a roll?" without doing that reading. FRAMEPILOT-95 §7.1 requires the
+ * command contract to state its preconditions; this is that statement, and
+ * `editor-capabilities.ts` republishes it per capability.
+ *
+ * ## What it claims, precisely
+ *
+ * A **superset**: every code listed is reachable for that command, and no code outside the
+ * list is. It is deliberately not minimal. `UNIVERSAL_REJECTION_CODES` are raised by
+ * `validateAuthority` and by shared helpers (`trackForCommand`, `assertLocations`,
+ * `locationsForClipSet`, `ensureHandle`, `compilePatch`) that most commands route through, and
+ * proving which helper each command can actually reach needs a call-graph pass this does not
+ * do. Over-listing is safe for the consumers above; under-listing would not be, which is why
+ * the bias runs this way.
+ *
+ * `professional-commands.test.ts` asserts that every code the real compiler emits is declared
+ * here, so the table cannot silently fall behind the code that produces it.
+ */
+const UNIVERSAL_REJECTION_CODES = [
+  // `validateAuthority` — runs before every dispatch, so these reach every command.
+  'stale_timeline',
+  'invalid_frame_range',
+  'invalid_frame_delta',
+  'no_op',
+  // `compilePatch` — every compiler ends here.
+  'invalid_patch',
+  // Shared resolution helpers. Which of these a given command reaches depends on which
+  // helpers it calls, and proving that needs a call-graph pass; listing them for every
+  // command keeps the table a safe superset instead of a confident half-truth.
+  'empty_target', // locationsForClipSet
+  'missing_clip', // assertLocations
+  'locked_track', // assertLocations, trackForCommand
+  'missing_track', // trackForCommand
+  'missing_asset', // assetForCommand
+  'missing_media_metadata', // assetForCommand, ensureHandle
+  'insufficient_source_handle', // ensureHandle
+  'source_range_out_of_bounds', // placementSource
+] as const;
+
+/** Codes each compiler raises itself, on top of {@link UNIVERSAL_REJECTION_CODES}. */
+const INLINE_REJECTION_CODES = {
+  roll_edit: ['different_tracks', 'not_adjacent', 'retimed_boundary_unsupported', 'clip_too_short'],
+  slip_edit: [],
+  slide_edit: [
+    'different_tracks',
+    'not_adjacent',
+    'retimed_boundary_unsupported',
+    'clip_too_short',
+  ],
+  ripple_trim_edit: ['clip_too_short', 'retimed_boundary_unsupported'],
+  lift_edit: [],
+  extract_edit: [],
+  insert_edit: [],
+  overwrite_edit: [],
+  replace_edit: [],
+  switch_angle_edit: [
+    'ungrouped_angle_media',
+    'ambiguous_angle_group',
+    'missing_angle',
+    'unsynced_angle',
+    'retimed_boundary_unsupported',
+    'switch_point_outside_clip',
+  ],
+  j_cut_edit: [
+    'wrong_track_kind',
+    'different_tracks',
+    'linked_media_mismatch',
+    'unaligned_linked_cut',
+    'retimed_boundary_unsupported',
+    'clip_too_short',
+  ],
+  l_cut_edit: [
+    'wrong_track_kind',
+    'different_tracks',
+    'linked_media_mismatch',
+    'unaligned_linked_cut',
+    'retimed_boundary_unsupported',
+    'clip_too_short',
+  ],
+} as const satisfies Record<EditorCommand['type'], readonly EditorCommandRejectionCode[]>;
+
+export const COMMAND_REJECTION_CODES = Object.fromEntries(
+  Object.entries(INLINE_REJECTION_CODES).map(([command, inline]) => [
+    command,
+    [...UNIVERSAL_REJECTION_CODES, ...inline] as readonly EditorCommandRejectionCode[],
+  ]),
+) as Record<EditorCommand['type'], readonly EditorCommandRejectionCode[]>;
+
 export type EditorCommandRejectionCode =
   | 'stale_timeline'
   | 'invalid_frame_delta'

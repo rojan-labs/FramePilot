@@ -26,8 +26,8 @@ import {
   mapTranscript,
   readTransitionAt,
   transitionEligibility,
+  type MappedRun,
   type MappedWord,
-  type TimelineMap,
 } from '@framepilot/editor-core';
 import type { Clip, Project, Track } from '@framepilot/timeline-schema';
 
@@ -149,16 +149,127 @@ function checkCueSync(
   }
 }
 
-/** Does this cue straddle a cut, i.e. cover two different clips' footage? */
-function checkCueBoundaries(clip: Clip, map: TimelineMap, issues: VerificationIssue[]): void {
-  const crossed = map.spans.filter((s) => s.start > clip.start + 1e-6 && s.start < clip.end - 1e-6);
-  if (crossed.length > 0) {
-    issues.push({
-      code: 'caption_spans_cut',
-      clipId: clip.id,
-      at: (crossed[0] as { start: number }).start,
-      detail: `Caption at ${at(clip.start)}–${at(clip.end)} runs across the cut at ${at((crossed[0] as { start: number }).start)}. A cue must end before the next shot begins — its words were never spoken together.`,
-    });
+/**
+ * The mapped words this cue OWNS: those whose midpoint falls inside it.
+ *
+ * Overlap (`w.start < clip.end && w.end > clip.start`) is the right predicate for "is
+ * any speech audible here", and {@link checkCueSync} keeps using it for that. It is the
+ * wrong one for "which words is this cue answerable for": a word straddling a cue
+ * boundary overlaps BOTH neighbours, so an overlap-based count reports one word too many
+ * on each side and every cue in a word-aligned track looks wrong. Midpoint ownership
+ * partitions the words — each belongs to exactly one cue — which is the rule
+ * `speechCoverage` already uses below, so the two numbers cannot disagree.
+ */
+function ownedWords(clip: Clip, words: readonly MappedWord[]): readonly MappedWord[] {
+  return words.filter((word) => {
+    const mid = (word.start + word.end) / 2;
+    return mid >= clip.start - 1e-6 && mid <= clip.end + 1e-6;
+  });
+}
+
+/**
+ * Does this cue bridge a break in the SPEECH — two stretches of audio that were never
+ * spoken continuously?
+ *
+ * WHY runs and not clip spans: this test used to filter `map.spans`, which
+ * `buildTimelineMap` fills from every video AND audio clip. So it flagged picture cuts.
+ * On a montage — the shape of nearly every short — that makes it unsatisfiable: twenty
+ * seconds of continuous narration under forty-six shots averaging 0.43s leaves nowhere to
+ * put a cue, and single words fail too ("heart," runs 3.84–4.37s across a cut at 4.209s).
+ * The rule's own message read "its words were never spoken together", which is true of a
+ * speech break and false of a picture cut: it tested the second and justified itself with
+ * the first.
+ *
+ * Worse, it contradicted the generator. `deriveCaptionCues` segments per {@link MappedRun}
+ * and clamps every cue to its run, and that module calls runs "what guarantees no cue
+ * crosses a cut". So the canonical generator's output was rejected by the canonical
+ * verifier on every project whose picture is cut more finely than its audio — which is
+ * every montage, every B-roll edit, every multicam. One pipeline cannot hold two
+ * definitions of a cut, and a run handed an unsatisfiable acceptance test correctly
+ * declines to edit at all.
+ *
+ * The definition that survives is the generator's, because it is the one grounded in what
+ * a viewer can read: a cue may sit over as many shots as the editor likes, and may never
+ * bridge audio the speaker did not say in one breath.
+ */
+function checkCueBoundaries(
+  clip: Clip,
+  runs: readonly MappedRun[],
+  issues: VerificationIssue[],
+): void {
+  const bridged = runs.filter((run) => run.start > clip.start + 1e-6 && run.start < clip.end - 1e-6);
+  const first = bridged[0];
+  if (first === undefined) return;
+  issues.push({
+    code: 'caption_spans_speech_break',
+    clipId: clip.id,
+    at: first.start,
+    detail: `Caption at ${at(clip.start)}–${at(clip.end)} bridges the speech break at ${at(first.start)}, where the edit joins two stretches of audio that were never spoken in one breath. Split the cue there. A picture cut is fine to caption across; this is an audio discontinuity.`,
+  });
+}
+
+/**
+ * Is this cue still true of the edit, word for word?
+ *
+ * WHY this replaced a revision comparison: `caption_stale` used to fire whenever
+ * `derivedFromRevision !== map.revision`. That is not a staleness test, it is a
+ * change-detector for the whole project. Sixty-five revisions of colour, effects and
+ * picture cuts moved nothing on the audio track, yet all forty cues were reported stale
+ * while {@link checkCueSync} — the test that actually measures whether a cue sits on its
+ * word — passed on all forty. A verifier that reports forty defects where there are none
+ * is not being careful; it is unusable, because the run cannot tell which finding to act
+ * on and correctly acts on none.
+ *
+ * The honest question is whether the words this cue records are still the words that play
+ * across it, at the times it records them. That is strictly stronger than the revision
+ * comparison: it catches a cue whose words a later cut removed (which the revision test
+ * also caught) AND a cue that drifted while the revision happened not to change (which it
+ * did not). One issue per cue, because forty cues x three defects is a report nobody reads.
+ */
+function checkCueCurrency(
+  clip: Clip,
+  words: readonly MappedWord[],
+  tolerance: number,
+  issues: VerificationIssue[],
+): void {
+  const cue = clip.captionCue;
+  if (cue === undefined || cue.words.length === 0) return;
+  const owned = ownedWords(clip, words);
+  // Owning no speech at all is `caption_over_no_speech`'s finding, already reported.
+  if (owned.length === 0) return;
+  const stale = (detail: string, atTime: number): void => {
+    issues.push({ code: 'caption_stale', clipId: clip.id, at: atTime, detail });
+  };
+  if (owned.length !== cue.words.length) {
+    stale(
+      `Caption at ${at(clip.start)} shows ${cue.words.length} word${
+        cue.words.length === 1 ? '' : 's'
+      } but ${owned.length} now play across it (${owned
+        .map((word) => word.word)
+        .join(' ')}). A later edit changed what is spoken here — regenerate the cue from the current mapped transcript.`,
+      clip.start,
+    );
+    return;
+  }
+  for (const [index, expected] of owned.entries()) {
+    const shown = cue.words[index];
+    /* v8 ignore next -- lengths were just proven equal, so the index is always in range */
+    if (shown === undefined) return;
+    if (shown.word.toLowerCase() !== expected.word.toLowerCase()) {
+      stale(
+        `Caption at ${at(clip.start)} shows "${shown.word}" where "${expected.word}" is now spoken — regenerate the cue from the current mapped transcript.`,
+        shown.start,
+      );
+      return;
+    }
+    const drift = Math.abs(shown.start - expected.start);
+    if (drift > tolerance) {
+      stale(
+        `Caption at ${at(clip.start)} times "${shown.word}" at ${at(shown.start)}, but the edit now plays it at ${at(expected.start)} — ${at(drift)} away, past the ${at(tolerance)} tolerance. Regenerate the cue from the current mapped transcript.`,
+        shown.start,
+      );
+      return;
+    }
   }
 }
 
@@ -196,8 +307,9 @@ export function verifyCaptions(
         detail: `Caption at ${at(clip.start)}–${at(clip.end)} sits over a gap in the sequence, where no footage plays.`,
       });
     }
-    checkCueBoundaries(clip, map, issues);
+    checkCueBoundaries(clip, mapped.runs, issues);
     checkCueSync(clip, mapped.words, tolerance, issues);
+    checkCueCurrency(clip, mapped.words, tolerance, issues);
 
     const audibleWords = mapped.words.filter(
       (word) => word.start < clip.end - 1e-6 && word.end > clip.start + 1e-6,
@@ -212,15 +324,11 @@ export function verifyCaptions(
       });
     }
 
-    const derived = clip.captionCue?.derivedFromRevision;
-    if (derived !== undefined && derived !== map.revision) {
-      issues.push({
-        code: 'caption_stale',
-        clipId: clip.id,
-        at: clip.start,
-        detail: `Caption at ${at(clip.start)} was derived against timeline revision ${derived}, but the timeline is now at revision ${map.revision}. Its timing must be remapped or regenerated before it can be called correct.`,
-      });
-    } else if (derived === undefined) {
+    // No revision comparison here: `derivedFromRevision` records WHICH mapping produced
+    // the cue, which is provenance worth keeping, but it cannot answer whether the cue is
+    // still right — only re-measuring can, and `checkCueCurrency` above does. What
+    // remains verifiable from provenance alone is its absence.
+    if (clip.captionCue?.derivedFromRevision === undefined) {
       issues.push({
         code: 'caption_provenance_unknown',
         clipId: clip.id,

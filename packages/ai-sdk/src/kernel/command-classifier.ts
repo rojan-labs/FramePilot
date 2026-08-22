@@ -19,22 +19,54 @@
  * This classifier replaces the keyword table with ONE small model call that reads the
  * *entire* request plus a tiny project header and returns a {@link CommandClassification}.
  * It is deliberately cheap (a tight system prompt, a bounded JSON reply) and honest: it
- * chooses `planned_edit` when an edit depends on analysis evidence before mutation
- * (notably beat synchronization), and otherwise routes a real edit to `edit` (the agent
- * loop). See ADR 0055.
+ * routes every real edit to `edit` (the agent loop), including edits that must acquire
+ * analysis evidence first. See ADR 0055 and ADR 0126.
  *
  * The module is pure and stateless: {@link buildClassifierMessages} describes the model call
  * as inert data and {@link parseClassification} validates the reply. {@link Orchestrator}
  * owns the actual `provider.complete` call and the dispatch (`streamAuto`).
  */
 import { z } from 'zod/v4';
+import type { Project } from '@framepilot/timeline-schema';
+import type { TargetPlatform } from '../context-builder.js';
 import { classifierSystemPrompt } from '../prompts.js';
 import type { AiMessage } from '../providers/types.js';
-import { type ProjectHeader } from './proposers/intent-parser.js';
 import type { TimeRange } from './semantic-index/semantic-index.js';
 
 /**
- * The four routes a command can take. Kept intentionally small — one route per genuinely
+ * A **tiny** project header — the only project context the classifier sees. Never the
+ * timeline itself: routing needs the SHAPE of the project (how long, what aspect, how many
+ * layers, which platform), not its clip JSON.
+ *
+ * This lived in the planner path's `proposers/intent-parser.ts` until the 9.5 convergence
+ * retired that path (ADR 0126). The classifier was its only surviving consumer, so it moved
+ * here rather than leaving a one-type module behind as the last trace of a deleted runtime.
+ */
+export interface ProjectHeader {
+  readonly durationSeconds: number;
+  readonly resolution: { readonly width: number; readonly height: number };
+  readonly layerCount: number;
+  readonly platform?: TargetPlatform;
+}
+
+/** Derive the tiny {@link ProjectHeader} from a project (pure). */
+export function projectHeaderOf(project: Project, platform?: TargetPlatform): ProjectHeader {
+  let end = 0;
+  for (const track of project.timeline.tracks) {
+    for (const clip of track.clips) {
+      if (clip.end > end) end = clip.end;
+    }
+  }
+  return {
+    durationSeconds: end,
+    resolution: { width: project.resolution.width, height: project.resolution.height },
+    layerCount: project.timeline.tracks.length,
+    ...(platform !== undefined ? { platform } : {}),
+  };
+}
+
+/**
+ * The three routes a command can take. Kept intentionally small — one route per genuinely
  * distinct execution path the Orchestrator can dispatch:
  *
  *  - `chitchat` — a greeting / thanks / off-topic remark. Answered with a short direct
@@ -42,19 +74,28 @@ import type { TimeRange } from './semantic-index/semantic-index.js';
  *  - `question` — a read-only question about the project ("why does this drag?", "what is
  *    on screen at 13s?"). Answered by the chat path; never mutates the timeline. It can
  *    still LOOK — render frames, search footage — because looking changes nothing.
- *  - `planned_edit` — an edit that must acquire analysis evidence before proposing typed
- *    operations (for example detecting beats/scenes before assembling a montage).
- *  - `edit`     — any other real editing request, including novel/creative/multi-step work
- *    ("add an intro with keyframes and make it professional"). Runs the agent loop.
+ *  - `edit`     — EVERY real editing request, from a single trim to novel/creative/
+ *    multi-step work, including work that must acquire analysis evidence before it can
+ *    propose operations. Runs the agent loop.
  *
- * There used to be a fifth, `recipe`: a request a fixed deterministic template fully
- * satisfied, run with zero model calls. It was removed. A template can only ever match the
- * request it was written for, and the router's job was to decide when it matched — so a
- * request it matched only partly ("add an intro WITH KEYFRAMES") ran the template, changed
- * nothing the user asked for, and reported "no changes, no AI needed" as if that were a
- * success. The agent loop does the same work from the actual request.
+ * Two routes have been removed as the execution paths behind them were retired.
+ *
+ * `recipe` was a request a fixed deterministic template fully satisfied, run with zero model
+ * calls. A template can only ever match the request it was written for, and the router's job
+ * was to decide when it matched — so a request it matched only partly ("add an intro WITH
+ * KEYFRAMES") ran the template, changed nothing the user asked for, and reported "no
+ * changes, no AI needed" as if that were a success.
+ *
+ * `planned_edit` selected a second mutating execution universe (intent parser → planner →
+ * compiled task graph → graph/effect runtime) for edits that had to detect beats or scenes
+ * before proposing operations. Phase 1 of the 9.5 convergence measured both routes on the
+ * same goals and found no capability the agent loop lacked, no model-call saving, and one
+ * safety gap unique to the planner path — so the route, and the runtime behind it, are gone.
+ * Evidence: `docs/architecture/FRAMEPILOT-95-ROUTE-PARITY-EVIDENCE.md`. Analysis-dependent
+ * edits are now plain `edit` work: the agent calls `detect_beats`/`detect_scenes`/
+ * `analyze_silence` and then mutates, through one validated boundary.
  */
-export type CommandRoute = 'chitchat' | 'question' | 'planned_edit' | 'edit';
+export type CommandRoute = 'chitchat' | 'question' | 'edit';
 
 /** The classifier's validated verdict. */
 export interface CommandClassification {
@@ -77,7 +118,7 @@ export interface ClassifierInput {
 
 /** The classifier's Zod schema. `route` is required; the rest are route-specific. */
 export const CommandClassificationSchema = z.object({
-  route: z.enum(['chitchat', 'question', 'planned_edit', 'edit']),
+  route: z.enum(['chitchat', 'question', 'edit']),
   reply: z.string().optional(),
 });
 

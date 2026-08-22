@@ -30,6 +30,7 @@
         "objective": {
           "request": "tighten the intro using your pacing playbook",
           "outcome": "tighten the intro using your pacing playbook",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -107,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19246,
+      "usedTokens": 19438,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -126,30 +127,30 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1804,
+            "tokenEstimate": 1766,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19246,
+          "estimatedInputTokensBeforeSend": 19438,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172562,
+          "estimatedRemainingCapacity": 172370,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -262,6 +263,7 @@
         "objective": {
           "request": "tighten the intro using your pacing playbook",
           "outcome": "tighten the intro using your pacing playbook",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -279,7 +281,7 @@
           {
             "id": "fact_1",
             "kind": "derived",
-            "statement": "Reading the pacing playbook → Reading the pacing playbook",
+            "statement": "Reading the pacing playbook → Unknown skill \"pacing\". Available: audio-polish, beat-synced-editing, broll-and-layering, caption-design, cinematic-storytelling, color-grading, cut-a",
             "evidenceIds": [
               "ev_1"
             ],
@@ -354,7 +356,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19424,
+      "usedTokens": 19636,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -373,30 +375,30 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1982,
+            "tokenEstimate": 1964,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19424,
+          "estimatedInputTokensBeforeSend": 19636,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172384,
+          "estimatedRemainingCapacity": 172172,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -413,7 +415,7 @@
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue analyze: tighten the intro using your pacing playbook"
+          "nextAction": "Continue analyze: finish the analysis the plan depends on."
         }
       }
     },
@@ -610,6 +612,7 @@
         "objective": {
           "request": "tighten the intro using your pacing playbook",
           "outcome": "tighten the intro using your pacing playbook",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -629,7 +632,7 @@
           {
             "id": "fact_1",
             "kind": "derived",
-            "statement": "Reading the pacing playbook → Reading the pacing playbook",
+            "statement": "Reading the pacing playbook → Unknown skill \"pacing\". Available: audio-polish, beat-synced-editing, broll-and-layering, caption-design, cinematic-storytelling, color-grading, cut-a",
             "evidenceIds": [
               "ev_1"
             ],
@@ -718,7 +721,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 16133,
+      "usedTokens": 16263,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -737,30 +740,30 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 2007,
+            "tokenEstimate": 1986,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 12324,
+            "tokenEstimate": 12367,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 16133,
+          "estimatedInputTokensBeforeSend": 16263,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 175675,
+          "estimatedRemainingCapacity": 175545,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -777,7 +780,7 @@
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue apply: tighten the intro using your pacing playbook"
+          "nextAction": "Continue apply: apply the committed plan."
         }
       }
     },
@@ -825,6 +828,7 @@
         "objective": {
           "request": "tighten the intro using your pacing playbook",
           "outcome": "tighten the intro using your pacing playbook",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -844,7 +848,7 @@
           {
             "id": "fact_1",
             "kind": "derived",
-            "statement": "Reading the pacing playbook → Reading the pacing playbook",
+            "statement": "Reading the pacing playbook → Unknown skill \"pacing\". Available: audio-polish, beat-synced-editing, broll-and-layering, caption-design, cinematic-storytelling, color-grading, cut-a",
             "evidenceIds": [
               "ev_1"
             ],
@@ -916,7 +920,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "notification",
-      "text": "Self-check: All checks passed."
+      "text": "Deterministic self-check: All checks passed."
     },
     {
       "id": "turn_golden:run-state",
@@ -936,6 +940,7 @@
         "objective": {
           "request": "tighten the intro using your pacing playbook",
           "outcome": "tighten the intro using your pacing playbook",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -958,7 +963,7 @@
           {
             "id": "fact_1",
             "kind": "derived",
-            "statement": "Reading the pacing playbook → Reading the pacing playbook",
+            "statement": "Reading the pacing playbook → Unknown skill \"pacing\". Available: audio-polish, beat-synced-editing, broll-and-layering, caption-design, cinematic-storytelling, color-grading, cut-a",
             "evidenceIds": [
               "ev_1"
             ],
@@ -1048,7 +1053,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "assistant_message",
-      "text": "**Applied 1 edit** in 1 step — review the proposed change below.\n\n- Deleted range: 0s–3s"
+      "text": "**Applied 1 edit** in 1 step — review the proposed change below.\n\n- Deleted range Video 1 · 0s–3s"
     },
     {
       "id": "turn_golden:status:14",

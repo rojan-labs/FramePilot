@@ -153,6 +153,10 @@ const recallEvidenceSchema = z
   .object({
     evidenceId: z.string().min(1),
     query: filterString(),
+    // Character offset into the stored payload. Without it the tail of anything larger
+    // than EVIDENCE_RECALL_CHARS was unreachable by any argument, so a run that needed
+    // the end of a catalog or a clip list could only re-read the same head forever.
+    offset: z.number().int().nonnegative().optional(),
   })
   .strict();
 
@@ -188,7 +192,9 @@ const readTools: ToolSpec[] = [
         'a short handle like [ev_3] shown next to it in your action log; pass that handle ' +
         'to get the full result back, optionally narrowed by a word or phrase. Use this ' +
         'instead of re-running the read — it is free, it cannot change under you, and it ' +
-        'returns more of the payload than the log preview shows.',
+        'returns more of the payload than the log preview shows. A query matches on any ' +
+        'of its words, so several keywords are fine. When a result says it was truncated ' +
+        'at N characters, call again with offset N to read on from there.',
     },
     recallEvidenceSchema,
     // The store lives on the run's HostCallContext, not the ToolContext, so the agent
@@ -419,7 +425,7 @@ export function concurrencySafe(tool: ToolSpec, args: unknown): boolean {
  * Each entry is built through {@link withToolInputContract} — the same immutable,
  * per-tool wrapper `selectTools`/`selectAutonomousTools` (`tool-scope.ts`) apply — so a
  * provider always sees the relational/semantic schema tightening (e.g. `map_time`'s
- * one-domain `oneOf`, the `add_keyframes` property enum, `add_transition`'s
+ * one-domain description, the `add_keyframes` property enum, `add_transition`'s
  * `discover_transitions` wording) instead of the raw registry entry. `TOOL_REGISTRY`
  * itself is never mutated; wrapping happens fresh on every call.
  *

@@ -16,6 +16,7 @@ import {
   interpretIndexLoop,
   searchBody,
   summarizeAnalysis,
+  withEmptyAnalysisReading,
   unifiedAnalysisBody,
   unwrapDescribeFootage,
   unwrapFootageMap,
@@ -99,6 +100,27 @@ describe('summarizeAnalysis', () => {
     );
     expect(summarizeAnalysis('detect_beats', { beats: [] })).toBe('Found 0 beats');
     expect(summarizeAnalysis('detect_beats', null)).toBe('Analysis complete');
+  });
+
+  it('reads an empty scene-cut result as a continuous take, not as a finding', () => {
+    // The captured run filed "Found 0 scene cuts" as an established footage fact and then
+    // picked 30 seconds out of 575 with no content evidence at all.
+    expect(summarizeAnalysis('detect_scenes', { cuts: [] })).toBe(
+      'No hard cuts in this footage — it is one continuous take',
+    );
+    const annotated = withEmptyAnalysisReading('detect_scenes', {
+      assetId: 'asset_1',
+      cuts: [],
+    });
+    expect(annotated.interpretation).toContain('one continuous take');
+    expect(annotated.interpretation).toContain('map_footage');
+    // A real result is never annotated — the cuts ARE the answer.
+    expect(
+      withEmptyAnalysisReading('detect_scenes', { assetId: 'asset_1', cuts: [1.5] }),
+    ).not.toHaveProperty('interpretation');
+    expect(withEmptyAnalysisReading('detect_beats', { beats: [] })).not.toHaveProperty(
+      'interpretation',
+    );
   });
 
   it('reports why a beat result is empty instead of "Found 0 beats"', () => {

@@ -32,9 +32,25 @@ describe('relational tool input contracts', () => {
     );
   });
 
-  it('advertises map_time as a one-domain union', () => {
-    const parameters = tool('map_time').parameters as { oneOf?: unknown[] };
-    expect(parameters.oneOf).toHaveLength(3);
+  it('advertises map_time as a flat schema, with the one-domain rule in prose', () => {
+    // Anthropic's Messages API rejects `oneOf`/`anyOf`/`allOf` directly under a tool's
+    // `input_schema`, so this cannot be a top-level union the way the "exactly one time
+    // domain" rule would otherwise suggest. `assertMapTime` still enforces it at parse
+    // time (see the two tests above); only the advertised schema is flat.
+    const parameters = tool('map_time').parameters as {
+      type: string;
+      oneOf?: unknown;
+      anyOf?: unknown;
+      allOf?: unknown;
+      properties: Record<string, unknown>;
+      description: string;
+    };
+    expect(parameters.type).toBe('object');
+    expect(parameters.oneOf).toBeUndefined();
+    expect(parameters.anyOf).toBeUndefined();
+    expect(parameters.allOf).toBeUndefined();
+    expect(Object.keys(parameters.properties)).toEqual(['sourceTime', 'assetId', 'sequenceTime']);
+    expect(parameters.description).toMatch(/sourceTime.*sequenceTime|sequenceTime.*sourceTime/is);
   });
 
   it('rejects explicit inverted punch-in and effect ranges', () => {

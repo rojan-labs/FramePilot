@@ -410,16 +410,37 @@ describe('visual status (MI6.2)', () => {
   });
 
   describe('summarizeVisualStatus', () => {
+    /** The run's model can read an image, so naming `get_frame` is honest. */
+    const SIGHTED = { canSeeFrames: true } as const;
+    const SIGHTLESS = { canSeeFrames: false } as const;
+
     it('reports coverage, vector count, and backend when the footage is indexed', () => {
-      const line = summarizeVisualStatus(status());
+      const line = summarizeVisualStatus(status(), SIGHTED);
       expect(line).toContain('3/4 assets');
       expect(line).toContain('2841 vector');
       expect(line).toContain('sqlite-vec');
       expect(line).toContain('search_visual');
     });
 
+    it('never names get_frame to a run whose model cannot read an image', () => {
+      // `Orchestrator#agentTools` withholds every `vision` descriptor from a text-only
+      // model and `agentModeInstruction` omits its get_frame paragraph for the same run.
+      // This line used to name it anyway, so a sightless run was told to look at a frame
+      // it had no tool to render — and spent reasoning working out which briefing was
+      // true rather than doing the edit.
+      for (const s of [
+        status({ keyConfigured: false }),
+        status({ indexedAssets: 0, counts: { assets: 0, vectors: 0 } }),
+        status({ available: false, reason: null }),
+      ]) {
+        const line = summarizeVisualStatus(s, SIGHTLESS);
+        expect(line).not.toContain('get_frame');
+        expect(line).toContain('transcript');
+      }
+    });
+
     it('says content SEARCH is off with no embeddings key — never that it is blind', () => {
-      const line = summarizeVisualStatus(status({ keyConfigured: false }));
+      const line = summarizeVisualStatus(status({ keyConfigured: false }), SIGHTED);
       expect(line).toContain('no embeddings key');
       // `get_frame` renders any moment as an image whatever the INDEX is doing, so
       // "you cannot see" was false, and a model told it is blind stops looking.
@@ -431,6 +452,7 @@ describe('visual status (MI6.2)', () => {
     it('explains that indexing is automatic instead of naming a tool it cannot call', () => {
       const line = summarizeVisualStatus(
         status({ indexedAssets: 0, counts: { assets: 0, vectors: 0 } }),
+        SIGHTED,
       );
       expect(line).toContain('0/4');
       // `index_media` is implicit lifecycle work, withheld from every model-facing scope
@@ -441,19 +463,20 @@ describe('visual status (MI6.2)', () => {
     });
 
     it('uses the singular "1 vector" when the count is exactly one', () => {
-      const line = summarizeVisualStatus(status({ counts: { assets: 3, vectors: 1 } }));
+      const line = summarizeVisualStatus(status({ counts: { assets: 3, vectors: 1 } }), SIGHTED);
       expect(line).toContain('1 vector,');
       expect(line).not.toContain('1 vectors');
     });
 
     it('omits the backend clause when the response has no backend', () => {
-      const line = summarizeVisualStatus(status({ backend: null }));
+      const line = summarizeVisualStatus(status({ backend: null }), SIGHTED);
       expect(line).not.toContain('backend');
     });
 
     it('treats a missing vector count as zero, not "assets indexed but unsearchable"', () => {
       const line = summarizeVisualStatus(
         status({ indexedAssets: 3, counts: { assets: 3, vectors: undefined as never } }),
+        SIGHTED,
       );
       expect(line).toContain('0/4 assets indexed');
     });
@@ -461,13 +484,14 @@ describe('visual status (MI6.2)', () => {
     it('surfaces the honest reason when the brain is unavailable', () => {
       const line = summarizeVisualStatus(
         status({ available: false, reason: 'projects_root is not set' }),
+        SIGHTED,
       );
       expect(line).toContain('unavailable');
       expect(line).toContain('projects_root is not set');
     });
 
     it('falls back to a generic reason when unavailable with none given', () => {
-      const line = summarizeVisualStatus(status({ available: false, reason: null }));
+      const line = summarizeVisualStatus(status({ available: false, reason: null }), SIGHTED);
       expect(line).toContain('no project sandbox is configured');
     });
   });
@@ -548,7 +572,7 @@ describe('visual status (MI6.2)', () => {
         baseUrl: 'http://x',
         fetchFn: fetchStub({ ok: true, json: status() }),
       });
-      expect(await digest('p1')).toContain('3/4 assets');
+      expect(await digest('p1', true)).toContain('3/4 assets');
     });
 
     it('is undefined when the brain cannot be read (browser build, no sidecar)', async () => {
@@ -556,7 +580,7 @@ describe('visual status (MI6.2)', () => {
         baseUrl: 'http://x',
         fetchFn: fetchStub({ ok: false, status: 503 }),
       });
-      expect(await digest('p1')).toBeUndefined();
+      expect(await digest('p1', true)).toBeUndefined();
     });
   });
 });

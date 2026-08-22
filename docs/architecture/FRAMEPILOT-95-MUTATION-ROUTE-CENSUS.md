@@ -1,8 +1,8 @@
 # FramePilot 9.5 Mutation Route Census
 
-**Status:** Phase 0 evidence baseline  
-**Roadmap:** `plan/FRAMEPILOT-95-CONVERGENCE-ROADMAP.md` §5.4  
-**Scope:** current authorities only. This document does not approve architecture deletion.
+**Status:** Live authority map (Phase 1 convergence applied)  
+**Roadmap:** `plan/FRAMEPILOT-95-CONVERGENCE-ROADMAP.md` §5.4, §6  
+**Scope:** current authorities only.
 
 ## Why this exists
 
@@ -19,9 +19,9 @@ patches back undo/redo. Review is deliberately read-only and is not a mutation a
 
 | Concern | Current authority | Current state | Phase-1 target |
 | --- | --- | --- | --- |
-| Natural-language classification | `packages/ai-sdk/src/orchestrator.ts` plus durable start mode in `run-contracts.ts` | Several user-facing modes can select different execution paths. | Minimal routing only. |
+| Natural-language classification | `packages/ai-sdk/src/orchestrator.ts` plus durable start mode in `run-contracts.ts` | Three routes: `chitchat`, `question`, `edit`. Only `edit` mutates. | Minimal routing only. Reached. |
 | Agent execution | `Orchestrator.streamAgent` / LangGraph agent path | Primary mutating agent route. Emits turn-scoped validated diffs. | Retain as the candidate single runtime. |
-| Planned edit execution | planner + `kernel/plan-driver.ts` + graph/effect runtime | Separate mutating execution universe. Transactionally folds a planned graph to an edit result. | Prove parity, then retain only if benchmark evidence earns it. |
+| ~~Planned edit execution~~ | *removed* | Retired in Phase 1 (ADR 0126) after the parity gate showed no unique capability, no model-call saving, and one unvalidated model → host argument path. | Done. |
 | Project mutation | `@framepilot/editor-core` patch/project-patch functions plus host commit boundary | Canonical typed mutation authority. | One authority, retained. |
 | Desktop AI commit | `apps/desktop/electron/ai/ai-stream.ts` and `patch-settlement.ts` | Host decides whether an emitted diff may commit, revalidates against current project/revision, and persists accepted work. | One host commit contract used by the converged runtime. |
 | Durable run state | `packages/ai-sdk/src/run-contracts.ts` plus desktop durable-run controls/store | Schema-validated commands/events/snapshots and explicit terminal outcomes. | One durable run authority, retained. |
@@ -66,22 +66,26 @@ then host settlement of emitted `DiffEvent`s.
 | Persistence | Durable run events and accepted host project mutations are persisted by the host/run authority. |
 | Undo | Turn diffs share a run id/group id. Project history keeps compact per-turn entries and presents the contiguous run as one Undo run action. |
 
-### R3. Planned-edit execution
+### R3. Single-shot `edit` proposal (Cmd+K)
 
-**Entry points:** planner -> compiled `TaskGraph` -> `packages/ai-sdk/src/kernel/plan-driver.ts` ->
-shared graph/effect runtime -> folded `EditResult` -> host settlement.
+**Entry points:** `Orchestrator.streamEdit` via `streamEditorRun({ route: 'edit' })`, then host
+settlement of the emitted `DiffEvent`.
 
 | Semantic | Current behavior |
 | --- | --- |
-| Tool/schema validation | Model proposal calls are validated against the exact scoped tool registry. Hallucinated/malformed calls are rejected. |
-| Deterministic validation | `plan-driver.ts` validates proposed operations against the current project and bounds proposal repair. |
-| Timeline invariants | The whole planned graph settles before its folded patch is applied. Editor-core is still the mutation authority. |
-| Ripple/lift semantics | Deterministic recipe/editor leaves and typed operations implement them. Planner structure does not replace editor semantics. |
-| Review | Uses the shared verification/review leaves where planned. Review evidence does not become a second writer. |
-| Cancellation | Graph/effect runtime propagates AbortSignal and keeps cancellation distinct from recoverable task failure. Cancellation is not routed around as success. |
-| Revision | Host settlement remains authoritative for the current project revision. |
-| Persistence | Durable run authority records the route and terminal result; committed project state is persisted by the host. |
-| Undo | A successful committed planned edit is represented by reversible patch/history semantics like other host commits. |
+| Tool/schema validation | One model turn's tool calls are parsed at the same trust boundary the agent uses (`operationsForCall`). A malformed call is a warning, and a turn where EVERY call was rejected fails. |
+| Deterministic validation | The assembled patch reaches editor-core validation before host commit. |
+| Timeline invariants | Editor-core, unchanged. |
+| Review | Not run: a single-shot proposal is reviewed by the human, not by a perceptual pass. |
+| Cancellation | Abort during the model call settles `cancelled` with no diff. |
+| Revision / persistence / undo | Host commit boundary, identical to R2. |
+
+This is a **proposal surface**, not a second mutating runtime: it has no loop, no conductor,
+no durable checkpointing, and no authority the agent does not also have. Its `variations`
+option (browser-only) proposes N candidate patches for the human to pick between; only the
+chosen one is ever committed. It remains a deliberate, tracked simplification target — see
+`plan/FRAMEPILOT-95-CONVERGENCE-ROADMAP.md` §6 follow-ups — and must not grow execution
+machinery of its own.
 
 ### R4. Desktop host commit / Instant Apply settlement
 
@@ -131,23 +135,24 @@ project history/persistence adapter.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Direct patch | Yes | Caller/host | Yes | Host-owned | Outside atomic apply | N/A | Yes |
 | Primary agent | Yes | Host commit | Yes | Yes | Abort + terminal cancelled/checkpoint | Yes | Grouped run |
-| Planned edit | Yes | Host commit | Yes after graph settles | Yes | Graph/effect abort | Yes | Yes |
+| Single-shot edit | Yes | Host commit | Yes | Host-owned | Abort before assembly | N/A | Yes |
 | Desktop Instant Apply | Yes, revalidated | Yes | Yes | Yes, idempotent decision | Durable cancel + abort | Yes | Grouped run |
 | Browser/manual | Yes | Host adapter | Yes | Host-owned | Async shell only | N/A | Yes |
 | Undo/redo | Existing typed inverse/patch | Current history cursor | Yes per patch/group step | Persisted history | Synchronous | N/A | Is the undo authority |
 
 ## Phase-1 deletion evidence this census enables
 
-1. **Keep editor-core as the only project mutation authority.** Neither agent runtime is
+1. **Keep editor-core as the only project mutation authority.** The agent runtime is not
    allowed to mutate project state directly.
 2. **Keep review read-only.** A convergence change that gives review a patch-writing path is
    a regression, even if output quality improves in a demo.
-3. **Compare primary agent and `planned_edit` at the same host-commit boundary.** Differences
-   in model/tool behavior can then be measured without changing validation, persistence or undo.
-4. **Do not delete `planned_edit` in Phase 0.** Its separate planner/graph execution remains a
-   measured hypothesis until the Phase-1 parity matrix is populated.
-5. **Do not create another persistence or history model.** Run durability and editor history
+3. **`planned_edit` was compared at the same host-commit boundary and retired.** The parity
+   record is `docs/architecture/FRAMEPILOT-95-ROUTE-PARITY-EVIDENCE.md`; the decision is
+   ADR 0126.
+4. **Do not create another persistence or history model.** Run durability and editor history
    already provide the authorities later convergence should reuse.
+5. **Do not reintroduce a second mutating runtime.** If a request seems to need one, the
+   answer is agent capability work — a tool, a skill, better evidence — per roadmap §19.
 
 ## Maintenance rule
 

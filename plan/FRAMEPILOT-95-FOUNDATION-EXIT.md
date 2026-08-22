@@ -40,9 +40,22 @@ format.
 
 ## Gate for Runtime convergence
 
-The Foundation contracts may be used now to implement and exercise comparison tooling for the
-primary agent and `planned_edit`, but **route retirement, architecture deletion and claims that Phase
-0 has exited remain blocked** until the evidence items above are satisfied.
+**Status 2026-08-18: this gate was exercised and then explicitly overridden by the maintainer
+for the Phase-1 `planned_edit` retirement.**
+
+The gate as written blocked route retirement and architecture deletion until the real-provider
+evidence above existed. The maintainer waived exactly two items — editorial `outcome` and
+wall-clock `latency` — on the strength of the deterministic parity record
+(`docs/architecture/FRAMEPILOT-95-ROUTE-PARITY-EVIDENCE.md`), which measured capability, cost,
+cancellation, durability, activity, review read-only-ness, undo and failure honesty at parity
+or better, and additionally found a safety defect unique to the retired route.
+
+Everything else in this record stands unchanged:
+
+- the open evidence items above are still open, and none has been converted to an inferred pass;
+- the §4 benchmark table still holds working ESTIMATES, not measurements;
+- no further deletion may cite this waiver. It covered one route, once, with the reasoning
+  recorded in ADR 0126.
 
 Runtime-convergence work must not treat an unavailable metric as zero or passing, and it must not
 change the host project mutation, revision, persistence, review or undo authorities merely to

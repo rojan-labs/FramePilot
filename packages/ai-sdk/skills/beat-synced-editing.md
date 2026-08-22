@@ -1,7 +1,7 @@
 ---
 name: beat-synced-editing
 description: Build music-driven edits from detected onset evidence, scored visual opportunities, variable rhythm, motion continuity, and preview-based refinement rather than a fixed grid.
-tools: [detect_beats, map_footage, describe_footage, search_visual, index_media, propose_edits, get_timeline, map_time, list_assets, add_clip, split_clip, trim_clip, set_clip_speed, add_transition, render_preview, verify_transitions]
+tools: [detect_beats, map_footage, describe_footage, search_visual, read_edit_signals, get_timeline, get_clips, map_time, list_assets, add_clip, split_clip, trim_clip, set_clip_speed, add_transition, render_preview, verify_transitions]
 ---
 
 # Beat-synced editing
@@ -33,6 +33,7 @@ Choose the strongest visual moment near the most meaningful supported musical ev
 ## Professional heuristics
 
 - `detect_beats` supplies onset times and estimated BPM—not musical semantics. Label inferred regions neutrally by density/spacing/strength change.
+- Declare `hardSync` on `detect_beats` only when you mean every interior cut to sit exactly on an onset; the runtime then refuses one that cannot. Leave it off when the picture leads—near-misses are still snapped for you, and a cut you place deliberately off the grid is reported, not refused.
 - Map source events into sequence time with tools; never calculate offsets in prose.
 - Build footage candidates at action starts, peaks, completions, reveals, reactions, scene boundaries, and strong compositions—not only asset heads.
 - Compare pairings by story/payoff, action quality, event importance, motion/eye-flow continuity, novelty, and retiming cost. A strong onset cannot rescue a bad visual cut.

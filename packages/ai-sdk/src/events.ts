@@ -218,7 +218,7 @@ export interface DiffEvent extends AiEventBase {
   /**
    * `'turn'` — one agent turn's validated ops, emitted live mid-run so hosts can
    * apply/review each step as it lands (auto mode applies instantly). `'run'` —
-   * a whole single-proposal run (edit/recipe/planned-edit). Absent = legacy
+   * a whole single-proposal run (`edit` mode). Absent = legacy
    * single-proposal semantics, treated the same as `'run'`.
    */
   readonly scope?: 'turn' | 'run';
@@ -361,11 +361,20 @@ export interface RunStateEvent extends AiEventBase {
 /**
  * A DAG task began executing (plan/AI-ORCHESTRATION-REDESIGN.md §12, Phase K0.2).
  *
- * The Conductor's scheduler emits one per dispatched Task node so the sidebar can
- * show *what is running in parallel* — several running tasks at once, the read the
- * redesign wants ("the app visibly does more than one thing"). Additive: today
- * nothing emits these yet; the reducer folds them into view-level `tasks` (NOT the
- * `nodes` list), so every existing consumer ignores them unchanged.
+ * Emitted per dispatched task node so the sidebar can show *what is running in parallel*.
+ * The reducer folds them into view-level `tasks` (NOT the `nodes` list), so a consumer that
+ * ignores them is unaffected.
+ *
+ * **No production path emits these today.** The planner route was their only emitter and it
+ * was retired (ADR 0126). They are deliberately kept rather than deleted, because they are
+ * part of the PERSISTED event vocabulary: conversations recorded before the convergence still
+ * contain them, and `reduceEvents` must keep folding them for that history to render. The
+ * emitter is retained as the one tested way to construct them — the alternative is
+ * hand-built literals in the renderer's tests, which would let the constructor and the fold
+ * drift apart.
+ *
+ * If a future feature wants parallel-task cards (batch analysis, proxy generation), this is
+ * the vocabulary to reuse. Do not invent a second one.
  */
 export interface TaskStartedEvent extends AiEventBase {
   readonly type: 'task_started';
@@ -402,7 +411,7 @@ export interface EffectProgressEvent extends AiEventBase {
 /**
  * A run's real, priced cost (P7.1 — `graph-executor.ts`'s `GraphRunResult.cost`/
  * `recipe-executor.ts`'s `RecipeRunResult.cost`/`plan-driver.ts`'s
- * `PlannedEditRunResult.cost`). Carries the RAW numbers — never rendered directly
+ * the run's accumulated cost). Carries the RAW numbers — never rendered directly
  * (lens §2.5.6: the default sidebar shows only creator-language, never a token/$
  * meter); a host app folds this into creator language via
  * `kernel/cost/usage-summary.ts`'s `summarizeUsage`, and a dev/pro settings toggle

@@ -5,17 +5,10 @@
  * requestIds ignored, errors surfaced, abort wired). No Electron.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  Orchestrator,
-  type AiCompletionRequest,
-  type AiEvent,
-  type AiProvider,
-  type AiResponse,
-  type HostToolExecutor,
-} from '@framepilot/ai-sdk';
+import type { AiEvent } from '@framepilot/ai-sdk';
 import type { AiStreamEventMessage, DurableRunEvent } from '@framepilot/shared-types';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
-import { BrowserAiSession, createAiSession, type AiSession, type AiSessionInput } from './ai.js';
+import { createAiSession, type AiSession, type AiSessionInput } from './ai.js';
 import type { RendererBridge } from './bridge.js';
 
 const project: Project = parseProject({
@@ -60,7 +53,7 @@ const input: AiSessionInput = {
 
 async function collect(
   session: AiSession,
-  mode: 'auto' | 'chat' | 'edit' | 'agent' | 'planned-edit',
+  mode: 'auto' | 'chat' | 'edit' | 'agent',
   runInput: AiSessionInput = input,
 ): Promise<AiEvent[]> {
   const events: AiEvent[] = [];
@@ -215,7 +208,6 @@ describe('BrowserAiSession', () => {
   });
 
   it.each([
-    ['planned-edit', {}],
     ['agent', {}],
     ['auto', {}],
   ] as const)('persists the %s editing route through the same terminal authority', async (mode, extra) => {
@@ -255,86 +247,6 @@ describe('BrowserAiSession', () => {
     expect(localStorage.getItem('framepilot:browser-run-handle:v1:p')).toBeNull();
   });
 
-  it('persists and accepts a deterministic planned-edit proposal', async () => {
-    const responses = [
-      JSON.stringify({ goal: 'tighten the pacing', targets: ['video_1'], constraints: [] }),
-      JSON.stringify({
-        steps: [
-          {
-            id: 'T1',
-            label: 'analyze silence',
-            effect: { kind: 'host_tool', name: 'analyze_silence', args: { trackId: 'video_1' } },
-            resource: 'ffmpeg',
-            priority: 'analysis',
-          },
-          {
-            id: 'T2',
-            label: 'remove silence',
-            effect: {
-              kind: 'model',
-              name: 'propose_edit',
-              args: { toolNames: ['ripple_delete'], sliceFrom: 'T1' },
-            },
-            deps: ['T1'],
-          },
-          {
-            id: 'T3',
-            label: 'assemble patch',
-            effect: { kind: 'patch', name: 'assemble_patch' },
-            deps: ['T2'],
-          },
-          {
-            id: 'T4',
-            label: 'verify edit',
-            effect: { kind: 'verify', name: 'verify', args: { goal: 'pacing tightened' } },
-            deps: ['T3'],
-          },
-        ],
-      }),
-      JSON.stringify({
-        toolCalls: [{ name: 'ripple_delete', arguments: { trackId: 'video_1', start: 2, end: 3 } }],
-      }),
-    ];
-    class PlannedProvider implements AiProvider {
-      public readonly name = 'mock' as const;
-      public readonly modelId = 'mock';
-      private cursor = 0;
-      public complete(_request: AiCompletionRequest): Promise<AiResponse> {
-        const text = responses[this.cursor];
-        this.cursor += 1;
-        if (text === undefined) throw new Error('Unexpected planned-edit model call.');
-        return Promise.resolve({ text });
-      }
-    }
-    const executor: HostToolExecutor = {
-      run: async (call) => call.name === 'analyze_silence'
-        ? {
-            status: 'completed',
-            summary: 'Found one silent range',
-            data: { ranges: [{ start: 2, end: 3 }] },
-          }
-        : { status: 'failed', summary: `Unexpected tool ${call.name}` },
-    };
-    const session = new BrowserAiSession(new Orchestrator(new PlannedProvider(), { executor }));
-    const events = await collect(session, 'planned-edit', { ...input, turnId: 'turn_planned_proposal' });
-    const diff = events.find((event) => event.type === 'diff');
-    expect(diff?.type).toBe('diff');
-    if (diff?.type !== 'diff') throw new Error('Planned edit did not propose a patch.');
-
-    session.decidePatch(diff.edit.patch.patchId, 'accepted', 2);
-    const key = 'framepilot:orchestration:v1:run:turn_planned_proposal';
-    await vi.waitFor(() => {
-      const stored = JSON.parse(localStorage.getItem(key) ?? 'null') as { snapshot: string };
-      expect(JSON.parse(stored.snapshot)).toMatchObject({
-        // Completed, not failed: an unreachable browser reviewer is not a verdict on the
-        // edit and no longer fails the run (ADR 0122).
-        status: 'completed',
-        currentProjectRevision: 2,
-        outcome: { kind: 'completed_with_changes', changed: true },
-        patchDecisions: [{ patchId: diff.edit.patch.patchId, state: 'committed' }],
-      });
-    });
-  });
 });
 
 /** A fake desktop bridge that replays scripted stream messages to its listener. */
@@ -413,7 +325,7 @@ describe('DesktopAiSession', () => {
     );
   });
 
-  it('routes recipe and planned-edit over desktop IPC instead of executing in the renderer', async () => {
+  it('routes an agent run over desktop IPC instead of executing in the renderer', async () => {
     let listener: ((m: AiStreamEventMessage) => void) | null = null;
     const aiStreamStart = vi.fn(async () => {
       listener?.({ requestId: 'req_route', done: true });
@@ -430,12 +342,9 @@ describe('DesktopAiSession', () => {
       aiStreamAbort: vi.fn(),
     } as unknown as RendererBridge;
 
-    await collect(createAiSession(), 'planned-edit');
+    await collect(createAiSession(), 'agent');
 
-    expect(aiStreamStart).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ mode: 'planned-edit' }),
-    );
+    expect(aiStreamStart).toHaveBeenNthCalledWith(1, expect.objectContaining({ mode: 'agent' }));
   });
 
   it('throws when the run reports an error', async () => {
