@@ -17,6 +17,15 @@ the reasoning stated. Commits are on `fix/run-gap-analysis-closeout`; decisions 
 **ADR 0135** (transition under-layer + crop parity) and **ADR 0136** (a run that can be held to
 what it was asked).
 
+**Verification.** ai-sdk 3161, engine 2597, web-editor 2429 tests green; ruff, mypy, eslint and
+tsc clean; per-package coverage green. `pnpm verify` passes every gate except `test:visual`,
+which fails **two AI-sidebar screenshots for reasons unrelated to this work**: the same two fail
+on a clean `main` checkout (where in fact seven panels fail), and both diffs show
+character-identical text ghosted by ~1px down the panel — a font-metric shift on this machine,
+not a content change. None of the copy changed here appears in either snapshot. The snapshots
+have been regenerated twice before (`64e4db1`, `b19438c`), which is consistent with
+environment-sensitive baselines; regenerating them is a separate call and was not done here.
+
 | ID | Status | Where |
 |---|---|---|
 | GAP-001 | **Fixed** — transition ramps carry the neighbour's handle (or held edge frame) in the render and both monitors | `render/compiler.py`, `PreviewPlayer.tsx`, `webcodecs-preview-engine.ts`, `preview/held-frame.ts` · ADR 0135 |
@@ -50,6 +59,31 @@ Two findings above overstated what was missing. They are corrected rather than q
   The 15.7k-token cost of the interactive surface is confirmed, and stage scoping trims it only
   at `apply` — but that is a deliberate design ("the model decides when it is ready to edit"),
   not drift, and changing it is a scope decision rather than a defect fix.
+
+### What remains open (not fixed, and why)
+
+Stated plainly so the close-out does not overclaim:
+
+- **A cancelled run's working state is still not restorable by a following run.** What is now
+  durable is the part that was doing the damage — the editor's answers and decisions, through
+  the session digest. A new turn still builds its own plan from the current timeline, which is
+  the intended design; resuming a run's ledger remains available only through the checkpoint the
+  UI already offers.
+- **A rebuild still drops per-clip look.** `delete_range` + `add_clip` over the same span does
+  not carry the old clips' crop forward, and no heuristic was added to make it: silently
+  mutating a proposal to preserve state the model did not ask for is a worse failure mode than
+  the one it fixes. The durable answer ("full-bleed vertical crop") is what now survives to tell
+  the next run what to re-apply.
+- **Findings still settle after the completion summary is written.** The summary is amended when
+  findings remain, but the ordering itself was not changed — draining every review before the
+  summary would reintroduce the multi-minute wait the detached reviewer exists to remove.
+- **No assertable lint over user-facing event copy.** The two offenders found in this run are
+  fixed at their source; a general "no internal ids in any user-facing string" check over the
+  event stream is a reasonable follow-up and was not built.
+- **No end-to-end golden run in the shape of this transcript** (long uncut take + music →
+  vertical 30s). Each defect is covered by a test at its own layer; a fixture-backed whole-run
+  golden would need real media and a long scripted provider, and is the natural next step if
+  this class of regression recurs.
 
 ### Deliberate non-changes
 

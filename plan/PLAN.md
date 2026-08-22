@@ -71,7 +71,13 @@ that registry is real and unchanged (78 descriptors ≈ 15,710 tokens per reques
 except `apply`, which trims to 58 ≈ 12,317) — consolidating it is a maintainer scope decision,
 not a bug fix, and was left alone.
 
-Evidence: 3157 ai-sdk, 2596 engine, 2428 web-editor tests green; ruff/mypy/eslint/tsc clean.
+Evidence: 3161 ai-sdk, 2597 engine, 2429 web-editor tests green; ruff/mypy/eslint/tsc clean;
+per-package coverage green. `pnpm verify` passes every gate except `test:visual`, which fails
+two AI-sidebar screenshots that fail identically on a clean `main` (seven panels fail there):
+both diffs are character-identical text ghosted ~1px down the panel — a font-metric shift on
+this machine, not a content change — and none of the copy changed here appears in either
+snapshot. Those baselines have been regenerated twice before (`64e4db1`, `b19438c`);
+regenerating them again is a separate call.
 Two engine transition tests were rewritten because they encoded the defect (one solid-colour
 asset on both sides of a cut cannot tell a working transition from a black flash; another
 asserted a centred ramp is *darker* before the cut, which was only true while it faded to
