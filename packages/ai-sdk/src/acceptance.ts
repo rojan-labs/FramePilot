@@ -28,12 +28,25 @@
  * measurement nobody asked for. They stay in the objective's prose.
  */
 
+/** A per-clip treatment a request can demand of the WHOLE cut. */
+export type CoverageTreatment = 'crop' | 'grade' | 'motion' | 'speed';
+
 /** A condition the deterministic Critic can check against a finished timeline. */
 export interface CheckableAcceptance {
   /** Stated deliverable length in seconds, when the request named one. */
   readonly durationSeconds?: number;
   /** Stated minimum number of distinct shots, when the request named one. */
   readonly minShotCount?: number;
+  /**
+   * Treatments the request demanded of EVERY clip.
+   *
+   * The gap this closes: a brief whose text is dominated by "every clip", "per clip",
+   * "across clips" was structurally invisible to acceptance, because the two conditions read
+   * before this — a duration and a shot count — are both counts of the whole. So a run that
+   * graded one clip of forty-seven and put its Ken Burns move on that same one clip satisfied
+   * every criterion it had and reported "All checks passed".
+   */
+  readonly coverage?: readonly CoverageTreatment[];
 }
 
 /**
@@ -84,6 +97,51 @@ export function explicitMinShotCount(prompt: string): number | undefined {
 }
 
 /**
+ * Words that make a statement about EVERY clip rather than about one.
+ *
+ * "across clips" and "per clip" are here because that is how editors write it — "light grade
+ * across clips", "a subtle zoom per clip" — and both mean the whole cut.
+ */
+const UNIVERSAL_QUANTIFIER = /\b(every|each|all|across|per|throughout)\b/;
+
+/** The clip nouns a universal statement attaches to. */
+const CLIP_NOUN = /\b(clips?|shots?|moments?|cuts?|scenes?|segments?)\b/;
+
+/**
+ * How a treatment is named in ordinary creator language.
+ *
+ * Read per LINE, not per document: a brief says "Every clip must be reframed … and apply a
+ * subtle dynamic zoom/pan per clip" on one line and "Light color grade for consistency across
+ * clips" on another, and matching document-wide would let any universal quantifier anywhere
+ * pull in every treatment mentioned anywhere.
+ */
+const TREATMENT_WORDS: readonly (readonly [CoverageTreatment, RegExp])[] = [
+  ['crop', /\b(reframe[sd]?|reframing|crop(?:ped|ping)?|fill the (?:full )?(?:vertical )?frame)\b/],
+  ['grade', /\b(grade[sd]?|grading|colou?r[- ]?correct(?:ed|ion)?)\b/],
+  ['motion', /\b(ken burns|zoom(?:ing)?|pan(?:ning)?|drift|push[- ]?in|punch[- ]?in)\b/],
+  ['speed', /\b(speed ramp|ramp(?:ed|ing)?|slow[- ]?mo(?:tion)?|retim(?:e|ed|ing))\b/],
+];
+
+/**
+ * Treatments a request demands of every clip, read line by line.
+ *
+ * Requires BOTH a universal quantifier and a clip noun on the same line as the treatment, so
+ * "punch in on the reveal" (one moment) and "grade the opening" (one span) are not mistaken
+ * for whole-cut requirements.
+ */
+export function explicitCoverage(prompt: string): readonly CoverageTreatment[] {
+  const found = new Set<CoverageTreatment>();
+  for (const rawLine of prompt.split(/[\n.;]/)) {
+    const line = rawLine.toLowerCase();
+    if (!UNIVERSAL_QUANTIFIER.test(line) || !CLIP_NOUN.test(line)) continue;
+    for (const [treatment, pattern] of TREATMENT_WORDS) {
+      if (pattern.test(line)) found.add(treatment);
+    }
+  }
+  return [...found];
+}
+
+/**
  * The checkable conditions in a request, if any.
  *
  * @param prompt - The editor's request, verbatim.
@@ -95,9 +153,11 @@ export function checkableAcceptance(
   durationSeconds: number | undefined,
 ): CheckableAcceptance {
   const minShotCount = explicitMinShotCount(prompt);
+  const coverage = explicitCoverage(prompt);
   return {
     ...(durationSeconds === undefined ? {} : { durationSeconds }),
     ...(minShotCount === undefined ? {} : { minShotCount }),
+    ...(coverage.length === 0 ? {} : { coverage }),
   };
 }
 
@@ -119,11 +179,26 @@ export function acceptanceCriteria(
   if (acceptance.minShotCount !== undefined) {
     criteria.push(`The cut uses at least ${String(acceptance.minShotCount)} distinct shots.`);
   }
+  for (const treatment of acceptance.coverage ?? []) {
+    criteria.push(`Every picture clip carries its ${COVERAGE_LABEL[treatment]}.`);
+  }
   criteria.push(prompt);
   return criteria;
 }
 
+/** How each treatment reads in a criterion an editor will see. */
+export const COVERAGE_LABEL: Record<CoverageTreatment, string> = {
+  crop: 'own reframe',
+  grade: 'colour grade',
+  motion: 'own motion (zoom/pan)',
+  speed: 'speed change',
+};
+
 /** True when at least one condition here can actually be checked. */
 export function hasCheckableAcceptance(acceptance: CheckableAcceptance): boolean {
-  return acceptance.durationSeconds !== undefined || acceptance.minShotCount !== undefined;
+  return (
+    acceptance.durationSeconds !== undefined ||
+    acceptance.minShotCount !== undefined ||
+    (acceptance.coverage?.length ?? 0) > 0
+  );
 }

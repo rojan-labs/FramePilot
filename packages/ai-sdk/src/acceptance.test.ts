@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import {
   acceptanceCriteria,
   checkableAcceptance,
+  explicitCoverage,
   explicitMinShotCount,
   hasCheckableAcceptance,
 } from './acceptance.js';
@@ -48,6 +49,38 @@ describe('explicitMinShotCount', () => {
   });
 });
 
+describe('explicitCoverage', () => {
+  it('reads the treatments run 2\'s brief demanded of every clip', () => {
+    // Verbatim from the brief that was answered with one graded clip and one moved clip out
+    // of forty-seven, while every criterion the run had was satisfied.
+    const brief = [
+      '- Every clip must be **reframed to fill the full 1080x1920 vertical canvas**: crop in',
+      '  on the subject, and apply a **subtle dynamic zoom/pan (Ken Burns style)** per clip',
+      '- Light color grade for consistency across clips (unify exposure/contrast)',
+    ].join('\n');
+    expect([...explicitCoverage(brief)].sort()).toEqual(['crop', 'grade', 'motion']);
+  });
+
+  it('needs BOTH a universal quantifier and a clip noun on the line', () => {
+    // One moment, not the whole cut.
+    expect(explicitCoverage('punch in on the reveal')).toEqual([]);
+    expect(explicitCoverage('grade the opening shot')).toEqual([]);
+    // A quantifier with no clip noun is about something else entirely.
+    expect(explicitCoverage('crop every image in the bin')).toEqual([]);
+    // A clip noun with no quantifier is not a whole-cut demand.
+    expect(explicitCoverage('reframe the second clip')).toEqual([]);
+  });
+
+  it('does not let a quantifier on one line reach a treatment on another', () => {
+    const prompt = 'Every clip must be trimmed tight.\nAdd a speed ramp to the fall.';
+    expect(explicitCoverage(prompt)).toEqual([]);
+  });
+
+  it('reads a speed demand made of every clip', () => {
+    expect(explicitCoverage('slow-mo on each clip')).toEqual(['speed']);
+  });
+});
+
 describe('checkableAcceptance', () => {
   it('carries the duration its caller already read, plus any shot count', () => {
     const acceptance = checkableAcceptance('a 30s reel from at least 20 moments', 30);
@@ -59,6 +92,15 @@ describe('checkableAcceptance', () => {
     const acceptance = checkableAcceptance('make this look nicer', undefined);
     expect(acceptance).toEqual({});
     expect(hasCheckableAcceptance(acceptance)).toBe(false);
+  });
+
+  it('carries a coverage demand as a checkable condition of its own', () => {
+    const acceptance = checkableAcceptance('reframe every clip to fill the frame', undefined);
+    expect(acceptance).toEqual({ coverage: ['crop'] });
+    expect(hasCheckableAcceptance(acceptance)).toBe(true);
+    expect(acceptanceCriteria('reframe every clip to fill the frame', acceptance)[0]).toContain(
+      'Every picture clip carries its own reframe',
+    );
   });
 });
 

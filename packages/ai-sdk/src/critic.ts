@@ -19,6 +19,7 @@
  */
 import { CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID } from '@framepilot/editor-core';
 import type { Clip, Effect, Project, Timeline } from '@framepilot/timeline-schema';
+import { COVERAGE_LABEL, type CoverageTreatment } from './acceptance.js';
 import type { TargetPlatform } from './context-builder.js';
 import type { TemporalReviewReport } from './temporal-review.js';
 import type { VisionReviewReport } from './vision-review.js';
@@ -32,6 +33,7 @@ export type CheckId =
   | 'duration_target'
   | 'shot_count'
   | 'reframe_coverage'
+  | 'treatment_coverage'
   | 'caption_alignment'
   | 'safe_area'
   | 'audio_clipping'
@@ -84,6 +86,11 @@ export interface CritiqueOptions {
    * number. Read deterministically from the prompt by `acceptance.ts`.
    */
   readonly minShotCount?: number;
+  /**
+   * Treatments the request demanded of EVERY clip ("every clip reframed", "grade across
+   * clips"), read deterministically from the prompt by `acceptance.ts`.
+   */
+  readonly coverage?: readonly CoverageTreatment[];
   /** Target platform, used to sanity-check export aspect ratio/orientation. */
   readonly targetPlatform?: TargetPlatform;
   /** Results of an auto preview render's validation, if one was run. */
@@ -256,6 +263,68 @@ function checkShotCount(timeline: Timeline, options: CritiqueOptions): CriticChe
     'Shot count on target',
     'fail',
     `The cut uses ${String(shots)} shots but at least ${String(target)} were asked for.`,
+  );
+}
+
+/** Does one clip carry the treatment the request demanded of every clip? */
+function clipCarries(clip: Clip, treatment: CoverageTreatment): boolean {
+  switch (treatment) {
+    case 'crop':
+      return clip.crop !== undefined;
+    case 'grade':
+      return clip.effects.some((effect) => effect.type === 'color_grade');
+    case 'motion':
+      return clip.keyframes.length > 0;
+    case 'speed':
+      return clip.speed !== undefined || (clip.speedRamp?.length ?? 0) > 0;
+  }
+}
+
+/**
+ * Did every clip get the treatment the request asked for every clip to have?
+ *
+ * The defect this closes: a brief demanding a reframe, a grade and a Ken Burns move on EVERY
+ * clip was answered with one graded clip and one moved clip out of forty-seven, and every
+ * criterion the run had — a duration and a shot count, both counts of the whole — was
+ * satisfied. "All checks passed" over a cut that had been polished for two seconds and
+ * abandoned. Coverage is the question those counts cannot ask.
+ */
+function checkTreatmentCoverage(timeline: Timeline, options: CritiqueOptions): CriticCheck {
+  const wanted = options.coverage ?? [];
+  if (wanted.length === 0) {
+    return check(
+      'treatment_coverage',
+      'Per-clip work is complete',
+      'skipped',
+      'The request asked for nothing of every clip.',
+    );
+  }
+  const picture = allClips(timeline).filter((clip) => !isOverlayClip(clip));
+  if (picture.length === 0) {
+    return check('treatment_coverage', 'Per-clip work is complete', 'skipped', 'No picture clips.');
+  }
+  const shortfalls: string[] = [];
+  for (const treatment of wanted) {
+    const carried = picture.filter((clip) => clipCarries(clip, treatment)).length;
+    if (carried < picture.length) {
+      shortfalls.push(
+        `${COVERAGE_LABEL[treatment]}: ${String(carried)} of ${String(picture.length)} clips`,
+      );
+    }
+  }
+  if (shortfalls.length === 0) {
+    return check(
+      'treatment_coverage',
+      'Per-clip work is complete',
+      'pass',
+      `All ${String(picture.length)} picture clips carry every treatment the request asked for.`,
+    );
+  }
+  return check(
+    'treatment_coverage',
+    'Per-clip work is complete',
+    'fail',
+    `The request asked for this on every clip, and it is not there yet — ${shortfalls.join('; ')}.`,
   );
 }
 
@@ -575,6 +644,7 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
     checkDurationTarget(timeline, options),
     checkShotCount(timeline, options),
     checkReframeCoverage(project, timeline),
+    checkTreatmentCoverage(timeline, options),
     checkCaptionAlignment(timeline),
     checkSafeArea(timeline),
     checkAudioClipping(options),

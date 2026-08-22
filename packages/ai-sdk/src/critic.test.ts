@@ -85,6 +85,78 @@ describe('shot count', () => {
   });
 });
 
+describe('treatment coverage', () => {
+  /** A cut of `total` clips where `treated` carry a grade and `moved` carry keyframes. */
+  const cut = (total: number, treated: number, moved: number) =>
+    makeProject({
+      timeline: {
+        tracks: [
+          {
+            id: 'v',
+            type: 'video',
+            clips: Array.from({ length: total }, (_, index) => ({
+              id: `c${String(index)}`,
+              assetId: 'asset_1',
+              trackId: 'v',
+              start: index,
+              end: index + 1,
+              sourceStart: 0,
+              sourceEnd: 1,
+              effects:
+                index < treated
+                  ? [{ id: `g${String(index)}`, type: 'color_grade', params: {}, keyframes: [] }]
+                  : [],
+              keyframes:
+                index < moved
+                  ? [
+                      {
+                        id: `k${String(index)}`,
+                        time: 0,
+                        property: 'scale',
+                        value: 1,
+                        easing: 'linear',
+                      },
+                    ]
+                  : [],
+            })),
+          },
+        ],
+      },
+    } as never);
+
+  it('fails when a treatment the request demanded of every clip is on one clip', () => {
+    // Run 2 exactly: the grade landed on 1 of 47 and the Ken Burns move on that same clip,
+    // and every criterion the run had — a duration and a shot count — was satisfied.
+    const report = critique(cut(47, 1, 1), { coverage: ['grade', 'motion'] });
+    const found = report.checks.find((c) => c.id === 'treatment_coverage');
+    expect(found).toMatchObject({ status: 'fail' });
+    expect(found?.detail).toContain('colour grade: 1 of 47');
+    expect(found?.detail).toContain('own motion (zoom/pan): 1 of 47');
+    expect(report.ok).toBe(false);
+  });
+
+  it('passes when every clip carries every demanded treatment', () => {
+    expect(
+      critique(cut(5, 5, 5), { coverage: ['grade', 'motion'] }).checks.find(
+        (c) => c.id === 'treatment_coverage',
+      ),
+    ).toMatchObject({ status: 'pass' });
+  });
+
+  it('names only the treatment that fell short', () => {
+    const found = critique(cut(5, 5, 2), { coverage: ['grade', 'motion'] }).checks.find(
+      (c) => c.id === 'treatment_coverage',
+    );
+    expect(found?.detail).toContain('own motion (zoom/pan): 2 of 5');
+    expect(found?.detail).not.toContain('colour grade');
+  });
+
+  it('skips when the request asked nothing of every clip', () => {
+    expect(critique(cut(5, 0, 0), {}).checks.find((c) => c.id === 'treatment_coverage')).
+      toMatchObject({ status: 'skipped' });
+  });
+});
+
 describe('reframe coverage', () => {
   /** A portrait project with `cropped` of its `total` picture clips reframed. */
   const verticalCut = (total: number, cropped: number) =>
@@ -156,6 +228,7 @@ describe('critique — shape', () => {
       'duration_target',
       'shot_count',
       'reframe_coverage',
+      'treatment_coverage',
       'caption_alignment',
       'safe_area',
       'audio_clipping',

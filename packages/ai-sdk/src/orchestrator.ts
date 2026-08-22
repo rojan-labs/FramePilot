@@ -773,9 +773,7 @@ function alignTurnToBeatGrid(
   turnOps: AnyOperation[],
   rawBeats: unknown,
   hardSync = false,
-):
-  | { ok: true; operations: AnyOperation[]; offGrid?: string }
-  | { ok: false; error: string } {
+): { ok: true; operations: AnyOperation[]; offGrid?: string } | { ok: false; error: string } {
   if (rawBeats === undefined) return { ok: true, operations: turnOps };
 
   const projectGrid = beatGridFor(working, rawBeats)?.times;
@@ -2016,12 +2014,13 @@ export class Orchestrator {
     // The conditions the request stated in checkable terms (see `acceptance.ts`). The same
     // reading is recorded on the run's objective, so the criterion the ledger reports against
     // and the check that settles it can never be two different things.
-    const { minShotCount } = checkableAcceptance(input.userPrompt, durationTargetSeconds);
+    const { minShotCount, coverage } = checkableAcceptance(input.userPrompt, durationTargetSeconds);
     return {
       userPrompt: input.userPrompt,
       ...(producedChanges !== undefined ? { producedChanges } : {}),
       ...(durationTargetSeconds !== undefined ? { durationTargetSeconds } : {}),
       ...(minShotCount !== undefined ? { minShotCount } : {}),
+      ...(coverage !== undefined ? { coverage } : {}),
       ...(options.targetPlatform !== undefined ? { targetPlatform: options.targetPlatform } : {}),
       ...(options.render !== undefined ? { render: options.render } : {}),
     };
