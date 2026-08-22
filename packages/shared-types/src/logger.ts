@@ -55,6 +55,35 @@ export interface Logger {
   child(subScope: string): Logger;
 }
 
+const REDACTED = '[REDACTED]';
+const SENSITIVE_KEY_PATTERN =
+  /(api[-_]?key|access[-_]?token|refresh[-_]?token|token|secret|password|passwd|authorization|auth|credential|private[-_]?key|asr[-_]?api[-_]?key)/i;
+
+function isObjectLike(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function sanitizeForLogging(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value !== 'object') return value;
+
+  if (seen.has(value as object)) return '[Circular]';
+  seen.add(value as object);
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeForLogging(entry, seen));
+  }
+
+  if (!isObjectLike(value)) return value;
+
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (SENSITIVE_KEY_PATTERN.test(key)) out[key] = REDACTED;
+    else out[key] = sanitizeForLogging(entry, seen);
+  }
+  return out;
+}
+
 function emit(level: LogLevel, tag: string, scope: string, message: string, data?: unknown): void {
   if (LEVEL_ORDER[level] < LEVEL_ORDER[activeLevel]) return;
   const line = `${new Date().toISOString()} ${tag} [${scope}] ${message}`;
@@ -64,7 +93,7 @@ function emit(level: LogLevel, tag: string, scope: string, message: string, data
       : level === 'warn'
         ? PLATFORM_CONSOLE.warn
         : PLATFORM_CONSOLE.log;
-  if (data !== undefined) sink(line, data);
+  if (data !== undefined) sink(line, sanitizeForLogging(data));
   else sink(line);
 }
 
