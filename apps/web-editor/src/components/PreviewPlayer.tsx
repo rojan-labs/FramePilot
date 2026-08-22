@@ -47,10 +47,11 @@ import {
   clipBlendMode,
   clipKind,
   clipCropRect,
+  FULL_FRAME_CROP,
+  isFullFrameCrop,
   createPlaybackIndex,
   colorGradeCssFilter,
   colorGradeParams,
-  cropClipPath,
   dbToGain,
   effectiveMutedTrackIds,
   formatTime,
@@ -81,6 +82,7 @@ import {
   setClipTransformPatch,
   setTextParamsPatch,
 } from '../editor/patch-builders.js';
+import { cropObjectPosition } from '../preview/crop-fill.js';
 import { textOverlayStyle } from '../editor/textOverlay.js';
 import {
   blurRadiusAt,
@@ -739,16 +741,19 @@ export function PreviewPlayer({
   const gradeFilter = showGrade ? colorGradeCssFilter(grade) : 'none';
   const isGraded = colorGradeCssFilter(grade) !== 'none';
 
-  // Approximate crop/blend-mode preview (H1.2h): native CSS primitives that
-  // "look close" to the engine's real crop/composite render without
-  // reimplementing it client-side (render-vs-preview rule). `clip-path` masks
-  // the cropped region in place (it does not zoom-to-fill — see
-  // `cropClipPath`'s doc); `mixBlendMode` is CSS's direct analog of the
-  // engine's blend modes. Speed has no preview hookup yet: the master clock
-  // above maps the front element's own currentTime 1:1 to timeline time, and
-  // making that speed-aware is deferred (documented in plan/PLAN.md H1.2h) —
-  // the committed patch and the real render are unaffected.
-  const cropPath = videoClip ? cropClipPath(clipCropRect(videoClip)) : 'none';
+  // `mixBlendMode` is CSS's direct analog of the engine's blend modes. Speed has no preview
+  // hookup yet: the master clock above maps the front element's own currentTime 1:1 to
+  // timeline time, and making that speed-aware is deferred (documented in plan/PLAN.md
+  // H1.2h) — the committed patch and the real render are unaffected.
+  // CROP FILLS THE FRAME, as the export does (`crop-fill.ts` explains the arithmetic and the
+  // divergence it closes). `object-fit: cover` plus an `object-position` derived from the crop
+  // shows the cropped column edge to edge; the old `clip-path` masked it in place over a
+  // letterboxed full frame, so the monitor showed a small picture floating in black while the
+  // export was full-bleed — and the agent wrote compensating zoom into the project to correct
+  // a picture that was already right.
+  const crop = videoClip ? clipCropRect(videoClip) : FULL_FRAME_CROP;
+  const cropped = videoClip !== null && !isFullFrameCrop(crop);
+  const [cropX, cropY] = cropObjectPosition(crop);
   const blendMode = videoClip ? clipBlendMode(videoClip) : 'normal';
 
   // Live transition envelope (same math the export uses — see
@@ -918,10 +923,13 @@ export function PreviewPlayer({
                             ? 1
                             : 0,
                       ...(isUnderlay ? { zIndex: 0 } : isVisible ? { zIndex: 1 } : {}),
-                      ...(isUnderlay && clip
+                      ...(isUnderlay && clip && !isFullFrameCrop(clipCropRect(clip))
                         ? (() => {
-                            const underlayCrop = cropClipPath(clipCropRect(clip));
-                            return underlayCrop === 'none' ? {} : { clipPath: underlayCrop };
+                            const [ux, uy] = cropObjectPosition(clipCropRect(clip));
+                            return {
+                              objectFit: 'cover' as const,
+                              objectPosition: `${String(ux)}% ${String(uy)}%`,
+                            };
                           })()
                         : {}),
                       // Live clip transform (H4) composed with the transition
@@ -930,8 +938,13 @@ export function PreviewPlayer({
                       ...(isVisible && wipeMask
                         ? { maskImage: wipeMask, WebkitMaskImage: wipeMask }
                         : {}),
-                      // Approximate crop/blend preview (H1.2h) — see comment above.
-                      ...(isVisible && cropPath !== 'none' ? { clipPath: cropPath } : {}),
+                      // Crop fills the frame (see the note where `crop` is derived).
+                      ...(isVisible && cropped
+                        ? {
+                            objectFit: 'cover' as const,
+                            objectPosition: `${String(cropX)}% ${String(cropY)}%`,
+                          }
+                        : {}),
                       ...(isVisible && blendMode !== 'normal' ? { mixBlendMode: blendMode } : {}),
                     }}
                     {...(asset ? { 'aria-label': `preview ${asset.id}` } : { 'aria-hidden': true })}
@@ -976,7 +989,12 @@ export function PreviewPlayer({
                 filter: gradeFilter,
                 opacity: imageReady ? 1 : 0,
                 ...(cssTransform ? { transform: cssTransform } : {}),
-                ...(cropPath !== 'none' ? { clipPath: cropPath } : {}),
+                ...(cropped
+                  ? {
+                      objectFit: 'cover' as const,
+                      objectPosition: `${String(cropX)}% ${String(cropY)}%`,
+                    }
+                  : {}),
                 ...(blendMode !== 'normal' ? { mixBlendMode: blendMode } : {}),
               }}
               onLoad={() => setImageReady(true)}

@@ -34,6 +34,7 @@ import { presentationIndexAtOrBefore } from '../demux/mp4-demuxer.js';
 import { AudioMasterClock } from '../clock/audio-clock.js';
 import { GlEffectChain } from '../effects/gl-effect-chain.js';
 import type { TimedEffectLayer } from '../effects/gl-effect-chain.js';
+import { cropFillPlacement } from '../crop-fill.js';
 import { heldFrameIsPreviousSegment } from '../held-frame.js';
 import {
   type ClipCompositing,
@@ -759,11 +760,10 @@ export class WebCodecsPreviewEngine {
   /**
    * Clear the canvas and draw one picture source (decoded `VideoFrame` or a
    * still `<img>`) composited exactly as the DOM `PreviewPlayer` does via CSS:
-   * a centered transform (keyframed scale/x/y at `projectTimeSec`), an in-place
-   * crop mask (`clip-path: inset` — masks, does not zoom-to-fill; see
-   * {@link cropClipPath}), an approximate grade (`ctx.filter`), and the clip's
-   * blend mode (`globalCompositeOperation`). The source is letterboxed
-   * (`contain`) within the frame box, matching the DOM's `object-fit: contain`.
+   * a centered transform (keyframed scale/x/y at `projectTimeSec`), a crop that FILLS the
+   * frame exactly as the export's does (`crop-fill.ts`), an approximate grade
+   * (`ctx.filter`), and the clip's blend mode (`globalCompositeOperation`). An uncropped
+   * source is letterboxed (`contain`) within the frame box, matching the DOM path.
    * Identity compositing (or none) takes the cheap no-transform path.
    */
   private drawSource(
@@ -885,13 +885,28 @@ export class WebCodecsPreviewEngine {
     ctx.translate(cw / 2 + picture.dxPx, ch / 2 + picture.dyPx);
     if (picture.rotationRad !== 0) ctx.rotate(picture.rotationRad);
     ctx.scale(picture.scale, picture.scale);
+    // CROP FILLS, as it does in the export: the cropped region is scaled up to the frame,
+    // not masked in place over a letterboxed full frame. Masking is what made a 9:16 slice of
+    // 16:9 footage read as a small picture floating in black on the monitor while exporting
+    // edge to edge — and what made the agent write compensating zoom into the project to
+    // "fix" a picture that was already correct. See `crop-fill.ts`.
     if (compositing && !isFullFrameCrop(compositing.crop)) {
-      const { x: rx, y: ry, width: rw, height: rh } = compositing.crop;
-      ctx.beginPath();
-      ctx.rect(-cw / 2 + rx * cw, -ch / 2 + ry * ch, rw * cw, rh * ch);
-      ctx.clip();
+      const { w: srcW, h: srcH } = sourceDims(picture2d);
+      const { source, destination } = cropFillPlacement(srcW, srcH, cw, ch, compositing.crop);
+      ctx.drawImage(
+        picture2d,
+        source.x,
+        source.y,
+        source.width,
+        source.height,
+        -cw / 2 + destination.x,
+        -ch / 2 + destination.y,
+        destination.width,
+        destination.height,
+      );
+    } else {
+      this.drawContain(picture2d, -cw / 2, -ch / 2, cw, ch);
     }
-    this.drawContain(picture2d, -cw / 2, -ch / 2, cw, ch);
     ctx.restore();
     if (transition?.kind === 'wipe') {
       this.applyWipeMask(transition, wipeProgressAt(transition, clipTime));
