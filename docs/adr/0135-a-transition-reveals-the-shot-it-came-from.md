@@ -113,3 +113,10 @@ justified by anything observed yet.
 Legacy (pre-catalog) transition kinds share the same under-layer, since the defect was in the
 composite rather than in the pass. `add_transition` still does not overlap clips, so a
 transition longer than half the shorter shot is still clamped rather than borrowing more.
+
+Each under-layer opens its own reader on the neighbour's asset, so a montage pays one extra
+decode per transition. The neighbour's own reader is not reusable at that point — it has already
+been subclipped, sped, cropped and graded into the shape its own clip needs — and a shared
+reader pool is a larger change than this warranted. On the seven-cut, single-asset montage the
+captured run produced that is seven extra readers over a 30-second programme; if a long-form
+export ever makes this measurable, the pool is the fix, not removing the under-layer.

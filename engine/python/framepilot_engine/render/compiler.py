@@ -463,8 +463,13 @@ def _underlay_layer(
     source_duration = float(reader.duration)
     borrow = span * _UNDERLAY_HANDLE_SLACK
     if role == "in":
-        # Continue past the out-point, if the asset has anything left there.
-        handle_start = float(neighbour.source_end if neighbour.source_end is not None else 0.0)
+        # Continue past the out-point, if the asset has anything left there. An absent
+        # `source_end` means the clip plays to the END of its asset, so there is no handle at
+        # all — reading it as 0.0 would put the asset's OPENING under the cut, which is the
+        # right shot at emphatically the wrong moment.
+        handle_start = (
+            float(neighbour.source_end) if neighbour.source_end is not None else source_duration
+        )
         available = max(0.0, source_duration - handle_start)
         edge_time = max(0.0, min(handle_start, source_duration - _CUT_ADJACENCY_TOLERANCE))
     else:

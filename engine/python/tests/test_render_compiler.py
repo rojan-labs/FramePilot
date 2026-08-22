@@ -1552,6 +1552,54 @@ def test_a_transition_holds_the_edge_frame_when_there_is_no_handle(
 
 
 @pytest.mark.usefixtures("require_ffprobe")
+def test_a_transition_holds_the_edge_when_the_neighbour_has_no_out_point(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    """An outgoing clip with no ``sourceEnd`` plays to the end of its asset — no handle.
+
+    Reading an absent out-point as 0.0 would borrow the asset's OPENING for the ramp: the right
+    shot at emphatically the wrong moment, and indistinguishable from a working transition in
+    any check that only looks for "not black".
+    """
+    red = media_factory("open_a.mp4", seconds=1.0, with_audio=False, color="red", size="320x240")
+    blue = media_factory("open_b.mp4", seconds=2.0, with_audio=False, color="blue", size="320x240")
+    (tmp_project_dir / "open_a.mp4").write_bytes(red.read_bytes())
+    (tmp_project_dir / "open_b.mp4").write_bytes(blue.read_bytes())
+    first = _clip("c0", "v", 0, 1, asset="a1")
+    first["sourceStart"] = 0.0
+    first.pop("sourceEnd", None)
+    second = _clip("c1", "v", 1, 2, asset="a2")
+    second["sourceStart"] = 0.5
+    second["sourceEnd"] = 1.5
+    second["effects"] = [
+        {
+            "id": "c1__transition",
+            "type": "transition",
+            "params": {"kind": "cross-dissolve", "durationSeconds": 0.4, "fromClipId": "c0"},
+            "keyframes": [],
+        }
+    ]
+    project = _project(
+        [{"id": "v", "type": "video", "clips": [first, second]}],
+        assets=[
+            {"id": "a1", "path": "open_a.mp4", "kind": "video"},
+            {"id": "a2", "path": "open_b.mp4", "kind": "video"},
+        ],
+    )
+    composite = compile_timeline(project, _index(project, tmp_project_dir), REELS)
+    try:
+        frame = np.asarray(composite.get_frame(1.05)).astype(np.float64)
+        assert float((frame.max(axis=2) < 26).mean()) < 0.98, "the ramp is black"
+        lit = frame[frame.max(axis=2) > 26]
+        # The outgoing shot is red on both its first and last frame here, so this pins the
+        # under-layer exists; the guard against borrowing the opening is the code path itself
+        # (an absent out-point resolves to the asset's end, not to 0.0).
+        assert float(lit[:, 0].mean()) > 8
+    finally:
+        composite.close()
+
+
+@pytest.mark.usefixtures("require_ffprobe")
 def test_centre_alignment_ramps_the_outgoing_clip_too(
     tmp_project_dir: Path, media_factory: Callable[..., Path]
 ) -> None:
