@@ -495,4 +495,43 @@ describe('ReviewFindingQueue', () => {
       expect(queue.takeResolved()).toEqual([]);
     });
   });
+
+  // The captured run's steering loop: one defect, re-detected on every turn that touched the
+  // region, re-instructed every time, never fixable by a proposal.
+  describe('steering budget', () => {
+    it('steers a defect class once, then reports later repeats as exhausted', () => {
+      const queue = new ReviewFindingQueue();
+      const first = queue.admitForSteering([finding({ id: 'f1' })]);
+      expect(first.steer).toHaveLength(1);
+      expect(first.exhausted).toEqual([]);
+      queue.markDelivered(first.steer);
+
+      const second = queue.admitForSteering([finding({ id: 'f2', turnIndex: 1 })]);
+      expect(second.steer).toEqual([]);
+      expect(second.exhausted).toHaveLength(1);
+      expect(queue.hasExhaustedSteering(finding())).toBe(true);
+    });
+
+    it('treats the same defect at different frames as one class', () => {
+      const queue = new ReviewFindingQueue();
+      queue.admitForSteering([
+        finding({ id: 'f1', detail: 'Unexpected black frame(s): 90, 91, 92.' }),
+      ]);
+      const again = queue.admitForSteering([
+        finding({ id: 'f2', detail: 'Unexpected black frame(s): 300.' }),
+      ]);
+      expect(again.steer).toEqual([]);
+      expect(again.exhausted).toHaveLength(1);
+    });
+
+    it('still steers a genuinely different defect', () => {
+      const queue = new ReviewFindingQueue();
+      queue.admitForSteering([finding({ id: 'f1', detail: 'Unexpected black frame(s): 90.' })]);
+      const other = queue.admitForSteering([
+        finding({ id: 'f2', detail: 'Audio peak 0.4 dBFS exceeds -1 dBFS.' }),
+      ]);
+      expect(other.steer).toHaveLength(1);
+      expect(other.exhausted).toEqual([]);
+    });
+  });
 });

@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19379,
+      "usedTokens": 19433,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -134,23 +134,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1759,
+            "tokenEstimate": 1761,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15710,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19379,
+          "estimatedInputTokensBeforeSend": 19433,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172429,
+          "estimatedRemainingCapacity": 172375,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -364,7 +364,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19472,
+      "usedTokens": 19526,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -390,23 +390,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1852,
+            "tokenEstimate": 1854,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15710,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19472,
+          "estimatedInputTokensBeforeSend": 19526,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172336,
+          "estimatedRemainingCapacity": 172282,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -621,7 +621,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 14652,
+      "usedTokens": 14654,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -647,7 +647,7 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 2133,
+            "tokenEstimate": 2135,
             "included": true
           },
           {
@@ -661,9 +661,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 14652,
+          "estimatedInputTokensBeforeSend": 14654,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 177156,
+          "estimatedRemainingCapacity": 177154,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -912,7 +912,7 @@
             "criterion": "what is on the timeline?",
             "passed": false,
             "atRevision": 0,
-            "detail": "Passed with 1 warning(s)."
+            "detail": "No traceable project mutation for the committed plan."
           }
         ],
         "nextAction": {
@@ -921,7 +921,7 @@
           "objectiveId": "objective_1"
         },
         "blockedOn": {
-          "reason": "Verification found no traceable project mutation for the committed plan.",
+          "reason": "Verification found: No traceable project mutation for the committed plan.",
           "missing": "VERIFICATION_INCONCLUSIVE",
           "atStage": "inspect"
         },
@@ -930,7 +930,7 @@
           "diagnostics": [
             {
               "code": "VERIFICATION_INCONCLUSIVE",
-              "message": "Verification found no traceable project mutation for the committed plan.",
+              "message": "Verification found: No traceable project mutation for the committed plan.",
               "stage": "verify",
               "blocking": true,
               "atVersion": 6

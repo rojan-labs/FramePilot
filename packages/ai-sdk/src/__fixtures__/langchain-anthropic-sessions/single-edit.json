@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 19377,
+      "usedTokens": 19431,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -134,23 +134,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1757,
+            "tokenEstimate": 1759,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15710,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19377,
+          "estimatedInputTokensBeforeSend": 19431,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 852623,
+          "estimatedRemainingCapacity": 852569,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -211,21 +211,21 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1757,
+            "tokenEstimate": 1759,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15710,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19377,
+          "estimatedInputTokensBeforeSend": 19431,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -527,7 +527,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 19421,
+      "usedTokens": 19475,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -553,23 +553,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1801,
+            "tokenEstimate": 1803,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15710,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19421,
+          "estimatedInputTokensBeforeSend": 19475,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 852579,
+          "estimatedRemainingCapacity": 852525,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -640,21 +640,21 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1801,
+            "tokenEstimate": 1803,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15710,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19421,
+          "estimatedInputTokensBeforeSend": 19475,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -782,7 +782,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "notification",
-      "text": "Self-check: All checks passed."
+      "text": "Deterministic self-check: All checks passed."
     },
     {
       "id": "turn_parity:run-state",

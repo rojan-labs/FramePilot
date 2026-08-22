@@ -47,12 +47,188 @@ describe('explicitDurationTargetSeconds', () => {
   });
 });
 
+describe('shot count', () => {
+  it('fails a cut that used fewer shots than the request asked for', () => {
+    // The captured run: "at least of 20+ different best moments", delivered as eight shots,
+    // reported as a success because the run's only criterion was the request's own text.
+    const timeline = {
+      tracks: [
+        {
+          id: 'v',
+          type: 'video',
+          clips: Array.from({ length: 8 }, (_, index) => ({
+            id: `c${String(index)}`,
+            assetId: 'a1',
+            trackId: 'v',
+            start: index,
+            end: index + 1,
+            sourceStart: 0,
+            sourceEnd: 1,
+            effects: [],
+            keyframes: [],
+          })),
+        },
+      ],
+    };
+    const project = makeProject({ timeline } as never);
+    const failed = critique(project, { minShotCount: 20 });
+    expect(failed.checks.find((c) => c.id === 'shot_count')).toMatchObject({ status: 'fail' });
+    expect(failed.ok).toBe(false);
+    const passed = critique(project, { minShotCount: 8 });
+    expect(passed.checks.find((c) => c.id === 'shot_count')).toMatchObject({ status: 'pass' });
+  });
+
+  it('skips when the request named no number', () => {
+    expect(critique(makeProject(), {}).checks.find((c) => c.id === 'shot_count')).toMatchObject({
+      status: 'skipped',
+    });
+  });
+});
+
+describe('treatment coverage', () => {
+  /** A cut of `total` clips where `treated` carry a grade and `moved` carry keyframes. */
+  const cut = (total: number, treated: number, moved: number) =>
+    makeProject({
+      timeline: {
+        tracks: [
+          {
+            id: 'v',
+            type: 'video',
+            clips: Array.from({ length: total }, (_, index) => ({
+              id: `c${String(index)}`,
+              assetId: 'asset_1',
+              trackId: 'v',
+              start: index,
+              end: index + 1,
+              sourceStart: 0,
+              sourceEnd: 1,
+              effects:
+                index < treated
+                  ? [{ id: `g${String(index)}`, type: 'color_grade', params: {}, keyframes: [] }]
+                  : [],
+              keyframes:
+                index < moved
+                  ? [
+                      {
+                        id: `k${String(index)}`,
+                        time: 0,
+                        property: 'scale',
+                        value: 1,
+                        easing: 'linear',
+                      },
+                    ]
+                  : [],
+            })),
+          },
+        ],
+      },
+    } as never);
+
+  it('fails when a treatment the request demanded of every clip is on one clip', () => {
+    // Run 2 exactly: the grade landed on 1 of 47 and the Ken Burns move on that same clip,
+    // and every criterion the run had — a duration and a shot count — was satisfied.
+    const report = critique(cut(47, 1, 1), { coverage: ['grade', 'motion'] });
+    const found = report.checks.find((c) => c.id === 'treatment_coverage');
+    expect(found).toMatchObject({ status: 'fail' });
+    expect(found?.detail).toContain('colour grade: 1 of 47');
+    expect(found?.detail).toContain('own motion (zoom/pan): 1 of 47');
+    expect(report.ok).toBe(false);
+  });
+
+  it('passes when every clip carries every demanded treatment', () => {
+    expect(
+      critique(cut(5, 5, 5), { coverage: ['grade', 'motion'] }).checks.find(
+        (c) => c.id === 'treatment_coverage',
+      ),
+    ).toMatchObject({ status: 'pass' });
+  });
+
+  it('names only the treatment that fell short', () => {
+    const found = critique(cut(5, 5, 2), { coverage: ['grade', 'motion'] }).checks.find(
+      (c) => c.id === 'treatment_coverage',
+    );
+    expect(found?.detail).toContain('own motion (zoom/pan): 2 of 5');
+    expect(found?.detail).not.toContain('colour grade');
+  });
+
+  it('skips when the request asked nothing of every clip', () => {
+    expect(critique(cut(5, 0, 0), {}).checks.find((c) => c.id === 'treatment_coverage')).
+      toMatchObject({ status: 'skipped' });
+  });
+});
+
+describe('reframe coverage', () => {
+  /** A portrait project with `cropped` of its `total` picture clips reframed. */
+  const verticalCut = (total: number, cropped: number) =>
+    makeProject({
+      resolution: { width: 1080, height: 1920 },
+      timeline: {
+        tracks: [
+          {
+            id: 'v',
+            type: 'video',
+            clips: Array.from({ length: total }, (_, index) => ({
+              id: `c${String(index)}`,
+              assetId: 'asset_1',
+              trackId: 'v',
+              start: index,
+              end: index + 1,
+              sourceStart: 0,
+              sourceEnd: 1,
+              effects: [],
+              keyframes: [],
+              ...(index < cropped
+                ? { crop: { x: 0.34, y: 0, width: 0.3164, height: 1 } }
+                : {}),
+            })),
+          },
+        ],
+      },
+    } as never);
+
+  it('fails a cut where some shots are reframed and the rest are not', () => {
+    // Two captured runs failed exactly this way: the editor asked for a full-bleed vertical
+    // cut, the agent reframed the opening shots, stopped, and the run reported "All checks
+    // passed" over 9 reframed and 38 letterboxed shots.
+    const report = critique(verticalCut(10, 3), {});
+    const found = report.checks.find((c) => c.id === 'reframe_coverage');
+    expect(found).toMatchObject({ status: 'fail' });
+    expect(found?.detail).toContain('3 of 10');
+    expect(found?.detail).toContain('c3');
+    expect(report.ok).toBe(false);
+  });
+
+  it('passes when every picture clip is reframed', () => {
+    expect(critique(verticalCut(10, 10), {}).checks.find((c) => c.id === 'reframe_coverage')).
+      toMatchObject({ status: 'pass' });
+  });
+
+  it('warns — never fails — when a portrait frame has no reframing at all', () => {
+    // Might be a same-aspect edit that needs none; the project does not carry each asset's
+    // pixel dimensions, so this cannot be settled, only raised.
+    const found = critique(verticalCut(10, 0), {}).checks.find(
+      (c) => c.id === 'reframe_coverage',
+    );
+    expect(found).toMatchObject({ status: 'warn' });
+    expect(found?.detail).toContain('black bars');
+  });
+
+  it('says nothing about an uncropped landscape edit', () => {
+    // The default fixture is 1920x1080 with no crops — the ordinary case, and not a defect.
+    expect(critique(makeProject(), {}).checks.find((c) => c.id === 'reframe_coverage')).
+      toMatchObject({ status: 'skipped' });
+  });
+});
+
 describe('critique — shape', () => {
   it('preserves the existing PRD §8.6 check set when no temporal review ran', () => {
     const report = critique(makeProject());
     expect(report.checks.map((c) => c.id)).toEqual([
       'request_match',
       'duration_target',
+      'shot_count',
+      'reframe_coverage',
+      'treatment_coverage',
       'caption_alignment',
       'safe_area',
       'audio_clipping',

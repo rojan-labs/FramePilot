@@ -46,6 +46,12 @@ import {
   type TurnRef,
   createTurnEmitter,
 } from '../events.js';
+import {
+  acceptanceCriteria,
+  checkableAcceptance,
+  hasCheckableAcceptance,
+} from '../acceptance.js';
+import { explicitDurationTargetSeconds } from '../critic.js';
 import type { Command } from './commands.js';
 import { deriveObjectiveText } from './continuation.js';
 import { type ToolRole, settledStageFor } from './stage-policy.js';
@@ -607,8 +613,13 @@ export interface AgentTurnResult {
    * diminishing-returns streak (no delta, no proof).
    */
   readonly usage?: { readonly inputTokens?: number; readonly outputTokens?: number };
-  /** The turn record note (the validator's reason when a real-ops turn was rejected). */
+  /** The turn record note (the model-facing log line for this turn — every call in it). */
   readonly note: string;
+  /**
+   * WHY the turn was rejected, with none of the turn's read output in it. Present only on a
+   * rejection; this is what the editor is shown, so it must never carry a tool payload.
+   */
+  readonly rejection?: string;
   /**
    * The turn's own prose, for semantic-loop detection (ADR 0075 §3.5). Optional so the
    * legacy loop and existing fixtures keep compiling; without it a turn's intent reads as
@@ -877,14 +888,28 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
   // criterion, its committed decision AND the criterion verification checked — so the run
   // both forgot the real goal and could only report itself inconclusive.
   const objectiveText = deriveObjectiveText(command.input.userPrompt, command.input.history);
-  // Provisional: this is the run's own deterministic reading of the request, not an
-  // interpretation a turn recorded. It holds the field open so the stage guards can pass
-  // (an empty outcome blocks every stage past `interpret`) and yields to the first real
-  // interpretation instead of permanently occupying the slot.
+  // WHAT DONE MEANS, in terms something can check. `acceptance.ts` reads the conditions the
+  // request actually stated — a deliverable length, a minimum shot count — and the Critic
+  // checks those same numbers, so the criterion the ledger reports against and the check that
+  // settles it are one reading rather than two.
+  //
+  // Recording them is what makes the objective more than a copy of the request. Until now the
+  // outcome, the single acceptance criterion, the committed decision and the criterion
+  // verification reported against were all the same sentence the editor typed, so
+  // verification could only ever answer "did any operation succeed" — a request for "20+
+  // different best moments" was satisfied, as far as the ledger knew, by eight shots.
+  //
+  // `provisional` still marks a reading with nothing checkable in it: the request's prose is
+  // the objective, and the field stays open for a turn that records a real interpretation.
+  const checkable = checkableAcceptance(
+    command.input.userPrompt,
+    explicitDurationTargetSeconds(command.input.userPrompt),
+  );
+  const criteria = acceptanceCriteria(objectiveText, checkable);
   const interpreted = setObjective(created, {
     outcome: objectiveText,
-    acceptance: [{ description: objectiveText }],
-    provisional: true,
+    acceptance: criteria.map((description) => ({ description })),
+    provisional: !hasCheckableAcceptance(checkable),
   });
   // When the creator disables the visible detailed-planning turn, commit a minimal
   // objective-backed authorization record from the persisted request itself. It is
@@ -1314,7 +1339,7 @@ export function onTurnResult(
   const rejected = attemptedEdit && r.satisfied !== true;
   const rejectionReasons =
     rejected && withPlan.rejectionReasons.length < MAX_REJECTION_REASONS
-      ? [...withPlan.rejectionReasons, r.note]
+      ? [...withPlan.rejectionReasons, r.rejection ?? r.note]
       : withPlan.rejectionReasons;
   const rejectedOpCount = withPlan.rejectedOpCount + (rejected ? r.turnOpCount : 0);
 
@@ -1360,7 +1385,7 @@ export function onTurnResult(
     ? recordOperation(state.working, {
         intent: r.signature,
         status: r.satisfied === true ? 'succeeded' : 'failed',
-        ...(r.satisfied === true ? {} : { failureReason: r.note }),
+        ...(r.satisfied === true ? {} : { failureReason: r.rejection ?? r.note }),
         planId: state.working.plan.id!,
         decisionId:
           state.working.plan.decisionIds[
@@ -1504,7 +1529,7 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
   // actual edit; finalize emits the specific empty-run failure below.
   const events: AiEvent[] = [];
   if (state.cumulativeOps.length > 0) {
-    events.push(em.notification(`Self-check: ${r.summary}`));
+    events.push(em.notification(`Deterministic self-check: ${r.summary}`));
     for (const check of r.failedChecks) {
       events.push(em.warning(`${check.label}: ${check.detail}`));
     }
@@ -1566,13 +1591,30 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
   // already had its chance before this fold; if a check still fails, keep the partial
   // validated edits reviewable but settle the run honestly as failed.
   const verificationPassed = r.ok && planReconciled && deliveredWork;
+  /**
+   * Why this verification did not pass, or `undefined` when it did.
+   *
+   * ONE derivation, two consumers: the per-objective `detail` and the blocking diagnostic.
+   * They used to be computed independently, and the `detail` arm only looked at
+   * `planReconciled` — so a run that failed for "no traceable mutation" was filed as
+   * `{ passed: false, detail: "Passed with 1 warning(s)." }`. A record that contradicts
+   * itself is worse than a terse one: the creator reading it cannot tell which half is
+   * true, and neither can a later turn reading the briefing.
+   */
+  const failureReason = (deliverableReached: boolean): string | undefined => {
+    if (!planReconciled) return 'The committed plan still has incomplete deliverables.';
+    if (!deliveredWork) return 'No traceable project mutation for the committed plan.';
+    if (!r.ok) return `Deterministic acceptance checks still fail — ${r.summary}`;
+    if (!deliverableReached) return 'This deliverable was not completed by the run.';
+    return undefined;
+  };
   for (const [index, objective] of working.objectives.entries()) {
     const deliverableReached =
       state.ledgerLength === 0 ? deliveredWork : state.planSteps[index]?.status === 'completed';
     working = recordVerification(working, {
       criterion: objective.description,
       passed: verificationPassed && deliverableReached,
-      detail: !planReconciled ? 'The committed plan still has incomplete deliverables.' : r.summary,
+      detail: failureReason(deliverableReached) ?? r.summary,
       objectiveId: objective.id,
     });
   }
@@ -1581,11 +1623,7 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
   } else {
     working = addDiagnostic(working, {
       code: 'VERIFICATION_INCONCLUSIVE',
-      message: !planReconciled
-        ? 'Verification is inconclusive because committed plan deliverables are incomplete.'
-        : !deliveredWork
-          ? 'Verification found no traceable project mutation for the committed plan.'
-          : 'Verification found that one or more deterministic acceptance checks still fail.',
+      message: `Verification found: ${failureReason(false) ?? r.summary}`,
       stage: 'verify',
       blocking: true,
     });

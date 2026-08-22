@@ -362,7 +362,7 @@ describe('Conductor ↔ streamAgent event parity (K1.2)', () => {
       }),
       agentOptions: { durationTargetSeconds: 1 },
     });
-    expect(events.some((e) => e.type === 'notification' && /Self-check/.test(e.text))).toBe(true);
+    expect(events.some((e) => e.type === 'notification' && /self-check/i.test(e.text))).toBe(true);
   });
 
   it('autoRepair threads a live run signal into the repair pass', async () => {

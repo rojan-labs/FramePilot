@@ -23,6 +23,7 @@ import {
   type Track,
 } from '@framepilot/timeline-schema';
 import type { AgentOptions, AgentRun, AgentStep, ReviewResult } from './agent.js';
+import { asksForRenderedFile, checkableAcceptance } from './acceptance.js';
 import { type EditResult, assembleEdit } from './assemble.js';
 import {
   TOOL_CONCURRENCY_ENV,
@@ -161,6 +162,7 @@ import { createSteeringQueue } from './run-controls.js';
 import { combineSignals } from './reliability/signals.js';
 import {
   REVIEW_CONCURRENCY_ENV,
+  REVIEW_STEERING_PREAMBLE,
   ReviewFindingQueue,
   resolveReviewConcurrency,
   touchedRegionOf,
@@ -177,14 +179,11 @@ import {
   operationsForCall,
   sanitizeToolArgs,
 } from './tool-dispatch.js';
-import {
-  withReplayedImageNote,
-  type HostToolExecutor,
-  type HostToolOutcome,
-} from './tool-executor.js';
+import { type HostToolExecutor, type HostToolOutcome } from './tool-executor.js';
 import { withToolInputContract } from './tool-input-contract.js';
 import { concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
-import { QUESTION_ROUTE_PERMISSIONS, selectTools } from './tool-scope.js';
+import { recordToolRun } from './run-log.js';
+import { IMPLICIT_ONLY_TOOL_NAMES, QUESTION_ROUTE_PERMISSIONS, selectTools } from './tool-scope.js';
 import { type WipeGuardContext, detectTimelineWipe, wipeGuardFor } from './wipe-guard.js';
 
 export type { EditResult } from './assemble.js';
@@ -336,6 +335,78 @@ const QUESTION_ROUTE_TOOL_TURNS = 4;
  * against a spinning model, not a limit a legitimate run meets.
  */
 const MAX_PINNED_SKILLS = 8;
+
+/**
+ * Tools whose successful result is EVIDENCE ABOUT WHAT IS IN THE FOOTAGE.
+ *
+ * `detect_scenes` is deliberately absent: it reports where hard cuts are, and on an unedited
+ * single take it legitimately returns none — which says nothing about where the interesting
+ * moments sit (see `withEmptyAnalysisReading`). Metadata, timings and the timeline summary are
+ * not evidence about content either.
+ */
+const CONTENT_EVIDENCE_TOOLS: ReadonlySet<string> = new Set([
+  'map_footage',
+  'describe_footage',
+  'search_visual',
+  'get_frame',
+  'get_mapped_transcript',
+  'transcribe',
+]);
+
+/**
+ * How many new picture clips a run may place on the strength of no content evidence at all
+ * before its report says so.
+ *
+ * Not a block — the editor may well want the first thirty seconds, and refusing that would be
+ * worse than saying nothing. But a montage assembled from a long recording with nothing read
+ * about what is IN it is a guess, and in the captured run the guess was presented as though it
+ * were grounded ("the footage map gives chapters" — no footage map was ever read). Three is
+ * the point where "I trimmed this" becomes "I chose these moments".
+ */
+const UNEVIDENCED_SHOT_CAVEAT_THRESHOLD = 3;
+
+/** Did this call produce real evidence about what is in the footage? */
+function isContentEvidenceFact(fact: { readonly key: string; readonly status: string }): boolean {
+  if (fact.status !== 'completed') return false;
+  const name = fact.key.split(':')[0] ?? '';
+  return CONTENT_EVIDENCE_TOOLS.has(name);
+}
+
+/**
+ * How many times one agent step re-issues its model call after an UNUSABLE response.
+ *
+ * Two failures land after a 200 and so cannot be retried by `ResilientProvider` (which
+ * replays a stream only before its first chunk): an empty completion, and a reply that stops
+ * mid-clause without asking for a tool. Both are the provider dropping work, not the model
+ * having nothing to say — and both used to end the run. One extra attempt is enough to ride
+ * out a dropped request without turning a real dead end into a loop.
+ */
+const MAX_UNUSABLE_TURN_RETRIES = 1;
+
+/**
+ * Why this step's response cannot be used, or `undefined` when it can.
+ *
+ * - `empty` — no prose and no tool call at all. There is nothing to act on and nothing to
+ *   show; the provider reported silence.
+ * - `truncated` — the PROVIDER said it stopped early (`finish_reason: 'length'` /
+ *   `stop_reason: 'max_tokens'`) and the reply asked for no tool, so the step ends on an
+ *   unfinished sentence with nothing proposed. Only the provider's own verdict counts here:
+ *   judging the prose instead would retry finished two-word answers ("all done") and still
+ *   miss a fragment that happens to end on a period.
+ */
+export function unusableTurnReason(
+  turn: { readonly text: string; readonly calls: readonly unknown[]; readonly truncated?: boolean },
+  appliedOpsSoFar: number,
+  stage: RunStage | undefined,
+): 'empty' | 'truncated' | undefined {
+  if (turn.calls.length > 0) return undefined;
+  if (turn.text.trim() === '') return 'empty';
+  // A truncated reply after work has landed is survivable — the run keeps the edits and the
+  // reducer settles it — and a run already at verify/complete is allowed to finish on prose.
+  if (appliedOpsSoFar > 0) return undefined;
+  if (stage === 'verify' || stage === 'complete') return undefined;
+  return turn.truncated === true ? 'truncated' : undefined;
+}
 
 // Named `orchestratorLog` (not `log`) because the agent-run closure has a local
 // `log: string[]` action ledger that would otherwise shadow it.
@@ -702,12 +773,18 @@ function alignTurnToBeatGrid(
   working: Project,
   turnOps: AnyOperation[],
   rawBeats: unknown,
-): { ok: true; operations: AnyOperation[] } | { ok: false; error: string } {
+  hardSync = false,
+): { ok: true; operations: AnyOperation[]; offGrid?: string } | { ok: false; error: string } {
   if (rawBeats === undefined) return { ok: true, operations: turnOps };
 
   const projectGrid = beatGridFor(working, rawBeats)?.times;
-  const aligned = alignBeatBackedBoundaries(working, turnOps, projectGrid, rawBeats);
-  return aligned.ok ? { ok: true, operations: [...aligned.operations] } : aligned;
+  const aligned = alignBeatBackedBoundaries(working, turnOps, projectGrid, rawBeats, hardSync);
+  if (!aligned.ok) return aligned;
+  return {
+    ok: true,
+    operations: [...aligned.operations],
+    ...(aligned.offGrid ? { offGrid: aligned.offGrid } : {}),
+  };
 }
 
 /**
@@ -961,7 +1038,7 @@ interface HostCallContext {
    * NOT kept in the evidence store (only reads and `measure_color` are), so this is the one
    * place the payload survives the turn that fetched it.
    */
-  readonly beatEvidence?: { current?: unknown };
+  readonly beatEvidence?: { current?: unknown; hardSync?: boolean };
   /**
    * The run's analysis budget (plan B5.4). Threaded into the host executor so a
    * capped call (frames extracted, ffmpeg seconds, transcription minutes) that
@@ -985,6 +1062,11 @@ interface HostCallContext {
    * `ask_user` degrades honestly rather than inventing what the editor "said".
    */
   readonly askUser?: AskUser;
+  /**
+   * Records a durable note for later runs (see `AgentRunControls.rememberDecision`).
+   * Optional and fire-and-forget: absent ⇒ nothing is recorded.
+   */
+  readonly rememberDecision?: (note: { readonly title: string; readonly body: string }) => void;
   /**
    * The run's timeline wipe guard (agent continuity): a delete op that would
    * clear a whole multi-clip track of pre-run work is rejected with a
@@ -1930,10 +2012,16 @@ export class Orchestrator {
   ): CritiqueOptions {
     const durationTargetSeconds =
       options.durationTargetSeconds ?? explicitDurationTargetSeconds(input.userPrompt);
+    // The conditions the request stated in checkable terms (see `acceptance.ts`). The same
+    // reading is recorded on the run's objective, so the criterion the ledger reports against
+    // and the check that settles it can never be two different things.
+    const { minShotCount, coverage } = checkableAcceptance(input.userPrompt, durationTargetSeconds);
     return {
       userPrompt: input.userPrompt,
       ...(producedChanges !== undefined ? { producedChanges } : {}),
       ...(durationTargetSeconds !== undefined ? { durationTargetSeconds } : {}),
+      ...(minShotCount !== undefined ? { minShotCount } : {}),
+      ...(coverage !== undefined ? { coverage } : {}),
       ...(options.targetPlatform !== undefined ? { targetPlatform: options.targetPlatform } : {}),
       ...(options.render !== undefined ? { render: options.render } : {}),
     };
@@ -2105,6 +2193,12 @@ export class Orchestrator {
     // rather than let it be called and fail (see `supportsVision`).
     const sighted = supportsVision(this.provider.name, this.provider.modelId);
     return toolDescriptors((tool) => {
+      // Lifecycle work the orchestrator owns is never model-selectable. `tool-scope.ts`
+      // declares this and `autonomous-tool-contract.ts` throws over it, but the filter lived
+      // only in `selectTools` — so the ONE surface with a live editor in front of it offered
+      // `index_media` as an ordinary call, and a model could start a paced, billable indexing
+      // job inside a run whose budget assumed it could not.
+      if ((IMPLICIT_ONLY_TOOL_NAMES as readonly string[]).includes(tool.name)) return false;
       if (!sighted && tool.capabilities?.includes('vision')) return false;
       // `recall_evidence` survives the recovery turn. Everything else read-shaped is
       // withheld there on purpose — the run has gathered enough and must act — but this
@@ -2377,6 +2471,14 @@ export class Orchestrator {
       }
       /* v8 ignore stop */
       const answerText = answer.answer;
+      // The editor just told the run something only they knew. Record it durably, or the
+      // next run asks again — or worse, proceeds on its own guess: in the captured session
+      // the editor chose the vertical framing in answer to this very question, and the
+      // following run rebuilt the montage with no crop at all.
+      host.rememberDecision?.({
+        title: `The editor answered: ${parsed.question}`,
+        body: `They said: ${answerText}. Follow this on later turns unless they change it.`,
+      });
       return {
         ops: [],
         // The answer IS the result: it lands in the action log, so the next turn plans
@@ -2424,6 +2526,12 @@ export class Orchestrator {
       // sensitivity replaces it: the grid the model is cutting to is the one it last saw.
       if (call.name === 'detect_beats' && outcome.status === 'completed' && host.beatEvidence) {
         host.beatEvidence.current = outcome.data;
+        // The run's own editorial declaration, not an analysis parameter: whether it intends
+        // every interior cut to sit exactly on an onset. Sticky for the run once set, because
+        // a later re-analysis at a different sensitivity does not change the intent.
+        if ((call.arguments as { hardSync?: unknown }).hardSync === true) {
+          host.beatEvidence.hardSync = true;
+        }
       }
       const colorEvidence =
         call.name === 'measure_color' &&
@@ -2478,19 +2586,20 @@ export class Orchestrator {
       // summary text — the summary can be data-derived ("No silent ranges") and would
       // otherwise read as a freshly fabricated result rather than a served-from-cache one.
       const base = runtimeCached ? desc : outcome.summary;
-      // A cached replay carries no image: the runtime memo stores the outcome, so the
-      // picture is genuinely still there, but a frame's whole value is that it shows the
-      // timeline AS IT IS NOW. Re-showing a pre-edit frame under a post-edit question is
-      // the one failure this tool exists to prevent.
-      const replayed = runtimeCached && outcome.images !== undefined && outcome.images.length > 0;
-      // ...but dropping the picture while forwarding a payload that SAYS a picture is
-      // attached is worse than either honest option. `get_frame`'s data carries
-      // `note: 'The frame itself is attached to this turn as an image.'`, and passing that
-      // through unchanged on a memo hit told the model to look at an image it was never
-      // sent — so it answered "I can't see the attached frame" on a question it had the
-      // evidence to answer, or described the picture from imagination. Say what actually
-      // happened instead, and say how to get the picture back.
-      const data = replayed ? withReplayedImageNote(outcome.data) : outcome.data;
+      // A CACHED REPLAY RE-ATTACHES ITS PICTURE. The memo key for an image-bearing read
+      // carries the timeline revision (`idempotencyKeyFor`'s `project_revision` scope), so a
+      // hit is proof the timeline has not moved since the frame was rendered — the stored
+      // picture IS the current one, and the "a frame is only worth looking at as the
+      // timeline is now" objection cannot apply to a hit by construction.
+      //
+      // Dropping it was the more expensive mistake. Frames ride ONE request and are then
+      // stripped from the transcript, so from the turn after a look the model has no image
+      // and no way to get one: the replay told it "you were shown this, answer from what you
+      // saw" about a picture that had already left its context, and said asking again was
+      // futile. In the captured run that produced a confident, wrong diagnosis of the
+      // framing — the model reasoned about a frame it could not see — and two turns of
+      // edits chasing it. Re-attaching costs one image; being blind cost the run.
+      const data = outcome.data;
       // Built from `data`, NOT `outcome.data`: this preview is what the model actually
       // reads (the payload is digested into the note), so a rewrite that skipped it would
       // fix the card and leave the model with the same false claim.
@@ -2502,9 +2611,7 @@ export class Orchestrator {
         status: outcome.status,
         ...(runtimeCached ? { fromCache: true } : {}),
         ...(data !== undefined ? { data } : {}),
-        ...(!runtimeCached && outcome.images && outcome.images.length > 0
-          ? { images: outcome.images }
-          : {}),
+        ...(outcome.images && outcome.images.length > 0 ? { images: outcome.images } : {}),
       };
     }
     if (tool.kind === 'read' && tool.read) {
@@ -2752,6 +2859,8 @@ export class Orchestrator {
     appliedPatchIds: Set<string>;
     /** This run's beat payload, so a repair is held to the grid like any other turn. */
     rawBeats?: unknown;
+    /** The run's hard-sync declaration, so a repair inherits the same policy. */
+    beatHardSync?: boolean;
     maxOpsPerTurn: number;
     /** The run's abort signal, so Stop cancels the repair `complete()` call too. */
     signal?: AbortSignal;
@@ -2868,6 +2977,7 @@ export class Orchestrator {
       working: args.working,
       appliedPatchIds: args.appliedPatchIds,
       rawBeats: args.rawBeats,
+      beatHardSync: args.beatHardSync === true,
     });
     const record: AgentStep = { ...step.record, note: `Repair pass: ${step.record.note}` };
     return step.applied
@@ -2922,7 +3032,7 @@ export class Orchestrator {
     // unchanged working copy is served from here, marked non-novel, so it never looks
     // like progress — and, unlike the memo it replaces, it serves the DATA back.
     const evidence = new EvidenceStore();
-    const beatEvidence: { current?: unknown } = {};
+    const beatEvidence: { current?: unknown; hardSync?: boolean } = {};
     // ADR 0057: per-run skill ledger — see the streaming loop's identical comment.
     const loadedSkills = new Map<string, string>();
     // Per-run analysis budget (B5.4): caps frames/ffmpeg-seconds/transcription across
@@ -3047,6 +3157,7 @@ export class Orchestrator {
         working,
         appliedPatchIds,
         rawBeats: beatEvidence.current,
+        beatHardSync: beatEvidence.hardSync === true,
       });
       steps.push(step.record);
       log.push(`Step ${index}: ${rationale ? `${rationale} — ` : ''}${step.record.note}`);
@@ -3173,11 +3284,32 @@ export class Orchestrator {
      * exact wiring point).
      */
     rawBeats?: unknown;
+    /**
+     * Whether the run DECLARED hard sync (`detect_beats({ hardSync: true })`). Without it an
+     * off-grid interior cut is reported to the model, not rejected — see
+     * `kernel/beat-grid/beat-alignment.ts`.
+     */
+    beatHardSync?: boolean;
   }): {
     record: AgentStep;
     applied: boolean;
     /** The turn landed nothing because the timeline already matched it (see below). */
     satisfied?: boolean;
+    /**
+     * WHY the turn was rejected, with nothing else in it.
+     *
+     * The record's `note` is the model-facing log line, and every tool call in the turn
+     * contributes to it — reads included. Reporting THAT to the editor as the reason a
+     * change did not validate printed a media-bin JSON dump under "Skipped: 8 proposed
+     * changes did not validate", with the actual reason at the end of it. The user-facing
+     * line is built from this field instead.
+     */
+    rejection?: string;
+    /**
+     * Interior cuts left deliberately off the beat grid, as a measurement to report. Only
+     * set when the run did NOT declare hard sync — see `kernel/beat-grid/beat-alignment.ts`.
+     */
+    offGrid?: string;
     working: Project;
     edit?: EditResult;
   } {
@@ -3207,7 +3339,15 @@ export class Orchestrator {
     // The module handles its own exemptions (audio/caption boundaries, the sequence's
     // outer edges) and snaps interior near-misses rather than rejecting them, so a cut two
     // frames off a real onset becomes frame-accurate sync instead of a wasted repair turn.
-    const beatAligned = alignTurnToBeatGrid(working, args.turnOps, args.rawBeats);
+    // A cut too far to snap is REPORTED unless the run declared hard sync: quantising every
+    // cut is a style, not a correctness property, and holding a run to it uninvited rewrote
+    // the rhythm a captured brief had asked for in so many words.
+    const beatAligned = alignTurnToBeatGrid(
+      working,
+      args.turnOps,
+      args.rawBeats,
+      args.beatHardSync === true,
+    );
     if (!beatAligned.ok) {
       return {
         record: {
@@ -3218,10 +3358,13 @@ export class Orchestrator {
           note: `${baseNote}; rejected by the beat grid: ${beatAligned.error}`,
         },
         applied: false,
+        rejection: `rejected by the beat grid: ${beatAligned.error}`,
         working,
       };
     }
     const turnOps = beatAligned.operations;
+    // The measurement rides with the turn's note, which is what the model reads next turn.
+    const beatNote = beatAligned.offGrid ? `${baseNote}; ${beatAligned.offGrid}` : baseNote;
 
     const edit = assembleEdit(working, turnOps, rationale || 'Agent step', 'agent');
     /* v8 ignore start -- defense in depth: every op in `turnOps` already passed its own
@@ -3244,6 +3387,7 @@ export class Orchestrator {
           note: `${baseNote}; rejected by validator: ${problems}`,
         },
         applied: false,
+        rejection: `rejected by the validator: ${problems}`,
         working,
       };
     }
@@ -3265,7 +3409,7 @@ export class Orchestrator {
           toolCalls,
           patch: edit.patch,
           applied: false,
-          note: `${baseNote}; already in place — this exact change is already on the timeline`,
+          note: `${beatNote}; already in place — this exact change is already on the timeline`,
         },
         applied: false,
         satisfied: true,
@@ -3278,8 +3422,9 @@ export class Orchestrator {
     // manage_assets) and edit the timeline in the same run.
     const nextWorking: Project = applyProjectPatch(working, edit.patch);
     return {
-      record: { index, rationale, toolCalls, patch: edit.patch, applied: true, note: baseNote },
+      record: { index, rationale, toolCalls, patch: edit.patch, applied: true, note: beatNote },
       applied: true,
+      ...(beatAligned.offGrid ? { offGrid: beatAligned.offGrid } : {}),
       working: nextWorking,
       edit,
     };
@@ -3359,7 +3504,10 @@ export class Orchestrator {
       tier: 'mid',
       contextWindow: capabilitiesFor(this.provider.name, this.provider.modelId).contextWindow,
     },
-  ): AsyncGenerator<AiEvent, { text: string; calls: ToolCall[]; aborted: boolean; usage?: Usage }> {
+  ): AsyncGenerator<
+    AiEvent,
+    { text: string; calls: ToolCall[]; aborted: boolean; usage?: Usage; truncated?: boolean }
+  > {
     let text = '';
     // The narration boundary (kernel/narration.ts). Assistant text reaches the UI as live
     // deltas, so this has to sit on the delta path rather than on the settled string: a
@@ -3374,6 +3522,9 @@ export class Orchestrator {
     // `runTurn`) folds this into the run's cost accumulator. Never fabricated: stays
     // `undefined` when no `usage` chunk arrives (see `providerChunks`).
     let usage: Usage | undefined;
+    // The provider's own "I stopped because I ran out of room" (see `ProviderChunk`'s
+    // `done.truncated`). Never inferred from the prose.
+    let truncated = false;
     // Built once, just before the call, and reused when the provider settles.
     let manifest: ContextManifest | undefined;
     const captureReasoning = sink.kind === 'assistant' && sink.captureReasoning === true;
@@ -3492,8 +3643,11 @@ export class Orchestrator {
           calls.push(chunk.call);
         } else if (chunk.type === 'usage') {
           usage = chunk.usage;
+        } else if (chunk.type === 'done') {
+          // The text is already accumulated from the deltas; what only 'done' carries is
+          // whether the provider cut the reply off.
+          truncated = chunk.truncated === true;
         }
-        // 'done' carries the final canonical text, already accumulated from deltas.
       }
       settled = true;
       // Release the tail the filter never got a terminator for (a message that ends without
@@ -3516,7 +3670,13 @@ export class Orchestrator {
           manifest: settled,
         });
       }
-      return { text, calls, aborted: signal?.aborted ?? false, ...(usage ? { usage } : {}) };
+      return {
+        text,
+        calls,
+        aborted: signal?.aborted ?? false,
+        ...(usage ? { usage } : {}),
+        ...(truncated ? { truncated: true } : {}),
+      };
     } finally {
       if (!settled) {
         const settle = settleReasoning();
@@ -3563,7 +3723,9 @@ export class Orchestrator {
      * that never edit — the question route can call `detect_beats` to answer a question,
      * but has no turn to hold to a grid.
      */
-    beatEvidence?: { current?: unknown },
+    beatEvidence?: { current?: unknown; hardSync?: boolean },
+    /** Durable note sink for what the editor tells the run (see `rememberDecision`). */
+    rememberDecision?: (note: { readonly title: string; readonly body: string }) => void,
   ): AsyncGenerator<
     AiEvent,
     {
@@ -3604,6 +3766,7 @@ export class Orchestrator {
       ...(beatEvidence ? { beatEvidence } : {}),
       loadedSkills,
       ...(askUser ? { askUser } : {}),
+      ...(rememberDecision ? { rememberDecision } : {}),
       // `analysisBudget` is created once up front (always truthy) and threaded
       // through every turn of this loop — see `HostCallContext.analysisBudget`.
       analysisBudget,
@@ -3736,6 +3899,24 @@ export class Orchestrator {
         turnOps.push(...outcome.ops);
         notes.push(outcome.note);
         turnStatuses.push(outcome.status);
+        // Dev-only hit counter (opt-in via FRAMEPILOT_RUNS_LOG) — see run-log.ts.
+        {
+          const tool = getTool(call.name);
+          const argsSummary = summarizeArgs(call.arguments);
+          recordToolRun({
+            ts: new Date().toISOString(),
+            tool: call.name,
+            ...(tool ? { kind: tool.kind, mutates: tool.mutates } : {}),
+            status: outcome.status,
+            runtimeMs,
+            summary: outcome.summary,
+            fromCache: outcome.fromCache === true,
+            ...(argsSummary ? { argsSummary } : {}),
+            ...(outcome.status === 'failed' && typeof outcome.data === 'string'
+              ? { error: outcome.data }
+              : {}),
+          });
+        }
         // Frames ride their own channel to the next request as real image content; the
         // action log gets only the FACTS about them (see `AgentCallOutcome.images`).
         if (outcome.images) frames.push(...outcome.images);
@@ -4074,6 +4255,12 @@ export class Orchestrator {
             options.signal,
             Date.now,
             analysisBudget,
+            // A question turn can `ask_user` too, and an answer given there is just as
+            // worth keeping as one given mid-edit.
+            undefined,
+            undefined,
+            undefined,
+            chatOptions.controls?.rememberDecision,
           );
           notes.push(...executed.notes);
           if (executed.turnStatuses.includes('cancelled')) {
@@ -4261,16 +4448,29 @@ export class Orchestrator {
       for (const finding of resolved) yield findingEvent(finding, true);
       for (const finding of live) yield findingEvent(finding, false);
     };
-    const steerFindings = (live: readonly ReviewFinding[]): void => {
-      if (live.length === 0) return;
-      steering.push(
-        [
-          'Perceptual review of the edits you already applied found the following.',
-          'Fix only these, then carry on with the request:',
-          ...live.map((finding, index) => `${String(index + 1)}. ${finding.detail}`),
-        ].join('\n'),
-      );
-      findings.markDelivered(live);
+    /**
+     * Hand fresh findings to the agent — once per defect class.
+     *
+     * A finding whose class has already had its attempt is NOT re-pushed: it stays on the
+     * user's screen as an open finding, but it no longer buys a turn. Unbounded re-steering
+     * is what turned one unfixable defect (a black frame at every cut, caused by the
+     * transition model rather than by any proposal) into a run that spent its whole budget
+     * being told to fix it. The cap lives in `review-findings.ts`.
+     */
+    const steerFindings = (live: readonly ReviewFinding[]): readonly ReviewFinding[] => {
+      if (live.length === 0) return [];
+      const { steer, exhausted } = findings.admitForSteering(live);
+      if (steer.length > 0) {
+        steering.push(
+          [
+            REVIEW_STEERING_PREAMBLE,
+            'Fix only these, then carry on with the request:',
+            ...steer.map((finding, index) => `${String(index + 1)}. ${finding.detail}`),
+          ].join('\n'),
+        );
+        findings.markDelivered(steer);
+      }
+      return exhausted;
     };
     try {
       // Fallback ordinal for routes whose diffs carry no `turnIndex` (the single-proposal
@@ -4320,8 +4520,19 @@ export class Orchestrator {
           if (reviewRequested) {
             const settled = await findings.drainSettled();
             const repaired = findings.takeResolved();
-            steerFindings(settled);
+            const exhausted = steerFindings(settled);
             yield* publishFindings(settled, repaired);
+            // Say it out loud the moment the run stops retrying, rather than letting the
+            // editor watch the same finding reappear and assume something is still working
+            // on it. Named per defect, not per frame.
+            for (const finding of exhausted) {
+              yield {
+                ...evidenceBase(),
+                id: `${options.turnId}:finding-unfixed:${finding.id}`,
+                type: 'warning',
+                text: `The review still reports this after a correction attempt, so the run is not retrying it again: ${finding.detail} It is likely a render or transition-model defect rather than something this edit can fix.`,
+              };
+            }
           }
           continue;
         }
@@ -4333,6 +4544,20 @@ export class Orchestrator {
           const remaining = await findings.drainAll();
           const repaired = findings.takeResolved();
           yield* publishFindings(remaining, repaired);
+          // The completion summary was already written from the DETERMINISTIC self-check, so
+          // a run could tell the editor "all checks passed" while its own perceptual review
+          // was still holding an unresolved defect. Amend the account here: the edits did
+          // land and are valid, and this is what the review found about them.
+          if (remaining.length > 0) {
+            const notice: AiEvent = {
+              ...evidenceBase(),
+              id: `${options.turnId}:review-unresolved`,
+              type: 'warning',
+              text: `The perceptual review finished with ${String(remaining.length)} unresolved finding${remaining.length === 1 ? '' : 's'}. Your edits are applied and validated, but they are not perceptually clean: ${remaining.map((finding) => finding.detail).join(' ')}`,
+            };
+            projector?.observe(notice);
+            yield notice;
+          }
           // An unreachable reviewer is not a verdict about the edit, so it neither fails the
           // run nor lets it claim the work was checked. Say plainly which of the two happened.
           const failures = findings.reviewFailures;
@@ -4787,7 +5012,7 @@ export class Orchestrator {
     // unchanged working copy is served from here and marked non-novel, so re-reading is
     // never mistaken for progress. Cleared inside `runAgentCall` when an edit lands.
     const evidence = new EvidenceStore();
-    const beatEvidence: { current?: unknown } = {};
+    const beatEvidence: { current?: unknown; hardSync?: boolean } = {};
     // ADR 0057: per-run skill ledger — shared across the run's turns AND its repair
     // pass, so a playbook is fetched once and stays pinned in context for the rest of
     // the run (see `HostCallContext.loadedSkills` / `agentSkillsBlock`).
@@ -4814,6 +5039,29 @@ export class Orchestrator {
     // `settle`, alongside the terminal diff.
     let usageTokens = initialCost.tokens;
     let usageUsd = initialCost.usd;
+    /**
+     * Did any call this run return real evidence about what is IN the footage?
+     *
+     * The completion report says so when a montage was assembled without any (see
+     * `UNEVIDENCED_SHOT_CAVEAT_THRESHOLD`) — the captured run chose nine source spans out of
+     * 575 seconds with nothing read about the content, and told the editor its choices came
+     * from a footage map it had never asked for.
+     */
+    let sawContentEvidence = false;
+    /**
+     * Did this run's request ask for a rendered FILE? The agent cannot make one — render and
+     * export have no route from the panel — so the completion account says so rather than
+     * reporting a finished job over a deliverable that was never produced.
+     */
+    const asksForFile = asksForRenderedFile(input.userPrompt);
+    /**
+     * The last applying turn's off-grid measurement, for the completion account.
+     *
+     * A cut a few frames off the beat is ordinary editing, not a failure — but the editor
+     * should still be told, in the same breath as the edits themselves, rather than finding
+     * out by watching it.
+     */
+    let offGridNote: string | undefined;
     /**
      * Frames the LAST turn rendered, waiting to be shown to the model on the next one.
      *
@@ -5025,7 +5273,18 @@ export class Orchestrator {
         const steeringMessage = controls.steering?.take();
         if (steeringMessage) {
           log.push(`Steering: "${steeringMessage}"`);
-          yield emit.notification(`Steering applied: "${steeringMessage}"`);
+          // An editor's own words are echoed back verbatim — that IS the receipt, and the
+          // steering input clears its "queued" note off this exact text. The review's
+          // instruction is not the editor's words: it is an internal prompt carrying request
+          // ids and raw measurements, and echoing it printed
+          // "edit_audio_0: Audio peak 0.08913551514039704 dBFS exceeds -0.1 dBFS" on screen
+          // as product copy. The findings already have their own cards, so this says only
+          // that the run is acting on them.
+          yield emit.notification(
+            steeringMessage.startsWith(REVIEW_STEERING_PREAMBLE)
+              ? 'Acting on what the review found in the edits so far.'
+              : `Steering applied: "${steeringMessage}"`,
+          );
         }
 
         const names = projectNames(working);
@@ -5052,54 +5311,97 @@ export class Orchestrator {
         // any) are even known — `generating` is the specific, honest status for that
         // phase (vs. the generic `editing` the caller set for the whole run).
         yield emit.status('generating');
-        const turn = yield* self.streamAssistant(
-          emit,
-          {
-            messages: self.agentMessages(
-              input,
-              working,
-              log,
-              loadedSkills,
-              plan,
-              steeringMessage,
-              effect.actionRecovery,
-              taskMemory,
-              pendingFrames,
-            ),
-            // Stage-scoped surface (ADR 0075 §3.6): action recovery still wins when it
-            // fires, but an executing run is closed to fresh reconnaissance regardless.
-            tools: effect.actionRecovery
-              ? self.agentTools('action-recovery')
-              : self.agentTools('agent', effect.stage),
-          },
-          signal,
-          // Per-step thinking (U3, redesign §12): each step captures the model's
-          // reasoning into its OWN node `${turnId}:reasoning:${index}`, so an agent run's
-          // thinking blocks stay distinct, ordered, and interleaved with that step's tool
-          // cards — never a single per-run accordion that later steps overwrite.
-          { kind: 'assistant', id: segmentId, captureReasoning: true, reasoningKey: index },
-          effectRuntime,
-          {
-            tier: 'mid',
-            contextWindow: contextWindowFor(input, self.provider),
-            reservedOutputTokens: reservedOutputFor(input, self.provider),
-            // The run's durable memory rides with the request so the composer can say
-            // "memory intact" while the prompt itself shrinks between turns.
-            /* v8 ignore next -- taskMemory is always defined on the live path (see the effect.working guard above), so the empty-object fallback never runs. */
-            ...(taskMemory ? { memory: memoryStatusFrom(taskMemory) } : {}),
-          },
-        );
-        // The frames just went out with that request; they must not ride the next one
-        // too (see `pendingFrames`). Cleared here rather than before the call so an
-        // aborted request does not silently discard evidence that was never sent.
-        pendingFrames = [];
-        // The turn made its model call whether or not the provider priced it.
+        /** One attempt at this turn's model call. Re-callable — see the retry below. */
+        const streamOnce = (attempt: number) =>
+          self.streamAssistant(
+            emit,
+            {
+              messages: self.agentMessages(
+                input,
+                working,
+                log,
+                loadedSkills,
+                plan,
+                steeringMessage,
+                effect.actionRecovery,
+                taskMemory,
+                pendingFrames,
+              ),
+              // Stage-scoped surface (ADR 0075 §3.6): action recovery still wins when it
+              // fires, but an executing run is closed to fresh reconnaissance regardless.
+              tools: effect.actionRecovery
+                ? self.agentTools('action-recovery')
+                : self.agentTools('agent', effect.stage),
+            },
+            signal,
+            // Per-step thinking (U3, redesign §12): each step captures the model's
+            // reasoning into its OWN node `${turnId}:reasoning:${index}`, so an agent run's
+            // thinking blocks stay distinct, ordered, and interleaved with that step's tool
+            // cards — never a single per-run accordion that later steps overwrite. A retry
+            // gets its own segment id so it cannot overwrite the attempt it replaces.
+            {
+              kind: 'assistant',
+              id: attempt === 0 ? segmentId : `${segmentId}:retry-${String(attempt)}`,
+              captureReasoning: true,
+              reasoningKey: index,
+            },
+            effectRuntime,
+            {
+              tier: 'mid',
+              contextWindow: contextWindowFor(input, self.provider),
+              reservedOutputTokens: reservedOutputFor(input, self.provider),
+              // The run's durable memory rides with the request so the composer can say
+              // "memory intact" while the prompt itself shrinks between turns.
+              /* v8 ignore next -- taskMemory is always defined on the live path (see the effect.working guard above), so the empty-object fallback never runs. */
+              ...(taskMemory ? { memory: memoryStatusFrom(taskMemory) } : {}),
+            },
+          );
+        let turn = yield* streamOnce(0);
         modelCalls += 1;
+        // A DROPPED OR CUT-OFF STEP IS NOT AN ANSWER, so retry it here rather than let the
+        // run end on it. `ResilientProvider` cannot help: it retries a stream only before
+        // the first chunk, and both failures arrive after a 200 — an empty completion, or a
+        // reply that stops mid-clause with no tool call. In the captured run the second one
+        // ended a three-and-a-half-minute turn on the words "Rebuilding the 30 seconds as a
+        // 23-shot", and the first failed a whole run the UI had labelled retryable.
+        let unusable = unusableTurnReason(turn, state.cumulativeOps.length, effect.stage);
+        for (
+          let attempt = 1;
+          unusable !== undefined && !turn.aborted && attempt <= MAX_UNUSABLE_TURN_RETRIES;
+          attempt += 1
+        ) {
+          log.push(`Step ${index}: ${unusable} model response — retrying (attempt ${attempt}).`);
+          // The attempt being replaced was still billed, so fold its usage in before it is
+          // overwritten; the surviving attempt is folded in by the block below, once.
+          if (turn.usage) {
+            const supersededCost = costFromUsage(turn.usage);
+            usageTokens += supersededCost.tokens;
+            usageUsd += supersededCost.usd;
+          }
+          turn = yield* streamOnce(attempt);
+          modelCalls += 1;
+          unusable = unusableTurnReason(turn, state.cumulativeOps.length, effect.stage);
+        }
+        // The frames went out with that request; they must not ride the next turn's too
+        // (see `pendingFrames`). Cleared after the retry loop rather than before it, so a
+        // retried attempt still carries evidence the failed attempt never got to use, and
+        // an aborted request does not silently discard it either.
+        pendingFrames = [];
         // C1: fold this turn's real model-call usage into the run's cost accumulator.
         if (turn.usage) {
           const cost = costFromUsage(turn.usage);
           usageTokens += cost.tokens;
           usageUsd += cost.usd;
+        }
+        if (unusable === 'truncated' && !turn.aborted) {
+          // Publishing the fragment would make a cut-off sentence the run's last word.
+          yield emit.warning(
+            'The model ran out of output room mid-reply and asked for no tool call, on every attempt. Nothing was applied. Retry, or ask for a smaller step.',
+          );
+          return turnBase(index, emit.seq(), {
+            done: true,
+            note: 'The model response was truncated before it proposed anything.',
+          });
         }
         if (turn.aborted) return turnBase(index, emit.seq(), { aborted: true });
 
@@ -5112,9 +5414,12 @@ export class Orchestrator {
           // timeline nothing had touched. Say what actually happened instead: honour work
           // earlier turns already landed, and fail loudly when there is none.
           if (!turn.text.trim()) {
+            // The bounded retry above has already been spent, so this is the provider
+            // failing repeatedly rather than a single dropped request.
             const detail =
-              'The model returned an empty response — no answer and no tool call. This is ' +
-              'usually the provider dropping the request (overloaded or rate-limited).';
+              'The model returned an empty response — no answer and no tool call, on every ' +
+              'attempt. This is usually the provider dropping the request (overloaded or ' +
+              'rate-limited).';
             if (state.cumulativeOps.length > 0) {
               log.push(`Step ${index}: empty model response — keeping the edits already applied.`);
               yield emit.warning(`${detail} The edits from earlier steps are kept.`);
@@ -5194,7 +5499,9 @@ export class Orchestrator {
               ? new Set(self.agentTools('action-recovery').map((tool) => tool.name))
               : undefined,
             beatEvidence,
+            controls.rememberDecision,
           );
+        if (callFacts.some(isContentEvidenceFact)) sawContentEvidence = true;
         // Hand this turn's frames to the NEXT request (see `pendingFrames`).
         pendingFrames = frames;
         const anyToolFailed = turnStatuses.includes('failed');
@@ -5243,7 +5550,9 @@ export class Orchestrator {
           working,
           appliedPatchIds,
           rawBeats: beatEvidence.current,
+          beatHardSync: beatEvidence.hardSync === true,
         });
+        if (applied.offGrid) offGridNote = applied.offGrid;
         log.push(`Step ${index}: ${applied.record.note}`);
         const describedActions: DescribedAction[] = [];
         if (applied.applied) {
@@ -5284,6 +5593,7 @@ export class Orchestrator {
           appliedOps: applied.applied ? [...turnOps] : [],
           describedActions,
           note: applied.record.note,
+          ...(applied.rejection === undefined ? {} : { rejection: applied.rejection }),
           ...(applied.satisfied === true ? { satisfied: true } : {}),
         });
       },
@@ -5311,6 +5621,7 @@ export class Orchestrator {
             stepIndex: state.planSteps.length + 1,
             appliedPatchIds,
             rawBeats: beatEvidence.current,
+            beatHardSync: beatEvidence.hardSync === true,
             maxOpsPerTurn,
             effectRuntime,
             loadedSkills,
@@ -5386,6 +5697,9 @@ export class Orchestrator {
               steps: Math.max(effect.appliedTurns, 1),
               rejectedOpCount: effect.rejectedOpCount,
               rejectionReasons: effect.rejectionReasons,
+              contentEvidence: sawContentEvidence,
+              ...(offGridNote ? { offGrid: offGridNote } : {}),
+              ...(asksForFile ? { deliverableFileRequested: true } : {}),
             }),
           );
         }
@@ -5455,6 +5769,22 @@ export function agentCompletionReport(args: {
   steps: number;
   rejectedOpCount: number;
   rejectionReasons: readonly string[];
+  /**
+   * Whether any call this run made returned real evidence about what is IN the footage
+   * (see `CONTENT_EVIDENCE_TOOLS`). Absent ⇒ treated as evidence gathered, so callers that
+   * do not track it are unchanged.
+   */
+  contentEvidence?: boolean;
+  /**
+   * Interior cuts the run left deliberately off the detected beat grid, as measured. Present
+   * only when the run analyzed beats and did not declare hard sync.
+   */
+  offGrid?: string;
+  /**
+   * True when the request asked for a rendered/exported file. The panel cannot produce one, so
+   * the report says where to get it instead of leaving the editor to notice the absence.
+   */
+  deliverableFileRequested?: boolean;
 }): string {
   const maxLines = 10;
   // Collapse lines that render identically. Eight successive restyles of one caption track
@@ -5478,7 +5808,25 @@ export function agentCompletionReport(args: {
     args.rejectedOpCount > 0
       ? `\n\n**Skipped:** ${args.rejectedOpCount} proposed change${args.rejectedOpCount === 1 ? '' : 's'} did not validate (${args.rejectionReasons.join('; ')}).`
       : '';
-  return `${head}\n\n${lines.join('\n')}${skipped}`;
+  // An honest receipt for a montage chosen blind. The captured run picked nine spans out of
+  // 575 seconds having read nothing about the content, and told the editor the choices came
+  // from a footage map it never asked for. The edit still stands — the editor may well have
+  // wanted exactly this — but they should know what it was based on.
+  const placedShots = args.ops.filter((op) => op.type === 'add_clip').length;
+  const unevidenced =
+    args.contentEvidence === false && placedShots >= UNEVIDENCED_SHOT_CAVEAT_THRESHOLD
+      ? `\n\nHeads up: these ${String(placedShots)} shots were chosen from timings alone — nothing was read about what is actually in the footage. Ask for a footage map, or for specific moments, if you want the selection grounded in content.`
+      : '';
+  // Reported, never apologised for: the cut stands, and the editor gets the number.
+  const offGrid = args.offGrid === undefined ? '' : `\n\n${args.offGrid}`;
+  // The deliverable the panel cannot make. Run 2's brief closed with "One final rendered 30s
+  // vertical MP4"; the run never attempted it, never mentioned it, and reported completed.
+  const deliverable =
+    args.deliverableFileRequested === true
+      ? '\n\nThis asks for a rendered file, which the AI panel cannot produce — the edits are ' +
+        'on your timeline; use the Export dialog to render them out.'
+      : '';
+  return `${head}\n\n${lines.join('\n')}${skipped}${unevidenced}${offGrid}${deliverable}`;
 }
 
 /** Render a {@link CritiqueReport} as a compact human-readable block. */

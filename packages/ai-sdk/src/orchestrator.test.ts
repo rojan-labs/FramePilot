@@ -221,7 +221,7 @@ describe('agent mode', () => {
     expect(run.steps.filter((s) => s.applied)).toHaveLength(1);
     expect(run.steps.some((s) => /already in place/.test(s.note))).toBe(true);
     expect(run.log.length).toBeGreaterThan(0);
-    expect(run.critique.checks.length).toBe(8);
+    expect(run.critique.checks.length).toBe(11);
   });
 
   it('interleaves asset management and timeline editing in one project-scoped run', async () => {
@@ -1123,7 +1123,7 @@ const READS_SERVED_BY_JSON_PREVIEW: Readonly<Record<string, string>> = {
   map_footage: 'a per-asset mapping already keyed by the ids the model passed in',
   index_media: 'a progress/count acknowledgement, not a record list',
   transcribe: 'an acknowledgement; the words arrive via get_transcript',
-  propose_edits: 'a proposal the model reads whole and acts on in the same turn',
+  read_edit_signals: 'measured spans the model reads whole and acts on in the same turn',
   detect_faces: 'unavailable in this build — it returns a refusal, not a payload',
 };
 
@@ -2083,7 +2083,7 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
 describe('review mode', () => {
   it('returns a deterministic critic report + readable text', async () => {
     const review = await new Orchestrator(new MockProvider()).review(input);
-    expect(review.report.checks.length).toBe(8);
+    expect(review.report.checks.length).toBe(11);
     expect(review.text).toContain(review.report.summary);
     expect(review.text).toMatch(/\[(PASS|WARN|FAIL|SKIPPED)\]/);
   });

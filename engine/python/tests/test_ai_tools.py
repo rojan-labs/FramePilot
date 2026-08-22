@@ -117,7 +117,7 @@ _EXPECTED_FLAGS: dict[str, tuple[bool, bool]] = {
     "describe_footage": (True, False),
     "index_media": (True, False),
     "map_footage": (True, False),
-    "propose_edits": (True, False),
+    "read_edit_signals": (True, False),
     "session_context": (True, False),
     "detect_faces": (False, False),
     "generate_mask": (False, True),

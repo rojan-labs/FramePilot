@@ -213,7 +213,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19488,
+      "usedTokens": 19542,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -239,23 +239,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1846,
+            "tokenEstimate": 1848,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15710,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19488,
+          "estimatedInputTokensBeforeSend": 19542,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172320,
+          "estimatedRemainingCapacity": 172266,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -618,7 +618,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19525,
+      "usedTokens": 19579,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -644,23 +644,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1883,
+            "tokenEstimate": 1885,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15710,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19525,
+          "estimatedInputTokensBeforeSend": 19579,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172283,
+          "estimatedRemainingCapacity": 172229,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -846,7 +846,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 14596,
+      "usedTokens": 14598,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -872,7 +872,7 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 2055,
+            "tokenEstimate": 2057,
             "included": true
           },
           {
@@ -886,9 +886,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 14596,
+          "estimatedInputTokensBeforeSend": 14598,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 177212,
+          "estimatedRemainingCapacity": 177210,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -1049,7 +1049,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "notification",
-      "text": "Self-check: All checks passed."
+      "text": "Deterministic self-check: All checks passed."
     },
     {
       "id": "turn_golden:run-state",
@@ -1171,7 +1171,7 @@
           "objectiveId": "objective_2"
         },
         "blockedOn": {
-          "reason": "Verification is inconclusive because committed plan deliverables are incomplete.",
+          "reason": "Verification found: The committed plan still has incomplete deliverables.",
           "missing": "VERIFICATION_INCONCLUSIVE",
           "atStage": "verify"
         },
@@ -1180,7 +1180,7 @@
           "diagnostics": [
             {
               "code": "VERIFICATION_INCONCLUSIVE",
-              "message": "Verification is inconclusive because committed plan deliverables are incomplete.",
+              "message": "Verification found: The committed plan still has incomplete deliverables.",
               "stage": "verify",
               "blocking": true,
               "atVersion": 13

@@ -23,7 +23,7 @@ import {
   mapSourceTime,
   mapTranscript,
 } from '@framepilot/editor-core';
-import { proposeCandidates } from '../proposers/candidate-proposer.js';
+import { readEditSignals } from '../proposers/edit-signals.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
 import { boolean, filterString, numeric, seconds } from './tool-args.js';
@@ -50,6 +50,13 @@ const clipDeleteOp = (
  * heavy nested payloads (effects, keyframes, caption style) and replaces them
  * with counts/flags, so a long-form timeline can be scanned cheaply; `get_clip`
  * returns the full clip when the detail is actually needed.
+ *
+ * `cropped` and `graded` are flags rather than payloads for the same reason — but they had to
+ * be ADDED, and their absence was expensive. Crop was the one clip property with no cheap
+ * observability: effects and keyframes had counts, speed rode along, and crop appeared in
+ * nothing but the per-clip deep read. So "which of my 47 clips still need reframing" cost 47
+ * tool calls, which means it was never asked, which is why two captured runs reframed a
+ * handful of shots, lost track, and reported the job done. A flag is one call.
  */
 const clipRow = (clip: Track['clips'][number]): Record<string, unknown> => ({
   id: clip.id,
@@ -60,6 +67,8 @@ const clipRow = (clip: Track['clips'][number]): Record<string, unknown> => ({
   sourceStart: clip.sourceStart,
   sourceEnd: clip.sourceEnd,
   ...(clip.speed !== undefined ? { speed: clip.speed } : {}),
+  cropped: clip.crop !== undefined,
+  graded: clip.effects.some((effect) => effect.type === 'color_grade'),
   effectCount: clip.effects.length,
   keyframeCount: clip.keyframes.length,
 });
@@ -108,10 +117,12 @@ const nextTrackId = (timeline: Timeline, role: Track['type']): string => {
   return candidate;
 };
 
-// `propose_edits` (plan FI4.1) takes the signals the model already gathered — map_footage
-// chapters/highlights, analyze_silence ranges, detect_scenes cuts, and a vertical-target
-// flag — and returns grounded, cited edit candidates. All inputs are optional so the model
-// can propose from whatever it has; transcript emphasis is read from the project.
+// `read_edit_signals` takes the signals the model already gathered — map_footage
+// chapters/highlights, analyze_silence ranges, detect_scenes cuts — and describes what is
+// measurably there, in time order. It does NOT say which move to make: that used to be seven
+// hardcoded rules with hand-tuned scores, and `proposers/edit-signals.ts` records why the
+// authority moved to the agent. All inputs are optional so the model can describe whatever it
+// has; transcript emphasis is measured from the project.
 const proposeEditsSchema = z
   .object({
     chapters: z
@@ -136,6 +147,12 @@ const proposeEditsSchema = z
       .optional(),
     silences: z.array(z.object({ start: z.number(), end: z.number() })).optional(),
     sceneCuts: z.array(z.number()).optional(),
+    /**
+     * Accepted and ignored. It used to switch on a `reframe` candidate for every highlight —
+     * a decision that is now the agent's (see `proposers/edit-signals.ts`). Kept on the
+     * schema so a caller that still sends it is not refused, and because the TS↔Python
+     * contract mirror pins this shape.
+     */
     verticalTarget: boolean().optional(),
   })
   .strict();
@@ -175,26 +192,28 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
   ),
   readTool(
     {
-      name: 'propose_edits',
+      name: 'read_edit_signals',
       description:
-        'Turn footage understanding into GROUNDED, citable edit candidates — the bridge ' +
-        'from "what is in the footage" to "where the moves go". Pass the signals you have ' +
-        'already gathered (map_footage chapters/highlights, analyze_silence ranges, ' +
-        'detect_scenes cuts, and whether the target is vertical); returns a ranked list of ' +
-        'candidates [{ kind: punch_in|reframe|speed|cut|broll, t0, t1, why, cite, score }] ' +
-        'in timeline seconds, each citing the real span it came from. Deterministic — every ' +
-        'candidate is real; YOU choose which to apply and emit the patch. Does not edit the ' +
-        'timeline. Reads transcript emphasis from the project automatically.',
+        'Describe what is measurably THERE across a stretch of the edit — the facts a move ' +
+        'should be chosen from, never the move itself. Pass the signals you have already ' +
+        'gathered (map_footage chapters/highlights, analyze_silence ranges, detect_scenes ' +
+        'cuts); returns them in TIME order as [{ kind: highlight|chapter|silence|emphasis|' +
+        'scene_change, t0, t1, observation, from }] in timeline seconds, with each chapter\'s ' +
+        'shape (length, highlights inside, words spoken) and each silence long enough to ' +
+        'notice. Transcript emphasis is measured from the project for you. `from` says ' +
+        'whether a signal was supplied by you or measured here — a chapter you did not read ' +
+        'from the footage is still only your own claim. WHICH move each observation deserves ' +
+        '— a punch-in, a reframe, a ramp, a cut, nothing at all — is your judgement, and this ' +
+        'tool deliberately does not rank or recommend. Does not edit the timeline.',
       capabilities: ['analysis', 'visual'],
     },
     proposeEditsSchema,
     (a, ctx) =>
-      proposeCandidates({
+      readEditSignals({
         ...(a.chapters ? { chapters: a.chapters } : {}),
         ...(a.highlights ? { highlights: a.highlights } : {}),
         ...(a.silences ? { silences: a.silences } : {}),
         ...(a.sceneCuts ? { sceneCuts: a.sceneCuts } : {}),
-        ...(a.verticalTarget !== undefined ? { verticalTarget: a.verticalTarget } : {}),
         transcript: ctx.project.transcript,
       }),
   ),
@@ -346,11 +365,13 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     {
       name: 'get_clips',
       description:
-        'List clips as compact rows (ids, times, source in/out, effect/keyframe ' +
-        'counts), optionally filtered to one trackId and/or a start/end window ' +
-        '(timeline seconds), paginated with offset/limit (default 50, max 200). ' +
-        'Returns { clips, total, hasMore }. Use this instead of get_timeline on a ' +
-        'long-form project; use get_clip for one clip in full detail.',
+        'List clips as compact rows — ids, times, source in/out, `cropped` and `graded` ' +
+        'flags, effect/keyframe counts — optionally filtered to one trackId and/or a ' +
+        'start/end window (timeline seconds), paginated with offset/limit (default 50, max ' +
+        '200). Returns { clips, total, hasMore }. `cropped` is how you check reframing ' +
+        'coverage across a whole cut in ONE call: an uncropped clip whose source aspect ' +
+        'differs from the sequence renders with black bars. Use this instead of ' +
+        'get_timeline on a long-form project; use get_clip for one clip in full detail.',
     },
     getClipsSchema,
     (a, ctx) => {

@@ -219,7 +219,17 @@ export type ProviderChunk =
    * does NOT forward them, so the orchestrator's chunk handling is unchanged (R1).
    */
   | { readonly type: 'usage'; readonly usage: Usage }
-  | { readonly type: 'done'; readonly text: string };
+  /**
+   * End of stream, carrying the final canonical text.
+   *
+   * `truncated` is the provider SAYING it stopped early — an OpenAI-compatible
+   * `finish_reason: 'length'`, an Anthropic `stop_reason: 'max_tokens'`. It is the only
+   * trustworthy signal that a reply is unfinished: prose alone cannot be judged (plenty of
+   * complete answers are two words with no full stop), and a run that guesses either ends
+   * on a fragment or retries a finished answer. Absent ⇒ the provider reported a normal
+   * stop, or does not report one at all.
+   */
+  | { readonly type: 'done'; readonly text: string; readonly truncated?: boolean };
 
 /**
  * The minimal subset of the global `fetch` the HTTP providers depend on. Kept as
