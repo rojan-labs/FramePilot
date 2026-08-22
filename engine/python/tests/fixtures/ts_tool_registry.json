@@ -1226,6 +1226,11 @@
               "string"
             ]
           },
+          "hardSync": {
+            "type": [
+              "boolean"
+            ]
+          },
           "sensitivity": {
             "type": [
               "number"

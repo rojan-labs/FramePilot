@@ -93,13 +93,24 @@ class MontageProvider implements AiProvider {
     private readonly detectBeats: boolean,
     /** Also read the timeline in the cut turn, so its note carries a read payload. */
     private readonly readFirst = false,
+    /** Declare that every interior cut is meant to sit exactly on an onset. */
+    private readonly hardSync = false,
   ) {}
   public async complete(_request: AiCompletionRequest): Promise<AiResponse> {
     this.index += 1;
     if (this.index === 1 && this.detectBeats) {
       return {
         text: '',
-        toolCalls: [{ id: 'b1', name: 'detect_beats', arguments: { assetId: 'asset_music' } }],
+        toolCalls: [
+          {
+            id: 'b1',
+            name: 'detect_beats',
+            arguments: {
+              assetId: 'asset_music',
+              ...(this.hardSync ? { hardSync: true } : {}),
+            },
+          },
+        ],
       };
     }
     if (this.index <= 2) {
@@ -131,10 +142,12 @@ async function runMontage(
   cuts: readonly { start: number; end: number }[],
   detectBeats: boolean,
   readFirst = false,
+  hardSync = false,
 ): Promise<{ events: AiEvent[]; notes: string[] }> {
-  const orchestrator = new Orchestrator(new MontageProvider(cuts, detectBeats, readFirst), {
-    executor: beatExecutor,
-  });
+  const orchestrator = new Orchestrator(
+    new MontageProvider(cuts, detectBeats, readFirst, hardSync),
+    { executor: beatExecutor },
+  );
   const input: ContextInput = {
     project: montageProject(),
     userPrompt: 'cut this to the music',
@@ -201,7 +214,7 @@ describe('beat-grid enforcement in a real agent run', () => {
     }
   });
 
-  it('rejects cuts too far off the grid, naming the nearest real onset', async () => {
+  it('rejects cuts too far off the grid when the run DECLARED hard sync', async () => {
     // Squarely between two onsets — far outside the 80ms snap window.
     const wayOff = 1 + 8 * FRAME;
     expect(offGridBy(wayOff)).toBeGreaterThan(0.08);
@@ -210,6 +223,8 @@ describe('beat-grid enforcement in a real agent run', () => {
         { start: 0, end: wayOff },
         { start: wayOff, end: 2 },
       ],
+      true,
+      false,
       true,
     );
     const rejection = notes.find((note) => note.includes('beat grid'));
@@ -233,6 +248,7 @@ describe('beat-grid enforcement in a real agent run', () => {
       ],
       true,
       true,
+      true,
     );
     const texts = events.flatMap((event) =>
       typeof (event as { text?: unknown }).text === 'string'
@@ -247,6 +263,31 @@ describe('beat-grid enforcement in a real agent run', () => {
     // The read that shared the turn contributed nothing to it.
     expect(reported).not.toContain('get_timeline');
     expect(reported).not.toContain('sequence duration');
+  });
+
+  it('applies an off-grid cut and REPORTS the miss when hard sync was not declared', async () => {
+    // The captured run: a brief asking for cuts on visual motion peaks — "so the edit is
+    // ready to beat-sync once music is dropped in" — had four cuts rejected for 124ms and
+    // 215ms misses, and the rhythm it delivered was the grid's rather than the one the brief
+    // described. Quantising every cut is a style, not a correctness property.
+    const wayOff = 1 + 8 * FRAME;
+    const { events, notes } = await runMontage(
+      [
+        { start: 0, end: wayOff },
+        { start: wayOff, end: 2 },
+      ],
+      true,
+    );
+    // The cut LANDED, off-grid and all.
+    const boundaries = appliedBoundaries(events);
+    expect(boundaries.some((time) => Math.abs(time - wayOff) < 1e-6)).toBe(true);
+    // And the measurement reached the run's own account of itself.
+    const measured = notes.find((note) => note.includes('do not sit on a detected onset'));
+    expect(measured).toBeDefined();
+    expect(measured).toContain('nearest detected onset');
+    expect(measured).toContain('hardSync');
+    // Not a rejection: nothing tells the editor a change failed to validate.
+    expect(notes.some((note) => note.includes('rejected by the beat grid'))).toBe(false);
   });
 
   it('does nothing at all when the run never gathered beat evidence', async () => {

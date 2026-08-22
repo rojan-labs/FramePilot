@@ -69,11 +69,18 @@ describe('alignBeatBackedBoundaries', () => {
 
   it('still checks a head/tail that lands inside the grid range (a lone clip cannot opt out)', () => {
     const operations = [addClip({ start: 0.9, end: 2.0, sourceStart: 0, sourceEnd: 1.1 })];
-    const result = alignBeatBackedBoundaries(makeProject(), operations, GRID, undefined);
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error).toContain('0.900');
-    expect(result.error).toContain('1.250');
+    // Under a declared hard sync it is rejected, naming the legal onset…
+    const strict = alignBeatBackedBoundaries(makeProject(), operations, GRID, undefined, true);
+    expect(strict.ok).toBe(false);
+    if (strict.ok) return;
+    expect(strict.error).toContain('0.900');
+    expect(strict.error).toContain('1.250');
+    // …and without one it still gets CHECKED, but the cut stands and the miss is reported.
+    const lenient = alignBeatBackedBoundaries(makeProject(), operations, GRID, undefined);
+    expect(lenient).toMatchObject({ ok: true });
+    if (!lenient.ok) return;
+    expect(lenient.offGrid).toContain('0.900');
+    expect(lenient.offGrid).toContain('1.250');
   });
 
   it('snaps a near-miss onto the real onset and keeps the source window consistent', () => {
@@ -94,27 +101,53 @@ describe('alignBeatBackedBoundaries', () => {
     expect(second!.sourceEnd).toBeCloseTo(second!.sourceStart + (second!.end - second!.start), 10);
   });
 
-  it('rejects a boundary with no onset nearby and names the nearest legal onset', () => {
+  it('rejects a far-off boundary ONLY when the run declared hard sync', () => {
+    const operations = [
+      addClip({ start: 0.5, end: 1.25, sourceStart: 0, sourceEnd: 0.75 }),
+      addClip({ start: 1.25, end: 2.6, sourceStart: 2, sourceEnd: 3.35 }),
+      addClip({ start: 2.6, end: 4.4, sourceStart: 5, sourceEnd: 6.8 }),
+    ];
+    const strict = alignBeatBackedBoundaries(makeProject(), operations, GRID, undefined, true);
+    expect(strict.ok).toBe(false);
+    if (strict.ok) return;
+    expect(strict.error).toContain('2.600');
+    expect(strict.error).toContain('nearest detected onset 3.100');
+    expect(strict.error).toContain('hard sync');
+  });
+
+  it('reports a far-off boundary and leaves the cut alone by default', () => {
+    // The captured run: a brief asking for cuts on visual motion peaks — "ready to beat-sync
+    // once music is dropped in" — had four cuts rejected for 124ms and 215ms misses, and the
+    // delivered rhythm became the grid's. Quantising is a style, not a correctness property.
     const operations = [
       addClip({ start: 0.5, end: 1.25, sourceStart: 0, sourceEnd: 0.75 }),
       addClip({ start: 1.25, end: 2.6, sourceStart: 2, sourceEnd: 3.35 }),
       addClip({ start: 2.6, end: 4.4, sourceStart: 5, sourceEnd: 6.8 }),
     ];
     const result = alignBeatBackedBoundaries(makeProject(), operations, GRID, undefined);
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error).toContain('2.600');
-    expect(result.error).toContain('nearest detected onset 3.100');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The cut is untouched — 2.6 is still 2.6 …
+    expect(result.operations[1]).toMatchObject({ end: 2.6 });
+    // … and the measurement the model needs is in the report, nearest onset named.
+    expect(result.offGrid).toContain('2.600');
+    expect(result.offGrid).toContain('nearest detected onset 3.100');
+    expect(result.offGrid).toContain('hardSync');
   });
 
   it('holds split_clip and trim_clip cut points to the grid too', () => {
     const split: AnyOperation = { type: 'split_clip', clipId: 'clip_a', at: 2.6 };
-    const result = alignBeatBackedBoundaries(makeProject(), [split], GRID, undefined);
+    const result = alignBeatBackedBoundaries(makeProject(), [split], GRID, undefined, true);
     expect(result.ok).toBe(false);
 
     const trim: AnyOperation = { type: 'trim_clip', clipId: 'clip_a', start: 0.5, end: 2.6 };
-    const trimmed = alignBeatBackedBoundaries(makeProject(), [trim], GRID, undefined);
+    const trimmed = alignBeatBackedBoundaries(makeProject(), [trim], GRID, undefined, true);
     expect(trimmed.ok).toBe(false);
+
+    // Both are still MEASURED without a declaration — they simply are not refused.
+    expect(alignBeatBackedBoundaries(makeProject(), [split], GRID, undefined)).toMatchObject({
+      ok: true,
+    });
   });
 
   it('snaps a near-miss split point too (a cut point has no source window to keep)', () => {
@@ -160,7 +193,7 @@ describe('alignBeatBackedBoundaries', () => {
       expect(result.ok).toBe(true);
 
       const offGrid = [operations[0]!, addClip({ start: 11.0, end: 13.9, sourceEnd: 2.9 })];
-      const rejected = alignBeatBackedBoundaries(makeProject(), offGrid, undefined, beats);
+      const rejected = alignBeatBackedBoundaries(makeProject(), offGrid, undefined, beats, true);
       expect(rejected.ok).toBe(false);
     });
 
@@ -294,10 +327,15 @@ describe('alignBeatBackedBoundaries', () => {
         sourceEnd: index + 0.37,
       }),
     );
-    const result = alignBeatBackedBoundaries(makeProject(), operations, GRID, undefined);
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error).toMatch(/plus \d+ more/);
+    // The summary bound applies to both the rejection and the report.
+    const strict = alignBeatBackedBoundaries(makeProject(), operations, GRID, undefined, true);
+    expect(strict.ok).toBe(false);
+    if (strict.ok) return;
+    expect(strict.error).toMatch(/plus \d+ more/);
+    const reported = alignBeatBackedBoundaries(makeProject(), operations, GRID, undefined);
+    expect(reported.ok).toBe(true);
+    if (!reported.ok) return;
+    expect(reported.offGrid).toMatch(/plus \d+ more/);
   });
 
   it('ignores onsets that fall outside the proposed placement’s trimmed source window', () => {
@@ -330,6 +368,7 @@ describe('alignBeatBackedBoundaries', () => {
       [bed, ...usesUnmappedOnset],
       undefined,
       beats,
+      true,
     );
     expect(rejected.ok).toBe(false);
   });

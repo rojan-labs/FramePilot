@@ -772,12 +772,20 @@ function alignTurnToBeatGrid(
   working: Project,
   turnOps: AnyOperation[],
   rawBeats: unknown,
-): { ok: true; operations: AnyOperation[] } | { ok: false; error: string } {
+  hardSync = false,
+):
+  | { ok: true; operations: AnyOperation[]; offGrid?: string }
+  | { ok: false; error: string } {
   if (rawBeats === undefined) return { ok: true, operations: turnOps };
 
   const projectGrid = beatGridFor(working, rawBeats)?.times;
-  const aligned = alignBeatBackedBoundaries(working, turnOps, projectGrid, rawBeats);
-  return aligned.ok ? { ok: true, operations: [...aligned.operations] } : aligned;
+  const aligned = alignBeatBackedBoundaries(working, turnOps, projectGrid, rawBeats, hardSync);
+  if (!aligned.ok) return aligned;
+  return {
+    ok: true,
+    operations: [...aligned.operations],
+    ...(aligned.offGrid ? { offGrid: aligned.offGrid } : {}),
+  };
 }
 
 /**
@@ -1031,7 +1039,7 @@ interface HostCallContext {
    * NOT kept in the evidence store (only reads and `measure_color` are), so this is the one
    * place the payload survives the turn that fetched it.
    */
-  readonly beatEvidence?: { current?: unknown };
+  readonly beatEvidence?: { current?: unknown; hardSync?: boolean };
   /**
    * The run's analysis budget (plan B5.4). Threaded into the host executor so a
    * capped call (frames extracted, ffmpeg seconds, transcription minutes) that
@@ -2518,6 +2526,12 @@ export class Orchestrator {
       // sensitivity replaces it: the grid the model is cutting to is the one it last saw.
       if (call.name === 'detect_beats' && outcome.status === 'completed' && host.beatEvidence) {
         host.beatEvidence.current = outcome.data;
+        // The run's own editorial declaration, not an analysis parameter: whether it intends
+        // every interior cut to sit exactly on an onset. Sticky for the run once set, because
+        // a later re-analysis at a different sensitivity does not change the intent.
+        if ((call.arguments as { hardSync?: unknown }).hardSync === true) {
+          host.beatEvidence.hardSync = true;
+        }
       }
       const colorEvidence =
         call.name === 'measure_color' &&
@@ -2845,6 +2859,8 @@ export class Orchestrator {
     appliedPatchIds: Set<string>;
     /** This run's beat payload, so a repair is held to the grid like any other turn. */
     rawBeats?: unknown;
+    /** The run's hard-sync declaration, so a repair inherits the same policy. */
+    beatHardSync?: boolean;
     maxOpsPerTurn: number;
     /** The run's abort signal, so Stop cancels the repair `complete()` call too. */
     signal?: AbortSignal;
@@ -2961,6 +2977,7 @@ export class Orchestrator {
       working: args.working,
       appliedPatchIds: args.appliedPatchIds,
       rawBeats: args.rawBeats,
+      beatHardSync: args.beatHardSync === true,
     });
     const record: AgentStep = { ...step.record, note: `Repair pass: ${step.record.note}` };
     return step.applied
@@ -3015,7 +3032,7 @@ export class Orchestrator {
     // unchanged working copy is served from here, marked non-novel, so it never looks
     // like progress — and, unlike the memo it replaces, it serves the DATA back.
     const evidence = new EvidenceStore();
-    const beatEvidence: { current?: unknown } = {};
+    const beatEvidence: { current?: unknown; hardSync?: boolean } = {};
     // ADR 0057: per-run skill ledger — see the streaming loop's identical comment.
     const loadedSkills = new Map<string, string>();
     // Per-run analysis budget (B5.4): caps frames/ffmpeg-seconds/transcription across
@@ -3140,6 +3157,7 @@ export class Orchestrator {
         working,
         appliedPatchIds,
         rawBeats: beatEvidence.current,
+        beatHardSync: beatEvidence.hardSync === true,
       });
       steps.push(step.record);
       log.push(`Step ${index}: ${rationale ? `${rationale} — ` : ''}${step.record.note}`);
@@ -3266,6 +3284,12 @@ export class Orchestrator {
      * exact wiring point).
      */
     rawBeats?: unknown;
+    /**
+     * Whether the run DECLARED hard sync (`detect_beats({ hardSync: true })`). Without it an
+     * off-grid interior cut is reported to the model, not rejected — see
+     * `kernel/beat-grid/beat-alignment.ts`.
+     */
+    beatHardSync?: boolean;
   }): {
     record: AgentStep;
     applied: boolean;
@@ -3281,6 +3305,11 @@ export class Orchestrator {
      * line is built from this field instead.
      */
     rejection?: string;
+    /**
+     * Interior cuts left deliberately off the beat grid, as a measurement to report. Only
+     * set when the run did NOT declare hard sync — see `kernel/beat-grid/beat-alignment.ts`.
+     */
+    offGrid?: string;
     working: Project;
     edit?: EditResult;
   } {
@@ -3310,7 +3339,15 @@ export class Orchestrator {
     // The module handles its own exemptions (audio/caption boundaries, the sequence's
     // outer edges) and snaps interior near-misses rather than rejecting them, so a cut two
     // frames off a real onset becomes frame-accurate sync instead of a wasted repair turn.
-    const beatAligned = alignTurnToBeatGrid(working, args.turnOps, args.rawBeats);
+    // A cut too far to snap is REPORTED unless the run declared hard sync: quantising every
+    // cut is a style, not a correctness property, and holding a run to it uninvited rewrote
+    // the rhythm a captured brief had asked for in so many words.
+    const beatAligned = alignTurnToBeatGrid(
+      working,
+      args.turnOps,
+      args.rawBeats,
+      args.beatHardSync === true,
+    );
     if (!beatAligned.ok) {
       return {
         record: {
@@ -3326,6 +3363,8 @@ export class Orchestrator {
       };
     }
     const turnOps = beatAligned.operations;
+    // The measurement rides with the turn's note, which is what the model reads next turn.
+    const beatNote = beatAligned.offGrid ? `${baseNote}; ${beatAligned.offGrid}` : baseNote;
 
     const edit = assembleEdit(working, turnOps, rationale || 'Agent step', 'agent');
     /* v8 ignore start -- defense in depth: every op in `turnOps` already passed its own
@@ -3370,7 +3409,7 @@ export class Orchestrator {
           toolCalls,
           patch: edit.patch,
           applied: false,
-          note: `${baseNote}; already in place — this exact change is already on the timeline`,
+          note: `${beatNote}; already in place — this exact change is already on the timeline`,
         },
         applied: false,
         satisfied: true,
@@ -3383,8 +3422,9 @@ export class Orchestrator {
     // manage_assets) and edit the timeline in the same run.
     const nextWorking: Project = applyProjectPatch(working, edit.patch);
     return {
-      record: { index, rationale, toolCalls, patch: edit.patch, applied: true, note: baseNote },
+      record: { index, rationale, toolCalls, patch: edit.patch, applied: true, note: beatNote },
       applied: true,
+      ...(beatAligned.offGrid ? { offGrid: beatAligned.offGrid } : {}),
       working: nextWorking,
       edit,
     };
@@ -3683,7 +3723,7 @@ export class Orchestrator {
      * that never edit — the question route can call `detect_beats` to answer a question,
      * but has no turn to hold to a grid.
      */
-    beatEvidence?: { current?: unknown },
+    beatEvidence?: { current?: unknown; hardSync?: boolean },
     /** Durable note sink for what the editor tells the run (see `rememberDecision`). */
     rememberDecision?: (note: { readonly title: string; readonly body: string }) => void,
   ): AsyncGenerator<
@@ -4954,7 +4994,7 @@ export class Orchestrator {
     // unchanged working copy is served from here and marked non-novel, so re-reading is
     // never mistaken for progress. Cleared inside `runAgentCall` when an edit lands.
     const evidence = new EvidenceStore();
-    const beatEvidence: { current?: unknown } = {};
+    const beatEvidence: { current?: unknown; hardSync?: boolean } = {};
     // ADR 0057: per-run skill ledger — shared across the run's turns AND its repair
     // pass, so a playbook is fetched once and stays pinned in context for the rest of
     // the run (see `HostCallContext.loadedSkills` / `agentSkillsBlock`).
@@ -4990,6 +5030,14 @@ export class Orchestrator {
      * from a footage map it had never asked for.
      */
     let sawContentEvidence = false;
+    /**
+     * The last applying turn's off-grid measurement, for the completion account.
+     *
+     * A cut a few frames off the beat is ordinary editing, not a failure — but the editor
+     * should still be told, in the same breath as the edits themselves, rather than finding
+     * out by watching it.
+     */
+    let offGridNote: string | undefined;
     /**
      * Frames the LAST turn rendered, waiting to be shown to the model on the next one.
      *
@@ -5478,7 +5526,9 @@ export class Orchestrator {
           working,
           appliedPatchIds,
           rawBeats: beatEvidence.current,
+          beatHardSync: beatEvidence.hardSync === true,
         });
+        if (applied.offGrid) offGridNote = applied.offGrid;
         log.push(`Step ${index}: ${applied.record.note}`);
         const describedActions: DescribedAction[] = [];
         if (applied.applied) {
@@ -5547,6 +5597,7 @@ export class Orchestrator {
             stepIndex: state.planSteps.length + 1,
             appliedPatchIds,
             rawBeats: beatEvidence.current,
+            beatHardSync: beatEvidence.hardSync === true,
             maxOpsPerTurn,
             effectRuntime,
             loadedSkills,
@@ -5623,6 +5674,7 @@ export class Orchestrator {
               rejectedOpCount: effect.rejectedOpCount,
               rejectionReasons: effect.rejectionReasons,
               contentEvidence: sawContentEvidence,
+              ...(offGridNote ? { offGrid: offGridNote } : {}),
             }),
           );
         }
@@ -5698,6 +5750,11 @@ export function agentCompletionReport(args: {
    * do not track it are unchanged.
    */
   contentEvidence?: boolean;
+  /**
+   * Interior cuts the run left deliberately off the detected beat grid, as measured. Present
+   * only when the run analyzed beats and did not declare hard sync.
+   */
+  offGrid?: string;
 }): string {
   const maxLines = 10;
   // Collapse lines that render identically. Eight successive restyles of one caption track
@@ -5730,7 +5787,9 @@ export function agentCompletionReport(args: {
     args.contentEvidence === false && placedShots >= UNEVIDENCED_SHOT_CAVEAT_THRESHOLD
       ? `\n\nHeads up: these ${String(placedShots)} shots were chosen from timings alone — nothing was read about what is actually in the footage. Ask for a footage map, or for specific moments, if you want the selection grounded in content.`
       : '';
-  return `${head}\n\n${lines.join('\n')}${skipped}${unevidenced}`;
+  // Reported, never apologised for: the cut stands, and the editor gets the number.
+  const offGrid = args.offGrid === undefined ? '' : `\n\n${args.offGrid}`;
+  return `${head}\n\n${lines.join('\n')}${skipped}${unevidenced}${offGrid}`;
 }
 
 /** Render a {@link CritiqueReport} as a compact human-readable block. */

@@ -645,12 +645,17 @@ class DetectBeatsArgs(BaseModel):
 
     ``asset_id`` selects which media to analyse; omit it to analyse the first
     audio-bearing asset. ``sensitivity`` tunes the onset peak picker (lower
-    finds more, softer beats). Mirrors the TS ``detectBeatsSchema``.
+    finds more, softer beats). ``hard_sync`` is an EDITORIAL declaration rather than an
+    analysis parameter — the analyzer ignores it entirely; it tells the calling runtime that
+    every interior picture cut is meant to land exactly on an onset, and is what decides
+    whether an off-grid cut is refused or merely reported (see the TS
+    ``kernel/beat-grid/beat-alignment.ts``). Mirrors the TS ``detectBeatsSchema``.
     """
 
     model_config = _STRICT
     asset_id: FilterStr = Field(default=None, alias="assetId")
     sensitivity: float | None = Field(default=None, ge=0.5, le=4.0)
+    hard_sync: bool | None = Field(default=None, alias="hardSync")
 
 
 class SearchMediaArgs(BaseModel):

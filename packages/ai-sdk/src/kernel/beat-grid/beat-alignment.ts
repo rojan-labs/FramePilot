@@ -10,9 +10,19 @@
  * `HostCallContext.beatEvidence`), never held on the Orchestrator, which serves concurrent
  * runs.
  *
- * There is deliberately no beat-sync mode, flag, or request classifier: the MODEL decides
- * that the music matters by choosing to analyze it, and the RUNTIME then guarantees the
- * frame-accuracy that decision implies. A run that never asks about the music is untouched.
+ * There is deliberately no beat-sync mode and no request classifier. The MODEL decides that
+ * the music matters by choosing to analyze it, and — separately — decides whether it is
+ * cutting HARD to the grid by declaring `hardSync` on `detect_beats`. A run that never asks
+ * about the music is untouched.
+ *
+ * That second decision used to be made here, and it was the wrong place for it. Quantising
+ * every interior cut is one legitimate style among several; "the model analyzed the music"
+ * does not imply "the model wants every cut on an onset". In a captured run the editor's brief
+ * asked for cuts on visual motion peaks — "so the edit is ready to beat-sync once music is
+ * dropped in" — and four cuts were rejected for sitting 124ms and 215ms from an onset, after
+ * which the delivered rhythm was the grid's rather than the one the brief described. The
+ * runtime's job is to make the measurement unmissable and the accuracy free; whether a
+ * few-frame offset matters *here* is editorial, and only the agent can answer it.
  *
  * Between the 9.5 Phase-1 convergence (which retired its only caller, the planned-edit graph
  * driver) and ADR 0132, no path enforced this rule at all. Note it was never a hard invariant
@@ -59,8 +69,9 @@
  *   sync instead of a wasted repair turn. Snapping is a pure function of the time value, so
  *   two clips sharing a boundary always land on the same onset and the sequence stays
  *   continuous.
- * - A boundary with no onset inside that window is rejected with the **nearest legal onset**
- *   named, which is what a correction turn actually needs.
+ * - A boundary with no onset inside that window is **reported with the nearest legal onset
+ *   named** and left where the agent put it — unless the run declared `hardSync`, in which
+ *   case it is rejected, which is what a correction turn then needs.
  * - A proposal that declares **no picture boundary at all** — crops, transforms, keyframes,
  *   transitions, text, gain — is outside the rule and passes untouched, whatever the state of
  *   the grid. Relevance is decided before groundedness, or the ungrounded rejection below
@@ -97,6 +108,12 @@ export type BeatAlignmentResult =
       readonly operations: readonly AnyOperation[];
       /** How many boundaries were snapped — for tracing, never for user-facing claims. */
       readonly snapped: number;
+      /**
+       * Interior cuts that are DELIBERATELY off the grid — too far to snap, and allowed to
+       * stand because the run never declared hard sync. Reported to the model (and through
+       * it to the editor) as a measurement; absent when everything is on-grid.
+       */
+      readonly offGrid?: string;
     }
   | { readonly ok: false; readonly error: string };
 
@@ -277,6 +294,18 @@ export function alignBeatBackedBoundaries(
   operations: readonly AnyOperation[],
   projectGrid: readonly number[] | undefined,
   rawBeats: unknown,
+  /**
+   * Did the run DECLARE that it is cutting hard to the grid (`detect_beats({ hardSync: true })`)?
+   *
+   * This is the difference between a guarantee and a policy. Quantising every interior cut is
+   * one legitimate style among several, and a run that never asked for it was being held to it
+   * anyway: in a captured run the editor's brief asked for cuts on visual motion peaks — "so
+   * the edit is ready to beat-sync once music is dropped in" — and four cuts were rejected for
+   * being 124ms and 215ms from an audio onset, after which the delivered rhythm was the grid's
+   * rather than the one the brief described. The runtime's job is to make the measurement
+   * unmissable; only the agent knows whether it matters here.
+   */
+  hardSync = false,
 ): BeatAlignmentResult {
   // WHAT THIS PROPOSAL EVEN PROPOSES, FIRST. The grid governs picture CUTS and nothing
   // else, so a proposal that declares no cut has nothing for the rule to hold it to — and
@@ -336,25 +365,39 @@ export function alignBeatBackedBoundaries(
     snapped += 1;
   }
 
+  let offGrid: string | undefined;
   if (misses.length > 0) {
     const shown = misses
       .slice(0, REPORTED_MISS_LIMIT)
       .map((miss) => `${readable(miss.time)} (nearest detected onset ${readable(miss.nearest)})`);
     const omitted = misses.length - shown.length;
-    log.warn('alignBeatBackedBoundaries → rejected off-grid boundaries', {
+    const list = `${shown.join('; ')}${omitted > 0 ? `; plus ${String(omitted)} more` : ''}`;
+    if (hardSync) {
+      log.warn('alignBeatBackedBoundaries → rejected off-grid boundaries (hard sync declared)', {
+        misses: misses.length,
+        gridSize: grid.length,
+      });
+      return {
+        ok: false,
+        error:
+          'you declared hard sync, so every interior picture cut must land on a detected ' +
+          `onset. Off-grid: ${list}. Replace each with the detected onset time exactly as ` +
+          'supplied — do not round or interpolate. Only the sequence\'s own opening (before ' +
+          'the first onset) and its final end (after the last onset) may sit off-grid; audio ' +
+          'and caption boundaries are never checked. Drop hardSync if the picture should ' +
+          'lead instead.',
+      };
+    }
+    // No declaration: the cut stands, and the measurement goes to the model. A cut that is
+    // deliberately a few frames off an onset is ordinary editing, not an error.
+    log.action('alignBeatBackedBoundaries → off-grid cuts left as proposed', {
       misses: misses.length,
       gridSize: grid.length,
     });
-    return {
-      ok: false,
-      error:
-        'every interior picture cut in a beat-backed montage must land on a detected onset. ' +
-        `Off-grid: ${shown.join('; ')}${omitted > 0 ? `; plus ${String(omitted)} more` : ''}. ` +
-        'Replace each with the detected onset time exactly as supplied — do not round or ' +
-        "interpolate. Only the sequence's own opening (before the first onset) and its " +
-        'final end (after the last onset) may sit off-grid; audio and caption boundaries ' +
-        'are never checked.',
-    };
+    offGrid =
+      `${String(misses.length)} interior cut(s) do not sit on a detected onset: ${list}. ` +
+      'Left as you placed them — set hardSync on detect_beats if you want them held to the ' +
+      'grid instead.';
   }
 
   // Two onsets can sit closer together than one frame, and a snap can pull a short span
@@ -384,5 +427,5 @@ export function alignBeatBackedBoundaries(
       boundaries: boundaries.length,
     });
   }
-  return { ok: true, operations: next, snapped };
+  return { ok: true, operations: next, snapped, ...(offGrid ? { offGrid } : {}) };
 }
