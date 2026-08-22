@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>FramePilot Tool Analytics</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --border: #2a2f3a;
+    --text: #e6e8ec;
+    --muted: #8b92a3;
+    --accent: #e5670a;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --fail: #f85149;
+    --cancel: #6e7681;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  h1 span { color: var(--muted); font-weight: 400; }
+  #drop {
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 12px;
+  }
+  #drop:hover { border-color: var(--accent); color: var(--text); }
+  #meta { color: var(--muted); font-size: 12px; margin-left: auto; }
+  main { padding: 20px; display: none; }
+  main.ready { display: block; }
+  #empty { padding: 60px 20px; text-align: center; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 20px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+  .stat .n { font-size: 22px; font-weight: 700; }
+  .stat .l { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .fail { color: var(--fail); } .cancel { color: var(--cancel); }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
+  section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 6px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; cursor: pointer; user-select: none; }
+  th:hover { color: var(--text); }
+  tbody tr:hover { background: rgba(255,255,255,0.03); }
+  tbody tr:last-child td { border-bottom: none; }
+  .bar-wrap { display: flex; align-items: center; gap: 8px; }
+  .bar { height: 8px; background: var(--accent); border-radius: 4px; min-width: 2px; }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .badge.completed { background: rgba(63,185,80,0.15); color: var(--ok); }
+  .badge.warning { background: rgba(210,153,34,0.15); color: var(--warn); }
+  .badge.failed { background: rgba(248,81,73,0.15); color: var(--fail); }
+  .badge.cancelled { background: rgba(110,118,129,0.15); color: var(--cancel); }
+  #log-table { max-height: 420px; overflow: auto; }
+  #log-table table { table-layout: fixed; }
+  #log-table td.summary, #log-table td.args, #log-table td.error { white-space: normal; word-break: break-word; }
+  #log-table td.error { color: var(--fail); }
+  input[type="text"] {
+    background: #0f1115; border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 5px 10px; font-size: 12px; width: 220px;
+  }
+  .toolbar { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .toolbar .muted { color: var(--muted); font-size: 12px; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  code.tool { color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>FramePilot Tool Analytics <span>local &middot; reads a run's JSONL, nothing leaves the browser</span></h1>
+  <label id="drop" for="file-input">Open framepilot.runs.jsonl&hellip;</label>
+  <input id="file-input" type="file" accept=".jsonl,.json,.log,.txt" style="display:none" />
+  <span id="meta"></span>
+</header>
+
+<div id="empty">
+  Drop a <code class="mono">framepilot.runs.jsonl</code> file here, or click "Open&hellip;" above.<br />
+  <span style="font-size:12px">Generated when the app runs with <code class="mono">FRAMEPILOT_RUNS_LOG=1</code> set (see <code class="mono">.env.example</code>).</span>
+</div>
+
+<main id="main">
+  <div class="grid" id="stats"></div>
+
+  <section>
+    <div class="toolbar">
+      <h2 style="border:none;padding:0;margin:0">By tool</h2>
+      <span class="muted">click a column header to sort</span>
+      <input id="filter" type="text" placeholder="filter tool name&hellip;" style="margin-left:auto" />
+    </div>
+    <table id="by-tool">
+      <thead>
+        <tr>
+          <th data-key="tool">Tool</th>
+          <th data-key="kind">Kind</th>
+          <th data-key="count">Hits</th>
+          <th data-key="completed">Ok</th>
+          <th data-key="warning">Warn</th>
+          <th data-key="failed">Fail</th>
+          <th data-key="cancelled">Cancel</th>
+          <th data-key="fromCache">Cached</th>
+          <th data-key="avgMs">Avg ms</th>
+          <th data-key="maxMs">Max ms</th>
+          <th>Share</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Recent calls (debug context)</h2>
+    <div id="log-table">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:150px">Time</th>
+            <th style="width:160px">Tool</th>
+            <th style="width:70px">Status</th>
+            <th style="width:70px">ms</th>
+            <th class="summary">Summary</th>
+            <th class="args" style="width:220px">Args</th>
+            <th class="error">Error</th>
+          </tr>
+        </thead>
+        <tbody id="log-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  const empty = document.getElementById('empty');
+  const main = document.getElementById('main');
+  const meta = document.getElementById('meta');
+  const fileInput = document.getElementById('file-input');
+  const drop = document.getElementById('drop');
+
+  let rows = [];
+  let sortKey = 'count';
+  let sortDir = -1;
+
+  function parseJsonl(text) {
+    const out = [];
+    const lines = text.split('\n');
+    for (const line of lines) {
+      const t = line.trim();
+      if (!t) continue;
+      try {
+        out.push(JSON.parse(t));
+      } catch (e) {
+        // tolerate a truncated/partial last line (e.g. app was killed mid-write)
+      }
+    }
+    return out;
+  }
+
+  function load(text, name) {
+    rows = parseJsonl(text).filter((r) => r && typeof r.tool === 'string');
+    meta.textContent = name ? `${name} — ${rows.length} calls` : `${rows.length} calls`;
+    empty.style.display = rows.length ? 'none' : 'block';
+    main.classList.toggle('ready', rows.length > 0);
+    render();
+  }
+
+  fileInput.addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    f.text().then((text) => load(text, f.name));
+  });
+
+  ['dragover'].forEach((evt) =>
+    document.body.addEventListener(evt, (e) => e.preventDefault())
+  );
+  document.body.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f) return;
+    f.text().then((text) => load(text, f.name));
+  });
+
+  function fmtMs(n) {
+    if (n === undefined || n === null || Number.isNaN(n)) return '–';
+    return n >= 1000 ? (n / 1000).toFixed(1) + 's' : Math.round(n) + 'ms';
+  }
+
+  function renderStats() {
+    const total = rows.length;
+    const byStatus = { completed: 0, warning: 0, failed: 0, cancelled: 0 };
+    let cached = 0;
+    for (const r of rows) {
+      if (byStatus[r.status] !== undefined) byStatus[r.status]++;
+      if (r.fromCache) cached++;
+    }
+    const uniqueTools = new Set(rows.map((r) => r.tool)).size;
+    const stats = [
+      { n: total, l: 'Total calls' },
+      { n: uniqueTools, l: 'Distinct tools' },
+      { n: byStatus.completed, l: 'Completed', c: 'ok' },
+      { n: byStatus.warning, l: 'Warning', c: 'warn' },
+      { n: byStatus.failed, l: 'Failed', c: 'fail' },
+      { n: byStatus.cancelled, l: 'Cancelled', c: 'cancel' },
+      { n: cached, l: 'Served from cache' },
+    ];
+    document.getElementById('stats').innerHTML = stats
+      .map(
+        (s) =>
+          `<div class="stat"><div class="n ${s.c || ''}">${s.n}</div><div class="l">${s.l}</div></div>`
+      )
+      .join('');
+  }
+
+  function aggregateByTool() {
+    const map = new Map();
+    for (const r of rows) {
+      let a = map.get(r.tool);
+      if (!a) {
+        a = {
+          tool: r.tool,
+          kind: r.kind || '–',
+          count: 0,
+          completed: 0,
+          warning: 0,
+          failed: 0,
+          cancelled: 0,
+          fromCache: 0,
+          totalMs: 0,
+          maxMs: 0,
+        };
+        map.set(r.tool, a);
+      }
+      a.count++;
+      if (a[r.status] !== undefined) a[r.status]++;
+      if (r.fromCache) a.fromCache++;
+      const ms = typeof r.runtimeMs === 'number' ? r.runtimeMs : 0;
+      a.totalMs += ms;
+      if (ms > a.maxMs) a.maxMs = ms;
+    }
+    const list = Array.from(map.values()).map((a) => ({
+      ...a,
+      avgMs: a.count ? a.totalMs / a.count : 0,
+    }));
+    return list;
+  }
+
+  function renderByTool() {
+    const filterVal = document.getElementById('filter').value.trim().toLowerCase();
+    let list = aggregateByTool();
+    if (filterVal) list = list.filter((a) => a.tool.toLowerCase().includes(filterVal));
+    list.sort((a, b) => {
+      const av = a[sortKey],
+        bv = b[sortKey];
+      if (typeof av === 'string') return sortDir * av.localeCompare(bv);
+      return sortDir * ((av || 0) - (bv || 0));
+    });
+    const maxCount = Math.max(1, ...list.map((a) => a.count));
+    const tbody = document.querySelector('#by-tool tbody');
+    tbody.innerHTML = list
+      .map((a) => {
+        const pct = Math.round((a.count / maxCount) * 100);
+        return `<tr>
+          <td><code class="tool mono">${a.tool}</code></td>
+          <td>${a.kind}</td>
+          <td>${a.count}</td>
+          <td class="ok">${a.completed || ''}</td>
+          <td class="warn">${a.warning || ''}</td>
+          <td class="fail">${a.failed || ''}</td>
+          <td class="cancel">${a.cancelled || ''}</td>
+          <td>${a.fromCache || ''}</td>
+          <td>${fmtMs(a.avgMs)}</td>
+          <td>${fmtMs(a.maxMs)}</td>
+          <td><div class="bar-wrap"><div class="bar" style="width:${Math.max(pct, 2)}px"></div></div></td>
+        </tr>`;
+      })
+      .join('');
+  }
+
+  function renderLog() {
+    const recent = rows.slice(-500).reverse();
+    const tbody = document.getElementById('log-body');
+    tbody.innerHTML = recent
+      .map((r) => {
+        const badge = ['completed', 'warning', 'failed', 'cancelled'].includes(r.status)
+          ? r.status
+          : 'warning';
+        return `<tr>
+          <td class="mono">${r.ts ? new Date(r.ts).toLocaleTimeString() : '–'}</td>
+          <td><code class="tool mono">${r.tool}</code></td>
+          <td><span class="badge ${badge}">${r.status || '–'}</span></td>
+          <td>${fmtMs(r.runtimeMs)}</td>
+          <td class="summary">${escapeHtml(r.summary || '')}</td>
+          <td class="args mono">${escapeHtml(r.argsSummary || '')}</td>
+          <td class="error mono">${escapeHtml(r.error || '')}</td>
+        </tr>`;
+      })
+      .join('');
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function render() {
+    renderStats();
+    renderByTool();
+    renderLog();
+  }
+
+  document.querySelectorAll('#by-tool th[data-key]').forEach((th) => {
+    th.addEventListener('click', () => {
+      const key = th.getAttribute('data-key');
+      if (sortKey === key) sortDir *= -1;
+      else {
+        sortKey = key;
+        sortDir = -1;
+      }
+      renderByTool();
+    });
+  });
+
+  document.getElementById('filter').addEventListener('input', renderByTool);
+})();
+</script>
+
+</body>
+</html>
