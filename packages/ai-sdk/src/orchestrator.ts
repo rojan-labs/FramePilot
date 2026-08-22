@@ -182,6 +182,7 @@ import {
 import { type HostToolExecutor, type HostToolOutcome } from './tool-executor.js';
 import { withToolInputContract } from './tool-input-contract.js';
 import { concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
+import { recordToolRun } from './run-log.js';
 import { IMPLICIT_ONLY_TOOL_NAMES, QUESTION_ROUTE_PERMISSIONS, selectTools } from './tool-scope.js';
 import { type WipeGuardContext, detectTimelineWipe, wipeGuardFor } from './wipe-guard.js';
 
@@ -3898,6 +3899,24 @@ export class Orchestrator {
         turnOps.push(...outcome.ops);
         notes.push(outcome.note);
         turnStatuses.push(outcome.status);
+        // Dev-only hit counter (opt-in via FRAMEPILOT_RUNS_LOG) — see run-log.ts.
+        {
+          const tool = getTool(call.name);
+          const argsSummary = summarizeArgs(call.arguments);
+          recordToolRun({
+            ts: new Date().toISOString(),
+            tool: call.name,
+            ...(tool ? { kind: tool.kind, mutates: tool.mutates } : {}),
+            status: outcome.status,
+            runtimeMs,
+            summary: outcome.summary,
+            fromCache: outcome.fromCache === true,
+            ...(argsSummary ? { argsSummary } : {}),
+            ...(outcome.status === 'failed' && typeof outcome.data === 'string'
+              ? { error: outcome.data }
+              : {}),
+          });
+        }
         // Frames ride their own channel to the next request as real image content; the
         // action log gets only the FACTS about them (see `AgentCallOutcome.images`).
         if (outcome.images) frames.push(...outcome.images);
