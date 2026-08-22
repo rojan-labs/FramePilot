@@ -347,6 +347,43 @@ describe('streamChat tool use (E5.5) — the question route can look up and ask'
     expect(instruction?.content).toContain('Never write selectable choices as reply text');
   });
 
+  it('records what the editor answered as a durable note, not only in this run', async () => {
+    // The captured session: the model asked how the picture should sit in the vertical
+    // frame, the editor chose "Full-bleed vertical crop", and the very next run rebuilt the
+    // montage with no crop at all — the answer had lived only in the action log of the run
+    // that asked. The note goes to the project's decisions tier, which every later run reads
+    // back through its session-context digest.
+    const gate = createAskUserGate();
+    const remembered: { title: string; body: string }[] = [];
+    const provider = new ScriptedProvider([askResponse(), { text: 'Understood.' }]);
+    await drainAnswering(
+      new Orchestrator(provider).streamChat(input, opts(), {
+        controls: { askUser: gate, rememberDecision: (note) => remembered.push(note) },
+      }),
+      gate,
+      { kind: 'answered', answer: 'Full-bleed vertical crop' },
+    );
+    expect(remembered).toHaveLength(1);
+    expect(remembered[0]!.title).toContain(question.question);
+    expect(remembered[0]!.body).toContain('Full-bleed vertical crop');
+  });
+
+  it('records nothing when the editor dismisses the question', async () => {
+    // A dismissal is not a preference, and writing one down would teach later runs something
+    // the editor never said.
+    const gate = createAskUserGate();
+    const remembered: unknown[] = [];
+    const provider = new ScriptedProvider([askResponse(), { text: 'Stopped.' }]);
+    await drainAnswering(
+      new Orchestrator(provider).streamChat(input, opts(), {
+        controls: { askUser: gate, rememberDecision: (note) => remembered.push(note) },
+      }),
+      gate,
+      { kind: 'cancelled' },
+    );
+    expect(remembered).toEqual([]);
+  });
+
   it('surfaces ask_user to the editor, pauses, and answers from what they picked', async () => {
     const gate = createAskUserGate();
     const provider = new ScriptedProvider([

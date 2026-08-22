@@ -1023,6 +1023,11 @@ interface HostCallContext {
    */
   readonly askUser?: AskUser;
   /**
+   * Records a durable note for later runs (see `AgentRunControls.rememberDecision`).
+   * Optional and fire-and-forget: absent ⇒ nothing is recorded.
+   */
+  readonly rememberDecision?: (note: { readonly title: string; readonly body: string }) => void;
+  /**
    * The run's timeline wipe guard (agent continuity): a delete op that would
    * clear a whole multi-clip track of pre-run work is rejected with a
    * corrective note instead of applied — the deterministic backstop for the
@@ -2419,6 +2424,14 @@ export class Orchestrator {
       }
       /* v8 ignore stop */
       const answerText = answer.answer;
+      // The editor just told the run something only they knew. Record it durably, or the
+      // next run asks again — or worse, proceeds on its own guess: in the captured session
+      // the editor chose the vertical framing in answer to this very question, and the
+      // following run rebuilt the montage with no crop at all.
+      host.rememberDecision?.({
+        title: `The editor answered: ${parsed.question}`,
+        body: `They said: ${answerText}. Follow this on later turns unless they change it.`,
+      });
       return {
         ops: [],
         // The answer IS the result: it lands in the action log, so the next turn plans
@@ -3632,6 +3645,8 @@ export class Orchestrator {
      * but has no turn to hold to a grid.
      */
     beatEvidence?: { current?: unknown },
+    /** Durable note sink for what the editor tells the run (see `rememberDecision`). */
+    rememberDecision?: (note: { readonly title: string; readonly body: string }) => void,
   ): AsyncGenerator<
     AiEvent,
     {
@@ -3672,6 +3687,7 @@ export class Orchestrator {
       ...(beatEvidence ? { beatEvidence } : {}),
       loadedSkills,
       ...(askUser ? { askUser } : {}),
+      ...(rememberDecision ? { rememberDecision } : {}),
       // `analysisBudget` is created once up front (always truthy) and threaded
       // through every turn of this loop — see `HostCallContext.analysisBudget`.
       analysisBudget,
@@ -4142,6 +4158,12 @@ export class Orchestrator {
             options.signal,
             Date.now,
             analysisBudget,
+            // A question turn can `ask_user` too, and an answer given there is just as
+            // worth keeping as one given mid-edit.
+            undefined,
+            undefined,
+            undefined,
+            chatOptions.controls?.rememberDecision,
           );
           notes.push(...executed.notes);
           if (executed.turnStatuses.includes('cancelled')) {
@@ -5357,6 +5379,7 @@ export class Orchestrator {
               ? new Set(self.agentTools('action-recovery').map((tool) => tool.name))
               : undefined,
             beatEvidence,
+            controls.rememberDecision,
           );
         // Hand this turn's frames to the NEXT request (see `pendingFrames`).
         pendingFrames = frames;

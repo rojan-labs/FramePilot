@@ -55,6 +55,8 @@ import {
   withResilience,
   createSidecarExecutor,
   createVisualStatusDigester,
+  createMemoryRecorder,
+  createSessionContextDigester,
   summarizeFootageMap,
   createTemporalEvidenceAcquirer,
   createAsrProvider,
@@ -1804,6 +1806,28 @@ function registerIpcHandlers(): void {
           ...visualIndexCredentials(),
         }),
       ),
+    // What this project has LEARNED — the bin digest, the latest session note, and the
+    // corrections/decisions tiers (which is where an answer the editor gave the model
+    // lives). The digester has existed since the memory tiers landed and nothing called
+    // it, so every run started amnesiac about its own project: in a captured session the
+    // editor answered the model's own framing question, and the next run re-cut the
+    // montage with no crop at all because that answer died with the run that asked.
+    sessionContextFor: createSessionContextDigester({
+      baseUrl: engineBaseUrl,
+      fetchFn: electronFetch,
+    }),
+    // The other half of that memory: something has to WRITE what the editor tells a run,
+    // or the digest above has nothing new to report. Fire-and-forget, like the review
+    // decisions recorded on Accept/Reject.
+    rememberDecision: (projectId, note) => {
+      if (projectId === '') return;
+      void createMemoryRecorder({ baseUrl: engineBaseUrl, fetchFn: electronFetch })({
+        projectId,
+        tier: 'decisions',
+        title: note.title,
+        body: note.body,
+      });
+    },
   });
   ipcMain.handle(IpcChannels.aiStreamStart, async (event, req: unknown): Promise<string> => {
     requireLicense();

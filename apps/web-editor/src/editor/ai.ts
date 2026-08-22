@@ -440,7 +440,27 @@ export class BrowserAiSession implements AiSession {
     // A fresh gate per run: a question from a previous, abandoned run must never be
     // resolvable by a click in this one.
     this.askGate = createAskUserGate();
-    return { askUser: this.askGate, ...(input.controls ?? {}) };
+    const baseUrl = configuredEngineBaseUrl();
+    return {
+      askUser: this.askGate,
+      // What the editor tells the run has to outlive it, or the next run asks again — or
+      // proceeds on a guess instead, which is how a captured session lost the framing the
+      // editor had just chosen. No sidecar ⇒ no brain to write to, the same honest gap as
+      // proxies in the plain browser build.
+      ...(baseUrl
+        ? {
+            rememberDecision: (note: { readonly title: string; readonly body: string }) => {
+              void createMemoryRecorder({ baseUrl })({
+                projectId: input.project.id,
+                tier: 'decisions',
+                title: note.title,
+                body: note.body,
+              });
+            },
+          }
+        : {}),
+      ...(input.controls ?? {}),
+    };
   }
 
   /**
