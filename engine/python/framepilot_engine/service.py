@@ -1609,12 +1609,10 @@ def create_app(
         """
         root = settings.projects_root
         if root is None:
-            _log.warning(
-                "projects_root is not configured; accepting path %r without sandbox "
-                "containment. Set FRAMEPILOT_PROJECTS_ROOT to enforce the boundary.",
-                candidate,
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "projects_root is not configured; set FRAMEPILOT_PROJECTS_ROOT to enable path sandboxing.",
             )
-            return Path(candidate)
         try:
             return resolve_within(root, candidate)
         except PathTraversalError as exc:
