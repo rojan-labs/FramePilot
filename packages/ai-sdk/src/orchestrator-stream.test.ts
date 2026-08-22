@@ -1700,6 +1700,57 @@ describe('streamAgent', () => {
     expect(report).not.toMatch(/:\s*$/m);
   });
 
+  it('says so when a montage was chosen with nothing read about the footage', () => {
+    // The captured run picked nine source spans out of 575 seconds having read nothing about
+    // the content, and told the editor the choices came from "the footage map" — which it had
+    // never asked for. The edit still stands; the editor is told what it was based on.
+    const addClips = Array.from({ length: 4 }, (_, i) => ({
+      type: 'add_clip',
+      trackId: 'video_1',
+      assetId: 'a1',
+      start: i * 3,
+      end: i * 3 + 3,
+      sourceStart: i * 30,
+      sourceEnd: i * 30 + 3,
+    })) as unknown as AnyOperation[];
+    const blind = agentCompletionReport({
+      ops: addClips,
+      steps: 1,
+      rejectedOpCount: 0,
+      rejectionReasons: [],
+      contentEvidence: false,
+    });
+    expect(blind).toContain('chosen from timings alone');
+    expect(blind).toContain('footage map');
+
+    // Evidence gathered ⇒ no caveat.
+    expect(
+      agentCompletionReport({
+        ops: addClips,
+        steps: 1,
+        rejectedOpCount: 0,
+        rejectionReasons: [],
+        contentEvidence: true,
+      }),
+    ).not.toContain('chosen from timings alone');
+
+    // A small trim is not a montage — no caveat for one or two clips.
+    expect(
+      agentCompletionReport({
+        ops: addClips.slice(0, 2),
+        steps: 1,
+        rejectedOpCount: 0,
+        rejectionReasons: [],
+        contentEvidence: false,
+      }),
+    ).not.toContain('chosen from timings alone');
+
+    // A caller that does not track evidence at all is unchanged.
+    expect(
+      agentCompletionReport({ ops: addClips, steps: 1, rejectedOpCount: 0, rejectionReasons: [] }),
+    ).not.toContain('chosen from timings alone');
+  });
+
   it('uses singular wording for exactly one skipped change', () => {
     const report = agentCompletionReport({
       ops: [{ type: 'delete_range', trackId: 'video_1' } as unknown as AnyOperation],

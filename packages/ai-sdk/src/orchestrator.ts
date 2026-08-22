@@ -339,6 +339,42 @@ const QUESTION_ROUTE_TOOL_TURNS = 4;
 const MAX_PINNED_SKILLS = 8;
 
 /**
+ * Tools whose successful result is EVIDENCE ABOUT WHAT IS IN THE FOOTAGE.
+ *
+ * `detect_scenes` is deliberately absent: it reports where hard cuts are, and on an unedited
+ * single take it legitimately returns none — which says nothing about where the interesting
+ * moments sit (see `withEmptyAnalysisReading`). Metadata, timings and the timeline summary are
+ * not evidence about content either.
+ */
+const CONTENT_EVIDENCE_TOOLS: ReadonlySet<string> = new Set([
+  'map_footage',
+  'describe_footage',
+  'search_visual',
+  'get_frame',
+  'get_mapped_transcript',
+  'transcribe',
+]);
+
+/**
+ * How many new picture clips a run may place on the strength of no content evidence at all
+ * before its report says so.
+ *
+ * Not a block — the editor may well want the first thirty seconds, and refusing that would be
+ * worse than saying nothing. But a montage assembled from a long recording with nothing read
+ * about what is IN it is a guess, and in the captured run the guess was presented as though it
+ * were grounded ("the footage map gives chapters" — no footage map was ever read). Three is
+ * the point where "I trimmed this" becomes "I chose these moments".
+ */
+const UNEVIDENCED_SHOT_CAVEAT_THRESHOLD = 3;
+
+/** Did this call produce real evidence about what is in the footage? */
+function isContentEvidenceFact(fact: { readonly key: string; readonly status: string }): boolean {
+  if (fact.status !== 'completed') return false;
+  const name = fact.key.split(':')[0] ?? '';
+  return CONTENT_EVIDENCE_TOOLS.has(name);
+}
+
+/**
  * How many times one agent step re-issues its model call after an UNUSABLE response.
  *
  * Two failures land after a 200 and so cannot be retried by `ResilientProvider` (which
@@ -4943,6 +4979,15 @@ export class Orchestrator {
     let usageTokens = initialCost.tokens;
     let usageUsd = initialCost.usd;
     /**
+     * Did any call this run return real evidence about what is IN the footage?
+     *
+     * The completion report says so when a montage was assembled without any (see
+     * `UNEVIDENCED_SHOT_CAVEAT_THRESHOLD`) — the captured run chose nine source spans out of
+     * 575 seconds with nothing read about the content, and told the editor its choices came
+     * from a footage map it had never asked for.
+     */
+    let sawContentEvidence = false;
+    /**
      * Frames the LAST turn rendered, waiting to be shown to the model on the next one.
      *
      * WHY only the last turn's, and why they are cleared once sent: a frame is only
@@ -5381,6 +5426,7 @@ export class Orchestrator {
             beatEvidence,
             controls.rememberDecision,
           );
+        if (callFacts.some(isContentEvidenceFact)) sawContentEvidence = true;
         // Hand this turn's frames to the NEXT request (see `pendingFrames`).
         pendingFrames = frames;
         const anyToolFailed = turnStatuses.includes('failed');
@@ -5573,6 +5619,7 @@ export class Orchestrator {
               steps: Math.max(effect.appliedTurns, 1),
               rejectedOpCount: effect.rejectedOpCount,
               rejectionReasons: effect.rejectionReasons,
+              contentEvidence: sawContentEvidence,
             }),
           );
         }
@@ -5642,6 +5689,12 @@ export function agentCompletionReport(args: {
   steps: number;
   rejectedOpCount: number;
   rejectionReasons: readonly string[];
+  /**
+   * Whether any call this run made returned real evidence about what is IN the footage
+   * (see `CONTENT_EVIDENCE_TOOLS`). Absent ⇒ treated as evidence gathered, so callers that
+   * do not track it are unchanged.
+   */
+  contentEvidence?: boolean;
 }): string {
   const maxLines = 10;
   // Collapse lines that render identically. Eight successive restyles of one caption track
@@ -5665,7 +5718,16 @@ export function agentCompletionReport(args: {
     args.rejectedOpCount > 0
       ? `\n\n**Skipped:** ${args.rejectedOpCount} proposed change${args.rejectedOpCount === 1 ? '' : 's'} did not validate (${args.rejectionReasons.join('; ')}).`
       : '';
-  return `${head}\n\n${lines.join('\n')}${skipped}`;
+  // An honest receipt for a montage chosen blind. The captured run picked nine spans out of
+  // 575 seconds having read nothing about the content, and told the editor the choices came
+  // from a footage map it never asked for. The edit still stands — the editor may well have
+  // wanted exactly this — but they should know what it was based on.
+  const placedShots = args.ops.filter((op) => op.type === 'add_clip').length;
+  const unevidenced =
+    args.contentEvidence === false && placedShots >= UNEVIDENCED_SHOT_CAVEAT_THRESHOLD
+      ? `\n\nHeads up: these ${String(placedShots)} shots were chosen from timings alone — nothing was read about what is actually in the footage. Ask for a footage map, or for specific moments, if you want the selection grounded in content.`
+      : '';
+  return `${head}\n\n${lines.join('\n')}${skipped}${unevidenced}`;
 }
 
 /** Render a {@link CritiqueReport} as a compact human-readable block. */
