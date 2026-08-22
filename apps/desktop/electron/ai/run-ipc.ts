@@ -5,7 +5,7 @@
  * enter the protocol layer and the lifecycle/scoping logic remains reusable.
  */
 import { randomUUID } from 'node:crypto';
-import type { AiEvent } from '@framepilot/ai-sdk';
+import { DURABLE_RUN_MODES, type AiEvent } from '@framepilot/ai-sdk';
 import { createLogger } from '@framepilot/shared-types';
 import type {
   DurableRunAccepted,
@@ -62,15 +62,13 @@ function requireObject(value: unknown, label: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-const RUN_MODES: ReadonlySet<string> = new Set([
-  'auto',
-  'chat',
-  'plan',
-  'edit',
-  'agent',
-  'planned-edit',
-  'review',
-]);
+/**
+ * Modes a renderer may START. `planned-edit` is absent: the route was retired (ADR 0126),
+ * so asking for it is a renderer/main version mismatch and must fail loudly rather than
+ * silently running something else. Historic durable records that still carry it are handled
+ * on the read side by `run-contracts.ts`, which normalizes them to `agent`.
+ */
+const RUN_MODES: ReadonlySet<string> = new Set(DURABLE_RUN_MODES);
 const RUN_COMMAND_KINDS: ReadonlySet<string> = new Set([
   'approve_plan',
   'reject_plan',

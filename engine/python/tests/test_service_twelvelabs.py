@@ -72,6 +72,7 @@ class _FakeTL:
         self.gist = gist
         self.auth_fail = auth_fail
         self.pegasus_unavailable = pegasus_unavailable
+        self.source_lookups = 0
 
     def get_transcription(self, index_id: str, video_id: str) -> list[TLWord]:
         if self.auth_fail:
@@ -84,17 +85,22 @@ class _FakeTL:
         if self.pegasus_unavailable:
             raise TwelveLabsPegasusUnavailableError("no entitlement")
 
-    def summarize_chapters(self, video_id: str) -> list[TLChapter]:
+    def summarize_chapters(self, asset_ref: str) -> list[TLChapter]:
         self._pegasus_guard()
         return self.chapters
 
-    def summarize_highlights(self, video_id: str) -> list[TLHighlight]:
+    def summarize_highlights(self, asset_ref: str) -> list[TLHighlight]:
         self._pegasus_guard()
         return self.highlights
 
-    def summarize_gist(self, video_id: str) -> TLGist:
+    def summarize_gist(self, asset_ref: str) -> TLGist:
         self._pegasus_guard()
         return TLGist(summary=self.gist)
+
+    def source_asset_id(self, index_id: str, video_id: str) -> str | None:
+        """Recover the uploaded asset id an older mapping never stored."""
+        self.source_lookups += 1
+        return f"upload-{video_id}"
 
     def create_index(self, name: str) -> str:
         if self.auth_fail:
@@ -352,7 +358,12 @@ def test_describe_walks_pegasus_chapters(tmp_path: Path, monkeypatch: pytest.Mon
     with open_brain(tmp_path, "p1") as store:
         store_index_id(store, "idx-1")
         store_video_mapping(
-            store, "vid", content_hash="sha-vid", status="ready", video_id="video-xyz"
+            store,
+            "vid",
+            content_hash="sha-vid",
+            status="ready",
+            video_id="video-xyz",
+            source_asset_id="upload-video-xyz",
         )
     fake = _FakeTL(
         chapters=[
@@ -387,17 +398,17 @@ class _CountingTL(_FakeTL):
         super().__init__(**kwargs)
         self.pegasus_calls = 0
 
-    def summarize_chapters(self, video_id: str) -> list[TLChapter]:
+    def summarize_chapters(self, asset_ref: str) -> list[TLChapter]:
         self.pegasus_calls += 1
-        return super().summarize_chapters(video_id)
+        return super().summarize_chapters(asset_ref)
 
-    def summarize_highlights(self, video_id: str) -> list[TLHighlight]:
+    def summarize_highlights(self, asset_ref: str) -> list[TLHighlight]:
         self.pegasus_calls += 1
-        return super().summarize_highlights(video_id)
+        return super().summarize_highlights(asset_ref)
 
-    def summarize_gist(self, video_id: str) -> TLGist:
+    def summarize_gist(self, asset_ref: str) -> TLGist:
         self.pegasus_calls += 1
-        return super().summarize_gist(video_id)
+        return super().summarize_gist(asset_ref)
 
 
 def _seed_ready_mapping(root: Path) -> None:
@@ -406,7 +417,12 @@ def _seed_ready_mapping(root: Path) -> None:
     with open_brain(root, "p1") as store:
         store_index_id(store, "idx-1")
         store_video_mapping(
-            store, "vid", content_hash="sha-vid", status="ready", video_id="video-xyz"
+            store,
+            "vid",
+            content_hash="sha-vid",
+            status="ready",
+            video_id="video-xyz",
+            source_asset_id="upload-video-xyz",
         )
 
 

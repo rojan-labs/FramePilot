@@ -7,14 +7,19 @@
 
 .ai-sidebar {
   --ai-shell-gutter: 10px;
-  --ai-thread-slot: 18px;
-  --ai-thread-line-x: 8px;
-  --ai-thread-card-gap: 7px;
+  --ai-thread-slot: 15px;
+  --ai-thread-line-x: 7px;
+  --ai-thread-card-gap: 5px;
 }
 
 /* ── Shared horizontal rhythm ──────────────────────────────────────────── */
 
 .ai-stream {
+  padding-right: var(--ai-shell-gutter);
+  padding-left: var(--ai-shell-gutter);
+}
+
+.ai-sidebar-header {
   padding-right: var(--ai-shell-gutter);
   padding-left: var(--ai-shell-gutter);
 }
@@ -69,53 +74,104 @@
 }
 
 .ai-event--diff {
-  margin-top: 8px;
-  margin-bottom: 10px;
+  margin-top: 5px;
+  margin-bottom: 6px;
 }
 
 .ai-event--notice {
-  margin-top: 4px;
-  margin-bottom: 4px;
+  margin-top: 3px;
+  margin-bottom: 3px;
 }
 
-/* Every other row in the thread (tool glyph, assistant sparkle) sits flush at the
-   step body's left edge; the notice card's own `padding: 6px 8px` (AiSidebar.beautiful.css
-   wins over styles.css's --space-3-based padding here) pushes its icon 8px right of
-   that column, breaking the icon spine the eye tracks scrolling down the thread. Pull
-   just the icon back to the card's outer edge — matching that literal 8px, not
-   `--space-3` (which resolves to a different value in this scope) — the text keeps
-   its normal inset. */
+/* ── The notice card: one owner for the whole layout ───────────────────────
+   Errors, warnings and plain notices were laid out by three files at once
+   (styles.css, AiSidebar.beautiful.css, here), and they disagreed:
+
+   - beautiful.css's `border: 0` silenced styles.css's tone stripe, so a failed run
+     looked exactly like an informational one apart from a small icon;
+   - `.ai-notice-body` was a flex ROW there, which made the disclosed `<pre>` detail a
+     third column squeezed beside the message instead of a block beneath it, while
+     styles.css's `margin-top` on the action row pushed the buttons out of line with
+     the message they belong to;
+   - the tone icon was pulled left by a hand-tuned `-8px` to re-find the thread's icon
+     spine, compensating for a padding declared in a different file — and that padding
+     had since become 7px, so the hack was already a pixel wrong;
+   - an INFO notice renders no icon at all, so its message started 20px left of every
+     warning and error in the same thread.
+
+   A two-column grid fixes all four at once. The icon column is always reserved, so the
+   message starts at the same x whatever the level and no negative margin is needed; the
+   action row is pinned to the second column's right edge on the message's own row; the
+   detail spans both columns underneath. */
+.ai-event--notice {
+  display: grid;
+  /* Matches ICON_SIZE.sm — the tone icon's rendered box. */
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: start;
+  column-gap: 6px;
+  row-gap: 4px;
+}
+
 .ai-event--notice > .ai-tone-icon {
-  margin-left: -8px;
-  /* styles.css aligns the icon to `flex-start` (against the text's first line) and
-     nudges it 2px down to land on that line's cap-height. That breaks the moment a
-     sibling makes the row taller than the text — e.g. a Retry button (~28px) next to
-     one line of text (~17px) — because `.ai-notice-body`'s own `align-items: center`
-     then re-centers the TEXT against that taller row while the icon stays pinned to
-     the row's top, landing them on different baselines. Center the icon against the
-     row's actual height instead, which degrades gracefully to ~flex-start when there
-     is no taller sibling. */
-  align-self: center;
-  margin-top: 0;
+  grid-column: 1;
+  /* Optical: the icon's glyph sits high in its box, so nudge it onto the text baseline
+     rather than the line box's top edge. */
+  margin-top: 1px;
+}
+
+.ai-notice-body {
+  grid-column: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 4px;
+  min-width: 0;
+}
+
+.ai-notice-text {
+  grid-column: 1;
 }
 
 /* `.ai-event` sets `overflow-wrap: anywhere; word-break: break-word` so long unbroken
    tokens in the MESSAGE text (ids, URLs, provider error JSON) wrap inside the card
-   instead of overflowing it. That rule inherits into Retry too. `.ai-notice-actions`
-   has no `flex-shrink: 0`, so a long error message can squeeze it below "Retry"'s own
-   width — and the inherited anywhere-wrap then breaks the word letter-by-letter into a
-   vertical stack instead of leaving it on one line. Exempt the action row: it should
-   never be a wrap target, and should never be forced to shrink for the message next to
-   it — the message wraps; the buttons don't. */
+   instead of overflowing it. That rule inherits into Retry too, and a long error message
+   could squeeze the action row below "Retry"'s own width — the inherited anywhere-wrap
+   then broke the word letter-by-letter into a vertical stack. Exempt the action row: the
+   message wraps; the buttons do not. */
 .ai-notice-actions {
-  flex: none;
+  grid-column: 2;
+  /* The grid places this row; styles.css's `margin-top` was for the old flex column and
+     now only knocks the buttons out of line with the message. */
+  margin-top: 0;
   overflow-wrap: normal;
   word-break: normal;
   white-space: nowrap;
 }
 
+/* Full width, under the message — never a third column beside it. */
+.ai-notice-detail {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+/* Tone is carried by a left stripe again, as an inset shadow so it follows the card's
+   9px radius and costs no layout width. Composed with the hairline ring rather than
+   replacing it. */
+.ai-event--notice[data-level='warning'] {
+  box-shadow:
+    inset 2px 0 0 var(--warning),
+    var(--ai-shadow-hairline);
+}
+
+.ai-event--notice[data-level='error'] {
+  box-shadow:
+    inset 2px 0 0 var(--danger),
+    var(--ai-shadow-hairline);
+}
+
 .ai-run-footer {
-  margin-top: 10px;
+  margin-top: 6px;
   margin-bottom: 0;
 }
 
@@ -135,6 +191,14 @@
 .ai-tool-head {
   width: 100%;
   min-width: 0;
+  min-height: 24px;
+  align-items: center;
+}
+
+.ai-step-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .ai-tool-toggle {
@@ -165,7 +229,7 @@
 
 /* The docked composer uses the same outer gutter as the stream/header. */
 .ai-composer-shell {
-  margin: 8px var(--ai-shell-gutter) var(--ai-shell-gutter);
+  margin: 6px var(--ai-shell-gutter) var(--ai-shell-gutter);
 }
 
 .ai-tasks,
@@ -676,7 +740,7 @@
 
 @media (max-width: 420px) {
   .ai-sidebar {
-    --ai-shell-gutter: 8px;
+    --ai-shell-gutter: 14px;
     --ai-thread-slot: 17px;
     --ai-thread-line-x: 7px;
   }

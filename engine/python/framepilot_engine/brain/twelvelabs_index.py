@@ -105,6 +105,11 @@ class VideoMapping:
     video_id: str | None
     status: str
     content_hash: str | None
+    #: The id of the media we UPLOADED to TwelveLabs (``POST /assets``) — distinct
+    #: from ``video_id`` (the indexed asset). Pegasus 1.5 generates from the uploaded
+    #: asset, so the footage map needs this id; ``None`` for mappings written before
+    #: it was persisted (the route recovers it from the index on demand).
+    source_asset_id: str | None = None
 
     @property
     def ready(self) -> bool:
@@ -161,6 +166,7 @@ def read_video_mapping(store: BrainStore, asset_id: str) -> VideoMapping | None:
         video_id=_str_or_none(result.get("videoId")),
         status=str(result.get("status") or "unknown"),
         content_hash=_str_or_none(result.get("contentHash")),
+        source_asset_id=_str_or_none(result.get("sourceAssetId")),
     )
 
 
@@ -172,6 +178,7 @@ def store_video_mapping(
     status: str,
     task_id: str | None = None,
     video_id: str | None = None,
+    source_asset_id: str | None = None,
 ) -> None:
     """Upsert one asset's TwelveLabs mapping (single row per asset)."""
     store.record_analysis(
@@ -184,6 +191,7 @@ def store_video_mapping(
             "videoId": video_id,
             "status": status,
             "contentHash": content_hash,
+            "sourceAssetId": source_asset_id,
         },
         tool=TL_TOOL,
     )
@@ -304,6 +312,7 @@ def poll_index_asset(
         )
         return TLIndexOutcome(advanced=True, ok=True, newly_indexed=0, status="ready")
 
+    source_asset_id = None if fresh else (mapping.source_asset_id if mapping else None)
     if fresh or mapping is None or mapping.task_id is None:
         _log.info(
             "ACT twelvelabs index asset (fresh upload): asset=%s file=%s", asset_id, media_path_name
@@ -325,6 +334,10 @@ def poll_index_asset(
         # opaque polling token advances at that boundary, so persist and continue
         # with the returned token instead of repeatedly creating indexed assets.
         task_id = status.task_id
+        # The uploaded-asset id is what Pegasus generates from, and the task token
+        # stops carrying it once the asset is attached to the index — so keep the
+        # first value we see rather than dropping it on a later poll.
+        source_asset_id = status.source_asset_id or source_asset_id
         if status.ready:
             store_video_mapping(
                 store,
@@ -333,6 +346,7 @@ def poll_index_asset(
                 status="ready",
                 task_id=task_id,
                 video_id=status.video_id,
+                source_asset_id=source_asset_id,
             )
             _log.info(
                 "ACT twelvelabs index asset ready: asset=%s task=%s video=%s",
@@ -343,7 +357,12 @@ def poll_index_asset(
             return TLIndexOutcome(advanced=True, ok=True, newly_indexed=1, status="ready")
         if status.failed:
             store_video_mapping(
-                store, asset_id, content_hash=content_hash, status="failed", task_id=task_id
+                store,
+                asset_id,
+                content_hash=content_hash,
+                status="failed",
+                task_id=task_id,
+                source_asset_id=source_asset_id,
             )
             _log.warning("twelvelabs index asset FAILED: asset=%s task=%s", asset_id, task_id)
             return TLIndexOutcome(
@@ -357,7 +376,12 @@ def poll_index_asset(
         if current >= deadline:
             # Still indexing — persist progress and yield; the slice is re-posted.
             store_video_mapping(
-                store, asset_id, content_hash=content_hash, status=status.status, task_id=task_id
+                store,
+                asset_id,
+                content_hash=content_hash,
+                status=status.status,
+                task_id=task_id,
+                source_asset_id=source_asset_id,
             )
             _log.info(
                 "twelvelabs index asset still indexing: asset=%s task=%s status=%s "

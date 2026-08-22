@@ -5,7 +5,9 @@
  * returns `null` (→ safe fallback).
  */
 import { describe, expect, it } from 'vitest';
+import { makeProject } from '../__fixtures__/project.js';
 import {
+  projectHeaderOf,
   FALLBACK_CLASSIFICATION,
   buildClassifierMessages,
   parseClassification,
@@ -56,10 +58,13 @@ describe('parseClassification', () => {
     expect(parseClassification('{"route":"chitchat"}')).toEqual({ route: 'chitchat' });
   });
 
-  it('accepts the analysis-backed planned edit route', () => {
-    expect(parseClassification('{"route":"planned_edit"}')).toEqual({
-      route: 'planned_edit',
-    });
+  it('rejects the retired planned_edit route so the caller falls back to the agent', () => {
+    // ADR 0126 removed the second mutating execution route. A model still emitting it
+    // (a stale cache, an older fine-tune) must not select a path that no longer exists:
+    // an unparseable classification is data, and `Orchestrator.classifyCommand` degrades
+    // to FALLBACK_CLASSIFICATION — which is `edit`, the runtime that absorbed the route.
+    expect(parseClassification('{"route":"planned_edit"}')).toBeNull();
+    expect(FALLBACK_CLASSIFICATION).toEqual({ route: 'edit' });
   });
 
   it('drops a reply off a non-chitchat route, and unknown fields entirely', () => {
@@ -86,5 +91,29 @@ describe('parseClassification', () => {
 describe('FALLBACK_CLASSIFICATION', () => {
   it('is the safe edit route', () => {
     expect(FALLBACK_CLASSIFICATION).toEqual({ route: 'edit' });
+  });
+});
+
+describe('projectHeaderOf', () => {
+  // Moved here from the deleted planner path (ADR 0126); the classifier is its only
+  // consumer now, so its coverage lives with it.
+  const project = makeProject();
+
+  it('derives duration from the furthest clip end, not the asset length', () => {
+    expect(projectHeaderOf(project)).toEqual({
+      durationSeconds: 10,
+      resolution: { width: 1920, height: 1080 },
+      layerCount: 2,
+    });
+  });
+
+  it('omits platform when none is supplied and carries it when one is', () => {
+    expect(projectHeaderOf(project)).not.toHaveProperty('platform');
+    expect(projectHeaderOf(project, 'reels')).toMatchObject({ platform: 'reels' });
+  });
+
+  it('reports zero duration for a project with no clips', () => {
+    const empty = makeProject({ timeline: { tracks: [{ id: 'v', type: 'video', clips: [] }] } });
+    expect(projectHeaderOf(empty).durationSeconds).toBe(0);
   });
 });

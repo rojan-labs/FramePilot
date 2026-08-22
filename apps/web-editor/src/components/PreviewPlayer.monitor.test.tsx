@@ -229,6 +229,82 @@ describe('program monitor', () => {
     expect(warm.style.opacity).toBe('0');
   });
 
+  it('paints the outgoing shot beneath a transition ramp instead of black', () => {
+    // A transition is stamped on butt-joined clips, so while the incoming clip eases in the
+    // outgoing one has already ended — and every non-visible slot is painted at opacity 0. The
+    // reveal therefore happened over the empty monitor: a dissolve up from black at every cut,
+    // matching the same defect in the export (see the compiler's transition under-layer).
+    const dissolveAt4s: Timeline = {
+      tracks: [
+        {
+          id: 'v',
+          type: 'video',
+          clips: [
+            {
+              id: 'c1',
+              assetId: 'a',
+              trackId: 'v',
+              start: 0,
+              end: 4,
+              sourceStart: 0,
+              sourceEnd: 4,
+              effects: [],
+              keyframes: [],
+            },
+            {
+              id: 'c2',
+              assetId: 'b',
+              trackId: 'v',
+              start: 4,
+              end: 8,
+              sourceStart: 0,
+              sourceEnd: 4,
+              effects: [
+                {
+                  id: 'c2__transition',
+                  type: 'transition',
+                  params: {
+                    kind: 'cross-dissolve',
+                    durationSeconds: 1,
+                    fromClipId: 'c1',
+                  },
+                  keyframes: [],
+                },
+              ],
+              keyframes: [],
+            },
+          ],
+        },
+      ],
+    };
+    function DissolveHost(): JSX.Element {
+      const editor = useEditor(dissolveAt4s, ['a', 'b']);
+      return (
+        <SettingsProvider>
+          {/* Park the playhead inside the ramp: 0.2s past the cut at 4s. */}
+          <button type="button" onClick={() => editor.seek(4.2)}>
+            into the ramp
+          </button>
+          <PreviewPlayer
+            editor={editor}
+            assets={[
+              { id: 'a', path: 'blob:a', kind: 'video' },
+              { id: 'b', path: 'blob:b', kind: 'video' },
+            ]}
+            fps={30}
+          />
+        </SettingsProvider>
+      );
+    }
+    render(<DissolveHost />);
+    fireEvent.click(screen.getByText('into the ramp'));
+    const outgoing = screen.getByLabelText('preview a');
+    // The shot being left is painted in full, so the reveal happens over picture rather than
+    // over the empty monitor — whether it is sitting underneath the ramping incoming slot or
+    // (before the incoming slot has a decoded frame) still holding the monitor itself.
+    expect(outgoing.style.opacity).toBe('1');
+  });
+
   it('pre-warms a same-asset trim in its own slot (the old 2-slot design skipped it)', () => {
     // Two clips cut within the SAME asset: the upcoming trim still needs its own
     // pre-seeked element, or the cut stalls on an in-file seek.

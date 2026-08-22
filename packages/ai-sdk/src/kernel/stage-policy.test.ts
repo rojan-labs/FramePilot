@@ -7,7 +7,6 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  planningExhausted,
   settledStageFor,
   stageAdvanceFor,
   stageAllowsRole,
@@ -159,13 +158,6 @@ describe('stageAllowsRole — the boundary is structural', () => {
   });
 });
 
-describe('planningExhausted', () => {
-  it('fires at the budget, not before', () => {
-    expect(planningExhausted(7, 8)).toBe(false);
-    expect(planningExhausted(8, 8)).toBe(true);
-    expect(planningExhausted(9, 8)).toBe(true);
-  });
-});
 
 describe('settledStageFor — every transition a turn earns', () => {
   it('closes analysis and opens execution on the turn that first applies a patch', () => {

@@ -112,6 +112,24 @@ class ScriptedProvider implements AiProvider {
   }
 }
 
+/** Streams a DIFFERENT scripted chunk list per call, so a retried step can differ. */
+class ScriptedStreamProvider implements AiProvider {
+  public readonly name = 'mock' as const;
+  private index = 0;
+  /** How many times the loop opened a stream — the retry count under test. */
+  public calls = 0;
+  public constructor(private readonly scripts: readonly (readonly ProviderChunk[])[]) {}
+  public async complete(): Promise<AiResponse> {
+    return { text: '' };
+  }
+  public async *stream(): AsyncIterable<ProviderChunk> {
+    this.calls += 1;
+    const script = this.scripts[Math.min(this.index, this.scripts.length - 1)]!;
+    this.index += 1;
+    for (const chunk of script) yield chunk;
+  }
+}
+
 /** An in-scope read-only call for the question route's tool loop. */
 const getTimeline = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
 
@@ -327,6 +345,43 @@ describe('streamChat tool use (E5.5) — the question route can look up and ask'
     expect(instruction?.content).toContain('ask_user');
     expect(instruction?.content).toContain('only ask_user can collect the decision');
     expect(instruction?.content).toContain('Never write selectable choices as reply text');
+  });
+
+  it('records what the editor answered as a durable note, not only in this run', async () => {
+    // The captured session: the model asked how the picture should sit in the vertical
+    // frame, the editor chose "Full-bleed vertical crop", and the very next run rebuilt the
+    // montage with no crop at all — the answer had lived only in the action log of the run
+    // that asked. The note goes to the project's decisions tier, which every later run reads
+    // back through its session-context digest.
+    const gate = createAskUserGate();
+    const remembered: { title: string; body: string }[] = [];
+    const provider = new ScriptedProvider([askResponse(), { text: 'Understood.' }]);
+    await drainAnswering(
+      new Orchestrator(provider).streamChat(input, opts(), {
+        controls: { askUser: gate, rememberDecision: (note) => remembered.push(note) },
+      }),
+      gate,
+      { kind: 'answered', answer: 'Full-bleed vertical crop' },
+    );
+    expect(remembered).toHaveLength(1);
+    expect(remembered[0]!.title).toContain(question.question);
+    expect(remembered[0]!.body).toContain('Full-bleed vertical crop');
+  });
+
+  it('records nothing when the editor dismisses the question', async () => {
+    // A dismissal is not a preference, and writing one down would teach later runs something
+    // the editor never said.
+    const gate = createAskUserGate();
+    const remembered: unknown[] = [];
+    const provider = new ScriptedProvider([askResponse(), { text: 'Stopped.' }]);
+    await drainAnswering(
+      new Orchestrator(provider).streamChat(input, opts(), {
+        controls: { askUser: gate, rememberDecision: (note) => remembered.push(note) },
+      }),
+      gate,
+      { kind: 'cancelled' },
+    );
+    expect(remembered).toEqual([]);
   });
 
   it('surfaces ask_user to the editor, pauses, and answers from what they picked', async () => {
@@ -834,6 +889,76 @@ describe('streamAgent', () => {
       retryable: true,
     });
     expect(events.at(-1)).toMatchObject({ status: 'failed' });
+  });
+
+  it('retries a dropped step in place, and uses the retry\'s answer', async () => {
+    // The provider dropping ONE request must not end the run: `ResilientProvider` cannot
+    // replay it (the failure lands after a 200), so the step retries here.
+    const provider = new ScriptedStreamProvider([
+      [{ type: 'done', text: '' }],
+      [
+        { type: 'tool-call', call: deleteRange('c1', 0, 3) },
+        { type: 'done', text: 'trimmed the head' },
+      ],
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+    expect(provider.calls).toBeGreaterThan(1);
+    expect(events.some((e) => e.type === 'diff')).toBe(true);
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+  });
+
+  it('gives up after the bounded retry when every attempt is empty', async () => {
+    const provider = new ScriptedStreamProvider([[{ type: 'done', text: '' }]]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+    // One attempt plus one retry, then an honest failure — never an unbounded loop.
+    expect(provider.calls).toBe(2);
+    expect(events.find((e) => e.type === 'error')).toMatchObject({
+      message: expect.stringContaining('empty response'),
+      retryable: true,
+    });
+    expect(events.at(-1)).toMatchObject({ status: 'failed' });
+  });
+
+  it('never ends a run on a reply the provider says it cut off', async () => {
+    // The captured run ended on the words "Rebuilding the 30 seconds as a 23-shot" with
+    // nothing applied, and published that fragment as its final message.
+    const provider = new ScriptedStreamProvider([
+      [
+        { type: 'text-delta', text: 'Rebuilding the 30 seconds as a 23-shot' },
+        { type: 'done', text: 'Rebuilding the 30 seconds as a 23-shot', truncated: true },
+      ],
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+    expect(provider.calls).toBe(2);
+    expect(events.some((e) => e.type === 'warning' && /ran out of output room/.test(e.text))).toBe(
+      true,
+    );
+    // The fragment is not the run's last word.
+    expect(
+      events.some((e) => e.type === 'assistant_message' && /23-shot/.test((e as { text: string }).text)),
+    ).toBe(false);
+    expect(events.at(-1)).toMatchObject({ status: 'failed' });
+  });
+
+  it('lets a truncated reply stand once work has landed', async () => {
+    // A cut-off summary AFTER an edit is survivable: the edits are the deliverable, and
+    // retrying would re-bill a turn that already did its job.
+    const provider = new ScriptedStreamProvider([
+      [
+        { type: 'tool-call', call: deleteRange('c1', 0, 3) },
+        { type: 'done', text: 'trimmed' },
+      ],
+      [
+        { type: 'text-delta', text: 'and then I' },
+        { type: 'done', text: 'and then I', truncated: true },
+      ],
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+    expect(provider.calls).toBe(2);
+    expect(events.some((e) => e.type === 'warning' && /ran out of output room/.test(e.text))).toBe(
+      false,
+    );
+    expect(events.some((e) => e.type === 'diff')).toBe(true);
   });
 
   it('keeps applied edits when a LATER turn comes back empty', async () => {
@@ -1533,9 +1658,13 @@ describe('streamAgent', () => {
   });
 
   it('caps the completion report at 10 lines and reports skipped work (U3)', () => {
-    const ops = Array.from({ length: 12 }, () => ({
+    // Twelve DISTINCT edits — the cap is about how many different things a report will list.
+    // (Identical edits collapse instead; that is the next test.)
+    const ops = Array.from({ length: 12 }, (_, i) => ({
       type: 'delete_range',
       trackId: 'video_1',
+      start: i,
+      end: i + 0.5,
     })) as unknown as AnyOperation[];
     const report = agentCompletionReport({
       ops,
@@ -1548,6 +1677,99 @@ describe('streamAgent', () => {
     expect(report).toMatch(
       /\*\*Skipped:\*\* 2 proposed changes did not validate \(overlaps a neighbour\)/,
     );
+  });
+
+  it('collapses edits that read identically instead of repeating the line', () => {
+    // The captured caption run closed with eight rows of "Set track caption style:" — the
+    // same sentence eight times, over a dangling colon. Eight restyles of one track are ONE
+    // outcome to the editor reviewing it: the last one is what they see.
+    const ops = Array.from({ length: 8 }, () => ({
+      type: 'set_track_caption_style',
+      trackId: 'caption_1',
+    })) as unknown as AnyOperation[];
+    const report = agentCompletionReport({
+      ops,
+      steps: 8,
+      rejectedOpCount: 0,
+      rejectionReasons: [],
+    });
+    expect(report).toMatch(/\*\*Applied 8 edits\*\* in 8 steps/);
+    expect(report).toContain('(×8)');
+    // One row, not eight — and no line ends in a colon over nothing.
+    expect(report.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1);
+    expect(report).not.toMatch(/:\s*$/m);
+  });
+
+  it('points at Export when the request asked for a file the panel cannot render', () => {
+    const report = agentCompletionReport({
+      ops: [{ type: 'delete_range', trackId: 'video_1' } as unknown as AnyOperation],
+      steps: 1,
+      rejectedOpCount: 0,
+      rejectionReasons: [],
+      deliverableFileRequested: true,
+    });
+    expect(report).toContain('cannot produce');
+    expect(report).toContain('Export dialog');
+    // Silent when nothing was asked for — no unsolicited advice on an ordinary edit.
+    expect(
+      agentCompletionReport({
+        ops: [{ type: 'delete_range', trackId: 'video_1' } as unknown as AnyOperation],
+        steps: 1,
+        rejectedOpCount: 0,
+        rejectionReasons: [],
+      }),
+    ).not.toContain('Export dialog');
+  });
+
+  it('says so when a montage was chosen with nothing read about the footage', () => {
+    // The captured run picked nine source spans out of 575 seconds having read nothing about
+    // the content, and told the editor the choices came from "the footage map" — which it had
+    // never asked for. The edit still stands; the editor is told what it was based on.
+    const addClips = Array.from({ length: 4 }, (_, i) => ({
+      type: 'add_clip',
+      trackId: 'video_1',
+      assetId: 'a1',
+      start: i * 3,
+      end: i * 3 + 3,
+      sourceStart: i * 30,
+      sourceEnd: i * 30 + 3,
+    })) as unknown as AnyOperation[];
+    const blind = agentCompletionReport({
+      ops: addClips,
+      steps: 1,
+      rejectedOpCount: 0,
+      rejectionReasons: [],
+      contentEvidence: false,
+    });
+    expect(blind).toContain('chosen from timings alone');
+    expect(blind).toContain('footage map');
+
+    // Evidence gathered ⇒ no caveat.
+    expect(
+      agentCompletionReport({
+        ops: addClips,
+        steps: 1,
+        rejectedOpCount: 0,
+        rejectionReasons: [],
+        contentEvidence: true,
+      }),
+    ).not.toContain('chosen from timings alone');
+
+    // A small trim is not a montage — no caveat for one or two clips.
+    expect(
+      agentCompletionReport({
+        ops: addClips.slice(0, 2),
+        steps: 1,
+        rejectedOpCount: 0,
+        rejectionReasons: [],
+        contentEvidence: false,
+      }),
+    ).not.toContain('chosen from timings alone');
+
+    // A caller that does not track evidence at all is unchanged.
+    expect(
+      agentCompletionReport({ ops: addClips, steps: 1, rejectedOpCount: 0, rejectionReasons: [] }),
+    ).not.toContain('chosen from timings alone');
   });
 
   it('uses singular wording for exactly one skipped change', () => {
@@ -1594,11 +1816,14 @@ describe('streamAgent', () => {
     // edit. The model gets another turn; only when it repeats the same no-progress
     // call (spinning) does the loop stop.
     //
-    // Three steps, not two, since ADR 0075: the second barren turn trips the
-    // meaningful-progress guard, which spends one deterministic recovery turn (reads
-    // withheld, a concrete next action supplied) before giving up. A run that can still
-    // be pushed into acting gets that push; only when it spins THROUGH recovery does the
-    // loop stop — still well short of maxSteps=5.
+    // Two steps. It was three while the Conductor's `stageAdvanced` was an object
+    // comparison that missed turn 1's real interpret → inspect advance: the run was
+    // credited with no progress, tripped the meaningful-progress guard on turn 2, and
+    // spent a deterministic recovery turn before giving up. Turn 1 genuinely advanced a
+    // stage, so no-progress does not start accruing there, and turn 2 — the identical
+    // call again — is caught by the exact-repeat guard instead. Same outcome (`failed`,
+    // no edit), one fewer wasted turn. The recovery push itself is unchanged and still
+    // fires for the run it exists for: one that keeps gathering without editing.
     const provider = new FakeProvider({
       text: 'try',
       toolCalls: [{ id: 'u', name: 'no_such_tool', arguments: {} }],
@@ -1606,7 +1831,7 @@ describe('streamAgent', () => {
     const events = await drain(
       new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 5 }),
     );
-    expect(events.filter((e) => e.type === 'tool_call' && e.status === 'running')).toHaveLength(3);
+    expect(events.filter((e) => e.type === 'tool_call' && e.status === 'running')).toHaveLength(2);
     // An unknown no-op tool never lands an edit — ADR 0081 ends the run `failed`.
     expect(events.at(-1)).toMatchObject({ status: 'failed' });
   });
@@ -1858,7 +2083,7 @@ describe('streamAgent robustness (parity with agent())', () => {
         autoRepair: false,
       }),
     );
-    expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Self-check:'))).toBe(
+    expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Deterministic self-check:'))).toBe(
       true,
     );
     expect(events.some((e) => e.type === 'warning' && e.text.includes('Duration'))).toBe(true);
@@ -1985,7 +2210,7 @@ describe('streamAgent robustness (parity with agent())', () => {
         durationTargetSeconds: 1,
       }),
     );
-    expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Self-check:'))).toBe(
+    expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Deterministic self-check:'))).toBe(
       false,
     );
     expect(events.at(-1)).toMatchObject({ status: 'cancelled' });

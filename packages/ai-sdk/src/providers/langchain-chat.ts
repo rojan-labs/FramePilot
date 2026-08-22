@@ -222,6 +222,24 @@ export function mergeArgs(
  * `exactOptionalPropertyTypes` distinguishes an absent key from an explicit
  * `undefined`, and LangChain's option type accepts only the former.
  */
+/**
+ * Whether a chunk's `response_metadata` says the model stopped because it ran out of room.
+ *
+ * Every wire format spells it differently — OpenAI-compatible gateways use
+ * `finish_reason: 'length'`, Anthropic uses `stop_reason: 'max_tokens'`, some proxies pass
+ * both through — so all the spellings are checked and anything else (a normal `stop`, a
+ * `tool_calls` stop, no metadata at all) reads as "not truncated". Returns `undefined` when
+ * the chunk says nothing about it, so a later chunk's verdict is not overwritten by an
+ * earlier silent one.
+ */
+export function stopReasonFrom(metadata: unknown): boolean | undefined {
+  if (typeof metadata !== 'object' || metadata === null) return undefined;
+  const record = metadata as Record<string, unknown>;
+  const reason = record.finish_reason ?? record.stop_reason ?? record.finishReason;
+  if (typeof reason !== 'string' || reason === '') return undefined;
+  return reason === 'length' || reason === 'max_tokens' || reason === 'MAX_TOKENS';
+}
+
 const callOptions = (signal: AbortSignal | undefined): { signal?: AbortSignal } =>
   signal ? { signal } : {};
 
@@ -337,6 +355,7 @@ export abstract class LangChainChatProvider implements AiProvider {
     });
     let full = '';
     let usage: Usage | undefined;
+    let truncated = false;
     const toolCalls = new Map<number, ToolCall>();
 
     try {
@@ -375,6 +394,10 @@ export abstract class LangChainChatProvider implements AiProvider {
           chunk.usage_metadata as LangChainUsageMetadata | undefined,
         );
         if (chunkUsage) usage = mergeUsage(usage, chunkUsage);
+        // The provider's own account of WHY it stopped. Only the last chunk carries it, so
+        // the latest non-empty value wins.
+        const reason = stopReasonFrom(chunk.response_metadata);
+        if (reason !== undefined) truncated = reason;
       }
     } catch (error) {
       // Covers both opening the stream and failing part-way through it: a gateway that
@@ -387,7 +410,7 @@ export abstract class LangChainChatProvider implements AiProvider {
       if (call.name) yield { type: 'tool-call', call };
     }
     if (usage) yield { type: 'usage', usage };
-    yield { type: 'done', text: full };
+    yield { type: 'done', text: full, ...(truncated ? { truncated: true } : {}) };
   }
 }
 

@@ -30,6 +30,7 @@
         "objective": {
           "request": "trim the dead air",
           "outcome": "trim the dead air",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -107,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 19212,
+      "usedTokens": 19431,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -126,30 +127,30 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1770,
+            "tokenEstimate": 1759,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19212,
+          "estimatedInputTokensBeforeSend": 19431,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 852788,
+          "estimatedRemainingCapacity": 852569,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -212,28 +213,28 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1770,
+            "tokenEstimate": 1759,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19212,
+          "estimatedInputTokensBeforeSend": 19431,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -449,6 +450,7 @@
         "objective": {
           "request": "trim the dead air",
           "outcome": "trim the dead air",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -542,7 +544,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 19250,
+      "usedTokens": 19475,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -561,30 +563,30 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1808,
+            "tokenEstimate": 1803,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19250,
+          "estimatedInputTokensBeforeSend": 19475,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 852750,
+          "estimatedRemainingCapacity": 852525,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -601,7 +603,7 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: trim the dead air"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -648,28 +650,28 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1667,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1808,
+            "tokenEstimate": 1803,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15640,
+            "tokenEstimate": 15762,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19250,
+          "estimatedInputTokensBeforeSend": 19475,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -690,7 +692,7 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: trim the dead air"
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -720,6 +722,7 @@
         "objective": {
           "request": "trim the dead air",
           "outcome": "trim the dead air",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -796,7 +799,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "notification",
-      "text": "Self-check: All checks passed."
+      "text": "Deterministic self-check: All checks passed."
     },
     {
       "id": "turn_parity:run-state",
@@ -816,6 +819,7 @@
         "objective": {
           "request": "trim the dead air",
           "outcome": "trim the dead air",
+          "provisional": true,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -916,7 +920,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "assistant_message",
-      "text": "**Applied 1 edit** in 1 step — review the proposed change below.\n\n- Deleted range: 0s–3s"
+      "text": "**Applied 1 edit** in 1 step — review the proposed change below.\n\n- Deleted range Video 1 · 0s–3s"
     },
     {
       "id": "turn_parity:status:12",

@@ -84,17 +84,21 @@ def test_create_index_returns_id() -> None:
 
 
 @respx.mock
-def test_create_index_sends_marengo_and_pegasus_visual_audio() -> None:
+def test_create_index_sends_marengo_only() -> None:
+    """Index creation must ask for Marengo and nothing else.
+
+    Regression: asking for ``pegasus1.2`` here is rejected outright (HTTP 400
+    ``parameter_invalid`` — the model is sunset for indexing), which failed the FIRST
+    index a project ever created. Nothing then indexed, so every footage map reported
+    ``not_indexed`` forever. Generative understanding needs no index at all now.
+    """
     route = respx.post(url("/indexes")).respond(200, json={"_id": INDEX_ID})
     make_client().create_index("proj-123")
     import json as _json
 
     body = _json.loads(route.calls[0].request.content)
-    by_name = {m["model_name"]: m for m in body["models"]}
-    # Marengo (search) AND Pegasus (generate/footage-map) are both on the index —
-    # a Marengo-only index answers HTTP 400 index_not_supported_for_generate.
-    assert by_name["marengo3.0"]["model_options"] == ["visual", "audio"]
-    assert by_name["pegasus1.2"]["model_options"] == ["visual", "audio"]
+    assert [m["model_name"] for m in body["models"]] == ["marengo3.0"]
+    assert body["models"][0]["model_options"] == ["visual", "audio"]
 
 
 @respx.mock
@@ -381,16 +385,19 @@ def test_summarize_chapters_posts_to_analyze_with_schema() -> None:
             }
         ),
     )
-    chapters = make_client().summarize_chapters(VIDEO_ID)
+    chapters = make_client().summarize_chapters(ASSET_ID)
     # Parsed and re-sorted by start time (0..5 before 5..10).
     assert [c.start for c in chapters] == [0.0, 5.0]
     assert chapters[0].title == "Setup"
     assert chapters[1].summary == "opening"
-    # The request hits /analyze (not the deprecated /summarize) with a json_schema.
+    # The request hits /analyze (not the deprecated /summarize) with a json_schema,
+    # against the UPLOADED asset: pegasus1.5 rejects `video_id` outright.
     import json as _json
 
     body = _json.loads(route.calls[0].request.content)
-    assert body["video_id"] == VIDEO_ID
+    assert body["model_name"] == "pegasus1.5"
+    assert body["video"] == {"type": "asset_id", "asset_id": ASSET_ID}
+    assert "video_id" not in body
     assert body["stream"] is False
     assert body["response_format"]["type"] == "json_schema"
     assert "chapters" in body["response_format"]["json_schema"]["properties"]
@@ -421,6 +428,69 @@ def test_summarize_gist_parses_analyze_output() -> None:
     )
     gist = make_client().summarize_gist(VIDEO_ID)
     assert gist.summary == "A short clip of a dog."
+
+
+@respx.mock
+def test_summarize_chapters_recovers_from_pegasus_mis_escaped_json() -> None:
+    """Pegasus' own escaping bug must not blank the footage map.
+
+    Observed on the live API: with more than one string field in the schema, the
+    ``data`` body comes back with back-slash-escaped inner quotes and a tail that
+    repeats forever. A strict decode throws there and the whole map goes dark, so the
+    decoder unescapes and reads the valid object at the head of the body.
+    """
+    mangled = (
+        '{"chapters":[{"chapter_title":"Forest","end_sec":21.8,"start_sec":0.0,'
+        '"chapter_summary\\":\\"Camera moves through forest.\\"}]}'
+        '\\"}]}\\"}]}\\"}]}'
+    )
+    respx.post(url("/analyze")).respond(200, json={"data": mangled, "finish_reason": "stop"})
+    chapters = make_client().summarize_chapters(ASSET_ID)
+    assert [(c.start, c.end, c.title) for c in chapters] == [(0.0, 21.8, "Forest")]
+    assert chapters[0].summary == "Camera moves through forest."
+
+
+@respx.mock
+def test_summarize_chapters_retries_once_without_response_format() -> None:
+    """An unreadable structured body is retried ONCE with the schema in the prompt.
+
+    Pegasus can also emit a body that no amount of unescaping repairs. Rather than
+    report footage we understood as unmappable, ask again in plain-prompt form (which
+    it answers cleanly) — and stop there, so a broken model can't spin.
+    """
+    import json as _json
+
+    route = respx.post(url("/analyze")).mock(
+        side_effect=[
+            httpx.Response(200, json={"data": '{"chapters":[{"chapter_title:"broken'}),
+            httpx.Response(
+                200,
+                json=_analyze_body(
+                    {"chapters": [{"start_sec": 0.0, "end_sec": 4.0, "chapter_title": "Intro"}]}
+                ),
+            ),
+        ]
+    )
+    chapters = make_client().summarize_chapters(ASSET_ID)
+    assert [c.title for c in chapters] == ["Intro"]
+    assert len(route.calls) == 2
+    retry_body = _json.loads(route.calls[1].request.content)
+    assert "response_format" not in retry_body or retry_body["response_format"] is None
+    assert "JSON Schema" in retry_body["prompt"]
+
+
+@respx.mock
+def test_source_asset_id_reads_the_uploaded_asset_behind_a_video() -> None:
+    """Mappings written before the uploaded asset id was persisted still map.
+
+    Pegasus 1.5 generates from the uploaded asset, so an older mapping that knows only
+    its ``video_id`` would be unmappable without this lookup — and re-uploading the
+    footage to recover it would be both slow and billable.
+    """
+    respx.get(url(f"/indexes/{INDEX_ID}/indexed-assets/{VIDEO_ID}")).respond(
+        200, json={"_id": VIDEO_ID, "asset_id": ASSET_ID, "status": "ready"}
+    )
+    assert make_client().source_asset_id(INDEX_ID, VIDEO_ID) == ASSET_ID
 
 
 @respx.mock

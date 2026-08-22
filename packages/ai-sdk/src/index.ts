@@ -64,7 +64,7 @@ export * from './sidecar-executor.js';
 export * from './brain-client.js';
 export * from './visual-index-client.js';
 export * from './footage-map.js';
-export * from './proposers/candidate-proposer.js';
+export * from './proposers/edit-signals.js';
 export * from './memory-client.js';
 export * from './session-warmup.js';
 export * from './assemble.js';

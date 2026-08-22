@@ -417,7 +417,7 @@ export function routeAutonomousToolCall(call: AutonomousToolCall): AutonomousToo
         calls: [
           registryCall(
             call,
-            'propose_edits',
+            'read_edit_signals',
             copyDefined([
               ['chapters', args.chapters],
               ['highlights', args.highlights],

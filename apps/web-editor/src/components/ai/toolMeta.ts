@@ -99,7 +99,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   search_visual: { label: 'Search visual evidence', Icon: Search },
   describe_footage: { label: 'Describe footage', Icon: Film },
   map_footage: { label: 'Map footage', Icon: Map },
-  propose_edits: { label: 'Propose edits', Icon: Lightbulb },
+  read_edit_signals: { label: 'Read the edit signals', Icon: Lightbulb },
   index_media: { label: 'Index visual media', Icon: Scan },
   session_context: { label: 'Recall project memory', Icon: BookOpen },
   detect_faces: { label: 'Detect faces', Icon: Scan },

@@ -13,6 +13,7 @@ import {
   summarizeSkillsManifest,
   validateSkillTools,
 } from './skills.js';
+import { selectTools } from './tool-scope.js';
 import { RAW_SKILLS } from './skills/generated.js';
 
 const VALID = `---
@@ -129,6 +130,20 @@ describe('bundled skills', () => {
       expect(parsed.ok, `bundled skill failed to parse: ${file}`).toBe(true);
       if (parsed.ok) {
         expect(validateSkillTools(parsed.skill).unknown, `unknown tools in ${file}`).toEqual([]);
+      }
+    }
+  });
+
+  it('never advertises a tool the model cannot actually select', () => {
+    // "Registered" is not the invariant — SELECTABLE is. `index_media` is registered and
+    // withheld from every model-facing scope (`IMPLICIT_ONLY_TOOL_NAMES`), and two
+    // playbooks listed it: the manifest line the model reads before loading anything named
+    // a tool that is not in and never will be in its tool list. A tool whose engine does
+    // not exist yet (`available: false`) is the same failure with a different cause.
+    const selectable = new Set(selectTools({}).map((tool) => tool.name));
+    for (const skill of BUNDLED_SKILLS) {
+      for (const tool of skill.tools) {
+        expect(selectable.has(tool), `${skill.name} advertises unselectable ${tool}`).toBe(true);
       }
     }
   });

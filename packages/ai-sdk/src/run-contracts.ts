@@ -6,6 +6,7 @@
  * command, persisted event, and restored snapshot is parsed here before use.
  */
 import { z } from 'zod/v4';
+import type { DurableRunStartRequest } from '@framepilot/shared-types';
 import { KEY_DIGEST_CHARS, MAX_IDENTITY_KEY_CHARS, boundedKeySegment } from './stable-key.js';
 
 export const RUN_PROTOCOL_SCHEMA_VERSION = 1 as const;
@@ -165,6 +166,53 @@ const commandBase = {
   issuedAt: timestampSchema,
 } as const;
 
+/** The run modes a host may start today. `planned-edit` is deliberately absent. */
+export const DURABLE_RUN_MODES = [
+  'auto',
+  'chat',
+  'plan',
+  'edit',
+  'agent',
+  'review',
+] as const;
+export type DurableRunMode = (typeof DURABLE_RUN_MODES)[number];
+
+/**
+ * The retired `planned_edit` route's durable mode string (ADR 0126).
+ *
+ * It cannot simply be dropped from the enum. Persisted `start` commands are re-parsed from
+ * the durable event log during recovery (`run-coordinator-base.ts#commandFromEvent`), so a
+ * run that was in flight when the user upgraded would fail to replay and their work would be
+ * unrecoverable. Instead the value is still ACCEPTED on read and normalized to the runtime
+ * that absorbed it, which is exactly where such a run would continue anyway: the planner
+ * path already fell back to the agent whenever its own gate declined a plan.
+ *
+ * Fresh starts are rejected at the IPC boundary (`run-ipc.ts`), so this is a read-side
+ * migration only — nothing new is ever written with it.
+ */
+const RETIRED_PLANNED_EDIT_MODE = 'planned-edit';
+
+/**
+ * Compile-time lockstep with `DurableRunStartRequest['mode']` in `@framepilot/shared-types`.
+ * That package cannot import this one (the dependency runs the other way), so the check lives
+ * here: adding or removing a run mode on either side fails typecheck instead of silently
+ * letting the renderer-facing contract and the durable schema drift apart.
+ */
+type MutuallyAssignable<Left, Right> = [Left] extends [Right]
+  ? [Right] extends [Left]
+    ? true
+    : false
+  : false;
+/** Fails to compile unless the two unions are exactly equal. */
+type AssertTrue<T extends true> = T;
+export type DurableRunModeLockstep = AssertTrue<
+  MutuallyAssignable<DurableRunMode, DurableRunStartRequest['mode']>
+>;
+
+const DurableRunModeSchema = z
+  .enum([...DURABLE_RUN_MODES, RETIRED_PLANNED_EDIT_MODE])
+  .transform((mode): DurableRunMode => (mode === RETIRED_PLANNED_EDIT_MODE ? 'agent' : mode));
+
 const StartCommandSchema = z
   .object({
     ...commandBase,
@@ -172,7 +220,7 @@ const StartCommandSchema = z
     payload: z
       .object({
         userPrompt: z.string().trim().min(1),
-        mode: z.enum(['auto', 'chat', 'plan', 'edit', 'agent', 'planned-edit', 'review']),
+        mode: DurableRunModeSchema,
         selection: JsonValueSchema.optional(),
         agentOptions: JsonValueSchema.optional(),
         contextHandles: z.array(idSchema).default([]),

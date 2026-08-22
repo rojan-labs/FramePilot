@@ -18,6 +18,7 @@ import { z } from 'zod/v4';
 
 import { RAW_SKILLS } from './skills/generated.js';
 import { getTool } from './tool-registry.js';
+import { IMPLICIT_ONLY_TOOL_NAMES } from './tool-scope.js';
 
 const log = createLogger('ai-sdk:skills');
 
@@ -87,12 +88,27 @@ export function parseSkillFile(file: string, raw: string): SkillParseResult {
 }
 
 /**
- * Drop any `tools:` entry that is not a registered tool name (ADR 0055 discipline:
- * never advertise a capability that does not exist). Returns the cleaned skill and
- * the names that were dropped so the caller can warn.
+ * Drop any `tools:` entry the model cannot actually select (ADR 0055 discipline: never
+ * advertise a capability that does not exist). Returns the cleaned skill and the names
+ * that were dropped so the caller can warn.
+ *
+ * "Registered" was too weak a test. `index_media` is registered — and withheld from every
+ * model-facing scope (`IMPLICIT_ONLY_TOOL_NAMES`), because indexing is lifecycle work the
+ * app drives. Two bundled playbooks listed it, so the manifest line the model reads
+ * before loading anything named a tool that is not in and never will be in its tool list.
+ * Same for a tool whose engine does not exist (`available: false`): a run told a playbook
+ * uses it either calls it and fails or reasons about why it is missing. Both cost the run
+ * a detour and neither is recoverable from inside the model.
  */
 export function validateSkillTools(skill: Skill): { skill: Skill; unknown: readonly string[] } {
-  const unknown = skill.tools.filter((name) => getTool(name) === undefined);
+  const unknown = skill.tools.filter((name) => {
+    const tool = getTool(name);
+    return (
+      tool === undefined ||
+      !tool.available ||
+      (IMPLICIT_ONLY_TOOL_NAMES as readonly string[]).includes(name)
+    );
+  });
   if (unknown.length === 0) return { skill, unknown };
   return { skill: { ...skill, tools: skill.tools.filter((n) => !unknown.includes(n)) }, unknown };
 }

@@ -951,6 +951,41 @@ describe('objective, next action, blockers', () => {
     expect(attempted).toBe(first);
   });
 
+  it('lets a real interpretation replace a PROVISIONAL objective, once', () => {
+    // Every stage past `interpret` is gated on a non-empty outcome, so the field cannot
+    // start blank and wait — it is seeded from the request. Write-once then made that seed
+    // permanent, so an interpretation could never land. Write-once belongs on the
+    // interpretation, not on the placeholder holding its seat.
+    const seeded = setObjective(base(), {
+      outcome: 'cut this to 60s',
+      acceptance: [{ description: 'cut this to 60s' }],
+      provisional: true,
+    });
+    expect(seeded.objective.provisional).toBe(true);
+    expect(isInterpreted(seeded)).toBe(true);
+
+    const interpreted = setObjective(seeded, {
+      outcome: '≤60s vertical cut, captioned',
+      acceptance: [{ description: 'duration at or under 60 seconds' }],
+    });
+    expect(interpreted.objective.outcome).toBe('≤60s vertical cut, captioned');
+    expect(interpreted.objective.provisional).toBe(false);
+    // …and it is now protected like any interpretation.
+    expect(setObjective(interpreted, { outcome: 'drift', acceptance: [] })).toBe(interpreted);
+  });
+
+  it('does not let a second placeholder overwrite the first', () => {
+    // Two provisional writes in a row must not make the objective a moving target.
+    const seeded = setObjective(base(), {
+      outcome: 'cut this to 60s',
+      acceptance: [],
+      provisional: true,
+    });
+    expect(
+      setObjective(seeded, { outcome: 'contine', acceptance: [], provisional: true }),
+    ).toBe(seeded);
+  });
+
   it('carries the next action and the blocker that reopens a closed read', () => {
     const action = { stage: 'apply' as const, action: 'apply the three ripple deletes' };
     const state = setNextAction(base(), action);
