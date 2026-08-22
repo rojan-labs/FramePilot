@@ -3,7 +3,7 @@
 import type { GeneratedPricing } from './pricing-types';
 
 export const GENERATED_PRICING: GeneratedPricing = {
-  "fetchedAt": "2026-08-08T14:18:24.479Z",
+  "fetchedAt": "2026-08-22T06:58:25.487Z",
   "currency": "USD",
   "plans": {
     "pro": {

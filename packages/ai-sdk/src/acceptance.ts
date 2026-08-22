@@ -67,11 +67,17 @@ export function explicitMinShotCount(prompt: string): number | undefined {
   const pattern = new RegExp(`\\b(\\d+)\\s*\\+?\\s*(?:[a-z-]+\\s+){0,3}(?:${SHOT_NOUNS})\\b`);
   const match = pattern.exec(normalized);
   if (!match?.[1]) return undefined;
+  // The pattern captures digits only, so this is always a number; the range check below is
+  // what rejects both the implausible values and the absurd ones (a 400-digit string reads as
+  // Infinity, which fails the upper bound).
   const count = Number(match[1]);
-  if (!Number.isInteger(count)) return undefined;
   if (count < MIN_MEANINGFUL_SHOT_COUNT || count > MAX_MEANINGFUL_SHOT_COUNT) return undefined;
   // A number that is really a duration ("30 second cuts") is not a shot count.
-  if (new RegExp(`\\b${match[1]}\\s*(?:s|sec|secs|second|seconds|m|min|mins|minutes)\\b`).test(normalized)) {
+  if (
+    new RegExp(`\\b${match[1]}\\s*(?:s|sec|secs|second|seconds|m|min|mins|minutes)\\b`).test(
+      normalized,
+    )
+  ) {
     return undefined;
   }
   return count;

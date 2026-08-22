@@ -75,4 +75,17 @@ describe('cropObjectPosition', () => {
     expect(cropObjectPosition({ x: 0.9, y: 0, width: 0.5, height: 1 })[0]).toBe(100);
     expect(cropObjectPosition({ x: -0.2, y: 0, width: 0.5, height: 1 })[0]).toBe(0);
   });
+
+  it('centres a full-width crop, and any axis whose arithmetic goes non-finite', () => {
+    // Full width means no horizontal travel: dividing by it would be a division by zero, and
+    // a NaN in `object-position` silently drops the whole declaration.
+    expect(cropObjectPosition(FULL_FRAME)).toEqual([50, 50]);
+    expect(cropObjectPosition({ x: 0.25, y: 0.25, width: 1, height: 1 })).toEqual([50, 50]);
+    // A crop wider than the frame it sits in (a hand-edited project) has NEGATIVE travel,
+    // which means it already covers everything — centring is the honest answer there too.
+    expect(cropObjectPosition({ x: 0.1, y: 0.1, width: 1.5, height: 2 })).toEqual([50, 50]);
+    // A non-finite axis centres; the other axis is unaffected (y: 0 of a half-height crop
+    // is the top edge, which is a real answer).
+    expect(cropObjectPosition({ x: Number.NaN, y: 0, width: 0.5, height: 0.5 })).toEqual([50, 0]);
+  });
 });
