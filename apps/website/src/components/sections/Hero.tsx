@@ -16,7 +16,7 @@ export function Hero() {
               With an agent.
             </h1>
             <p className="mx-auto mt-7 max-w-[650px] text-[16px] leading-7 text-fg-secondary sm:text-[18px] sm:leading-8">
-              Edit by hand when precision matters. Ask FramePilot when language is faster. Every supported AI edit lands on the same timeline and stays editable.
+              Cut it by hand when that&rsquo;s faster. Ask for it in a sentence when that&rsquo;s faster. Either way you get a timeline you can keep editing, not a file you have to accept.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <DownloadButton size="lg" />

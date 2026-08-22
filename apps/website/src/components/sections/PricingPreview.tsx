@@ -24,7 +24,7 @@ export function PricingPreview({ plan }: { plan: PricingPlan | null }) {
             One editor. One subscription.
           </h2>
           <p className="mt-5 text-[15px] leading-7 text-fg-secondary">
-            No per-export meter. The timeline and supported agent workflow are the product.
+            No per-export meter, no credits to top up. You pay for the editor.
           </p>
         </div>
 

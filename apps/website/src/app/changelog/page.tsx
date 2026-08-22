@@ -22,7 +22,7 @@ export default async function ChangelogPage() {
           <h1 className="font-display text-[length:var(--text-h1)] leading-[var(--text-h1--line-height)] tracking-[var(--text-h1--letter-spacing)]">
             What changed in FramePilot.
           </h1>
-          <p className="mt-7 max-w-xl text-[16px] leading-7 text-fg-secondary">Releases, improvements, and fixes across the editor and agent workflow.</p>
+          <p className="mt-7 max-w-xl text-[16px] leading-7 text-fg-secondary">What shipped, when it shipped, and what it changes for you.</p>
         </header>
 
         {rendered.length === 0 ? (

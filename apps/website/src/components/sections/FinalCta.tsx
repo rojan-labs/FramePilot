@@ -11,7 +11,7 @@ export function FinalCta() {
             Put the agent on your timeline.
           </h2>
           <p className="mt-6 max-w-xl text-[15px] leading-7 text-fg-secondary sm:text-[16px]">
-            Download the desktop build, open a real project, and decide where language should save you time.
+            Download the desktop build, open something you&rsquo;re actually working on, and see how far a sentence gets you.
           </p>
           <div className="mt-8">
             <Button href="/download" size="lg">

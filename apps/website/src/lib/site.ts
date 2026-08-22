@@ -12,7 +12,7 @@ export const site = {
   name: 'FramePilot',
   tagline: 'Your timeline, with an agent.',
   description:
-    'FramePilot is a local-first desktop video editor with an AI agent built into the real editing workflow. Edit by hand or describe the outcome, inspect concrete timeline changes, undo runs, and export through a deterministic validated render pipeline.',
+    'FramePilot is a desktop video editor with an AI agent that edits your actual timeline instead of handing back a finished file. Cut by hand or describe the change you want, see exactly what moved, undo any run, and export through a render engine that checks its own output.',
   url: SITE_URL,
   ogImage: `${SITE_URL}/og.png`,
   locale: 'en_US',
