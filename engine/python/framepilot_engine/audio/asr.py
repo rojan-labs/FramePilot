@@ -60,6 +60,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from framepilot_engine.media.ffmpeg import FFmpegNotFoundError, find_ffmpeg
+from framepilot_engine.subprocess_safety import validate_safe_argv
 from framepilot_engine.timeline.models import TranscriptWord
 
 _log = logging.getLogger(__name__)
@@ -707,12 +708,15 @@ SubprocessRunner = Callable[[Sequence[str], float | None], None]
 
 
 def _default_runner(argv: Sequence[str], timeout: float | None) -> None:
+    # Argument-injection gate (PRD §18): argv carries user-derived media/model
+    # paths; validate shape before exec.
+    args = validate_safe_argv(argv)
     try:
-        completed = subprocess.run(list(argv), capture_output=True, timeout=timeout, check=False)
+        completed = subprocess.run(args, capture_output=True, timeout=timeout, check=False)
     except FileNotFoundError as exc:
-        raise AsrTranscriptionError(f"Binary not found: {argv[0]!r}") from exc
+        raise AsrTranscriptionError(f"Binary not found: {args[0]!r}") from exc
     except subprocess.TimeoutExpired as exc:
-        raise AsrTranscriptionError(f"Timed out after {timeout}s: {argv[0]!r}") from exc
+        raise AsrTranscriptionError(f"Timed out after {timeout}s: {args[0]!r}") from exc
     if completed.returncode != 0:
         stderr = completed.stderr.decode("utf-8", errors="replace").strip()
         raise AsrTranscriptionError(
