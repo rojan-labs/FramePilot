@@ -10,7 +10,7 @@ export default function NotFound() {
           This scene got cut.
         </h1>
         <p className="mt-5 max-w-lg text-[16px] leading-7 text-fg-secondary">
-          The page you&rsquo;re looking for moved, was removed, or never made it into the final sequence.
+          This page moved, got deleted, or never made the final cut.
         </p>
         <div className="mt-7">
           <Button href="/" size="lg">

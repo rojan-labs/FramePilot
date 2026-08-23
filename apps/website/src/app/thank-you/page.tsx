@@ -21,7 +21,7 @@ const STEPS = [
   {
     icon: Download,
     title: 'Download FramePilot',
-    desc: 'Grab the app for your platform below — macOS, Windows, or Linux.',
+    desc: 'Grab the app for your platform below: macOS, Windows, or Linux.',
   },
   {
     icon: KeyRound,

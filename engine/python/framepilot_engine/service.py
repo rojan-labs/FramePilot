@@ -1595,26 +1595,32 @@ def create_app(
         local process cannot probe or render arbitrary files (e.g. ``/etc/passwd``
         or ``../../`` traversal) via the IPC surface.
 
-        WHY the ``projects_root is None`` branch preserves the un-contained path:
-        ``Settings.projects_root`` is sourced from the optional
-        ``FRAMEPILOT_PROJECTS_ROOT`` env var and defaults to ``None`` (see
-        ``config.py``). The packaged desktop shell always sets it, but tooling,
-        CI, and direct CLI use historically passed absolute paths with no root
-        configured. Hard-requiring it here would be a surprising breaking change
-        for those callers, so we fall back to the previous (un-contained)
-        behaviour AND log a warning, making the missing boundary observable
-        rather than silent. When a root IS configured, containment is strict.
+        WHY the ``projects_root is None`` branch fails closed: ``Settings.projects_root``
+        is sourced from the optional ``FRAMEPILOT_PROJECTS_ROOT`` env var and
+        defaults to ``None`` (see ``config.py``). The packaged desktop shell
+        always sets it. Without a root there is no sandbox boundary to enforce,
+        so accepting caller-supplied paths would let any local process probe or
+        render arbitrary files through the IPC surface — the exact path-injection
+        class PRD §18.1 forbids. We therefore refuse the request with 503
+        (a server-side misconfiguration, not a bad client request) and log an
+        error so the missing configuration is observable. When a root IS
+        configured, containment is strict.
 
-        :raises HTTPException: 400 if the path escapes a configured ``projects_root``.
+        :raises HTTPException: 400 if the path escapes a configured
+            ``projects_root``; 503 if no ``projects_root`` is configured.
         """
         root = settings.projects_root
         if root is None:
-            _log.warning(
-                "projects_root is not configured; accepting path %r without sandbox "
-                "containment. Set FRAMEPILOT_PROJECTS_ROOT to enforce the boundary.",
+            _log.error(
+                "projects_root is not configured; refusing path %r because sandbox "
+                "containment cannot be enforced. Set FRAMEPILOT_PROJECTS_ROOT.",
                 candidate,
             )
-            return Path(candidate)
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "projects_root is not configured; path-based operations are unavailable. "
+                "Set FRAMEPILOT_PROJECTS_ROOT.",
+            )
         try:
             return resolve_within(root, candidate)
         except PathTraversalError as exc:
