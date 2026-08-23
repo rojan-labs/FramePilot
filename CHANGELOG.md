@@ -6,6 +6,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Security
+
+- **Closed a critical test-runner vulnerability (CVE-2026-47429).** The Vitest
+  dev dependency used across every workspace package allowed arbitrary file
+  read and execution while its UI server was listening. Upgraded to ≥ 3.2.6 in
+  all packages, plus two test-harness timing fixes the new runner requires.
+
 ### Fixed
 
 - **The AI is told what is in your footage; it decides what to do about it.** It used to be
