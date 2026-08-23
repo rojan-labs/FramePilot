@@ -133,5 +133,7 @@ describe('readProjectFile over the parse budget', () => {
     // Everything that is not history survives — the user loses undo, not work.
     expect(loaded.id).toBe(project.id);
     expect(loaded.timeline).toEqual(project.timeline);
-  });
+    // The ~160MB fixture is intentionally heavy; the default 5s budget only
+    // holds on an idle machine, so give the stress run real headroom.
+  }, 30_000);
 });
