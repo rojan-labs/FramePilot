@@ -8,11 +8,11 @@ export function BeforeAfter() {
           <div className="max-w-4xl">
             <p className="font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-white/35">The difference</p>
             <h2 className="mt-5 font-display text-[clamp(2.8rem,6vw,6.2rem)] font-semibold leading-[0.9] tracking-[-0.055em] text-white">
-              AI that leaves you with a timeline, not just a file.
+              Most AI video tools hand you a file. This one hands you the timeline.
             </h2>
           </div>
           <p className="max-w-lg text-[15px] leading-7 text-white/50">
-            A finished MP4 is a dead end when the next change arrives. FramePilot leaves cuts, captions, timing, transforms, audio, and operation history inside the editable project.
+            A finished MP4 is a dead end the moment someone asks for one more change. Here the cuts, captions, timing, and audio are all still sitting in the project where you can reach them.
           </p>
         </div>
 

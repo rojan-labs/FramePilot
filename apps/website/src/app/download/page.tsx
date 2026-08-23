@@ -21,7 +21,7 @@ export default function DownloadPage() {
             FramePilot on your desktop.
           </h1>
           <p className="mt-7 max-w-2xl text-[16px] leading-7 text-fg-secondary sm:text-[17px]">
-            Install the latest pre-release build for your platform. Open a local project and use the same editor for manual and agent-assisted work.
+            Grab the latest pre-release build for your platform. It runs locally, and your footage stays where it already is.
           </p>
         </header>
 
@@ -30,7 +30,7 @@ export default function DownloadPage() {
         </div>
 
         <div className="mt-10 flex flex-col gap-4 border-t border-line pt-6 text-[12px] text-fg-tertiary sm:flex-row sm:items-center sm:justify-between">
-          <p>Activation uses your FramePilot license key when required.</p>
+          <p>You&rsquo;ll need your license key to activate.</p>
           <div className="flex gap-5">
             <Link href="/pricing" className="font-medium text-fg hover:text-accent">Pricing</Link>
             <Link href="/changelog" className="font-medium text-fg hover:text-accent">Changelog</Link>

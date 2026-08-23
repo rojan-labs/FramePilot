@@ -147,8 +147,10 @@ def test_inspect_media_route(client: TestClient, media_factory: Callable[..., Pa
     assert resp.json()["streams"]
 
 
-def test_inspect_media_route_missing_file(client: TestClient) -> None:
-    resp = client.post("/inspect-media", json={"input_path": "/no/such.mp4"})
+def test_inspect_media_route_missing_file(
+    client: TestClient, projects_root: Path
+) -> None:
+    resp = client.post("/inspect-media", json={"input_path": str(projects_root / "no-such.mp4")})
     assert resp.status_code == 404
 
 
@@ -156,6 +158,7 @@ def test_inspect_media_route_missing_file(client: TestClient) -> None:
 def test_inspect_media_route_non_media_returns_422(client: TestClient, tmp_path: Path) -> None:
     bogus = tmp_path / "notmedia.mp4"
     bogus.write_text("this is not a media file")
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
     resp = client.post("/inspect-media", json={"input_path": str(bogus)})
     assert resp.status_code == 422
 
@@ -391,14 +394,14 @@ def test_asset_media_thumbnail_ffmpeg_failure_degrades(
     assert body["peaks"]
 
 
-def test_asset_media_video_unsandboxed_thumbnails_null(
+def test_asset_media_video_derive_failure_thumbnails_null(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # No projects_root configured → no contained dir → thumbnails degrade to null.
+    # Undecodable media → thumbnail derivation fails → honest null (never 500).
     _fake_media_module(monkeypatch, has_video=True, duration=8.0)
     src = tmp_path / "vid.mp4"
     src.write_bytes(b"fake media bytes")
-    client = TestClient(create_app())  # default settings, projects_root None
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
 
     resp = client.post("/asset-media", json={"input_path": str(src), "thumbnails": 5})
     assert resp.status_code == 200
@@ -457,8 +460,10 @@ def test_asset_media_threads_configured_timeout_to_subprocesses(
     assert seen == {"inspect": 17.0, "waveform": 17.0, "thumbnails": 17.0}
 
 
-def test_asset_media_missing_file_returns_404(client: TestClient) -> None:
-    resp = client.post("/asset-media", json={"input_path": "/no/such/asset.mp4"})
+def test_asset_media_missing_file_returns_404(
+    client: TestClient, projects_root: Path
+) -> None:
+    resp = client.post("/asset-media", json={"input_path": str(projects_root / "no-such.mp4")})
     assert resp.status_code == 404
 
 
@@ -542,12 +547,13 @@ def test_render_route_bad_project_returns_400(client: TestClient) -> None:
 
 @pytest.mark.usefixtures("require_ffprobe")
 def test_render_preview_route_completes(
-    client: TestClient, tmp_project_dir: Path, media_factory: Callable[..., Path]
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
 ) -> None:
     src = media_factory("clip.mp4", seconds=1.0, with_audio=False)
     (tmp_project_dir / "clip.mp4").write_bytes(src.read_bytes())
     project_path = _write_video_project(tmp_project_dir)
 
+    client = TestClient(create_app(Settings(projects_root=tmp_project_dir)))
     resp = client.post("/render/preview", json={"project_path": str(project_path)})
     assert resp.status_code == 200
     job: dict[str, Any] = resp.json()
@@ -562,9 +568,12 @@ def test_render_preview_route_completes(
 # wiring is tested without paying for ffmpeg or a real render pipeline.
 
 
-def _client_with_fake_queue(executor: Callable[..., RenderJob]) -> TestClient:
+def _client_with_fake_queue(
+    executor: Callable[..., RenderJob], projects_root: Path | None = None
+) -> TestClient:
     queue = RenderQueue(executor=executor)
-    return TestClient(create_app(render_queue=queue))
+    settings = Settings(projects_root=projects_root) if projects_root else Settings()
+    return TestClient(create_app(settings, render_queue=queue))
 
 
 def _gated_executor() -> tuple[Callable[..., RenderJob], threading.Event, threading.Event]:
@@ -609,7 +618,7 @@ def test_render_route_returns_202_with_job_id_immediately(
     project_path = _write_video_project(tmp_project_dir)
 
     executor, _started, release = _gated_executor()
-    fake_client = _client_with_fake_queue(executor)
+    fake_client = _client_with_fake_queue(executor, projects_root=tmp_project_dir)
     try:
         start = time.monotonic()
         resp = fake_client.post(
@@ -639,7 +648,7 @@ def test_render_job_status_transitions_queued_running_completed(
     project_path = _write_video_project(tmp_project_dir)
 
     executor, started, release = _gated_executor()
-    fake_client = _client_with_fake_queue(executor)
+    fake_client = _client_with_fake_queue(executor, projects_root=tmp_project_dir)
     try:
         resp = fake_client.post("/render", json={"project_path": str(project_path)})
         job_id = resp.json()["jobId"]
@@ -670,7 +679,7 @@ def test_render_job_status_failed(
             id="job", project_id=req.project.id, state=RenderState.FAILED, error="boom"
         )
 
-    fake_client = _client_with_fake_queue(failing_executor)
+    fake_client = _client_with_fake_queue(failing_executor, projects_root=tmp_project_dir)
     resp = fake_client.post("/render", json={"project_path": str(project_path)})
     job_id = resp.json()["jobId"]
 
@@ -696,7 +705,7 @@ def test_render_job_cancel_while_running(
     project_path = _write_video_project(tmp_project_dir)
 
     executor, started, release = _gated_executor()
-    fake_client = _client_with_fake_queue(executor)
+    fake_client = _client_with_fake_queue(executor, projects_root=tmp_project_dir)
     try:
         resp = fake_client.post("/render", json={"project_path": str(project_path)})
         job_id = resp.json()["jobId"]
@@ -788,6 +797,30 @@ def test_render_preview_rejects_paths_outside_sandbox(
     assert "escapes sandbox" in resp.json()["detail"]
 
 
+# With NO root configured the sidecar fails closed (503): there is no sandbox
+# boundary to enforce, so caller-supplied paths are refused, not accepted.
+def test_inspect_media_fails_closed_without_projects_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("FRAMEPILOT_PROJECTS_ROOT", raising=False)
+    client = TestClient(create_app())
+    resp = client.post("/inspect-media", json={"input_path": "/tmp/whatever.mp4"})
+    assert resp.status_code == 503
+    detail = resp.json()["detail"]
+    assert "projects_root is not configured" in detail
+    assert "FRAMEPILOT_PROJECTS_ROOT" in detail
+
+
+def test_asset_media_fails_closed_without_projects_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("FRAMEPILOT_PROJECTS_ROOT", raising=False)
+    client = TestClient(create_app())
+    resp = client.post("/asset-media", json={"input_path": "/tmp/whatever.mp4"})
+    assert resp.status_code == 503
+    assert "projects_root is not configured" in resp.json()["detail"]
+
+
 @pytest.mark.usefixtures("require_ffprobe")
 def test_inspect_media_allows_path_inside_sandbox(
     tmp_path: Path, media_factory: Callable[..., Path]
@@ -857,7 +890,9 @@ def test_analyze_silence_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(service_module, "detect_silence", _fake_detect)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app(Settings(asset_media_timeout_seconds=11)))
+    client = TestClient(
+        create_app(Settings(projects_root=tmp_path, asset_media_timeout_seconds=11))
+    )
 
     resp = client.post(
         "/analyze-silence",
@@ -890,7 +925,7 @@ def test_analyze_silence_route_selects_named_asset(
 
     monkeypatch.setattr(service_module, "detect_silence", _fake_detect)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
 
     resp = client.post(
         "/analyze-silence",
@@ -903,7 +938,7 @@ def test_analyze_silence_route_selects_named_asset(
 
 def test_analyze_silence_route_unknown_asset_404(tmp_path: Path) -> None:
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
     resp = client.post(
         "/analyze-silence", json={"project_path": str(project_path), "asset_id": "ghost"}
     )
@@ -929,7 +964,7 @@ def test_analyze_silence_route_ffmpeg_error_422(
 
     monkeypatch.setattr(service_module, "detect_silence", _boom)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
     resp = client.post("/analyze-silence", json={"project_path": str(project_path)})
     assert resp.status_code == 422
 
@@ -948,7 +983,7 @@ def test_analyze_silence_route_reports_a_video_only_asset_as_an_empty_result(
 
     monkeypatch.setattr(service_module, "detect_silence", _silent)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app(Settings()))
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
     resp = client.post("/analyze-silence", json={"project_path": str(project_path)})
     assert resp.status_code == 200
     body = resp.json()
@@ -971,7 +1006,7 @@ def test_detect_scenes_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr(service_module, "detect_scenes", _fake_detect)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
 
     resp = client.post("/detect-scenes", json={"project_path": str(project_path), "threshold": 0.6})
     assert resp.status_code == 200
@@ -993,7 +1028,7 @@ def test_detect_scenes_route_no_video_asset_404(tmp_path: Path) -> None:
     )
     dest = tmp_path / "audio_only.project.fp.json"
     ProjectFile.save(project, dest)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
     resp = client.post("/detect-scenes", json={"project_path": str(dest)})
     assert resp.status_code == 404
 
@@ -1009,7 +1044,7 @@ def test_detect_scenes_route_ffmpeg_error_422(
 
     monkeypatch.setattr(service_module, "detect_scenes", _boom)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
     resp = client.post("/detect-scenes", json={"project_path": str(project_path)})
     assert resp.status_code == 422
 
@@ -1166,7 +1201,7 @@ def test_detect_beats_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 
     monkeypatch.setattr(service_module, "detect_beats", _fake_detect)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app(Settings(asset_media_timeout_seconds=9)))
+    client = TestClient(create_app(Settings(projects_root=tmp_path, asset_media_timeout_seconds=9)))
 
     resp = client.post(
         "/detect-beats",
@@ -1197,7 +1232,7 @@ def test_detect_beats_route_defaults_and_ffmpeg_error_422(
 
     monkeypatch.setattr(service_module, "detect_beats", _boom)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app(Settings()))
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
     resp = client.post("/detect-beats", json={"project_path": str(project_path)})
     assert resp.status_code == 422
     assert seen["sensitivity"] == DEFAULT_SENSITIVITY
@@ -1220,7 +1255,7 @@ def test_detect_beats_route_reports_a_silent_asset_as_an_empty_result(
 
     monkeypatch.setattr(service_module, "detect_beats", _silent)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app(Settings()))
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
     resp = client.post("/detect-beats", json={"project_path": str(project_path)})
     assert resp.status_code == 200
     body = resp.json()
@@ -1246,7 +1281,7 @@ def test_detect_beats_route_prefers_an_audio_asset_when_given_no_id(
     monkeypatch.setattr(service_module, "detect_beats", _detect)
     # The fixture lists the video first and the music track second.
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app(Settings()))
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
     resp = client.post("/detect-beats", json={"project_path": str(project_path)})
     assert resp.status_code == 200
     assert resp.json()["assetId"] == "mus"
@@ -1267,7 +1302,7 @@ def test_detect_beats_route_logs_an_underivable_tempo_without_crashing(
         lambda path, *, sensitivity, timeout=None: BeatAnalysis(beats=[], bpm=None),
     )
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app(Settings()))
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
     resp = client.post("/detect-beats", json={"project_path": str(project_path)})
     assert resp.status_code == 200
     assert resp.json()["bpm"] is None
@@ -1555,7 +1590,9 @@ def test_transcribe_route_returns_words(tmp_path: Path, monkeypatch: pytest.Monk
 
     monkeypatch.setattr(service_module, "transcribe", _fake_transcribe)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app(Settings(asset_media_timeout_seconds=13)))
+    client = TestClient(
+        create_app(Settings(projects_root=tmp_path, asset_media_timeout_seconds=13))
+    )
 
     resp = client.post("/transcribe", json={"project_path": str(project_path), "asset_id": "mus"})
     assert resp.status_code == 200
@@ -1591,7 +1628,7 @@ def test_asr_prepare_audio_route_returns_wav_bytes(
 
     monkeypatch.setattr(service_module, "extract_mono16k_wav", _fake_extract)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
 
     resp = client.post(
         "/asr/prepare-audio", json={"project_path": str(project_path), "asset_id": "mus"}
@@ -1614,7 +1651,7 @@ def test_asr_prepare_audio_route_maps_asr_error_to_422(
 
     monkeypatch.setattr(service_module, "extract_mono16k_wav", _boom)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
     resp = client.post(
         "/asr/prepare-audio", json={"project_path": str(project_path), "asset_id": "mus"}
     )
@@ -1635,7 +1672,7 @@ def test_transcribe_route_binary_missing_returns_503(
 
     monkeypatch.setattr(service_module, "transcribe", _boom)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
     resp = client.post("/transcribe", json={"project_path": str(project_path), "asset_id": "mus"})
     assert resp.status_code == 503
     assert "whisper-cli" in resp.text
@@ -1654,7 +1691,7 @@ def test_transcribe_route_model_missing_returns_503(
 
     monkeypatch.setattr(service_module, "transcribe", _boom)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
     resp = client.post("/transcribe", json={"project_path": str(project_path), "asset_id": "mus"})
     assert resp.status_code == 503
     assert "setup" in resp.text.lower()
@@ -1673,7 +1710,7 @@ def test_transcribe_route_asr_error_returns_422(
 
     monkeypatch.setattr(service_module, "transcribe", _boom)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
     resp = client.post("/transcribe", json={"project_path": str(project_path), "asset_id": "mus"})
     assert resp.status_code == 422
 
