@@ -5,9 +5,9 @@ import { AppMockup, type EditorStoryPhase } from './AppMockup';
 
 const STEPS: ReadonlyArray<{ phase: EditorStoryPhase; label: string }> = [
   { phase: 'idle', label: 'Footage imported. Timeline untouched.' },
-  { phase: 'prompt', label: 'Ask for the outcome in plain language.' },
-  { phase: 'working', label: 'The agent works directly on the project.' },
-  { phase: 'complete', label: 'The edit remains a normal, editable timeline.' },
+  { phase: 'prompt', label: 'Ask for what you want, in a sentence.' },
+  { phase: 'working', label: 'The agent edits the real project.' },
+  { phase: 'complete', label: "You're left with a timeline you can still edit." },
 ] as const;
 
 function clamp(value: number, min: number, max: number) {
