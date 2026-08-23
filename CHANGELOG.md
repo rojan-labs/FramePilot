@@ -24,6 +24,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   signed install would. Failed health checks register nothing; digests are computed from actual
   payload content. Never available in packaged builds.
 
+### Security
+
+- **Hardened every external-binary launch against argument injection.**
+  ffmpeg, ffprobe and whisper-cli invocations now pass through one audited
+  validation gate before anything executes: arguments must be plain strings,
+  NUL bytes are rejected outright, the binary itself can never be
+  option-shaped, and dash-leading operand paths are defused. Values that reach
+  these commands ultimately come from user or agent input, so a hostile value
+  can no longer be shaped into an option of the target binary.
+
 ### Fixed
 
 - **The AI is told what is in your footage; it decides what to do about it.** It used to be
