@@ -169,6 +169,7 @@ import { ExportHub } from './render/export-hub.js';
 import { saveExportAs } from './render/export-save.js';
 import { importAssetViaSidecar } from './media/asset-media-client.js';
 import { MusicService } from './media/music-service.js';
+import { musicErrorMessage } from '@framepilot/ai-sdk';
 import { LocalTelemetry, telemetryEnabledFromEnv } from './telemetry/telemetry.js';
 import { resolveUpdateChannel } from './updater/channel.js';
 import { createAutoUpdaterProvider, type AutoUpdaterLike } from './updater/auto-updater.js';
@@ -1733,11 +1734,93 @@ function registerIpcHandlers(): void {
       return { status: 'failed', summary: `transcribe failed: ${errorMessage(error)}` };
     }
   };
+  /**
+   * `search_music` for the agent — the same main-process service the Sounds
+   * panel uses, so a track the agent finds is a track a person could have found.
+   */
+  const hostMusicSearch = async (
+    query: string,
+    limit: number | undefined,
+  ): Promise<HostToolOutcome> => {
+    if (query.trim() === '') {
+      return { status: 'failed', summary: 'search_music needs something to search for.' };
+    }
+    const result = await musicService.search(query, limit);
+    if (!result.ok) {
+      // The provider's own reason, verbatim. "Something went wrong" would leave
+      // the model unable to tell a rate limit from an outage, and it would
+      // retry the one case where retrying is exactly wrong.
+      return { status: 'failed', summary: musicErrorMessage(result.error, result.detail) };
+    }
+    if (result.tracks.length === 0) {
+      // Nothing matched is not a failure, but it is also NOT a success the model
+      // should build on — `warning` is the arm that says "ran, nothing to do".
+      return {
+        status: 'warning',
+        summary: `No tracks matched "${query}". Try a broader mood word.`,
+        data: { tracks: [] },
+      };
+    }
+    return {
+      status: 'completed',
+      summary: `Found ${result.tracks.length} track${result.tracks.length === 1 ? '' : 's'} for "${query}".`,
+      data: { tracks: result.tracks },
+    };
+  };
+
+  /**
+   * `add_music` for the agent — download and materialize; the ORCHESTRATOR turns
+   * the returned asset into operations. This function deliberately produces no
+   * timeline change of its own (AGENTS.md invariant 5).
+   */
+  const hostAddMusic = async (
+    project: Project,
+    remoteId: string,
+    _signal?: AbortSignal,
+  ): Promise<HostToolOutcome> => {
+    if (remoteId.trim() === '') {
+      return {
+        status: 'failed',
+        summary: 'add_music needs the remoteId of a track from search_music.',
+      };
+    }
+    const result = await musicService.download({
+      projectId: project.id,
+      remoteId,
+      operationId: `agent_${remoteId}_${Date.now()}`,
+    });
+    if (!result.ok) {
+      return { status: 'failed', summary: musicErrorMessage(result.error, result.detail) };
+    }
+    const { asset } = result;
+    return {
+      status: 'completed',
+      summary: `Downloaded "${asset.relativePath}".`,
+      data: {
+        asset: {
+          id: `music_${asset.source.provider}_${asset.source.remoteId}`.replace(
+            /[^a-zA-Z0-9_]/g,
+            '_',
+          ),
+          path: asset.relativePath,
+          kind: 'audio',
+          ...(asset.durationSeconds === undefined
+            ? {}
+            : { durationSeconds: asset.durationSeconds }),
+          ...(asset.media ? { media: asset.media } : {}),
+          source: asset.source,
+        },
+      },
+    };
+  };
+
   const toolExecutor = createSidecarExecutor({
     baseUrl: engineBaseUrl,
     fetchFn: electronFetch,
     visualIndexCredentials,
     hostTranscribe,
+    hostMusicSearch,
+    hostAddMusic,
   });
   const temporalEvidence = createTemporalEvidenceAcquirer({
     baseUrl: engineBaseUrl,

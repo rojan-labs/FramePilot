@@ -173,4 +173,25 @@ describe('detectTimelineWipe — aggregate coverage & remove_layer', () => {
       detectTimelineWipe([{ type: 'remove_layer', layerId: 'video_1' }], reworked, guard),
     ).toBeNull();
   });
+
+  it('never trips on add_music, which only ever adds', () => {
+    // P4.5 asks whether `add_music` needs a guard trigger. It does not, and this
+    // records the answer: the guard exists to catch a run deleting work the user
+    // already had, and these three ops remove nothing. Kept as a test rather than
+    // a comment so a future widening of the guard has to notice it.
+    const ops = [
+      { type: 'add_asset', asset: { id: 'm1', path: 'media/bed.mp3', kind: 'audio' } },
+      { type: 'add_layer', layerId: 'music_1', layerType: 'audio', atIndex: 0, role: 'music' },
+      {
+        type: 'add_clip',
+        trackId: 'music_1',
+        assetId: 'm1',
+        start: 0,
+        end: 30,
+        sourceStart: 0,
+        sourceEnd: 30,
+      },
+    ] as Parameters<typeof detectTimelineWipe>[0];
+    expect(detectTimelineWipe(ops, makeProject(), guard)).toBeNull();
+  });
 });

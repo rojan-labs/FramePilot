@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19808,
+      "usedTokens": 19814,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -134,7 +134,7 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1766,
+            "tokenEstimate": 1772,
             "included": true
           },
           {
@@ -148,9 +148,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19808,
+          "estimatedInputTokensBeforeSend": 19814,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172000,
+          "estimatedRemainingCapacity": 171994,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -356,7 +356,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 20006,
+      "usedTokens": 20013,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -382,7 +382,7 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1964,
+            "tokenEstimate": 1971,
             "included": true
           },
           {
@@ -396,9 +396,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 20006,
+          "estimatedInputTokensBeforeSend": 20013,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 171802,
+          "estimatedRemainingCapacity": 171795,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -721,7 +721,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 16263,
+      "usedTokens": 16269,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -747,7 +747,7 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1986,
+            "tokenEstimate": 1992,
             "included": true
           },
           {
@@ -761,9 +761,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 16263,
+          "estimatedInputTokensBeforeSend": 16269,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 175545,
+          "estimatedRemainingCapacity": 175539,
           "calculationSource": "local_estimate"
         },
         "compaction": {

@@ -235,7 +235,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1759,
+            "tokenEstimate": 1766,
             "type": "latest_user_message",
           },
           {
@@ -248,8 +248,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19801,
-          "estimatedRemainingCapacity": 172007,
+          "estimatedInputTokensBeforeSend": 19808,
+          "estimatedRemainingCapacity": 172000,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -258,7 +258,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19801,
+      "usedTokens": 19808,
     },
     {
       "conversationId": "conv_1",
@@ -585,7 +585,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1803,
+            "tokenEstimate": 1809,
             "type": "latest_user_message",
           },
           {
@@ -598,8 +598,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19845,
-          "estimatedRemainingCapacity": 171963,
+          "estimatedInputTokensBeforeSend": 19851,
+          "estimatedRemainingCapacity": 171957,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -608,7 +608,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19845,
+      "usedTokens": 19851,
     },
     {
       "chunk": "done",
@@ -1163,7 +1163,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1759,
+            "tokenEstimate": 1766,
             "type": "latest_user_message",
           },
           {
@@ -1176,8 +1176,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19801,
-          "estimatedRemainingCapacity": 172007,
+          "estimatedInputTokensBeforeSend": 19808,
+          "estimatedRemainingCapacity": 172000,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -1186,7 +1186,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19801,
+      "usedTokens": 19808,
     },
     {
       "conversationId": "conv_1",
@@ -1472,7 +1472,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1759,
+            "tokenEstimate": 1766,
             "type": "latest_user_message",
           },
           {
@@ -1485,8 +1485,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19801,
-          "estimatedRemainingCapacity": 172007,
+          "estimatedInputTokensBeforeSend": 19808,
+          "estimatedRemainingCapacity": 172000,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -1495,7 +1495,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19801,
+      "usedTokens": 19808,
     },
     {
       "conversationId": "conv_1",
@@ -1914,7 +1914,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1759,
+            "tokenEstimate": 1766,
             "type": "latest_user_message",
           },
           {
@@ -1927,8 +1927,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19801,
-          "estimatedRemainingCapacity": 172007,
+          "estimatedInputTokensBeforeSend": 19808,
+          "estimatedRemainingCapacity": 172000,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -1937,7 +1937,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19801,
+      "usedTokens": 19808,
     },
     {
       "conversationId": "conv_1",
@@ -2000,7 +2000,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1771,
+            "tokenEstimate": 1777,
             "type": "latest_user_message",
           },
           {
@@ -2013,8 +2013,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19813,
-          "estimatedRemainingCapacity": 171995,
+          "estimatedInputTokensBeforeSend": 19819,
+          "estimatedRemainingCapacity": 171989,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -2023,7 +2023,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19813,
+      "usedTokens": 19819,
     },
     {
       "conversationId": "conv_1",
@@ -2204,7 +2204,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1759,
+            "tokenEstimate": 1766,
             "type": "latest_user_message",
           },
           {
@@ -2217,8 +2217,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19801,
-          "estimatedRemainingCapacity": 172007,
+          "estimatedInputTokensBeforeSend": 19808,
+          "estimatedRemainingCapacity": 172000,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -2227,7 +2227,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19801,
+      "usedTokens": 19808,
     },
     {
       "chunk": "all done",
@@ -2590,7 +2590,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1759,
+            "tokenEstimate": 1766,
             "type": "latest_user_message",
           },
           {
@@ -2603,8 +2603,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19801,
-          "estimatedRemainingCapacity": 172007,
+          "estimatedInputTokensBeforeSend": 19808,
+          "estimatedRemainingCapacity": 172000,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -2613,7 +2613,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19801,
+      "usedTokens": 19808,
     },
     {
       "conversationId": "conv_1",
@@ -2801,7 +2801,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1803,
+            "tokenEstimate": 1809,
             "type": "latest_user_message",
           },
           {
@@ -2814,8 +2814,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19845,
-          "estimatedRemainingCapacity": 171963,
+          "estimatedInputTokensBeforeSend": 19851,
+          "estimatedRemainingCapacity": 171957,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -2824,7 +2824,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19845,
+      "usedTokens": 19851,
     },
     {
       "chunk": "done",
@@ -3191,7 +3191,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1759,
+            "tokenEstimate": 1766,
             "type": "latest_user_message",
           },
           {
@@ -3204,8 +3204,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19801,
-          "estimatedRemainingCapacity": 172007,
+          "estimatedInputTokensBeforeSend": 19808,
+          "estimatedRemainingCapacity": 172000,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -3214,7 +3214,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19801,
+      "usedTokens": 19808,
     },
     {
       "conversationId": "conv_1",
@@ -3541,7 +3541,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1803,
+            "tokenEstimate": 1809,
             "type": "latest_user_message",
           },
           {
@@ -3554,8 +3554,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19845,
-          "estimatedRemainingCapacity": 171963,
+          "estimatedInputTokensBeforeSend": 19851,
+          "estimatedRemainingCapacity": 171957,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -3564,7 +3564,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19845,
+      "usedTokens": 19851,
     },
     {
       "chunk": "done",
@@ -3963,7 +3963,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1759,
+            "tokenEstimate": 1766,
             "type": "latest_user_message",
           },
           {
@@ -3976,8 +3976,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19801,
-          "estimatedRemainingCapacity": 172007,
+          "estimatedInputTokensBeforeSend": 19808,
+          "estimatedRemainingCapacity": 172000,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -3986,7 +3986,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19801,
+      "usedTokens": 19808,
     },
     {
       "chunk": "Splitting the intro to tighten pacing",
@@ -4330,7 +4330,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1803,
+            "tokenEstimate": 1809,
             "type": "latest_user_message",
           },
           {
@@ -4343,8 +4343,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19845,
-          "estimatedRemainingCapacity": 171963,
+          "estimatedInputTokensBeforeSend": 19851,
+          "estimatedRemainingCapacity": 171957,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -4353,7 +4353,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19845,
+      "usedTokens": 19851,
     },
     {
       "chunk": "done",
@@ -4752,7 +4752,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1759,
+            "tokenEstimate": 1766,
             "type": "latest_user_message",
           },
           {
@@ -4765,8 +4765,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19801,
-          "estimatedRemainingCapacity": 172007,
+          "estimatedInputTokensBeforeSend": 19808,
+          "estimatedRemainingCapacity": 172000,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -4775,7 +4775,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19801,
+      "usedTokens": 19808,
     },
     {
       "conversationId": "conv_1",
@@ -5331,7 +5331,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1759,
+            "tokenEstimate": 1766,
             "type": "latest_user_message",
           },
           {
@@ -5344,8 +5344,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19801,
-          "estimatedRemainingCapacity": 172007,
+          "estimatedInputTokensBeforeSend": 19808,
+          "estimatedRemainingCapacity": 172000,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -5354,7 +5354,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19801,
+      "usedTokens": 19808,
     },
     {
       "conversationId": "conv_1",
@@ -5889,7 +5889,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1841,
+            "tokenEstimate": 1848,
             "type": "latest_user_message",
           },
           {
@@ -5902,8 +5902,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19902,
-          "estimatedRemainingCapacity": 171906,
+          "estimatedInputTokensBeforeSend": 19909,
+          "estimatedRemainingCapacity": 171899,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -5912,7 +5912,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19902,
+      "usedTokens": 19909,
     },
     {
       "conversationId": "conv_1",
@@ -6295,7 +6295,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1878,
+            "tokenEstimate": 1884,
             "type": "latest_user_message",
           },
           {
@@ -6308,8 +6308,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19939,
-          "estimatedRemainingCapacity": 171869,
+          "estimatedInputTokensBeforeSend": 19945,
+          "estimatedRemainingCapacity": 171863,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -6318,7 +6318,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19939,
+      "usedTokens": 19945,
     },
     {
       "chunk": "done",
@@ -6523,7 +6523,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 2048,
+            "tokenEstimate": 2054,
             "type": "latest_user_message",
           },
           {
@@ -6536,8 +6536,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 14586,
-          "estimatedRemainingCapacity": 177222,
+          "estimatedInputTokensBeforeSend": 14592,
+          "estimatedRemainingCapacity": 177216,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -6546,7 +6546,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 14586,
+      "usedTokens": 14592,
     },
     {
       "chunk": "done",
@@ -7241,7 +7241,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1762,
+            "tokenEstimate": 1768,
             "type": "latest_user_message",
           },
           {
@@ -7254,8 +7254,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19804,
-          "estimatedRemainingCapacity": 172004,
+          "estimatedInputTokensBeforeSend": 19810,
+          "estimatedRemainingCapacity": 171998,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -7264,7 +7264,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19804,
+      "usedTokens": 19810,
     },
     {
       "chunk": "done",
@@ -7901,7 +7901,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1794,
+            "tokenEstimate": 1801,
             "type": "latest_user_message",
           },
           {
@@ -7914,8 +7914,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19836,
-          "estimatedRemainingCapacity": 171972,
+          "estimatedInputTokensBeforeSend": 19843,
+          "estimatedRemainingCapacity": 171965,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -7924,7 +7924,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19836,
+      "usedTokens": 19843,
     },
     {
       "chunk": "done",
@@ -8188,7 +8188,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1759,
+            "tokenEstimate": 1766,
             "type": "latest_user_message",
           },
           {
@@ -8201,8 +8201,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19801,
-          "estimatedRemainingCapacity": 172007,
+          "estimatedInputTokensBeforeSend": 19808,
+          "estimatedRemainingCapacity": 172000,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -8211,7 +8211,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19801,
+      "usedTokens": 19808,
     },
     {
       "conversationId": "conv_1",
@@ -8420,7 +8420,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1821,
+            "tokenEstimate": 1828,
             "type": "latest_user_message",
           },
           {
@@ -8433,8 +8433,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19863,
-          "estimatedRemainingCapacity": 171945,
+          "estimatedInputTokensBeforeSend": 19870,
+          "estimatedRemainingCapacity": 171938,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -8443,7 +8443,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19863,
+      "usedTokens": 19870,
     },
     {
       "conversationId": "conv_1",
@@ -8773,7 +8773,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1823,
+            "tokenEstimate": 1829,
             "type": "latest_user_message",
           },
           {
@@ -8786,8 +8786,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 16100,
-          "estimatedRemainingCapacity": 175708,
+          "estimatedInputTokensBeforeSend": 16106,
+          "estimatedRemainingCapacity": 175702,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -8796,7 +8796,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 16100,
+      "usedTokens": 16106,
     },
     {
       "chunk": "done",
@@ -9198,7 +9198,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1759,
+            "tokenEstimate": 1766,
             "type": "latest_user_message",
           },
           {
@@ -9211,8 +9211,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19801,
-          "estimatedRemainingCapacity": 172007,
+          "estimatedInputTokensBeforeSend": 19808,
+          "estimatedRemainingCapacity": 172000,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -9221,7 +9221,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19801,
+      "usedTokens": 19808,
     },
     {
       "conversationId": "conv_1",
@@ -9455,7 +9455,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1852,
+            "tokenEstimate": 1858,
             "type": "latest_user_message",
           },
           {
@@ -9468,8 +9468,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19894,
-          "estimatedRemainingCapacity": 171914,
+          "estimatedInputTokensBeforeSend": 19900,
+          "estimatedRemainingCapacity": 171908,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -9478,7 +9478,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19894,
+      "usedTokens": 19900,
     },
     {
       "conversationId": "conv_1",
@@ -9712,7 +9712,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 2133,
+            "tokenEstimate": 2140,
             "type": "latest_user_message",
           },
           {
@@ -9725,8 +9725,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 14652,
-          "estimatedRemainingCapacity": 177156,
+          "estimatedInputTokensBeforeSend": 14659,
+          "estimatedRemainingCapacity": 177149,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -9735,7 +9735,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 14652,
+      "usedTokens": 14659,
     },
     {
       "conversationId": "conv_1",
@@ -10155,7 +10155,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1759,
+            "tokenEstimate": 1766,
             "type": "latest_user_message",
           },
           {
@@ -10168,8 +10168,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19801,
-          "estimatedRemainingCapacity": 172007,
+          "estimatedInputTokensBeforeSend": 19808,
+          "estimatedRemainingCapacity": 172000,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -10178,7 +10178,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19801,
+      "usedTokens": 19808,
     },
     {
       "conversationId": "conv_1",
@@ -10359,7 +10359,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s3",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 1759,
+            "tokenEstimate": 1766,
             "type": "latest_user_message",
           },
           {
@@ -10372,8 +10372,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 19801,
-          "estimatedRemainingCapacity": 172007,
+          "estimatedInputTokensBeforeSend": 19808,
+          "estimatedRemainingCapacity": 172000,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -10382,7 +10382,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 19801,
+      "usedTokens": 19808,
     },
     {
       "conversationId": "conv_1",

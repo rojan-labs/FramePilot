@@ -57,7 +57,15 @@ export type MusicErrorCode = (typeof MUSIC_ERROR_CODES)[number];
  * `cancelled` is deliberately empty: the user did it on purpose, and telling them
  * so is noise. Callers must treat an empty string as "return to idle silently".
  */
-export function musicErrorMessage(code: MusicErrorCode): string {
+export function musicErrorMessage(code: MusicErrorCode, detail?: string): string {
+  const sentence = musicErrorSentence(code);
+  // The detail is a real fact the sentence cannot carry — a retry-after, an HTTP
+  // status — so it is appended rather than dropped. `cancelled` stays empty:
+  // decorating silence would defeat the point of it.
+  return sentence === '' || detail === undefined ? sentence : `${sentence} (${detail})`;
+}
+
+function musicErrorSentence(code: MusicErrorCode): string {
   switch (code) {
     case 'unauthorized':
       return 'The music provider rejected this request.';
