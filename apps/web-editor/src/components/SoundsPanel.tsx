@@ -312,13 +312,15 @@ export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Elem
   const onRowKeyDown = useCallback(
     (event: React.KeyboardEvent, index: number, track: MusicTrackWire): void => {
       const move = (to: number): void => {
-        const next = tracks[Math.max(0, Math.min(tracks.length - 1, to))];
+        const clamped = Math.max(0, Math.min(tracks.length - 1, to));
+        const next = tracks[clamped];
         if (!next) return;
         event.preventDefault();
         setFocusedId(next.remoteId);
-        listRef.current
-          ?.querySelector<HTMLElement>(`[data-remote-id="${CSS.escape(next.remoteId)}"]`)
-          ?.focus();
+        // By position, not by an attribute selector built from a provider id:
+        // a `remoteId` is arbitrary provider text, and escaping it correctly for
+        // a selector is a needless dependency on `CSS.escape`.
+        listRef.current?.querySelectorAll<HTMLElement>('.sounds-row')[clamped]?.focus();
       };
       switch (event.key) {
         case 'ArrowDown':

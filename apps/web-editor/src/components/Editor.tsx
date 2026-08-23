@@ -43,6 +43,9 @@ import { MediaBin } from './MediaBin.js';
 import { EffectsPanel } from './EffectsPanel.js';
 import { OverlaysPanel } from './OverlaysPanel.js';
 import { TransitionsPanel } from './TransitionsPanel.js';
+import { SoundsPanel } from './SoundsPanel.js';
+import { addMusicTrackPatch } from '../editor/patch-builders.js';
+import { isDesktop } from '../editor/bridge.js';
 import { Toasts } from './Toasts.js';
 import { HistoryPanel } from './HistoryPanel.js';
 import { FootageUnderstandingPanel } from './FootageUnderstandingPanel.js';
@@ -61,6 +64,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   ArrowLeftRight,
+  Music,
   Type,
   Wand2,
 } from './icons.js';
@@ -99,7 +103,7 @@ export interface EditorProps {
   readonly onCloseTranscription?: () => void;
 }
 
-type LeftTab = 'media' | 'effects' | 'transitions' | 'overlays' | 'captions';
+type LeftTab = 'media' | 'effects' | 'transitions' | 'overlays' | 'captions' | 'sounds';
 type RightTab = 'ai' | 'inspector';
 
 const LEFT_TABS: readonly { id: LeftTab; label: string; icon: LucideIcon }[] = [
@@ -108,7 +112,20 @@ const LEFT_TABS: readonly { id: LeftTab; label: string; icon: LucideIcon }[] = [
   { id: 'transitions', label: 'Transitions', icon: ArrowLeftRight },
   { id: 'overlays', label: 'Text', icon: Type },
   { id: 'captions', label: 'Captions', icon: Captions },
+  { id: 'sounds', label: 'Sounds', icon: Music },
 ];
+
+/**
+ * The tabs actually shown.
+ *
+ * Sounds needs the main process to reach a provider — the renderer's CSP forbids
+ * it, deliberately — so in a plain browser the tab is **absent** rather than
+ * present-and-broken. A tab that opens a panel explaining it cannot work is
+ * worse than no tab: it costs a click to learn nothing.
+ */
+function visibleLeftTabs(): readonly { id: LeftTab; label: string; icon: LucideIcon }[] {
+  return isDesktop() ? LEFT_TABS : LEFT_TABS.filter((tab) => tab.id !== 'sounds');
+}
 
 const RIGHT_TABS: readonly { id: RightTab; label: string; icon: LucideIcon }[] = [
   { id: 'ai', label: 'AI', icon: Wand2 },
@@ -378,6 +395,18 @@ export function Editor({
   const effectsEl = useMemo(() => <EffectsPanel editor={editor} />, [nonPlayheadKey]);
   const overlaysEl = useMemo(() => <OverlaysPanel editor={editor} />, [nonPlayheadKey]);
   const transitionsEl = useMemo(() => <TransitionsPanel editor={editor} />, [nonPlayheadKey]);
+  const soundsEl = useMemo(
+    () => (
+      <SoundsPanel
+        project={project}
+        onAddMusic={(asset) => {
+          // One patch: bin + music layer + clip. One undo takes all three back.
+          editor.applyPatch(addMusicTrackPatch(editor.state.timeline, asset));
+        }}
+      />
+    ),
+    [nonPlayheadKey, project],
+  );
   const openTransitionLibrary = useCallback(() => setLeftTab('transitions'), []);
   const aiProject = useMemo(
     () => projectForAi(project, editor.state),
@@ -490,7 +519,7 @@ export function Editor({
         children: (
           <>
             <nav className="rail-activitybar" role="tablist" aria-label="library tabs">
-              {LEFT_TABS.map(({ id, label, icon: Icon }) => (
+              {visibleLeftTabs().map(({ id, label, icon: Icon }) => (
                 <Tooltip key={id} label={label} placement="right">
                   <button
                     type="button"
@@ -538,6 +567,7 @@ export function Editor({
                 {leftTab === 'media' && mediaBinEl}
                 {leftTab === 'effects' && effectsEl}
                 {leftTab === 'transitions' && transitionsEl}
+                {leftTab === 'sounds' && soundsEl}
                 {leftTab === 'overlays' && overlaysEl}
                 {leftTab === 'captions' && (
                   <CaptionEditor

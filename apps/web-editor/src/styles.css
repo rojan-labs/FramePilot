@@ -7607,6 +7607,209 @@ details.inspector-panel[open] > .inspector-section-head::before {
   color: var(--danger);
 }
 
+/* ---------------------------------------------------------------------------
+   Sounds panel — third-party music search (plan/3rd-party-sourcing).
+   Token-driven, reusing the existing palette and Button variants (ADR 0028).
+   No parallel component language.
+   --------------------------------------------------------------------------- */
+.sounds-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+  min-height: 0;
+}
+
+.sounds-search {
+  display: block;
+}
+.sounds-search-input {
+  width: 100%;
+  padding: var(--space-2);
+  font-size: 0.85rem;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+}
+.sounds-search-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.sounds-hint,
+.sounds-note {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.sounds-error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--danger);
+}
+
+.sounds-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+/* Re-searching dims the previous results rather than clearing them: a list that
+   blanks on every keystroke makes the panel feel broken while it works. */
+.sounds-list.is-stale {
+  opacity: 0.5;
+}
+
+.sounds-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  /* Fixed height, shared with the skeleton, so nothing shifts as results land. */
+  min-height: 52px;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm, 6px);
+}
+.sounds-row:hover {
+  background: var(--surface-2);
+}
+.sounds-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.sounds-row--skeleton {
+  background: var(--surface-2);
+  opacity: 0.6;
+}
+
+.sounds-play {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.sounds-play:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.sounds-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: sounds-spin 0.7s linear infinite;
+}
+@keyframes sounds-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sounds-spinner {
+    animation: none;
+  }
+}
+
+.sounds-meta {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.sounds-title {
+  overflow: hidden;
+  font-size: 0.82rem;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sounds-sub {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  font-size: 0.72rem;
+  color: var(--muted-2);
+}
+.sounds-duration {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Both licence states are labelled. An unlabelled row would read as "unknown",
+   which is the one thing a licence badge must never mean. */
+.sounds-badge {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sounds-badge--credit {
+  color: var(--accent);
+}
+.sounds-badge--free {
+  color: var(--muted-2);
+}
+
+.sounds-row-error {
+  font-size: 0.72rem;
+  color: var(--danger);
+}
+
+.sounds-progress-group {
+  display: flex;
+  flex: none;
+  gap: var(--space-1);
+  align-items: center;
+}
+.sounds-progress {
+  width: 72px;
+  height: 4px;
+  overflow: hidden;
+  background: var(--surface-3, var(--surface-2));
+  border-radius: 2px;
+}
+.sounds-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sounds-progress-fill {
+    transition: none;
+  }
+}
+.sounds-cancel {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+
+.sounds-present {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  align-items: center;
+  font-size: 0.72rem;
+  color: var(--muted-2);
+}
+
 /* Credits — licence obligations recorded in `Asset.source` (schema v20), shown
    next to the button that produces the file the user is about to publish. */
 .export-credits {
