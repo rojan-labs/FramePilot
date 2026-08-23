@@ -142,19 +142,21 @@ def build_clip_filter(
 def measure_peak_dbfs_file(src: Path, *, ffmpeg: str | None = None) -> float | None:
     """Measure a file's sample peak with ffmpeg `volumedetect`, without loading PCM in Python."""
     binary = ffmpeg or find_ffmpeg()
+    argv = [
+        binary,
+        "-hide_banner",
+        "-nostdin",
+        "-i",
+        str(src),
+        "-af",
+        "volumedetect",
+        "-f",
+        "null",
+        "-",
+    ]
+    _validate_ffmpeg_args(argv)
     completed = subprocess.run(
-        [
-            binary,
-            "-hide_banner",
-            "-nostdin",
-            "-i",
-            str(src),
-            "-af",
-            "volumedetect",
-            "-f",
-            "null",
-            "-",
-        ],
+        argv,
         check=True,
         capture_output=True,
         text=True,
@@ -174,40 +176,28 @@ def peak_normalize_gain_db(src: Path, target_dbfs: float = -1.0) -> float:
     return 0.0 if peak is None else target_dbfs - peak
 
 
-def _sanitize_ffmpeg_args(args: Sequence[str]) -> list[str]:
-    """Validate and normalize ffmpeg argv before subprocess execution.
+def _validate_ffmpeg_args(args: Sequence[str]) -> None:
+    """Reject malformed ffmpeg argv before subprocess execution (defense in depth).
 
-    Prevents passing malformed control characters and guards against option
-    confusion by terminating option parsing before path-like positional values.
+    WHY validation only, no rewriting: every caller builds argv from sandboxed
+    paths (PRD §18.1, enforced at the route boundary) plus fixed flags and
+    preset-derived filter strings. We additionally refuse empty tokens and
+    control characters (NUL/CR/LF) that could confuse downstream tooling or
+    log parsers. We deliberately do NOT mutate argv (e.g. inserting ``--``):
+    that would corrupt legitimate invocations whose values start with ``-``
+    and does not address any real injection surface for an argv-array exec.
     """
-    argv = list(args)
-    if not argv:
-        raise ValueError("Command arguments must not be empty.")
-
-    for part in argv:
+    if not args:
+        raise ValueError("ffmpeg arguments must not be empty.")
+    for part in args:
         if not part:
-            raise ValueError("Command arguments must not contain empty values.")
+            raise ValueError("ffmpeg arguments must not contain empty values.")
         if "\x00" in part or "\n" in part or "\r" in part:
-            raise ValueError("Command arguments contain invalid control characters.")
-
-    normalized: list[str] = []
-    i = 0
-    while i < len(argv):
-        token = argv[i]
-        normalized.append(token)
-        if token in {"-i", "-af", "-c:a", "-c:v", "-f"} and i + 1 < len(argv):
-            value = argv[i + 1]
-            if value.startswith("-"):
-                normalized.append("--")
-            normalized.append(value)
-            i += 2
-            continue
-        i += 1
-    return normalized
+            raise ValueError("ffmpeg arguments contain invalid control characters.")
 
 
 def _default_runner(args: Sequence[str]) -> None:
-    subprocess.run(_sanitize_ffmpeg_args(args), check=True, capture_output=True)
+    subprocess.run(list(args), check=True, capture_output=True)
 
 
 def apply_audio_filter(
@@ -221,21 +211,21 @@ def apply_audio_filter(
 ) -> None:
     """Apply an audio-only filtergraph to a file using bounded ffmpeg streaming I/O."""
     binary = ffmpeg or find_ffmpeg()
-    run(
-        [
-            binary,
-            "-y",
-            "-nostdin",
-            "-i",
-            str(src),
-            "-af",
-            filter_str,
-            "-vn",
-            "-c:a",
-            audio_codec,
-            str(dst),
-        ]
-    )
+    argv = [
+        binary,
+        "-y",
+        "-nostdin",
+        "-i",
+        str(src),
+        "-af",
+        filter_str,
+        "-vn",
+        "-c:a",
+        audio_codec,
+        str(dst),
+    ]
+    _validate_ffmpeg_args(argv)
+    run(argv)
 
 
 def apply_master_audio(
@@ -249,18 +239,18 @@ def apply_master_audio(
 ) -> None:
     """Run a single ffmpeg pass applying ``filter_str`` to ``src``'s audio → ``dst``."""
     binary = ffmpeg or find_ffmpeg()
-    run(
-        [
-            binary,
-            "-y",
-            "-i",
-            str(src),
-            "-af",
-            filter_str,
-            "-c:v",
-            "copy",
-            "-c:a",
-            audio_codec,
-            str(dst),
-        ]
-    )
+    argv = [
+        binary,
+        "-y",
+        "-i",
+        str(src),
+        "-af",
+        filter_str,
+        "-c:v",
+        "copy",
+        "-c:a",
+        audio_codec,
+        str(dst),
+    ]
+    _validate_ffmpeg_args(argv)
+    run(argv)

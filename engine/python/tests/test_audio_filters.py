@@ -139,3 +139,53 @@ def test_apply_master_audio_invokes_ffmpeg_with_filter() -> None:
     assert args[-1] == "/out.mp4"
     # Video is stream-copied; only audio is re-encoded.
     assert "copy" in args
+
+
+def _rejects(argv: list[str]) -> None:
+    """Assert argv validation rejects the given arguments."""
+    from framepilot_engine.audio.filters import _validate_ffmpeg_args
+
+    with pytest.raises(ValueError, match="ffmpeg arguments"):
+        _validate_ffmpeg_args(argv)
+
+
+def test_argv_validation_rejects_malformed_tokens() -> None:
+    from framepilot_engine.audio.filters import _validate_ffmpeg_args
+
+    _rejects([])
+    _rejects(["ffmpeg", "-i", ""])
+    _rejects(["ffmpeg", "-i", "a\x00b"])
+    _rejects(["ffmpeg", "-af", "volume=0dB\nmalicious"])
+    _rejects(["ffmpeg", "-i", "clip\r.mp4"])
+    # Legitimate argv passes untouched.
+    _validate_ffmpeg_args(["ffmpeg", "-y", "-i", "/in.mp4", "-af", "loudnorm", "/out.mp4"])
+
+
+def test_apply_audio_filter_validates_argv_before_running() -> None:
+    from framepilot_engine.audio.filters import apply_audio_filter
+
+    calls: list[Sequence[str]] = []
+    with pytest.raises(ValueError, match="invalid control characters"):
+        apply_audio_filter(
+            Path("/in.mp4"),
+            Path("/out.mp4"),
+            "volume=0dB\nrm -rf /",
+            ffmpeg="ffmpeg",
+            run=calls.append,
+        )
+    assert calls == []
+
+
+def test_apply_master_audio_passes_dash_prefixed_values_through() -> None:
+    """A path starting with '-' must reach ffmpeg verbatim (no '--' rewriting)."""
+    calls: list[Sequence[str]] = []
+    apply_master_audio(
+        Path("/in/-weird.mp4"),
+        Path("/out/-weird-out.wav"),
+        "loudnorm",
+        ffmpeg="ffmpeg",
+        run=calls.append,
+    )
+    args = list(calls[0])
+    assert args[args.index("-i") + 1] == "/in/-weird.mp4"
+    assert args[-1] == "/out/-weird-out.wav"
