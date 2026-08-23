@@ -54,6 +54,11 @@ import type {
   CapabilityPackEvictionPlanResultWire,
   CapabilityPackEvictionApprovalWire,
   CapabilityPackProgressWire,
+  MusicSearchResult,
+  MusicPreviewResult,
+  MusicDownloadRequest,
+  MusicDownloadResult,
+  MusicDownloadProgressWire,
   CapabilityPackRelocationProgressWire,
   TrackingProgressWire,
   TrackingRequestIntentWire,
@@ -134,6 +139,11 @@ const Channels = {
   capabilityPackTrack: 'framepilot:capability-pack:track',
   capabilityPackCancelTrack: 'framepilot:capability-pack:cancel-track',
   capabilityPackTrackProgress: 'framepilot:capability-pack:track-progress',
+  musicSearch: 'framepilot:music:search',
+  musicPreview: 'framepilot:music:preview',
+  musicDownload: 'framepilot:music:download',
+  musicDownloadCancel: 'framepilot:music:download-cancel',
+  musicDownloadProgress: 'framepilot:music:download-progress',
 } as const;
 
 const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge = {
@@ -144,25 +154,49 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
   licenseDeactivate: () => ipcRenderer.invoke(Channels.licenseDeactivate) as Promise<LicenseStatus>,
   sidecarStatus: () => ipcRenderer.invoke(Channels.sidecarStatus) as Promise<SidecarStatus>,
   capabilityPackStorage: () =>
-    ipcRenderer.invoke(Channels.capabilityPackStorage) as Promise<CapabilityPackStorageSnapshotWire>,
+    ipcRenderer.invoke(
+      Channels.capabilityPackStorage,
+    ) as Promise<CapabilityPackStorageSnapshotWire>,
   capabilityPackRelocate: () =>
-    ipcRenderer.invoke(Channels.capabilityPackRelocate) as Promise<CapabilityPackRelocationResultWire>,
+    ipcRenderer.invoke(
+      Channels.capabilityPackRelocate,
+    ) as Promise<CapabilityPackRelocationResultWire>,
   capabilityPackPropose: (capabilityId: string) =>
-    ipcRenderer.invoke(Channels.capabilityPackPropose, capabilityId) as Promise<CapabilityPackProposalResultWire>,
+    ipcRenderer.invoke(
+      Channels.capabilityPackPropose,
+      capabilityId,
+    ) as Promise<CapabilityPackProposalResultWire>,
   capabilityPackProposeProjectDependency: (projectId: string, packId: string) =>
-    ipcRenderer.invoke(Channels.capabilityPackProposeProjectDependency, projectId, packId) as Promise<CapabilityPackProposalResultWire>,
+    ipcRenderer.invoke(
+      Channels.capabilityPackProposeProjectDependency,
+      projectId,
+      packId,
+    ) as Promise<CapabilityPackProposalResultWire>,
   capabilityPackProjectStatus: (projectId: string) =>
-    ipcRenderer.invoke(Channels.capabilityPackProjectStatus, projectId) as Promise<CapabilityPackProjectResolutionWire>,
+    ipcRenderer.invoke(
+      Channels.capabilityPackProjectStatus,
+      projectId,
+    ) as Promise<CapabilityPackProjectResolutionWire>,
   capabilityPackInstall: (approval: CapabilityPackInstallApprovalWire) =>
-    ipcRenderer.invoke(Channels.capabilityPackInstall, approval) as Promise<CapabilityPackInstallStartResultWire>,
+    ipcRenderer.invoke(
+      Channels.capabilityPackInstall,
+      approval,
+    ) as Promise<CapabilityPackInstallStartResultWire>,
   capabilityPackCancel: (operationId: string) =>
     ipcRenderer.send(Channels.capabilityPackCancel, operationId),
   capabilityPackPlanEviction: (requestedBytes: number) =>
-    ipcRenderer.invoke(Channels.capabilityPackPlanEviction, requestedBytes) as Promise<CapabilityPackEvictionPlanResultWire>,
+    ipcRenderer.invoke(
+      Channels.capabilityPackPlanEviction,
+      requestedBytes,
+    ) as Promise<CapabilityPackEvictionPlanResultWire>,
   capabilityPackExecuteEviction: (approval: CapabilityPackEvictionApprovalWire) =>
-    ipcRenderer.invoke(Channels.capabilityPackExecuteEviction, approval) as Promise<CapabilityPackActionResultWire>,
+    ipcRenderer.invoke(
+      Channels.capabilityPackExecuteEviction,
+      approval,
+    ) as Promise<CapabilityPackActionResultWire>,
   onCapabilityPackProgress: (listener: (message: CapabilityPackProgressWire) => void) => {
-    const handler = (_event: IpcRendererEvent, payload: CapabilityPackProgressWire): void => listener(payload);
+    const handler = (_event: IpcRendererEvent, payload: CapabilityPackProgressWire): void =>
+      listener(payload);
     ipcRenderer.on(Channels.capabilityPackProgress, handler);
     return () => ipcRenderer.removeListener(Channels.capabilityPackProgress, handler);
   },
@@ -172,14 +206,38 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
     ipcRenderer.send(Channels.capabilityPackCancelTrack, requestId);
   },
   onCapabilityPackTrackProgress: (listener: (progress: TrackingProgressWire) => void) => {
-    const handler = (_event: IpcRendererEvent, payload: TrackingProgressWire): void => listener(payload);
+    const handler = (_event: IpcRendererEvent, payload: TrackingProgressWire): void =>
+      listener(payload);
     ipcRenderer.on(Channels.capabilityPackTrackProgress, handler);
     return () => ipcRenderer.removeListener(Channels.capabilityPackTrackProgress, handler);
   },
-  onCapabilityPackRelocationProgress: (listener: (message: CapabilityPackRelocationProgressWire) => void) => {
-    const handler = (_event: IpcRendererEvent, payload: CapabilityPackRelocationProgressWire): void => listener(payload);
+  onCapabilityPackRelocationProgress: (
+    listener: (message: CapabilityPackRelocationProgressWire) => void,
+  ) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      payload: CapabilityPackRelocationProgressWire,
+    ): void => listener(payload);
     ipcRenderer.on(Channels.capabilityPackRelocationProgress, handler);
     return () => ipcRenderer.removeListener(Channels.capabilityPackRelocationProgress, handler);
+  },
+  // Music sourcing. Note what does NOT cross this bridge: no provider URL, in
+  // either direction. The renderer asks by `remoteId` and main does the network,
+  // so there is no provider origin the renderer could be made to reach.
+  musicSearch: (query: string, limit?: number) =>
+    ipcRenderer.invoke(Channels.musicSearch, query, limit) as Promise<MusicSearchResult>,
+  musicPreview: (remoteId: string) =>
+    ipcRenderer.invoke(Channels.musicPreview, remoteId) as Promise<MusicPreviewResult>,
+  musicDownload: (request: MusicDownloadRequest) =>
+    ipcRenderer.invoke(Channels.musicDownload, request) as Promise<MusicDownloadResult>,
+  musicDownloadCancel: (operationId: string) => {
+    ipcRenderer.send(Channels.musicDownloadCancel, operationId);
+  },
+  onMusicDownloadProgress: (listener: (message: MusicDownloadProgressWire) => void) => {
+    const handler = (_event: IpcRendererEvent, payload: MusicDownloadProgressWire): void =>
+      listener(payload);
+    ipcRenderer.on(Channels.musicDownloadProgress, handler);
+    return () => ipcRenderer.removeListener(Channels.musicDownloadProgress, handler);
   },
   openProject: (path: string) =>
     ipcRenderer.invoke(Channels.projectOpen, path) as Promise<ProjectOpenResult>,
@@ -188,60 +246,94 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
   openProjectDialog: () =>
     ipcRenderer.invoke(Channels.projectOpenDialog) as Promise<ProjectOpenResult>,
   saveProject: (path: string, project: unknown, expectedRevision?: number) =>
-    ipcRenderer.invoke(Channels.projectSave, path, project, expectedRevision) as Promise<ProjectSaveResult>,
+    ipcRenderer.invoke(
+      Channels.projectSave,
+      path,
+      project,
+      expectedRevision,
+    ) as Promise<ProjectSaveResult>,
   saveProjectDefault: (project: unknown, expectedRevision?: number) =>
-    ipcRenderer.invoke(Channels.projectSaveDefault, project, expectedRevision) as Promise<ProjectSaveResult>,
+    ipcRenderer.invoke(
+      Channels.projectSaveDefault,
+      project,
+      expectedRevision,
+    ) as Promise<ProjectSaveResult>,
   commitProjectPatch: (request: ProjectPatchCommitRequest) =>
     ipcRenderer.invoke(Channels.projectCommitPatch, request) as Promise<ProjectPatchCommitResult>,
   projectsDir: () => ipcRenderer.invoke(Channels.projectsDir) as Promise<string>,
-  revealProject: (path: string) => ipcRenderer.invoke(Channels.projectReveal, path) as Promise<RevealResult>,
+  revealProject: (path: string) =>
+    ipcRenderer.invoke(Channels.projectReveal, path) as Promise<RevealResult>,
   recentProjects: () => ipcRenderer.invoke(Channels.projectRecent) as Promise<RecentProject[]>,
-  exportVideo: (req: ExportRequest) => ipcRenderer.invoke(Channels.renderExport, req) as Promise<ExportResult>,
-  exportVideoStart: (req: ExportRequest) => ipcRenderer.invoke(Channels.renderExportStart, req) as Promise<string>,
-  exportVideoCancel: (requestId: string) => ipcRenderer.send(Channels.renderExportCancel, requestId),
+  exportVideo: (req: ExportRequest) =>
+    ipcRenderer.invoke(Channels.renderExport, req) as Promise<ExportResult>,
+  exportVideoStart: (req: ExportRequest) =>
+    ipcRenderer.invoke(Channels.renderExportStart, req) as Promise<string>,
+  exportVideoCancel: (requestId: string) =>
+    ipcRenderer.send(Channels.renderExportCancel, requestId),
   onExportProgress: (listener: (message: ExportProgressMessage) => void) => {
-    const handler = (_event: IpcRendererEvent, payload: ExportProgressMessage): void => listener(payload);
+    const handler = (_event: IpcRendererEvent, payload: ExportProgressMessage): void =>
+      listener(payload);
     ipcRenderer.on(Channels.renderExportProgress, handler);
     return () => ipcRenderer.removeListener(Channels.renderExportProgress, handler);
   },
-  exportSaveAs: (req: ExportSaveAsRequest) => ipcRenderer.invoke(Channels.exportSaveAs, req) as Promise<ExportSaveAsResult>,
-  importMedia: (req: MediaImportRequest) => ipcRenderer.invoke(Channels.mediaImport, req) as Promise<MediaImportResult>,
+  exportSaveAs: (req: ExportSaveAsRequest) =>
+    ipcRenderer.invoke(Channels.exportSaveAs, req) as Promise<ExportSaveAsResult>,
+  importMedia: (req: MediaImportRequest) =>
+    ipcRenderer.invoke(Channels.mediaImport, req) as Promise<MediaImportResult>,
   importMediaChunk: (req: MediaImportChunkRequest) =>
     ipcRenderer.invoke(Channels.mediaImportChunk, req) as Promise<MediaImportChunkResult>,
-  importAsset: (req: ImportAssetRequest) => ipcRenderer.invoke(Channels.mediaImportAsset, req) as Promise<ImportAssetResult>,
-  transcribe: (req: TranscriptionRequest) => ipcRenderer.invoke(Channels.transcribe, req) as Promise<TranscriptionResult>,
+  importAsset: (req: ImportAssetRequest) =>
+    ipcRenderer.invoke(Channels.mediaImportAsset, req) as Promise<ImportAssetResult>,
+  transcribe: (req: TranscriptionRequest) =>
+    ipcRenderer.invoke(Channels.transcribe, req) as Promise<TranscriptionResult>,
   aiChat: (req: AiRequest) => ipcRenderer.invoke(Channels.aiChat, req) as Promise<AiTextResult>,
   aiPlan: (req: AiRequest) => ipcRenderer.invoke(Channels.aiPlan, req) as Promise<AiTextResult>,
   aiEdit: (req: AiRequest) => ipcRenderer.invoke(Channels.aiEdit, req) as Promise<AiEditResult>,
   aiProviders: () => ipcRenderer.invoke(Channels.aiProviders) as Promise<AiProviderInfo[]>,
   aiConfigGet: () => ipcRenderer.invoke(Channels.aiConfigGet) as Promise<AiConfig>,
-  aiConfigSet: (update: AiConfigUpdate) => ipcRenderer.invoke(Channels.aiConfigSet, update) as Promise<AiConfig>,
-  visualIndex: (request: VisualIndexRequest) => ipcRenderer.invoke(Channels.visualIndex, request) as Promise<VisualIndexResult | undefined>,
+  aiConfigSet: (update: AiConfigUpdate) =>
+    ipcRenderer.invoke(Channels.aiConfigSet, update) as Promise<AiConfig>,
+  visualIndex: (request: VisualIndexRequest) =>
+    ipcRenderer.invoke(Channels.visualIndex, request) as Promise<VisualIndexResult | undefined>,
   onProjectChanged: (listener: (event: ProjectChangedEvent) => void) => {
-    const handler = (_event: IpcRendererEvent, payload: ProjectChangedEvent): void => listener(payload);
+    const handler = (_event: IpcRendererEvent, payload: ProjectChangedEvent): void =>
+      listener(payload);
     ipcRenderer.on(Channels.projectChanged, handler);
     return () => ipcRenderer.removeListener(Channels.projectChanged, handler);
   },
-  conversationsList: () => ipcRenderer.invoke(Channels.conversationsList) as Promise<ConversationSummary[]>,
-  conversationsLoad: (id: string) => ipcRenderer.invoke(Channels.conversationsLoad, id) as Promise<unknown | null>,
-  conversationsSave: (record: ConversationRecord) => ipcRenderer.invoke(Channels.conversationsSave, record) as Promise<ConversationSaveResult>,
-  conversationsDelete: (id: string) => ipcRenderer.invoke(Channels.conversationsDelete, id) as Promise<ConversationSaveResult>,
-  aiStreamStart: (request: AiStreamRequest) => ipcRenderer.invoke(Channels.aiStreamStart, request) as Promise<string>,
+  conversationsList: () =>
+    ipcRenderer.invoke(Channels.conversationsList) as Promise<ConversationSummary[]>,
+  conversationsLoad: (id: string) =>
+    ipcRenderer.invoke(Channels.conversationsLoad, id) as Promise<unknown | null>,
+  conversationsSave: (record: ConversationRecord) =>
+    ipcRenderer.invoke(Channels.conversationsSave, record) as Promise<ConversationSaveResult>,
+  conversationsDelete: (id: string) =>
+    ipcRenderer.invoke(Channels.conversationsDelete, id) as Promise<ConversationSaveResult>,
+  aiStreamStart: (request: AiStreamRequest) =>
+    ipcRenderer.invoke(Channels.aiStreamStart, request) as Promise<string>,
   aiStreamAbort: (requestId: string) => ipcRenderer.send(Channels.aiStreamAbort, requestId),
-  aiStreamAnswer: (requestId: string, answer: AiStreamAnswerMessage) => ipcRenderer.send(Channels.aiStreamAnswer, requestId, answer),
+  aiStreamAnswer: (requestId: string, answer: AiStreamAnswerMessage) =>
+    ipcRenderer.send(Channels.aiStreamAnswer, requestId, answer),
   onAiStreamEvent: (listener: (message: AiStreamEventMessage) => void) => {
-    const handler = (_event: IpcRendererEvent, payload: AiStreamEventMessage): void => listener(payload);
+    const handler = (_event: IpcRendererEvent, payload: AiStreamEventMessage): void =>
+      listener(payload);
     ipcRenderer.on(Channels.aiStreamEvent, handler);
     return () => ipcRenderer.removeListener(Channels.aiStreamEvent, handler);
   },
-  runStart: (request: DurableRunStartRequest) => ipcRenderer.invoke(Channels.runStart, request) as Promise<DurableRunAccepted>,
-  runCommand: (request: DurableRunCommandRequest) => ipcRenderer.invoke(Channels.runCommand, request) as Promise<DurableRunAccepted>,
-  runSnapshot: (request: DurableRunSnapshotRequest) => ipcRenderer.invoke(Channels.runSnapshot, request) as Promise<DurableRunSnapshot | null>,
-  runSubscribe: (request: DurableRunSubscribeRequest) => ipcRenderer.invoke(Channels.runSubscribe, request) as Promise<DurableRunSubscription>,
-  runUnsubscribe: (subscriptionId: string) => ipcRenderer.send(Channels.runUnsubscribe, subscriptionId),
+  runStart: (request: DurableRunStartRequest) =>
+    ipcRenderer.invoke(Channels.runStart, request) as Promise<DurableRunAccepted>,
+  runCommand: (request: DurableRunCommandRequest) =>
+    ipcRenderer.invoke(Channels.runCommand, request) as Promise<DurableRunAccepted>,
+  runSnapshot: (request: DurableRunSnapshotRequest) =>
+    ipcRenderer.invoke(Channels.runSnapshot, request) as Promise<DurableRunSnapshot | null>,
+  runSubscribe: (request: DurableRunSubscribeRequest) =>
+    ipcRenderer.invoke(Channels.runSubscribe, request) as Promise<DurableRunSubscription>,
+  runUnsubscribe: (subscriptionId: string) =>
+    ipcRenderer.send(Channels.runUnsubscribe, subscriptionId),
   runAck: (request: DurableRunAckRequest) => ipcRenderer.send(Channels.runAck, request),
   onRunEvent: (listener: (message: DurableRunEventMessage) => void) => {
-    const handler = (_event: IpcRendererEvent, payload: DurableRunEventMessage): void => listener(payload);
+    const handler = (_event: IpcRendererEvent, payload: DurableRunEventMessage): void =>
+      listener(payload);
     ipcRenderer.on(Channels.runEvent, handler);
     return () => ipcRenderer.removeListener(Channels.runEvent, handler);
   },
@@ -267,15 +359,12 @@ function isTrustedRendererLocation(location: PreloadLocation): boolean {
     return normalizedPath.endsWith('/renderer/index.html');
   }
   return (
-    location.protocol === 'http:' &&
-    location.hostname === 'localhost' &&
-    location.port === '5173'
+    location.protocol === 'http:' && location.hostname === 'localhost' && location.port === '5173'
   );
 }
 
-const currentLocation = (
-  globalThis as typeof globalThis & { readonly location: PreloadLocation }
-).location;
+const currentLocation = (globalThis as typeof globalThis & { readonly location: PreloadLocation })
+  .location;
 if (isTrustedRendererLocation(currentLocation)) {
   contextBridge.exposeInMainWorld('framepilot', bridge);
 }

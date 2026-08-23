@@ -1001,8 +1001,17 @@ export type TrackingRunResultWire =
       readonly projectRevision: number;
     }
   /** No healthy pack is installed. The user is offered the exact signed install. */
-  | { readonly ok: false; readonly code: 'pack_missing'; readonly proposal: CapabilityPackProposalResultWire }
-  | { readonly ok: false; readonly code: string; readonly error: string; readonly retryable: boolean };
+  | {
+      readonly ok: false;
+      readonly code: 'pack_missing';
+      readonly proposal: CapabilityPackProposalResultWire;
+    }
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly error: string;
+      readonly retryable: boolean;
+    };
 
 export interface TrackingProgressWire {
   readonly requestId: string;
@@ -1089,6 +1098,139 @@ export type CapabilityPackRelocationResultWire =
     }
   | { readonly ok: false; readonly code: string; readonly error: string };
 
+// ---------------------------------------------------------------------------
+// Third-party music sourcing (plan/3rd-party-sourcing)
+// ---------------------------------------------------------------------------
+
+/**
+ * One search result as the RENDERER sees it.
+ *
+ * Note what is **not** here: `previewUrl` and `downloadUrl`. The renderer
+ * addresses a track by `remoteId` and asks main to act on it, so there is no
+ * provider host in the renderer to reach — which is what makes the CSP promise
+ * structural rather than a convention someone can forget. A proposal to add a
+ * provider origin to `connect-src` means something has gone wrong upstream of
+ * this type (`plan/3rd-party-sourcing/README.md` §3).
+ *
+ * Mirrors `ProviderTrackWire` in `@framepilot/ai-sdk`; declared structurally
+ * here so the renderer does not import the SDK for a wire shape.
+ */
+export interface MusicTrackWire {
+  readonly remoteId: string;
+  readonly provider: string;
+  readonly title: string;
+  readonly durationSeconds: number;
+  /** Container hint, e.g. 'mp3'. Already sanitized by the adapter. */
+  readonly format: string;
+  /** Licence identifier verbatim from the provider, e.g. 'cc0' | 'by'. */
+  readonly license: string;
+  // These carry `| undefined` explicitly because the adapter's Zod schema
+  // produces optional properties that way, and the repo runs
+  // `exactOptionalPropertyTypes`. Widening here beats rebuilding the object
+  // field-by-field at every boundary just to drop absent keys.
+  readonly licenseUrl?: string | undefined;
+  /**
+   * Whether the licence obliges a credit. Both TRUE and FALSE are rendered as a
+   * label — an unlabelled row would read as "unknown", which is the one thing a
+   * licence badge must never mean.
+   */
+  readonly attributionRequired: boolean;
+  /** Always true on the wire: non-commercial results are dropped at the adapter. */
+  readonly commercialUse: boolean;
+  readonly attribution?: string | undefined;
+  readonly creator?: string | undefined;
+  readonly creatorUrl?: string | undefined;
+  readonly sourceUrl?: string | undefined;
+}
+
+/**
+ * Failure codes for the music surface. A closed union with one specific sentence
+ * per arm — there is no generic "something went wrong", because a user told only
+ * that cannot tell a typo from an outage from an empty catalogue.
+ */
+export type MusicErrorCodeWire =
+  | 'unauthorized'
+  | 'rate_limited'
+  | 'provider_unavailable'
+  | 'offline'
+  | 'timeout'
+  | 'cancelled'
+  | 'non_commercial_only'
+  | 'disk_full'
+  | 'download_failed'
+  | 'derive_failed';
+
+export type MusicSearchResult =
+  | { readonly ok: true; readonly tracks: readonly MusicTrackWire[] }
+  | { readonly ok: false; readonly error: MusicErrorCodeWire; readonly detail?: string };
+
+/**
+ * Audition bytes. Main fetches them; the renderer wraps them in a `blob:` URL,
+ * which the existing `media-src ... blob:` policy already permits. This is the
+ * whole reason no CSP change is needed to preview provider audio.
+ */
+export type MusicPreviewResult =
+  | { readonly ok: true; readonly contentType: string; readonly data: ArrayBuffer }
+  | { readonly ok: false; readonly error: MusicErrorCodeWire; readonly detail?: string };
+
+/** Mirrors {@link CapabilityPackProgressWire}'s shape, for the same reasons. */
+export interface MusicDownloadProgressWire {
+  readonly operationId: string;
+  readonly remoteId: string;
+  readonly phase: 'downloading' | 'deriving' | 'installed' | 'cancelled' | 'failed';
+  readonly completedBytes: number;
+  readonly totalBytes: number;
+  readonly errorCode?: MusicErrorCodeWire;
+  readonly detail?: string;
+}
+
+/**
+ * The materialized asset, ready for `add_asset`.
+ *
+ * `source` is the schema-v20 provenance record. It is built in MAIN, from what
+ * the provider actually returned, rather than assembled in the renderer from a
+ * search row — the renderer's copy of a track is display state, and a credit
+ * obligation must not depend on it still being on screen.
+ */
+export interface MusicDownloadedAssetWire {
+  /** Project-relative path, in the same media folder imported files land in. */
+  readonly relativePath: string;
+  readonly durationSeconds?: number;
+  readonly kind: 'audio';
+  readonly media?: {
+    readonly proxyPath?: string | null;
+    readonly peaks?: readonly number[] | null;
+    readonly peaksPerSecond?: number | null;
+    readonly thumbnailPaths?: readonly string[] | null;
+  } | null;
+  readonly source: {
+    readonly provider: string;
+    readonly remoteId: string;
+    readonly license: string;
+    readonly licenseUrl?: string;
+    readonly attributionRequired: boolean;
+    readonly attribution?: string;
+    readonly creator?: string;
+    readonly creatorUrl?: string;
+    readonly sourceUrl?: string;
+    readonly fetchedAt: string;
+  };
+  /** TRUE when this track was already in the project and nothing was fetched. */
+  readonly deduped: boolean;
+}
+
+export type MusicDownloadResult =
+  | { readonly ok: true; readonly asset: MusicDownloadedAssetWire }
+  | { readonly ok: false; readonly error: MusicErrorCodeWire; readonly detail?: string };
+
+export interface MusicDownloadRequest {
+  /** Which project's media folder receives the file. */
+  readonly projectId: string;
+  readonly remoteId: string;
+  /** Correlates progress events and cancellation with this request. */
+  readonly operationId: string;
+}
+
 export interface FramePilotBridge {
   ping(): Promise<'pong'>;
   /**
@@ -1108,7 +1250,10 @@ export interface FramePilotBridge {
   /** Resolve one capability through the root-verified catalog; never accepts a renderer URL. */
   capabilityPackPropose?(capabilityId: string): Promise<CapabilityPackProposalResultWire>;
   /** Resolve the active project's exact immutable dependency; main rereads the project authority. */
-  capabilityPackProposeProjectDependency?(projectId: string, packId: string): Promise<CapabilityPackProposalResultWire>;
+  capabilityPackProposeProjectDependency?(
+    projectId: string,
+    packId: string,
+  ): Promise<CapabilityPackProposalResultWire>;
   /** Reconcile and report the active project's authoritative dependency state. */
   capabilityPackProjectStatus?(projectId: string): Promise<CapabilityPackProjectResolutionWire>;
   /** Run one tracking job in an isolated signed pack worker; main resolves the media. */
@@ -1118,17 +1263,41 @@ export interface FramePilotBridge {
   /** Bounded progress for an in-flight tracking job. */
   onCapabilityPackTrackProgress?(handler: (progress: TrackingProgressWire) => void): () => void;
   /** Install only the exact signed proposal the user explicitly approved. */
-  capabilityPackInstall?(approval: CapabilityPackInstallApprovalWire): Promise<CapabilityPackInstallStartResultWire>;
+  capabilityPackInstall?(
+    approval: CapabilityPackInstallApprovalWire,
+  ): Promise<CapabilityPackInstallStartResultWire>;
   /** Cancel one main-owned install operation. */
   capabilityPackCancel?(operationId: string): void;
   /** Build a non-mutating explicit cleanup proposal. */
-  capabilityPackPlanEviction?(requestedBytes: number): Promise<CapabilityPackEvictionPlanResultWire>;
+  capabilityPackPlanEviction?(
+    requestedBytes: number,
+  ): Promise<CapabilityPackEvictionPlanResultWire>;
   /** Execute only an unexpired plan and exact identity list previously displayed. */
-  capabilityPackExecuteEviction?(approval: CapabilityPackEvictionApprovalWire): Promise<CapabilityPackActionResultWire>;
+  capabilityPackExecuteEviction?(
+    approval: CapabilityPackEvictionApprovalWire,
+  ): Promise<CapabilityPackActionResultWire>;
   /** Subscribe to install progress; the returned function unsubscribes. */
   onCapabilityPackProgress?(listener: (message: CapabilityPackProgressWire) => void): () => void;
   /** Subscribe to storage-copy progress; the returned function unsubscribes. */
-  onCapabilityPackRelocationProgress?(listener: (message: CapabilityPackRelocationProgressWire) => void): () => void;
+  onCapabilityPackRelocationProgress?(
+    listener: (message: CapabilityPackRelocationProgressWire) => void,
+  ): () => void;
+  /**
+   * Search a third-party music provider. Main holds the network; the renderer
+   * never receives a provider URL (see {@link MusicTrackWire}).
+   *
+   * Optional, like every other desktop-only capability, so the browser build
+   * type-checks and the Sounds tab is absent rather than present-and-broken.
+   */
+  musicSearch?(query: string, limit?: number): Promise<MusicSearchResult>;
+  /** Fetch audition bytes for one track; the renderer wraps them in a `blob:` URL. */
+  musicPreview?(remoteId: string): Promise<MusicPreviewResult>;
+  /** Download one track into the project's media folder and derive its media. */
+  musicDownload?(request: MusicDownloadRequest): Promise<MusicDownloadResult>;
+  /** Cancel an in-flight download by operation id (fire-and-forget). */
+  musicDownloadCancel?(operationId: string): void;
+  /** Subscribe to download progress; the returned function unsubscribes. */
+  onMusicDownloadProgress?(listener: (message: MusicDownloadProgressWire) => void): () => void;
   openProject(path: string): Promise<ProjectOpenResult>;
   /** Show a native OS file picker and open the selected project. */
   openProjectDialog(): Promise<ProjectOpenResult>;

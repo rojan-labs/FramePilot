@@ -104,6 +104,10 @@ import {
   type MediaImportResult,
   type ImportAssetRequest,
   type ImportAssetResult,
+  type MusicSearchResult,
+  type MusicPreviewResult,
+  type MusicDownloadResult,
+  type MusicDownloadRequest,
   type TranscriptionRequest,
   type TranscriptionResult,
   type ConversationSaveResult,
@@ -164,6 +168,7 @@ import { exportViaSidecar } from './render/export-client.js';
 import { ExportHub } from './render/export-hub.js';
 import { saveExportAs } from './render/export-save.js';
 import { importAssetViaSidecar } from './media/asset-media-client.js';
+import { MusicService } from './media/music-service.js';
 import { LocalTelemetry, telemetryEnabledFromEnv } from './telemetry/telemetry.js';
 import { resolveUpdateChannel } from './updater/channel.js';
 import { createAutoUpdaterProvider, type AutoUpdaterLike } from './updater/auto-updater.js';
@@ -634,6 +639,35 @@ function registerIpcHandlers(): void {
         await sidecar.start();
       },
     });
+  /**
+   * Music sourcing lives entirely in main.
+   *
+   * The renderer's CSP cannot reach a provider host, and this does not change
+   * it: main fetches, and audition bytes reach the renderer over IPC as a
+   * `blob:` URL, which `media-src` already permits. The renderer is never handed
+   * a provider URL, so the guarantee is structural rather than a convention.
+   */
+  const musicService = new MusicService({
+    projectsRoot: resolveProjectsDir(process.env, app.getPath('documents')),
+    fetchImpl: electronFetch,
+    deriveAssetMedia: async (absolutePath) => {
+      // Reuses the existing /asset-media route — no new engine surface. A
+      // failure is non-fatal: a missing waveform is a degraded timeline row, a
+      // missing asset is a lost download.
+      const derived = await importAssetViaSidecar(
+        engineBaseUrl,
+        { inputPath: absolutePath, thumbnails: 0, proxy: false },
+        electronFetch,
+      );
+      return derived.ok ? derived : null;
+    },
+    onProgress: (progress) => {
+      if (mainWindow !== null && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IpcChannels.musicDownloadProgress, progress);
+      }
+    },
+  });
+
   capabilityPackService = capabilityPackLocation
     .resolve()
     .then(({ activeRoot }) => createCapabilityPackService(activeRoot));
@@ -889,6 +923,52 @@ function registerIpcHandlers(): void {
       return await (await capabilityPackService).executeEviction(approval);
     },
   );
+  // Music sourcing. Every argument is renderer-supplied and therefore untrusted:
+  // narrowed here, then acted on by `remoteId` against tracks THIS process
+  // fetched. The renderer cannot name a URL for main to go and get.
+  ipcMain.handle(
+    IpcChannels.musicSearch,
+    async (_event, query: unknown, limit: unknown): Promise<MusicSearchResult> => {
+      requireLicense();
+      if (typeof query !== 'string') {
+        return { ok: false, error: 'provider_unavailable', detail: 'invalid query' };
+      }
+      return await musicService.search(
+        query,
+        typeof limit === 'number' && Number.isFinite(limit) ? limit : undefined,
+      );
+    },
+  );
+  ipcMain.handle(
+    IpcChannels.musicPreview,
+    async (_event, remoteId: unknown): Promise<MusicPreviewResult> => {
+      requireLicense();
+      if (typeof remoteId !== 'string') {
+        return { ok: false, error: 'provider_unavailable', detail: 'invalid track id' };
+      }
+      return await musicService.preview(remoteId);
+    },
+  );
+  ipcMain.handle(
+    IpcChannels.musicDownload,
+    async (_event, request: unknown): Promise<MusicDownloadResult> => {
+      requireLicense();
+      const req = request as MusicDownloadRequest | null;
+      if (
+        typeof req?.projectId !== 'string' ||
+        typeof req.remoteId !== 'string' ||
+        typeof req.operationId !== 'string'
+      ) {
+        return { ok: false, error: 'download_failed', detail: 'invalid download request' };
+      }
+      return await musicService.download(req);
+    },
+  );
+  ipcMain.on(IpcChannels.musicDownloadCancel, (_event, operationId: unknown) => {
+    if (typeof operationId !== 'string') return;
+    musicService.cancelDownload(operationId);
+  });
+
   ipcMain.handle(IpcChannels.projectRecent, () => recentFiles.list());
 
   ipcMain.handle(

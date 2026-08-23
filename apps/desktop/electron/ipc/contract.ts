@@ -62,11 +62,24 @@ export const IpcChannels = {
   capabilityPackTrack: 'framepilot:capability-pack:track',
   capabilityPackCancelTrack: 'framepilot:capability-pack:cancel-track',
   capabilityPackTrackProgress: 'framepilot:capability-pack:track-progress',
+  musicSearch: 'framepilot:music:search',
+  musicPreview: 'framepilot:music:preview',
+  musicDownload: 'framepilot:music:download',
+  musicDownloadCancel: 'framepilot:music:download-cancel',
+  musicDownloadProgress: 'framepilot:music:download-progress',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];
 
 export type {
+  MusicTrackWire,
+  MusicErrorCodeWire,
+  MusicSearchResult,
+  MusicPreviewResult,
+  MusicDownloadProgressWire,
+  MusicDownloadedAssetWire,
+  MusicDownloadResult,
+  MusicDownloadRequest,
   TrackingProgressWire,
   TrackingRequestIntentWire,
   TrackingRunResultWire,
