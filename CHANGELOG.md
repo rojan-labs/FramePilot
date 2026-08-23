@@ -6,6 +6,24 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **The AI can now really track a subject — through an installed CV pack.** Asking the agent to
+  follow a subject used to fall back to interpolating whatever mask motion you drew by hand, and
+  face/object detection answered "unavailable". There is now a real path: with the Tracking Lite
+  pack installed, `track_subject_automatically` measures your footage in the isolated pack worker
+  (point, region, or plane follow), and the measured motion lands on your mask as the same
+  reversible, undoable tracked effect as manual tracking — with the exact pack version recorded on
+  the edit. The mask you draw still supplies the region; the AI cannot invent coordinates. When
+  the pack is missing, the track is too unreliable, or no clip is selected, it says so instead of
+  producing a plausible-looking fake.
+
+- **A dev-only way to run Capability Pack workers before signed catalogs exist.**
+  `framepilot-pack register-local` registers a locally built worker into the desktop pack store,
+  gated behind `FRAMEPILOT_DEV_PACK_REGISTRATION=1` and running the same isolated health check a
+  signed install would. Failed health checks register nothing; digests are computed from actual
+  payload content. Never available in packaged builds.
+
 ### Fixed
 
 - **The AI is told what is in your footage; it decides what to do about it.** It used to be

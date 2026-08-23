@@ -130,3 +130,54 @@ The canonical schemas live in `packages/capability-packs/src/worker-protocol.ts`
 lives in `packages/capability-packs/src/node/worker-client.ts`. Platform builds, exact locks,
 licenses/SBOM, desktop invocation, smoothing/occlusion consumers, and pixel-negative controls are
 tracked in C4 of `plan/PROFESSIONAL-EDITOR-P0-P3-CLOSURE.md`.
+
+## Desktop development loop: running a worker without a catalog
+
+The production install path starts at a signed HTTPS catalog, which does not exist yet. To run
+Tracking Lite on a dev machine, register a locally built payload directly into the pack store:
+
+```bash
+FRAMEPILOT_DEV_PACK_REGISTRATION=1 pnpm --filter @framepilot/capability-packs release:pack -- \
+  register-local input.json "$HOME/Library/Application Support/FramePilot/capability-packs" record.json
+```
+
+`input.json` carries `{packId, version, payloadRoot, entrypoint, capabilities, licenses, os, arch}`:
+
+```json
+{
+  "packId": "framepilot.tracking-lite",
+  "version": "1.0.0-dev.local",
+  "payloadRoot": "/absolute/path/to/built/pack",
+  "entrypoint": "bin/framepilot-tracking-lite",
+  "capabilities": ["tracking.point", "tracking.region", "tracking.planar"],
+  "licenses": ["Apache-2.0"],
+  "os": "darwin",
+  "arch": "arm64"
+}
+```
+
+What registration does and does not trust:
+
+- **Gated**: without `FRAMEPILOT_DEV_PACK_REGISTRATION=1` it refuses (`LocalRegistrationDisabledError`),
+  so a packaged build or CI can never take this path by accident.
+- **Health-checked**: the staged worker must pass the same isolated health check a signed install
+  runs — handshake identity (id/version/release digest), protocol version, capability roster
+  equality, backend probe — before anything is recorded. A failed check leaves the store empty.
+- **Content-digested**: `artifactDigest` is a sha256 over the sorted payload tree (symlinks
+  preserved), `releaseDigest` derives from id/version/capabilities, so identical bytes replace
+  their record cleanly while changed bytes land under a distinct identity instead of shadowing a
+  stale healthy one.
+- **Not signed**: the acquisition receipt's `catalogDigest` names itself as a dev registration;
+  nothing here touches keys or catalogs. Rebuilding with the same `version` leaves the previous
+  record behind — bump the prerelease (or clear the store root) to avoid two healthy candidates.
+
+Once registered, the agent can use the pack through the `track_subject_automatically` tool: it
+resolves one selected clip via `resolveAutomaticTrackingObjective`, builds the exact pack request
+(the mask supplies all geometry), runs the isolated worker through the desktop tracking authority
+(leases + typed failures + install proposals), and the orchestrator compiles the validated samples
+into the same reversible `track_object` patch as manual tracking, recording `${packId}@${version}`
+as provenance. A missing pack fails honestly with `pack_missing`; an unusable track is reported as
+refused, never smoothed into a plausible edit.
+
+> The storage root above is the default for macOS; `capability-pack-location.json` next to it may
+> point at a relocated root (Settings › Storage).

@@ -296,6 +296,16 @@ intended visual reason.
       tests against an injectable scripted backend plus 9 real-inference proofs on a pinned
       photograph, including a mis-registration control. **Still open**: per-platform runtime,
       signing/notarization, catalog publication, and desktop invocation.
+- [x] Dev-only local pack registration (2026-08-23): `framepilot-pack register-local` seeds the
+  store from a locally built worker without any catalog — gated behind
+  `FRAMEPILOT_DEV_PACK_REGISTRATION=1`, running the exact isolated health check a signed install
+  runs, staging a content-digested copy under the canonical layout, and writing an acquisition
+  receipt that names itself dev so audits can tell it from a catalog install.
+- [x] Agent-side desktop invocation (2026-08-23): `track_subject_automatically` reaches the real
+  worker end to end — registry entry with a transcribe-style never-cached host contract,
+  orchestrator post-processing that compiles the validated measurement into the same reversible
+  `track_object` patch as the manual path, and a desktop executor composing beside the sidecar
+  executor in the single `HostToolExecutor` slot.
 - [x] Freeze the revision-bound isolated worker request/progress/result/failure protocol for point,
       region, planar, detection, and segmentation jobs with bounded normalized geometry and output.
 - [x] Implement the one-shot worker process client with realpath sandbox enforcement, minimal
@@ -307,12 +317,17 @@ intended visual reason.
   the signed entrypoint exists inside the installed root, holds a storage lease across the whole
   worker lifetime and releases it even on crash/cancel, maps worker errors to typed outcomes keeping
   `target_lost` visible, and returns an install proposal instead of a fake track when no pack is
-  installed. 15 tests. **Still open**: IPC/preload surface and controller consumption.
+  installed. 15 tests. **Now consumed by the agent path**: the desktop
+  `track_subject_automatically` executor runs this authority from the orchestrator's host-tool
+  slot (objective → controller plan → exact pack request → samples), with the same license-gated
+  renderer IPC remaining for editor-initiated tracks. **Still open**: renderer UI trigger and
+  install-approval dialog for agent-proposed packs.
 - [~] Resolver/controller contracts for point/object/face/region/planar/segmentation targets.
   `automatic-tracking-controller.ts` resolves point/region/planar targets into an exact pack request
   plan: geometry always comes from a mask the editor drew (never a model-guessed box), the range is
   the clip's own source range, and unresolved targets, wrong mask shapes, out-of-frame bounds,
-  non-video clips and over-long ranges are typed refusals. 12 tests. **Still open**: face/object and
+  non-video clips and over-long ranges are typed refusals. 12 tests. **Consumed in production for
+  point/region/planar** by the agent tool (2026-08-23). **Still open**: face/object and
   segmentation targets, which need the Subject Intelligence pack.
 - [~] Deterministic track smoothing, gap/occlusion policy, confidence thresholds, correction limits,
   and exact reversible operations. `packages/editor-core/src/track-samples.ts` converts worker
