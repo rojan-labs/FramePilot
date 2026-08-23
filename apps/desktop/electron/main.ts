@@ -70,15 +70,18 @@ import {
   idempotencyKeyFor,
   KEY_DIGEST_CHARS,
   MAX_IDENTITY_KEY_CHARS,
-  type EffectRuntimeObserver,
-  type RuntimeEffect,
-  type EffectResult,
-  type JsonValue,
-  type HostToolOutcome,
-  type ChunkTranscriber,
-  type AsrResult,
-  type VisualIndexRequestInput,
+   type EffectRuntimeObserver,
+   type RuntimeEffect,
+   type EffectResult,
+   type JsonValue,
+   type HostToolOutcome,
+   type HostToolExecutor,
+   AUTOMATIC_TRACKING_TOOL_NAME,
+   type ChunkTranscriber,
+   type AsrResult,
+   type VisualIndexRequestInput,
 } from '@framepilot/ai-sdk';
+import { createAutomaticTrackingExecutor } from './ai/automatic-tracking-executor.js';
 import {
   IpcChannels,
   type AiConfig,
@@ -1653,12 +1656,25 @@ function registerIpcHandlers(): void {
       return { status: 'failed', summary: `transcribe failed: ${errorMessage(error)}` };
     }
   };
-  const toolExecutor = createSidecarExecutor({
+  const sidecarToolExecutor = createSidecarExecutor({
     baseUrl: engineBaseUrl,
     fetchFn: electronFetch,
     visualIndexCredentials,
     hostTranscribe,
   });
+  // The agent's route into the Capability Pack tracking worker. Same authority
+  // the renderer IPC path uses — one hub, leases and install proposals included.
+  const automaticTrackingExecutor = createAutomaticTrackingExecutor({
+    tracking: async () => (await capabilityPackService).tracking(),
+  });
+  const toolExecutor: HostToolExecutor = {
+    async run(call, ctx, signal) {
+      if (call.name === AUTOMATIC_TRACKING_TOOL_NAME) {
+        return automaticTrackingExecutor.run(call, ctx, signal);
+      }
+      return sidecarToolExecutor.run(call, ctx, signal);
+    },
+  };
   const temporalEvidence = createTemporalEvidenceAcquirer({
     baseUrl: engineBaseUrl,
     fetchFn: electronFetch,
