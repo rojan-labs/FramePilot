@@ -88,6 +88,10 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   professional_motion: { role: 'mutation', scope: 'timeline_dependent' },
   professional_color: { role: 'mutation', scope: 'timeline_dependent' },
   professional_tracking_mask: { role: 'mutation', scope: 'timeline_dependent' },
+  // Host-backed mutation in the transcribe mould (kind: analysis): the worker
+  // measures media, and the orchestrator converts the validated measurement
+  // into a track_object patch — so its outcome ages with the arrangement.
+  track_subject_automatically: { role: 'analysis', scope: 'timeline_dependent' },
   professional_audio: { role: 'mutation', scope: 'timeline_dependent' },
   measure_color: { role: 'analysis', scope: 'timeline_dependent' },
   // --- analysisTool: sidecar/ffmpeg-backed reads of the SOURCE MEDIA -------------------

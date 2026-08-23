@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 80,
+  "toolCount": 81,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -4217,6 +4217,47 @@
               "bounding_box",
               "face",
               "object"
+            ]
+          }
+        }
+      }
+    },
+    "track_subject_automatically": {
+      "kind": "analysis",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "intent"
+        ],
+        "properties": {
+          "intent": {
+            "type": [
+              "string"
+            ]
+          },
+          "subject": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "plane",
+              "point",
+              "region"
+            ]
+          },
+          "target": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "playhead",
+              "this"
             ]
           }
         }

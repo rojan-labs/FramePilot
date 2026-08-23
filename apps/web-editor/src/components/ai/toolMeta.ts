@@ -110,6 +110,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   professional_motion: { label: 'Animate clip properties', Icon: SlidersHorizontal },
   professional_color: { label: 'Correct shot color', Icon: Palette },
   professional_tracking_mask: { label: 'Track mask', Icon: Scan },
+  track_subject_automatically: { label: 'Track subject automatically', Icon: Scan },
   professional_audio: { label: 'Mix audio', Icon: AudioLines },
 
   // Timeline edits

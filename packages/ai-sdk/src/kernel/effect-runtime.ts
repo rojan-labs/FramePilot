@@ -217,6 +217,7 @@ export function createEffectRuntime(deps: EffectRuntimeDeps): EffectRuntime {
         effect.call,
         {
           project: effect.project,
+          ...(effect.interaction === undefined ? {} : { interaction: effect.interaction }),
           ...(effect.analysisBudget === undefined ? {} : { analysisBudget: effect.analysisBudget }),
         },
         signal,

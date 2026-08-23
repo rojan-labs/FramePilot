@@ -58,6 +58,17 @@ export const TOOL_CONTRACT_DECLARATIONS: Readonly<Record<string, ToolContract>> 
     stateDependency: 'asset_content',
     cacheScope: 'none',
   },
+  track_subject_automatically: {
+    // A measurement, not a memo: the worker runs against media bytes for
+    // minutes at a time and its output is applied against the live timeline,
+    // so a cached replay could re-apply stale samples as if they were fresh.
+    executionPlane: 'host',
+    effectClass: 'mutation',
+    permissions: ['analysis', 'write'],
+    concurrency: 'serial',
+    stateDependency: 'asset_content',
+    cacheScope: 'none',
+  },
   get_frame: {
     executionPlane: 'host',
     effectClass: 'pure_read',

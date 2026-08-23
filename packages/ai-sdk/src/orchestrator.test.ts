@@ -1123,6 +1123,8 @@ const READS_SERVED_BY_JSON_PREVIEW: Readonly<Record<string, string>> = {
   map_footage: 'a per-asset mapping already keyed by the ids the model passed in',
   index_media: 'a progress/count acknowledgement, not a record list',
   transcribe: 'an acknowledgement; the words arrive via get_transcript',
+  track_subject_automatically:
+    'a measurement acknowledgement; the edit itself arrives as a tracked patch and the summary names the measuring pack',
   read_edit_signals: 'measured spans the model reads whole and acts on in the same turn',
   detect_faces: 'unavailable in this build — it returns a refusal, not a payload',
 };
