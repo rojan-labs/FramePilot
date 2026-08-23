@@ -42,9 +42,12 @@ from pydantic import BaseModel, Field
 # track name silently mixes the wrong thing; v18 added project ``angleGroups``
 # (synced multicam cameras), which are likewise never inferred from folders or
 # file names; v19 added optional project ``capabilityPacks`` with immutable logical
-# release pins for on-demand runtimes/models; the engine rejects any file whose
-# envelope version exceeds this.
-SCHEMA_VERSION = 19
+# release pins for on-demand runtimes/models; v20 added optional ``Asset.source``
+# (provider provenance: licence, credit line, creator) — the engine never *uses*
+# it, because provenance cannot affect a render, but it must round-trip it rather
+# than silently strip the one record of a crediting obligation (ADR 0139); the
+# engine rejects any file whose envelope version exceeds this.
+SCHEMA_VERSION = 20
 
 
 class ProjectFileError(Exception):
@@ -730,6 +733,33 @@ class AssetMedia(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class AssetSource(BaseModel):
+    """Where a provider-sourced asset came from, and what crediting it obliges (v20).
+
+    Mirrors the TS ``AssetSourceSchema``. The engine does not read a single field
+    of this — provenance never affects a render. It is modelled here purely so a
+    project round-tripped through the engine keeps it: a Pydantic model that
+    dropped the field would silently erase the only durable record that a track
+    needs crediting, which is the exact harm the field was added to prevent
+    (ADR 0139, ``plan/3rd-party-sourcing`` §D2).
+
+    Absent for every user-imported file — there is no provenance to record.
+    """
+
+    provider: str
+    remote_id: str = Field(alias="remoteId")
+    license: str
+    license_url: str | None = Field(default=None, alias="licenseUrl")
+    attribution_required: bool = Field(alias="attributionRequired")
+    attribution: str | None = Field(default=None)
+    creator: str | None = Field(default=None)
+    creator_url: str | None = Field(default=None, alias="creatorUrl")
+    source_url: str | None = Field(default=None, alias="sourceUrl")
+    fetched_at: str = Field(alias="fetchedAt")
+
+    model_config = {"populate_by_name": True}
+
+
 class Asset(BaseModel):
     """A source media file referenced by the project (PRD §11.1).
 
@@ -743,6 +773,7 @@ class Asset(BaseModel):
     duration_seconds: float | None = Field(default=None, alias="durationSeconds")
     media: AssetMedia | None = Field(default=None)
     folder_id: str | None = Field(default=None, alias="folderId")
+    source: AssetSource | None = Field(default=None)
 
     model_config = {"populate_by_name": True}
 
@@ -849,9 +880,7 @@ class Project(BaseModel):
     transcript: list[TranscriptWord] = Field(default_factory=list)
     markers: list[Marker] = Field(default_factory=list)
     angle_groups: list[AngleGroup] = Field(default_factory=list, alias="angleGroups")
-    capability_packs: list[CapabilityPackPin] | None = Field(
-        default=None, alias="capabilityPacks"
-    )
+    capability_packs: list[CapabilityPackPin] | None = Field(default=None, alias="capabilityPacks")
     ai_memory: dict[str, Any] = Field(default_factory=dict, alias="aiMemory")
     history: list[dict[str, Any]] = Field(default_factory=list)
 

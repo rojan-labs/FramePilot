@@ -29,21 +29,37 @@
  * So the projection is applied at the SOURCE, where the tool result is built,
  * rather than at each place a result is later rendered: one strip, and every
  * consumer (log digest, evidence preview, recall, UI popup) is bounded.
+ * `source` (provider provenance, schema v20) is collapsed for a related but
+ * distinct reason. It is not render data, but eight fields of licence URLs,
+ * creator URLs and fetch timestamps are not reasoning material either — the
+ * model never opens a licence page. What it can act on is the single fact that
+ * a track obliges a credit, so that survives as `attributionRequired` and the
+ * rest does not. The full record stays in the project file, where the Credits
+ * view reads it (ADR 0139).
+ *
  * The Python sidecar mirrors this in `ai_tools/handlers.py`; the two tool
  * surfaces must return the same shape.
  */
 import type { Asset, Project } from '@framepilot/timeline-schema';
 
 /**
- * An {@link Asset} as the model sees it: identity, media kind, duration, and bin
- * placement. `media` is absent by construction — see the module note.
+ * An {@link Asset} as the model sees it: identity, media kind, duration, bin
+ * placement, and whether it obliges a credit. `media` and the full `source`
+ * record are absent by construction — see the module note.
  */
-export type ModelAsset = Omit<Asset, 'media'>;
+export type ModelAsset = Omit<Asset, 'media' | 'source'> & {
+  /**
+   * Present and `true` only for a provider-sourced asset whose licence obliges
+   * a credit. Omitted otherwise — including for every user-imported file, which
+   * has no provenance at all. Absent means "nothing to credit", never "unknown".
+   */
+  readonly attributionRequired?: true;
+};
 
-/** Drop the engine-derived render block from one asset. */
+/** Drop the engine-derived render block and collapse provenance to the one actionable bit. */
 export function toModelAsset(asset: Asset): ModelAsset {
-  const { media: _media, ...rest } = asset;
-  return rest;
+  const { media: _media, source, ...rest } = asset;
+  return source?.attributionRequired === true ? { ...rest, attributionRequired: true } : rest;
 }
 
 export function toModelAssets(assets: readonly Asset[]): ModelAsset[] {

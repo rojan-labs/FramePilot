@@ -354,6 +354,56 @@ describe('read tools', () => {
     expect(JSON.stringify(state)).not.toContain('peaks');
   });
 
+  it('list_assets collapses provenance to the one fact the model can act on', () => {
+    // Licence URLs, creator URLs and fetch timestamps are not reasoning material — the
+    // model never opens a licence page. "This track obliges a credit" is, because the
+    // model can say it out loud in its summary. See model-view.ts and ADR 0139.
+    const project = makeProject({
+      assets: [
+        {
+          id: 'asset_credit',
+          path: 'media/bed.mp3',
+          kind: 'audio',
+          source: {
+            provider: 'openverse',
+            remoteId: 'ov-1',
+            license: 'cc-by',
+            licenseUrl: 'https://creativecommons.org/licenses/by/4.0/',
+            attributionRequired: true,
+            attribution: '"Bed" by Ada is licensed under CC BY 4.0.',
+            creator: 'Ada',
+            fetchedAt: '2026-08-23T12:00:00.000Z',
+          },
+        },
+        {
+          id: 'asset_cc0',
+          path: 'media/sting.mp3',
+          kind: 'audio',
+          source: {
+            provider: 'openverse',
+            remoteId: 'ov-2',
+            license: 'cc0',
+            attributionRequired: false,
+            fetchedAt: '2026-08-23T12:00:00.000Z',
+          },
+        },
+        { id: 'asset_imported', path: 'media/cam.mp4', kind: 'video' },
+      ],
+    });
+
+    const bin = getTool('list_assets')?.read?.({}, { project }) as {
+      assets: Array<Record<string, unknown>>;
+    };
+    expect(bin.assets[0]?.attributionRequired).toBe(true);
+    // Absent means "nothing to credit", never "unknown" — a CC0 track and a file the
+    // user dragged in are both genuinely free of obligation, so neither is flagged.
+    expect(bin.assets[1]).not.toHaveProperty('attributionRequired');
+    expect(bin.assets[2]).not.toHaveProperty('attributionRequired');
+    expect(JSON.stringify(bin)).not.toContain('creativecommons.org');
+    // The stored project keeps the full record — only the model-facing copy collapses it.
+    expect(project.assets[0]?.source?.attribution).toContain('Ada');
+  });
+
   it('read_edit_signals describes every supplied signal in TIME order, with no verdicts', () => {
     const result = getTool('read_edit_signals')?.read?.(
       {

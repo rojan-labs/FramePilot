@@ -4,7 +4,7 @@
  * (negative duration) fails. See plan/PLAN.md Phase 1.1.
  */
 import { describe, expect, it } from 'vitest';
-import { SCHEMA_VERSION, parseProject, safeParseProject } from './index.js';
+import { AssetSourceSchema, SCHEMA_VERSION, parseProject, safeParseProject } from './index.js';
 
 /** Mirrors the PRD §11 example project shape. */
 const validProject = {
@@ -42,7 +42,82 @@ const validProject = {
 
 describe('timeline-schema', () => {
   it('exposes a numeric SCHEMA_VERSION', () => {
-    expect(SCHEMA_VERSION).toBe(19);
+    expect(SCHEMA_VERSION).toBe(20);
+  });
+
+  describe('asset provenance (`Asset.source`, schema v20)', () => {
+    const attributionRequired = {
+      provider: 'openverse',
+      remoteId: 'ov-12345',
+      license: 'cc-by',
+      licenseUrl: 'https://creativecommons.org/licenses/by/4.0/',
+      attributionRequired: true,
+      attribution: '"Calm Lofi Bed" by Ada Lovelace is licensed under CC BY 4.0.',
+      creator: 'Ada Lovelace',
+      creatorUrl: 'https://example.test/ada',
+      sourceUrl: 'https://openverse.org/audio/ov-12345',
+      fetchedAt: '2026-08-23T12:00:00.000Z',
+    };
+
+    it('accepts an asset with no source — every user-imported file', () => {
+      const project = parseProject(validProject);
+      expect(project.assets[0]?.source).toBeUndefined();
+    });
+
+    it('round-trips a full attribution-required source', () => {
+      const project = parseProject({
+        ...validProject,
+        assets: [
+          { id: 'asset_001', path: '/media/bed.mp3', kind: 'audio', source: attributionRequired },
+        ],
+      });
+      expect(project.assets[0]?.source).toEqual(attributionRequired);
+    });
+
+    it('accepts a minimal CC0 source with no creator or credit line', () => {
+      const parsed = AssetSourceSchema.parse({
+        provider: 'openverse',
+        remoteId: 'ov-9',
+        license: 'cc0',
+        attributionRequired: false,
+        fetchedAt: '2026-08-23T12:00:00.000Z',
+      });
+      expect(parsed.attributionRequired).toBe(false);
+      expect(parsed.attribution).toBeUndefined();
+    });
+
+    it('accepts engine-serialized nulls for the optional fields', () => {
+      // The Python engine round-trips projects through Pydantic, which emits an
+      // absent value as JSON `null` rather than omitting the key.
+      const parsed = AssetSourceSchema.parse({
+        provider: 'openverse',
+        remoteId: 'ov-9',
+        license: 'cc0',
+        licenseUrl: null,
+        attributionRequired: false,
+        attribution: null,
+        creator: null,
+        creatorUrl: null,
+        sourceUrl: null,
+        fetchedAt: '2026-08-23T12:00:00.000Z',
+      });
+      expect(parsed.creator).toBeNull();
+    });
+
+    it('rejects a source missing `attributionRequired` — the obligation must be explicit', () => {
+      // Defaulting this to false would silently downgrade a credit obligation to
+      // none, which is exactly the harm the field exists to prevent.
+      const { attributionRequired: _omitted, ...withoutFlag } = attributionRequired;
+      expect(AssetSourceSchema.safeParse(withoutFlag).success).toBe(false);
+    });
+
+    it('rejects an empty provider, remoteId, or license', () => {
+      for (const field of ['provider', 'remoteId', 'license'] as const) {
+        expect(AssetSourceSchema.safeParse({ ...attributionRequired, [field]: '' }).success).toBe(
+          false,
+        );
+      }
+    });
   });
 
   it('parses the PRD example project', () => {

@@ -20,7 +20,7 @@ import { z } from 'zod/v4';
  * Bump on any breaking change to the schema. A migration is required before the
  * schema can change in a way that invalidates existing `project.fp.json` files.
  */
-export const SCHEMA_VERSION = 19 as const;
+export const SCHEMA_VERSION = 20 as const;
 
 // ---------------------------------------------------------------------------
 // Primitives
@@ -916,6 +916,56 @@ export const AssetMediaSchema = z.object({
   thumbnailPaths: z.array(z.string()).nullish(),
 });
 
+/**
+ * Where an asset came from, and what using it obliges (schema v20).
+ *
+ * Only assets fetched from a third-party provider carry this — a file the user
+ * dragged in has no provenance to record, and never will, so the field is
+ * **optional** rather than defaulted (same shape decision as `capabilityPacks`
+ * in v19).
+ *
+ * This exists because a licence badge shown at search time cannot discharge an
+ * obligation that lands at publish time. Weeks after choosing a track the user
+ * needs to know *which* of four beds needed crediting, *to whom*, and under
+ * *which* licence. If the only record of that were a chip in a panel they
+ * closed, the product would have walked them into a licence violation quietly.
+ * So the credit is persisted with the project and read back by the Credits view
+ * (`plan/3rd-party-sourcing/README.md` §D2, ADR 0139).
+ *
+ * Nullable, not merely optional, for the same cross-language reason as
+ * {@link AssetMediaSchema}: the Python engine round-trips projects through
+ * Pydantic and serializes an absent value as JSON `null`.
+ */
+export const AssetSourceSchema = z.object({
+  /** Provider roster name, e.g. `'openverse'`. */
+  provider: z.string().min(1),
+  /** Provider-local id. Download dedupe, and "find this again" later. */
+  remoteId: z.string().min(1),
+  /** Licence identifier verbatim from the provider, e.g. `'cc-by'` / `'cc0'`. */
+  license: z.string().min(1),
+  /** Canonical licence text URL, so the user can read the actual terms. */
+  licenseUrl: z.string().nullish(),
+  /**
+   * TRUE when the licence obliges the end user to credit someone. Stored rather
+   * than derived from {@link AssetSourceSchema.license}: licence vocabularies
+   * differ per provider and change over time, and a project written today must
+   * still know what it agreed to then.
+   */
+  attributionRequired: z.boolean(),
+  /**
+   * The ready-to-paste credit line. Openverse supplies this directly; other
+   * providers' adapters assemble it. This is the field that makes the
+   * obligation survivable — everything else is metadata about it.
+   */
+  attribution: z.string().nullish(),
+  creator: z.string().nullish(),
+  creatorUrl: z.string().nullish(),
+  /** Landing page for the item on the provider. */
+  sourceUrl: z.string().nullish(),
+  /** ISO-8601. What the terms were understood to be, and when. */
+  fetchedAt: z.string(),
+});
+
 export const AssetSchema = z.object({
   id: z.string(),
   path: z.string(),
@@ -930,6 +980,12 @@ export const AssetSchema = z.object({
    * is organizational only — it never affects the timeline or render.
    */
   folderId: z.string().optional(),
+  /**
+   * Provenance for a provider-sourced asset: licence, credit line, and where it
+   * came from (schema v20). Absent for every user-imported file — that is the
+   * correct reading, not missing data.
+   */
+  source: AssetSourceSchema.nullish(),
 });
 
 // ---------------------------------------------------------------------------
