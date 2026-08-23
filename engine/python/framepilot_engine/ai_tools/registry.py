@@ -658,34 +658,12 @@ class DetectBeatsArgs(BaseModel):
     hard_sync: bool | None = Field(default=None, alias="hardSync")
 
 
-class SearchMusicArgs(BaseModel):
-    """Search a third-party provider for a background-music bed.
-
-    Mirrors the TS ``searchMusicSchema``. The search itself runs in the trusted
-    HOST, never here: the provider connection and any credential live in the
-    Electron main process, and the sidecar has no business holding either. This
-    model exists so the sidecar's registry mirror stays in parity with the TS
-    one, which the cross-language fixture test enforces.
-    """
-
-    model_config = _STRICT
-    query: str = Field(min_length=1)
-    limit: int | None = Field(default=None, ge=1, le=40)
-
-
-class AddMusicArgs(BaseModel):
-    """Download one searched track and place it on its own music layer.
-
-    Mirrors the TS ``addMusicSchema``. Host-executed for the same reason as
-    :class:`SearchMusicArgs`; the resulting timeline change is a reversible
-    ``add_asset`` + ``add_layer`` + ``add_clip`` patch assembled by the TS
-    orchestrator, never a mutation performed by whoever downloaded the file.
-    """
-
-    model_config = _STRICT
-    remote_id: str = Field(min_length=1, alias="remoteId")
-    at_seconds: float | None = Field(default=None, ge=0.0, alias="atSeconds")
-    duck_under_track_id: FilterStr = Field(default=None, alias="duckUnderTrackId")
+# `search_music` and `add_music` are deliberately ABSENT from this mirror, like
+# `ask_user`. They execute in the Electron main process — the provider network and
+# the project media directory both live there — and the sidecar has no route to
+# fall back to, because it has no business holding a provider connection. They are
+# marked `hostUiOnly` on the TS side, and `test_tool_registry_ts_parity.py` enforces
+# that host-only tools stay out of here (ADR 0139).
 
 
 class SearchMediaArgs(BaseModel):
@@ -1440,30 +1418,6 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "audio track — silent footage has no beats, so pass the music asset's id.",
         kind="analysis",
         input_model=DetectBeatsArgs,
-    ),
-    "search_music": _spec(
-        "search_music",
-        "Search for background music to lay under the edit — say the mood or "
-        'instrument you want ("calm piano", "driving synth"), not a song title. '
-        "Returns candidate tracks { remoteId, title, durationSeconds, license, "
-        "attributionRequired, creator }; play nothing, download nothing, spend nothing. "
-        "Pass a remoteId to add_music to actually use one. Every result is cleared for "
-        "monetized video; some require crediting the artist, and the result says which. "
-        "Does not edit the timeline.",
-        kind="analysis",
-        input_model=SearchMusicArgs,
-    ),
-    "add_music": _spec(
-        "add_music",
-        "Put a track from search_music under the edit. Pass its remoteId; it lands on "
-        "its own music track, from atSeconds (default the start), the full length of the "
-        "track. Give duckUnderTrackId the dialogue track id to have the bed drop under "
-        "the voice — that is almost always what you want under narration. Downloads the "
-        "file into the project, so it keeps working offline. If the track requires "
-        "crediting, the project records the credit and says so. Undoing removes the "
-        "track, its layer and the file reference in one step.",
-        kind="analysis",
-        input_model=AddMusicArgs,
     ),
     "get_frame": _spec(
         "get_frame",

@@ -8,6 +8,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Find background music without leaving the app.** A new **Sounds** tab in the left rail
+  searches over a million openly licensed tracks — search by mood or instrument ("calm piano",
+  "driving synth"), press play to hear one, and Add drops it on its own music track. No account
+  and no API key: it works the moment you open it. Every track is cleared for monetized video;
+  the ones that ask you to credit the artist say so on the row, and FramePilot remembers the
+  credit for you. Downloaded tracks become ordinary project files, so the project still opens
+  and exports offline. You can also just ask: **"add calm background music under the voice"**
+  in Agent mode searches, picks, places and ducks it under your dialogue in one go.
+  (`apps/desktop`, `apps/web-editor`, `packages/ai-sdk`, ADR 0139 — see
+  [the guide](docs/guides/music-sourcing.md))
+
 - **Your project remembers which tracks need crediting.** Music you add from a provider now
   carries its licence with it — who made it, under what terms, and the exact line to credit
   them with. Open Export and there is a **Credits** section listing every track in the project

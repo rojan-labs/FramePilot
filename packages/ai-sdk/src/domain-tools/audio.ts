@@ -103,6 +103,8 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
         'file into the project, so it keeps working offline. If the track requires ' +
         'crediting, the project records the credit and says so. Undoing removes the ' +
         'track, its layer and the file reference in one step.',
+      // Main-process only, like `search_music` — see the note there.
+      hostUiOnly: true,
     },
     addMusicSchema,
   ),

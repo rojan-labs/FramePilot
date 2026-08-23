@@ -118,11 +118,6 @@ _EXPECTED_FLAGS: dict[str, tuple[bool, bool]] = {
     "describe_footage": (True, False),
     "index_media": (True, False),
     "map_footage": (True, False),
-    # Both are host-executed and neither declares `mutates`: `search_music` really
-    # does not edit, and `add_music`'s timeline change is assembled by the TS
-    # orchestrator from what the host downloaded, never by the tool itself.
-    "search_music": (True, False),
-    "add_music": (True, False),
     "read_edit_signals": (True, False),
     "session_context": (True, False),
     "detect_faces": (False, False),

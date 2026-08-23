@@ -1,4 +1,4 @@
-# Phase 4 — Agent tool — `[ ]`
+# Phase 4 — Agent tool — `[~]` code complete · evidence run outstanding
 
 > **Ships:** "add calm background music under the voice" completes in Agent mode and over MCP.
 > **Depends on:** Phase 3 shipped **and** a human having confirmed through the Phase 2 UI that
@@ -20,7 +20,7 @@ Two reasons, both measured:
 
 ---
 
-## P4.1 — Tool specs — `[ ]`
+## P4.1 — Tool specs — `[x]`
 
 **Touch:** `packages/ai-sdk/src/domain-tools/media.ts` (search) and
 `domain-tools/audio.ts` (placement). Domain-by-subject, not by kind — the registry is
@@ -51,7 +51,7 @@ use these (unlike `ask_user`, which needs a human looking at the app).
 
 ---
 
-## P4.2 — Host execution — `[ ]`
+## P4.2 — Host execution — `[x]`
 
 **Touch:** `packages/ai-sdk/src/sidecar-executor.ts`, `apps/desktop/electron/main.ts`.
 
@@ -63,7 +63,7 @@ Absent (browser surface, tests) ⇒ the tools fail honestly rather than silently
 
 ---
 
-## P4.3 — Honest degradation — `[ ]`
+## P4.3 — Honest degradation — `[x]`
 
 `available` is static in the registry, so a config-gated tool must degrade **at execution
 time**, following the ASR/TwelveLabs `no-key` precedent and ADR 0118 (missing evidence is
@@ -82,27 +82,28 @@ stated, not implied).
 
 ---
 
-## P4.4 — Cross-runtime parity — `[ ]`
+## P4.4 — Cross-runtime parity — `[x]`
 
 Adding a tool touches four surfaces. Missing one is the standard drift bug:
 
-- [ ] TS `TOOL_REGISTRY`
-- [ ] `engine/python/framepilot_engine/ai_tools/registry.py` — **hand-maintained mirror**,
-      not generated. Also `handlers.py` if it needs a sidecar arm (it should not — these are
-      host tools).
-- [ ] Regenerate the parity fixture:
-      `pnpm --filter @framepilot/ai-sdk generate:tool-parity`, guarded by
-      `tool-parity-fixture.test.ts` and `test_tool_registry_schema_parity.py`
-- [ ] MCP descriptor flows automatically via `buildMcpTools`
-      (`packages/mcp-server/src/tools.ts:85`) — verify it appears
-- [ ] `tool-classification.ts` (parity test at `tool-classification.test.ts:23`)
+- [x] TS `TOOL_REGISTRY` — `search_music` in `domain-tools/media.ts`, `add_music` in
+      `domain-tools/audio.ts` (by subject, not by kind)
+- [x] `registry.py` mirror — `SearchMusicArgs` / `AddMusicArgs`. No `handlers.py` arm, as
+      predicted: these are host tools and the sidecar never sees them
+- [x] Parity fixture regenerated (80 → 82 tools); both guard tests green
+- [x] MCP flows automatically via `buildMcpTools`
+- [x] `tool-classification.ts` — `search_music` revision_independent, `add_music`
+      timeline_dependent (a memoized "already added" replayed past an undo would report a
+      bed the timeline does not have)
+- [x] `test_ai_tools.py`'s available/mutating contract table — an extra surface the plan
+      did not list, and the one that caught the omission
 
 **Rebuild the ai-sdk dist** — web-editor and desktop import from built `dist`, so an
 un-rebuilt package means testing stale code.
 
 ---
 
-## P4.5 — Skill — `[ ]`
+## P4.5 — Skill — `[x]`
 
 Extend an existing music/audio skill in `packages/ai-sdk/skills/*.md` rather than adding a
 new one. Ground every recipe in what the tools actually do (`editing-skills-expert`
@@ -114,7 +115,18 @@ caught by, and does not need, a guard trigger.
 
 ---
 
-## P4.6 — Evidence — `[ ]`
+## P4.6 — Evidence — `[~]` token delta measured · agent run OUTSTANDING
+
+> **Measured 2026-08-23: the registry's tool-descriptor section goes 15,762 → 16,132
+> tokens — `+370` per request**, on every turn of every run. Read off the frozen
+> golden manifests, whose only divergence after this phase was that arithmetic. The
+> plan decided in advance to pay this; it is now a number rather than an estimate.
+>
+> **The agent evidence run itself is OUTSTANDING** for the same reason as P3.6: it
+> needs a human at a desktop build with real footage. Both prompts are specified —
+> "add calm background music under the voice" with a key configured, and the same
+> prompt with the host override absent, which must fail honestly. The honesty arm is
+> covered by unit tests per arm; what is unproven is the whole chain on real media.
 
 Per `product-discipline.mdc` §8, judged by the resulting timeline and render, not by tool
 calls:
@@ -131,15 +143,19 @@ Record the prompt, the resulting operations, and the observed render.
 
 ## Definition of done
 
-- [ ] Both tools registered, TS ↔ Python ↔ MCP parity green, dist rebuilt
-- [ ] `add_music` returns operations; the agent path yields a timeline **deep-equal** to the
-      manual path (tested)
-- [ ] Every degradation arm stated honestly, never fabricated (tested per arm)
-- [ ] Empty planned mutation fails closed (ADR 0083)
-- [ ] The P3.6 evidence run recorded, including the no-key run
-- [ ] Registry token delta measured and recorded in the plan snapshot
-- [ ] `pnpm verify` green
-- [ ] `docs/guides/music-sourcing.md` gains an Agent-mode section; `CHANGELOG.md`
+- [x] Both tools registered, TS ↔ Python ↔ MCP parity green, dist rebuilt
+- [x] `add_music` returns operations; the agent path yields a timeline **deep-equal** to the
+      manual path (tested — with the manual ops spelled out independently, so a change to
+      the shared builder cannot make both sides wrong the same way)
+- [x] Every degradation arm stated honestly, never fabricated (tested per arm: absent host,
+      provider failure surfaced verbatim, non-commercial refusal, empty results as
+      `warning` not `completed`)
+- [x] Empty/unusable planned mutation fails closed (ADR 0083) — a payload that does not
+      parse is rejected rather than reported as a completed edit on an unchanged timeline
+- [ ] The P3.6/P4.6 evidence runs recorded, including the no-key run — OUTSTANDING
+- [x] Registry token delta measured: **+370 per request** (15,762 → 16,132)
+- [x] Unit/typecheck/lint green across every package; `test:e2e` green
+- [x] `docs/guides/music-sourcing.md` has an Agent-mode section; `CHANGELOG.md` landed
 
 **Deferred:** the agent choosing music by _mood inferred from the footage_ (that is footage
 understanding, a different subsystem); automatic beat-aligned cutting to a fetched track

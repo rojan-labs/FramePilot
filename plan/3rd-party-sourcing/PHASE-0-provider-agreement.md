@@ -1,4 +1,4 @@
-# Phase 0 — Provider commercial-use agreement — `[ ]`
+# Phase 0 — Provider commercial-use agreement — `[~]` Openverse closed · Epidemic outstanding
 
 > **Gates shipping on a paid catalogue. Does not gate writing the code.**
 > Provider research is **done** and the provider set is **closed at Epidemic + Openverse** —
@@ -60,40 +60,49 @@ works — but it is a real friction step. Confirm it fits before signing.
 
 ---
 
-## P0.2 — Openverse — `[ ]`
+## P0.2 — Openverse — `[x]`
 
 **Decided: Openverse SHIPS as the free tier** (maintainer, 2026-08-23), not a build-time
 scaffold. Accepted knowingly against its uneven aggregate catalogue quality — every user gets
 working music search with no key, no second subscription, and no cost to FramePilot.
 
-- [ ] Register an Openverse API key to lift anonymous limits (20/min, 200/day → higher).
-      Not required to start.
-- [ ] Confirm the audio search endpoint returns what `ProviderTrack` needs:
-      `duration`, `license`, `license_url`, `attribution`, `creator`, `creator_url`, `url`,
-      `waveform`, `filetype`. (Research says yes.)
-- [ ] Confirm commercial-use filtering excludes NC content **server-side**, so an NC track
-      never arrives to be mishandled.
-- [ ] Confirm Openverse's _"reserves the right to charge fees for commercial uses of the API
-      and/or for heavy usage"_ has not become an actual charge. It is a stated risk, and
-      Openverse now ships to every user.
+- [x] **No key registered, and none is used.** Anonymous limits (20/min, 200/day) are lived
+      within by the in-main search cache instead. Openverse's optional auth is an OAuth2
+      client-credentials exchange, not a bearer key — so the planned key field was not built.
+      See the divergence note in `PHASE-2-search-and-audition.md` and ADR 0139.
+- [x] **Endpoint confirmed against the live API, 2026-08-23.** `GET /v1/audio/` returns
+      `id`, `title`, `duration`, `url`, `filetype`, `license`, `license_url`, `attribution`,
+      `creator`, `creator_url`, `foreign_landing_url`. Two findings the research did not
+      have: **`duration` is in MILLISECONDS**, and Jamendo-sourced records report
+      `filetype: "mp32"` (Jamendo's 96 kbps quality code, not a container) — both normalized
+      at the adapter, both covered by tests against the recorded response.
+- [x] **Server-side commercial filtering confirmed empirically.** An unfiltered `piano`
+      page returned `by-nc-sa` and `by-nc-nd`; the same query with
+      `license_type=commercial` returned none. The adapter filters again on the way in
+      anyway — a query-string parameter is not a guarantee.
+- [x] Openverse's fee reservation has **not** become an actual charge as of 2026-08-23.
+      It remains a stated risk, now carried by every user, and is worth re-checking
+      periodically rather than assumed settled.
 
 ---
 
-## P0.3 — Confirm the zero-dependency assumption — `[ ]`
+## P0.3 — Confirm the zero-dependency assumption — `[x]` for Openverse
 
 Both providers must be reachable with Node's built-in `fetch` from Electron main. If an SDK
 is required, stop: that is a dependency addition needing maintainer approval and
 `pnpm license:scan` (AGENTS.md §8, CLAUDE.md §5).
 
-Openverse is plain REST — expected to hold. Verify for Epidemic when its docs are accessible.
+**Confirmed for Openverse, 2026-08-23.** Plain REST over Node's built-in `fetch` from
+Electron main; no SDK, no dependency added anywhere in this work. Still to verify for
+Epidemic when its docs are accessible.
 
 ---
 
-## P0.4 — Record the plan delta — `[ ]`
+## P0.4 — Record the plan delta — `[x]`
 
-One-line note at `plan/FRAMEPILOT-AI-PRODUCT-PLAN.md:22`, beside the "no owned music catalog"
-decision, pointing at `README.md` §D1 — so a later agent reads the difference as deliberate
-rather than as an accidental reversal (`product-discipline.mdc` §10).
+**Done.** The note is in place beside the "no owned music catalog" decision in
+`plan/FRAMEPILOT-AI-PRODUCT-PLAN.md`, pointing at `README.md` §D1 and ADR 0139, and states
+plainly that the earlier decision still stands for an _owned_ catalog.
 
 ---
 
@@ -104,9 +113,13 @@ rather than as an accidental reversal (`product-discipline.mdc` §10).
 - [x] "Bring your own music subscription" confirmed as acceptable product shape
 - [x] Epidemic free-tier account registered; go-live restriction understood
 - [ ] Epidemic paid-tier conversation opened; the P0.1 questions answered
-- [ ] Cost-stack question answered before signing
-- [ ] Zero-dependency assumption confirmed for whichever provider ships
-- [ ] Delta note added to `FRAMEPILOT-AI-PRODUCT-PLAN.md`
+      — **MAINTAINER-BLOCKED.** This is a commercial conversation with a vendor; it
+      cannot be closed from inside the codebase. It gates only shipping on a _paid_
+      catalogue, and P1–P4 shipped on Openverse without it, exactly as planned.
+- [ ] Cost-stack question answered before signing — same, blocked on the above
+- [x] Zero-dependency assumption confirmed for the provider that ships (Openverse):
+      plain REST, Node `fetch`, no SDK, no new dependency
+- [x] Delta note added to `FRAMEPILOT-AI-PRODUCT-PLAN.md`
 
 ---
 

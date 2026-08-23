@@ -1,4 +1,4 @@
-# Third-party media sourcing — `[ ]` not started
+# Third-party media sourcing — `[~]` shipped on Openverse · two evidence runs outstanding
 
 > **Sub-plan index.** Created 2026-08-23. Owner: maintainer.
 > Parent entry: `plan/PLAN.md` → "Third-party media sourcing".
@@ -263,13 +263,34 @@ UI, that the provider actually returns usable tracks.
 
 ## 7. Task ledger
 
-- [ ] **P0** Provider commercial-use agreement → `PHASE-0-provider-agreement.md`
-      _(Openverse needs none — P0 does not block P1–P3 on the Openverse path)_
-- [x] **P1** Asset provenance, schema v20, credits surface → `PHASE-1-provenance-schema.md`
-- [ ] **P2** Search + audition, no download → `PHASE-2-search-and-audition.md`
-- [ ] **P3** Download → asset → timeline → export → `PHASE-3-download-and-place.md`
-- [ ] **P4** Agent tool + MCP parity → `PHASE-4-agent-tool.md`
-- [ ] **P5** Docs closure: ADRs, guides, `.env.example` + `turbo.json`, privacy page, delta
-      note at `FRAMEPILOT-AI-PRODUCT-PLAN.md:22`, `CHANGELOG.md` (obligations listed per phase)
+- [~] **P0** Provider agreement — Openverse closed (no key, no agreement, endpoint and
+  server-side NC filtering both verified against the live API). **Epidemic's paid-tier
+  conversation is maintainer-blocked** and gates only shipping on a paid catalogue.
+- [x] **P1** Asset provenance, schema v20, credits surface (ADR 0138)
+- [x] **P2** Search + audition — with one deliberate divergence: **no API key field**, because
+      Openverse takes none. Recorded in the phase file and ADR 0139.
+- [~] **P3** Download → asset → timeline → export — code and tests complete; **the manual
+  real-media evidence run is outstanding** and needs a human at a desktop build.
+- [~] **P4** Agent tool + MCP parity — complete, parity green across all five surfaces,
+  **token delta measured at +370/request**; the agent evidence run is outstanding with P3's.
+- [x] **P5** Docs closure: ADR 0138 + ADR 0139, `docs/guides/music-sourcing.md`,
+      `docs/api/timeline-schema.md`, privacy page, the delta note at
+      `FRAMEPILOT-AI-PRODUCT-PLAN.md`, `CHANGELOG.md`. No `.env.example`/`turbo.json` entry:
+      **no env var was added**, so that obligation is satisfied vacuously.
+
+## What is left, precisely
+
+Two things, and they are the same kind of thing — **a human, a desktop build, and real
+footage**. Neither can be produced from inside the repository, and no volume of green
+unit tests substitutes for either (`product-discipline.mdc` §8).
+
+1. **P3.6** — a real 5–15 minute recording: search → audition → download an
+   attribution-required track → place → duck under dialogue → export → _listen_ → confirm
+   Credits after save and reopen.
+2. **P4.6** — the same footage, driven by "add calm background music under the voice", plus
+   the no-host run that must fail honestly.
+
+Plus **P0.1**, a commercial conversation with Epidemic Sound that gates only the paid
+upgrade, not anything that has shipped.
 
 **Last updated:** 2026-08-23

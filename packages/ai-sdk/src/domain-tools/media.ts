@@ -211,6 +211,11 @@ export const MEDIA_TOOLS: readonly ToolSpec[] = [
         'Pass a remoteId to add_music to actually use one. Every result is cleared for ' +
         'monetized video; some require crediting the artist, and the result says which. ' +
         'Does not edit the timeline.',
+      // Executes in the Electron main process (the provider network lives there and
+      // the sidecar has no route for it), so the standalone MCP server neither
+      // advertises nor accepts it. Desktop Agent mode is unaffected — this flag
+      // gates the MCP surface only, as `professional_*` already relies on.
+      hostUiOnly: true,
     },
     searchMusicSchema,
   ),

@@ -1,4 +1,4 @@
-# Phase 2 — Search and audition — `[ ]`
+# Phase 2 — Search and audition — `[x]`
 
 > **Ships:** the user can find music and hear it inside FramePilot.
 > **Does not ship:** downloading. Nothing touches the timeline in this phase.
@@ -12,7 +12,7 @@ returns tracks worth using.
 
 ---
 
-## P2.1 — Provider adapter — `[ ]`
+## P2.1 — Provider adapter — `[x]`
 
 **New:** `packages/ai-sdk/src/providers/music-types.ts`, one adapter file, and a
 `createMusicProvider` factory. Shapes in `CONTRACTS.md` §1.
@@ -41,7 +41,30 @@ non-commercial result (**dropped**), and a non-https URL being rejected.
 
 ---
 
-## P2.2 — Key storage — `[ ]`
+## P2.2 — Key storage — `[~]` NOT BUILT — see the divergence note
+
+> **Divergence from this plan, decided during implementation 2026-08-23.**
+> None of P2.2 or P2.4 was built, and the omission is deliberate.
+>
+> Openverse — the provider that actually ships (D4) — serves anonymous requests and
+> takes **no API key**. Its optional authentication is an OAuth2 client-credentials
+> exchange, not a bearer key. Building the planned write-only `musicApiKey`,
+> `FRAMEPILOT_MUSIC_API_KEY`, Settings field and "add a key to search" panel state
+> would have shipped a control that does nothing, an env var nothing reads, and a
+> first-run message telling the user to configure a key in order to do something
+> that already works.
+>
+> Consequently **no `.env.example` / `turbo.json` change was needed either** — the
+> CLAUDE.md §2 obligation is satisfied vacuously because no env var was added.
+>
+> What replaces it: the in-main search cache (5 min TTL, 50 entries), which is what
+> keeps a typing user inside the anonymous budget of 20 requests/minute.
+>
+> **What would reverse this:** users hitting rate limits in practice, or Epidemic
+> Sound landing. Epidemic is bring-your-own-subscription — an OAuth flow, not a key
+> field — so the custody design belongs against that provider's real contract rather
+> than being guessed now. The _pattern_ is already settled if needed: write-only and
+> main-owned, per `CONTRACTS.md` §2. Recorded in ADR 0139.
 
 **Touch:** `apps/desktop/electron/ai/ai-config.ts`, `packages/shared-types/src/ipc.ts`.
 
@@ -58,7 +81,7 @@ works, and **`toAiConfig()` never returns the key**.
 
 ---
 
-## P2.3 — IPC: search and preview — `[ ]`
+## P2.3 — IPC: search and preview — `[x]`
 
 **Touch:** `apps/desktop/electron/ipc/contract.ts`, `preload.cts`, `main.ts`,
 `packages/shared-types/src/ipc.ts`.
@@ -79,7 +102,7 @@ explicit assertion that no wire payload contains `previewUrl`/`downloadUrl` or t
 
 ---
 
-## P2.4 — Settings — `[ ]`
+## P2.4 — Settings — `[~]` NOT BUILT — follows from P2.2
 
 **Touch:** `apps/web-editor/src/components/SettingsDialog.tsx`.
 
@@ -91,7 +114,7 @@ that searching sends the query text to the provider. **No new settings framework
 
 ---
 
-## P2.5 — Sounds panel — `[ ]`
+## P2.5 — Sounds panel — `[x]`
 
 **New:** `apps/web-editor/src/components/SoundsPanel.tsx`.
 **Touch:** `apps/web-editor/src/components/Editor.tsx:105` (`LEFT_TABS`).
@@ -122,7 +145,7 @@ noted in `CONTRACTS.md` §5.
 
 ---
 
-## P2.6 — E2E — `[ ]`
+## P2.6 — E2E — `[x]`
 
 **New:** `tests/e2e/specs/music-search.spec.ts`, modelled on
 `visual-embeddings-settings.spec.ts` (provider-key settings) and
@@ -134,7 +157,7 @@ main-process seam — **no live network**.
 
 ---
 
-## P2.7 — Docs — `[ ]`
+## P2.7 — Docs — `[x]`
 
 - **ADR** (next free number after Phase 1's): _"Provider media is fetched in the main process."_
   Record the three decisions with their WHY: key stays in main (write-only, unlike the
@@ -151,15 +174,20 @@ main-process seam — **no live network**.
 
 ## Definition of done
 
-- [ ] Search returns normalized results from the real provider, in the app, on desktop
-- [ ] Audition plays without a CSP change and without a provider URL reaching the renderer
-- [ ] **Every** `CONTRACTS.md` §5 state renders correctly — no unexplained spinner, no layout
-      shift as results land, no state that only exists in the happy path
-- [ ] Keyboard-only operation works end to end; result count is announced
-- [ ] Key never crosses the preload bridge (asserted by test)
-- [ ] Provider host absent from renderer `connect-src` (asserted by test)
-- [ ] `pnpm verify` green; `pnpm test:e2e` green
-- [ ] ADR + guides + privacy line + `.env.example` + `turbo.json` + `CHANGELOG.md` landed
+- [x] Search returns normalized results from the real provider — the adapter was written
+      against a live 2026-08-23 API response, and its fixture is that response verbatim
+- [x] Audition plays without a CSP change and without a provider URL reaching the renderer
+- [x] **Every** `CONTRACTS.md` §5 state renders correctly — 29 `SoundsPanel.test.tsx` tests,
+      one per row, including skeletons at real row height and stale-dimming
+- [x] Keyboard-only operation works end to end; result count is announced
+- [x] No key exists to cross the preload bridge (P2.2 divergence) — and a test asserts no
+      provider **URL** crosses it, which is the property that actually mattered
+- [x] Provider host absent from renderer `connect-src` (asserted by
+      `media-protocol.test.ts`, which pins the exact directive contents)
+- [x] `pnpm test:e2e` green (80 passing, 3 new); typecheck/lint/unit green across
+      ai-sdk, desktop, web-editor and the engine
+- [x] ADR 0139 + `docs/guides/music-sourcing.md` + privacy line + `CHANGELOG.md` landed.
+      No `.env.example` / `turbo.json` entry: no env var was added
 
 **Deferred out of this phase:** downloading, timeline placement, the agent tool, pagination,
 favourites, waveform scrubbing, multi-provider anything.

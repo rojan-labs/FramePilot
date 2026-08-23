@@ -286,7 +286,7 @@
       "kind": "analysis",
       "mutates": false,
       "available": true,
-      "hostUiOnly": false,
+      "hostUiOnly": true,
       "schema": {
         "type": [
           "object"
@@ -3040,7 +3040,7 @@
       "kind": "analysis",
       "mutates": false,
       "available": true,
-      "hostUiOnly": false,
+      "hostUiOnly": true,
       "schema": {
         "type": [
           "object"

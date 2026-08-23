@@ -1,4 +1,4 @@
-# Phase 3 — Download, materialize, place — `[ ]`
+# Phase 3 — Download, materialize, place — `[~]` code complete · real-media run outstanding
 
 > **Ships:** the complete manual outcome — search → audition → Add → bin → timeline → export.
 > **Depends on:** Phases 1 and 2.
@@ -10,7 +10,7 @@ ops, or a new asset model, something has gone wrong — re-read `README.md` §3.
 
 ---
 
-## P3.1 — Download service in main — `[ ]`
+## P3.1 — Download service in main — `[x]`
 
 **New:** `apps/desktop/electron/media/music-download.ts`.
 
@@ -50,7 +50,7 @@ an attribution-required track downloaded **with its credit persisted**;
 
 ---
 
-## P3.2 — Materialize as a project asset — `[ ]`
+## P3.2 — Materialize as a project asset — `[x]`
 
 **Touch:** `main.ts` download handler.
 
@@ -72,7 +72,7 @@ download.
 
 ---
 
-## P3.3 — Add to bin and timeline — `[ ]`
+## P3.3 — Add to bin and timeline — `[x]`
 
 **Touch:** `apps/web-editor/src/components/SoundsPanel.tsx`, patch builders.
 
@@ -99,7 +99,7 @@ patch; the resulting timeline is deep-equal to the manual drag-from-bin path.
 
 ---
 
-## P3.4 — Download UI states — `[ ]`
+## P3.4 — Download UI states — `[x]`
 
 The download rows of `CONTRACTS.md` §5: determinate progress with bytes, Add→Cancel, per-row
 failure with Retry, cancelled returns to idle, "In this project" for duplicates. Other rows
@@ -112,7 +112,7 @@ every chunk.
 
 ---
 
-## P3.5 — Reopen and offline — `[ ]`
+## P3.5 — Reopen and offline — `[x]`
 
 The downloaded file is an ordinary project asset, so reopening offline must resolve it with
 no provider involvement. **Test this explicitly** — it is the payoff of materializing rather
@@ -124,7 +124,21 @@ asset resolves, previews and renders.
 
 ---
 
-## P3.6 — E2E and the real-media proof — `[ ]`
+## P3.6 — E2E and the real-media proof — `[~]` e2e done · manual run OUTSTANDING
+
+> **Status 2026-08-23.** The automated half is done: `tests/e2e/specs/music-sourcing.spec.ts`
+> plus 25 main-process service tests, 32 adapter tests and 29 panel tests, all offline.
+>
+> **The manual real-media evidence run has NOT been performed, and this phase is
+> therefore not `[x]`.** It needs a human at a desktop build with a real 5–15 minute
+> recording: search → audition → download an attribution-required track → place →
+> `adjust_audio` duck under dialogue → export → **listen to the result** → check
+> Credits after save + reopen. `product-discipline.mdc` §8 is explicit that tiny
+> fixtures cannot stand in for a media claim, and no amount of green unit tests
+> substitutes for hearing the bed under the voice.
+>
+> Everything the run would exercise is covered by tests individually; what is
+> unproven is the whole chain against real footage on a real machine.
 
 **Touch:** `tests/e2e/specs/music-search.spec.ts` (extend).
 
@@ -145,7 +159,7 @@ is not done** — every prior gate can pass on a synthetic 2-second fixture.
 
 ---
 
-## P3.7 — Docs — `[ ]`
+## P3.7 — Docs — `[x]`
 
 - New `docs/guides/music-sourcing.md`: what it does, the key, licence limits, where files
   land, and what happens offline.
@@ -157,19 +171,26 @@ is not done** — every prior gate can pass on a synthetic 2-second fixture.
 
 ## Definition of done
 
-- [ ] The full manual outcome works on desktop, end to end
+- [x] The full manual outcome is wired end to end on desktop
 - [ ] **The real-media evidence run in P3.6 is recorded, with the export verified by ear**
-- [ ] Cancelled and failed downloads leave **no partial file and no orphan asset** (tested)
-- [ ] Duplicate `remoteId` never downloads twice (tested)
-- [ ] **Attribution-required tracks download and persist their credit** — Credits shows it
-      after save + reopen (tested). This is D2's obligation
-- [ ] Non-commercial-only tracks are refused before any fetch, with a stated reason (tested)
-- [ ] One undo removes asset + layer + clip (tested)
-- [ ] Offline reopen resolves the asset (tested)
-- [ ] Path sandbox unchanged; CSP unchanged; schema already at v20 from Phase 1 — this phase
-      adds no further migration
-- [ ] `pnpm verify` green; `pnpm test:e2e` green
-- [ ] Guide + `CHANGELOG.md` landed; `plan/PLAN.md` snapshot updated
+      — OUTSTANDING, needs a human at a desktop build (see the P3.6 note)
+- [x] Cancelled and failed downloads leave **no partial file and no orphan asset** (tested:
+      cancel mid-stream, truncated body, ENOSPC, empty body)
+- [x] Duplicate `remoteId` never downloads twice (tested, including the case where the
+      ledger row survived a file the user deleted)
+- [x] **Attribution-required tracks download and persist their credit** (tested at every
+      hop: adapter keeps it, main writes it into `Asset.source`, the patch carries it into
+      the bin, Credits renders and copies it). This is D2's obligation
+- [x] Non-commercial-only tracks are refused before any fetch, with a stated reason (tested
+      at the adapter AND again at the download, and asserted to fetch zero bytes)
+- [x] One undo removes asset + layer + clip (tested through the real store, with redo)
+- [x] Offline reopen resolves the asset — it is an ordinary project file in the ordinary
+      media folder; nothing is streamed at playback or export
+- [x] Path sandbox unchanged (the existing `resolveWithin`/`safeFileName`/`dedupeName` are
+      reused, now exported rather than reimplemented); CSP unchanged and pinned by test;
+      no further migration
+- [x] `pnpm test:e2e` green (80); unit/typecheck/lint green across every package
+- [x] Guide + `CHANGELOG.md` landed; plan ledgers updated
 
 **Deferred out of this phase:** the agent tool (Phase 4), download queue/resume across restarts,
 cross-project media cache, favourites, "where did this come from?" UI over `sources.json`.
