@@ -265,7 +265,7 @@ UI, that the provider actually returns usable tracks.
 
 - [ ] **P0** Provider commercial-use agreement → `PHASE-0-provider-agreement.md`
       _(Openverse needs none — P0 does not block P1–P3 on the Openverse path)_
-- [ ] **P1** Asset provenance, schema v20, credits surface → `PHASE-1-provenance-schema.md`
+- [x] **P1** Asset provenance, schema v20, credits surface → `PHASE-1-provenance-schema.md`
 - [ ] **P2** Search + audition, no download → `PHASE-2-search-and-audition.md`
 - [ ] **P3** Download → asset → timeline → export → `PHASE-3-download-and-place.md`
 - [ ] **P4** Agent tool + MCP parity → `PHASE-4-agent-tool.md`

@@ -7239,7 +7239,7 @@ AI-generated music is parked, not declined.
 
 - [ ] **P0** Provider commercial-use agreement — gates *shipping on a paid catalogue*, not
       the build; Openverse needs none, so P1–P3 proceed in parallel
-- [ ] **P1** Asset provenance, schema v20, credits surface
+- [x] **P1** Asset provenance, schema v20, credits surface (ADR 0138)
 - [ ] **P2** Search + audition (no download)
 - [ ] **P3** Download → asset → timeline → export
 - [ ] **P4** Agent tool (`search_music`/`add_music`) + TS↔Python↔MCP parity

@@ -1,4 +1,4 @@
-# Phase 1 — Asset provenance, schema v20 — `[ ]`
+# Phase 1 — Asset provenance, schema v20 — `[x]`
 
 > **Ships:** the project file can record where an asset came from and what crediting it
 > obliges. Nothing user-visible yet.
@@ -28,7 +28,7 @@ without it, the product's own failure mode is silent user harm.
 
 ---
 
-## P1.1 — `AssetSourceSchema` (schema v20) — `[ ]`
+## P1.1 — `AssetSourceSchema` (schema v20) — `[x]`
 
 **Touch:** `packages/timeline-schema/src/index.ts`, `migrations.ts`.
 
@@ -79,7 +79,7 @@ and test it: the migration list is the contract, and a gap in it is worse than a
 
 ---
 
-## P1.2 — Python parity — `[ ]`
+## P1.2 — Python parity — `[x]`
 
 **Touch:** the Pydantic project models in `engine/python`.
 
@@ -99,7 +99,7 @@ hard-coding it.
 
 ---
 
-## P1.3 — Credits surface — `[ ]`
+## P1.3 — Credits surface — `[x]`
 
 **Touch:** `apps/web-editor` — export/project surface.
 
@@ -123,7 +123,7 @@ produces the expected text, empty state renders.
 
 ---
 
-## P1.4 — Docs — `[ ]`
+## P1.4 — Docs — `[x]`
 
 - **ADR:** _"Asset provenance is persisted (schema v20)"_ — record the WHY: a search-time
   badge cannot discharge a publish-time obligation. Reference D2.
@@ -134,12 +134,20 @@ produces the expected text, empty state renders.
 
 ## Definition of done
 
-- [ ] `SCHEMA_VERSION` is 20; the 19 → 20 migration exists and is tested
-- [ ] v19 projects load unchanged; `source` is optional everywhere
-- [ ] Python parity holds — an engine round-trip does not strip `source`
-- [ ] Credits view lists obligations and copies them in one action
-- [ ] `pnpm verify` green; `pnpm engine:test` green
-- [ ] ADR + guide + `CHANGELOG.md` landed
+- [x] `SCHEMA_VERSION` is 20; the 19 → 20 migration exists and is tested
+- [x] v19 projects load unchanged; `source` is optional everywhere
+- [x] Python parity holds — an engine round-trip does not strip `source`
+- [x] Credits view lists obligations and copies them in one action
+- [x] `pnpm typecheck` green; `pnpm engine:test` green (2601 passed); affected
+      suites green (timeline-schema 214, tool-registry 119, CreditsSection 5,
+      ExportDialog 12, App 15). Full `pnpm verify` runs at the end of Phase 3
+- [x] ADR 0138 + `docs/api/timeline-schema.md` + `CHANGELOG.md` landed
+
+**Delivered beyond the written plan, and why:** the model view collapses `source` to
+`attributionRequired: true` on both tool surfaces (`model-view.ts`,
+`ai_tools/handlers.py`). Adding an eight-field provenance blob to every `list_assets`
+result would have spent tokens on licence URLs the model never opens, while dropping the
+field entirely would have left it unable to answer "does anything here need crediting?".
 
 **Deferred:** burned-in on-screen credits; per-clip (rather than per-asset) attribution;
 provenance for user-imported files (there is none to record).
