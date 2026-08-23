@@ -83,7 +83,7 @@ jobs:
         # GitHub does not allow the `secrets` context directly in an `if` expression. Project it
         # through the step environment so the workflow remains valid when signing is unconfigured.
         if: runner.os == 'macOS' && env.MAC_CERT_P12 != ''
-        uses: apple-actions/import-codesign-certs@v3
+        uses: apple-actions/import-codesign-certs@v7
         with:
           p12-file-base64: ${{ env.MAC_CERT_P12 }}
           p12-password: ${{ secrets.MAC_CERT_PASSWORD }}
