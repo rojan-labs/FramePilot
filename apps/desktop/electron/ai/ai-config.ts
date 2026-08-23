@@ -371,7 +371,9 @@ export class AiConfigStore {
       twelveLabsChanged: update.twelveLabs !== undefined,
       embeddingsAutoIndex: update.embeddingsAutoIndex,
       visualCaptionProvider: update.visualCaptionProvider,
-      asrApiKeyChanged: update.asrApiKey !== undefined,
+      // Presence check, not a value read: the raw key never enters this (or
+      // any) log payload — CodeQL alert #61 (clear-text logging).
+      asrApiKeyChanged: 'asrApiKey' in update,
       asrProvider: update.asrProvider,
       asrModel: update.asrModel,
     });
