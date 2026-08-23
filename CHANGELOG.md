@@ -6,6 +6,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Security
+
+- **Closed a critical dependency vulnerability in `tar` (CVE-2026-59873).**
+  A build-tooling transitive dependency could be crashed while unpacking
+  hostile archives. All consumers now resolve to tar ≥ 7.5.19 via a pnpm
+  override; packaging and rebuild flows are unaffected.
+
 ### Fixed
 
 - **The AI is told what is in your footage; it decides what to do about it.** It used to be
