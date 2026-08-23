@@ -1533,6 +1533,52 @@ export function addAssetPatch(asset: Asset): Patch {
   };
 }
 
+/**
+ * Add a fetched music track to the bin AND place it on a `music`-role layer, as
+ * **one** patch.
+ *
+ * One patch, not three, because the user did one thing. Its inverse removes the
+ * clip, the layer and the asset together, so a single undo leaves the project
+ * exactly as it was — rather than the three-press cleanup a three-patch version
+ * would demand, with two intermediate states that make no sense on their own
+ * (an asset in the bin whose clip is gone; a layer with nothing on it).
+ *
+ * The file itself stays on disk. That is non-destructive invariant 1: undoing a
+ * placement is not a reason to delete bytes the user paid a request for, and
+ * the asset can be re-placed from the bin.
+ *
+ * The layer is labelled `role: 'music'` at creation so `adjust_audio`'s
+ * `duckUnderTrackId` and the role-based ducking controller can see the bed. The
+ * role is only ever set here because this caller *knows* — it is never inferred
+ * from a track name (ADR 0112).
+ *
+ * Reuses `add_asset` + `add_layer` + `add_clip`. No new timeline operation:
+ * those three already express "music bed on its own track" completely.
+ */
+export function addMusicTrackPatch(timeline: Timeline, asset: Asset, atStart = 0): Patch {
+  const start = atStart < 0 ? 0 : atStart;
+  const duration = asset.durationSeconds ?? DEFAULT_CLIP_SECONDS;
+  const layerId = nextLayerId(timeline, 'audio');
+  return {
+    patchId: patchId(`addmusic_${asset.id}_${layerId}_${ms(start)}`),
+    createdBy: 'user',
+    reason: `Add music "${asset.id}" on a new music layer at ${start.toFixed(2)}s`,
+    operations: [
+      { type: 'add_asset', asset },
+      { type: 'add_layer', layerId, layerType: 'audio', atIndex: 0, role: 'music' },
+      {
+        type: 'add_clip',
+        trackId: layerId,
+        assetId: asset.id,
+        start,
+        end: start + duration,
+        sourceStart: 0,
+        sourceEnd: duration,
+      },
+    ],
+  };
+}
+
 /** Remove a media asset from the bin (clips referencing it must be gone first). */
 export function removeAssetPatch(assetId: string): Patch {
   return {

@@ -50,6 +50,7 @@ export const TrackTypeSchema = z.enum(['video', 'audio', 'caption', 'overlay', '
  * Absent means unknown, which is honest and stays honest until someone says otherwise.
  */
 export const AudioRoleSchema = z.enum(['dialogue', 'music', 'sfx']);
+export type AudioRole = z.infer<typeof AudioRoleSchema>;
 
 /**
  * One immutable logical Capability Pack release used by this project (schema v19).

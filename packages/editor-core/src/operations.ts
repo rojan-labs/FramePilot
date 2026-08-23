@@ -31,6 +31,7 @@ import type {
   SpeedPoint,
   Timeline,
   Track,
+  AudioRole,
 } from '@framepilot/timeline-schema';
 import type {
   AudioAutomationPoint,
@@ -505,6 +506,16 @@ export interface AddLayerOp {
   readonly layerType: Track['type'];
   readonly atIndex: number;
   readonly clips?: readonly Clip[];
+  /**
+   * Mix role for an audio layer (schema v17), set at creation.
+   *
+   * `Track.role` is never inferred from a track name — guessing "Audio 2" is
+   * music silently mixes the wrong thing. But a caller that *knows* (placing a
+   * fetched music bed, say) has to be able to say so, and there was previously
+   * no way to write the field at all: `duck_roles` read a label nothing could
+   * apply. Optional, so every existing caller is unchanged.
+   */
+  readonly role?: AudioRole;
 }
 
 /**
@@ -1581,7 +1592,12 @@ function applyAddLayer(timeline: Timeline, op: AddLayerOp): Timeline {
   // Clamp the insertion index into [0, length] so an out-of-range z-order slot
   // appends rather than throwing (index 0 = visual front).
   const at = Math.max(0, Math.min(timeline.tracks.length, op.atIndex));
-  const layer: Track = { id: op.layerId, type: op.layerType, clips: (op.clips ?? []).map(clone) };
+  const layer: Track = {
+    id: op.layerId,
+    type: op.layerType,
+    clips: (op.clips ?? []).map(clone),
+    ...(op.role === undefined ? {} : { role: op.role }),
+  };
   const tracks = timeline.tracks.slice();
   tracks.splice(at, 0, layer);
   return { ...timeline, tracks };
@@ -2150,6 +2166,9 @@ export function invertOperation(timelineBefore: Timeline, op: Operation): Operat
           layerType: track.type,
           atIndex: index,
           clips: track.clips.map(clone),
+          // Without this, deleting a music layer and undoing it brought the
+          // track back unlabelled, and `duck_roles` quietly stopped finding it.
+          ...(track.role === undefined ? {} : { role: track.role }),
         },
         ...effectLayersOf(track).map(
           (layer): AddEffectLayerOp => ({

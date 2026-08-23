@@ -1,0 +1,582 @@
+/**
+ * Sounds — search a third-party music provider, audition a track, and add it to
+ * the timeline as a licensed music bed.
+ *
+ * ## Licence legibility is the point of this panel
+ *
+ * **Every** row is labelled: "Credit required · <creator>" linked to the licence
+ * text, or "No credit needed". Neither state is silent, because an unlabelled
+ * row reads as *unknown* — the one thing a licence badge must never mean. A
+ * track that obliges a credit is fully usable; adding it records the credit in
+ * the project (`Asset.source`, schema v20) and the export dialog's Credits
+ * section reads it back. Non-commercial tracks never reach this list at all —
+ * they are refused at the adapter, because no badge makes one safe in a
+ * sponsored video (ADR 0138).
+ *
+ * ## No provider URL is in this file
+ *
+ * Search returns tracks with no `previewUrl` or `downloadUrl`. Auditioning asks
+ * main for bytes and wraps them in a `blob:` URL, which the existing CSP already
+ * permits. The renderer has nothing to reach a provider host *with*, which is
+ * what makes the guarantee structural.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Asset, Project } from '@framepilot/timeline-schema';
+import { Button } from '@framepilot/ui';
+import {
+  isDesktop,
+  musicDownload,
+  musicDownloadCancel,
+  musicPreview,
+  musicSearch,
+  onMusicDownloadProgress,
+  type MusicDownloadProgressWire,
+  type MusicErrorCodeWire,
+  type MusicTrackWire,
+} from '../editor/bridge.js';
+import { ICON_SIZE, Music, Pause, Play, X } from './icons.js';
+
+/** Typing pause before a search fires. Long enough to not bill every keystroke. */
+const SEARCH_DEBOUNCE_MS = 300;
+/** Skeleton rows shown during the first search, at real row height. */
+const SKELETON_ROWS = 6;
+
+export interface SoundsPanelProps {
+  readonly project: Project;
+  /**
+   * Add the downloaded track to the bin and place it on a `music` layer, as one
+   * undoable patch. Owned by the caller because it holds the editor store.
+   */
+  readonly onAddMusic: (asset: Asset) => void;
+}
+
+/** What a row is doing right now. Exactly one row can be `downloading`. */
+type RowState =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'previewLoading' }
+  | { readonly kind: 'playing' }
+  | { readonly kind: 'previewFailed'; readonly message: string }
+  | { readonly kind: 'downloading'; readonly operationId: string; readonly percent: number | null }
+  | { readonly kind: 'downloadFailed'; readonly message: string };
+
+type SearchState =
+  | { readonly kind: 'empty' }
+  | { readonly kind: 'loading' }
+  | {
+      readonly kind: 'results';
+      readonly tracks: readonly MusicTrackWire[];
+      readonly stale: boolean;
+    }
+  | { readonly kind: 'noResults'; readonly query: string }
+  | { readonly kind: 'error'; readonly message: string };
+
+/** The sentence for each failure. No generic "something went wrong". */
+function errorMessage(code: MusicErrorCodeWire, detail?: string): string {
+  switch (code) {
+    case 'unauthorized':
+      return 'The music provider rejected this request.';
+    case 'rate_limited':
+      return detail
+        ? `Too many searches in a row — try again shortly (${detail}).`
+        : 'Too many searches in a row. Try again in a moment.';
+    case 'provider_unavailable':
+      return 'The music provider is not responding. Try again shortly.';
+    case 'offline':
+      return 'No network connection.';
+    case 'timeout':
+      return 'The music provider took too long to answer.';
+    case 'cancelled':
+      return '';
+    case 'non_commercial_only':
+      return "This track can't be used in monetized videos, so it wasn't added.";
+    case 'disk_full':
+      return 'Not enough disk space to save this track.';
+    case 'download_failed':
+      return "The download didn't finish. Nothing was added.";
+    case 'derive_failed':
+      return "Saved the track, but couldn't read its waveform.";
+  }
+}
+
+/** `92` → `1:32`. Duration is the second thing an editor looks at, after the name. */
+export function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/** A stable asset id for a fetched track, so re-adding the same one is detectable. */
+export function musicAssetId(track: MusicTrackWire): string {
+  return `music_${track.provider}_${track.remoteId}`.replace(/[^a-zA-Z0-9_]/g, '_');
+}
+
+export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Element {
+  const [query, setQuery] = useState('');
+  const [search, setSearch] = useState<SearchState>({ kind: 'empty' });
+  const [rows, setRows] = useState<Readonly<Record<string, RowState>>>({});
+  const [playing, setPlaying] = useState<string | null>(null);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
+  const listRef = useRef<HTMLUListElement | null>(null);
+
+  /** Assets already in this project, so a duplicate row can say so. */
+  const presentRemoteIds = useMemo(
+    () =>
+      new Set(
+        project.assets
+          .map((asset) => asset.source?.remoteId)
+          .filter((id): id is string => typeof id === 'string'),
+      ),
+    [project.assets],
+  );
+
+  const setRow = useCallback((remoteId: string, state: RowState): void => {
+    setRows((current) => ({ ...current, [remoteId]: state }));
+  }, []);
+
+  /** Stop playback and release the blob URL. Called on stop, swap, and unmount. */
+  const stopAudition = useCallback((): void => {
+    audioRef.current?.pause();
+    audioRef.current = null;
+    if (blobUrlRef.current !== null) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
+    }
+    setPlaying(null);
+  }, []);
+
+  useEffect(() => stopAudition, [stopAudition]);
+
+  // ---------------------------------------------------------------------------
+  // Search
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    const text = query.trim();
+    if (text === '') {
+      setSearch({ kind: 'empty' });
+      return;
+    }
+
+    // Previous results stay visible and dimmed rather than clearing: a list that
+    // blanks on every keystroke makes the panel feel broken while it works.
+    setSearch((current) =>
+      current.kind === 'results' ? { ...current, stale: true } : { kind: 'loading' },
+    );
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void musicSearch(text).then((result) => {
+        if (cancelled) return;
+        if (!result.ok) {
+          if (result.error === 'cancelled') return;
+          setSearch({ kind: 'error', message: errorMessage(result.error, result.detail) });
+          return;
+        }
+        setSearch(
+          result.tracks.length === 0
+            ? { kind: 'noResults', query: text }
+            : { kind: 'results', tracks: result.tracks, stale: false },
+        );
+      });
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query]);
+
+  // ---------------------------------------------------------------------------
+  // Audition
+  // ---------------------------------------------------------------------------
+
+  const audition = useCallback(
+    async (track: MusicTrackWire): Promise<void> => {
+      // One track at a time: starting another stops the first, which is what an
+      // editor comparing beds expects and what stops a pile-up of audio.
+      if (playing === track.remoteId) {
+        stopAudition();
+        setRow(track.remoteId, { kind: 'idle' });
+        return;
+      }
+      stopAudition();
+
+      // The spinner belongs to this row's button only — the list does not enter
+      // a loading state, so the other rows stay usable.
+      setRow(track.remoteId, { kind: 'previewLoading' });
+      const result = await musicPreview(track.remoteId);
+      if (!result.ok) {
+        setRow(track.remoteId, {
+          kind: 'previewFailed',
+          message: errorMessage(result.error, result.detail),
+        });
+        return;
+      }
+
+      const url = URL.createObjectURL(new Blob([result.data], { type: result.contentType }));
+      blobUrlRef.current = url;
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = (): void => {
+        stopAudition();
+        setRow(track.remoteId, { kind: 'idle' });
+      };
+      await audio.play().catch(() => undefined);
+      setPlaying(track.remoteId);
+      setRow(track.remoteId, { kind: 'playing' });
+    },
+    [playing, setRow, stopAudition],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Download
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    return onMusicDownloadProgress((message: MusicDownloadProgressWire) => {
+      if (message.phase !== 'downloading') return;
+      setRows((current) => {
+        const row = current[message.remoteId];
+        if (row?.kind !== 'downloading') return current;
+        const percent =
+          message.totalBytes > 0
+            ? Math.min(100, Math.round((message.completedBytes / message.totalBytes) * 100))
+            : null;
+        return { ...current, [message.remoteId]: { ...row, percent } };
+      });
+    });
+  }, []);
+
+  const add = useCallback(
+    async (track: MusicTrackWire): Promise<void> => {
+      const operationId = `music_${track.remoteId}_${Date.now()}`;
+      setRow(track.remoteId, { kind: 'downloading', operationId, percent: null });
+
+      const result = await musicDownload({
+        projectId: project.id,
+        remoteId: track.remoteId,
+        operationId,
+      });
+
+      if (!result.ok) {
+        // A cancel is not a failure — the user did it deliberately, so the row
+        // returns to idle with no error text.
+        setRow(
+          track.remoteId,
+          result.error === 'cancelled'
+            ? { kind: 'idle' }
+            : { kind: 'downloadFailed', message: errorMessage(result.error, result.detail) },
+        );
+        return;
+      }
+
+      const { asset: downloaded } = result;
+      onAddMusic({
+        id: musicAssetId(track),
+        path: downloaded.relativePath,
+        kind: 'audio',
+        ...(downloaded.durationSeconds === undefined
+          ? {}
+          : { durationSeconds: downloaded.durationSeconds }),
+        // The wire type is readonly; `Asset` is not, so the arrays are copied
+        // rather than cast — a shared frozen array would be a mutation bug
+        // waiting for the first in-place edit.
+        ...(downloaded.media
+          ? {
+              media: {
+                proxyPath: downloaded.media.proxyPath ?? null,
+                peaks: downloaded.media.peaks ? [...downloaded.media.peaks] : null,
+                peaksPerSecond: downloaded.media.peaksPerSecond ?? null,
+                thumbnailPaths: downloaded.media.thumbnailPaths
+                  ? [...downloaded.media.thumbnailPaths]
+                  : null,
+              },
+            }
+          : {}),
+        source: downloaded.source,
+      });
+      setRow(track.remoteId, { kind: 'idle' });
+    },
+    [onAddMusic, project.id, setRow],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Keyboard: one tab stop, arrows move between rows (mirrors the bin grid)
+  // ---------------------------------------------------------------------------
+
+  const tracks = search.kind === 'results' ? search.tracks : [];
+  const tabbableId = focusedId ?? tracks[0]?.remoteId ?? null;
+
+  const onRowKeyDown = useCallback(
+    (event: React.KeyboardEvent, index: number, track: MusicTrackWire): void => {
+      const move = (to: number): void => {
+        const next = tracks[Math.max(0, Math.min(tracks.length - 1, to))];
+        if (!next) return;
+        event.preventDefault();
+        setFocusedId(next.remoteId);
+        listRef.current
+          ?.querySelector<HTMLElement>(`[data-remote-id="${CSS.escape(next.remoteId)}"]`)
+          ?.focus();
+      };
+      switch (event.key) {
+        case 'ArrowDown':
+          move(index + 1);
+          break;
+        case 'ArrowUp':
+          move(index - 1);
+          break;
+        case 'Home':
+          move(0);
+          break;
+        case 'End':
+          move(tracks.length - 1);
+          break;
+        case 'Enter':
+          event.preventDefault();
+          void add(track);
+          break;
+        case ' ':
+          event.preventDefault();
+          void audition(track);
+          break;
+        default:
+          break;
+      }
+    },
+    [add, audition, tracks],
+  );
+
+  // Browser build: the tab is absent entirely (see Editor.tsx). This is the
+  // backstop for a direct render, and says why rather than showing a dead input.
+  if (!isDesktop()) {
+    return (
+      <div className="sounds-panel">
+        <p className="sounds-note" role="note">
+          Music search runs in the FramePilot desktop app, which fetches tracks outside the browser
+          sandbox. Open this project in desktop to search for music.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="sounds-panel">
+      <label className="sounds-search" htmlFor="sounds-search-input">
+        <span className="sr-only">Search for music</span>
+        <input
+          id="sounds-search-input"
+          type="search"
+          className="sounds-search-input"
+          placeholder="Search for music…"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      </label>
+
+      {/* Announced politely so a screen-reader user hears the result count
+          without the list stealing focus mid-type. */}
+      <span className="sr-only" aria-live="polite">
+        {search.kind === 'results' && !search.stale
+          ? `${search.tracks.length} track${search.tracks.length === 1 ? '' : 's'} found`
+          : ''}
+      </span>
+
+      {search.kind === 'empty' && (
+        <p className="sounds-hint">
+          Search by mood or instrument — &ldquo;calm piano&rdquo;, &ldquo;upbeat synth&rdquo;.
+          Results are openly licensed and cleared for monetized videos.
+        </p>
+      )}
+
+      {search.kind === 'loading' && (
+        <ul className="sounds-list" aria-busy="true">
+          {Array.from({ length: SKELETON_ROWS }, (_, index) => (
+            // Real row height, so nothing shifts when the results land.
+            <li key={index} className="sounds-row sounds-row--skeleton" aria-hidden="true" />
+          ))}
+        </ul>
+      )}
+
+      {search.kind === 'noResults' && (
+        <p className="sounds-hint">
+          No tracks matched &ldquo;{search.query}&rdquo;. Try a broader word — a mood rather than a
+          title.
+        </p>
+      )}
+
+      {search.kind === 'error' && (
+        <p className="sounds-error" role="alert">
+          {search.message}
+        </p>
+      )}
+
+      {search.kind === 'results' && (
+        <ul
+          ref={listRef}
+          className={`sounds-list${search.stale ? ' is-stale' : ''}`}
+          aria-label="Music search results"
+        >
+          {search.tracks.map((track, index) => (
+            <SoundRow
+              key={track.remoteId}
+              track={track}
+              index={index}
+              state={rows[track.remoteId] ?? { kind: 'idle' }}
+              inProject={presentRemoteIds.has(track.remoteId)}
+              tabbable={tabbableId === track.remoteId}
+              onFocus={() => setFocusedId(track.remoteId)}
+              onKeyDown={onRowKeyDown}
+              onAudition={() => void audition(track)}
+              onAdd={() => void add(track)}
+              onCancel={(operationId) => musicDownloadCancel(operationId)}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+interface SoundRowProps {
+  readonly track: MusicTrackWire;
+  readonly index: number;
+  readonly state: RowState;
+  readonly inProject: boolean;
+  readonly tabbable: boolean;
+  readonly onFocus: () => void;
+  readonly onKeyDown: (event: React.KeyboardEvent, index: number, track: MusicTrackWire) => void;
+  readonly onAudition: () => void;
+  readonly onAdd: () => void;
+  readonly onCancel: (operationId: string) => void;
+}
+
+function SoundRow({
+  track,
+  index,
+  state,
+  inProject,
+  tabbable,
+  onFocus,
+  onKeyDown,
+  onAudition,
+  onAdd,
+  onCancel,
+}: SoundRowProps): JSX.Element {
+  const downloading = state.kind === 'downloading';
+  const playing = state.kind === 'playing';
+
+  return (
+    <li
+      className="sounds-row"
+      data-remote-id={track.remoteId}
+      tabIndex={tabbable ? 0 : -1}
+      onFocus={onFocus}
+      onKeyDown={(event) => onKeyDown(event, index, track)}
+    >
+      <button
+        type="button"
+        className="sounds-play"
+        aria-label={playing ? `Stop ${track.title}` : `Play ${track.title}`}
+        disabled={state.kind === 'previewLoading'}
+        onClick={onAudition}
+      >
+        {state.kind === 'previewLoading' ? (
+          <span className="sounds-spinner" aria-hidden="true" />
+        ) : playing ? (
+          <Pause size={ICON_SIZE.sm} aria-hidden="true" />
+        ) : (
+          <Play size={ICON_SIZE.sm} aria-hidden="true" />
+        )}
+      </button>
+
+      <div className="sounds-meta">
+        <span className="sounds-title">{track.title}</span>
+        <span className="sounds-sub">
+          <span className="sounds-duration">{formatDuration(track.durationSeconds)}</span>
+          {/* Both licence states are labelled. Silence would read as "unknown",
+              which is the one thing a licence badge must never mean. */}
+          {track.attributionRequired ? (
+            <LicenceBadge
+              className="sounds-badge sounds-badge--credit"
+              href={track.licenseUrl}
+              text={track.creator ? `Credit required · ${track.creator}` : 'Credit required'}
+            />
+          ) : (
+            <LicenceBadge
+              className="sounds-badge sounds-badge--free"
+              href={track.licenseUrl}
+              text="No credit needed"
+            />
+          )}
+        </span>
+        {state.kind === 'previewFailed' && (
+          <span className="sounds-row-error" role="alert">
+            {state.message}
+          </span>
+        )}
+        {state.kind === 'downloadFailed' && (
+          <span className="sounds-row-error" role="alert">
+            {state.message}
+          </span>
+        )}
+      </div>
+
+      {downloading ? (
+        <div className="sounds-progress-group">
+          <div
+            className="sounds-progress"
+            role="progressbar"
+            aria-label={`Downloading ${track.title}`}
+            {...(state.percent === null
+              ? {}
+              : { 'aria-valuenow': state.percent, 'aria-valuemin': 0, 'aria-valuemax': 100 })}
+          >
+            <span
+              className="sounds-progress-fill"
+              style={{ width: `${state.percent ?? 0}%` }}
+              aria-hidden="true"
+            />
+          </div>
+          <button
+            type="button"
+            className="sounds-cancel"
+            aria-label={`Cancel downloading ${track.title}`}
+            onClick={() => onCancel(state.operationId)}
+          >
+            <X size={ICON_SIZE.sm} aria-hidden="true" />
+          </button>
+        </div>
+      ) : inProject ? (
+        // Already downloaded into this project. Disabled rather than hidden, so
+        // the user can see it is theirs already instead of hunting for it.
+        <span className="sounds-present">
+          <Music size={ICON_SIZE.sm} aria-hidden="true" /> In this project
+        </span>
+      ) : (
+        <Button variant="ghost" type="button" onClick={onAdd}>
+          {state.kind === 'downloadFailed' ? 'Retry' : 'Add'}
+        </Button>
+      )}
+    </li>
+  );
+}
+
+/** The licence label, linked to its terms when the provider gave a URL. */
+function LicenceBadge({
+  className,
+  href,
+  text,
+}: {
+  readonly className: string;
+  readonly href?: string | undefined;
+  readonly text: string;
+}): JSX.Element {
+  if (href === undefined) return <span className={className}>{text}</span>;
+  return (
+    <a className={className} href={href} target="_blank" rel="noreferrer noopener">
+      {text}
+    </a>
+  );
+}

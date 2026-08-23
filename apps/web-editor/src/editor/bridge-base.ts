@@ -34,6 +34,11 @@ import type {
   TranscriptionResult,
   RevealResult,
   CapabilityPackProjectResolutionWire,
+  MusicSearchResult,
+  MusicPreviewResult,
+  MusicDownloadRequest,
+  MusicDownloadResult,
+  MusicDownloadProgressWire,
 } from '@framepilot/shared-types';
 
 // Re-exported for renderer call-sites and tests that referenced these names.
@@ -52,6 +57,13 @@ export type {
   RecentProject,
   RevealResult,
   SidecarStatus,
+  MusicSearchResult,
+  MusicPreviewResult,
+  MusicDownloadRequest,
+  MusicDownloadResult,
+  MusicTrackWire,
+  MusicErrorCodeWire,
+  MusicDownloadProgressWire,
 } from '@framepilot/shared-types';
 
 /**
@@ -337,4 +349,80 @@ export function onProjectChanged(
     if (!parsed.success) return; // never load an invalid external write
     callback({ path: event.path, project: parsed.data, revision: event.revision ?? 0 });
   });
+}
+
+// ---------------------------------------------------------------------------
+// Music sourcing (plan/3rd-party-sourcing)
+// ---------------------------------------------------------------------------
+
+/**
+ * The "this is desktop-only" answer, shared by every music helper.
+ *
+ * Reaching a provider needs the main process — the renderer's CSP forbids it,
+ * deliberately. In the browser the Sounds tab is absent rather than
+ * present-and-broken, so this is a backstop, not the user-facing path.
+ */
+const MUSIC_DESKTOP_ONLY = {
+  ok: false,
+  error: 'provider_unavailable',
+  detail: 'Music search is only available in the desktop app.',
+} as const;
+
+/** Search the configured music provider through the main process. */
+export async function musicSearch(
+  query: string,
+  limit?: number,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<MusicSearchResult> {
+  if (!bridge?.musicSearch) return MUSIC_DESKTOP_ONLY;
+  return bridge.musicSearch(query, limit);
+}
+
+/**
+ * Fetch audition bytes for one track.
+ *
+ * Main holds the provider URL; this receives bytes, which the caller wraps in a
+ * `blob:` URL. That is what keeps the provider host out of `connect-src`.
+ */
+export async function musicPreview(
+  remoteId: string,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<MusicPreviewResult> {
+  if (!bridge?.musicPreview) return MUSIC_DESKTOP_ONLY;
+  return bridge.musicPreview(remoteId);
+}
+
+/** Download one track into the project's media folder. */
+export async function musicDownload(
+  request: MusicDownloadRequest,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<MusicDownloadResult> {
+  if (!bridge?.musicDownload) {
+    return {
+      ok: false,
+      error: 'download_failed',
+      detail: 'Downloading music is only available in the desktop app.',
+    };
+  }
+  return bridge.musicDownload(request);
+}
+
+/** Cancel an in-flight download. No-op without a bridge. */
+export function musicDownloadCancel(
+  operationId: string,
+  bridge: RendererBridge | null = getBridge(),
+): void {
+  bridge?.musicDownloadCancel?.(operationId);
+}
+
+/**
+ * Subscribe to download progress. A no-op returning a no-op outside the desktop
+ * shell, so callers need no environment check.
+ */
+export function onMusicDownloadProgress(
+  callback: (message: MusicDownloadProgressWire) => void,
+  bridge: RendererBridge | null = getBridge(),
+): () => void {
+  if (!bridge?.onMusicDownloadProgress) return () => {};
+  return bridge.onMusicDownloadProgress(callback);
 }
