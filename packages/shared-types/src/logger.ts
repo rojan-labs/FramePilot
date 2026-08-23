@@ -93,6 +93,11 @@ function emit(level: LogLevel, tag: string, scope: string, message: string, data
       : level === 'warn'
         ? PLATFORM_CONSOLE.warn
         : PLATFORM_CONSOLE.log;
+  // Every payload passes through `sanitizeForLogging`, which replaces values of
+  // sensitive keys (api keys, tokens, secrets — including `asrApiKey`) with
+  // `[REDACTED]` before any sink sees them. CodeQL cannot model that custom
+  // barrier, so this documented suppression stands in for its taint analysis.
+  // codeql[js/clear-text-logging]
   if (data !== undefined) sink(line, sanitizeForLogging(data));
   else sink(line);
 }
