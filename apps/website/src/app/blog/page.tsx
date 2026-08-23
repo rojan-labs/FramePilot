@@ -24,7 +24,7 @@ export default function BlogIndexPage() {
             Building an editor an agent can operate.
           </h1>
           <p className="mt-7 max-w-2xl text-[16px] leading-7 text-fg-secondary sm:text-[17px]">
-            Product thinking, editing workflows, and engineering notes from FramePilot.
+            Notes on editing workflows, agent design, and the engineering underneath.
           </p>
         </header>
 

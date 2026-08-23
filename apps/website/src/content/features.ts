@@ -22,50 +22,50 @@ export const FEATURES: Feature[] = [
     icon: Sparkles,
     title: 'An agent that edits the real timeline',
     description:
-      'Describe the result you want. FramePilot turns that request into typed timeline operations, validates them, applies them to the same project you edit by hand, and keeps the run inspectable and undoable.',
+      'Describe the change you want. FramePilot turns it into typed timeline operations, checks them, and applies them to the project already open in front of you. You watch every step, and one undo takes back the whole run.',
     wide: true,
   },
   {
     icon: Layers3,
-    title: 'Professional controls stay within reach',
+    title: 'The manual tools never go away',
     description:
-      'Trim, split, ripple, snap, keyframe, mix audio, style captions, apply transitions, and work across multiple tracks. Agent work and manual work share the same editing model.',
+      'Trim, split, ripple, snap, keyframe, mix audio, style captions, add transitions, work across tracks. Your mouse and the agent drive the same editing model.',
   },
   {
     icon: GitBranch,
-    title: 'Undo a run, not your confidence',
+    title: 'One undo for the entire run',
     description:
-      'Agent changes are concrete operations with diffs and grouped undo. You can inspect what changed and reverse the run without rebuilding the edit from scratch.',
+      'Every agent change is a concrete operation with a diff attached. Read what it did, disagree, and reverse the run without rebuilding your edit. You can also stop a run mid-flight, and it survives a crash.',
   },
   {
     icon: ScanSearch,
-    title: 'Understands the footage it is working on',
+    title: 'It looks at the actual frames',
     description:
-      'Media analysis, transcription, scene and beat analysis, frame inspection, and project memory give the editor evidence to work from instead of guessing from filenames.',
+      'Transcription, scene detection, beat analysis, and a searchable index of your footage. Before claiming a shot looks right, a vision-capable model can render that frame through the export compiler and check. When a key or analysis is missing it says so rather than inventing an answer.',
   },
   {
     icon: ShieldCheck,
-    title: 'Export through a deterministic pipeline',
+    title: 'Exports that check themselves',
     description:
-      'Final renders go through the Python and FFmpeg export engine and automated validation for expected duration, streams, black frames, and audio clipping.',
+      'Final renders run through the Python and FFmpeg engine, then get inspected for wrong duration, missing streams, black frames, and clipped audio before the file ever reaches you.',
   },
   {
     icon: Captions,
     title: 'Captions are editable timeline data',
     description:
-      'Generate word-level timing, edit cues, split or merge them, apply style templates and emphasis, then burn the result into export when you want it.',
+      "Word-level timing you can actually edit. Split cues, merge them, restyle them, emphasize a word, then burn them into the export when you're ready.",
   },
   {
     icon: LockKeyhole,
-    title: 'Local-first by design',
+    title: 'Everything stays on your machine',
     description:
-      'Projects, originals, derived media, and renders stay on your machine. Optional hosted AI capabilities are explicit, while the editing and render stack remains local.',
+      'Projects, originals, derived media, renders. Hosted AI is opt-in and you choose the provider, while the editing and rendering never leave your computer.',
   },
   {
     icon: PlugZap,
-    title: 'The same safe tools can power external agents',
+    title: 'Your coding agent can drive it too',
     description:
-      'FramePilot exposes its typed editing surface through MCP so compatible clients can operate the editor through the same guarded project authority.',
+      'FramePilot exposes its typed editing tools over MCP, so Claude, Cursor, or anything else that speaks the protocol can operate the editor behind the same guardrails.',
     wide: true,
   },
 ];
@@ -79,17 +79,17 @@ export const STEPS: Step[] = [
   {
     title: 'Bring in real footage',
     description:
-      'Import recordings, camera files, voiceover, music, images, and captions. FramePilot builds the same multitrack project whether you plan to edit manually or with the agent.',
+      'Import recordings, camera files, voiceover, music, images, captions. You get the same multitrack project whether you plan to edit it yourself or hand it to the agent.',
   },
   {
     title: 'Edit by hand or describe the outcome',
     description:
-      'Ask for a tighter cut, a vertical short, captions, reframing, pacing changes, or another supported edit. The request resolves into concrete operations on your timeline.',
+      'Ask for a tighter cut, a vertical short, captions, a reframe, better pacing. The request comes back as concrete operations sitting on your timeline.',
   },
   {
     title: 'Inspect, undo, and export',
     description:
-      'Review the run and its timeline changes, undo it as a group when needed, then export through the deterministic render and validation pipeline.',
+      'Read what changed, undo the whole run in one step if you hate it, then export through the render engine that validates its own output.',
   },
 ];
 

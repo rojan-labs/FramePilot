@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from framepilot_engine.media.ffmpeg import find_ffmpeg
+from framepilot_engine.subprocess_safety import validate_safe_argv
 
 LOUDNESS_PRESETS: dict[str, float] = {
     "social": -14.0,
@@ -142,19 +143,22 @@ def build_clip_filter(
 def measure_peak_dbfs_file(src: Path, *, ffmpeg: str | None = None) -> float | None:
     """Measure a file's sample peak with ffmpeg `volumedetect`, without loading PCM in Python."""
     binary = ffmpeg or find_ffmpeg()
+    # Argument-injection gate (PRD §18): `src` derives from user media paths.
     completed = subprocess.run(
-        [
-            binary,
-            "-hide_banner",
-            "-nostdin",
-            "-i",
-            str(src),
-            "-af",
-            "volumedetect",
-            "-f",
-            "null",
-            "-",
-        ],
+        validate_safe_argv(
+            [
+                binary,
+                "-hide_banner",
+                "-nostdin",
+                "-i",
+                str(src),
+                "-af",
+                "volumedetect",
+                "-f",
+                "null",
+                "-",
+            ]
+        ),
         check=True,
         capture_output=True,
         text=True,
@@ -175,7 +179,7 @@ def peak_normalize_gain_db(src: Path, target_dbfs: float = -1.0) -> float:
 
 
 def _default_runner(args: Sequence[str]) -> None:
-    subprocess.run(list(args), check=True, capture_output=True)
+    subprocess.run(validate_safe_argv(args), check=True, capture_output=True)
 
 
 def apply_audio_filter(

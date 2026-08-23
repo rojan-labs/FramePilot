@@ -11,13 +11,13 @@ keywords:
   - Cursor Claude video editor
 ---
 
-In 2026 the frontier of editing isn't a new effect — it's letting your **AI agent do the editing**. The Model Context Protocol (MCP) is the standard that makes it possible, and it's turning video editing from a visual process into a written one. Here's what that means in practice.
+In 2026 the frontier of editing isn't a new effect. It's letting your **AI agent do the editing**. The Model Context Protocol (MCP) is the standard that makes it possible, and it's turning video editing from a visual process into a written one. Here's what that means in practice.
 
 ## What is MCP, briefly
 
-The **Model Context Protocol** is an open standard that lets AI assistants — Cursor, Claude Desktop, Codex, and others — connect to external tools through a common interface. An MCP *server* exposes a set of typed tools; the AI *client* discovers and calls them.
+The **Model Context Protocol** is an open standard that lets AI assistants (Cursor, Claude Desktop, Codex, and others) connect to external tools through a common interface. An MCP *server* exposes a set of typed tools; the AI *client* discovers and calls them.
 
-Applied to video, an MCP server exposes editing operations (trim, split, add captions, render) so an agent can perform real edits on a real timeline — not generate a throwaway clip, but modify *your* project.
+Applied to video, an MCP server exposes editing operations (trim, split, add captions, render) so an agent can perform real edits on a real timeline. It doesn't generate a throwaway clip, it modifies *your* project.
 
 ## Why this changes the workflow
 
@@ -25,30 +25,30 @@ Today you context-switch constantly: research in one app, script in another, edi
 
 > "Open my launch video, cut the silences, add captions, and export a 9:16 version."
 
-The agent plans the steps, calls the editing tools, and reports back — while you stay in your existing chat or coding environment. For developers building content pipelines, this means video edits become **scriptable** alongside everything else your agents do.
+The agent plans the steps, calls the editing tools, and reports back, while you stay in your existing chat or coding environment. For developers building content pipelines, this means video edits become **scriptable** alongside everything else your agents do.
 
 ## The safety problem
 
 Handing an autonomous agent write access to your project is terrifying if the tools are unconstrained. What stops it from corrupting your timeline?
 
-The answer is **where the guardrails live.** Prompt-based guardrails are hopeless — models don't reliably follow instructions. The guardrails have to live in the *tools themselves*:
+The answer is **where the guardrails live.** Prompt-based guardrails are hopeless: models don't reliably follow instructions. The guardrails have to live in the *tools themselves*:
 
 - Every tool call is **schema-validated** before it runs.
 - Every edit is a **typed, reversible operation**, not a raw file mutation.
 - File access is **sandboxed** to your project directory.
 - Rendering is **delegated to a deterministic engine** and validated.
 
-If those properties hold, an agent physically cannot make an edit that the engine wouldn't accept from a human — and anything it does can be undone.
+If those properties hold, an agent physically cannot make an edit that the engine wouldn't accept from a human, and anything it does can be undone.
 
 ## How FramePilot does it
 
-FramePilot ships with a built-in MCP server that exposes its **exact same** editing tools — the ones the app's own UI uses — to any MCP client. That's the key design decision: there isn't a separate, weaker "AI API." The agent uses the same validated, reversible operation set you do.
+FramePilot ships with a built-in MCP server that exposes its **exact same** editing tools, the ones the app's own UI uses, to any MCP client. That's the key design decision: there isn't a separate, weaker "AI API." The agent uses the same validated, reversible operation set you do.
 
 Setting it up:
 
 1. Start FramePilot; the MCP server runs locally on loopback.
 2. Point your MCP client (Cursor, Claude Desktop, Codex) at the server URL.
-3. Ask your agent to edit — it discovers FramePilot's tools automatically.
+3. Ask your agent to edit. It discovers FramePilot's tools automatically.
 
 ```jsonc
 // Example MCP client config
@@ -77,6 +77,6 @@ Your footage never leaves your machine, and the agent can't reach outside your p
 
 ## The bottom line
 
-MCP turns video editing into something your agents can do — safely, if the editor puts its guardrails in the engine rather than the prompt. That's the bet FramePilot makes.
+MCP turns video editing into something your agents can do safely, if the editor puts its guardrails in the engine rather than the prompt. That's the bet FramePilot makes.
 
 [Download FramePilot](/download) to connect your agents to a real timeline, or read the [MCP integration docs](/docs) to get started.

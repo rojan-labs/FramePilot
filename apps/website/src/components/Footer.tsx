@@ -14,7 +14,7 @@ export function Footer() {
           <div className="max-w-xs">
             <Logo />
             <p className="mt-4 text-[12.5px] leading-5 text-fg-tertiary">
-              A desktop video editor with an agent working on the same timeline you edit by hand.
+              A desktop video editor where the agent works on the same timeline you do.
             </p>
           </div>
 

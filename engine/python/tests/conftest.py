@@ -18,29 +18,38 @@ MediaFactory = Callable[..., Path]
 
 
 @pytest.fixture(autouse=True)
-def _reset_settings_cache(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Isolate `get_settings()` from both cross-test caching AND a developer's `.env`.
+def _reset_settings_cache(
+    projects_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    """Isolate `get_settings()` from cross-test caching AND point apps at a sandbox.
 
     WHY: `get_settings()` is `@lru_cache`d for the *production* process lifetime,
     but a test session runs hundreds of independent scenarios, and MoviePy's
     ``config`` module calls ``python-dotenv``'s ``load_dotenv()`` as a side effect
     the *first* time it is imported (lazily, deep inside a real render/compile
-    call) — which can inject a developer's local `.env` (e.g. a real
-    `FRAMEPILOT_PROJECTS_ROOT`, as this repo's `.env.example` documents) into
-    `os.environ` mid-session. Combined with the cache, whichever test happens to
-    trigger either of those first "freezes" that value for every later test
-    relying on "no explicit settings" (bare `TestClient(create_app())`/`main()`),
-    turning previously-valid sandbox paths into spurious 400s — purely a function
-    of test collection/execution order, not the code under test. Clearing the
-    cache AND removing `FRAMEPILOT_PROJECTS_ROOT` from the environment before AND
-    after each test makes every test see settings built fresh from *that test's*
-    own environment (its own `monkeypatch.setenv`, applied after this fixture
-    runs), independent of what any other test or dependency did.
+    call) — which can inject a developer's local `.env` into `os.environ`
+    mid-session. Combined with the cache, whichever test happens to trigger
+    either of those "freezes" leaks settings into every later test relying on
+    "no explicit settings" (bare `TestClient(create_app())`/`main()`).
+
+    Every test therefore gets a fresh cache AND an explicit
+    ``FRAMEPILOT_PROJECTS_ROOT`` pointing at the session ``projects_root``: the
+    sidecar fails closed when no sandbox is configured (path-based routes return
+    503), so a default root keeps path-using routes exercisable without each test
+    re-declaring one. Media produced by :func:`media_factory` lives inside this
+    root for the same reason. A test wanting the unconfigured posture (e.g.
+    asserting honest degradation) can ``monkeypatch.delenv`` the variable.
     """
-    monkeypatch.delenv("FRAMEPILOT_PROJECTS_ROOT", raising=False)
+    monkeypatch.setenv("FRAMEPILOT_PROJECTS_ROOT", str(projects_root))
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+@pytest.fixture(scope="session")
+def projects_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Session-wide sandbox root that bare test apps resolve caller paths within."""
+    return tmp_path_factory.mktemp("projects-root")
 
 
 @pytest.fixture(autouse=True)
@@ -124,14 +133,19 @@ def require_ffprobe() -> None:
 
 
 @pytest.fixture(scope="session")
-def media_factory(ffmpeg_bin: str, tmp_path_factory: pytest.TempPathFactory) -> MediaFactory:
+def media_factory(
+    ffmpeg_bin: str, projects_root: Path, tmp_path_factory: pytest.TempPathFactory
+) -> MediaFactory:
     """Return a factory that synthesises tiny test media files with ffmpeg.
 
     Files are generated with ``lavfi`` sources (no real assets needed), kept
     small (default 320x240, 1s) so the suite stays fast. ``with_audio`` adds a
-    sine tone; ``with_video=False`` produces an audio-only file.
+    sine tone; ``with_video=False`` produces an audio-only file. They are
+    written INSIDE the session ``projects_root`` because the sidecar's path
+    sandbox rejects caller-supplied paths outside the configured root.
     """
-    out_dir = tmp_path_factory.mktemp("media")
+    out_dir = projects_root / "media"
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     def _make(
         name: str,
