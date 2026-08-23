@@ -8,6 +8,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
+- **Closed a critical dependency vulnerability in `tar` (CVE-2026-59873).**
+  A build-tooling transitive dependency could be crashed while unpacking
+  hostile archives. All consumers now resolve to tar ≥ 7.5.19 via a pnpm
+  override; packaging and rebuild flows are unaffected.
 - **Hardened every external-binary launch against argument injection.**
   ffmpeg, ffprobe and whisper-cli invocations now pass through one audited
   validation gate before anything executes: arguments must be plain strings,
