@@ -14,6 +14,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   all packages, plus two test-harness timing fixes the new runner requires
   (byte-exact font comparison) and CI-sized budgets for the parse-budget stress
   test that ran ~42s under coverage on the 2-vCPU runner.
+- **Closed a critical dependency vulnerability in `tar` (CVE-2026-59873).**
+  A build-tooling transitive dependency could be crashed while unpacking
+  hostile archives. All consumers now resolve to tar ≥ 7.5.19 via a pnpm
+  override; packaging and rebuild flows are unaffected.
 - **Hardened every external-binary launch against argument injection.**
   ffmpeg, ffprobe and whisper-cli invocations now pass through one audited
   validation gate before anything executes: arguments must be plain strings,
