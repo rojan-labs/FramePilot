@@ -7185,6 +7185,81 @@ capability matching for `glm-5v-turbo`.
       Python engine 1,421 tests; workspace typecheck/lint/build and website production build
       green. **Last updated:** 2026-07-30
 
+## Third-party media sourcing — `[ ]` not started
+
+> **Sub-plan: [`plan/3rd-party-sourcing/README.md`](./3rd-party-sourcing/README.md)**
+> (created 2026-08-23, maintainer-approved). FramePilot can only edit media the user already
+> put on disk. This gives it one outward reach: **background music from a third-party
+> provider, fetched in the Electron main process and materialized as an ordinary project
+> asset.**
+
+The audit corrected the premise. Only *acquisition* is missing — everything downstream is
+built and idle: `add_asset` + invert (`project-operations.ts:17`), `placeAssetPatch`
+(`patch-builders-base.ts:1477`), `adjust_audio` with `duckUnderTrackId`/fades/normalize
+(`operations.ts:242`), `AudioRoleSchema` `music` (`timeline-schema/src/index.ts:52`),
+`detect_beats`, and `POST /asset-media` which already returns duration/kind/peaks/proxy for
+any on-disk path (`service.py:348`). A grep for every major provider name returns **zero
+hits** — no prior art, no half-built branch.
+
+Two constraints found: the renderer **cannot** reach a provider host
+(`connect-src 'self' fp-media: <engine>`, `media-protocol.ts:139`) — but `media-src`/`img-src`
+already allow `blob:`, so previews ride IPC bytes and **no CSP change is needed**; and `Asset`
+has **no provenance field** and `Project` no metadata bag. Zero new dependencies (Node `fetch`
+in main; `httpx` already an engine dep). Reuses the ASR provider shape, the `hostTranscribe`
+key-custody pattern, and the Capability-Pack download *shape* — but **not** Capability Packs
+themselves (ADR 0114 packs are immutable FramePilot-controlled runtimes, not per-project
+licensed media).
+
+**Maintainer decision 2026-08-23 (D2): attribution-required tracks are supported** — the UI
+shows the licence and the user may use any track the provider offers. A search-time badge
+cannot discharge a publish-time obligation, so attribution is **persisted**: `Asset.source`,
+**schema v19 → v20 with a migration, approved as part of that decision**, plus a Credits view
+that lists and copies every required credit at export. Non-commercial-only licences stay
+refused — FramePilot users monetize, and no badge makes an NC track safe.
+
+**Provider research done 2026-08-23 (D4, sourced in `PROVIDERS.md`): every candidate gates
+commercial API use.** Freesound is non-commercial-only without an MTG/UPF agreement; Jamendo
+needs a quote; **Pixabay has no music endpoint in its public API at all**. Decision: **build
+on Openverse** (no key, no agreement, 1M+ CC audio records, commercial-use filtering, and a
+pre-formatted `attribution` string per result) and **ship on Epidemic Sound ES Connect**
+(purpose-built for embedding a licensed catalogue in third-party editors, no attribution, the
+user's own subscription confers commercial rights; self-serve free tier now, partnership to
+go live). The second provider is therefore earned, not speculative — the adapter generalizes
+when Epidemic actually lands.
+
+**Provider set closed 2026-08-23 — do not reopen without maintainer sign-off.** Openverse
+**ships** as the free tier (not a scaffold), accepted against its uneven aggregate catalogue.
+**Epidemic's free tier cannot go live** (*"only licensed for paid tiers"*) — the account is
+registered for evaluation (50 downloads · 100 streams · 50 create versions, enough for P1–P3),
+and launching needs the sales-priced Scale/Enterprise tier, so **Openverse is what actually
+ships** until that is signed. Bring-your-own-Epidemic-subscription is the confirmed shape,
+mirroring bring-your-own-AI-key. Storyblocks, Soundstripe, Shutterstock, Artlist and Pond5
+were evaluated and **parked** (comparison + cost-model trade-off in `PROVIDERS.md`);
+AI-generated music is parked, not declined.
+
+- [ ] **P0** Provider commercial-use agreement — gates *shipping on a paid catalogue*, not
+      the build; Openverse needs none, so P1–P3 proceed in parallel
+- [ ] **P1** Asset provenance, schema v20, credits surface
+- [ ] **P2** Search + audition (no download)
+- [ ] **P3** Download → asset → timeline → export
+- [ ] **P4** Agent tool (`search_music`/`add_music`) + TS↔Python↔MCP parity
+
+**Deferred by decision, not oversight** (`3rd-party-sourcing/DEFERRED-stock-footage-and-sfx.md`):
+**stock video** (for screen recordings and talking heads a punch-in on real footage usually
+beats generic stock; also needs billable indexing and is gated behind the unstarted SUC-P1
+compositing blocker) and **SFX** (a placement problem, not a search problem; Freesound is the
+obvious source and is itself commercially gated; `auto-SFX` is already tracked and blocked on
+the Phase 9.0 gate). An **owned** music catalog stays out of scope per
+`FRAMEPILOT-AI-PRODUCT-PLAN.md:22`; searching a *third party's* catalog is a recorded,
+deliberate delta from that decision (README §D1), not a reversal.
+
+**Sequencing:** `product-discipline.mdc` §2 ranks integrations below finished-edit quality,
+and the 2026-08-21/22 snapshots show consecutive captured runs each surfacing new priority-1
+editorial defects. Picked up when that batch closes; not interleaved with it. Phase 4's cost
+is known in advance: the registry is already 78 descriptors ≈ 15,710 tokens per request
+(§ above, line ~118), so the agent tool waits until a human has confirmed the provider
+returns usable tracks. **Last updated:** 2026-08-23
+
 ## Scene Understanding & Advanced Compositing — `[ ]` not started
 
 > **Sub-plan: [`plan/SCENE-UNDERSTANDING-AND-COMPOSITING.md`](./SCENE-UNDERSTANDING-AND-COMPOSITING.md)**

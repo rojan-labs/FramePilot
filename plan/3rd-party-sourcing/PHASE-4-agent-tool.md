@@ -1,0 +1,146 @@
+# Phase 4 — Agent tool — `[ ]`
+
+> **Ships:** "add calm background music under the voice" completes in Agent mode and over MCP.
+> **Depends on:** Phase 3 shipped **and** a human having confirmed through the Phase 2 UI that
+> the provider returns usable tracks.
+
+---
+
+## Why this is last
+
+Two reasons, both measured:
+
+1. **Known token cost.** The registry is already 78 descriptors ≈ **15,710 tokens per
+   request** at every stage except `apply` (`plan/PLAN.md:118`). Two more descriptors are
+   paid on **every turn of every run**, forever, including runs that have nothing to do with
+   music. That is worth paying for a capability proven useful, and not before.
+2. **Backend-first is a known failure mode here.** This repo already carries AI-only
+   capabilities with no UI (roll/slip/slide/insert/multicam). Phases 2–3 guarantee the human
+   entry point exists first.
+
+---
+
+## P4.1 — Tool specs — `[ ]`
+
+**Touch:** `packages/ai-sdk/src/domain-tools/media.ts` (search) and
+`domain-tools/audio.ts` (placement). Domain-by-subject, not by kind — the registry is
+organized by what a tool is _about_ (`domain-tools/media.ts` header).
+
+```
+search_music(query, limit?)   → read/analysis. Returns normalized tracks.
+                                Never downloads. Never mutates.
+add_music(remoteId, atSeconds?, duckUnderTrackId?)
+                              → host action → downloads, then returns the SAME
+                                add_asset + add_layer + add_clip operations the
+                                manual path builds — including Asset.source, so an
+                                agent-added track carries its credit exactly as a
+                                hand-added one does.
+```
+
+**`add_music` returns operations, not a mutation** (AGENTS.md invariant 5). The download is
+a host side effect; the timeline change is a typed, validated, reversible patch — identical
+to what P3.3 builds. **Prove that with a test asserting the agent path and the manual path
+produce deep-equal timelines.**
+
+Descriptions are written for the model but read by editors — route wording through the
+`lead-prompt-engineer` conventions: say what the tool does and when to reach for it, in
+video-editor language, not API language. Keep them short; every word is billed per request.
+
+`hostUiOnly` is **not** set — an external MCP agent driving a desktop session can legitimately
+use these (unlike `ask_user`, which needs a human looking at the app).
+
+---
+
+## P4.2 — Host execution — `[ ]`
+
+**Touch:** `packages/ai-sdk/src/sidecar-executor.ts`, `apps/desktop/electron/main.ts`.
+
+Add `hostMusicSearch` / `hostAddMusic` to `SidecarExecutorOptions`, **mirroring
+`hostTranscribe` exactly** (`sidecar-executor.ts:175`, implemented `main.ts:1564`). The key
+and the network I/O stay in main; the sidecar is not involved and gets no key.
+
+Absent (browser surface, tests) ⇒ the tools fail honestly rather than silently no-op.
+
+---
+
+## P4.3 — Honest degradation — `[ ]`
+
+`available` is static in the registry, so a config-gated tool must degrade **at execution
+time**, following the ASR/TwelveLabs `no-key` precedent and ADR 0118 (missing evidence is
+stated, not implied).
+
+- No key configured → `failed` with "No music provider key is configured." Never a
+  fabricated result, never `completed_no_changes`.
+- Provider error → the `MusicErrorCode` sentence from `CONTRACTS.md` §4, surfaced verbatim.
+- A non-commercial-only result → refused with the reason. Attribution-required results are
+  used normally; the credit lands in `Asset.source` and the model is told so in the tool
+  result, so it can mention crediting in its summary rather than leaving it a surprise.
+- Per ADR 0083, an `add_music` that produced no operations **fails closed** — it must not
+  report success on an unchanged timeline.
+
+**Tests:** a honesty regression test per arm. This is the arm most likely to rot.
+
+---
+
+## P4.4 — Cross-runtime parity — `[ ]`
+
+Adding a tool touches four surfaces. Missing one is the standard drift bug:
+
+- [ ] TS `TOOL_REGISTRY`
+- [ ] `engine/python/framepilot_engine/ai_tools/registry.py` — **hand-maintained mirror**,
+      not generated. Also `handlers.py` if it needs a sidecar arm (it should not — these are
+      host tools).
+- [ ] Regenerate the parity fixture:
+      `pnpm --filter @framepilot/ai-sdk generate:tool-parity`, guarded by
+      `tool-parity-fixture.test.ts` and `test_tool_registry_schema_parity.py`
+- [ ] MCP descriptor flows automatically via `buildMcpTools`
+      (`packages/mcp-server/src/tools.ts:85`) — verify it appears
+- [ ] `tool-classification.ts` (parity test at `tool-classification.test.ts:23`)
+
+**Rebuild the ai-sdk dist** — web-editor and desktop import from built `dist`, so an
+un-rebuilt package means testing stale code.
+
+---
+
+## P4.5 — Skill — `[ ]`
+
+Extend an existing music/audio skill in `packages/ai-sdk/skills/*.md` rather than adding a
+new one. Ground every recipe in what the tools actually do (`editing-skills-expert`
+conventions): search returns candidates, `add_music` places and can duck, `detect_beats`
+already exists for beat alignment.
+
+Also check `wipe-guard` (`packages/ai-sdk/src/wipe-guard.ts`) — confirm `add_music` is not
+caught by, and does not need, a guard trigger.
+
+---
+
+## P4.6 — Evidence — `[ ]`
+
+Per `product-discipline.mdc` §8, judged by the resulting timeline and render, not by tool
+calls:
+
+> On the same real 5–15 minute recording used in P3.6: **"add calm background music under
+> the voice"** → the agent searches, picks, downloads, places on a `music` track, ducks it
+> under dialogue → export → bed audible and ducked, **and the Credits view names the
+> creator**. Undo removes the run's changes.
+> With no key configured, the same prompt **fails honestly with a stated reason**.
+
+Record the prompt, the resulting operations, and the observed render.
+
+---
+
+## Definition of done
+
+- [ ] Both tools registered, TS ↔ Python ↔ MCP parity green, dist rebuilt
+- [ ] `add_music` returns operations; the agent path yields a timeline **deep-equal** to the
+      manual path (tested)
+- [ ] Every degradation arm stated honestly, never fabricated (tested per arm)
+- [ ] Empty planned mutation fails closed (ADR 0083)
+- [ ] The P3.6 evidence run recorded, including the no-key run
+- [ ] Registry token delta measured and recorded in the plan snapshot
+- [ ] `pnpm verify` green
+- [ ] `docs/guides/music-sourcing.md` gains an Agent-mode section; `CHANGELOG.md`
+
+**Deferred:** the agent choosing music by _mood inferred from the footage_ (that is footage
+understanding, a different subsystem); automatic beat-aligned cutting to a fetched track
+beyond what `detect_beats` already offers; multi-track music arrangement.
