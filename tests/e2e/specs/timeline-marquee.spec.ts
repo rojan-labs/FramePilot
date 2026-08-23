@@ -77,6 +77,11 @@ test('dragging one marquee-selected clip moves the whole selection', async ({ pa
     { x: body.x + body.width + 60, y: intro.y - 4 },
     { x: intro.x + 10, y: intro.y + intro.height + 4 },
   );
+  // The batch-drag below depends on the marquee selection having COMMITTED;
+  // asserting it here makes that precondition explicit instead of racing the
+  // next pointer event (CI runners are slower than local machines).
+  await expect(clip(page, 'clip_intro')).toHaveAttribute('data-selected', 'true');
+  await expect(clip(page, 'clip_body')).toHaveAttribute('data-selected', 'true');
   const introBefore = await clipGeometry(page, 'clip_intro');
   const bodyBefore = await clipGeometry(page, 'clip_body');
   // Grab clip_body and drag it right by ~80px; both selected clips should shift.
