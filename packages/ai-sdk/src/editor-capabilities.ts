@@ -11,6 +11,7 @@ import {
   type AnyOperation,
   type EditorCommand,
 } from '@framepilot/editor-core';
+import { TOOL_CONTRACT_DECLARATIONS } from './tool-contract.js';
 import type { ToolSpec } from './tool-registry.js';
 
 export const EDITOR_CAPABILITY_DOMAINS = [
@@ -394,14 +395,18 @@ const trackingMaskCapabilities = [
     value: { kind: 'enum' as const, unit: 'none' as const },
     keyframeable: true,
     inspectable: false,
-    editable: false,
-    operationTypes: [] satisfies OperationType[],
+    editable: true,
+    operationTypes: ['track_object'] satisfies OperationType[],
+    tool: 'track_subject_automatically',
+    compiler: 'editor-core:compileTrackingCommand:apply_tracked_mask',
+    verifier: 'ai-sdk:temporal-review:tracker-motion',
+    inverter: PATCH_INVERTER,
     description:
-      'Find and follow a subject without the editor pointing at it. Not available: no automatic detection ships in the editor today.',
+      'Find and follow a subject without the editor pointing at it: geometric tracking or silhouette segmentation through an installed Capability Pack, prompted for approval on first use.',
     availability: {
-      state: 'unavailable' as const,
+      state: 'available' as const,
       reason:
-        'Requires the on-demand Subject Intelligence Capability Pack; no tracker is silently bundled or downloaded.',
+        'Runs through the on-demand Subject Intelligence / Tracking Lite Capability Packs; the user approves the exact signed install before anything downloads. No tracker is silently bundled.',
     },
   },
 ];
@@ -612,6 +617,18 @@ export interface CapabilityDriftIssue {
   readonly message: string;
 }
 
+/**
+ * A tool "mutates" when it can land a validated timeline change — directly via
+ * `buildOps` OR host-backed like `track_subject_automatically`, whose
+ * measurement the orchestrator compiles into ops afterwards. The registry's
+ * legacy `mutates` flag alone cannot see the second kind.
+ */
+function isExecutableMutation(tool: Pick<ToolSpec, 'name' | 'available' | 'mutates'>): boolean {
+  if (tool.mutates) return true;
+  const declared = TOOL_CONTRACT_DECLARATIONS[tool.name];
+  return declared !== undefined && declared.effectClass === 'mutation';
+}
+
 /** Cross-check the manifest against the live tool and command registries. */
 export function editorCapabilityDriftIssues(
   capabilities: readonly EditorCapability[],
@@ -636,7 +653,7 @@ export function editorCapabilityDriftIssues(
         capabilityId: capability.id,
         message: `Missing tool ${capability.tool ?? '(none)'}.`,
       });
-    } else if (!tool.available || !tool.mutates) {
+    } else if (!tool.available || !isExecutableMutation(tool)) {
       issues.push({
         capabilityId: capability.id,
         message: `Tool ${tool.name} is not an available mutator.`,

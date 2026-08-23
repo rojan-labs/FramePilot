@@ -58,6 +58,16 @@ export const TOOL_CONTRACT_DECLARATIONS: Readonly<Record<string, ToolContract>> 
     stateDependency: 'asset_content',
     cacheScope: 'none',
   },
+  detect_subjects: {
+    executionPlane: 'host',
+    effectClass: 'pure_read',
+    permissions: ['analysis'],
+    concurrency: 'serial',
+    stateDependency: 'asset_content',
+    // A measurement of media bytes — never serve one run's detections as
+    // another's answer.
+    cacheScope: 'none',
+  },
   track_subject_automatically: {
     // A measurement, not a memo: the worker runs against media bytes for
     // minutes at a time and its output is applied against the live timeline,

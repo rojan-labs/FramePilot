@@ -18,6 +18,22 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the pack is missing, the track is too unreliable, or no clip is selected, it says so instead of
   producing a plausible-looking fake.
 
+- **The AI can see who and what is on screen.** `detect_subjects` runs the Subject Intelligence
+  pack (YuNet faces, YOLOX-S people and objects) over a selected clip and returns frame-indexed,
+  confidence-scored boxes as evidence for claims like "the presenter is alone". Detection is
+  read-only evidence: it never becomes geometry an edit can claim.
+
+- **Masks can follow a measured silhouette.** With the Subject Intelligence pack installed,
+  segmentation runs inside your drawn mask and the mask follows each frame's measured silhouette
+  bounds — through the same validated, reversible patch as every other tracking path.
+
+- **You can measure-and-follow from the editor itself.** The Inspector's Mask tab now offers
+  Measure-and-follow actions with live progress and cancellation, applying results through the
+  normal checked pipeline (undo included). And when any of this needs a pack that is not
+  installed — from the editor or from an AI tool card — the exact signed install offer appears
+  inline: size, licenses, and the promise that media never leaves the machine, with nothing
+  downloading until you approve it.
+
 - **A dev-only way to run Capability Pack workers before signed catalogs exist.**
   `framepilot-pack register-local` registers a locally built worker into the desktop pack store,
   gated behind `FRAMEPILOT_DEV_PACK_REGISTRATION=1` and running the same isolated health check a

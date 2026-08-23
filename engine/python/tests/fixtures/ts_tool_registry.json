@@ -1241,19 +1241,6 @@
         }
       }
     },
-    "detect_faces": {
-      "kind": "unavailable",
-      "mutates": false,
-      "available": false,
-      "hostUiOnly": false,
-      "schema": {
-        "type": [
-          "object"
-        ],
-        "additionalProperties": false,
-        "properties": {}
-      }
-    },
     "detect_scenes": {
       "kind": "analysis",
       "mutates": false,
@@ -1276,6 +1263,59 @@
             ],
             "minimum": 0,
             "maximum": 1
+          }
+        }
+      }
+    },
+    "detect_subjects": {
+      "kind": "analysis",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "intent"
+        ],
+        "properties": {
+          "intent": {
+            "type": [
+              "string"
+            ]
+          },
+          "labels": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "string"
+              ],
+              "enum": [
+                "face",
+                "object",
+                "person"
+              ]
+            }
+          },
+          "maxDetections": {
+            "type": [
+              "integer"
+            ],
+            "maximum": 100,
+            "exclusiveMinimum": 0
+          },
+          "target": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "playhead",
+              "this"
+            ]
           }
         }
       }
@@ -4248,7 +4288,8 @@
             "enum": [
               "plane",
               "point",
-              "region"
+              "region",
+              "silhouette"
             ]
           },
           "target": {

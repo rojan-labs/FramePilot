@@ -1788,6 +1788,22 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
         catalogDigest(obj, 'transitions', 'kind', 'transitions') ??
         previewJson(value, ANALYSIS_PREVIEW_MAX)
       );
+    case 'detect_subjects': {
+      // Detections are evidence the model reasons over (who is on screen, when),
+      // so the digest names counts and frame coverage instead of slicing raw JSON.
+      // The per-frame boxes remain available in the card's details popup.
+      const total = typeof obj.totalDetections === 'number' ? obj.totalDetections : 0;
+      if (total === 0) return 'no subjects detected — an honest empty result, not a guess';
+      const byLabel = (obj.byLabel ?? {}) as Record<string, number>;
+      const labelPart =
+        Object.entries(byLabel)
+          .map(([label, count]) => `${count} ${label}`)
+          .join(', ') || `${total} detections`;
+      const frames = typeof obj.framesWithDetections === 'number' ? obj.framesWithDetections : 0;
+      return `${labelPart} across ${frames} frame${frames === 1 ? '' : 's'} in ${String(
+        obj.clipId ?? '?',
+      )}`;
+    }
     default:
       // Reads whose payload is a handful of scalars, or prose the model asked for
       // verbatim: a (generously) bounded JSON preview is honest for those. The set is

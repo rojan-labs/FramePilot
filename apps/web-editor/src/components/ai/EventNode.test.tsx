@@ -696,12 +696,12 @@ describe('EventNode', () => {
           id: 'g',
           ts: 0,
           turnId: 't',
-          toolName: 'detect_faces',
+          toolName: 'generate_mask',
           status: 'running',
         }}
       />,
     );
-    expect(screen.getByText('Detect faces')).toBeTruthy();
+    expect(screen.getByText('Generate mask')).toBeTruthy();
     // Gated tools read "Coming soon" via the status-icon tooltip label, not a badge.
     expect(screen.getByLabelText('Coming soon')).toBeTruthy();
   });

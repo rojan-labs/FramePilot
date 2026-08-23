@@ -171,13 +171,34 @@ What registration does and does not trust:
   nothing here touches keys or catalogs. Rebuilding with the same `version` leaves the previous
   record behind — bump the prerelease (or clear the store root) to avoid two healthy candidates.
 
-Once registered, the agent can use the pack through the `track_subject_automatically` tool: it
-resolves one selected clip via `resolveAutomaticTrackingObjective`, builds the exact pack request
-(the mask supplies all geometry), runs the isolated worker through the desktop tracking authority
-(leases + typed failures + install proposals), and the orchestrator compiles the validated samples
-into the same reversible `track_object` patch as manual tracking, recording `${packId}@${version}`
-as provenance. A missing pack fails honestly with `pack_missing`; an unusable track is reported as
-refused, never smoothed into a plausible edit.
+Once registered, both packs are reachable from two places:
+
+**The agent.** `track_subject_automatically` resolves one selected clip via
+`resolveAutomaticTrackingObjective`, builds the exact pack request (the mask supplies all
+geometry), runs the isolated worker through the desktop media-intelligence authority (leases +
+typed failures + install proposals), and the orchestrator compiles the validated samples into the
+same reversible `track_object` patch as manual tracking, recording `${packId}@${version}` as
+provenance. `subject="silhouette"` routes through the Subject Intelligence worker instead: it
+segments inside the drawn mask and follows each measured silhouette's bounding box. The read-only
+`detect_subjects` tool runs `subject.detect` on a selected clip and returns frame-indexed,
+confidence-scored boxes as evidence — it never becomes geometry an edit can claim. A missing pack
+fails honestly with `pack_missing`; an unusable track is reported as refused, never smoothed into
+a plausible edit.
+
+**The editor.** The Inspector's Mask tab offers Measure-and-follow actions on clips with a drawn
+rectangle/ellipse mask (box / centre / silhouette). They call the same authority over the
+`capabilityPackTrack` IPC channel with progress and cancellation, convert returned samples with
+the identical `compileTrackingCommand` path, and apply through the editor's checked pipeline so
+desktop persistence and undo behave like any other manual edit. When a job answers
+`pack_missing` — from the Inspector or from a failed agent tool card in the AI sidebar — the exact
+signed install proposal is shown inline; nothing downloads without that approval, and the host
+rejects any approval that no longer matches it.
+
+Weights-backed packs need their model files located inside the install root. The runtime client
+accepts `extraEnvironment` (strictly `FRAMEPILOT_`-prefixed, merged after the environment scrub),
+and the desktop authority provisions `FRAMEPILOT_CAPABILITY_PACK_ROOT=<install root>` for the
+Subject Intelligence pack; dev registration provisions the same variable against the staged copy,
+so a locally built payload mirrors the installed layout exactly.
 
 > The storage root above is the default for macOS; `capability-pack-location.json` next to it may
 > point at a relocated root (Settings › Storage).

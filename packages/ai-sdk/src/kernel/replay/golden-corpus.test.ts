@@ -214,12 +214,12 @@ const SCENARIOS: readonly Scenario[] = [
   {
     name: 'unavailable-tool-refusal',
     covers:
-      'A registered-but-unavailable tool (`detect_faces`). PRD §23 requires refusal at ' +
+      'A registered-but-unavailable tool (`generate_mask`). PRD §23 requires refusal at ' +
       'invocation, never a fabricated result — the invariant §5.3 puts INSIDE the tool ' +
       'wrapper so it holds whatever calls the tool.',
     prompt: 'who is on screen?',
     build: () => ({
-      provider: new ScriptedProvider([turn(call('f', 'detect_faces', {})), done]),
+      provider: new ScriptedProvider([turn(call('f', 'generate_mask', {})), done]),
     }),
   },
   {

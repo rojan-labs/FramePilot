@@ -127,8 +127,12 @@ describe('EditorSession — runTool', () => {
     expect(() => session.runTool('no_such_tool', {})).toThrow(
       expect.objectContaining({ code: 'unknown_tool' }),
     );
-    // detect_faces / generate_mask remain unavailable (dependency-gated CV engine).
+    // generate_mask remains unavailable (dependency-gated CV engine); detect_faces
+    // was replaced by the pack-backed detect_subjects, so it is now unknown here.
     expect(() => session.runTool('detect_faces', {})).toThrow(
+      expect.objectContaining({ code: 'unknown_tool' }),
+    );
+    expect(() => session.runTool('generate_mask', {})).toThrow(
       expect.objectContaining({ code: 'unavailable_tool' }),
     );
     expect(() => session.runTool('trim_clip', { clipId: 'clip_a' })).toThrow(

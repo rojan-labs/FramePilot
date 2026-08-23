@@ -1,12 +1,14 @@
 /**
- * Tracking and mask tools — including the two that do not work.
+ * Tracking and mask tools — including the one that still does not work.
  *
- * `detect_faces` and `generate_mask` are registered and explicitly unavailable
- * because no CV engine is bundled, and they belong in this file precisely for
- * that reason: the honest statement of what this domain cannot do sits beside
- * what it can, where the next person to add a tracker will read it. Splitting the
- * registry by kind had them in a trailing `unavailableTools` array, filed by their
- * brokenness rather than by their subject.
+ * `detect_faces` became real through the Subject Intelligence pack (see
+ * `automatic-tracking.ts`'s `detect_subjects`, which supersedes it with
+ * person/object labels included). `generate_mask` remains registered and
+ * explicitly unavailable because a segmentation is a bitmap and the timeline
+ * mask model steers by rectangle bounds; the measured path that DOES exist is
+ * `track_subject_automatically` with subject="silhouette", which segments
+ * inside a drawn mask and follows the silhouette's bounding box. This file
+ * keeps the honest statement of what the domain cannot do beside what it can.
  */
 import { z } from 'zod/v4';
 import type { ToolSpec } from '../tool-registry.js';
@@ -49,16 +51,13 @@ export const TRACKING_MASK_TOOLS: readonly ToolSpec[] = [
   ),
   unavailableTool(
     {
-      name: 'detect_faces',
+      name: 'generate_mask',
       description:
-        'Detect faces via a dedicated CV model (unavailable — no face detector is bundled). ' +
-        'FramePilot cannot determine who or what is on screen without that capability; ask ' +
-        'the editor rather than guessing.',
+        'Generate a subject mask (unavailable — segmentation produces bitmap masks, and timeline ' +
+        'masks steer by rectangle bounds). The measured alternative is ' +
+        'track_subject_automatically with subject="silhouette": it segments inside a drawn mask ' +
+        'and animates that mask to follow the measured silhouette.',
     },
-    false,
-  ),
-  unavailableTool(
-    { name: 'generate_mask', description: 'Generate a subject mask (engine TBD).' },
     true,
   ),
 ];

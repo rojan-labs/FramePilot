@@ -62,7 +62,7 @@ describe('editor capability registry', () => {
     ).toEqual(AUDIO_PARAMETER_CONTRACTS.duckAmountDb);
   });
 
-  it('advertises only manual existing-mask tracking as executable', () => {
+  it('advertises manual and pack-driven subject tracking as executable', () => {
     const tracking = listEditorCapabilities({ domain: 'tracking_mask' });
     expect(tracking).toEqual([
       expect.objectContaining({
@@ -73,8 +73,9 @@ describe('editor capability registry', () => {
       }),
       expect.objectContaining({
         id: 'tracking_mask.automatic_subject_track',
-        editable: false,
-        availability: { state: 'unavailable', reason: expect.stringMatching(/Capability Pack/) },
+        editable: true,
+        tool: 'track_subject_automatically',
+        availability: { state: 'available', reason: expect.stringMatching(/Capability Pack/) },
       }),
     ]);
   });
@@ -245,12 +246,15 @@ describe('every capability describes itself', () => {
     expect(byId.get('timeline.extract')?.description).toMatch(/close the gap/i);
   });
 
-  it('says plainly when a capability is unavailable', () => {
+  it('says plainly how automatic subject tracking is delivered', () => {
     const automatic = listEditorCapabilities().find(
       (c) => c.id === 'tracking_mask.automatic_subject_track',
     );
-    expect(automatic?.availability.state).toBe('unavailable');
-    expect(automatic?.description).toMatch(/not available/i);
+    expect(automatic?.availability.state).toBe('available');
+    // The honesty contract moves from "does not exist" to "exists, but never
+    // silently": the reason must keep naming the on-demand pack boundary.
+    expect(automatic?.availability.reason).toMatch(/Capability Pack/);
+    expect(automatic?.availability.reason).toMatch(/approves the exact signed install/i);
   });
 
   it('gives every capability a distinct description', () => {

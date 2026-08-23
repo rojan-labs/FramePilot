@@ -1,10 +1,14 @@
-/** Executable outcome eval for manual mask tracking (the only tracking we can honestly ship). */
-import { compileTrackingCommand } from '@framepilot/editor-core';
+/** Executable outcome evals for mask tracking: manual, and pack-measured automatic. */
+import { compileTrackingCommand, type TrackSample } from '@framepilot/editor-core';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import {
   resolveTrackingMaskObjective,
   TrackingMaskObjectiveSchema,
 } from './controllers/tracking-mask-controller.js';
+import {
+  resolveAutomaticTrackingObjective,
+  AutomaticTrackingObjectiveSchema,
+} from './controllers/automatic-tracking-controller.js';
 import { captureEditorInteractionContext } from './editor-context/interaction-context.js';
 import {
   outcomeIssues,
@@ -168,4 +172,126 @@ export const TRACKING_MASK_EVAL_CASES: readonly ProfessionalEvalCase[] = [
     resolveAndCompile: resolveAndCompileTracking,
     expectOutcome: (persisted) => expectTrackingOutcome(persisted),
   },
+  {
+    fixtureId: 'tracking-mask.automatic.outcome',
+    capabilityId: 'tracking_mask.automatic_subject_track',
+    setup: automaticFixture,
+    resolveAndCompile: resolveAndCompileAutomatic,
+    expectOutcome: (persisted) => expectAutomaticOutcome(persisted),
+  },
 ];
+
+// --- automatic (pack-measured) path -----------------------------------------
+
+/** Deterministic stand-in for the worker's honest output: a slow rightward drift. */
+function measuredSamples(): TrackSample[] {
+  return Array.from({ length: 12 }, (_, index) => ({
+    frame: index * 8,
+    box: { x: 0.2 + index * 0.01, y: 0.1, width: 0.25, height: 0.4 },
+    confidence: 0.9,
+    occluded: false,
+  }));
+}
+
+function automaticFixture(): ProfessionalEvalFixture {
+  const project = trackingEvalProject();
+  const interaction = captureEditorInteractionContext({
+    project,
+    projectRevision: 9,
+    playheadSeconds: 2,
+    selectedClipIds: [CLIP_ID],
+    primaryClipId: CLIP_ID,
+  });
+  return { project, interaction };
+}
+
+function resolveAndCompileAutomatic(fixture: ProfessionalEvalFixture): ProfessionalEvalCompilation {
+  const objective = AutomaticTrackingObjectiveSchema.parse({
+    intent: 'track_subject_automatically',
+    subject: 'silhouette',
+  });
+  const resolved = resolveAutomaticTrackingObjective({
+    project: fixture.project,
+    interaction: fixture.interaction,
+    objective,
+  });
+  if (resolved.status !== 'resolved') {
+    return { status: 'failed', failures: [`automatic controller rejected: ${resolved.code}`] };
+  }
+  const compiled = compileTrackingCommand({
+    timeline: fixture.project.timeline,
+    assets: fixture.project.assets,
+    command: {
+      type: 'apply_tracked_mask',
+      timelineRevision: fixture.project.timeline.revision ?? 0,
+      clipId: resolved.plan.clipId,
+      maskEffectId: professionalMaskId(resolved.plan.clipId),
+      target: 'bounding_box',
+      engine: 'framepilot.tracking-lite@1.0.0',
+      fps: resolved.plan.fps,
+      startSeconds: resolved.plan.startSeconds,
+      samples: measuredSamples(),
+    },
+  });
+  if (compiled.status !== 'compiled') {
+    return {
+      status: 'failed',
+      failures: [`automatic compiler rejected: ${compiled.code} — ${compiled.detail}`],
+    };
+  }
+  return {
+    status: 'compiled',
+    patch: compiled.patch,
+    inversePatch: compiled.inversePatch,
+    resolution: [
+      `clip=${resolved.plan.clipId}`,
+      `capability=${resolved.plan.capability}`,
+      'engine=framepilot.tracking-lite@1.0.0',
+    ],
+  };
+}
+
+function professionalMaskId(clipId: string): string {
+  return `${clipId}__mask`;
+}
+
+/**
+ * The editorial result of the measured path: the SAME tracker effect shape as
+ * manual, but its keyframes come from measurements and carry the pack identity
+ * as provenance, and every measured position stays inside the frame.
+ */
+function expectAutomaticOutcome(persisted: Project): readonly string[] {
+  const clip = persisted.timeline.tracks[0]!.clips[0]!;
+  const trackers = clip.effects.filter((effect) => effect.id === TRACK_EFFECT_ID);
+  const tracker = trackers[0];
+  const engine = (tracker?.params as Record<string, unknown>)?.engine;
+  const issues = [
+    ...outcomeIssues([
+      { label: 'tracker layers', actual: trackers.length, expected: 1 },
+      { label: 'tracker type', actual: tracker?.type, expected: 'object_track' },
+      {
+        label: 'measuring pack recorded as provenance',
+        actual: engine,
+        expected: 'framepilot.tracking-lite@1.0.0',
+      },
+      {
+        label: 'authored mask preserved',
+        actual: clip.effects.some((effect) => effect.type === 'mask'),
+        expected: true,
+      },
+    ]),
+  ];
+  for (const axis of ['x', 'y'] as const) {
+    const size = axis === 'x' ? 0.25 : 0.4;
+    const values = (tracker?.keyframes ?? [])
+      .filter((keyframe) => keyframe.property === axis)
+      .map((keyframe) => keyframe.value);
+    if (values.length === 0) issues.push(`tracker has no ${axis} keyframes`);
+    for (const value of values) {
+      if (!(value >= 0 && value + size <= 1)) {
+        issues.push(`tracked ${axis} region leaves the frame: ${String(value)} + ${String(size)}`);
+      }
+    }
+  }
+  return issues;
+}

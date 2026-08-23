@@ -813,6 +813,25 @@ layout, and recording an acquisition receipt that names itself dev. Still open: 
 runtime/signing/catalog publication (C1/C4), renderer UI trigger + install-approval dialog for
 agent-proposed packs, Subject Intelligence host service (detect/segment tools remain honest
 refusals).
+
+**Status snapshot (2026-08-23, second pass):** `[x]` **Subject Intelligence closed end to end on
+localhost, and the editor got its own path in.** The desktop tracking authority generalized into a
+capability→pack media-intelligence authority (Tracking Lite for geometric tracking; Subject
+Intelligence for detection and segmentation, with `FRAMEPILOT_CAPABILITY_PACK_ROOT` provisioned to
+the installed model directory through the worker client's audited `FRAMEPILOT_`-prefixed
+`extraEnvironment` channel). Three consumer surfaces now share it: the agent's
+`track_subject_automatically` (now including `subject="silhouette"` — segmentation inside the drawn
+mask, converted host-side to measured region samples feeding the identical reversible patch), the
+new read-only `detect_subjects` evidence tool (frame-indexed face/person/object boxes; honest empty
+results; never geometry an edit can claim — it supersedes `detect_faces`, which is gone from both
+registries), and the Inspector's Mask tab Measure-and-follow actions over the `capabilityPackTrack`
+IPC with progress, cancellation, and checked apply through normal desktop persistence. A
+`pack_missing` answer anywhere now surfaces the exact signed install proposal inline (Inspector
+flow and AI tool card), with approval matching enforced byte-for-byte client-side as well as
+host-side. Automatic subject tracking flipped to a registered, executable professional eval row
+(measured-samples fixture asserting pack provenance and in-frame keyframes) — scorecard 34/34
+registered, 0 unsupported. Still open: per-platform runtime/signing/catalog publication (C1/C6);
+free segmentation prompts without a drawn mask need a bitmap-mask timeline representation.
 P1.2 is closed: all ten tool families now own their specs in
 `packages/ai-sdk/src/domain-tools/`, taking `tool-registry.ts` from 2,591 lines to 431, with the
 generated parity fixture byte-identical at every step. P3 now derives a

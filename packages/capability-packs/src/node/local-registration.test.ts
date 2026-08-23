@@ -91,6 +91,13 @@ describe('registerLocalCapabilityPack', () => {
     expect(seenEnvs[0]?.FRAMEPILOT_CAPABILITY_PACK_CAPABILITIES).toBe(
       JSON.stringify(['tracking.planar', 'tracking.point', 'tracking.region']),
     );
+    // Weights-backed packs resolve models inside the staged root, mirroring
+    // the installed layout the runtime service will point at later.
+    const stagedRoot = stagedExecutable.slice(
+      0,
+      stagedExecutable.length - '/bin/framepilot-tracking-lite'.length,
+    );
+    expect(seenEnvs[0]?.FRAMEPILOT_CAPABILITY_PACK_ROOT).toBe(stagedRoot);
     expect(result.record.state).toBe('installed');
     expect(result.record.health.status).toBe('healthy');
     expect(result.record.health.detail).toContain('opencv');

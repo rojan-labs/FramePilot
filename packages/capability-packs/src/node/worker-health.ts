@@ -27,20 +27,30 @@ export async function healthCheckCapabilityPackWorker(
   expectedCapabilities: readonly string[],
   runCommand: BoundedCommandRunner = runBoundedCommand,
   signal?: AbortSignal,
+  /**
+   * FRAMEPILOT_-prefixed extras the pack's contract requires — same rules as
+   * the runtime client's `extraEnvironment` (weights-backed packs need
+   * `FRAMEPILOT_CAPABILITY_PACK_ROOT`). Non-prefixed names are dropped.
+   */
+  extraEnvironment?: Readonly<Record<string, string>>,
 ): Promise<CapabilityPackWorkerHandshake> {
   let result: BoundedCommandResult;
+  const env: Record<string, string> = {
+    FRAMEPILOT_CAPABILITY_PACK_HEALTH_CHECK: '1',
+    FRAMEPILOT_CAPABILITY_PACK_NETWORK: 'disabled',
+    FRAMEPILOT_CAPABILITY_PACK_ID: identity.id,
+    FRAMEPILOT_CAPABILITY_PACK_VERSION: identity.version,
+    FRAMEPILOT_CAPABILITY_PACK_RELEASE_DIGEST: identity.releaseDigest,
+    FRAMEPILOT_CAPABILITY_PACK_CAPABILITIES: JSON.stringify([...expectedCapabilities].sort()),
+  };
+  for (const [name, value] of Object.entries(extraEnvironment ?? {})) {
+    if (/^FRAMEPILOT_[A-Z0-9_]+$/.test(name) && value.length <= 4096) env[name] = value;
+  }
   try {
     result = await runCommand({
       executable: entrypointPath,
       args: ['--framepilot-health-check'],
-      env: {
-        FRAMEPILOT_CAPABILITY_PACK_HEALTH_CHECK: '1',
-        FRAMEPILOT_CAPABILITY_PACK_NETWORK: 'disabled',
-        FRAMEPILOT_CAPABILITY_PACK_ID: identity.id,
-        FRAMEPILOT_CAPABILITY_PACK_VERSION: identity.version,
-        FRAMEPILOT_CAPABILITY_PACK_RELEASE_DIGEST: identity.releaseDigest,
-        FRAMEPILOT_CAPABILITY_PACK_CAPABILITIES: JSON.stringify([...expectedCapabilities].sort()),
-      },
+      env,
       ...(signal === undefined ? {} : { signal }),
     });
   } catch (error) {

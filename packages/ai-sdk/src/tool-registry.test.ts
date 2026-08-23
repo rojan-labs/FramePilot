@@ -27,7 +27,13 @@ describe('tool registry — shape', () => {
     expect(getTool('analyze_silence')?.available).toBe(true);
     expect(getTool('analyze_silence')?.mutates).toBe(false);
     expect(getTool('detect_scenes')?.kind).toBe('analysis');
-    expect(getTool('detect_faces')?.available).toBe(false);
+    // detect_faces was replaced by the pack-backed detect_subjects (2026-08).
+    expect(getTool('detect_faces')).toBeUndefined();
+    expect(getTool('detect_subjects')?.kind).toBe('analysis');
+    expect(getTool('detect_subjects')?.available).toBe(true);
+    expect(getTool('detect_subjects')?.mutates).toBe(false);
+    expect(getTool('track_subject_automatically')?.kind).toBe('analysis');
+    expect(getTool('generate_mask')?.available).toBe(false);
     expect(getTool('unknown_tool_xyz')).toBeUndefined();
   });
 
@@ -1350,8 +1356,9 @@ describe('schema validation rejects bad input', () => {
   it('parse() on read/action/analysis/unavailable tools validates too', () => {
     expect(() => getTool('get_timeline')?.parse({ nope: 1 })).toThrow(ZodError);
     expect(() => getTool('render_preview')?.parse({ nope: 1 })).toThrow(ZodError);
-    expect(() => getTool('detect_faces')?.parse({ nope: 1 })).toThrow(ZodError);
-    expect(getTool('detect_faces')?.parse({})).toEqual({});
+    expect(() => getTool('detect_subjects')?.parse({ nope: 1 })).toThrow(ZodError);
+    // intent is a required literal: an empty arg set is invalid.
+    expect(() => getTool('detect_subjects')?.parse({})).toThrow(ZodError);
     // Analysis tools accept {} (all args optional) and reject unknown keys.
     expect(getTool('analyze_silence')?.parse({})).toEqual({});
     expect(() => getTool('detect_scenes')?.parse({ nope: 1 })).toThrow(ZodError);
@@ -1643,7 +1650,8 @@ describe('concurrencySafe (E1, plan/ORCHESTRATION-EFFICIENCY-CC-PATTERNS.md)', (
     expect(concurrencySafe(getTool('ask_user')!, { question: 'Which take do you prefer?' })).toBe(
       false,
     );
-    expect(concurrencySafe(getTool('detect_faces')!, {})).toBe(false);
+    expect(concurrencySafe(getTool('detect_subjects')!, {})).toBe(false);
+    expect(concurrencySafe(getTool('track_subject_automatically')!, {})).toBe(false);
   });
 
   it('honors the per-tool serialOnly opt-out (load_skill pins into the run ledger)', () => {

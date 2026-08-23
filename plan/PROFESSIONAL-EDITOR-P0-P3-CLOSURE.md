@@ -294,8 +294,11 @@ intended visual reason.
       finding nothing returns nothing, a point prompt resolves against a real person detection
       rather than a guessed rectangle, and an empty or near-empty mask is `target_lost`. 84 unit
       tests against an injectable scripted backend plus 9 real-inference proofs on a pinned
-      photograph, including a mis-registration control. **Still open**: per-platform runtime,
-      signing/notarization, catalog publication, and desktop invocation.
+      photograph, including a mis-registration control. **Desktop invocation landed 2026-08-23**:
+      `detect_subjects` (agent evidence tool) and silhouette-follow masks run this worker through
+      the shared media-intelligence authority, with `FRAMEPILOT_CAPABILITY_PACK_ROOT` provisioned
+      to the installed model directory. **Still open**: per-platform runtime, signing/notarization,
+      catalog publication.
 - [x] Dev-only local pack registration (2026-08-23): `framepilot-pack register-local` seeds the
   store from a locally built worker without any catalog — gated behind
   `FRAMEPILOT_DEV_PACK_REGISTRATION=1`, running the exact isolated health check a signed install
@@ -317,18 +320,18 @@ intended visual reason.
   the signed entrypoint exists inside the installed root, holds a storage lease across the whole
   worker lifetime and releases it even on crash/cancel, maps worker errors to typed outcomes keeping
   `target_lost` visible, and returns an install proposal instead of a fake track when no pack is
-  installed. 15 tests. **Now consumed by the agent path**: the desktop
-  `track_subject_automatically` executor runs this authority from the orchestrator's host-tool
-  slot (objective → controller plan → exact pack request → samples), with the same license-gated
-  renderer IPC remaining for editor-initiated tracks. **Still open**: renderer UI trigger and
-  install-approval dialog for agent-proposed packs.
+  installed. **Generalized into the media-intelligence authority (2026-08-23)**: capability→pack
+  bindings route tracking capabilities to Tracking Lite and detect/segment to Subject Intelligence,
+  provisioning `FRAMEPILOT_CAPABILITY_PACK_ROOT` for weights-backed packs via the worker client's
+  audited `extraEnvironment` channel. Consumed by BOTH the agent executor and the renderer IPC.
 - [~] Resolver/controller contracts for point/object/face/region/planar/segmentation targets.
-  `automatic-tracking-controller.ts` resolves point/region/planar targets into an exact pack request
-  plan: geometry always comes from a mask the editor drew (never a model-guessed box), the range is
-  the clip's own source range, and unresolved targets, wrong mask shapes, out-of-frame bounds,
-  non-video clips and over-long ranges are typed refusals. 12 tests. **Consumed in production for
-  point/region/planar** by the agent tool (2026-08-23). **Still open**: face/object and
-  segmentation targets, which need the Subject Intelligence pack.
+  `automatic-tracking-controller.ts` resolves point/region/planar/silhouette targets into exact pack
+  request plans, and `resolveSubjectDetectionObjective` covers whole-frame detection: geometry always
+  comes from a mask the editor drew (never a model-guessed box), the range is the clip's own source
+  range, and unresolved targets, wrong mask shapes, out-of-frame bounds, non-video clips and
+  over-long ranges are typed refusals. **Face/object detection is consumed by `detect_subjects`;
+  silhouette segmentation feeds the same reversible edit path** (2026-08-23). **Still open**: free
+  segmentation prompts without a drawn mask, which need a bitmap-mask timeline representation.
 - [~] Deterministic track smoothing, gap/occlusion policy, confidence thresholds, correction limits,
   and exact reversible operations. `packages/editor-core/src/track-samples.ts` converts worker
   samples host-side: occluded/low-confidence measurements never steer the track, bounded gaps are

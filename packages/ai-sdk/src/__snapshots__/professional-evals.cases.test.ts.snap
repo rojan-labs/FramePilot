@@ -34,6 +34,7 @@ exports[`professional capability outcome evals > records a machine-readable scor
   "timeline.slide.outcome passed not_acquired",
   "timeline.slip.outcome passed not_acquired",
   "timeline.switch-angle.outcome passed not_acquired",
+  "tracking-mask.automatic.outcome passed not_acquired",
   "tracking-mask.manual.outcome passed not_acquired",
 ]
 `;

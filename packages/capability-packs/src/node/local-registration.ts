@@ -160,6 +160,10 @@ export async function registerLocalCapabilityPack(
       identity,
       input.capabilities,
       deps.runHealthCommand,
+      undefined,
+      // The staged copy mirrors the installed layout, so a weights-backed pack
+      // finds its models exactly where the runtime service will point it later.
+      { FRAMEPILOT_CAPABILITY_PACK_ROOT: destinationRoot },
     );
     handshakeBackend = handshake.hardwareBackend;
   } catch (error) {

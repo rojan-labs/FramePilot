@@ -92,6 +92,7 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   // measures media, and the orchestrator converts the validated measurement
   // into a track_object patch — so its outcome ages with the arrangement.
   track_subject_automatically: { role: 'analysis', scope: 'timeline_dependent' },
+  detect_subjects: { role: 'analysis', scope: 'revision_independent' },
   professional_audio: { role: 'mutation', scope: 'timeline_dependent' },
   measure_color: { role: 'analysis', scope: 'timeline_dependent' },
   // --- analysisTool: sidecar/ffmpeg-backed reads of the SOURCE MEDIA -------------------
@@ -199,7 +200,6 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   // --- unavailableTool: registered for discoverability, engine not built yet -----------
   // Classified anyway, so turning one on is a one-line registry change and not a silent
   // regression back into the `other`/`timeline_dependent` default.
-  detect_faces: { role: 'analysis', scope: 'revision_independent' },
   generate_mask: { role: 'mutation', scope: 'timeline_dependent' },
 });
 

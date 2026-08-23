@@ -32,6 +32,14 @@ export interface CapabilityPackWorkerRunOptions {
   readonly request: CapabilityPackWorkerRequest;
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
+  /**
+   * Additional FRAMEPILOT_-prefixed variables the pack's contract requires,
+   * e.g. `FRAMEPILOT_CAPABILITY_PACK_ROOT` for packs that ship model weights
+   * inside the install root. They are merged AFTER the environment scrub, so
+   * nothing else from the desktop process can leak through this channel, and
+   * anything not FRAMEPILOT_-prefixed is dropped rather than passed.
+   */
+  readonly extraEnvironment?: Readonly<Record<string, string>>;
   readonly onProgress?: (progress: CapabilityPackWorkerProgress) => void;
   readonly launch?: CapabilityPackWorkerLauncher;
 }
@@ -65,7 +73,9 @@ function defaultLauncher(
   });
 }
 
-function safeRuntimeEnvironment(): Readonly<Record<string, string>> {
+function safeRuntimeEnvironment(
+  extraEnvironment?: Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> {
   const env: Record<string, string> = {
     FRAMEPILOT_CAPABILITY_PACK_NETWORK: 'disabled',
     FRAMEPILOT_CAPABILITY_PACK_RUNTIME: '1',
@@ -75,6 +85,9 @@ function safeRuntimeEnvironment(): Readonly<Record<string, string>> {
   for (const name of ['PATH', 'SystemRoot', 'WINDIR', 'TMPDIR', 'TEMP', 'TMP']) {
     const value = process.env[name];
     if (value !== undefined) env[name] = value;
+  }
+  for (const [name, value] of Object.entries(extraEnvironment ?? {})) {
+    if (/^FRAMEPILOT_[A-Z0-9_]+$/.test(name) && value.length <= 4096) env[name] = value;
   }
   return env;
 }
@@ -110,7 +123,7 @@ export async function runCapabilityPackWorker(
   const child = launch(
     options.entrypoint,
     ['--framepilot-worker-runtime'],
-    safeRuntimeEnvironment(),
+    safeRuntimeEnvironment(options.extraEnvironment),
   );
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   return await new Promise<CapabilityPackWorkerResult>((resolve, reject) => {

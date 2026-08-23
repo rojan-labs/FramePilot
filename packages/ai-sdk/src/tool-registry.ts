@@ -59,7 +59,10 @@ import { PROFESSIONAL_EDIT_TOOL } from './domain-tools/professional-edit.js';
 import { PROFESSIONAL_MOTION_TOOL } from './domain-tools/professional-motion.js';
 import { PROFESSIONAL_COLOR_TOOL } from './domain-tools/professional-color.js';
 import { PROFESSIONAL_TRACKING_MASK_TOOL } from './domain-tools/professional-tracking-mask.js';
-import { PROFESSIONAL_AUTOMATIC_TRACKING_TOOL } from './domain-tools/automatic-tracking.js';
+import {
+  PROFESSIONAL_AUTOMATIC_TRACKING_TOOL,
+  PROFESSIONAL_DETECT_SUBJECTS_TOOL,
+} from './domain-tools/automatic-tracking.js';
 import { PROFESSIONAL_AUDIO_TOOL } from './domain-tools/professional-audio.js';
 
 const log = createLogger('ai-sdk:tool-registry');
@@ -385,6 +388,7 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
   PROFESSIONAL_COLOR_TOOL,
   PROFESSIONAL_TRACKING_MASK_TOOL,
   PROFESSIONAL_AUTOMATIC_TRACKING_TOOL,
+  PROFESSIONAL_DETECT_SUBJECTS_TOOL,
   PROFESSIONAL_AUDIO_TOOL,
 ];
 

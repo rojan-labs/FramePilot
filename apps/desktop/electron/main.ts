@@ -77,6 +77,7 @@ import {
    type HostToolOutcome,
    type HostToolExecutor,
    AUTOMATIC_TRACKING_TOOL_NAME,
+   DETECT_SUBJECTS_TOOL_NAME,
    type ChunkTranscriber,
    type AsrResult,
    type VisualIndexRequestInput,
@@ -844,20 +845,44 @@ function registerIpcHandlers(): void {
           };
         }
         const result = outcome.result;
-        if (!('samples' in result)) {
+        // The measurement payload mirrors the requested capability: tracking
+        // samples steer masks, detections are evidence, mask runs feed the
+        // silhouette-follow conversion host-side.
+        if ('samples' in result) {
           return {
-            ok: false,
-            code: 'worker_failed',
-            error: 'The tracking worker returned a non-tracking result.',
-            retryable: false,
+            ok: true,
+            kind: 'tracking',
+            samples: result.samples,
+            engine: `${outcome.identity.id}@${outcome.identity.version}`,
+            backend: result.backend,
+            projectRevision: revision,
+          };
+        }
+        if ('detections' in result) {
+          return {
+            ok: true,
+            kind: 'detect',
+            detections: result.detections,
+            engine: `${outcome.identity.id}@${outcome.identity.version}`,
+            backend: result.backend,
+            projectRevision: revision,
+          };
+        }
+        if ('masks' in result) {
+          return {
+            ok: true,
+            kind: 'segment',
+            masks: result.masks,
+            engine: `${outcome.identity.id}@${outcome.identity.version}`,
+            backend: result.backend,
+            projectRevision: revision,
           };
         }
         return {
-          ok: true,
-          samples: result.samples,
-          engine: `${outcome.identity.id}@${outcome.identity.version}`,
-          backend: result.backend,
-          projectRevision: revision,
+          ok: false,
+          code: 'worker_failed',
+          error: 'The worker returned a result that matches none of its capabilities.',
+          retryable: false,
         };
       } finally {
         trackingRuns.delete(requestId);
@@ -1669,7 +1694,10 @@ function registerIpcHandlers(): void {
   });
   const toolExecutor: HostToolExecutor = {
     async run(call, ctx, signal) {
-      if (call.name === AUTOMATIC_TRACKING_TOOL_NAME) {
+      if (
+        call.name === AUTOMATIC_TRACKING_TOOL_NAME ||
+        call.name === DETECT_SUBJECTS_TOOL_NAME
+      ) {
         return automaticTrackingExecutor.run(call, ctx, signal);
       }
       return sidecarToolExecutor.run(call, ctx, signal);
