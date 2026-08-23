@@ -85,7 +85,10 @@ describe('MemoryPersistence', () => {
     await store.save(big);
     const restored = await store.load('big');
     expect(restored?.events).toHaveLength(20_000);
-  });
+    // Building + persisting 20k immutable-event copies is CPU-bound and sits
+    // near the package's 15s budget when coverage instrumentation and turbo's
+    // package parallelism stack up, so give this stress run explicit headroom.
+  }, 60_000);
 });
 
 describe('DesktopPersistence', () => {

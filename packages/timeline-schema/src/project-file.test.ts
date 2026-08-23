@@ -117,9 +117,12 @@ describe('readProjectFile over the parse budget', () => {
     const path = join(dir, 'project.fp.json');
     const filler = 'x'.repeat(1024);
     const project = sampleProject();
+    // 32k entries lands ~75MB — safely over the 64MiB budget (asserted below,
+    // so a future format change that shrinks the fixture fails loudly) while
+    // keeping stringify + scan + parse inside CI's time budget.
     const bloated = {
       ...project,
-      history: Array.from({ length: 70 * 1024 }, (_, i) => ({
+      history: Array.from({ length: 32 * 1024 }, (_, i) => ({
         patch: { patchId: `p${String(i)}`, createdBy: 'agent', reason: filler, operations: [] },
         inverse: { patchId: `i${String(i)}`, createdBy: 'agent', reason: filler, operations: [] },
       })),
@@ -133,5 +136,9 @@ describe('readProjectFile over the parse budget', () => {
     // Everything that is not history survives — the user loses undo, not work.
     expect(loaded.id).toBe(project.id);
     expect(loaded.timeline).toEqual(project.timeline);
-  });
+    // The ~75MB fixture is intentionally heavy; stringify + scan + parse took
+    // ~42s on the 2-vCPU CI runner once coverage instrumentation and turbo's
+    // package parallelism were stacked on top, so give the stress run real
+    // headroom instead of a load-dependent flake.
+  }, 120_000);
 });
