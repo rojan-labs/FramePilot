@@ -13,6 +13,11 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     globals: true,
+    // The langchain provider import and the frozen streamAgent golden runs take
+    // multiple seconds each once v8 coverage instrumentation and turbo's
+    // package parallelism stack up; the vitest 5s default made them
+    // load-dependent flakes.
+    testTimeout: 20_000,
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],

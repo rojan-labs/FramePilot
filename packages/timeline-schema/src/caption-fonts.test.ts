@@ -34,11 +34,13 @@ describe('CAPTION_FONT_CATALOG', () => {
       for (const file of [font.file, font.boldFile, font.italicFile].filter(
         (value): value is string => value !== undefined,
       )) {
-        expect(readFileSync(`${engineFontDir}/${file}`).byteLength, file).toBeGreaterThan(1_000);
-        expect(readFileSync(`${webFontDir}/${file}`).byteLength, file).toBeGreaterThan(1_000);
-        expect(readFileSync(`${engineFontDir}/${file}`), file).toEqual(
-          readFileSync(`${webFontDir}/${file}`),
-        );
+        const engineBytes = readFileSync(`${engineFontDir}/${file}`);
+        const webBytes = readFileSync(`${webFontDir}/${file}`);
+        expect(engineBytes.byteLength, file).toBeGreaterThan(1_000);
+        expect(webBytes.byteLength, file).toBeGreaterThan(1_000);
+        // Buffer.equals is an exact byte comparison; used instead of structural
+        // `toEqual`, which is prohibitively slow on multi-MB binaries in vitest 3.
+        expect(engineBytes.equals(webBytes), file).toBe(true);
       }
     }
   });

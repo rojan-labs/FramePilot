@@ -8,6 +8,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
+- **Closed a critical test-runner vulnerability (CVE-2026-47429).** The Vitest
+  dev dependency used across every workspace package allowed arbitrary file
+  read and execution while its UI server was listening. Upgraded to ≥ 3.2.6 in
+  all packages, plus two test-harness timing fixes the new runner requires
+  (byte-exact font comparison) and CI-sized budgets for the parse-budget stress
+  test that ran ~42s under coverage on the 2-vCPU runner.
 - **Closed a critical dependency vulnerability in `tar` (CVE-2026-59873).**
   A build-tooling transitive dependency could be crashed while unpacking
   hostile archives. All consumers now resolve to tar ≥ 7.5.19 via a pnpm
