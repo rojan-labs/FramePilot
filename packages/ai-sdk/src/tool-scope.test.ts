@@ -85,6 +85,10 @@ describe('selectTools', () => {
         'read_edit_signals',
         'session_context',
         'transcribe',
+        // Host-backed like `transcribe`: the model asks, the trusted host does the
+        // network, and the orchestrator turns the result into a validated patch.
+        'search_music',
+        'add_music',
       ].sort(),
     );
   });

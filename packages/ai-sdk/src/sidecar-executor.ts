@@ -177,6 +177,30 @@ export interface SidecarExecutorOptions {
     assetId: string | undefined,
     signal?: AbortSignal,
   ) => Promise<HostToolOutcome | null>;
+  /**
+   * Host-side `search_music`. The provider network lives in the trusted host — the
+   * renderer's CSP forbids it and the sidecar has no business holding a provider
+   * connection — so this is the only way the tool can run.
+   *
+   * Absent (browser surface, tests) ⇒ the tool fails HONESTLY rather than
+   * silently no-opping or, worse, reporting a fabricated list of tracks.
+   */
+  readonly hostMusicSearch?: (
+    query: string,
+    limit: number | undefined,
+    signal?: AbortSignal,
+  ) => Promise<HostToolOutcome>;
+  /**
+   * Host-side `add_music`: download the track, materialize it, and hand back the
+   * asset. The orchestrator turns that into the SAME reversible operations the
+   * Sounds panel builds by hand — the host does the side effect, never the edit
+   * (AGENTS.md invariant 5).
+   */
+  readonly hostAddMusic?: (
+    project: Project,
+    remoteId: string,
+    signal?: AbortSignal,
+  ) => Promise<HostToolOutcome>;
 }
 
 /**
@@ -1029,6 +1053,35 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
           });
           return hosted;
         }
+      }
+      // Music sourcing is host-only: the provider key, the network and the disk
+      // write all live in main. Missing the override is a real unavailability,
+      // not a reason to invent a result (ADR 0118).
+      if (call.name === 'search_music') {
+        if (!options.hostMusicSearch) {
+          return {
+            status: 'failed',
+            summary:
+              'Music search is not available on this surface — it runs in the FramePilot desktop app.',
+          };
+        }
+        const query = typeof call.arguments?.query === 'string' ? call.arguments.query : '';
+        const limit = typeof call.arguments?.limit === 'number' ? call.arguments.limit : undefined;
+        log.action('run → host music search', { tool: call.name });
+        return await options.hostMusicSearch(query, limit, signal);
+      }
+      if (call.name === 'add_music') {
+        if (!options.hostAddMusic) {
+          return {
+            status: 'failed',
+            summary:
+              'Adding music is not available on this surface — it runs in the FramePilot desktop app.',
+          };
+        }
+        const remoteId =
+          typeof call.arguments?.remoteId === 'string' ? call.arguments.remoteId : '';
+        log.action('run → host music download', { tool: call.name });
+        return await options.hostAddMusic(ctx.project, remoteId, signal);
       }
       if (call.name === 'measure_color') {
         const clipId = typeof call.arguments.clipId === 'string' ? call.arguments.clipId : '';

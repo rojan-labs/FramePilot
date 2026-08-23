@@ -93,6 +93,18 @@ const indexMediaSchema = z
 // the project is implied by the session (plan B6.3). Strict-empty so a model that
 // invents parameters is rejected rather than silently ignored.
 
+// `search_music` searches a third-party provider's catalogue for a music bed. It is
+// the only tool that reaches outside the machine for MEDIA, and the reach is narrow:
+// the query text goes out, tracks come back, nothing is downloaded and nothing is
+// spent. Non-commercial-licensed results never appear — they are refused at the
+// adapter, because no label makes one safe in a monetized video (ADR 0138).
+const searchMusicSchema = z
+  .object({
+    query: z.string().min(1),
+    limit: numeric(z.number().int().min(1).max(40)).optional(),
+  })
+  .strict();
+
 export const MEDIA_TOOLS: readonly ToolSpec[] = [
   analysisTool(
     {
@@ -187,5 +199,19 @@ export const MEDIA_TOOLS: readonly ToolSpec[] = [
       capabilities: ['analysis', 'visual'],
     },
     indexMediaSchema,
+  ),
+  analysisTool(
+    {
+      name: 'search_music',
+      description:
+        'Search for background music to lay under the edit — say the mood or ' +
+        'instrument you want ("calm piano", "driving synth"), not a song title. ' +
+        'Returns candidate tracks { remoteId, title, durationSeconds, license, ' +
+        'attributionRequired, creator }; play nothing, download nothing, spend nothing. ' +
+        'Pass a remoteId to add_music to actually use one. Every result is cleared for ' +
+        'monetized video; some require crediting the artist, and the result says which. ' +
+        'Does not edit the timeline.',
+    },
+    searchMusicSchema,
   ),
 ];

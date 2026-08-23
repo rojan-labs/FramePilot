@@ -13,6 +13,7 @@
  */
 import { type AnyOperation, applyProjectPatch } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
+import { MusicAssetPayloadSchema, buildAddMusicOps } from './music-placement.js';
 import {
   TranscriptWordSchema,
   type Asset,
@@ -1481,6 +1482,40 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
     case 'search_visual':
     case 'describe_footage':
       return visualEvidenceDigest(obj);
+    case 'search_music': {
+      // A JSON blob of track rows, cut mid-string, is exactly what the model
+      // cannot act on: it needs the `remoteId` to pass to `add_music` and the
+      // credit flag to say something true about the licence afterwards. Both
+      // survive here; the URLs and licence links never reach the model at all.
+      const tracks = (obj.tracks ?? []) as Array<Record<string, unknown>>;
+      if (!Array.isArray(tracks) || tracks.length === 0) {
+        return 'no tracks matched — try a broader mood word';
+      }
+      const lines = tracks.map((track) => {
+        const seconds = typeof track.durationSeconds === 'number' ? track.durationSeconds : 0;
+        const length = `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, '0')}`;
+        const credit =
+          track.attributionRequired === true
+            ? `credit ${typeof track.creator === 'string' ? track.creator : 'required'}`
+            : 'no credit';
+        return `${String(track.remoteId)} · ${String(track.title)} · ${length} · ${String(track.license)} (${credit})`;
+      });
+      return `${tracks.length} track${tracks.length === 1 ? '' : 's'}:\n${lines.join('\n')}`;
+    }
+    case 'add_music': {
+      // What the run needs on its next turn: the track is down, where it went,
+      // and whether it owes a credit. The full provenance record lives in the
+      // project; repeating it here would be tokens spent on a licence URL the
+      // model never opens.
+      const asset = (obj.asset ?? {}) as Record<string, unknown>;
+      const source = (asset.source ?? {}) as Record<string, unknown>;
+      const seconds = typeof asset.durationSeconds === 'number' ? asset.durationSeconds : 0;
+      const credit =
+        source.attributionRequired === true
+          ? `requires crediting ${typeof source.creator === 'string' ? source.creator : 'the creator'} (saved with the project)`
+          : 'no credit required';
+      return `added ${String(asset.path ?? 'track')} · ${seconds.toFixed(1)}s · ${String(source.license ?? 'unknown licence')} · ${credit}`;
+    }
     case 'session_context': {
       // The sections are markdown the user effectively wrote (their rejections,
       // their reasons). previewJson would JSON-escape and mid-cut them; the
@@ -2576,6 +2611,44 @@ export class Orchestrator {
         return {
           ops,
           note: outcome.summary,
+          summary: outcome.summary,
+          status: 'completed',
+          project: applyProjectPatch(ctx.project, probe.patch),
+          data: outcome.data,
+        };
+      }
+      // `add_music` is a host-backed mutation, exactly like `transcribe`: the host
+      // downloads and materializes the file, and the orchestrator turns what came
+      // back into the SAME reversible operations the Sounds panel builds by hand.
+      // The host never edits the timeline (AGENTS.md invariant 5).
+      if (call.name === 'add_music' && outcome.status === 'completed') {
+        const parsed = MusicAssetPayloadSchema.safeParse(outcome.data);
+        if (!parsed.success) {
+          // Fail closed. A download that produced nothing placeable must not be
+          // reported as a completed edit on an unchanged timeline (ADR 0083).
+          const note =
+            'Rejected "add_music" — the download did not return a usable audio asset, so nothing was placed.';
+          return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
+        }
+        const { asset, atSeconds } = parsed.data;
+        const ops = buildAddMusicOps(ctx.project, asset, atSeconds);
+        const probe = assembleEdit(ctx.project, ops, 'Add background music', 'agent');
+        if (!probe.validation.valid) {
+          const problems = probe.validation.issues
+            .filter((issue) => issue.severity === 'error')
+            .map((issue) => issue.message)
+            .join('; ');
+          const note = `Rejected "add_music" — ${problems}`;
+          return { ops: [], note, summary: note, status: 'failed', data: problems };
+        }
+        // Tell the model about the credit rather than leaving it a surprise for the
+        // user at publish time: it can then mention it in its own summary.
+        const creditNote = asset.source.attributionRequired
+          ? ` This track requires crediting ${asset.source.creator ?? 'its creator'} — the credit is saved with the project and appears under Export → Credits.`
+          : ' This track needs no credit.';
+        return {
+          ops,
+          note: `${outcome.summary}${creditNote}`,
           summary: outcome.summary,
           status: 'completed',
           project: applyProjectPatch(ctx.project, probe.patch),

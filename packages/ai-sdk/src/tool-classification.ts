@@ -102,6 +102,15 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   map_footage: { role: 'analysis', scope: 'revision_independent' },
   search_visual: { role: 'analysis', scope: 'revision_independent' },
   transcribe: { role: 'analysis', scope: 'transcript_dependent' },
+  // A provider catalogue is not the project, so no edit can stale a result — and
+  // caching matters more here than anywhere else in this group: the free tier
+  // allows 20 searches a minute, and a re-query the run did not need is one the
+  // user cannot spend on a query they did.
+  search_music: { role: 'analysis', scope: 'revision_independent' },
+  // `add_music` DOWNLOADS and PLACES. Replaying a memoized "already added" past a
+  // later undo would report a bed the timeline does not have, so it ages with the
+  // arrangement like any other edit-producing call.
+  add_music: { role: 'analysis', scope: 'timeline_dependent' },
   // A rendered frame is a picture of the ARRANGEMENT, not of the source media: it is the
   // one member of this group that any applied patch invalidates. Caching a frame past an
   // edit would show the model the timeline it had before its own change — the precise
