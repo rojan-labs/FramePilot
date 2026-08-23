@@ -10,6 +10,7 @@
  * All project IO is owned by {@link App}; this is the presentation.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Asset } from '@framepilot/timeline-schema';
 import { Button } from '@framepilot/ui';
 import { Menu, MenuItem } from './Menu.js';
 import { Tooltip } from './Tooltip.js';
@@ -64,6 +65,8 @@ export interface TopbarProps {
   readonly ensureSavedForExport: () => Promise<string | null>;
   /** Reveal an exported file in the OS file manager. */
   readonly onRevealExport: (path: string) => void;
+  /** The project's media bin, for the export dialog's Credits list (schema v20). */
+  readonly assets: readonly Asset[];
   /** Toggle the project history panel. */
   readonly onOpenHistory: () => void;
   /** Whether the history panel is currently open (drives the active state). */
@@ -93,6 +96,7 @@ export function Topbar({
   onRename,
   ensureSavedForExport,
   onRevealExport,
+  assets,
   onOpenHistory,
   historyOpen = false,
   onOpenUnderstanding,
@@ -341,7 +345,11 @@ export function Topbar({
         >
           Send feedback
         </Button>
-        <ExportDialog ensureSaved={ensureSavedForExport} onReveal={onRevealExport} />
+        <ExportDialog
+          ensureSaved={ensureSavedForExport}
+          onReveal={onRevealExport}
+          assets={assets}
+        />
         <Tooltip
           label={effectiveTheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
           placement="bottom"

@@ -7607,6 +7607,57 @@ details.inspector-panel[open] > .inspector-section-head::before {
   color: var(--danger);
 }
 
+/* Credits — licence obligations recorded in `Asset.source` (schema v20), shown
+   next to the button that produces the file the user is about to publish. */
+.export-credits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+.export-credits h3 {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.export-credits-note,
+.export-credits-empty {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.export-credits-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.export-credits-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.export-credits-line {
+  font-size: 0.8rem;
+  color: var(--text);
+  /* A credit line is a fixed legal string, so it wraps rather than truncating —
+     an ellipsis here would hide part of the obligation. */
+  overflow-wrap: anywhere;
+}
+.export-credits-license {
+  font-size: 0.74rem;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+a.export-credits-license {
+  color: var(--accent);
+}
+
 .export-foot {
   display: flex;
   justify-content: flex-end;

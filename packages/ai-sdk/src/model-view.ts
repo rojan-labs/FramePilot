@@ -35,7 +35,7 @@
  * model never opens a licence page. What it can act on is the single fact that
  * a track obliges a credit, so that survives as `attributionRequired` and the
  * rest does not. The full record stays in the project file, where the Credits
- * view reads it (ADR 0139).
+ * view reads it (ADR 0138).
  *
  * The Python sidecar mirrors this in `ai_tools/handlers.py`; the two tool
  * surfaces must return the same shape.

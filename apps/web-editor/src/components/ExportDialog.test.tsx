@@ -74,7 +74,7 @@ function openExportMenu(): void {
 
 describe('ExportDialog', () => {
   it('shows the trigger but keeps the popover closed until clicked', () => {
-    render(<ExportDialog ensureSaved={vi.fn()} onReveal={vi.fn()} />);
+    render(<ExportDialog assets={[]} ensureSaved={vi.fn()} onReveal={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Export video' })).toBeDefined();
     expect(screen.queryByRole('dialog', { name: 'Export video' })).toBeNull();
     openExportMenu();
@@ -82,7 +82,7 @@ describe('ExportDialog', () => {
   });
 
   it('closes the popover on Escape', () => {
-    render(<ExportDialog ensureSaved={vi.fn()} onReveal={vi.fn()} />);
+    render(<ExportDialog assets={[]} ensureSaved={vi.fn()} onReveal={vi.fn()} />);
     openExportMenu();
     expect(screen.getByRole('dialog', { name: 'Export video' })).toBeDefined();
     fireEvent.keyDown(document, { key: 'Escape' });
@@ -90,7 +90,7 @@ describe('ExportDialog', () => {
   });
 
   it('shows a desktop-only note and disables Export in the browser', () => {
-    render(<ExportDialog ensureSaved={vi.fn()} onReveal={vi.fn()} />);
+    render(<ExportDialog assets={[]} ensureSaved={vi.fn()} onReveal={vi.fn()} />);
     openExportMenu();
     expect(screen.getByRole('note').textContent).toContain('desktop app');
     expect((screen.getByRole('button', { name: 'Export' }) as HTMLButtonElement).disabled).toBe(
@@ -103,7 +103,7 @@ describe('ExportDialog', () => {
     const ensureSaved = vi.fn(async () => '/p/project.fp.json');
     const onReveal = vi.fn();
 
-    render(<ExportDialog ensureSaved={ensureSaved} onReveal={onReveal} />);
+    render(<ExportDialog assets={[]} ensureSaved={ensureSaved} onReveal={onReveal} />);
     openExportMenu();
 
     fireEvent.click(screen.getByRole('combobox', { name: 'Export preset' }));
@@ -150,7 +150,13 @@ describe('ExportDialog', () => {
     const { emit } = installBridge({ exportSaveAs });
     const onReveal = vi.fn();
 
-    render(<ExportDialog ensureSaved={async () => '/p/project.fp.json'} onReveal={onReveal} />);
+    render(
+      <ExportDialog
+        assets={[]}
+        ensureSaved={async () => '/p/project.fp.json'}
+        onReveal={onReveal}
+      />,
+    );
     openExportMenu();
     fireEvent.click(screen.getByRole('button', { name: 'Export' }));
 
@@ -180,7 +186,13 @@ describe('ExportDialog', () => {
       .mockResolvedValueOnce({ ok: true, path: '/Users/me/Movies/proj123.mp4' });
     const { emit } = installBridge({ exportSaveAs });
 
-    render(<ExportDialog ensureSaved={async () => '/p/project.fp.json'} onReveal={vi.fn()} />);
+    render(
+      <ExportDialog
+        assets={[]}
+        ensureSaved={async () => '/p/project.fp.json'}
+        onReveal={vi.fn()}
+      />,
+    );
     openExportMenu();
     fireEvent.click(screen.getByRole('button', { name: 'Export' }));
 
@@ -201,7 +213,13 @@ describe('ExportDialog', () => {
 
   it('forwards the chosen master-audio options', async () => {
     const { exportVideoStart } = installBridge();
-    render(<ExportDialog ensureSaved={async () => '/p/project.fp.json'} onReveal={vi.fn()} />);
+    render(
+      <ExportDialog
+        assets={[]}
+        ensureSaved={async () => '/p/project.fp.json'}
+        onReveal={vi.fn()}
+      />,
+    );
     openExportMenu();
 
     fireEvent.click(screen.getByRole('combobox', { name: 'Loudness preset' }));
@@ -217,7 +235,13 @@ describe('ExportDialog', () => {
 
   it('forwards the chosen EQ preset and compression toggle (plan H1.4)', async () => {
     const { exportVideoStart } = installBridge();
-    render(<ExportDialog ensureSaved={async () => '/p/project.fp.json'} onReveal={vi.fn()} />);
+    render(
+      <ExportDialog
+        assets={[]}
+        ensureSaved={async () => '/p/project.fp.json'}
+        onReveal={vi.fn()}
+      />,
+    );
     openExportMenu();
 
     fireEvent.click(screen.getByRole('combobox', { name: 'EQ preset' }));
@@ -234,7 +258,7 @@ describe('ExportDialog', () => {
   it('reports when the project could not be saved before export', async () => {
     installBridge();
     const ensureSaved = vi.fn(async () => null);
-    render(<ExportDialog ensureSaved={ensureSaved} onReveal={vi.fn()} />);
+    render(<ExportDialog assets={[]} ensureSaved={ensureSaved} onReveal={vi.fn()} />);
     openExportMenu();
     fireEvent.click(screen.getByRole('button', { name: 'Export' }));
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Could not save'));
@@ -243,7 +267,7 @@ describe('ExportDialog', () => {
   it('surfaces a render failure from the engine', async () => {
     const { emit } = installBridge();
     const ensureSaved = vi.fn(async () => '/p/project.fp.json');
-    render(<ExportDialog ensureSaved={ensureSaved} onReveal={vi.fn()} />);
+    render(<ExportDialog assets={[]} ensureSaved={ensureSaved} onReveal={vi.fn()} />);
     openExportMenu();
     fireEvent.click(screen.getByRole('button', { name: 'Export' }));
 
@@ -260,7 +284,13 @@ describe('ExportDialog', () => {
 
   it('shows a Cancel export button while queued/running and wires it to exportVideoCancel', async () => {
     const { emit, exportVideoCancel } = installBridge();
-    render(<ExportDialog ensureSaved={async () => '/p/project.fp.json'} onReveal={vi.fn()} />);
+    render(
+      <ExportDialog
+        assets={[]}
+        ensureSaved={async () => '/p/project.fp.json'}
+        onReveal={vi.fn()}
+      />,
+    );
     openExportMenu();
     fireEvent.click(screen.getByRole('button', { name: 'Export' }));
 
@@ -283,7 +313,13 @@ describe('ExportDialog', () => {
 
   it('stays open across a close/reopen and keeps in-progress state (never loses an export in flight)', async () => {
     const { emit } = installBridge();
-    render(<ExportDialog ensureSaved={async () => '/p/project.fp.json'} onReveal={vi.fn()} />);
+    render(
+      <ExportDialog
+        assets={[]}
+        ensureSaved={async () => '/p/project.fp.json'}
+        onReveal={vi.fn()}
+      />,
+    );
     openExportMenu();
     fireEvent.click(screen.getByRole('button', { name: 'Export' }));
     emit({ requestId: DEFAULT_REQUEST_ID, status: 'running' });

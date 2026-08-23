@@ -261,7 +261,7 @@ export const MIGRATIONS: readonly Migration[] = [
       'crediting it obliges (provider, remote id, licence, credit line, creator, fetchedAt). ' +
       'Purely additive and nothing to backfill — no pre-v20 asset was fetched from a provider, ' +
       'so absent is the truthful reading of every existing file, including every user-imported ' +
-      'one. The step exists to stamp the envelope version (ADR 0139).',
+      'one. The step exists to stamp the envelope version (ADR 0138).',
     migrate: (raw) => raw,
   },
 ];

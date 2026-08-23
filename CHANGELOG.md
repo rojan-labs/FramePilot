@@ -6,6 +6,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **Your project remembers which tracks need crediting.** Music you add from a provider now
+  carries its licence with it — who made it, under what terms, and the exact line to credit
+  them with. Open Export and there is a **Credits** section listing every track in the project
+  that requires a credit, with one button that copies them all ready to paste into a video
+  description. If nothing needs crediting, it says so, so you do not have to go and check. A
+  badge in a search panel cannot help you weeks later when you actually publish; this can.
+  (`packages/timeline-schema`, `apps/web-editor`, schema v20, ADR 0138)
+
 ### Fixed
 
 - **The AI is told what is in your footage; it decides what to do about it.** It used to be

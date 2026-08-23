@@ -652,7 +652,7 @@ def _model_asset(asset: Asset) -> dict[str, Any]:
     URLs and fetch timestamps are not reasoning material either. The one fact the model
     can act on is that a track obliges a credit, so that survives as
     ``attributionRequired`` and the rest does not — the full record lives in the project
-    file, where the Credits view reads it (ADR 0139).
+    file, where the Credits view reads it (ADR 0138).
 
     Mirrors ``packages/ai-sdk/src/model-view.ts``; both tool surfaces must return the
     same shape.

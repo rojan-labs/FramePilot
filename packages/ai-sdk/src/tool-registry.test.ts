@@ -357,7 +357,7 @@ describe('read tools', () => {
   it('list_assets collapses provenance to the one fact the model can act on', () => {
     // Licence URLs, creator URLs and fetch timestamps are not reasoning material — the
     // model never opens a licence page. "This track obliges a credit" is, because the
-    // model can say it out loud in its summary. See model-view.ts and ADR 0139.
+    // model can say it out loud in its summary. See model-view.ts and ADR 0138.
     const project = makeProject({
       assets: [
         {

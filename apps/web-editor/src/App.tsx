@@ -63,7 +63,8 @@ export function App(): JSX.Element {
   const [understandingOpen, setUnderstandingOpen] = useState(false);
   const [transcriptionOpen, setTranscriptionOpen] = useState(false);
   const [projectSyncNonce, setProjectSyncNonce] = useState(0);
-  const [capabilityPacks, setCapabilityPacks] = useState<CapabilityPackProjectResolutionWire | null>(null);
+  const [capabilityPacks, setCapabilityPacks] =
+    useState<CapabilityPackProjectResolutionWire | null>(null);
   const [capabilityGateDismissed, setCapabilityGateDismissed] = useState(false);
 
   const firstRun = useRef(true);
@@ -378,6 +379,7 @@ export function App(): JSX.Element {
                 onRename={rename}
                 ensureSavedForExport={ensureSavedForExport}
                 onRevealExport={revealPath}
+                assets={project.assets}
                 onOpenHistory={() => setHistoryOpen((v) => !v)}
                 historyOpen={historyOpen}
                 onOpenUnderstanding={() => {

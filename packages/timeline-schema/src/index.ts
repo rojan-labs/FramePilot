@@ -930,7 +930,7 @@ export const AssetMediaSchema = z.object({
  * *which* licence. If the only record of that were a chip in a panel they
  * closed, the product would have walked them into a licence violation quietly.
  * So the credit is persisted with the project and read back by the Credits view
- * (`plan/3rd-party-sourcing/README.md` §D2, ADR 0139).
+ * (`plan/3rd-party-sourcing/README.md` §D2, ADR 0138).
  *
  * Nullable, not merely optional, for the same cross-language reason as
  * {@link AssetMediaSchema}: the Python engine round-trips projects through

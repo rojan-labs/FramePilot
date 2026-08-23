@@ -45,7 +45,7 @@ from pydantic import BaseModel, Field
 # release pins for on-demand runtimes/models; v20 added optional ``Asset.source``
 # (provider provenance: licence, credit line, creator) — the engine never *uses*
 # it, because provenance cannot affect a render, but it must round-trip it rather
-# than silently strip the one record of a crediting obligation (ADR 0139); the
+# than silently strip the one record of a crediting obligation (ADR 0138); the
 # engine rejects any file whose envelope version exceeds this.
 SCHEMA_VERSION = 20
 
@@ -741,7 +741,7 @@ class AssetSource(BaseModel):
     project round-tripped through the engine keeps it: a Pydantic model that
     dropped the field would silently erase the only durable record that a track
     needs crediting, which is the exact harm the field was added to prevent
-    (ADR 0139, ``plan/3rd-party-sourcing`` §D2).
+    (ADR 0138, ``plan/3rd-party-sourcing`` §D2).
 
     Absent for every user-imported file — there is no provenance to record.
     """
