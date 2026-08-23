@@ -3,22 +3,22 @@ import { Section } from '@/components/Section';
 const CAPABILITIES = [
   {
     title: 'Agent editing',
-    description: 'Describe the outcome. FramePilot resolves supported requests into typed operations on the active project.',
+    description: 'Ask for the cut you want. FramePilot turns it into real operations on the open project, the same ones your toolbar produces.',
     meta: 'Cuts · reframes · captions · timeline operations',
   },
   {
     title: 'A real timeline',
-    description: 'Keep trimming, splitting, moving, keyframing, mixing, and refining the result with normal editor controls.',
+    description: 'Whatever the agent does, you can still trim it, split it, move it, or keyframe it. Nothing it touches becomes read-only.',
     meta: 'Multitrack · snapping · undo · keyboard workflows',
   },
   {
     title: 'Media intelligence',
-    description: 'The agent can work from project context, transcripts, frames, scenes, beats, and the media already available to the edit.',
+    description: 'The agent reads your transcript, looks at frames, and finds scene cuts and beats before it decides where to cut.',
     meta: 'Transcripts · scene analysis · beat analysis · frame inspection',
   },
   {
     title: 'Local project authority',
-    description: 'Original media stays untouched. Project state remains explicit, and final output goes through the deterministic render path.',
+    description: 'Your originals are never overwritten. Exports run the same way every time, and the engine checks its own output before handing it over.',
     meta: 'Local-first · non-destructive · validated export',
   },
 ] as const;
@@ -33,7 +33,7 @@ export function Features() {
             AI where it saves time. An editor everywhere else.
           </h2>
           <p className="mt-6 max-w-lg text-[15px] leading-7 text-fg-secondary sm:text-[16px]">
-            FramePilot keeps the editing model simple. Language can accelerate work, but the project, timeline, media, and final render remain concrete editor systems.
+            Asking for an edit is just another way to reach the timeline. The project, the media, and the render behave exactly as they would if you&rsquo;d done all of it by hand.
           </p>
         </div>
 

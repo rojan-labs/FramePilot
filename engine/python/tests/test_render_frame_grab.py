@@ -202,7 +202,7 @@ class TestRenderFrameRoute:
         project_file = base / "project.fp.json"
         project_file.write_text(project.model_dump_json(by_alias=True), encoding="utf-8")
 
-        client = TestClient(create_app(Settings(framepilot_projects_root=str(base.parent))))
+        client = TestClient(create_app(Settings(projects_root=str(base.parent))))
         response = client.post(
             "/render/frame",
             json={"project_path": str(project_file), "time_seconds": 1.0},
@@ -230,7 +230,7 @@ class TestRenderFrameRoute:
         project_file.write_text(empty.model_dump_json(by_alias=True), encoding="utf-8")
 
         client = TestClient(
-            create_app(Settings(framepilot_projects_root=str(tmp_project_dir.parent)))
+            create_app(Settings(projects_root=str(tmp_project_dir.parent)))
         )
         response = client.post(
             "/render/frame",

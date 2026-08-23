@@ -209,7 +209,7 @@ function IdleAgentState() {
     <div className="flex flex-1 flex-col items-center justify-center px-4 py-5 text-center">
       <span className="grid size-9 place-items-center rounded-lg bg-[#17305d] text-[#63a1ff]"><Sparkles size={15} /></span>
       <p className="mt-3 text-[9px] font-semibold text-white/78">Edit your video with AI</p>
-      <p className="mt-1 max-w-[205px] text-[6.8px] leading-[11px] text-white/34">Describe a change and FramePilot works on the active timeline with inspectable, reversible operations.</p>
+      <p className="mt-1 max-w-[205px] text-[6.8px] leading-[11px] text-white/34">Describe a change. FramePilot makes it on the timeline you&rsquo;re looking at, and you can undo it.</p>
       <div className="mt-4 w-full max-w-[225px] space-y-1.5 text-left">
         {['Remove the silent gaps', 'Add captions from the transcript', 'Punch in on the intro', 'Mute the music track'].map((item) => <div key={item} className="rounded border border-white/[0.07] bg-white/[0.035] px-2.5 py-1.5 text-[6.8px] text-white/48">{item}</div>)}
       </div>
@@ -258,7 +258,7 @@ function CompleteAgentState() {
       <div className="flex items-center justify-between text-[6px] text-white/28"><span>Activity</span><span>10 / 10</span></div>
       <div className="mt-2 rounded border border-[#55c47d]/12 bg-[#55c47d]/5 p-2">
         <p className="flex items-center gap-1.5 text-[6.5px] font-medium text-[#84d59f]"><CircleCheck size={8} /> Final sequence verified</p>
-        <p className="mt-1 text-[5.8px] leading-[10px] text-white/36">Beat-synced sequence, captions, audio, and timeline operations are complete and remain editable.</p>
+        <p className="mt-1 text-[5.8px] leading-[10px] text-white/36">Beat-synced cuts, captions, and audio are done, and all of it is still editable.</p>
       </div>
       <div className="mt-2 space-y-1">
         {COMPLETE_ACTIVITY.map((label) => <ActivityRow key={label} label={label} status="done" meta="instant" />)}

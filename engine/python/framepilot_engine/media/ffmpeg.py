@@ -24,6 +24,8 @@ import shutil
 import subprocess
 from collections.abc import Callable, Sequence
 
+from framepilot_engine.subprocess_safety import validate_safe_argv
+
 # A Runner takes a fully-resolved argv (binary first) and returns captured
 # stdout as text, raising FFmpegError on a non-zero exit or timeout. Injecting
 # this lets callers/tests substitute a fake without touching subprocess.
@@ -106,21 +108,24 @@ def _run_checked(argv: Sequence[str], timeout: float | None) -> subprocess.Compl
     """Run ``argv`` to completion, raising on a missing binary, timeout, or
     non-zero exit. Returns the completed process so callers can read whichever
     stream they need (ffprobe → stdout; ffmpeg filters → stderr)."""
+    # Argument-injection gate (PRD §18): validate shape before exec; argv
+    # values may ultimately derive from user/agent input.
+    args = validate_safe_argv(argv)
     try:
         completed = subprocess.run(
-            list(argv),
+            args,
             capture_output=True,
             timeout=timeout,
             check=False,
         )
     except FileNotFoundError as exc:
-        raise FFmpegNotFoundError(f"Binary not found: {argv[0]!r}") from exc
+        raise FFmpegNotFoundError(f"Binary not found: {args[0]!r}") from exc
     except subprocess.TimeoutExpired as exc:
-        raise FFmpegError(f"Timed out after {timeout}s: {argv[0]!r}") from exc
+        raise FFmpegError(f"Timed out after {timeout}s: {args[0]!r}") from exc
 
     if completed.returncode != 0:
         stderr = completed.stderr.decode("utf-8", errors="replace").strip()
-        raise FFmpegError(f"{argv[0]!r} exited {completed.returncode}: {stderr or '<no stderr>'}")
+        raise FFmpegError(f"{args[0]!r} exited {completed.returncode}: {stderr or '<no stderr>'}")
     return completed
 
 
