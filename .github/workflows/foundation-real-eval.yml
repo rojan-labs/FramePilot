@@ -25,7 +25,7 @@ jobs:
     name: Capture Tier B-D scenarios against Google Gemini
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@v6
@@ -46,7 +46,7 @@ jobs:
         run: pnpm eval:agent:foundation:real
       - name: Upload capture output
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: foundation-real-eval-output
           path: docs/quality/foundation-real-eval/*.json

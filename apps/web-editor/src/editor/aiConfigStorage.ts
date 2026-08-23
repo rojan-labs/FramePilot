@@ -157,7 +157,9 @@ function pickStrings(
 
 function save(config: BrowserAiConfig): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    // Never persist secrets in browser storage.
+    const { asrApiKey: _asrApiKey, ...persistedConfig } = config;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(persistedConfig));
   } catch {
     /* Storage unavailable. Configuration remains in the current session. */
   }

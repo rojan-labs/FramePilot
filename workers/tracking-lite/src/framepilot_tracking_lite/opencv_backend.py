@@ -161,9 +161,8 @@ class OpenCvBackend:
         if not points:
             return []
         source = np.array([[point] for point in points], dtype=np.float32)
-        # `nextPts=None` is the documented "let OpenCV allocate" form; the wheel's
-        # bundled stubs type that parameter as a required array.
-        tracked, status, error = cv2.calcOpticalFlowPyrLK(  # type: ignore[call-overload]
+        # `nextPts=None` is the documented "let OpenCV allocate" form.
+        tracked, status, error = cv2.calcOpticalFlowPyrLK(
             previous.gray,
             current.gray,
             source,
