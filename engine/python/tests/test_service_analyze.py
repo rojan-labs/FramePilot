@@ -29,6 +29,7 @@ from framepilot_engine.analysis.tiers import (
     kinds_for,
 )
 from framepilot_engine.audio.asr import AsrModelMissingError
+from framepilot_engine.config import Settings
 from framepilot_engine.media.ffmpeg import NoAudioStreamError
 from framepilot_engine.media.probe import MediaInfo, StreamInfo
 from framepilot_engine.service import create_app
@@ -152,7 +153,7 @@ def test_analyze_quick_runs_probe_and_silence(
 ) -> None:
     _patch_all_analyzers(monkeypatch)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
 
     resp = _post_analyze(client, project_path, depth="quick")
     assert resp.status_code == 200
@@ -170,7 +171,7 @@ def test_analyze_standard_adds_scenes_loudness_black(
 ) -> None:
     _patch_all_analyzers(monkeypatch)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
 
     resp = _post_analyze(client, project_path)  # standard is the default
     assert resp.status_code == 200
@@ -194,7 +195,7 @@ def test_analyze_standard_adds_scenes_loudness_black(
 def test_analyze_deep_runs_everything(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_all_analyzers(monkeypatch)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
 
     resp = _post_analyze(client, project_path, depth="deep")
     assert resp.status_code == 200
@@ -215,7 +216,7 @@ def test_analyze_explicit_kinds_override_depth(
 ) -> None:
     _patch_all_analyzers(monkeypatch)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
 
     resp = _post_analyze(client, project_path, depth="quick", kinds=["loudness", "black"])
     assert resp.status_code == 200
@@ -233,7 +234,7 @@ def test_analyze_audio_only_asset_skips_video_kinds(
         inspect_media=lambda path, *, timeout=None: _media_info(has_video=False),
     )
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
 
     resp = _post_analyze(client, project_path, asset_id="mus", depth="deep")
     assert resp.status_code == 200
@@ -253,7 +254,7 @@ def test_analyze_silent_video_skips_audio_kinds(
         inspect_media=lambda path, *, timeout=None: _media_info(has_audio=False),
     )
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
 
     resp = _post_analyze(client, project_path, depth="deep")
     assert resp.status_code == 200
@@ -275,7 +276,7 @@ def test_analyze_missing_asr_model_is_unavailable_not_error(
 
     _patch_all_analyzers(monkeypatch, transcribe=_no_model)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
 
     resp = _post_analyze(client, project_path, kinds=["transcription", "silence"])
     assert resp.status_code == 200
@@ -290,7 +291,7 @@ def test_analyze_loudness_none_is_unavailable(
 ) -> None:
     _patch_all_analyzers(monkeypatch, measure_loudness=lambda path, *, timeout=None: None)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
 
     resp = _post_analyze(client, project_path, kinds=["loudness"])
     entry = resp.json()["results"][0]
@@ -313,7 +314,7 @@ def test_analyze_beats_on_silent_media_is_unavailable_not_failed(
 
     _patch_all_analyzers(monkeypatch, detect_beats=_silent)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
 
     resp = _post_analyze(client, project_path, kinds=["beats", "silence"])
     assert resp.status_code == 200
@@ -333,7 +334,7 @@ def test_analyze_one_failing_kind_does_not_abort_pass(
 
     _patch_all_analyzers(monkeypatch, detect_scenes=_boom)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
 
     resp = _post_analyze(client, project_path)  # standard
     assert resp.status_code == 200
@@ -350,7 +351,7 @@ def test_analyze_one_failing_kind_does_not_abort_pass(
 def test_analyze_unknown_asset_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_all_analyzers(monkeypatch)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
     resp = _post_analyze(client, project_path, asset_id="ghost")
     assert resp.status_code == 404
     # The error lists the real, analysable asset ids so a caller that passed a
@@ -366,7 +367,7 @@ def test_analyze_unreadable_media_404(tmp_path: Path, monkeypatch: pytest.Monkey
 
     _patch_all_analyzers(monkeypatch, inspect_media=_missing)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
     resp = _post_analyze(client, project_path)
     assert resp.status_code == 404
 
@@ -379,7 +380,7 @@ def test_analyze_probe_ffmpeg_error_422(tmp_path: Path, monkeypatch: pytest.Monk
 
     _patch_all_analyzers(monkeypatch, inspect_media=_corrupt)
     project_path = _write_analysis_project(tmp_path)
-    client = TestClient(create_app())
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
     resp = _post_analyze(client, project_path)
     assert resp.status_code == 422
 
@@ -511,7 +512,10 @@ def test_brain_analysis_route_lists_and_filters_rows(
     assert [r["kind"] for r in only_silence.json()["results"]] == ["silence"]
 
 
-def test_brain_analysis_route_honest_unavailable_without_root(tmp_path: Path) -> None:
+def test_brain_analysis_route_honest_unavailable_without_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("FRAMEPILOT_PROJECTS_ROOT", raising=False)
     client = TestClient(create_app())  # no projects_root configured
     resp = client.get("/brain/analysis", params={"projectId": "pa"})
     assert resp.status_code == 200

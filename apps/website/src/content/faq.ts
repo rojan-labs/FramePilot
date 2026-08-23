@@ -7,42 +7,42 @@ export interface FaqItem {
 export const FAQ: FaqItem[] = [
   {
     q: 'What is FramePilot?',
-    a: 'FramePilot is a local-first desktop video editor with an AI agent built into the editing workflow. You can edit manually on a multitrack timeline or describe an edit and let the agent operate that same timeline through typed, validated operations. Agent runs remain inspectable and undoable.',
+    a: 'A desktop video editor that runs on your own machine, with an AI agent wired into the timeline instead of bolted on beside it. Cut by hand on a multitrack timeline, or describe the change you want and let the agent make it. Either way you end up with real timeline edits you can open up and undo.',
   },
   {
     q: 'Is FramePilot trying to replace Premiere Pro or DaVinci Resolve?',
-    a: 'FramePilot is focused first on SaaS demos, screen recordings, product videos, talking-head content, and short-form edits. It already has a functional professional editing core, but the project does not present itself as a complete replacement for Premiere Pro, After Effects, or DaVinci Resolve.',
+    a: "No. It's built for SaaS demos, screen recordings, product videos, talking-head content, and short-form edits. The editing core underneath is a real one, but if you're grading a feature film or compositing in After Effects, this isn't the tool yet.",
   },
   {
     q: 'What happens when the agent edits my project?',
-    a: 'The model does not mutate your project file directly. It calls registered tools that produce typed timeline operations. Those operations are validated before they reach the project, become concrete timeline changes, and can be inspected and undone through the editor workflow.',
+    a: "The model never writes to your project file. It calls tools that emit typed timeline operations, and those get validated before anything reaches the project. What lands on your timeline is the same kind of edit you'd have made by hand, which is exactly why undo works on it.",
   },
   {
     q: 'Is my footage private?',
-    a: 'FramePilot is local-first. Original media, project state, derived artifacts, and renders live on your machine. Optional hosted AI or media-intelligence capabilities are explicit and depend on the providers you configure.',
+    a: 'Your footage, projects, and renders stay on your machine. Some AI features can call a hosted provider, but only one you configure yourself, and you pick which. Nothing gets uploaded quietly in the background.',
   },
   {
     q: 'How much does FramePilot cost?',
-    a: 'The current paid plan is $25 per month or $199 per year, which works out to about $16.58 per month when billed annually. Both billing cadences unlock the same editor features while the subscription is active.',
+    a: '$25 a month, or $199 a year, which works out to about $16.58 a month. Both get you the same editor for as long as the subscription is active.',
   },
   {
     q: 'How does the license work?',
-    a: 'Checkout and licensing are handled by Freemius. After purchase you receive a license key, activate it in FramePilot, and can manage the subscription through the billing flow provided with your purchase.',
+    a: 'Freemius handles checkout and licensing. You get a license key after buying, activate it inside FramePilot, and manage the subscription through the billing flow that came with your purchase.',
   },
   {
     q: 'Which platforms are supported?',
-    a: 'FramePilot is distributed as a native desktop application with builds for macOS, Windows, and Linux. The download page points to the latest release assets.',
+    a: 'It ships as a native desktop app for macOS, Windows, and Linux. The download page always points at the newest release.',
   },
   {
     q: 'Can I use it with external AI tools?',
-    a: 'Yes. FramePilot includes an MCP server that exposes the same guarded editing surface to compatible MCP clients, so external agents can operate through typed tools instead of bypassing project authority.',
+    a: 'Yes. FramePilot runs an MCP server that hands the same guarded editing tools to any compatible MCP client, so an outside agent works through typed operations rather than around them.',
   },
   {
     q: 'Which AI providers can I use?',
-    a: 'The current AI layer supports Anthropic, NVIDIA, OpenRouter, Groq, Google Gemini, Ollama, DeepSeek, and a deterministic mock provider for offline development and testing. Availability can vary by feature and provider capability.',
+    a: 'Anthropic, NVIDIA, OpenRouter, Groq, Google Gemini, Ollama, DeepSeek, and a deterministic mock provider for working offline. Which features you get depends on what the provider you choose can actually do.',
   },
   {
     q: 'Can I cancel, and is there a refund window?',
-    a: 'You can cancel your subscription through the Freemius billing flow. The current purchase experience advertises a 14-day money-back guarantee.',
+    a: 'Cancel whenever you like through the Freemius billing flow. Checkout currently comes with a 14-day money-back guarantee.',
   },
 ];
