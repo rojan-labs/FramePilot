@@ -59,6 +59,14 @@ export type { AudioInput, AudioFetchLike, GroqAsrConfig } from './groq-asr.js';
 export { NvidiaTranscriptionProvider, NVIDIA_ASR_BASE_URL } from './nvidia-asr.js';
 /** @deprecated Kept only for stored-config/source compatibility. New runs cannot select it. */
 export type { NvidiaAsrConfig } from './nvidia-asr.js';
+export * from './music-types.js';
+export {
+  OpenverseMusicProvider,
+  createMusicProvider,
+  normalizeOpenverseTrack,
+  safeFormat,
+  OPENVERSE_API_BASE,
+} from './openverse-music.js';
 export { TwelveLabsTranscriptionProvider } from './twelvelabs-asr.js';
 export type { TwelveLabsAsrConfig, TwelveLabsAsrRequest } from './twelvelabs-asr.js';
 export { parseAsrKeyRing, transcribeWithKeyRing } from './asr-keyring.js';
