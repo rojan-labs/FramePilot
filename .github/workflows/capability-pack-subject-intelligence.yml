@@ -105,7 +105,7 @@ jobs:
         run: uv run --extra cv --no-dev python tools/generate_sbom.py --check
       - name: Regenerate the platform SBOM
         run: uv run --extra cv --no-dev python tools/generate_sbom.py --platform ${{ matrix.platform }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: subject-intelligence-sbom-${{ matrix.platform }}
           path: workers/subject-intelligence/pack/sbom/${{ matrix.platform }}.cdx.json
