@@ -52,6 +52,7 @@ const COVERED_FIXTURES = {
   'color.clip.shadows': 'color.shadows.outcome',
   'color.clip.highlights': 'color.highlights.outcome',
   'tracking_mask.manual_mask_track': 'tracking-mask.manual.outcome',
+  'tracking_mask.automatic_subject_track': 'tracking-mask.automatic.outcome',
   'audio.clip.gain': 'audio.gain.outcome',
   'audio.clip.fade_in': 'audio.fade-in.outcome',
   'audio.clip.fade_out': 'audio.fade-out.outcome',

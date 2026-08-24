@@ -12,7 +12,6 @@ PRD_CORE_TOOLS = {
     "get_selected_range",
     "analyze_silence",
     "detect_scenes",
-    "detect_faces",
     "track_object",
     "generate_mask",
     "add_text_layer",

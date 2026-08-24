@@ -63,16 +63,24 @@ describe('professional operation eval manifest', () => {
     expect(new Set(registered.map((row) => row.fixtureId)).size).toBe(registered.length);
   });
 
-  it('publishes unsupported capabilities with their runtime reason', () => {
-    expect(
-      PROFESSIONAL_EVAL_MANIFEST.find(
-        (row) => row.capabilityId === 'tracking_mask.automatic_subject_track',
-      ),
-    ).toMatchObject({
-      availability: 'unsupported',
-      unsupportedReason: expect.stringMatching(/Subject Intelligence Capability Pack/),
-      stages: [],
+  it('publishes the pack-gated automatic tracking capability as registered with full stages', () => {
+    const row = PROFESSIONAL_EVAL_MANIFEST.find(
+      (candidate) => candidate.capabilityId === 'tracking_mask.automatic_subject_track',
+    );
+    // The capability is executable end to end (2026-08): its outcome case
+    // compiles a measured sample set into the reversible tracked-mask patch,
+    // so it registers like every other shipped capability rather than hiding
+    // behind "unsupported".
+    expect(row).toMatchObject({
+      availability: 'registered',
+      fixtureId: 'tracking-mask.automatic.outcome',
+      stages: PROFESSIONAL_EVAL_STAGES,
     });
+    // The on-demand pack boundary must still be visible somewhere honest.
+    const capability = EDITOR_CAPABILITIES.find(
+      (candidate) => candidate.id === 'tracking_mask.automatic_subject_track',
+    );
+    expect(capability?.availability.reason).toMatch(/Capability Pack/);
   });
 
   it('fails release drift when a new editable capability has no registered fixture', () => {

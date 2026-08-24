@@ -20,6 +20,11 @@ import {
   musicDuckSidechainIssue,
 } from './music-placement.js';
 import {
+  AUTOMATIC_TRACKING_TOOL_NAME,
+  AutomaticTrackingMeasurementSchema,
+  automaticTrackingOpsFromMeasurement,
+} from './domain-tools/automatic-tracking.js';
+import {
   TranscriptWordSchema,
   type Asset,
   type CaptionStyle,
@@ -1823,6 +1828,22 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
         catalogDigest(obj, 'transitions', 'kind', 'transitions') ??
         previewJson(value, ANALYSIS_PREVIEW_MAX)
       );
+    case 'detect_subjects': {
+      // Detections are evidence the model reasons over (who is on screen, when),
+      // so the digest names counts and frame coverage instead of slicing raw JSON.
+      // The per-frame boxes remain available in the card's details popup.
+      const total = typeof obj.totalDetections === 'number' ? obj.totalDetections : 0;
+      if (total === 0) return 'no subjects detected — an honest empty result, not a guess';
+      const byLabel = (obj.byLabel ?? {}) as Record<string, number>;
+      const labelPart =
+        Object.entries(byLabel)
+          .map(([label, count]) => `${count} ${label}`)
+          .join(', ') || `${total} detections`;
+      const frames = typeof obj.framesWithDetections === 'number' ? obj.framesWithDetections : 0;
+      return `${labelPart} across ${frames} frame${frames === 1 ? '' : 's'} in ${String(
+        obj.clipId ?? '?',
+      )}`;
+    }
     default:
       // Reads whose payload is a handful of scalars, or prose the model asked for
       // verbatim: a (generously) bounded JSON preview is honest for those. The set is
@@ -2549,6 +2570,7 @@ export class Orchestrator {
           kind: 'host_tool',
           call: { ...call, arguments: args as Record<string, unknown> },
           project: ctx.project,
+          ...(ctx.interaction === undefined ? {} : { interaction: ctx.interaction }),
           analysisBudget: host.analysisBudget,
         },
         host.signal,
@@ -2674,6 +2696,42 @@ export class Orchestrator {
           project: applyProjectPatch(ctx.project, probe.patch),
           data: outcome.data,
         };
+      }
+      // `track_subject_automatically` is the pack-worker twin of `transcribe`:
+      // a trusted host executor measured the media in an isolated Capability
+      // Pack worker, and the orchestrator turns that validated measurement into
+      // the same reversible `track_object` patch as the manual path. A missing
+      // plan, unknown engine, or unusable track never becomes a fabricated edit.
+      if (call.name === AUTOMATIC_TRACKING_TOOL_NAME && outcome.status === 'completed') {
+        const parsedMeasurement = AutomaticTrackingMeasurementSchema.safeParse(outcome.data);
+        if (!parsedMeasurement.success) {
+          const note = `Rejected "${call.name}" — the tracking host returned an invalid measurement payload.`;
+          return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
+        }
+        try {
+          const ops = automaticTrackingOpsFromMeasurement(parsedMeasurement.data, ctx);
+          const probe = assembleEdit(ctx.project, ops, 'Track subject automatically', 'agent');
+          if (!probe.validation.valid) {
+            const problems = probe.validation.issues
+              .filter((issue) => issue.severity === 'error')
+              .map((issue) => issue.message)
+              .join('; ');
+            const note = `Rejected "${call.name}" — ${problems}`;
+            return { ops: [], note, summary: note, status: 'failed', data: problems };
+          }
+          return {
+            ops,
+            note: outcome.summary,
+            summary: outcome.summary,
+            status: 'completed',
+            project: applyProjectPatch(ctx.project, probe.patch),
+            data: outcome.data,
+          };
+        } catch (cause) {
+          const reason = cause instanceof Error ? cause.message : String(cause);
+          const note = `Rejected "${call.name}" — ${reason}`;
+          return { ops: [], note, summary: note, status: 'failed', data: reason };
+        }
       }
       // A cached replay reports the call itself (`desc`), not the original outcome's
       // summary text — the summary can be data-derived ("No silent ranges") and would

@@ -51,6 +51,58 @@ function request(media: string): CapabilityPackWorkerRequest {
   };
 }
 
+describe('runCapabilityPackWorker environment contract', () => {
+  it('merges FRAMEPILOT_-prefixed extras after the scrub and drops everything else', async () => {
+    const { root, media } = await sandbox();
+    let seenEnv: Readonly<Record<string, string>> | undefined;
+    const capturingLauncher: CapabilityPackWorkerLauncher = (entrypoint, args, env) => {
+      seenEnv = env;
+      return launcher('success')(entrypoint, args, env);
+    };
+    process.env.FRAMEPILOT_CAPABILITY_PACK_ROOT = '';
+    delete process.env.SECRET_SHOULD_NOT_LEAK;
+    await runCapabilityPackWorker({
+      entrypoint: '/signed/worker',
+      mediaRoot: root,
+      request: request(media),
+      launch: capturingLauncher,
+      extraEnvironment: {
+        FRAMEPILOT_CAPABILITY_PACK_ROOT: '/packs/framepilot.subject-intelligence/1.0.0',
+        SECRET_TOKEN: 'nope',
+        'lowercase_key': 'nope',
+      },
+    });
+    expect(seenEnv?.FRAMEPILOT_CAPABILITY_PACK_NETWORK).toBe('disabled');
+    expect(seenEnv?.FRAMEPILOT_CAPABILITY_PACK_ROOT).toBe(
+      '/packs/framepilot.subject-intelligence/1.0.0',
+    );
+    expect(seenEnv?.SECRET_TOKEN).toBeUndefined();
+    expect(seenEnv?.['lowercase_key']).toBeUndefined();
+  });
+
+  it('never lets extras override the host-owned sandbox or identity keys', async () => {
+    const { root, media } = await sandbox();
+    let seenEnv: Readonly<Record<string, string>> | undefined;
+    const capturingLauncher: CapabilityPackWorkerLauncher = (entrypoint, args, env) => {
+      seenEnv = env;
+      return launcher('success')(entrypoint, args, env);
+    };
+    await runCapabilityPackWorker({
+      entrypoint: '/signed/worker',
+      mediaRoot: root,
+      request: request(media),
+      launch: capturingLauncher,
+      extraEnvironment: {
+        FRAMEPILOT_CAPABILITY_PACK_ROOT: '/packs/root',
+        FRAMEPILOT_CAPABILITY_PACK_NETWORK: 'enabled',
+        FRAMEPILOT_CAPABILITY_PACK_RUNTIME: '0',
+      },
+    });
+    expect(seenEnv?.FRAMEPILOT_CAPABILITY_PACK_NETWORK).toBe('disabled');
+    expect(seenEnv?.FRAMEPILOT_CAPABILITY_PACK_RUNTIME).toBe('1');
+  });
+});
+
 describe('runCapabilityPackWorker', () => {
   it('runs one bounded request and verifies progress/result identity', async () => {
     const { root, media } = await sandbox();

@@ -17,6 +17,7 @@ import {
   setEffectLayerParamsPatch,
 } from '../editor/patch-builders.js';
 import { EffectInspector } from './EffectInspector.js';
+import { MaskPackActions } from './inspector/MaskPackActions.js';
 import { ScrubNumber } from './ScrubNumber.js';
 import {
   ArrowLeftRight,
@@ -60,6 +61,8 @@ import './Inspector.css';
 
 export interface InspectorProps {
   readonly editor: UseEditor;
+  /** Project frame rate, for source-range math in pack-driven mask jobs. */
+  readonly fps?: number;
   /** Selected effect layers take precedence over clip selection. */
   readonly selectedEffectLayerIds?: readonly string[];
   readonly onClearEffectLayers?: () => void;
@@ -148,6 +151,7 @@ function tabForSection(sectionId: string): InspectorTabId {
 
 export function Inspector({
   editor,
+  fps = 30,
   selectedEffectLayerIds = [],
   onClearEffectLayers = () => {},
 }: InspectorProps): JSX.Element {
@@ -311,6 +315,7 @@ export function Inspector({
             <Button variant="secondary" type="button" onClick={applyMask}>
               Add mask
             </Button>
+            <MaskPackActions editor={editor} clip={clip} fps={fps} />
           </div>
         );
       case 'effects':

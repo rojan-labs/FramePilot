@@ -18,6 +18,7 @@ import {
   rollbackCatalog,
   signCatalog,
 } from './release-tooling.js';
+import { registerLocalCapabilityPack } from './local-registration.js';
 
 const RollbackInputSchema = z.object({
   releaseDigests: z.array(z.string().regex(/^[0-9a-f]{64}$/)).min(1),
@@ -78,6 +79,20 @@ export async function runReleaseCli(
         const [inputPath, outputPath] = requireOperands(command, operands, 2);
         const input = PreparePackArtifactInputSchema.parse(await readJson(inputPath));
         await writeJsonAtomic(outputPath, await preparePackArtifact(input));
+        break;
+      }
+      case 'register-local': {
+        // Dev-only escape hatch: seed the store with a locally built worker so
+        // pack-backed features are runnable without publishing a signed catalog.
+        // Gated by FRAMEPILOT_DEV_PACK_REGISTRATION=1 inside the registration
+        // itself — this CLI never bypasses that gate on the developer's behalf.
+        const [inputPath, storeRoot, outputPath] = requireOperands(command, operands, 3);
+        const input = await readJson(inputPath);
+        const result = await registerLocalCapabilityPack(process.env, input, {
+          storeRoot,
+        });
+        await writeJsonAtomic(outputPath, result);
+        io.stdout(`Registered local pack ${result.identityKey}.`);
         break;
       }
       case 'sign-catalog': {
@@ -174,6 +189,8 @@ function usage(): string {
     'Usage: framepilot-pack <command>',
     '  generate-root-key <key-id> <private-key.pem> <trusted-keys.json>',
     '  prepare-artifact <input.json> <output.json>',
+    '  register-local <input.json> <store-root> <output-record.json>',
+    '      (dev only; requires FRAMEPILOT_DEV_PACK_REGISTRATION=1)',
     '  prepare-release <release-core.json> <release.json>',
     '  sign-catalog <catalog.json> <private-key.pem> <key-id> <output.json>',
     '  publication-plan <signed-catalog.json> <output.json>',

@@ -770,3 +770,25 @@
     animation: none;
   }
 }
+
+/* Inline install approval for a pack a failed tool call said it needed. */
+.ai-pack-install {
+  margin: 8px 0 0 var(--ai-step-indent, 24px);
+  padding: 10px 12px;
+  border: 1px solid var(--fp-border, rgba(128, 128, 128, 0.35));
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.ai-pack-install__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.ai-pack-install__error {
+  color: var(--fp-danger, #b3261e);
+  margin: 0;
+}

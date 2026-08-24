@@ -8,6 +8,38 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The AI can now really track a subject — through an installed CV pack.** Asking the agent to
+  follow a subject used to fall back to interpolating whatever mask motion you drew by hand, and
+  face/object detection answered "unavailable". There is now a real path: with the Tracking Lite
+  pack installed, `track_subject_automatically` measures your footage in the isolated pack worker
+  (point, region, or plane follow), and the measured motion lands on your mask as the same
+  reversible, undoable tracked effect as manual tracking — with the exact pack version recorded on
+  the edit. The mask you draw still supplies the region; the AI cannot invent coordinates. When
+  the pack is missing, the track is too unreliable, or no clip is selected, it says so instead of
+  producing a plausible-looking fake.
+
+- **The AI can see who and what is on screen.** `detect_subjects` runs the Subject Intelligence
+  pack (YuNet faces, YOLOX-S people and objects) over a selected clip and returns frame-indexed,
+  confidence-scored boxes as evidence for claims like "the presenter is alone". Detection is
+  read-only evidence: it never becomes geometry an edit can claim.
+
+- **Masks can follow a measured silhouette.** With the Subject Intelligence pack installed,
+  segmentation runs inside your drawn mask and the mask follows each frame's measured silhouette
+  bounds — through the same validated, reversible patch as every other tracking path.
+
+- **You can measure-and-follow from the editor itself.** The Inspector's Mask tab now offers
+  Measure-and-follow actions with live progress and cancellation, applying results through the
+  normal checked pipeline (undo included). And when any of this needs a pack that is not
+  installed — from the editor or from an AI tool card — the exact signed install offer appears
+  inline: size, licenses, and the promise that media never leaves the machine, with nothing
+  downloading until you approve it.
+
+- **A dev-only way to run Capability Pack workers before signed catalogs exist.**
+  `framepilot-pack register-local` registers a locally built worker into the desktop pack store,
+  gated behind `FRAMEPILOT_DEV_PACK_REGISTRATION=1` and running the same isolated health check a
+  signed install would. Failed health checks register nothing; digests are computed from actual
+  payload content. Never available in packaged builds.
+
 - **Find background music without leaving the app.** A new **Sounds** tab in the left rail
   searches over a million openly licensed tracks — search by mood or instrument ("calm piano",
   "driving synth"), press play to hear one, and Add drops it on its own music track. No account

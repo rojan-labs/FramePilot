@@ -25,7 +25,8 @@ describe('toolMeta', () => {
 
   it('reports readiness from the matching registry or autonomous contract', () => {
     expect(isToolAvailable('delete_range')).toBe(true);
-    expect(isToolAvailable('detect_faces')).toBe(false);
+    expect(isToolAvailable('detect_subjects')).toBe(true);
+    expect(isToolAvailable('generate_mask')).toBe(false);
     expect(isToolAvailable('inspect_project')).toBe(true);
     expect(isToolAvailable('probe_media')).toBe(false);
     // An unknown extension tool is assumed available because no contract gates it.

@@ -961,21 +961,29 @@ export type CapabilityPackInstallStartResultWire =
   | { readonly ok: false; readonly code: string; readonly error: string };
 
 /**
- * Renderer intent for one tracking job.
+ * Renderer intent for one media-intelligence job (tracking, detection, or
+ * segmentation).
  *
  * There is deliberately no media path and no project revision here: main
  * resolves the asset against the project it reads from disk, and stamps its own
  * authoritative revision, so the renderer cannot aim a worker at another file or
  * claim a project state that is no longer current.
  */
+export type PackJobCapabilityWire =
+  | 'tracking.point'
+  | 'tracking.region'
+  | 'tracking.planar'
+  | 'subject.detect'
+  | 'subject.segment';
+
 export interface TrackingRequestIntentWire {
   readonly requestId: string;
   readonly assetId: string;
-  readonly capability: 'tracking.point' | 'tracking.region' | 'tracking.planar';
+  readonly capability: PackJobCapabilityWire;
   readonly firstFrame: number;
   readonly lastFrameExclusive: number;
   readonly fps: number;
-  /** Normalized point, box, or four corners, matching the capability. */
+  /** Normalized point, box, corners, labels, or prompt — matching the capability. */
   readonly parameters: unknown;
 }
 
@@ -991,15 +999,41 @@ export interface TrackingSampleWire {
   readonly occluded: boolean;
 }
 
+export interface DetectionWire {
+  readonly frame: number;
+  readonly label: 'face' | 'person' | 'object';
+  readonly box: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  };
+  readonly confidence: number;
+}
+
+/** COCO-style row-major binary-mask run lengths for one measured frame. */
+export interface MaskSampleWire {
+  readonly frame: number;
+  readonly width: number;
+  readonly height: number;
+  readonly counts: readonly number[];
+  readonly confidence: number;
+}
+
+/** The measurement payload shape matches the requested capability. */
+export type PackMeasurementWire =
+  | ({ readonly kind: 'tracking'; readonly samples: readonly TrackingSampleWire[] })
+  | ({ readonly kind: 'detect'; readonly detections: readonly DetectionWire[] })
+  | ({ readonly kind: 'segment'; readonly masks: readonly MaskSampleWire[] });
+
 export type TrackingRunResultWire =
-  | {
-      readonly ok: true;
-      readonly samples: readonly TrackingSampleWire[];
-      /** Exact pack identity that measured this track, for edit provenance. */
-      readonly engine: string;
-      readonly backend: string;
-      readonly projectRevision: number;
-    }
+  | ({
+        readonly ok: true;
+        /** Exact pack identity that measured this result, for edit provenance. */
+        readonly engine: string;
+        readonly backend: string;
+        readonly projectRevision: number;
+      } & PackMeasurementWire)
   /** No healthy pack is installed. The user is offered the exact signed install. */
   | {
       readonly ok: false;

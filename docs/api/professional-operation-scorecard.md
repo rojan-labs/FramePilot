@@ -13,13 +13,16 @@ registration covering these required stages:
 | Timeline      |                       12 |                      0 |
 | Motion        |                        5 |                      0 |
 | Color         |                        7 |                      0 |
-| Tracking/mask |                        1 |                      1 |
+| Tracking/mask |                        2 |                      0 |
 | Audio         |                        8 |                      0 |
-| **Total**     |                   **33** |                  **1** |
+| **Total**     |                   **34** |                  **0** |
 
-Automatic subject tracking is the unsupported row. Its runtime reason is preserved verbatim: no
-approved automatic CV tracker or segmentation engine is bundled. It is not counted as a passing
-fixture.
+Automatic subject tracking is registered (2026-08): its executable case compiles a measured
+sample set — the exact payload a Capability Pack worker returns — into the same validated,
+invertible tracked-mask patch as manual tracking, with the measuring pack's identity asserted as
+provenance. The capability runs through the on-demand Subject Intelligence / Tracking Lite packs;
+the user approves the exact signed install before anything downloads, and a missing pack fails
+honestly rather than degrading into manual interpolation.
 
 ## Executable cases
 

@@ -100,4 +100,24 @@ describe('healthCheckCapabilityPackWorker', () => {
       healthCheckCapabilityPackWorker('/packs/worker', identity, capabilities, runner),
     ).rejects.toMatchObject({ code: 'health_check_failed' });
   });
+
+  it('merges extras but never lets them override host-owned keys', async () => {
+    let seenEnv: Readonly<Record<string, string>> | undefined;
+    const runner = vi.fn<BoundedCommandRunner>().mockImplementation(async (request) => {
+      seenEnv = request.env;
+      return { exitCode: 0, stdout: handshake(), stderr: '' };
+    });
+
+    await healthCheckCapabilityPackWorker('/packs/subject-worker', identity, capabilities, runner, undefined, {
+      FRAMEPILOT_CAPABILITY_PACK_ROOT: '/packs/root',
+      FRAMEPILOT_CAPABILITY_PACK_NETWORK: 'enabled',
+      FRAMEPILOT_CAPABILITY_PACK_ID: 'framepilot.evil',
+      SECRET_TOKEN: 'nope',
+    });
+
+    expect(seenEnv?.FRAMEPILOT_CAPABILITY_PACK_ROOT).toBe('/packs/root');
+    expect(seenEnv?.FRAMEPILOT_CAPABILITY_PACK_NETWORK).toBe('disabled');
+    expect(seenEnv?.FRAMEPILOT_CAPABILITY_PACK_ID).toBe(identity.id);
+    expect(seenEnv?.SECRET_TOKEN).toBeUndefined();
+  });
 });

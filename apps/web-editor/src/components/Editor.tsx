@@ -619,6 +619,7 @@ export function Editor({
               {rightTab === 'inspector' && (
                 <Inspector
                   editor={editor}
+                  fps={project.fps}
                   selectedEffectLayerIds={selectedEffectLayerIds}
                   onClearEffectLayers={() => setSelectedEffectLayerIds([])}
                 />

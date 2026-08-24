@@ -120,7 +120,6 @@ _EXPECTED_FLAGS: dict[str, tuple[bool, bool]] = {
     "map_footage": (True, False),
     "read_edit_signals": (True, False),
     "session_context": (True, False),
-    "detect_faces": (False, False),
     "generate_mask": (False, True),
 }
 
@@ -204,7 +203,7 @@ def test_available_and_mutating_flags_match_contract() -> None:
 
 def test_unavailable_tools_are_exactly_the_engine_tbd_set() -> None:
     unavailable = {name for name, s in TOOL_REGISTRY.items() if not s.available}
-    assert unavailable == {"detect_faces", "generate_mask"}
+    assert unavailable == {"generate_mask"}
 
 
 def test_analysis_tools_are_available_non_mutating() -> None:
@@ -243,7 +242,7 @@ def test_unknown_tool_raises(ctx: ToolContext) -> None:
 
 
 def test_unavailable_tool_raises(ctx: ToolContext) -> None:
-    for name in ("detect_faces", "generate_mask"):
+    for name in ("generate_mask",):
         with pytest.raises(ToolUnavailableError) as exc:
             run_tool(name, {}, ctx)
         assert exc.value.name == name

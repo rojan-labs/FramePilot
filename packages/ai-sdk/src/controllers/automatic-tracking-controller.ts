@@ -29,14 +29,29 @@ export const AutomaticTrackingObjectiveSchema = z
     intent: z.literal('track_subject_automatically'),
     target: z.enum(['this', 'playhead']).default('this'),
     /**
-     * What the tracker follows. `point` follows the mask centre, `region` follows
-     * the whole box, `plane` fits the box's corners as a surface.
+     * What the tracker follows. `point` follows the mask centre, `region`
+     * follows the whole box, `plane` fits the box's corners as a surface, and
+     * `silhouette` segments the subject inside the mask (Subject Intelligence
+     * pack) and steers this mask by the measured silhouette bounds per frame.
      */
-    subject: z.enum(['point', 'region', 'plane']).default('region'),
+    subject: z.enum(['point', 'region', 'plane', 'silhouette']).default('region'),
   })
   .strict();
 
 export type AutomaticTrackingObjective = z.infer<typeof AutomaticTrackingObjectiveSchema>;
+
+/** Objective for whole-frame subject detection on one selected video clip. */
+export const SubjectDetectionObjectiveSchema = z
+  .object({
+    intent: z.literal('detect_subjects'),
+    target: z.enum(['this', 'playhead']).default('this'),
+    /** Which detector labels to run. Faces and people are the common ask. */
+    labels: z.array(z.enum(['face', 'person', 'object'])).min(1).max(3).default(['face', 'person']),
+    maxDetections: z.number().int().positive().max(100).optional(),
+  })
+  .strict();
+
+export type SubjectDetectionObjective = z.infer<typeof SubjectDetectionObjectiveSchema>;
 
 export type AutomaticTrackingRejectionCode =
   | 'target_unresolved'
@@ -56,9 +71,14 @@ export interface AutomaticTrackingFact {
 /** Exactly what the host must ask the pack worker for. */
 export interface TrackingRequestPlan {
   readonly clipId: string;
-  readonly maskEffectId: string;
+  readonly maskEffectId?: string;
   readonly assetId: string;
-  readonly capability: 'tracking.point' | 'tracking.region' | 'tracking.planar';
+  readonly capability:
+    | 'tracking.point'
+    | 'tracking.region'
+    | 'tracking.planar'
+    | 'subject.detect'
+    | 'subject.segment';
   readonly firstFrame: number;
   readonly lastFrameExclusive: number;
   readonly fps: number;
@@ -133,7 +153,10 @@ function maskBounds(params: Record<string, unknown>): Bounds | undefined {
 function parametersFor(
   subject: AutomaticTrackingObjective['subject'],
   bounds: Bounds,
-): { capability: TrackingRequestPlan['capability']; parameters: Record<string, unknown> } {
+): {
+  capability: TrackingRequestPlan['capability'];
+  parameters: Record<string, unknown>;
+} {
   if (subject === 'point') {
     return {
       capability: 'tracking.point',
@@ -155,18 +178,39 @@ function parametersFor(
       },
     };
   }
+  if (subject === 'silhouette') {
+    // The drawn mask IS the prompt: segmentation runs inside it, and the
+    // measured silhouette bounds per frame steer the same mask afterwards.
+    return { capability: 'subject.segment', parameters: { region: { ...bounds } } };
+  }
   return { capability: 'tracking.region', parameters: { region: { ...bounds } } };
 }
 
-/** Resolve “track this automatically” into an exact, checkable pack request. */
-export function resolveAutomaticTrackingObjective(
-  input: ResolveAutomaticTrackingInput,
-): AutomaticTrackingControllerResult {
-  const { objective } = input;
+/**
+ * Resolve exactly one video clip for a media job — the shared front half of
+ * every objective: one selected clip, video asset, usable fps, and the clip's
+ * own source range within the worker protocol's frame budget.
+ */
+function resolveClipForMediaJob(
+  input: {
+    readonly project: Project;
+    readonly projectRevision?: number;
+    readonly interaction: EditorInteractionContext;
+  },
+  referent: 'this' | 'playhead',
+): { status: 'rejected'; code: AutomaticTrackingRejectionCode; detail: string } | {
+  status: 'resolved';
+  clipId: string;
+  evidence: TargetEvidence;
+  asset: { readonly id: string };
+  fps: number;
+  firstFrame: number;
+  lastFrameExclusive: number;
+} {
   const resolution = resolveEditorTarget(
     input.project,
     input.interaction,
-    { kind: 'clips', referent: objective.target },
+    { kind: 'clips', referent },
     { projectRevision: input.projectRevision ?? input.interaction.projectRevision },
   );
   if (resolution.status !== 'resolved') {
@@ -174,20 +218,122 @@ export function resolveAutomaticTrackingObjective(
       resolution.status === 'ambiguous'
         ? `${resolution.reason}: ${resolution.candidateIds.join(', ')}`
         : `${resolution.reason}: ${resolution.detail}`;
-    return rejected(
-      objective,
-      resolution.status === 'ambiguous' ? 'target_ambiguous' : 'target_unresolved',
+    return {
+      status: 'rejected',
+      code: resolution.status === 'ambiguous' ? 'target_ambiguous' : 'target_unresolved',
       detail,
-    );
+    };
   }
   if (resolution.target.kind !== 'clips' || resolution.target.clipIds.length !== 1) {
-    return rejected(objective, 'target_ambiguous', 'Automatic tracking needs exactly one clip.');
+    return { status: 'rejected', code: 'target_ambiguous', detail: 'This needs exactly one clip.' };
   }
   const clipId = resolution.target.clipIds[0]!;
   const clip = input.project.timeline.tracks
     .flatMap((track) => track.clips)
     .find((candidate) => candidate.id === clipId);
-  if (!clip) return rejected(objective, 'target_unresolved', 'Resolved clip is missing.');
+  if (!clip) return { status: 'rejected', code: 'target_unresolved', detail: 'Resolved clip is missing.' };
+  const asset = input.project.assets?.find((candidate) => candidate.id === clip.assetId);
+  if (asset === undefined || asset.kind !== 'video') {
+    return { status: 'rejected', code: 'unsupported_media', detail: 'Only video clips can be measured.' };
+  }
+  const fps = input.project.fps;
+  if (!Number.isFinite(fps) || fps <= 0) {
+    return { status: 'rejected', code: 'unsupported_media', detail: 'The project has no usable frame rate.' };
+  }
+  // Track the clip's own source range: measuring outside what the clip shows
+  // would read frames the edit never displays.
+  const firstFrame = Math.max(0, Math.round(clip.sourceStart * fps));
+  const lastFrameExclusive = Math.max(firstFrame + 1, Math.round(clip.sourceEnd * fps));
+  if (lastFrameExclusive - firstFrame > MAX_TRACKED_FRAMES) {
+    return {
+      status: 'rejected',
+      code: 'range_too_long',
+      detail: `This clip is ${lastFrameExclusive - firstFrame} frames long, past the ${MAX_TRACKED_FRAMES}-frame limit for one pass. Use a shorter range.`,
+    };
+  }
+  return { status: 'resolved', clipId, evidence: resolution.evidence, asset, fps, firstFrame, lastFrameExclusive };
+}
+
+/**
+ * Resolve whole-frame subject detection on one selected video clip into an
+ * exact `subject.detect` request plan. No mask is involved: detection is
+ * evidence about what is on screen, never geometry for an edit.
+ */
+export interface ResolveSubjectDetectionInput {
+  readonly project: Project;
+  readonly projectRevision?: number;
+  readonly interaction: EditorInteractionContext;
+  readonly objective: SubjectDetectionObjective;
+}
+
+export type SubjectDetectionControllerResult =
+  | {
+      readonly status: 'resolved';
+      readonly objective: SubjectDetectionObjective;
+      readonly plan: TrackingRequestPlan;
+      readonly facts: readonly AutomaticTrackingFact[];
+    }
+  | {
+      readonly status: 'rejected';
+      readonly objective: SubjectDetectionObjective;
+      readonly code: AutomaticTrackingRejectionCode;
+      readonly detail: string;
+      readonly facts: readonly AutomaticTrackingFact[];
+    };
+
+export function resolveSubjectDetectionObjective(
+  input: ResolveSubjectDetectionInput,
+): SubjectDetectionControllerResult {
+  const { objective } = input;
+  const clipResolution = resolveClipForMediaJob(input, objective.target);
+  if (clipResolution.status === 'rejected') {
+    return { status: 'rejected', objective, code: clipResolution.code, detail: clipResolution.detail, facts: [] };
+  }
+  const parameters: Record<string, unknown> = {
+    labels: [...new Set(objective.labels)].sort(),
+    maxDetections: objective.maxDetections ?? 20,
+  };
+  const plan: TrackingRequestPlan = {
+    clipId: clipResolution.clipId,
+    assetId: clipResolution.asset.id,
+    capability: 'subject.detect',
+    firstFrame: clipResolution.firstFrame,
+    lastFrameExclusive: clipResolution.lastFrameExclusive,
+    fps: clipResolution.fps,
+    startSeconds: 0,
+    parameters,
+  };
+  log.action('Subject detection objective resolved', {
+    clipId: plan.clipId,
+    labels: parameters.labels as readonly string[],
+    frames: plan.lastFrameExclusive - plan.firstFrame,
+  });
+  return {
+    status: 'resolved',
+    objective,
+    plan,
+    facts: [
+      { name: 'clipId', value: plan.clipId },
+      { name: 'capability', value: plan.capability },
+      { name: 'labels', value: (parameters.labels as readonly string[]).join(',') },
+      { name: 'detectedFrameCount', value: plan.lastFrameExclusive - plan.firstFrame },
+    ],
+  };
+}
+
+/** Resolve “track this automatically” into an exact, checkable pack request. */
+export function resolveAutomaticTrackingObjective(
+  input: ResolveAutomaticTrackingInput,
+): AutomaticTrackingControllerResult {
+  const { objective } = input;
+  const clipResolution = resolveClipForMediaJob(input, objective.target);
+  if (clipResolution.status === 'rejected') {
+    return rejected(objective, clipResolution.code, clipResolution.detail);
+  }
+  const { clipId, asset, fps, firstFrame, lastFrameExclusive } = clipResolution;
+  const clip = input.project.timeline.tracks
+    .flatMap((track) => track.clips)
+    .find((candidate) => candidate.id === clipId)!;
 
   const maskEffectId = professionalMaskEffectId(clipId);
   const masks = clip.effects.filter(
@@ -220,26 +366,6 @@ export function resolveAutomaticTrackingObjective(
     );
   }
 
-  const asset = input.project.assets?.find((candidate) => candidate.id === clip.assetId);
-  if (asset === undefined || asset.kind !== 'video') {
-    return rejected(objective, 'unsupported_media', 'Only video clips can be tracked.');
-  }
-  const fps = input.project.fps;
-  if (!Number.isFinite(fps) || fps <= 0) {
-    return rejected(objective, 'unsupported_media', 'The project has no usable frame rate.');
-  }
-  // Track the clip's own source range: tracking outside what the clip shows would
-  // measure frames the edit never displays.
-  const firstFrame = Math.max(0, Math.round(clip.sourceStart * fps));
-  const lastFrameExclusive = Math.max(firstFrame + 1, Math.round(clip.sourceEnd * fps));
-  if (lastFrameExclusive - firstFrame > MAX_TRACKED_FRAMES) {
-    return rejected(
-      objective,
-      'range_too_long',
-      `This clip is ${lastFrameExclusive - firstFrame} frames long, past the ${MAX_TRACKED_FRAMES}-frame limit for one tracking pass. Track a shorter range.`,
-    );
-  }
-
   const { capability, parameters } = parametersFor(objective.subject, bounds);
   const plan: TrackingRequestPlan = {
     clipId,
@@ -261,7 +387,7 @@ export function resolveAutomaticTrackingObjective(
     status: 'resolved',
     objective,
     plan,
-    evidence: [resolution.evidence],
+    evidence: [clipResolution.evidence],
     facts: [
       { name: 'clipId', value: clipId },
       { name: 'maskEffectId', value: maskEffectId },

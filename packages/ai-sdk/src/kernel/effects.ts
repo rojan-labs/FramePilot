@@ -24,6 +24,7 @@ import type { Command } from './commands.js';
 import type { ModelTier } from './proposers/types.js';
 import type { JsonValue, ProjectRevision } from '../run-contracts.js';
 import type { AnalysisBudget } from './cost/analysis-caps.js';
+import type { EditorInteractionContext } from '../editor-context/interaction-context.js';
 
 export type EffectResourceClass =
   | 'model'
@@ -86,6 +87,12 @@ export interface HostToolEffect {
   readonly call: ToolCall;
   /** The working project the analysis must reflect (the run's in-flight edits). */
   readonly project: Project;
+  /**
+   * The editor's live selection snapshot, when the driving surface has one.
+   * Host tools that resolve "the selected clip" need this for the same reason
+   * mutate tools do — the model must not infer what the user pointed at.
+   */
+  readonly interaction?: EditorInteractionContext;
   /** The run-scoped compute ceiling enforced by the host executor. */
   readonly analysisBudget?: AnalysisBudget;
   /**
