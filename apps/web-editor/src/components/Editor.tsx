@@ -502,6 +502,13 @@ export function Editor({
                     onClick={() => setLeftTab(id)}
                   >
                     <Icon size={ICON_SIZE.md} aria-hidden="true" />
+                    {/* Visual label under the icon. Kept as real text (not a CSS
+                        attr(aria-label) pseudo-element) so the short display
+                        string can differ from the accessible name and so the
+                        ellipsis is a layout decision, not an a11y side effect. */}
+                    <span className="activity-tab-label" aria-hidden="true">
+                      {label}
+                    </span>
                   </button>
                 </Tooltip>
               ))}

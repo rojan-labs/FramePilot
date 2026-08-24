@@ -175,7 +175,7 @@ function Toggle({
         <span className="setting-label">{label}</span>
         {hint ? <span className="setting-hint">{hint}</span> : null}
       </div>
-      <Switch checked={checked} label={label} onCheckedChange={onChange} />
+      <Switch checked={checked} label={label} onCheckedChange={onChange} size="md" />
     </div>
   );
 }
@@ -919,7 +919,7 @@ function SettingsDialogContent({
   readonly initialSection: Section;
   readonly projectId?: string;
 }): JSX.Element {
-  const { settings, update, reset } = useSettings();
+  const { settings, update, reset, persistenceError } = useSettings();
   const { config } = useAiConfig();
   const [section, setSection] = useState<Section>(initialSection);
   const dialogRef = useModalFocusTrap<HTMLDivElement>();
@@ -1173,7 +1173,14 @@ function SettingsDialogContent({
         </div>
 
         <footer className="settings-foot">
-          <span>Changes save automatically on this device.</span>
+          {persistenceError !== null ? (
+            <span className="settings-foot-error" role="alert">
+              Couldn&rsquo;t save your changes on this device — they were undone and apply to this
+              session only.
+            </span>
+          ) : (
+            <span>Changes save automatically on this device.</span>
+          )}
           <Button variant="ghost" type="button" onClick={reset}>
             <RotateCcw size={ICON_SIZE.sm} aria-hidden="true" /> Reset to defaults
           </Button>
