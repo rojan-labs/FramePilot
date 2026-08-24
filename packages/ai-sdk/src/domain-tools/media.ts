@@ -105,6 +105,33 @@ const searchMusicSchema = z
   })
   .strict();
 
+// `search_stock` / `add_stock` reach a stock photo & video provider. Same narrow
+// reach as `search_music`: the query text goes out, results come back, nothing is
+// downloaded until `add_stock` names one.
+//
+// `add_stock` REFUSES rather than stacks when the target span already holds
+// picture media. The preview flattens picture clips from every track into one
+// sequence while the export composites them, so a stacked clip would render
+// differently from what the user saw. Reported as a failure with the reason, so
+// the model can move the placement instead of claiming an edit that lies
+// (`plan/3rd-party-sourcing/photo-video/README.md` §2).
+const searchStockSchema = z
+  .object({
+    query: z.string().min(1),
+    kind: z.enum(['photo', 'video']),
+    limit: numeric(z.number().int().min(1).max(40)).optional(),
+    orientation: z.enum(['landscape', 'portrait', 'square']).optional(),
+  })
+  .strict();
+
+const addStockSchema = z
+  .object({
+    remoteId: z.string().min(1),
+    kind: z.enum(['photo', 'video']),
+    atSeconds: numeric(z.number().min(0)).optional(),
+  })
+  .strict();
+
 export const MEDIA_TOOLS: readonly ToolSpec[] = [
   analysisTool(
     {
@@ -218,5 +245,39 @@ export const MEDIA_TOOLS: readonly ToolSpec[] = [
       hostUiOnly: true,
     },
     searchMusicSchema,
+  ),
+  analysisTool(
+    {
+      name: 'search_stock',
+      description:
+        'Search a stock library for a shot the footage does not contain — say the ' +
+        'subject ("city skyline at dusk", "hands typing"), not a filename. Reach for ' +
+        'this only when the script genuinely calls for something the user never shot: ' +
+        'on a screen recording or a product demo, a punch-in or a reframe of their own ' +
+        'frame is almost always the better cut. Returns candidates { remoteId, kind, ' +
+        'title, durationSeconds, width, height, creator }; downloads nothing and spends ' +
+        'nothing. Pass a remoteId to add_stock to use one. Does not edit the timeline.',
+      // Executes in the Electron main process (the provider network and the API
+      // key live there), so the standalone MCP server neither advertises nor
+      // accepts it — same gate as `search_music`.
+      hostUiOnly: true,
+    },
+    searchStockSchema,
+  ),
+  analysisTool(
+    {
+      name: 'add_stock',
+      description:
+        'Place a photo or clip from search_stock on the timeline as a cutaway. Pass its ' +
+        'remoteId and kind; it lands at atSeconds (default the playhead position you ' +
+        'were given). Downloads the file into the project at the project’s own ' +
+        'resolution, so it keeps working offline. FAILS with a reason if that moment ' +
+        'already has picture on it — stock cannot yet sit on top of existing footage, ' +
+        'so choose an empty stretch or make room first. Undoing removes the clip and ' +
+        'the file reference in one step.',
+      // Main-process only, like `search_stock` — see the note there.
+      hostUiOnly: true,
+    },
+    addStockSchema,
   ),
 ];

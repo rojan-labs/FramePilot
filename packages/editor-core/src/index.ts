@@ -30,6 +30,7 @@ export * from './motion-commands.js';
 export * from './color-commands.js';
 export * from './track-follow.js';
 export * from './track-reframe.js';
+export * from './picture-occupancy.js';
 export * from './track-samples.js';
 export * from './tracking-commands.js';
 export * from './audio-commands.js';

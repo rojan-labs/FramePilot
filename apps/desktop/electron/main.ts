@@ -39,7 +39,7 @@ import {
   type OpenDialogOptions,
 } from 'electron';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
-import type { Patch } from '@framepilot/editor-core';
+import { picturePlacementConflict, type Patch } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
 import {
   readProjectFile,
@@ -180,8 +180,15 @@ import { saveExportAs } from './render/export-save.js';
 import { importAssetViaSidecar } from './media/asset-media-client.js';
 import { MusicService } from './media/music-service.js';
 import { StockService, isStockKind } from './media/stock-service.js';
+
+/**
+ * Clip length used for a stock still, mirroring the renderer's
+ * `DEFAULT_CLIP_SECONDS`. Kept in step deliberately: the agent's occupancy check
+ * and the panel's placement builder must agree about what fits.
+ */
+const DEFAULT_STOCK_STILL_SECONDS = 5;
 import { StockQuotaStore } from './media/stock-quota.js';
-import { musicErrorMessage } from '@framepilot/ai-sdk';
+import { musicErrorMessage, stockErrorMessage } from '@framepilot/ai-sdk';
 import { LocalTelemetry, telemetryEnabledFromEnv } from './telemetry/telemetry.js';
 import { resolveUpdateChannel } from './updater/channel.js';
 import { createAutoUpdaterProvider, type AutoUpdaterLike } from './updater/auto-updater.js';
@@ -1061,7 +1068,9 @@ function registerIpcHandlers(): void {
         text: req.text,
         kind: req.kind,
         ...(typeof req.page === 'number' && Number.isFinite(req.page) ? { page: req.page } : {}),
-        ...(typeof req.limit === 'number' && Number.isFinite(req.limit) ? { limit: req.limit } : {}),
+        ...(typeof req.limit === 'number' && Number.isFinite(req.limit)
+          ? { limit: req.limit }
+          : {}),
         ...(req.orientation === 'landscape' ||
         req.orientation === 'portrait' ||
         req.orientation === 'square'
@@ -1969,6 +1978,141 @@ function registerIpcHandlers(): void {
     };
   };
 
+  /**
+   * `search_stock` for the agent — the same main-process service the Stock panel
+   * uses, so the agent and the human see one catalogue and one cache.
+   */
+  const hostStockSearch = async (args: {
+    readonly query: string;
+    readonly kind: 'photo' | 'video';
+    readonly limit?: number;
+    readonly orientation?: 'landscape' | 'portrait' | 'square';
+  }): Promise<HostToolOutcome> => {
+    if (args.query.trim() === '') {
+      return { status: 'failed', summary: 'search_stock needs something to search for.' };
+    }
+    const result = await stockService.search({
+      text: args.query,
+      kind: args.kind,
+      ...(args.limit === undefined ? {} : { limit: args.limit }),
+      ...(args.orientation === undefined ? {} : { orientation: args.orientation }),
+    });
+    if (!result.ok) {
+      // The provider's own reason, verbatim — including the hourly-vs-monthly
+      // distinction, so the model reports the right remedy instead of telling
+      // the user to wait a month for a limit that clears in an hour.
+      return { status: 'failed', summary: stockErrorMessage(result.error, result.detail) };
+    }
+    if (result.items.length === 0) {
+      // Nothing matched is not a failure, but it is also NOT a success the model
+      // should build on — `warning` is the arm that says "ran, nothing to do".
+      return {
+        status: 'warning',
+        summary: `Nothing matched "${args.query}". Try a broader subject word.`,
+        data: { items: [] },
+      };
+    }
+    const quota = stockQuota.snapshot();
+    return {
+      status: 'completed',
+      summary: `Found ${result.items.length} ${args.kind === 'video' ? 'clip' : 'photo'}${
+        result.items.length === 1 ? '' : 's'
+      } for "${args.query}".`,
+      data: {
+        items: result.items,
+        // The one place the quota surface pays off inside the agent loop: a
+        // multi-step run can see it is nearly out and stop speculating.
+        ...(quota.kind === 'measured' ? { requestsLeftThisMonth: quota.monthly.remaining } : {}),
+      },
+    };
+  };
+
+  /**
+   * `add_stock` for the agent — download and materialize; the ORCHESTRATOR turns
+   * the returned asset into operations. This function deliberately produces no
+   * timeline change of its own (AGENTS.md invariant 5).
+   *
+   * The placement refusal is checked HERE, before spending a download, because
+   * the answer does not depend on the bytes: if the span already holds picture
+   * media, the clip cannot be placed however good it turns out to be.
+   */
+  const hostAddStock = async (
+    project: Project,
+    args: {
+      readonly remoteId: string;
+      readonly kind: 'photo' | 'video';
+      readonly atSeconds?: number;
+    },
+  ): Promise<HostToolOutcome> => {
+    const { remoteId, atSeconds } = args;
+    if (remoteId.trim() === '') {
+      return {
+        status: 'failed',
+        summary: 'add_stock needs the remoteId of an item from search_stock.',
+      };
+    }
+    const item = stockService.knownItem(remoteId);
+    if (!item) {
+      return {
+        status: 'failed',
+        summary: 'That item is not in the current results — run search_stock first.',
+      };
+    }
+
+    const start = Math.max(0, atSeconds ?? 0);
+    // A still has no duration of its own; the placement builder gives it the
+    // same default length a dragged-in image gets, and the occupancy check has
+    // to use the same number or the two would disagree about what fits.
+    const durationSeconds = item.durationSeconds ?? DEFAULT_STOCK_STILL_SECONDS;
+    if (
+      picturePlacementConflict(project.timeline, project.assets, start, start + durationSeconds)
+    ) {
+      // Stated, not silently worked around. Stacking would preview differently
+      // from how it renders, and reporting success on a stacked clip would be a
+      // completed edit that lies.
+      return {
+        status: 'failed',
+        summary: `There is already picture on the timeline between ${start.toFixed(1)}s and ${(
+          start + durationSeconds
+        ).toFixed(1)}s. Stock cannot sit on top of existing footage yet — pick an empty stretch.`,
+      };
+    }
+
+    const result = await stockService.download({
+      projectId: project.id,
+      remoteId,
+      targetHeight: project.resolution?.height ?? 1080,
+      ...(project.fps ? { targetFps: project.fps } : {}),
+      operationId: `agent_${remoteId}_${Date.now()}`,
+    });
+    if (!result.ok) {
+      return { status: 'failed', summary: stockErrorMessage(result.error, result.detail) };
+    }
+    const { asset } = result;
+    return {
+      status: 'completed',
+      summary: `Downloaded "${asset.relativePath}".`,
+      data: {
+        asset: {
+          id: `stock_${asset.source.provider}_${asset.source.remoteId}`.replace(
+            /[^a-zA-Z0-9_]/g,
+            '_',
+          ),
+          path: asset.relativePath,
+          kind: asset.kind,
+          ...(asset.durationSeconds === undefined
+            ? {}
+            : { durationSeconds: asset.durationSeconds }),
+          ...(asset.media ? { media: asset.media } : {}),
+          source: asset.source,
+        },
+        // Echoed back so the ORCHESTRATOR owns the placement decision; this
+        // function still produces no timeline change of its own.
+        atSeconds: start,
+      },
+    };
+  };
+
   const sidecarToolExecutor = createSidecarExecutor({
     baseUrl: engineBaseUrl,
     fetchFn: electronFetch,
@@ -1976,6 +2120,8 @@ function registerIpcHandlers(): void {
     hostTranscribe,
     hostMusicSearch,
     hostAddMusic,
+    hostStockSearch,
+    hostAddStock,
   });
   // The agent's route into the Capability Pack tracking worker. Same authority
   // the renderer IPC path uses — one hub, leases and install proposals included.
@@ -1984,10 +2130,7 @@ function registerIpcHandlers(): void {
   });
   const toolExecutor: HostToolExecutor = {
     async run(call, ctx, signal) {
-      if (
-        call.name === AUTOMATIC_TRACKING_TOOL_NAME ||
-        call.name === DETECT_SUBJECTS_TOOL_NAME
-      ) {
+      if (call.name === AUTOMATIC_TRACKING_TOOL_NAME || call.name === DETECT_SUBJECTS_TOOL_NAME) {
         return automaticTrackingExecutor.run(call, ctx, signal);
       }
       return sidecarToolExecutor.run(call, ctx, signal);

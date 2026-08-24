@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 83,
+  "toolCount": 85,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -305,6 +305,44 @@
           "duckUnderTrackId": {
             "type": [
               "string"
+            ]
+          },
+          "remoteId": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    },
+    "add_stock": {
+      "kind": "analysis",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "remoteId"
+        ],
+        "properties": {
+          "atSeconds": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "kind": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "photo",
+              "video"
             ]
           },
           "remoteId": {
@@ -3096,6 +3134,55 @@
             ],
             "minimum": 1,
             "maximum": 40
+          },
+          "query": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    },
+    "search_stock": {
+      "kind": "analysis",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "query"
+        ],
+        "properties": {
+          "kind": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "photo",
+              "video"
+            ]
+          },
+          "limit": {
+            "type": [
+              "integer"
+            ],
+            "minimum": 1,
+            "maximum": 40
+          },
+          "orientation": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "landscape",
+              "portrait",
+              "square"
+            ]
           },
           "query": {
             "type": [

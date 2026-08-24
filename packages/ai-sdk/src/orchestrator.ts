@@ -1526,6 +1526,49 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
           : 'no credit required';
       return `added ${String(asset.path ?? 'track')} · ${seconds.toFixed(1)}s · ${String(source.license ?? 'unknown licence')} · ${credit}`;
     }
+    case 'search_stock': {
+      // The model needs the `remoteId` to pass to `add_stock`, the kind (they
+      // are separate catalogues), and enough shape to judge whether a shot fits
+      // the frame. Provider URLs never reach it at all.
+      const items = (obj.items ?? []) as Array<Record<string, unknown>>;
+      if (!Array.isArray(items) || items.length === 0) {
+        return 'nothing matched — try a broader subject word';
+      }
+      const lines = items.map((item) => {
+        const seconds = typeof item.durationSeconds === 'number' ? item.durationSeconds : null;
+        const length =
+          seconds === null
+            ? 'still'
+            : `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, '0')}`;
+        const shape =
+          typeof item.width === 'number' && typeof item.height === 'number'
+            ? `${item.width}×${item.height}`
+            : 'unknown size';
+        const by = typeof item.creator === 'string' ? ` · by ${item.creator}` : '';
+        return `${String(item.remoteId)} · ${String(item.title)} · ${length} · ${shape}${by}`;
+      });
+      // Carried through because it changes what the run should do next: a run
+      // with 40 requests left should stop browsing and commit.
+      const left =
+        typeof obj.requestsLeftThisMonth === 'number'
+          ? `\n(${obj.requestsLeftThisMonth} provider requests left this month)`
+          : '';
+      return `${items.length} result${items.length === 1 ? '' : 's'}:\n${lines.join('\n')}${left}`;
+    }
+    case 'add_stock': {
+      // What the run needs on its next turn: the file is down, where it went,
+      // and where it is going. The full provenance record lives in the project;
+      // repeating it here would spend tokens on a licence URL nobody opens.
+      const asset = (obj.asset ?? {}) as Record<string, unknown>;
+      const source = (asset.source ?? {}) as Record<string, unknown>;
+      const seconds = typeof asset.durationSeconds === 'number' ? asset.durationSeconds : null;
+      const length = seconds === null ? 'still' : `${seconds.toFixed(1)}s`;
+      const at = typeof obj.atSeconds === 'number' ? ` at ${obj.atSeconds.toFixed(1)}s` : '';
+      const by = typeof source.creator === 'string' ? ` · by ${source.creator}` : '';
+      return `added ${String(asset.path ?? 'file')} · ${length}${at} · ${String(
+        source.license ?? 'unknown licence',
+      )}${by}`;
+    }
     case 'session_context': {
       // The sections are markdown the user effectively wrote (their rejections,
       // their reasons). previewJson would JSON-escape and mid-cut them; the

@@ -116,6 +116,11 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   // later undo would report a bed the timeline does not have, so it ages with the
   // arrangement like any other edit-producing call.
   add_music: { role: 'analysis', scope: 'timeline_dependent' },
+  search_stock: { role: 'analysis', scope: 'revision_independent' },
+  // `add_stock` DOWNLOADS and PLACES, and its refusal depends on what already
+  // occupies the timeline — a memoized "already added" replayed past an undo
+  // would report a cutaway the project does not have.
+  add_stock: { role: 'analysis', scope: 'timeline_dependent' },
   // A rendered frame is a picture of the ARRANGEMENT, not of the source media: it is the
   // one member of this group that any applied patch invalidates. Caching a frame past an
   // edit would show the model the timeline it had before its own change — the precise

@@ -112,6 +112,8 @@ def test_host_ui_only_tools_are_detected_and_excluded() -> None:
         # (ADR 0139). Desktop Agent mode still offers them.
         "search_music",
         "add_music",
+        "search_stock",
+        "add_stock",
         "professional_audio",
         "professional_color",
         "professional_edit",

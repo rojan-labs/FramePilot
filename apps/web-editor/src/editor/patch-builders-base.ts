@@ -12,6 +12,7 @@
  * same id (replayable, testable; consistent with the engine's id derivation).
  */
 import {
+  picturePlacementConflict as corePicturePlacementConflict,
   type AdjustAudioOp,
   type Easing,
   KEYFRAME_REPLACE_EPSILON,
@@ -1515,17 +1516,13 @@ export function placeAssetPatch(
   };
 }
 
-/** Kinds that flow through the preview's single picture chain. */
-const PICTURE_KINDS: ReadonlySet<ClipKind> = new Set<ClipKind>(['video', 'image']);
-
 /**
  * Does anything already occupy the picture chain over `[start, end)`?
  *
- * The check is across **every** track rather than per-layer, because the preview
- * flattens picture clips from all of them into one time-ordered sequence
- * (`selectors.ts`) while the export composites them properly
- * (`render/compiler.py`, `_blend_layer_over`). Overlap in *time* is what makes
- * the two disagree; which layer the clips sit on does not enter into it.
+ * Delegates to `@framepilot/editor-core` so the renderer and the Electron main
+ * process (which refuses an agent's `add_stock` before spending a download)
+ * cannot drift apart on the answer. The map-to-array adapter is here because
+ * this file already holds the lookup in map form.
  */
 export function picturePlacementConflict(
   timeline: Timeline,
@@ -1533,13 +1530,7 @@ export function picturePlacementConflict(
   start: number,
   end: number,
 ): boolean {
-  for (const track of timeline.tracks) {
-    for (const clip of track.clips) {
-      if (!PICTURE_KINDS.has(clipKind(clip, assetById))) continue;
-      if (clip.start < end && start < clip.end) return true;
-    }
-  }
-  return false;
+  return corePicturePlacementConflict(timeline, [...assetById.values()], start, end);
 }
 
 /**

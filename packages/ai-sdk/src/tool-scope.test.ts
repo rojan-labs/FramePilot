@@ -89,6 +89,8 @@ describe('selectTools', () => {
         // network, and the orchestrator turns the result into a validated patch.
         'search_music',
         'add_music',
+        'search_stock',
+        'add_stock',
       ].sort(),
     );
   });
