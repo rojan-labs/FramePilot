@@ -13426,3 +13426,356 @@ a.export-credits-license {
   opacity: 0.45;
   border-style: dashed;
 }
+
+/* ---------------------------------------------------------------------------
+   Stock panel — third-party photo & video search
+   (plan/3rd-party-sourcing/photo-video). Token-driven, reusing the existing
+   palette and Button variants (ADR 0028). No parallel component language.
+   --------------------------------------------------------------------------- */
+.stock-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+  min-height: 0;
+}
+
+.stock-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.stock-search {
+  display: block;
+}
+.stock-search-input {
+  width: 100%;
+  padding: var(--space-2);
+  font-size: 0.85rem;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+}
+.stock-search-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.stock-search-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Two kinds, one control. A segmented pair rather than a dropdown: there are
+   exactly two and switching is the most common action in this panel. */
+.stock-kinds {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+}
+.stock-kind {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
+  padding: 4px var(--space-2);
+  font-size: 0.76rem;
+  color: var(--muted);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+}
+.stock-kind:hover:not(:disabled) {
+  color: var(--text);
+}
+.stock-kind[data-active='true'] {
+  color: var(--text);
+  background: var(--surface-1, var(--surface));
+}
+.stock-kind:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.stock-kind:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.stock-note {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.stock-error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--danger);
+}
+.stock-hint {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+/* The placement refusal. A status line rather than a toast: it is a standing
+   condition the user can resolve by moving the playhead, not an event. */
+.stock-blocked {
+  margin: 0;
+  padding: var(--space-2);
+  font-size: 0.76rem;
+  line-height: 1.4;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-left: 2px solid var(--warn, var(--accent));
+  border-radius: 0 var(--radius-sm, 6px) var(--radius-sm, 6px) 0;
+}
+
+.stock-quota-strip {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+.stock-quota-strip[data-tone='warning'] {
+  color: var(--warn, var(--accent));
+}
+.stock-inline-link {
+  padding: 0;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  font: inherit;
+}
+
+.stock-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-2);
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+/* Re-searching dims rather than clears: a grid that blanks on every keystroke
+   makes the panel feel broken while it works. */
+.stock-grid.is-stale {
+  opacity: 0.5;
+}
+
+.stock-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+  /* Aspect ratio comes from the item's real dimensions (inline), so the grid
+     does not reflow when thumbnails land. */
+  background: var(--surface-2);
+  border-radius: var(--radius-sm, 6px);
+}
+.stock-tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.stock-tile--skeleton {
+  aspect-ratio: 3 / 2;
+  opacity: 0.6;
+}
+
+.stock-thumb {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.stock-thumb--pending {
+  background: transparent;
+}
+
+/* The hover rendition sits above the still and takes over once it can paint.
+   Opacity rather than display, so the swap has no layout cost. */
+.stock-preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 140ms ease-out;
+}
+.stock-tile:hover .stock-preview {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stock-preview {
+    transition: none;
+  }
+}
+
+/* The scrub position. A hairline, because the cursor is already the pointer —
+   this only has to confirm which frame is being shown. */
+.stock-scrub {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--text);
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+.stock-tile-meta {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: var(--space-2);
+  /* Legible over any photograph, without dimming the whole tile. */
+  background: linear-gradient(to top, rgb(0 0 0 / 72%), transparent);
+  opacity: 0;
+  transition: opacity 140ms ease-out;
+}
+.stock-tile:hover .stock-tile-meta,
+.stock-tile:focus-visible .stock-tile-meta,
+.stock-tile:focus-within .stock-tile-meta {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stock-tile-meta {
+    transition: none;
+  }
+}
+.stock-tile-title {
+  overflow: hidden;
+  font-size: 0.74rem;
+  color: #fff;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stock-tile-facts {
+  display: flex;
+  gap: var(--space-2);
+  font-size: 0.68rem;
+  color: rgb(255 255 255 / 78%);
+  font-variant-numeric: tabular-nums;
+}
+.stock-tile-creator {
+  overflow: hidden;
+  font-size: 0.68rem;
+  color: rgb(255 255 255 / 62%);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stock-tile-creator a {
+  color: inherit;
+}
+
+.stock-tile-action {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+  opacity: 0;
+  transition: opacity 140ms ease-out;
+}
+.stock-tile:hover .stock-tile-action,
+.stock-tile:focus-visible .stock-tile-action,
+.stock-tile:focus-within .stock-tile-action,
+/* A download in flight stays visible without a hover: the user needs to be able
+   to find its Cancel after moving the mouse away. */
+.stock-tile:has(.stock-progress) .stock-tile-action {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stock-tile-action {
+    transition: none;
+  }
+}
+
+.stock-present {
+  padding: 2px var(--space-1);
+  font-size: 0.68rem;
+  color: #fff;
+  background: rgb(0 0 0 / 55%);
+  border-radius: 4px;
+}
+
+.stock-progress {
+  width: 56px;
+  height: 4px;
+  overflow: hidden;
+  background: rgb(0 0 0 / 55%);
+  border-radius: 2px;
+}
+.stock-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stock-progress-fill {
+    transition: none;
+  }
+}
+.stock-cancel {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  color: #fff;
+  cursor: pointer;
+  background: rgb(0 0 0 / 55%);
+  border: 0;
+  border-radius: 4px;
+}
+
+.stock-tile-error {
+  position: absolute;
+  right: var(--space-1);
+  bottom: var(--space-1);
+  left: var(--space-1);
+  padding: 2px var(--space-1);
+  font-size: 0.68rem;
+  color: #fff;
+  background: var(--danger);
+  border-radius: 4px;
+}
+
+/* Required by the Pexels API guidelines, and rendered in every panel state
+   rather than only where it is convenient. */
+.stock-credit {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--muted-2);
+}
+.stock-credit a {
+  color: var(--muted);
+}
+
+/* Settings → Stock media. The key row's actions sit inline because the control
+   is a state ("Configured") plus its two verbs, not a field with a label. */
+.setting-inline-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.setting-inline-actions .setting-text-input {
+  flex: 1;
+  min-width: 0;
+}
+.stock-quota-figures {
+  font-variant-numeric: tabular-nums;
+}
+.ai-progress-fill[data-tone='warning'] {
+  background: var(--warn, var(--danger));
+}

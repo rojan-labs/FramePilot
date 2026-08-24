@@ -44,7 +44,12 @@ import { EffectsPanel } from './EffectsPanel.js';
 import { OverlaysPanel } from './OverlaysPanel.js';
 import { TransitionsPanel } from './TransitionsPanel.js';
 import { SoundsPanel } from './SoundsPanel.js';
-import { addMusicTrackPatch } from '../editor/patch-builders.js';
+import { StockPanel } from './StockPanel.js';
+import {
+  addMusicTrackPatch,
+  addStockClipPatch,
+  stockPlacementBlockedReason,
+} from '../editor/patch-builders.js';
 import { isDesktop } from '../editor/bridge.js';
 import { Toasts } from './Toasts.js';
 import { HistoryPanel } from './HistoryPanel.js';
@@ -59,6 +64,7 @@ import {
   ChevronRight,
   Folder,
   ICON_SIZE,
+  ImagePlus,
   type LucideIcon,
   Settings,
   SlidersHorizontal,
@@ -103,8 +109,17 @@ export interface EditorProps {
   readonly onCloseTranscription?: () => void;
 }
 
-type LeftTab = 'media' | 'effects' | 'transitions' | 'overlays' | 'captions' | 'sounds';
+type LeftTab = 'media' | 'effects' | 'transitions' | 'overlays' | 'captions' | 'sounds' | 'stock';
 type RightTab = 'ai' | 'inspector';
+
+/**
+ * Length used to test whether a stock clip would fit at the playhead.
+ *
+ * A probe, not a promise: the real clip's duration is only known after the
+ * download. Using a representative few seconds keeps the Add button's enabled
+ * state honest for the common case without blocking on bytes nobody has fetched.
+ */
+const DEFAULT_STOCK_PROBE_SECONDS = 5;
 
 const LEFT_TABS: readonly { id: LeftTab; label: string; icon: LucideIcon }[] = [
   { id: 'media', label: 'Assets', icon: Folder },
@@ -113,18 +128,22 @@ const LEFT_TABS: readonly { id: LeftTab; label: string; icon: LucideIcon }[] = [
   { id: 'overlays', label: 'Text', icon: Type },
   { id: 'captions', label: 'Captions', icon: Captions },
   { id: 'sounds', label: 'Sounds', icon: Music },
+  { id: 'stock', label: 'Stock', icon: ImagePlus },
 ];
+
+/** Tabs that need the main process to reach a third-party provider. */
+const DESKTOP_ONLY_TABS: ReadonlySet<LeftTab> = new Set<LeftTab>(['sounds', 'stock']);
 
 /**
  * The tabs actually shown.
  *
- * Sounds needs the main process to reach a provider — the renderer's CSP forbids
- * it, deliberately — so in a plain browser the tab is **absent** rather than
- * present-and-broken. A tab that opens a panel explaining it cannot work is
- * worse than no tab: it costs a click to learn nothing.
+ * Sounds and Stock need the main process to reach a provider — the renderer's
+ * CSP forbids it, deliberately — so in a plain browser those tabs are **absent**
+ * rather than present-and-broken. A tab that opens a panel explaining it cannot
+ * work is worse than no tab: it costs a click to learn nothing.
  */
 function visibleLeftTabs(): readonly { id: LeftTab; label: string; icon: LucideIcon }[] {
-  return isDesktop() ? LEFT_TABS : LEFT_TABS.filter((tab) => tab.id !== 'sounds');
+  return isDesktop() ? LEFT_TABS : LEFT_TABS.filter((tab) => !DESKTOP_ONLY_TABS.has(tab.id));
 }
 
 const RIGHT_TABS: readonly { id: RightTab; label: string; icon: LucideIcon }[] = [
@@ -407,6 +426,35 @@ export function Editor({
     ),
     [nonPlayheadKey, project],
   );
+  const stockEl = useMemo(() => {
+    // Recomputed with the playhead, because the answer changes as it moves —
+    // the tile must be able to disable Add with a reason *before* the click.
+    const assetById = new Map(project.assets.map((asset) => [asset.id, asset]));
+    return (
+      <StockPanel
+        project={project}
+        placementBlockedReason={stockPlacementBlockedReason(
+          editor.state.timeline,
+          assetById,
+          editor.state.playhead,
+          DEFAULT_STOCK_PROBE_SECONDS,
+        )}
+        onAddStock={(asset) => {
+          const patch = addStockClipPatch(
+            editor.state.timeline,
+            assetById,
+            asset,
+            editor.state.playhead,
+          );
+          // `null` means the playhead moved onto occupied ground while the
+          // download was in flight. The panel already shows the reason; adding
+          // it anywhere else would be worse than not adding it.
+          if (patch) editor.applyPatch(patch);
+        }}
+        {...(onOpenSettings ? { onOpenSettings: () => onOpenSettings('ai') } : {})}
+      />
+    );
+  }, [project, editor.state.playhead, editor.state.timeline, onOpenSettings]);
   const openTransitionLibrary = useCallback(() => setLeftTab('transitions'), []);
   const aiProject = useMemo(
     () => projectForAi(project, editor.state),
@@ -568,6 +616,7 @@ export function Editor({
                 {leftTab === 'effects' && effectsEl}
                 {leftTab === 'transitions' && transitionsEl}
                 {leftTab === 'sounds' && soundsEl}
+                {leftTab === 'stock' && stockEl}
                 {leftTab === 'overlays' && overlaysEl}
                 {leftTab === 'captions' && (
                   <CaptionEditor

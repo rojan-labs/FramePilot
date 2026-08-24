@@ -39,6 +39,13 @@ import type {
   MusicDownloadRequest,
   MusicDownloadResult,
   MusicDownloadProgressWire,
+  StockSearchRequest,
+  StockSearchResult,
+  StockBytesResult,
+  StockDownloadRequest,
+  StockDownloadResult,
+  StockDownloadProgressWire,
+  StockQuotaSnapshot,
 } from '@framepilot/shared-types';
 
 // Re-exported for renderer call-sites and tests that referenced these names.
@@ -64,6 +71,14 @@ export type {
   MusicTrackWire,
   MusicErrorCodeWire,
   MusicDownloadProgressWire,
+  StockItemWire,
+  StockVariantWire,
+  StockMediaKindWire,
+  StockOrientationWire,
+  StockErrorCodeWire,
+  StockDownloadProgressWire,
+  StockQuotaSnapshot,
+  StockQuotaObservationWire,
 } from '@framepilot/shared-types';
 
 /**
@@ -425,4 +440,108 @@ export function onMusicDownloadProgress(
 ): () => void {
   if (!bridge?.onMusicDownloadProgress) return () => {};
   return bridge.onMusicDownloadProgress(callback);
+}
+
+// ---------------------------------------------------------------------------
+// Stock photo & video sourcing (plan/3rd-party-sourcing/photo-video)
+// ---------------------------------------------------------------------------
+
+/**
+ * The "this is desktop-only" answer, shared by every stock helper.
+ *
+ * Reaching a provider needs the main process — the renderer's CSP forbids it,
+ * deliberately. In the browser the Stock tab is absent rather than
+ * present-and-broken, so this is a backstop, not the user-facing path.
+ */
+const STOCK_DESKTOP_ONLY = {
+  ok: false,
+  error: 'provider_unavailable',
+  detail: 'Stock search is only available in the desktop app.',
+} as const;
+
+/** Search the stock provider through the main process. */
+export async function stockSearch(
+  request: StockSearchRequest,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<StockSearchResult> {
+  if (!bridge?.stockSearch) return STOCK_DESKTOP_ONLY;
+  return bridge.stockSearch(request);
+}
+
+/**
+ * Fetch grid-tile bytes for one item.
+ *
+ * Main holds the provider URL; this receives bytes, which the caller wraps in a
+ * `blob:` URL. That is what keeps the provider host out of `connect-src`.
+ */
+export async function stockThumbnail(
+  remoteId: string,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<StockBytesResult> {
+  if (!bridge?.stockThumbnail) return STOCK_DESKTOP_ONLY;
+  return bridge.stockThumbnail(remoteId);
+}
+
+/** Fetch the low-res rendition used for hover preview and scrubbing. */
+export async function stockPreview(
+  remoteId: string,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<StockBytesResult> {
+  if (!bridge?.stockPreview) return STOCK_DESKTOP_ONLY;
+  return bridge.stockPreview(remoteId);
+}
+
+/** Download one rendition into the project's media folder. */
+export async function stockDownload(
+  request: StockDownloadRequest,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<StockDownloadResult> {
+  if (!bridge?.stockDownload) {
+    return {
+      ok: false,
+      error: 'download_failed',
+      detail: 'Downloading stock media is only available in the desktop app.',
+    };
+  }
+  return bridge.stockDownload(request);
+}
+
+/** Cancel an in-flight download. No-op without a bridge. */
+export function stockDownloadCancel(
+  operationId: string,
+  bridge: RendererBridge | null = getBridge(),
+): void {
+  bridge?.stockDownloadCancel?.(operationId);
+}
+
+/**
+ * Subscribe to download progress. A no-op returning a no-op outside the desktop
+ * shell, so callers need no environment check.
+ */
+export function onStockDownloadProgress(
+  listener: (message: StockDownloadProgressWire) => void,
+  bridge: RendererBridge | null = getBridge(),
+): () => void {
+  return bridge?.onStockDownloadProgress?.(listener) ?? (() => undefined);
+}
+
+/** Read the last observed provider quota. Never triggers a provider request. */
+export async function stockQuota(
+  bridge: RendererBridge | null = getBridge(),
+): Promise<StockQuotaSnapshot> {
+  if (!bridge?.stockQuota) return { kind: 'no_key' };
+  return bridge.stockQuota();
+}
+
+/**
+ * Subscribe to quota changes, pushed by main on every observation.
+ *
+ * Pushed rather than polled: the quota only moves when *we* make a request, so
+ * an interval would be both wasteful and staler than the event it replaced.
+ */
+export function onStockQuotaChanged(
+  listener: (snapshot: StockQuotaSnapshot) => void,
+  bridge: RendererBridge | null = getBridge(),
+): () => void {
+  return bridge?.onStockQuotaChanged?.(listener) ?? (() => undefined);
 }

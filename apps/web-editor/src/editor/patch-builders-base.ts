@@ -1515,6 +1515,151 @@ export function placeAssetPatch(
   };
 }
 
+/** Kinds that flow through the preview's single picture chain. */
+const PICTURE_KINDS: ReadonlySet<ClipKind> = new Set<ClipKind>(['video', 'image']);
+
+/**
+ * Does anything already occupy the picture chain over `[start, end)`?
+ *
+ * The check is across **every** track rather than per-layer, because the preview
+ * flattens picture clips from all of them into one time-ordered sequence
+ * (`selectors.ts`) while the export composites them properly
+ * (`render/compiler.py`, `_blend_layer_over`). Overlap in *time* is what makes
+ * the two disagree; which layer the clips sit on does not enter into it.
+ */
+export function picturePlacementConflict(
+  timeline: Timeline,
+  assetById: ReadonlyMap<string, Asset>,
+  start: number,
+  end: number,
+): boolean {
+  for (const track of timeline.tracks) {
+    for (const clip of track.clips) {
+      if (!PICTURE_KINDS.has(clipKind(clip, assetById))) continue;
+      if (clip.start < end && start < clip.end) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Add a fetched stock photo/video to the bin AND place it, as **one** patch —
+ * or refuse, when placing it would make the preview disagree with the export.
+ *
+ * ## Why this can return `null`, and why that is the feature
+ *
+ * The preview is a single-picture-layer engine and the export is not, so a stock
+ * clip laid over existing footage would show one thing on screen and render
+ * another — the divergence documented as blocker #1 in
+ * `plan/SCENE-UNDERSTANDING-AND-COMPOSITING.md` §0.2, which `SUC-P1` exists to
+ * close.
+ *
+ * {@link placeAssetPatch} resolves that case by creating a new front layer, and
+ * that is right for a file the user dragged in themselves: they chose to stack,
+ * and they can see what they did. It is wrong for a one-click **Add** in a search
+ * panel, where the user asked for "put this here" and has no reason to suspect
+ * the result is unpreviewable.
+ *
+ * Note what this does **not** refuse: placing into empty time. A clip that
+ * overlaps nothing composites identically either way, so a fresh layer is
+ * created exactly as `placeAssetPatch` would — otherwise the first photo added
+ * to an empty timeline would be rejected for conflicting with nothing.
+ *
+ * One patch, not two, because the user did one thing: its inverse removes the
+ * clip and the asset together, so a single undo leaves the project exactly as it
+ * was. The file stays on disk — non-destructive invariant 1 — and can be
+ * re-placed from the bin.
+ *
+ * @param timeline - Current timeline.
+ * @param assetById - Asset lookup, for deriving existing clips' kinds.
+ * @param asset - The downloaded stock asset.
+ * @param atStart - Desired timeline start (seconds); clamped to >= 0.
+ * @returns One patch, or `null` when the span is already occupied by picture media.
+ */
+export function addStockClipPatch(
+  timeline: Timeline,
+  assetById: ReadonlyMap<string, Asset>,
+  asset: Asset,
+  atStart: number,
+): Patch | null {
+  const start = atStart < 0 ? 0 : atStart;
+  // A photo has no duration of its own, so it takes the same default length a
+  // dragged-in still gets. The user trims it afterwards; there is no separate
+  // "still duration" setting to keep in sync.
+  const duration = asset.durationSeconds ?? DEFAULT_CLIP_SECONDS;
+  const end = start + duration;
+
+  if (picturePlacementConflict(timeline, assetById, start, end)) return null;
+
+  const kind = assetKind(asset);
+  const target = timeline.tracks.find(
+    (t) => layerKind(t, assetById) === kind && hasRoomFor(t, start, end),
+  );
+
+  if (target) {
+    return {
+      patchId: patchId(`addstock_${asset.id}_${target.id}_${ms(start)}`),
+      createdBy: 'user',
+      reason: `Add stock ${kind} "${asset.id}" at ${start.toFixed(2)}s`,
+      operations: [
+        { type: 'add_asset', asset },
+        {
+          type: 'add_clip',
+          trackId: target.id,
+          assetId: asset.id,
+          // Deterministic, so an agent-placed clip and a hand-placed one are
+          // indistinguishable — including to a later op that names the clip.
+          clipId: `${target.id}_${asset.id}_clip`,
+          start,
+          end,
+          sourceStart: 0,
+          sourceEnd: duration,
+        },
+      ],
+    };
+  }
+
+  const layerType = layerTypeForKind(kind);
+  const layerId = nextLayerId(timeline, layerType);
+  return {
+    patchId: patchId(`addstock_${asset.id}_${layerId}_${ms(start)}`),
+    createdBy: 'user',
+    reason: `Add stock ${kind} "${asset.id}" on a new layer at ${start.toFixed(2)}s`,
+    operations: [
+      { type: 'add_asset', asset },
+      { type: 'add_layer', layerId, layerType, atIndex: 0 },
+      {
+        type: 'add_clip',
+        trackId: layerId,
+        assetId: asset.id,
+        clipId: `${layerId}_clip`,
+        start,
+        end,
+        sourceStart: 0,
+        sourceEnd: duration,
+      },
+    ],
+  };
+}
+
+/**
+ * Why {@link addStockClipPatch} would refuse, in a form the UI can render.
+ *
+ * Split out so the panel can disable **Add** with a reason *before* the user
+ * clicks, rather than letting them click and then explaining. Shares the
+ * predicate with the builder, so the two cannot disagree.
+ */
+export function stockPlacementBlockedReason(
+  timeline: Timeline,
+  assetById: ReadonlyMap<string, Asset>,
+  atStart: number,
+  durationSeconds: number,
+): string | null {
+  const start = atStart < 0 ? 0 : atStart;
+  if (!picturePlacementConflict(timeline, assetById, start, start + durationSeconds)) return null;
+  return "There's already footage at the playhead — move the playhead, or make a gap.";
+}
+
 // ---------------------------------------------------------------------------
 // Media-bin (project-scoped) builders — assets & folders (schema v3, ADR 0026)
 //
