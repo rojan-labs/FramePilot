@@ -52,6 +52,17 @@ export default function PrivacyPage() {
           offline. Your media is never sent anywhere as part of this.
         </p>
 
+        <h2>Stock photos &amp; video</h2>
+        <p>
+          If you search for stock media, only the words you type are sent to{' '}
+          <a href="https://www.pexels.com" target="_blank" rel="noopener noreferrer">
+            Pexels
+          </a>
+          , using an API key you supply — nothing from your project, and no identifier we add.
+          Files you add are downloaded to your device and become ordinary project files, so the
+          project keeps working offline. Your own media is never sent anywhere as part of this.
+        </p>
+
         <h2>Licensing &amp; payments</h2>
         <p>
           Purchases and license management are handled by our merchant of record,{' '}

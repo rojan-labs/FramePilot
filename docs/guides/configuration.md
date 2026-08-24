@@ -117,11 +117,12 @@ providers above (vLLM, LM Studio, llama.cpp, LiteLLM, a local proxy).
 
 ## Media intelligence and embeddings
 
-| Variable                            | Purpose                                                                                                                                                             |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FRAMEPILOT_NVIDIA_EMBEDDINGS_KEYS` | Comma-separated NVIDIA keys for hosted visual embeddings with rotate-on-failure behavior. Separate from the chat key.                                               |
-| `FRAMEPILOT_EMBEDDINGS_MODEL_DIR`   | Local ONNX model and tokenizer directory for optional text similarity. Missing configuration degrades to keyword search.                                            |
-| `TWELVELABS_API_KEY`                | TwelveLabs credential when the supported hosted media-understanding backend is enabled. It may be stored through Settings rather than the example environment file. |
+| Variable                            | Purpose                                                                                                                                                                                                                                                                        |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `FRAMEPILOT_NVIDIA_EMBEDDINGS_KEYS` | Comma-separated NVIDIA keys for hosted visual embeddings with rotate-on-failure behavior. Separate from the chat key.                                                                                                                                                          |
+| `FRAMEPILOT_EMBEDDINGS_MODEL_DIR`   | Local ONNX model and tokenizer directory for optional text similarity. Missing configuration degrades to keyword search.                                                                                                                                                       |
+| `TWELVELABS_API_KEY`                | TwelveLabs credential when the supported hosted media-understanding backend is enabled. It may be stored through Settings rather than the example environment file.                                                                                                            |
+| `PEXELS_API_KEY`                    | Pexels credential for stock photo and video search (Settings → AI → Stock media). Free and instant from pexels.com/api. Usually stored through Settings; this variable is a fallback for headless setups. Only your search text is sent — see `docs/guides/stock-sourcing.md`. |
 
 Hosted visual embeddings and media understanding can send sampled frames, audio, or other
 selected media data to the configured service. Treat credential configuration as explicit

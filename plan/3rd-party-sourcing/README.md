@@ -13,17 +13,18 @@ later agent does not read the omission as an oversight.
 
 ## Files
 
-| File                                                                       | What it holds                                                                  |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `README.md` (this)                                                         | Decision record, scope gate, current state, sequencing                         |
-| [`PROVIDERS.md`](./PROVIDERS.md)                                           | Provider research with sources, and the recommendation                         |
-| [`CONTRACTS.md`](./CONTRACTS.md)                                           | Typed contracts: provider interface, IPC wire, error taxonomy, UI state matrix |
-| [`PHASE-0-provider-agreement.md`](./PHASE-0-provider-agreement.md)         | Commercial-use gate — the one thing that must clear before shipping            |
-| [`PHASE-1-provenance-schema.md`](./PHASE-1-provenance-schema.md)           | Asset provenance, schema v20, credits surface                                  |
-| [`PHASE-2-search-and-audition.md`](./PHASE-2-search-and-audition.md)       | Search + preview, no download                                                  |
-| [`PHASE-3-download-and-place.md`](./PHASE-3-download-and-place.md)         | Download → asset → timeline → export                                           |
-| [`PHASE-4-agent-tool.md`](./PHASE-4-agent-tool.md)                         | `search_music` / `add_music` for Agent mode + MCP                              |
-| [`DEFERRED-stock-footage-and-sfx.md`](./DEFERRED-stock-footage-and-sfx.md) | What is out of scope and the conditions that would change that                 |
+| File                                                                       | What it holds                                                                   |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `README.md` (this)                                                         | Decision record, scope gate, current state, sequencing                          |
+| [`PROVIDERS.md`](./PROVIDERS.md)                                           | Provider research with sources, and the recommendation                          |
+| [`CONTRACTS.md`](./CONTRACTS.md)                                           | Typed contracts: provider interface, IPC wire, error taxonomy, UI state matrix  |
+| [`PHASE-0-provider-agreement.md`](./PHASE-0-provider-agreement.md)         | Commercial-use gate — the one thing that must clear before shipping             |
+| [`PHASE-1-provenance-schema.md`](./PHASE-1-provenance-schema.md)           | Asset provenance, schema v20, credits surface                                   |
+| [`PHASE-2-search-and-audition.md`](./PHASE-2-search-and-audition.md)       | Search + preview, no download                                                   |
+| [`PHASE-3-download-and-place.md`](./PHASE-3-download-and-place.md)         | Download → asset → timeline → export                                            |
+| [`PHASE-4-agent-tool.md`](./PHASE-4-agent-tool.md)                         | `search_music` / `add_music` for Agent mode + MCP                               |
+| [`DEFERRED-stock-footage-and-sfx.md`](./DEFERRED-stock-footage-and-sfx.md) | What is out of scope and the conditions that would change that                  |
+| [`photo-video/`](./photo-video/README.md)                                  | **Stock photo & video (Pexels)** — the reopened stock slice, shipped 2026-08-24 |
 
 ---
 
@@ -72,6 +73,12 @@ Two things stay refused regardless of provider, because no badge can make them s
 ### D3 — Stock video and SFX are deferred, not planned-and-postponed
 
 No phase, no schema, no tool. See `DEFERRED-stock-footage-and-sfx.md`.
+
+> **Superseded in part on 2026-08-24.** Stock photo and video were **reopened by
+> maintainer decision** and are now shipped on Pexels — see
+> [`photo-video/README.md`](./photo-video/README.md). They needed no schema
+> change: `Asset.source` (v20) is already kind-agnostic. **SFX remains deferred**,
+> unchanged.
 
 ### D4 — Build on Openverse, ship on Epidemic Sound
 

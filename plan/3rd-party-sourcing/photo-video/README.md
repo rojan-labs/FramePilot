@@ -1,4 +1,4 @@
-# Stock photo & video sourcing (Pexels) — `[ ]` not started
+# Stock photo & video sourcing (Pexels) — `[~]` shipped · one evidence run outstanding
 
 > **Sub-plan index.** Created 2026-08-24. Owner: maintainer.
 > Parent: [`plan/3rd-party-sourcing/README.md`](../README.md) → third-party media sourcing.
@@ -271,12 +271,47 @@ Not "the search returns results." The bar (`product-discipline.mdc` §4, §8):
 
 ## 7. Task ledger
 
-- [ ] **P0** API key custody + live quota surface in Settings
-- [ ] **P1** Pexels adapter — photos and videos, one file, fixtures from a live response
-- [ ] **P2** Stock panel — search, grid, hover preview, Pexels attribution link
-- [ ] **P3** Download → asset → cutaway placement → export
-- [ ] **P4** `search_stock` / `add_stock` + MCP parity, token delta measured
-- [ ] **P5** Docs closure: ADRs, guide, `.env.example` + `turbo.json`, the reversal note in
-      `../DEFERRED-stock-footage-and-sfx.md`, `CHANGELOG.md`, and the two evidence runs
+- [x] **P0** API key custody + live quota surface in Settings. Write-only key
+      (`pexelsReady` only crosses the bridge), `StockQuotaStore` with the four honest
+      states, `PEXELS_API_KEY` in **both** `.env.example` and `turbo.json`. ADR 0141.
+- [x] **P1** Pexels adapter — one file, two endpoints, `chooseVariant`, quota observed
+      per response. **One divergence:** the shared `provider-errors.ts` extraction was
+      **abandoned** at its own stop condition — the sentences diverge per provider, so
+      two small closed unions beat one leaky shared one. Recorded in `stock-types.ts`.
+      **Fixtures are documentation-shaped, not live** — see the caveat below.
+- [x] **P2** Stock panel — search, grid, hover preview **with cursor scrubbing**, the
+      Pexels link in every state.
+- [x] **P3** Download → asset → cutaway placement → export. Credits gains a
+      **Suggested** group. ADR 0140.
+- [x] **P4** `search_stock` / `add_stock`, parity green across TS ↔ Python ↔ MCP,
+      digests written, b-roll skill extended. **Token delta measured: 16,626 → 17,041
+      = +415 per request**, recorded in the frozen golden manifests.
+- [x] **P5** Docs closure: ADR 0140 + ADR 0141, `docs/guides/stock-sourcing.md`,
+      configuration + settings guides, privacy page, the reversal note in
+      `../DEFERRED-stock-footage-and-sfx.md`, `CHANGELOG.md`.
+- [ ] **P5.5** **The real-media evidence runs.** OUTSTANDING — see below.
+
+## What is left, precisely
+
+Two things, and they are the same kind of thing — **a human, a desktop build, a
+Pexels key, and real footage**. Neither can be produced from inside the
+repository, and no volume of green unit tests substitutes for either
+(`product-discipline.mdc` §8).
+
+1. **Run A (P3.8)** — a real 5–15 minute recording: search → hover-scrub → download
+   a clip → place as a cutaway → export → **watch it**; repeat with a photo; confirm
+   the Settings quota moved by exactly the number of searches made and that the reset
+   date matches the provider; confirm Add is refused with its reason over occupied
+   time; reopen offline.
+2. **Run B (P4.6)** — the same footage, driven by _"add an establishing shot of a city
+   skyline before the intro"_, plus the no-key run and the blocked-placement run,
+   both of which must fail honestly.
+
+**Plus one correction that needs the same key: the adapter fixtures.** They were
+written from the published API documentation because CI has no Pexels key. Every
+asserted field is one the docs name explicitly, but the plan's own bar was a
+**verbatim live response**, as the Openverse adapter used. Capture one during Run A,
+replace the fixtures, and answer `PEXELS-API.md` §5's five open questions in that
+file. Until then, treat the response shape as documented-not-observed.
 
 **Last updated:** 2026-08-24

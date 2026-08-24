@@ -8,6 +8,30 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Stock photos and video, without leaving the editor.** A new **Stock** tab searches Pexels
+  for a shot you don't have and puts it straight on the timeline. Hover a video tile to preview
+  it, then move your cursor across the tile to scrub through the clip — left edge to right edge
+  is start to end — so you can reach the exact moment you're judging instead of waiting for a
+  loop. FramePilot downloads the smallest version that still covers your project's resolution,
+  which is usually the difference between a 24 MB file and a 400 MB one, and stores it with the
+  project so it keeps working offline. Bring your own free Pexels key (Settings → AI → Stock
+  media); only the words you type leave your machine. The AI agent can use it too, via
+  "add an establishing shot of a city skyline". Note one deliberate limit: stock can't yet sit
+  on top of existing footage, because the preview shows one picture layer at a time while the
+  export composites them — so it's placed in empty stretches of the timeline, and the panel
+  tells you when the playhead is occupied rather than producing a clip that would export
+  differently from what you saw. (`apps/web-editor`, `apps/desktop`, `packages/ai-sdk`,
+  `packages/editor-core`, ADR 0140, ADR 0141)
+- **Your provider quota, where you can see it.** Settings shows how many Pexels requests you
+  have left this month, when the window resets, and when FramePilot last saw those numbers. It
+  never guesses: before your first search it says so plainly rather than showing a full bar, and
+  because Pexels doesn't report its hourly limit, an hourly cutoff appears as its own line
+  beside the monthly figures instead of contradicting them. (`apps/desktop`, `apps/web-editor`)
+- **Credits now separates required from suggested.** A CC-BY music track has to be credited;
+  a Pexels photo doesn't, but the photographer would like to be. The export dialog lists both,
+  each with its own one-click copy, so the badge that means "you must" keeps meaning it.
+  (`apps/web-editor/src/components/CreditsSection.tsx`)
+
 - **The AI can now really track a subject — through an installed CV pack.** Asking the agent to
   follow a subject used to fall back to interpolating whatever mask motion you drew by hand, and
   face/object detection answered "unavailable". There is now a real path: with the Tracking Lite

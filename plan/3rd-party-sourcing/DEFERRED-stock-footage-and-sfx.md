@@ -1,4 +1,4 @@
-# Deferred: stock footage and SFX — `[ ]` not planned
+# Deferred: stock footage and SFX — `[~]` stock video REOPENED · SFX still deferred
 
 > Written so a later agent reads these omissions as **decisions**, not oversights, and so the
 > conditions that would reopen them are explicit rather than a matter of taste.
@@ -8,7 +8,20 @@ Here is why, and what would change it.
 
 ---
 
-## Stock video / B-roll — deferred
+## Stock video / B-roll — ~~deferred~~ **REOPENED 2026-08-24**
+
+> **Reopened by maintainer decision on 2026-08-24 and now SHIPPED** — see
+> [`photo-video/README.md`](./photo-video/README.md), which records which of the
+> four reasons below still hold.
+>
+> In short: reason **1** (often the wrong edit for this niche) is unchanged and is
+> carried into the tool description and the b-roll skill. Reason **2** is
+> materially reduced, because the music slice built the download/materialize/place
+> pipeline. Reason **3** was overridden. Reason **4** — `SUC-P1`, the
+> single-picture-layer preview — **still holds**, and it is why stock media is
+> placed as a non-overlapping cutaway rather than an overlay (ADR 0140).
+>
+> The reasons below are kept, not deleted: three of them still constrain the work.
 
 ### Why
 
@@ -51,7 +64,7 @@ consumer in hand — not now** (`product-discipline.mdc` §5).
 
 ---
 
-## SFX — deferred
+## SFX — deferred (unchanged)
 
 ### Why
 

@@ -544,17 +544,20 @@ describe('download', () => {
   });
 
   it('leaves no temp and no final file when cancelled mid-stream', async () => {
-    let service!: StockService;
+    // A holder, because the fetch stub has to reach the service that is built
+    // from it — the cancel must fire while the request is genuinely in flight.
+    const ref: { current?: StockService } = {};
     const fetchImpl = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
       // Cancel once the request is in flight, the way the panel's Cancel does.
-      queueMicrotask(() => service.cancelDownload('op1'));
+      queueMicrotask(() => ref.current?.cancelDownload('op1'));
       await new Promise((resolve) => setTimeout(resolve, 5));
       if (init.signal?.aborted) {
         throw Object.assign(new Error('aborted'), { name: 'AbortError' });
       }
       return bytesResponse(body);
     });
-    service = await seeded(fetchImpl);
+    const service = await seeded(fetchImpl);
+    ref.current = service;
 
     const result = await service.download({
       projectId: PROJECT_ID,

@@ -99,6 +99,8 @@ const TOOL_META: Record<string, ToolMeta> = {
   // in the words the person watching would use.
   search_music: { label: 'Search for music', Icon: Music },
   add_music: { label: 'Add background music', Icon: Music },
+  search_stock: { label: 'Search stock media', Icon: ImagePlus },
+  add_stock: { label: 'Add a stock shot', Icon: ImagePlus },
   find_similar: { label: 'Find similar', Icon: Sparkles },
   search_visual: { label: 'Search visual evidence', Icon: Search },
   describe_footage: { label: 'Describe footage', Icon: Film },

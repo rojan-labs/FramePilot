@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 20717,
+      "usedTokens": 20723,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -134,7 +134,7 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1766,
+            "tokenEstimate": 1772,
             "included": true
           },
           {
@@ -148,9 +148,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 20717,
+          "estimatedInputTokensBeforeSend": 20723,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 171091,
+          "estimatedRemainingCapacity": 171085,
           "calculationSource": "local_estimate"
         },
         "compaction": {
