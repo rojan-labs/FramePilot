@@ -123,18 +123,30 @@ export function loadSettings(): EditorSettings {
   }
 }
 
-function saveSettings(settings: EditorSettings): void {
+function saveSettings(settings: EditorSettings): boolean {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    return true;
   } catch {
-    /* Storage may be unavailable. Settings still apply in this session. */
+    /* Storage may be unavailable (quota, privacy mode). The caller owns telling
+       the user — a toggle that silently didn't persist is a silent lie. */
+    return false;
   }
 }
+
+/** Why a settings change could not be persisted. Typed so UI can label it. */
+export type SettingsPersistenceError = 'save-failed';
 
 export interface SettingsContextValue {
   readonly settings: EditorSettings;
   readonly update: (patch: EditorSettingsUpdate) => void;
   readonly reset: () => void;
+  /**
+   * Set when the last change could not be persisted: state was reverted and the
+   * user should be told why their toggle "didn't take". Cleared on the next
+   * successful save.
+   */
+  readonly persistenceError: SettingsPersistenceError | null;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -156,6 +168,7 @@ export interface SettingsProviderProps {
 
 export function SettingsProvider({ children }: SettingsProviderProps): JSX.Element {
   const [settings, setSettings] = useState<EditorSettings>(() => loadSettings());
+  const [persistenceError, setPersistenceError] = useState<SettingsPersistenceError | null>(null);
 
   // Apply density/theme before the browser paints so switching to the light
   // editor does not flash the shared dark defaults for one frame on startup.
@@ -166,19 +179,29 @@ export function SettingsProvider({ children }: SettingsProviderProps): JSX.Eleme
   const update = useCallback((patch: EditorSettingsUpdate): void => {
     setSettings((current) => {
       const next = mergeSettings({ ...current, ...patch });
-      saveSettings(next);
-      return next;
+      // Persist-first: if the save fails, keep the old state (revert) instead of
+      // showing a toggle that lies about what will survive a reload.
+      if (saveSettings(next)) {
+        setPersistenceError(null);
+        return next;
+      }
+      setPersistenceError('save-failed');
+      return current;
     });
   }, []);
 
   const reset = useCallback((): void => {
-    saveSettings(DEFAULT_SETTINGS);
+    if (saveSettings(DEFAULT_SETTINGS)) {
+      setPersistenceError(null);
+    } else {
+      setPersistenceError('save-failed');
+    }
     setSettings(DEFAULT_SETTINGS);
   }, []);
 
   const value = useMemo<SettingsContextValue>(
-    () => ({ settings, update, reset }),
-    [settings, update, reset],
+    () => ({ settings, update, reset, persistenceError }),
+    [settings, update, reset, persistenceError],
   );
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
@@ -192,4 +215,5 @@ const FALLBACK_VALUE: SettingsContextValue = {
   settings: DEFAULT_SETTINGS,
   update: () => {},
   reset: () => {},
+  persistenceError: null,
 };
