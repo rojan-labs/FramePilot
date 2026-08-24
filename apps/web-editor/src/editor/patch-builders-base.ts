@@ -1570,6 +1570,10 @@ export function addMusicTrackPatch(timeline: Timeline, asset: Asset, atStart = 0
         type: 'add_clip',
         trackId: layerId,
         assetId: asset.id,
+        // Same deterministic id the agent path uses (`music-placement.ts`), so an
+        // agent-placed bed and a hand-placed one stay indistinguishable — including
+        // by a later adjust_audio that names the clip.
+        clipId: `${layerId}_clip`,
         start,
         end: start + duration,
         sourceStart: 0,

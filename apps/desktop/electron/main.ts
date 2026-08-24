@@ -1775,9 +1775,14 @@ function registerIpcHandlers(): void {
    */
   const hostAddMusic = async (
     project: Project,
-    remoteId: string,
+    args: {
+      readonly remoteId: string;
+      readonly atSeconds?: number;
+      readonly duckUnderTrackId?: string;
+    },
     _signal?: AbortSignal,
   ): Promise<HostToolOutcome> => {
+    const { remoteId, atSeconds, duckUnderTrackId } = args;
     if (remoteId.trim() === '') {
       return {
         status: 'failed',
@@ -1810,6 +1815,10 @@ function registerIpcHandlers(): void {
           ...(asset.media ? { media: asset.media } : {}),
           source: asset.source,
         },
+        // Echoed back so the ORCHESTRATOR owns the placement decision; this
+        // function still produces no timeline change of its own.
+        ...(atSeconds === undefined ? {} : { atSeconds }),
+        ...(duckUnderTrackId === undefined ? {} : { duckUnderTrackId }),
       },
     };
   };

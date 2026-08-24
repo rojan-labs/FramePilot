@@ -184,7 +184,6 @@ function statusToError(status: number, retryAfter: string | null): MusicProvider
       retryAfter ? `retry after ${retryAfter}` : undefined,
     );
   }
-  if (status >= 500) return new MusicProviderError('provider_unavailable', `HTTP ${status}`);
   return new MusicProviderError('provider_unavailable', `HTTP ${status}`);
 }
 

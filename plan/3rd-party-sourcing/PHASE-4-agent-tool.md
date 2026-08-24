@@ -32,9 +32,11 @@ search_music(query, limit?)   → read/analysis. Returns normalized tracks.
 add_music(remoteId, atSeconds?, duckUnderTrackId?)
                               → host action → downloads, then returns the SAME
                                 add_asset + add_layer + add_clip operations the
-                                manual path builds — including Asset.source, so an
-                                agent-added track carries its credit exactly as a
-                                hand-added one does.
+                                manual path builds — plus an adjust_audio duck
+                                (−12 dB) when duckUnderTrackId names a track with
+                                clips. Includes Asset.source, so an agent-added
+                                track carries its credit exactly as a hand-added
+                                one does.
 ```
 
 **`add_music` returns operations, not a mutation** (AGENTS.md invariant 5). The download is

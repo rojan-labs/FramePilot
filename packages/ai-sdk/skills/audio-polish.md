@@ -55,7 +55,7 @@ Identify the dominant voice → match dialogue clips → set the bed → create 
 
 ## Common mistakes
 
-Boosting everything, ducking every breath, abrupt one-frame level steps, deleting scratch sources, claiming clean audio without listening, adding a bed and leaving it undducked over speech, or placing a credit-required track without saying so.
+Boosting everything, ducking every breath, abrupt one-frame level steps, deleting scratch sources, claiming clean audio without listening, adding a bed and leaving it unducked over speech, or placing a credit-required track without saying so.
 
 ## Verification checklist
 

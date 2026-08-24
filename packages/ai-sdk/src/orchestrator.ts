@@ -13,7 +13,12 @@
  */
 import { type AnyOperation, applyProjectPatch } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
-import { MusicAssetPayloadSchema, buildAddMusicOps } from './music-placement.js';
+import {
+  DEFAULT_DUCK_DB,
+  MusicAssetPayloadSchema,
+  buildAddMusicOps,
+  musicDuckSidechainIssue,
+} from './music-placement.js';
 import {
   TranscriptWordSchema,
   type Asset,
@@ -2630,8 +2635,17 @@ export class Orchestrator {
             'Rejected "add_music" — the download did not return a usable audio asset, so nothing was placed.';
           return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
         }
-        const { asset, atSeconds } = parsed.data;
-        const ops = buildAddMusicOps(ctx.project, asset, atSeconds);
+        const { asset, atSeconds, duckUnderTrackId } = parsed.data;
+        // A duck at a track that does not exist (or has no clips) would validate
+        // cleanly and then render as NO duck — the bed plays full level while the
+        // model reports it dropped under the voice. Fail with the specific
+        // sentence instead of letting that through.
+        const duckIssue = musicDuckSidechainIssue(ctx.project, duckUnderTrackId);
+        if (duckIssue !== null) {
+          const note = `Rejected "add_music" — ${duckIssue}`;
+          return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
+        }
+        const ops = buildAddMusicOps(ctx.project, asset, atSeconds, duckUnderTrackId);
         const probe = assembleEdit(ctx.project, ops, 'Add background music', 'agent');
         if (!probe.validation.valid) {
           const problems = probe.validation.issues
@@ -2646,9 +2660,15 @@ export class Orchestrator {
         const creditNote = asset.source.attributionRequired
           ? ` This track requires crediting ${asset.source.creator ?? 'its creator'} — the credit is saved with the project and appears under Export → Credits.`
           : ' This track needs no credit.';
+        // Say what was actually authored, so the model never narrates a duck that
+        // did not happen.
+        const duckNote =
+          duckUnderTrackId === undefined
+            ? ''
+            : ` The bed ducks ${String(DEFAULT_DUCK_DB)} dB under "${duckUnderTrackId}".`;
         return {
           ops,
-          note: `${outcome.summary}${creditNote}`,
+          note: `${outcome.summary}${creditNote}${duckNote}`,
           summary: outcome.summary,
           status: 'completed',
           project: applyProjectPatch(ctx.project, probe.patch),

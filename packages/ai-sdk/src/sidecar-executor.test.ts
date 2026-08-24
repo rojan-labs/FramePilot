@@ -960,6 +960,49 @@ describe('visual grounding (MI6.1)', () => {
       expect(seen).toEqual({ query: 'calm piano', limit: 5 });
     });
 
+    it('forwards every declared add_music placement argument to the host', async () => {
+      // `atSeconds` and `duckUnderTrackId` are advertised on the tool and in the
+      // skill text. Accepting them and then dropping them here would place a
+      // full-gain bed at 0 s while the run reported it placed and ducked.
+      let seen: Record<string, unknown> | null = null;
+      const executor = createSidecarExecutor({
+        baseUrl: 'http://x',
+        fetchFn: fetchStub({ ok: true, json: {} }),
+        hostAddMusic: async (_project, args) => {
+          seen = { ...args };
+          return { status: 'completed', summary: 'ok', data: {} };
+        },
+      });
+      await executor.run(
+        call('add_music', {
+          remoteId: 'ov-1',
+          atSeconds: 12,
+          duckUnderTrackId: 'dialogue_1',
+        }),
+        ctx,
+      );
+      expect(seen).toEqual({ remoteId: 'ov-1', atSeconds: 12, duckUnderTrackId: 'dialogue_1' });
+    });
+
+    it('omits absent or out-of-contract placement arguments rather than passing junk', async () => {
+      // A negative start is clamped to 0 (both builders clamp anyway); a blank
+      // sidechain is "not requested", not a duck under "".
+      let seen: Record<string, unknown> | null = null;
+      const executor = createSidecarExecutor({
+        baseUrl: 'http://x',
+        fetchFn: fetchStub({ ok: true, json: {} }),
+        hostAddMusic: async (_project, args) => {
+          seen = { ...args };
+          return { status: 'completed', summary: 'ok', data: {} };
+        },
+      });
+      await executor.run(
+        call('add_music', { remoteId: 'ov-1', atSeconds: -3, duckUnderTrackId: '   ' }),
+        ctx,
+      );
+      expect(seen).toEqual({ remoteId: 'ov-1', atSeconds: 0 });
+    });
+
     it("surfaces the host's own failure sentence rather than a generic one", async () => {
       // A user told only "something went wrong" cannot tell a rate limit from an
       // outage — and the model would retry the one case where retrying is wrong.

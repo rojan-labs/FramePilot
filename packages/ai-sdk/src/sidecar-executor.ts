@@ -192,13 +192,17 @@ export interface SidecarExecutorOptions {
   ) => Promise<HostToolOutcome>;
   /**
    * Host-side `add_music`: download the track, materialize it, and hand back the
-   * asset. The orchestrator turns that into the SAME reversible operations the
-   * Sounds panel builds by hand — the host does the side effect, never the edit
-   * (AGENTS.md invariant 5).
+   * asset plus whatever placement the model asked for. The orchestrator turns
+   * that into the SAME reversible operations the Sounds panel builds by hand —
+   * the host does the side effect, never the edit (AGENTS.md invariant 5).
    */
   readonly hostAddMusic?: (
     project: Project,
-    remoteId: string,
+    args: {
+      readonly remoteId: string;
+      readonly atSeconds?: number;
+      readonly duckUnderTrackId?: string;
+    },
     signal?: AbortSignal,
   ) => Promise<HostToolOutcome>;
 }
@@ -1078,10 +1082,34 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
               'Adding music is not available on this surface — it runs in the FramePilot desktop app.',
           };
         }
+        // Every declared parameter is forwarded. Dropping `atSeconds` or
+        // `duckUnderTrackId` here would accept the model's instruction and then
+        // silently ignore it — a bed at 0 s, full gain, reported as ducked.
         const remoteId =
           typeof call.arguments?.remoteId === 'string' ? call.arguments.remoteId : '';
+        const rawAtSeconds =
+          typeof call.arguments?.atSeconds === 'number' ? call.arguments.atSeconds : undefined;
+        // A negative start is out of the tool's contract; both builders clamp to
+        // 0 anyway, so clamp here rather than failing the whole download for it.
+        const atSeconds = rawAtSeconds === undefined ? undefined : Math.max(0, rawAtSeconds);
+        const rawDuckUnderTrackId =
+          typeof call.arguments?.duckUnderTrackId === 'string'
+            ? call.arguments.duckUnderTrackId
+            : undefined;
+        const duckUnderTrackId =
+          rawDuckUnderTrackId !== undefined && rawDuckUnderTrackId.trim() !== ''
+            ? rawDuckUnderTrackId.trim()
+            : undefined;
         log.action('run → host music download', { tool: call.name });
-        return await options.hostAddMusic(ctx.project, remoteId, signal);
+        return await options.hostAddMusic(
+          ctx.project,
+          {
+            remoteId,
+            ...(atSeconds === undefined ? {} : { atSeconds }),
+            ...(duckUnderTrackId === undefined ? {} : { duckUnderTrackId }),
+          },
+          signal,
+        );
       }
       if (call.name === 'measure_color') {
         const clipId = typeof call.arguments.clipId === 'string' ? call.arguments.clipId : '';
