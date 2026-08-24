@@ -67,7 +67,10 @@ interface PackJobSuccess {
   readonly result: CapabilityPackWorkerResult;
   readonly engine: string;
 }
-type PackJobFailureOutcome = Exclude<Awaited<ReturnType<CapabilityPackTrackingService['run']>>, { status: 'completed' }>;
+/** A typed refusal from the authority, or from building the exact worker request. */
+type PackJobFailureOutcome =
+  | Exclude<Awaited<ReturnType<CapabilityPackTrackingService['run']>>, { status: 'completed' }>
+  | { readonly status: 'failed'; readonly code: string; readonly detail: string; readonly retryable: false };
 interface PackJobFailure {
   readonly ok: false;
   readonly outcome: PackJobFailureOutcome;
@@ -108,7 +111,7 @@ async function runPackJob(
   if (built.status === 'rejected') {
     return {
       ok: false,
-      outcome: { status: 'failed', code: built.code as never, detail: built.detail, retryable: false },
+      outcome: { status: 'failed', code: built.code, detail: built.detail, retryable: false },
     };
   }
   log.action('packJobStart', {
@@ -223,6 +226,16 @@ async function runTracking(
     return failed(AUTOMATIC_TRACKING_TOOL_NAME, resolution.code, resolution.detail);
   }
   const { plan } = resolution;
+  // The tracking controller guarantees a mask for every resolved track plan,
+  // but the plan type is shared with detection (maskless) — make the
+  // dependency explicit instead of asserting.
+  if (plan.maskEffectId === undefined) {
+    return failed(
+      AUTOMATIC_TRACKING_TOOL_NAME,
+      'target_unresolved',
+      'The selected clip has no rectangle or ellipse mask for the track to steer.',
+    );
+  }
   const job = await runPackJob(call, ctx, signal, options, plan);
   if (!job.ok) return mapJobFailure(AUTOMATIC_TRACKING_TOOL_NAME, job.outcome);
   const result = job.result;
@@ -243,7 +256,7 @@ async function runTracking(
     objective,
     plan: {
       clipId: plan.clipId,
-      maskEffectId: plan.maskEffectId!,
+      maskEffectId: plan.maskEffectId,
       capability: plan.capability as AutomaticTrackingMeasurement['plan']['capability'],
       fps: plan.fps,
       startSeconds: plan.startSeconds,

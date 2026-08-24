@@ -48,19 +48,17 @@ export function usePackJob(options: {
   const [error, setError] = useState<string | null>(null);
   const [proposal, setProposal] = useState<CapabilityPackInstallProposalWire | null>(null);
   const activeRequestId = useRef<string | null>(null);
-  /** Progress that arrived between spawn and the invoke's answer. */
-  const inbox = useRef<TrackingProgressWire[]>([]);
   const lastIntent = useRef<Omit<TrackingRequestIntentWire, 'requestId'> | null>(null);
 
   useEffect(() => {
     const bridge = getBridge();
     if (!bridge?.onCapabilityPackTrackProgress) return;
     return bridge.onCapabilityPackTrackProgress((message: TrackingProgressWire) => {
-      if (activeRequestId.current === null || message.requestId !== activeRequestId.current) {
-        // Not ours yet (invoke has not answered) — replay it once we know the id.
-        inbox.current.push(message);
-        return;
-      }
+      // Subscribe happens before `run` starts and the request id is assigned
+      // synchronously before the invoke, so any message for the active job is
+      // already matchable here; messages for other jobs (or no active job)
+      // belong to another hook instance and are ignored.
+      if (activeRequestId.current === null || message.requestId !== activeRequestId.current) return;
       setProgress({ phase: message.phase, completed: message.completed, total: message.total });
     });
   }, []);
@@ -76,7 +74,6 @@ export function usePackJob(options: {
       setError(null);
       setProposal(null);
       setProgress(null);
-      inbox.current = [];
       const requestId = `job_${crypto.randomUUID()}`;
       activeRequestId.current = requestId;
       setPhase('running');

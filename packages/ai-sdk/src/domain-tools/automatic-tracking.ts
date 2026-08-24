@@ -81,11 +81,12 @@ export interface SegmentationMaskRun {
  * Convert measured silhouette masks into region-track samples.
  *
  * A segmentation is a bitmap; a timeline mask steers by rectangle bounds, so
- * the honest host-side conversion is each silhouette's own bounding box —
- * deterministic row-major RLE decoding (runs begin with the zero run), no
- * smoothing and no padding, because the conversion policy downstream owns all
- * judgement. A frame with an empty silhouette yields no sample rather than a
- * fabricated box.
+ * the honest host-side conversion is one bounding box per frame — masks that
+ * share a frame are unioned, because the drawn mask prompts one subject and
+ * the downstream policy steers exactly one box. Decoding is deterministic
+ * row-major RLE (runs begin with the zero run), with no smoothing and no
+ * padding: the conversion policy downstream owns all judgement. A frame whose
+ * silhouettes are all empty yields no sample rather than a fabricated box.
  */
 export function silhouetteMasksToTrackSamples(
   masks: readonly SegmentationMaskRun[],
