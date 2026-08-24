@@ -68,6 +68,15 @@ export {
   safeFormat,
   OPENVERSE_API_BASE,
 } from './openverse-music.js';
+export {
+  PexelsStockProvider,
+  createStockProvider,
+  normalizePexelsPhoto,
+  normalizePexelsVideo,
+  PEXELS_PHOTO_SEARCH_URL,
+  PEXELS_VIDEO_SEARCH_URL,
+} from './pexels-stock.js';
+export type { PexelsStockConfig } from './pexels-stock.js';
 export { TwelveLabsTranscriptionProvider } from './twelvelabs-asr.js';
 export type { TwelveLabsAsrConfig, TwelveLabsAsrRequest } from './twelvelabs-asr.js';
 export { parseAsrKeyRing, transcribeWithKeyRing } from './asr-keyring.js';
