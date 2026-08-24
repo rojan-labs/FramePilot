@@ -79,6 +79,28 @@ describe('runCapabilityPackWorker environment contract', () => {
     expect(seenEnv?.SECRET_TOKEN).toBeUndefined();
     expect(seenEnv?.['lowercase_key']).toBeUndefined();
   });
+
+  it('never lets extras override the host-owned sandbox or identity keys', async () => {
+    const { root, media } = await sandbox();
+    let seenEnv: Readonly<Record<string, string>> | undefined;
+    const capturingLauncher: CapabilityPackWorkerLauncher = (entrypoint, args, env) => {
+      seenEnv = env;
+      return launcher('success')(entrypoint, args, env);
+    };
+    await runCapabilityPackWorker({
+      entrypoint: '/signed/worker',
+      mediaRoot: root,
+      request: request(media),
+      launch: capturingLauncher,
+      extraEnvironment: {
+        FRAMEPILOT_CAPABILITY_PACK_ROOT: '/packs/root',
+        FRAMEPILOT_CAPABILITY_PACK_NETWORK: 'enabled',
+        FRAMEPILOT_CAPABILITY_PACK_RUNTIME: '0',
+      },
+    });
+    expect(seenEnv?.FRAMEPILOT_CAPABILITY_PACK_NETWORK).toBe('disabled');
+    expect(seenEnv?.FRAMEPILOT_CAPABILITY_PACK_RUNTIME).toBe('1');
+  });
 });
 
 describe('runCapabilityPackWorker', () => {

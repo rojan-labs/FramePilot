@@ -14,6 +14,7 @@ import {
   type CapabilityPackWorkerRequest,
   type CapabilityPackWorkerResult,
 } from '../worker-protocol.js';
+import { mergeExtraWorkerEnvironment } from './worker-env.js';
 
 const log = createLogger('capability-packs:worker-client');
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1_000;
@@ -36,8 +37,9 @@ export interface CapabilityPackWorkerRunOptions {
    * Additional FRAMEPILOT_-prefixed variables the pack's contract requires,
    * e.g. `FRAMEPILOT_CAPABILITY_PACK_ROOT` for packs that ship model weights
    * inside the install root. They are merged AFTER the environment scrub, so
-   * nothing else from the desktop process can leak through this channel, and
-   * anything not FRAMEPILOT_-prefixed is dropped rather than passed.
+   * nothing else from the desktop process can leak through this channel;
+   * anything not FRAMEPILOT_-prefixed is dropped rather than passed, and the
+   * host-owned protocol keys (network/runtime/identity) cannot be overridden.
    */
   readonly extraEnvironment?: Readonly<Record<string, string>>;
   readonly onProgress?: (progress: CapabilityPackWorkerProgress) => void;
@@ -76,7 +78,7 @@ function defaultLauncher(
 function safeRuntimeEnvironment(
   extraEnvironment?: Readonly<Record<string, string>>,
 ): Readonly<Record<string, string>> {
-  const env: Record<string, string> = {
+  const base: Record<string, string> = {
     FRAMEPILOT_CAPABILITY_PACK_NETWORK: 'disabled',
     FRAMEPILOT_CAPABILITY_PACK_RUNTIME: '1',
   };
@@ -84,12 +86,9 @@ function safeRuntimeEnvironment(
   // environment never cross into a local media worker.
   for (const name of ['PATH', 'SystemRoot', 'WINDIR', 'TMPDIR', 'TEMP', 'TMP']) {
     const value = process.env[name];
-    if (value !== undefined) env[name] = value;
+    if (value !== undefined) base[name] = value;
   }
-  for (const [name, value] of Object.entries(extraEnvironment ?? {})) {
-    if (/^FRAMEPILOT_[A-Z0-9_]+$/.test(name) && value.length <= 4096) env[name] = value;
-  }
-  return env;
+  return mergeExtraWorkerEnvironment(base, extraEnvironment);
 }
 
 async function assertMediaInsideRoot(mediaRoot: string, mediaPath: string): Promise<void> {
