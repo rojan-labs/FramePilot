@@ -10,6 +10,11 @@ export interface SwitchProps
   readonly checked: boolean;
   readonly label: string;
   readonly onCheckedChange: (checked: boolean) => void;
+  /**
+   * Visual/hit size. `'sm'` (32×18) is the default chrome pill; `'md'` (38×24)
+   * is the opt-in larger Settings row control. No other sizes exist on purpose.
+   */
+  readonly size?: 'sm' | 'md';
 }
 
 /**
@@ -23,6 +28,7 @@ export function Switch({
   checked,
   label,
   onCheckedChange,
+  size = 'sm',
   className,
   disabled,
   ...rest
@@ -36,6 +42,7 @@ export function Switch({
       aria-label={label}
       data-ui="switch"
       data-state={checked ? 'on' : 'off'}
+      {...(size === 'md' ? { 'data-size': 'md' } : {})}
       className={`switch${checked ? ' is-on' : ''}${className ? ` ${className}` : ''}`}
       disabled={disabled}
       onClick={() => {

@@ -203,24 +203,21 @@
 [data-ui='switch'] {
   position: relative;
   flex: none;
-  /* Sized as a compact toggle (not `--hit-target-min`, the 24px minimum used
-     elsewhere for touch/accessible hit targets on the timeline) — this is a
-     mouse-driven desktop settings control, and at 38×24 it visually dominated
-     the label text next to it instead of reading as a small binary switch. */
+  /* Compact default size (32×18). `--hit-target-min` (24px) is the timeline's
+     touch/keyboard floor; this is a pointer-driven settings control, and at
+     38×24 it visually dominated the label text next to it. Surfaces that want
+     the larger, easier-to-hit pill opt in with `data-size='md'` (38×24). */
   width: 32px;
   height: 18px;
   min-width: 32px;
   min-height: 18px;
   padding: 0;
-  border: 1px solid var(--border-strong);
+  border: 1px solid transparent;
   border-radius: var(--radius-pill);
-  /* `--bg-active` alone (an 8%-white overlay) reads as barely-there against a dark
-     panel — the OFF state all but disappeared, which is what made a row of these
-     look inconsistent (an ON switch pops with `--accent`; an OFF one nearly vanishes).
-     An inset shadow gives the track a visible groove regardless of panel brightness,
-     so OFF stays legible without needing a louder fill color. */
-  background: var(--bg-active);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+  /* A solid token-driven track, not a translucent overlay: the old 8%-white OFF
+     state all but vanished against dark panels, which made a row of switches
+     read as inconsistent (ON pops with `--accent`, OFF disappears). */
+  background: var(--switch-track-off);
   cursor: pointer;
   transition:
     background var(--motion-hover) var(--ease),
@@ -236,30 +233,54 @@
   /* Symmetric 1px inset on both sides of the 30px content box (32px track minus
      the 1px border each side): off at 1px, on at 30 − 14 − 1 = 15px. */
   border-radius: 50%;
-  background: var(--text-primary);
-  /* A flat disc read as flat; a small drop shadow gives the thumb the slight lift
+  background: var(--switch-knob);
+  /* A flat disc reads as flat; a small drop shadow gives the thumb the slight lift
      that makes a switch look like a physical control instead of a painted rectangle. */
   box-shadow: var(--shadow-sm);
   transition: transform var(--motion-hover) var(--ease);
 }
 
+/* Pressed feedback via the standalone `scale` property so it composes with the
+   thumb's translateX instead of overwriting it (the knob squishes, iOS-style). */
+[data-ui='switch']:active:not(:disabled) .switch-thumb {
+  scale: 0.88;
+}
+
 [data-ui='switch']:hover:not(:disabled) {
-  border-color: var(--text-tertiary);
+  background: var(--switch-track-off-hover);
 }
 
 [data-ui='switch'][data-state='on'] {
   background: var(--accent);
-  border-color: var(--accent);
-  box-shadow: none;
 }
 
 [data-ui='switch'][data-state='on']:hover:not(:disabled) {
-  border-color: var(--accent);
+  background: var(--accent-hover);
 }
 
 [data-ui='switch'][data-state='on'] .switch-thumb {
   transform: translateX(14px);
-  background: var(--accent-text);
+}
+
+/* Larger opt-in pill (Settings rows): same anatomy and travel, bigger hit area.
+   38×24 track, 1px border → 36×22 content; 18px thumb on a 2px inset travels
+   36 − 18 − 4 = 14px, the same distance as the compact size. */
+[data-ui='switch'][data-size='md'] {
+  width: 38px;
+  height: 24px;
+  min-width: 38px;
+  min-height: 24px;
+}
+
+[data-ui='switch'][data-size='md'] .switch-thumb {
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+}
+
+[data-ui='switch'][data-size='md'][data-state='on'] .switch-thumb {
+  transform: translateX(14px);
 }
 
 [data-ui='switch']:focus-visible {
@@ -268,7 +289,8 @@
 }
 
 [data-ui='switch']:disabled {
-  opacity: 0.45;
+  /* Reduced-contrast but still legible as a disabled switch in either state. */
+  opacity: 0.4;
   cursor: not-allowed;
 }
 

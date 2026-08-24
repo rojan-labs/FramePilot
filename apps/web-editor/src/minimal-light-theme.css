@@ -177,28 +177,32 @@
 }
 
 .rail-activitybar {
-  width: 58px;
-  padding: 10px 7px 8px;
+  /* Wide enough for the longest label ("Transitions") at the 9px label size
+     without ellipsis: 54px tab in a 66px rail. */
+  width: 66px;
+  padding: 10px 6px 8px;
   gap: 4px;
   background: var(--bg-raised);
   border-right: 1px solid var(--border-subtle);
 }
 
 .activity-tab {
-  width: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 54px;
   height: 46px;
   border-radius: var(--fp-control-radius);
   color: var(--text-tertiary);
 }
 
-/* The reference labels the primary tool rail. Existing aria-labels supply the
-   visual text too, so no separate navigation source of truth is introduced. */
-.activity-tab::after {
-  content: attr(aria-label);
-  position: absolute;
-  left: 2px;
-  right: 2px;
-  bottom: 4px;
+/* The reference labels the primary tool rail. Real spans (not an
+   attr(aria-label) pseudo-element) so the visual string can be laid out
+   independently of the accessible name. */
+.activity-tab-label {
+  max-width: 100%;
   overflow: hidden;
   color: currentColor;
   font-size: 9px;
@@ -207,10 +211,6 @@
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.activity-tab > svg {
-  transform: translateY(-6px);
 }
 
 .activity-tab:hover {
@@ -389,14 +389,19 @@ select:focus-visible,
 
 .toolbar .icon-btn.is-active,
 .timeline-tool.is-active {
+  /* Deliberate selected state: soft orange fill + orange glyph, NO border. The
+     old mix left styles.css's blue `--accent` border visible under the orange
+     fill — two accent systems on one button, which read as a broken outline. */
   color: var(--fp-orange);
   background: var(--fp-orange-soft);
+  border-color: transparent;
 }
 
 .toolbar .icon-btn.is-active:hover,
 .timeline-tool.is-active:hover {
   color: var(--fp-orange-hover);
   background: rgba(239, 100, 39, 0.14);
+  border-color: transparent;
 }
 
 .timeline,
@@ -437,11 +442,6 @@ select:focus-visible,
 .ai-mode-current svg,
 .ai-sidebar-header .ai-header-toggle:focus-within {
   color: var(--fp-orange);
-}
-
-.ai-toggle-input:checked + .ai-toggle-track {
-  background: var(--fp-orange);
-  border-color: var(--fp-orange);
 }
 
 .ai-stream-inner {
@@ -608,6 +608,7 @@ select:focus-visible,
 .icon-btn.is-active {
   color: var(--fp-orange);
   background: var(--fp-orange-soft);
+  border-color: transparent;
 }
 
 button:focus-visible,
@@ -617,19 +618,11 @@ button:focus-visible,
 }
 
 /* Only the redundant visual product wordmark is dropped on narrower windows.
-   No interactive control is hidden or disabled by this responsive pass. */
+   No interactive control is hidden or disabled by this responsive pass. The
+   rail keeps the width its labels need ("Transitions" must not clip). */
 @media (max-width: 1100px) {
   .topbar-file .menu-trigger::after {
     display: none;
-  }
-
-  .rail-activitybar {
-    width: 52px;
-    padding-inline: 4px;
-  }
-
-  .activity-tab {
-    width: 42px;
   }
 }
 
