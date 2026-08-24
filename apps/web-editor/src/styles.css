@@ -13779,3 +13779,15 @@ a.export-credits-license {
 .ai-progress-fill[data-tone='warning'] {
   background: var(--warn, var(--danger));
 }
+
+/* Credits: two groups, one obligation each. The subhead carries the distinction
+   between a licence term and a courtesy — see CreditsSection.tsx. */
+.export-credits-group + .export-credits-group {
+  margin-top: var(--space-3);
+}
+.export-credits-subhead {
+  margin: 0 0 var(--space-1);
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--muted);
+}

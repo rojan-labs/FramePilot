@@ -71,6 +71,6 @@ test.describe('Credits at export', () => {
     await expect(dialog.getByText('No tracks in this project require credit.')).toBeVisible();
 
     // No copy control when there is nothing to copy.
-    await expect(dialog.getByRole('button', { name: 'Copy all credits' })).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Copy required credits' })).toHaveCount(0);
   });
 });
