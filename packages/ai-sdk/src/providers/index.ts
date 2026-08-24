@@ -60,6 +60,7 @@ export { NvidiaTranscriptionProvider, NVIDIA_ASR_BASE_URL } from './nvidia-asr.j
 /** @deprecated Kept only for stored-config/source compatibility. New runs cannot select it. */
 export type { NvidiaAsrConfig } from './nvidia-asr.js';
 export * from './music-types.js';
+export * from './stock-types.js';
 export {
   OpenverseMusicProvider,
   createMusicProvider,

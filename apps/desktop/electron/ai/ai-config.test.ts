@@ -19,6 +19,7 @@ describe('AiConfigStore', () => {
     delete process.env['NVIDIA_API_KEY'];
     delete process.env['OLLAMA_BASE_URL'];
     delete process.env['FRAMEPILOT_NVIDIA_EMBEDDINGS_KEYS'];
+    delete process.env['PEXELS_API_KEY'];
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -350,6 +351,67 @@ describe('AiConfigStore', () => {
       store.applyUpdate({ asrModel: 'm2' });
       expect(store.applyUpdate({ asrModel: '  ' }).asrModel).toBeUndefined();
       expect(store.resolveAsrModel()).toBeUndefined();
+    });
+  });
+
+  describe('stock-media key slot (photo-video P0.1)', () => {
+    it('reports not-ready with no key, and never invents one', () => {
+      const config = new AiConfigStore(file).toAiConfig();
+      expect(config.pexelsReady).toBe(false);
+      expect(new AiConfigStore(file).resolvePexelsApiKey()).toBeUndefined();
+    });
+
+    it('saves the key, reports ready, and survives a reopen', () => {
+      const store = new AiConfigStore(file);
+      expect(store.applyUpdate({ pexelsApiKey: '563492ad-secret' }).pexelsReady).toBe(true);
+      expect(store.resolvePexelsApiKey()).toBe('563492ad-secret');
+      expect(new AiConfigStore(file).resolvePexelsApiKey()).toBe('563492ad-secret');
+    });
+
+    it('never returns the key through the renderer-facing projection', () => {
+      const store = new AiConfigStore(file);
+      store.applyUpdate({ pexelsApiKey: '563492ad-secret' });
+      // This is the whole custody boundary. Unlike `twelveLabs`/`asrApiKey`,
+      // nothing forwards this key onward, so the renderer gets a boolean and
+      // nothing it could leak into a log or a crash report.
+      const serialized = JSON.stringify(store.toAiConfig());
+      expect(serialized).not.toContain('563492ad-secret');
+      expect(store.toAiConfig()).not.toHaveProperty('pexelsApiKey');
+      expect(store.toAiConfig().pexelsReady).toBe(true);
+    });
+
+    it('clears with null or an empty/whitespace string', () => {
+      const store = new AiConfigStore(file);
+      store.applyUpdate({ pexelsApiKey: 'k' });
+      expect(store.applyUpdate({ pexelsApiKey: null }).pexelsReady).toBe(false);
+      store.applyUpdate({ pexelsApiKey: 'k2' });
+      expect(store.applyUpdate({ pexelsApiKey: '   ' }).pexelsReady).toBe(false);
+      expect(store.resolvePexelsApiKey()).toBeUndefined();
+    });
+
+    it('trims a pasted key, because a trailing newline is the usual paste', () => {
+      const store = new AiConfigStore(file);
+      store.applyUpdate({ pexelsApiKey: '  563492ad  ' });
+      expect(store.resolvePexelsApiKey()).toBe('563492ad');
+    });
+
+    it('falls back to PEXELS_API_KEY, and the saved value wins over it', () => {
+      process.env['PEXELS_API_KEY'] = 'env-pexels-key';
+      const store = new AiConfigStore(file);
+      expect(store.resolvePexelsApiKey()).toBe('env-pexels-key');
+      expect(store.toAiConfig().pexelsReady).toBe(true);
+      store.applyUpdate({ pexelsApiKey: 'saved-pexels-key' });
+      expect(store.resolvePexelsApiKey()).toBe('saved-pexels-key');
+    });
+
+    it('stays ready on the env key after the saved one is cleared', () => {
+      process.env['PEXELS_API_KEY'] = 'env-pexels-key';
+      const store = new AiConfigStore(file);
+      store.applyUpdate({ pexelsApiKey: 'saved' });
+      // Clearing the saved key does not clear the environment, and pretending
+      // otherwise would show "not configured" beside a search that still works.
+      expect(store.applyUpdate({ pexelsApiKey: null }).pexelsReady).toBe(true);
+      expect(store.resolvePexelsApiKey()).toBe('env-pexels-key');
     });
   });
 });
