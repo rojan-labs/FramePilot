@@ -25,6 +25,7 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, rename, stat, unlink, writeFile, readFile } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
 import path from 'node:path';
 import { createLogger } from '@framepilot/shared-types';
 import { resolveWithin } from '@framepilot/shared-types/safety';
@@ -54,6 +55,14 @@ const SEARCH_TTL_MS = 5 * 60 * 1000;
 const SEARCH_CACHE_MAX = 50;
 /** Preview bytes held in memory, so re-auditioning a heard track costs nothing. */
 const PREVIEW_CACHE_MAX_BYTES = 20 * 1024 * 1024;
+/**
+ * How many searched tracks stay actionable by `remoteId`.
+ *
+ * Generous — many pages of results — but finite: the renderer can only act on
+ * what it is still showing, and an unbounded table is a slow leak in the process
+ * that also runs the window.
+ */
+const KNOWN_TRACKS_MAX = 2000;
 /** Preview requests are user-visible waits; fail fast rather than hang the row. */
 const PREVIEW_TIMEOUT_MS = 15_000;
 /**
@@ -149,6 +158,11 @@ export class MusicService {
   /**
    * Tracks seen in a search, kept so the renderer can act on one by `remoteId`
    * alone. This is the table that lets the provider URL stay in main.
+   *
+   * Bounded, unlike a plain accumulator: a long session of searches would
+   * otherwise grow it without limit, and every other cache in this service has a
+   * ceiling. Oldest-first eviction is right here because "act on a result" only
+   * ever means a result the user can still see.
    */
   private readonly knownTracks = new Map<string, ProviderTrack>();
   private readonly downloads = new Map<string, AbortController>();
@@ -170,7 +184,7 @@ export class MusicService {
     const cached = this.searchCache.get(key);
     if (cached && cached.expiresAt > this.now()) {
       // Cache first, always. Re-opening the panel must not spend a request.
-      for (const track of cached.tracks) this.knownTracks.set(track.remoteId, track);
+      for (const track of cached.tracks) this.rememberTrack(track);
       return { ok: true, tracks: cached.tracks.map(toWire) };
     }
 
@@ -198,12 +212,25 @@ export class MusicService {
       if (!oldest.done) this.searchCache.delete(oldest.value);
     }
     this.searchCache.set(key, { tracks, expiresAt: this.now() + SEARCH_TTL_MS });
-    for (const track of tracks) this.knownTracks.set(track.remoteId, track);
+    for (const track of tracks) this.rememberTrack(track);
   }
 
   // -------------------------------------------------------------------------
   // Preview
   // -------------------------------------------------------------------------
+
+  /** Remember a track by id, evicting the oldest once the table is full. */
+  private rememberTrack(track: ProviderTrack): void {
+    // Re-inserting moves it to the back of the insertion order, so a track the
+    // user keeps seeing is never the one evicted.
+    this.knownTracks.delete(track.remoteId);
+    this.knownTracks.set(track.remoteId, track);
+    while (this.knownTracks.size > KNOWN_TRACKS_MAX) {
+      const oldest = this.knownTracks.keys().next();
+      if (oldest.done === true) break;
+      this.knownTracks.delete(oldest.value);
+    }
+  }
 
   public async preview(remoteId: string): Promise<MusicPreviewResult> {
     const track = this.knownTracks.get(remoteId);
@@ -224,7 +251,20 @@ export class MusicService {
         signal: AbortSignal.timeout(PREVIEW_TIMEOUT_MS),
       });
       if (!response.ok) throw statusError(response.status);
+      // Checked BEFORE buffering, not after. `rememberPreview` refuses an
+      // oversized entry, but by then the bytes are already resident in main —
+      // a provider serving a 2 GB "preview" would spike the process that also
+      // runs the window's event loop.
+      const declared = Number(response.headers.get('content-length') ?? '0');
+      if (Number.isFinite(declared) && declared > PREVIEW_CACHE_MAX_BYTES) {
+        throw new MusicProviderError('download_failed', 'preview is implausibly large');
+      }
       const data = Buffer.from(await response.arrayBuffer());
+      if (data.byteLength > PREVIEW_CACHE_MAX_BYTES) {
+        // A missing or lying Content-Length is the case the check above cannot
+        // cover; the bytes are spent either way, but they are not kept.
+        throw new MusicProviderError('download_failed', 'preview is implausibly large');
+      }
       const contentType = response.headers.get('content-type') ?? 'audio/mpeg';
       this.rememberPreview(remoteId, { contentType, data });
       return { ok: true, contentType, data: toArrayBuffer(data) };
@@ -329,7 +369,11 @@ export class MusicService {
       // A partial file must never be reachable — not by the bin, not by
       // `fp-media://`, not by a later dedupe check.
       await unlink(tempPath).catch(() => undefined);
-      const cancelled = controller.signal.aborted;
+      // A stall aborts the SAME controller a user cancel does, so "the signal is
+      // aborted" no longer identifies a cancel on its own. An error the stream
+      // classified deliberately (`MusicProviderError`) is trusted over the
+      // signal: a raw `AbortError` is what a real user cancel leaves behind.
+      const cancelled = controller.signal.aborted && !(error instanceof MusicProviderError);
       const wire = cancelled
         ? { error: 'cancelled' as const }
         : isDiskFull(error)
@@ -369,32 +413,65 @@ export class MusicService {
     const body = response.body;
     if (!body) throw new MusicProviderError('download_failed', 'empty response body');
 
-    const chunks: Buffer[] = [];
+    // Streamed to disk, not concatenated in memory: this runs in the main
+    // process, which is also the window's event loop, and a 200 MB ceiling held
+    // as an array of Buffers is a 200 MB spike the whole app feels. The temp
+    // file is renamed into place only after every check below passes, so a
+    // failed download never leaves a playable-looking file in the bin.
+    const sink = createWriteStream(tempPath);
+    // A write stream that fails to open or flush (EACCES, EMFILE, ENOSPC at
+    // flush time) emits 'error' asynchronously; with no listener that is an
+    // UNCAUGHT exception in main — the whole app, not this one download.
+    let sinkError: Error | null = null;
+    sink.on('error', (error: Error) => {
+      sinkError = error;
+    });
     let completed = 0;
     let lastProgressAt = this.now();
     const reader = body.getReader();
+    // A stall and a user cancel both reach the reader as an abort, and they are
+    // not the same event: a cancel is deliberate and renders as silence, a stall
+    // is a failure the user needs told about.
+    let stalled = false;
 
-    for (;;) {
-      const stall = setTimeout(() => controller.abort(), DOWNLOAD_STALL_MS);
-      let chunk: Awaited<ReturnType<typeof reader.read>>;
-      try {
-        chunk = await reader.read();
-      } finally {
-        clearTimeout(stall);
+    try {
+      for (;;) {
+        const stall = setTimeout(() => {
+          stalled = true;
+          controller.abort();
+        }, DOWNLOAD_STALL_MS);
+        let chunk: Awaited<ReturnType<typeof reader.read>>;
+        try {
+          chunk = await reader.read();
+        } finally {
+          clearTimeout(stall);
+        }
+        if (sinkError !== null) throw sinkError;
+        if (chunk.done) break;
+        completed += chunk.value.byteLength;
+        if (completed > MAX_DOWNLOAD_BYTES) {
+          throw new MusicProviderError('download_failed', 'file is implausibly large');
+        }
+        await writeChunk(sink, Buffer.from(chunk.value));
+        // Coarse progress: announcing every chunk would spam the renderer and, on
+        // the accessibility side, produce an unreadable live region.
+        if (this.now() - lastProgressAt > 200) {
+          lastProgressAt = this.now();
+          this.emit(request, 'downloading', completed, total);
+        }
       }
-      if (chunk.done) break;
-      completed += chunk.value.byteLength;
-      if (completed > MAX_DOWNLOAD_BYTES) {
-        throw new MusicProviderError('download_failed', 'file is implausibly large');
+    } catch (error) {
+      // Re-labelled before it escapes: an abort we caused by timing out must not
+      // reach the user as "cancelled", which the UI renders as silence.
+      if (stalled && error instanceof Error && error.name === 'AbortError') {
+        throw new MusicProviderError('timeout', 'the download stalled');
       }
-      chunks.push(Buffer.from(chunk.value));
-      // Coarse progress: announcing every chunk would spam the renderer and, on
-      // the accessibility side, produce an unreadable live region.
-      if (this.now() - lastProgressAt > 200) {
-        lastProgressAt = this.now();
-        this.emit(request, 'downloading', completed, total);
-      }
+      throw error;
+    } finally {
+      await closeStream(sink);
     }
+
+    if (sinkError !== null) throw sinkError;
 
     // A body that stopped short of its declared length is a corrupt file, not a
     // small one. Catching it here is what keeps a truncated MP3 out of the bin.
@@ -405,7 +482,6 @@ export class MusicService {
       throw new MusicProviderError('download_failed', 'empty file');
     }
 
-    await writeFile(tempPath, Buffer.concat(chunks));
     return completed;
   }
 
@@ -489,6 +565,27 @@ function statusError(status: number): MusicProviderError {
  * level, and calling a timeout "offline" would send the user to check their
  * wifi over a slow provider.
  */
+function writeChunk(sink: NodeJS.WritableStream, chunk: Buffer): Promise<void> {
+  return new Promise((resolve, reject) => {
+    sink.write(chunk, (error) => (error ? reject(error) : resolve()));
+  });
+}
+
+/**
+ * Close the sink, never rejecting and never hanging.
+ *
+ * `end()`'s callback does not fire on a stream that has already errored, so a
+ * failed write would leave this promise pending forever inside a `finally`. The
+ * 'error' listener resolves the same promise; the error itself is reported by
+ * the caller's own `sinkError` capture.
+ */
+function closeStream(sink: NodeJS.WritableStream): Promise<void> {
+  return new Promise((resolve) => {
+    sink.once('error', () => resolve());
+    sink.end(() => resolve());
+  });
+}
+
 function normalizeFetchError(error: unknown, fallback?: MusicErrorCodeWire): unknown {
   if (error instanceof MusicProviderError) return error;
   const name = error instanceof Error ? error.name : '';

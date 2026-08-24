@@ -217,6 +217,20 @@ describe('normalizeOpenverseTrack', () => {
     }
   });
 
+  it('drops CC BY-ND, which permits commercial use but not the ducking this feature does', () => {
+    // Openverse's own `license_type=commercial` filter INCLUDES by-nd, so this is
+    // a deliberate narrowing of the provider's answer (maintainer decision
+    // 2026-08-25, ADR 0139). ND restricts derivatives, and the first thing
+    // FramePilot does to a bed is duck it under narration and automate its level.
+    // Licence safety is this feature's premise, so the ambiguous case is refused
+    // rather than shipped behind a caveat.
+    expect(normalizeOpenverseTrack(record({ license: 'by-nd' }))).toBeNull();
+    // The licences that survive: no derivative restriction on any of them.
+    for (const license of ['cc0', 'pdm', 'by', 'by-sa']) {
+      expect(normalizeOpenverseTrack(record({ license }))).not.toBeNull();
+    }
+  });
+
   it('drops a licence code it does not recognise', () => {
     // Failure modes are asymmetric: wrongly hiding a usable track costs a search
     // result, wrongly showing an unusable one costs a licence violation.

@@ -100,7 +100,10 @@ const indexMediaSchema = z
 // adapter, because no label makes one safe in a monetized video (ADR 0138).
 const searchMusicSchema = z
   .object({
-    query: z.string().min(1),
+    // Bounded: this text is forwarded verbatim to a third-party provider, and no
+    // useful music query is a paragraph long. An unbounded string is a request
+    // this process should not be willing to make on the user's quota.
+    query: z.string().min(1).max(200),
     limit: numeric(z.number().int().min(1).max(40)).optional(),
   })
   .strict();
@@ -117,7 +120,9 @@ const searchMusicSchema = z
 // (`plan/3rd-party-sourcing/photo-video/README.md` §2).
 const searchStockSchema = z
   .object({
-    query: z.string().min(1),
+    // Bounded for the same reason as `search_music`: forwarded verbatim to a
+    // third-party provider, on the user's metered quota.
+    query: z.string().min(1).max(200),
     kind: z.enum(['photo', 'video']),
     limit: numeric(z.number().int().min(1).max(40)).optional(),
     orientation: z.enum(['landscape', 'portrait', 'square']).optional(),

@@ -188,8 +188,18 @@ function CreditGroup({
     return () => clearTimeout(timer);
   }, [copied]);
 
+  const [copyFailed, setCopyFailed] = useState(false);
   const onCopy = useCallback(() => {
-    void navigator.clipboard?.writeText(text).then(() => setCopied(true));
+    // A clipboard write rejects on a denied permission or a non-secure context,
+    // and an unhandled rejection here would leave the button looking like it did
+    // nothing. Say so instead: the credits are selectable text either way.
+    navigator.clipboard
+      ?.writeText(text)
+      .then(() => {
+        setCopyFailed(false);
+        setCopied(true);
+      })
+      .catch(() => setCopyFailed(true));
   }, [text]);
 
   return (
@@ -220,6 +230,11 @@ function CreditGroup({
       <Button variant="ghost" type="button" aria-label={copyAriaLabel} onClick={onCopy}>
         {copied ? 'Copied' : copyLabel}
       </Button>
+      {copyFailed ? (
+        <span className="export-credits-note" role="status">
+          Copying is blocked here — select the credits above and copy them yourself.
+        </span>
+      ) : null}
       {/* The label flip is invisible to a screen reader; announce the result
           separately, outside the button so it never joins its accessible name. */}
       <span className="sr-only" aria-live="polite">

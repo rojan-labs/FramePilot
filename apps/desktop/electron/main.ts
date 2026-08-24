@@ -39,7 +39,11 @@ import {
   type OpenDialogOptions,
 } from 'electron';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
-import { picturePlacementConflict, type Patch } from '@framepilot/editor-core';
+import {
+  DEFAULT_STOCK_STILL_SECONDS,
+  type Patch,
+  stockPlacementConflictReason,
+} from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
 import {
   readProjectFile,
@@ -181,12 +185,6 @@ import { importAssetViaSidecar } from './media/asset-media-client.js';
 import { MusicService } from './media/music-service.js';
 import { StockService, isStockKind } from './media/stock-service.js';
 
-/**
- * Clip length used for a stock still, mirroring the renderer's
- * `DEFAULT_CLIP_SECONDS`. Kept in step deliberately: the agent's occupancy check
- * and the panel's placement builder must agree about what fits.
- */
-const DEFAULT_STOCK_STILL_SECONDS = 5;
 import { StockQuotaStore } from './media/stock-quota.js';
 import { musicErrorMessage, stockErrorMessage } from '@framepilot/ai-sdk';
 import { LocalTelemetry, telemetryEnabledFromEnv } from './telemetry/telemetry.js';
@@ -2064,18 +2062,18 @@ function registerIpcHandlers(): void {
     // same default length a dragged-in image gets, and the occupancy check has
     // to use the same number or the two would disagree about what fits.
     const durationSeconds = item.durationSeconds ?? DEFAULT_STOCK_STILL_SECONDS;
-    if (
-      picturePlacementConflict(project.timeline, project.assets, start, start + durationSeconds)
-    ) {
-      // Stated, not silently worked around. Stacking would preview differently
-      // from how it renders, and reporting success on a stacked clip would be a
-      // completed edit that lies.
-      return {
-        status: 'failed',
-        summary: `There is already picture on the timeline between ${start.toFixed(1)}s and ${(
-          start + durationSeconds
-        ).toFixed(1)}s. Stock cannot sit on top of existing footage yet — pick an empty stretch.`,
-      };
+    // Stated, not silently worked around. Stacking would preview differently from
+    // how it renders, and reporting success on a stacked clip would be a completed
+    // edit that lies. The sentence comes from `editor-core` so this pre-download
+    // refusal and the orchestrator's post-download one cannot word it differently.
+    const conflict = stockPlacementConflictReason(
+      project.timeline,
+      project.assets,
+      start,
+      durationSeconds,
+    );
+    if (conflict !== null) {
+      return { status: 'failed', summary: conflict };
     }
 
     const result = await stockService.download({

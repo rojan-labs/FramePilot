@@ -48,8 +48,12 @@ Descriptions are written for the model but read by editors — route wording thr
 `lead-prompt-engineer` conventions: say what the tool does and when to reach for it, in
 video-editor language, not API language. Keep them short; every word is billed per request.
 
-`hostUiOnly` is **not** set — an external MCP agent driving a desktop session can legitimately
-use these (unlike `ask_user`, which needs a human looking at the app).
+`hostUiOnly` **is** set (reversing this plan's original intent). These tools execute in the
+Electron main process — the provider network and the download path live there and the sidecar
+has no route for them — so the standalone MCP server neither advertises nor accepts them.
+Desktop Agent mode is unaffected: the flag gates the MCP surface only, exactly as
+`professional_*` already relies on. The alternative would have been an MCP tool that is
+advertised and then always fails.
 
 ---
 
@@ -90,8 +94,11 @@ Adding a tool touches four surfaces. Missing one is the standard drift bug:
 
 - [x] TS `TOOL_REGISTRY` — `search_music` in `domain-tools/media.ts`, `add_music` in
       `domain-tools/audio.ts` (by subject, not by kind)
-- [x] `registry.py` mirror — `SearchMusicArgs` / `AddMusicArgs`. No `handlers.py` arm, as
-      predicted: these are host tools and the sidecar never sees them
+- [x] `registry.py` mirror — **deliberately none.** The plan anticipated `SearchMusicArgs` /
+      `AddMusicArgs` Pydantic models; they do not exist and must not. These are `hostUiOnly`
+      tools that execute in the Electron main process, the sidecar has no route to them
+      (ADR 0139), and `tool-parity-fixture.test.ts`'s host-only allowlist now ENFORCES their
+      absence. A future agent adding them would break that test, which is the intent.
 - [x] Parity fixture regenerated (80 → 82 tools); both guard tests green
 - [x] MCP flows automatically via `buildMcpTools`
 - [x] `tool-classification.ts` — `search_music` revision_independent, `add_music`

@@ -155,10 +155,7 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1",
-            "decision_2"
-          ]
+          "decisionIds": ["decision_1", "decision_2"]
         },
         "execution": {
           "authorized": true
@@ -213,7 +210,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 20833,
+      "usedTokens": 20841,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -246,16 +243,16 @@
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17041,
+            "tokenEstimate": 17049,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 20833,
+          "estimatedInputTokensBeforeSend": 20841,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170975,
+          "estimatedRemainingCapacity": 170967,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -444,9 +441,7 @@
             ],
             "revision": 1
           },
-          "summary": [
-            "[video_1] ~ clip clip_a (0–6s → 3–6s)"
-          ]
+          "summary": ["[video_1] ~ clip clip_a (0–6s → 3–6s)"]
         },
         "text": "Agent step"
       },
@@ -518,9 +513,7 @@
           ]
         },
         "stage": "inspect",
-        "completedStages": [
-          "interpret"
-        ],
+        "completedStages": ["interpret"],
         "stageEnteredAtTurn": 1,
         "facts": [],
         "decisions": [
@@ -546,10 +539,7 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1",
-            "decision_2"
-          ]
+          "decisionIds": ["decision_1", "decision_2"]
         },
         "execution": {
           "authorized": true
@@ -618,7 +608,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 20871,
+      "usedTokens": 20879,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -651,16 +641,16 @@
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17041,
+            "tokenEstimate": 17049,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 20871,
+          "estimatedInputTokensBeforeSend": 20879,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170937,
+          "estimatedRemainingCapacity": 170929,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -742,9 +732,7 @@
           ]
         },
         "stage": "inspect",
-        "completedStages": [
-          "interpret"
-        ],
+        "completedStages": ["interpret"],
         "stageEnteredAtTurn": 1,
         "facts": [],
         "decisions": [
@@ -770,10 +758,7 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1",
-            "decision_2"
-          ]
+          "decisionIds": ["decision_1", "decision_2"]
         },
         "execution": {
           "authorized": true
@@ -962,9 +947,7 @@
           ]
         },
         "stage": "inspect",
-        "completedStages": [
-          "interpret"
-        ],
+        "completedStages": ["interpret"],
         "stageEnteredAtTurn": 1,
         "facts": [],
         "decisions": [
@@ -990,10 +973,7 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1",
-            "decision_2"
-          ]
+          "decisionIds": ["decision_1", "decision_2"]
         },
         "execution": {
           "authorized": true
@@ -1078,14 +1058,7 @@
           ]
         },
         "stage": "verify",
-        "completedStages": [
-          "interpret",
-          "inspect",
-          "analyze",
-          "plan",
-          "apply",
-          "enhance"
-        ],
+        "completedStages": ["interpret", "inspect", "analyze", "plan", "apply", "enhance"],
         "stageEnteredAtTurn": 3,
         "facts": [],
         "decisions": [
@@ -1111,10 +1084,7 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1",
-            "decision_2"
-          ]
+          "decisionIds": ["decision_1", "decision_2"]
         },
         "execution": {
           "authorized": false

@@ -113,10 +113,28 @@ A cancelled or failed download **leaves nothing behind** — no partial file and
 no half-added asset. Downloads never retry themselves: a silent retry on a
 metered service would spend your quota without asking.
 
+## Which licences you will see
+
+Every result is cleared for **commercial, monetized** video, and cleared for the kind of
+editing FramePilot does to it. Only four licence families appear: **CC0**, **Public Domain
+Mark**, **CC BY** and **CC BY-SA**. The first two need no credit; the last two do, and the
+result says which.
+
+Two exclusions are deliberate and stricter than the provider's own filter:
+
+- **Non-commercial (`CC BY-NC*`) tracks never appear.** No badge makes one safe in a
+  sponsored video.
+- **No-derivatives (`CC BY-ND`) tracks never appear either**, even though Openverse
+  classifies them as commercial. ND restricts _derivative works_, and ducking a bed under
+  your narration and automating its level is arguably one. Rather than ship that question
+  as a caveat you would have to read, those tracks are simply not offered.
+
 ## What is not here
 
-- **Stock video and sound effects.** Deferred by decision, not oversight — see
+- **Sound effects.** Deferred by decision, not oversight — see
   `plan/3rd-party-sourcing/DEFERRED-stock-footage-and-sfx.md`.
+  (**Stock photo and video are no longer deferred** — they ship in this release;
+  see [Stock photos and video](./stock-sourcing.md).)
 - **Burned-in on-screen credits.** Credits are copyable text for a description;
   compositing them into the video is a separate design problem.
 - **Favourites, collections, pagination, waveform scrubbing.** Not built.

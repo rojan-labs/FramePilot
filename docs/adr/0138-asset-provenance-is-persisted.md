@@ -103,3 +103,25 @@ and would not survive the engine round-trip with a checked shape.
 
 **Deriving `attributionRequired` from the licence id at read time.** Turns a recorded
 agreement into a live lookup against a table that changes.
+
+## Which licences are offered at all (amended 2026-08-25)
+
+Persisting the licence answers "what did I use?"; it does not answer "should this have
+been offered?". That second filter is an **allow-list** in the Openverse adapter, and it
+is deliberately narrower than the provider's own.
+
+Openverse exposes `license_type=commercial`, which includes **CC BY-ND**. FramePilot does
+not. ND permits commercial _use_ while restricting **derivatives** — and the first thing
+this feature does to a fetched bed is duck it under narration and automate its level,
+which is exactly the case ND exists to govern. Whether that counts as a derivative is
+genuinely unsettled, and an unsettled licence question is not something to resolve with a
+sentence in a guide the user has to read to stay safe.
+
+So `by-nd` is **refused before it is ever shown** (maintainer decision 2026-08-25), along
+with every `by-nc*` code, `sampling+`, and anything unrecognised. What remains — `cc0`,
+`pdm`, `by`, `by-sa` — carries no derivative restriction, so every track the user can see
+is one they can duck, trim, fade and publish.
+
+The cost is catalogue breadth. The failure modes are not symmetric: a track wrongly hidden
+costs one search result, a track wrongly offered costs a licence violation in a published,
+monetized video — which is the harm this whole feature was built to prevent.

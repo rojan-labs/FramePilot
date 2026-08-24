@@ -31,6 +31,11 @@ export * from './color-commands.js';
 export * from './track-follow.js';
 export * from './track-reframe.js';
 export * from './picture-occupancy.js';
+// The one shape of "a fetched stock clip on the timeline", shared by the Stock
+// panel and the agent's `add_stock` so the two paths cannot drift (ADR 0140).
+export * from './stock-placement.js';
+// The audio twin: shared by the Sounds panel and the agent's `add_music`.
+export * from './music-placement.js';
 export * from './track-samples.js';
 export * from './tracking-commands.js';
 export * from './audio-commands.js';

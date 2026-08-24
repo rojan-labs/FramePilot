@@ -18,6 +18,7 @@ export * from './project-index.js';
 export * from './skills.js';
 export * from './tool-registry.js';
 export * from './music-placement.js';
+export * from './stock-placement.js';
 export * from './domain-tools/professional-edit.js';
 export * from './domain-tools/professional-motion.js';
 export * from './domain-tools/professional-color.js';

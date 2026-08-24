@@ -19,6 +19,7 @@ import {
   buildAddMusicOps,
   musicDuckSidechainIssue,
 } from './music-placement.js';
+import { StockAssetPayloadSchema, stockOpsFromPayload } from './stock-placement.js';
 import {
   AUTOMATIC_TRACKING_TOOL_NAME,
   AutomaticTrackingMeasurementSchema,
@@ -1559,13 +1560,18 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
       // What the run needs on its next turn: the file is down, where it went,
       // and where it is going. The full provenance record lives in the project;
       // repeating it here would spend tokens on a licence URL nobody opens.
+      //
+      // "downloaded", never "added": this digests the HOST's payload, which is
+      // proof of a download and nothing more. The placement is authored by the
+      // `add_stock` arm above and reported in its own note, so a payload that
+      // reaches this digest by another route must not claim a timeline change.
       const asset = (obj.asset ?? {}) as Record<string, unknown>;
       const source = (asset.source ?? {}) as Record<string, unknown>;
       const seconds = typeof asset.durationSeconds === 'number' ? asset.durationSeconds : null;
       const length = seconds === null ? 'still' : `${seconds.toFixed(1)}s`;
       const at = typeof obj.atSeconds === 'number' ? ` at ${obj.atSeconds.toFixed(1)}s` : '';
       const by = typeof source.creator === 'string' ? ` · by ${source.creator}` : '';
-      return `added ${String(asset.path ?? 'file')} · ${length}${at} · ${String(
+      return `downloaded ${String(asset.path ?? 'file')} · ${length}${at} · ${String(
         source.license ?? 'unknown licence',
       )}${by}`;
     }
@@ -2710,7 +2716,17 @@ export class Orchestrator {
           const note = `Rejected "add_music" — ${duckIssue}`;
           return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
         }
-        const ops = buildAddMusicOps(ctx.project, asset, atSeconds, duckUnderTrackId);
+        // Already in the bin. Deterministic asset ids make a re-add land as a
+        // `duplicate_asset` validation error whose text ("Asset id already
+        // exists: music_openverse_ov_1") reads to the model as a bug rather than
+        // as an answer. Said plainly here, before an edit is even assembled.
+        if (ctx.project.assets.some((existing) => existing.id === asset.id)) {
+          const note =
+            `That track is already in your media bin — it was not downloaded again. ` +
+            `Place it from the bin, or pick a different track.`;
+          return { ops: [], note, summary: note, status: 'warning', data: note };
+        }
+        const ops = buildAddMusicOps(ctx.project.timeline, asset, atSeconds, duckUnderTrackId);
         const probe = assembleEdit(ctx.project, ops, 'Add background music', 'agent');
         if (!probe.validation.valid) {
           const problems = probe.validation.issues
@@ -2734,6 +2750,60 @@ export class Orchestrator {
         return {
           ops,
           note: `${outcome.summary}${creditNote}${duckNote}`,
+          summary: outcome.summary,
+          status: 'completed',
+          project: applyProjectPatch(ctx.project, probe.patch),
+          data: outcome.data,
+        };
+      }
+      // `add_stock` is the picture twin of `add_music`: the host downloaded the
+      // rendition and materialized the file, and the orchestrator turns what came
+      // back into the SAME reversible operations the Stock panel builds by hand
+      // (`buildAddStockOps`, shared in editor-core). The host never edits the
+      // timeline (AGENTS.md invariant 5).
+      if (call.name === 'add_stock' && outcome.status === 'completed') {
+        const parsed = StockAssetPayloadSchema.safeParse(outcome.data);
+        if (!parsed.success) {
+          // Fail closed. A download that produced nothing placeable must not be
+          // reported as a completed edit on an unchanged timeline (ADR 0083) —
+          // quota and disk were spent either way, and saying "added" about a
+          // timeline that did not move is the one outcome the user cannot see.
+          const note =
+            'Rejected "add_stock" — the download did not return a usable photo or video asset, so nothing was placed.';
+          return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
+        }
+        const { asset: stockAsset } = parsed.data;
+        // Same as `add_music`: a deterministic id means a re-add would surface a
+        // raw `duplicate_asset` message instead of an answer.
+        if (ctx.project.assets.some((existing) => existing.id === stockAsset.id)) {
+          const note =
+            `That clip is already in your media bin — it was not downloaded again. ` +
+            `Place it from the bin, or pick a different one.`;
+          return { ops: [], note, summary: note, status: 'warning', data: note };
+        }
+        const placement = stockOpsFromPayload(ctx.project, parsed.data);
+        if (!placement.ok) {
+          const note = `Rejected "add_stock" — ${placement.reason}`;
+          return { ops: [], note, summary: note, status: 'failed', data: note };
+        }
+        const ops = [...placement.operations];
+        const probe = assembleEdit(ctx.project, ops, 'Add stock media', 'agent');
+        if (!probe.validation.valid) {
+          const problems = probe.validation.issues
+            .filter((issue) => issue.severity === 'error')
+            .map((issue) => issue.message)
+            .join('; ');
+          const note = `Rejected "add_stock" — ${problems}`;
+          return { ops: [], note, summary: note, status: 'failed', data: problems };
+        }
+        // Same reasoning as `add_music`: tell the model about the credit now, so
+        // it can mention it, rather than leaving it a surprise at publish time.
+        const creditNote = stockAsset.source.attributionRequired
+          ? ` This clip requires crediting ${stockAsset.source.creator ?? 'its creator'} — the credit is saved with the project and appears under Export → Credits.`
+          : ' This clip needs no credit.';
+        return {
+          ops,
+          note: `${outcome.summary} Placed at ${placement.start.toFixed(1)}s.${creditNote}`,
           summary: outcome.summary,
           status: 'completed',
           project: applyProjectPatch(ctx.project, probe.patch),

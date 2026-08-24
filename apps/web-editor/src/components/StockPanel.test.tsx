@@ -110,11 +110,11 @@ const emptyProject = {
 function renderPanel(
   options: { project?: Project; blocked?: string | null; onOpenSettings?: () => void } = {},
 ): { onAddStock: ReturnType<typeof vi.fn> } {
-  const onAddStock = vi.fn();
+  const onAddStock = vi.fn().mockReturnValue(null);
   render(
     <StockPanel
       project={options.project ?? emptyProject}
-      placementBlockedReason={options.blocked ?? null}
+      placementBlockedReasonFor={() => options.blocked ?? null}
       onAddStock={onAddStock}
       {...(options.onOpenSettings ? { onOpenSettings: options.onOpenSettings } : {})}
     />,
@@ -459,6 +459,91 @@ describe('StockPanel', () => {
     );
   });
 
+  it('asks per tile, so a long clip is refused where a short one fits', async () => {
+    // The panel used to probe ONE representative length for every tile: a 12s
+    // clip passed a 5s probe, downloaded, and was then dropped on arrival with
+    // no message. The predicate now receives each item's real duration.
+    const asked: number[] = [];
+    bridge.search.mockResolvedValue(
+      okSearch([
+        wireItem({ remoteId: 'short', durationSeconds: 4 }),
+        wireItem({ remoteId: 'long', durationSeconds: 12 }),
+      ]),
+    );
+    render(
+      <StockPanel
+        project={emptyProject}
+        placementBlockedReasonFor={(seconds) => {
+          asked.push(seconds);
+          return seconds > 5 ? 'There is already picture on the timeline.' : null;
+        }}
+        onAddStock={() => null}
+      />,
+    );
+    await typeQuery('city');
+
+    expect(asked).toContain(4);
+    expect(asked).toContain(12);
+    // One tile can be added, the other cannot — the whole panel is not disabled.
+    const addable = screen.getAllByRole('button', { name: 'Add' });
+    expect(addable.filter((button) => !(button as HTMLButtonElement).disabled)).toHaveLength(1);
+  });
+
+  it('says so when the spot filled up during the download, instead of dropping the clip', async () => {
+    bridge.search.mockResolvedValue(okSearch([wireItem()]));
+    bridge.download.mockResolvedValue({
+      ok: true,
+      asset: {
+        relativePath: 'media/p1/city.mp4',
+        kind: 'video',
+        durationSeconds: 12,
+        media: null,
+        source: {
+          provider: 'pexels',
+          remoteId: '3129671',
+          license: 'pexels',
+          attributionRequired: false,
+          fetchedAt: '2026-08-24T12:00:00.000Z',
+        },
+        deduped: false,
+      },
+    });
+    render(
+      <StockPanel
+        project={emptyProject}
+        placementBlockedReasonFor={() => null}
+        // The playhead moved onto occupied ground while the bytes were in flight.
+        onAddStock={() => 'That stretch filled up while this was downloading.'}
+      />,
+    );
+    await typeQuery('city');
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText(/filled up while this was downloading/)).toBeTruthy();
+  });
+
+  it('keeps the results already loaded when Load more fails', async () => {
+    // Those pages cost provider requests the user already spent, and every clip
+    // in them is still placeable. Replacing them with an error screen throws
+    // that away to report a failure about the NEXT page.
+    bridge.search.mockResolvedValueOnce(okSearch([wireItem()], true));
+    renderPanel();
+    await typeQuery('city');
+    expect(document.querySelectorAll('.stock-tile')).toHaveLength(1);
+
+    bridge.search.mockResolvedValueOnce({ ok: false, error: 'offline' });
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(document.querySelectorAll('.stock-tile')).toHaveLength(1);
+    expect(screen.getByRole('alert').textContent).toBeTruthy();
+  });
+
   it('shows determinate progress and a cancel while downloading', async () => {
     bridge.search.mockResolvedValue(okSearch([wireItem()]));
     bridge.download.mockImplementation(() => new Promise(() => undefined));
@@ -713,6 +798,25 @@ describe('StockPanel', () => {
     await typeQuery('city');
     fireEvent.keyDown(document.querySelector('.stock-tile')!, { key: 'Enter' });
     expect(bridge.download).not.toHaveBeenCalled();
+  });
+
+  it('leaves Enter to the control that has focus inside the tile', async () => {
+    // The tile's own Enter handler used to fire regardless of what was focused,
+    // so Enter on Cancel started a SECOND download of the clip the user was
+    // trying to stop, and Enter on the licence link was swallowed.
+    bridge.search.mockResolvedValue(okSearch([wireItem()]));
+    bridge.download.mockImplementation(() => new Promise(() => undefined));
+    renderPanel();
+    await typeQuery('city');
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(bridge.download).toHaveBeenCalledTimes(1);
+
+    const cancel = screen.getByRole('button', { name: /cancel/i });
+    fireEvent.keyDown(cancel, { key: 'Enter', bubbles: true });
+    expect(bridge.download).toHaveBeenCalledTimes(1);
   });
 });
 

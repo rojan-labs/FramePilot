@@ -381,6 +381,45 @@ describe('MusicService', () => {
       expect(progress.some((p) => p.phase === 'cancelled')).toBe(true);
     });
 
+    it('reports a network stall as a timeout, not as the user\u2019s own cancel', async () => {
+      // Both reach the reader as an abort, and the UI renders a cancel as
+      // silence. A stalled download that says "cancelled" therefore looks to the
+      // user like something they did — they wait, then nothing happens.
+      const { provider } = stubProvider([track()]);
+      const fetchImpl = ((_url: string, init?: { signal?: AbortSignal }) => {
+        // A body that never produces a chunk, failing the way a real one does
+        // when the request is aborted underneath it.
+        const stream = new ReadableStream<Uint8Array>({
+          pull() {
+            return new Promise((_resolve, reject) => {
+              init?.signal?.addEventListener('abort', () => {
+                reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+              });
+            });
+          },
+        });
+        return Promise.resolve(
+          new Response(stream, { status: 200, headers: { 'content-type': 'audio/mpeg' } }),
+        );
+      }) as unknown as typeof fetch;
+      const service = make({ provider, fetchImpl });
+      await service.search('calm');
+
+      // Installed only now: search does real work a frozen clock would hang.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const pending = service.download(request);
+        // Let the fetch resolve and the read loop arm its stall timer before the
+        // clock jumps past it.
+        await new Promise((resolve) => setImmediate(resolve));
+        await vi.advanceTimersByTimeAsync(31_000);
+        expect(await pending).toMatchObject({ ok: false, error: 'timeout' });
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(await mediaFiles()).toEqual([]);
+    });
+
     it('rejects an empty body rather than adding a zero-byte asset', async () => {
       const { provider } = stubProvider([track()]);
       const service = make({

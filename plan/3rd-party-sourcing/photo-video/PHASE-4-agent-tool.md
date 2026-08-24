@@ -59,8 +59,12 @@ a reframe of the user's own footage is usually the better cut, and stock is for 
 script genuinely calls for a shot the user does not have. Without that sentence, reason #3
 above becomes a shipped defect.
 
-`hostUiOnly` is **not** set — an external MCP agent driving a desktop session can legitimately
-use these.
+`hostUiOnly` **is** set (reversing this plan's original intent, as the music slice did). These tools execute in the
+Electron main process — the provider network and the download path live there and the sidecar
+has no route for them — so the standalone MCP server neither advertises nor accepts them.
+Desktop Agent mode is unaffected: the flag gates the MCP surface only, exactly as
+`professional_*` already relies on. The alternative would have been an MCP tool that is
+advertised and then always fails.
 
 Also check `wipe-guard` (`packages/ai-sdk/src/wipe-guard.ts`): confirm `add_stock` is neither
 caught by an existing trigger nor in need of a new one, and check its documented non-trigger

@@ -9,10 +9,15 @@
  * notice.
  */
 import { describe, expect, it } from 'vitest';
-import { applyProjectPatch } from '@framepilot/editor-core';
+import { applyProjectPatch, invertProjectPatch } from '@framepilot/editor-core';
 import { assembleEdit } from './assemble.js';
 import type { Project } from '@framepilot/timeline-schema';
-import { MusicAssetPayloadSchema, buildAddMusicOps, musicDuckSidechainIssue, nextMusicLayerId } from './music-placement.js';
+import {
+  MusicAssetPayloadSchema,
+  buildAddMusicOps,
+  musicDuckSidechainIssue,
+  nextMusicLayerId,
+} from './music-placement.js';
 
 const source = {
   provider: 'openverse',
@@ -120,26 +125,28 @@ describe('nextMusicLayerId', () => {
   it('avoids a layer id the project already uses', () => {
     const withMusic = project();
     (withMusic.timeline.tracks as unknown as Array<{ id: string }>).push({ id: 'music_1' });
-    expect(nextMusicLayerId(withMusic)).toBe('music_2');
+    expect(nextMusicLayerId(withMusic.timeline)).toBe('music_2');
   });
 });
 
 describe('buildAddMusicOps', () => {
   it('produces bin, music layer, and clip — in that order, as one list', () => {
-    const ops = buildAddMusicOps(project(), asset, 0);
+    const ops = buildAddMusicOps(project().timeline, asset, 0);
     expect(ops.map((op) => op.type)).toEqual(['add_asset', 'add_layer', 'add_clip']);
   });
 
   it('gives the clip a deterministic id, so a duck op in the same list can name it', () => {
-    const ops = buildAddMusicOps(project(), asset, 0);
+    const ops = buildAddMusicOps(project().timeline, asset, 0);
     expect(ops[2]).toMatchObject({ clipId: 'music_1_clip' });
-    expect(buildAddMusicOps(project(), asset, 0)[2]).toMatchObject({ clipId: 'music_1_clip' });
+    expect(buildAddMusicOps(project().timeline, asset, 0)[2]).toMatchObject({
+      clipId: 'music_1_clip',
+    });
   });
 
   it('appends the duck op when a sidechain is requested', () => {
     // The tool description promises "the bed drop[s] under the voice"; this is
     // the op that makes that true instead of an accepted-then-ignored argument.
-    const ops = buildAddMusicOps(project(), asset, 2, 'dialogue_1');
+    const ops = buildAddMusicOps(project().timeline, asset, 2, 'dialogue_1');
     expect(ops.map((op) => op.type)).toEqual([
       'add_asset',
       'add_layer',
@@ -156,36 +163,43 @@ describe('buildAddMusicOps', () => {
 
   it('treats a blank sidechain as absent rather than emitting a duck at ""', () => {
     for (const blank of [undefined, '', '   ']) {
-      const ops = buildAddMusicOps(project(), asset, 0, blank);
+      const ops = buildAddMusicOps(project().timeline, asset, 0, blank);
       expect(ops.map((op) => op.type)).toEqual(['add_asset', 'add_layer', 'add_clip']);
     }
   });
 
   it('labels the layer music so ducking can find the bed', () => {
-    expect(buildAddMusicOps(project(), asset, 0)[1]).toMatchObject({ role: 'music' });
+    expect(buildAddMusicOps(project().timeline, asset, 0)[1]).toMatchObject({ role: 'music' });
   });
 
   it('spans the clip the track length from the requested start', () => {
-    expect(buildAddMusicOps(project(), asset, 5)[2]).toMatchObject({ start: 5, end: 97 });
+    expect(buildAddMusicOps(project().timeline, asset, 5)[2]).toMatchObject({ start: 5, end: 97 });
   });
 
   it('clamps a negative start rather than emitting an invalid clip', () => {
-    expect(buildAddMusicOps(project(), asset, -10)[2]).toMatchObject({ start: 0 });
+    expect(buildAddMusicOps(project().timeline, asset, -10)[2]).toMatchObject({ start: 0 });
   });
 
   it('falls back to a default length when the provider reported no duration', () => {
     const { durationSeconds: _none, ...noDuration } = asset;
-    expect((buildAddMusicOps(project(), noDuration, 0)[2] as { end: number }).end).toBe(30);
+    expect((buildAddMusicOps(project().timeline, noDuration, 0)[2] as { end: number }).end).toBe(
+      30,
+    );
   });
 
   it('validates and applies against a real project', () => {
     const base = project();
-    const probe = assembleEdit(base, buildAddMusicOps(base, asset, 0), 'Add music', 'agent');
+    const probe = assembleEdit(
+      base,
+      buildAddMusicOps(base.timeline, asset, 0),
+      'Add music',
+      'agent',
+    );
     expect(probe.validation.valid).toBe(true);
   });
 
   it('carries the credit into the bin — this is what the Credits view reads', () => {
-    const added = buildAddMusicOps(project(), asset, 0)[0] as {
+    const added = buildAddMusicOps(project().timeline, asset, 0)[0] as {
       asset: { source?: { attribution?: string } };
     };
     expect(added.asset.source?.attribution).toContain('Ada');
@@ -219,64 +233,38 @@ describe('musicDuckSidechainIssue', () => {
 });
 
 describe('the agent path and the manual path agree', () => {
-  // The manual path is `addMusicTrackPatch` in the renderer. Both call the same
-  // decision, so the only way they can diverge is if someone reimplements one of
-  // them — which is exactly what this test is here to catch.
-  const manualOpsFor = (duck: boolean) => [
-    { type: 'add_asset', asset },
-    { type: 'add_layer', layerId: 'music_1', layerType: 'audio', atIndex: 0, role: 'music' },
-    {
-      type: 'add_clip',
-      trackId: 'music_1',
-      assetId: asset.id,
-      clipId: 'music_1_clip',
-      start: 0,
-      end: 92,
-      sourceStart: 0,
-      sourceEnd: 92,
-    },
-    ...(duck
-      ? [
-          {
-            type: 'adjust_audio',
-            clipId: 'music_1_clip',
-            gainDb: 0,
-            fadeInSeconds: 0,
-            fadeOutSeconds: 0,
-            duckUnderTrackId: 'dialogue_1',
-            duckAmountDb: -12,
-          },
-        ]
-      : []),
-  ];
-
-  const expectDeepEqual = (agentOps: ReturnType<typeof buildAddMusicOps>): void => {
+  // The real deep-equal — agent builder against the renderer's actual
+  // `addMusicTrackPatch` — lives in `apps/web-editor`, the one package that can
+  // import both. This is the half that belongs here: the operations the agent
+  // authors are exactly the shared builder's, with nothing added or dropped
+  // between the payload and the patch.
+  it('authors the shared builder\u2019s operations verbatim, with no agent-only extras', () => {
     const base = project();
-    const agentResult = applyProjectPatch(base, {
-      patchId: 'agent',
-      createdBy: 'agent',
-      reason: 'agent',
-      operations: agentOps,
-    });
-    const manualResult = applyProjectPatch(base, {
-      patchId: 'manual',
-      createdBy: 'user',
-      reason: 'manual',
-      operations: manualOpsFor(agentOps.length === 4) as typeof agentOps,
-    });
-
-    expect(agentResult.timeline).toEqual(manualResult.timeline);
-    expect(agentResult.assets).toEqual(manualResult.assets);
-  };
-
-  it('produces a deep-equal timeline either way', () => {
-    expectDeepEqual(buildAddMusicOps(project(), asset, 0));
+    const ops = buildAddMusicOps(base.timeline, asset, 0);
+    const probe = assembleEdit(base, ops, 'Add background music', 'agent');
+    expect(probe.validation.valid).toBe(true);
+    expect(probe.patch.operations).toEqual(ops);
   });
 
-  it('agrees on the ducked placement too — the op the tool description promises', () => {
-    // A bed the model asked to duck must land exactly as a hand-placed,
-    // hand-ducked one. If the agent path dropped the adjust_audio here, the bed
-    // would play at full level while the run reported it as ducked.
-    expectDeepEqual(buildAddMusicOps(project(), asset, 0, 'dialogue_1'));
+  it('places a ducked bed as one reversible patch \u2014 the op the tool description promises', () => {
+    // If the agent path dropped the adjust_audio here, the bed would play at
+    // full level while the run reported it as ducked.
+    const base = project();
+    const ops = buildAddMusicOps(base.timeline, asset, 0, 'dialogue_1');
+    const probe = assembleEdit(base, ops, 'Add background music', 'agent');
+    expect(probe.validation.valid).toBe(true);
+    expect(ops.map((op) => op.type)).toEqual([
+      'add_asset',
+      'add_layer',
+      'add_clip',
+      'adjust_audio',
+    ]);
+    // One patch: a single undo takes the bed, its layer, its bin entry and its
+    // duck back together.
+    const after = applyProjectPatch(base, probe.patch);
+    const undone = applyProjectPatch(after, invertProjectPatch(base, probe.patch));
+    // `revision` counts applies and legitimately moves; the CONTENT must not.
+    expect(undone.timeline.tracks).toEqual(base.timeline.tracks);
+    expect(undone.assets).toEqual(base.assets);
   });
 });

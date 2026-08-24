@@ -7302,12 +7302,12 @@ real 5–15 minute footage: hear the bed under the voice in an actual export, an
 credit survives save-and-reopen (`product-discipline.mdc` §8 — tiny fixtures cannot stand in
 for a media claim).
 
-**Deferred by decision, not oversight** (`3rd-party-sourcing/DEFERRED-stock-footage-and-sfx.md`):
-**stock video** (for screen recordings and talking heads a punch-in on real footage usually
-beats generic stock; also needs billable indexing and is gated behind the unstarted SUC-P1
-compositing blocker) and **SFX** (a placement problem, not a search problem; Freesound is the
-obvious source and is itself commercially gated; `auto-SFX` is already tracked and blocked on
-the Phase 9.0 gate). An **owned** music catalog stays out of scope per
+**Stock photo & video is no longer deferred — see the section below.** The deferral was
+reversed by maintainer decision 2026-08-24 and `DEFERRED-stock-footage-and-sfx.md` records the
+reversal; that file's stock half is history, not a live decision. **SFX remains deferred** (a
+placement problem, not a search problem; Freesound is the obvious source and is itself
+commercially gated; `auto-SFX` is already tracked and blocked on the Phase 9.0 gate). An
+**owned** music catalog stays out of scope per
 `FRAMEPILOT-AI-PRODUCT-PLAN.md:22`; searching a _third party's_ catalog is a recorded,
 deliberate delta from that decision (README §D1), not a reversal.
 
@@ -7317,6 +7317,50 @@ editorial defects. Picked up when that batch closes; not interleaved with it. Ph
 is known in advance: the registry is already 78 descriptors ≈ 15,710 tokens per request
 (§ above, line ~118), so the agent tool waits until a human has confirmed the provider
 returns usable tracks. **Last updated:** 2026-08-23
+
+## Third-party stock photo & video (Pexels) — `[~]` shipped · evidence runs outstanding
+
+> **Sub-plan: [`plan/3rd-party-sourcing/photo-video/README.md`](./3rd-party-sourcing/photo-video/README.md)**
+> (created 2026-08-24). The picture half of the sourcing reach the music slice opened:
+> **photos and video from Pexels, fetched in the Electron main process and materialized as
+> an ordinary project asset**, with the same provenance, credits and undo guarantees.
+
+**The deferral was reversed by maintainer decision 2026-08-24**, on the argument the original
+deferral itself made: the reason to hold was the SUC-P1 compositing blocker, and a cutaway
+that _replaces_ picture rather than stacking on it does not need compositing. So the feature
+ships **non-overlapping only** — the panel disables **Add** with a reason, and `add_stock`
+fails with one, when the target span already holds picture (ADR 0140). Picture-in-picture
+waits on SUC-P1, and that is stated in the guide rather than left to be discovered.
+
+Reuses every mechanism the music slice built: `Asset.source` provenance (schema v20, no new
+migration), the Credits surface, the main-process key custody, the observed-not-counted quota
+store, the atomic temp→rename download path, and the `hostUiOnly` tool gate. **Zero new
+dependencies.** The one genuinely new piece is `picture-occupancy.ts` — the shared
+"is this span already picture?" predicate — plus `stock-placement.ts`, the single builder the
+Stock panel and `add_stock` both call so an agent-placed clip and a hand-placed one are the
+same clip.
+
+**Pexels chosen (ADR 0141):** free, no revenue share, commercial use permitted without
+attribution (courtesy credit surfaced anyway, in its own **Suggested** group), photos and
+video from one key, 200 requests/hour. The key is **write-only** in Settings and never leaves
+main.
+
+- [x] **P0** Key custody + observed quota store
+- [x] **P1** Pexels adapter — photos and videos, licence codes normalized, unknown codes dropped
+- [x] **P2** Main-process service, IPC surface, quota wiring
+- [x] **P3** Stock panel with hover-scrub preview, per-tile placement verdicts, Credits'
+      Suggested group
+- [x] **P4** `search_stock` / `add_stock`, with the orchestrator arm that turns the host's
+      download into a validated patch and the cross-path parity test that pins it to the
+      panel's own builder
+- [~] **P5** Docs and evidence — ADRs 0140/0141, `docs/guides/stock-sourcing.md` and the
+  CHANGELOG are written; **the real-media desktop run is outstanding**, as it is for the
+  music slice.
+
+**What is left is not code**, exactly as above: a human at a desktop build placing a real
+Pexels clip into a real edit, exporting it, and confirming the courtesy credit survives
+save-and-reopen. `product-discipline.mdc` §8 — tiny fixtures cannot stand in for a media
+claim. **Last updated:** 2026-08-25
 
 ## Scene Understanding & Advanced Compositing — `[ ]` not started
 
@@ -7566,10 +7610,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                a pre-existing local edit commenting out temperature forwarding, untouched here);
-                engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                **Last updated:** 2026-08-14
+                  Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                  a pre-existing local edit commenting out temperature forwarding, untouched here);
+                  engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                  **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 

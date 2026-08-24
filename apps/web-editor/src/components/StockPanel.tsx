@@ -31,6 +31,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Asset, Project } from '@framepilot/timeline-schema';
+import { DEFAULT_STOCK_STILL_SECONDS } from '@framepilot/editor-core';
 import { Button } from '@framepilot/ui';
 import {
   isDesktop,
@@ -62,13 +63,20 @@ const LOW_QUOTA_RATIO = 0.1;
 export interface StockPanelProps {
   readonly project: Project;
   /**
-   * Why placement is currently impossible, or `null` when it is fine. Computed
-   * by the caller because it holds the timeline; passed in so the tile can
-   * disable Add *before* the click rather than explaining afterwards.
+   * Why placing a clip of this length would be impossible, or `null` when it is
+   * fine. Computed by the caller because it holds the timeline, and asked
+   * PER TILE because the answer depends on the clip's own duration: a panel-wide
+   * probe passes a 12-second clip that a 5-second one would fit, and the user
+   * then waits through a download for nothing.
    */
-  readonly placementBlockedReason: string | null;
-  /** Place the downloaded asset. Owned by the caller because it holds the store. */
-  readonly onAddStock: (asset: Asset) => void;
+  readonly placementBlockedReasonFor: (durationSeconds: number) => string | null;
+  /**
+   * Place the downloaded asset. Owned by the caller because it holds the store.
+   * Returns the reason it could not be placed — the playhead can move onto
+   * occupied ground while the download is in flight — or `null` on success. A
+   * dropped clip must be *said*, not swallowed: the user watched it download.
+   */
+  readonly onAddStock: (asset: Asset) => string | null;
   /** Opens Settings → Stock media, for the no-key and quota states. */
   readonly onOpenSettings?: () => void;
 }
@@ -164,13 +172,20 @@ export function tileVariant(
 
 export function StockPanel({
   project,
-  placementBlockedReason,
+  placementBlockedReasonFor,
   onAddStock,
   onOpenSettings,
 }: StockPanelProps): JSX.Element {
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<StockMediaKindWire>('video');
   const [search, setSearch] = useState<SearchState>({ kind: 'empty' });
+  /**
+   * Why the last "Load more" failed, shown beside the retained results.
+   *
+   * Separate from `search` because it is NOT a search state: the results the
+   * user already has are still good, and only the next page is missing.
+   */
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [tiles, setTiles] = useState<Readonly<Record<string, TileState>>>({});
   const [quota, setQuota] = useState<StockQuotaSnapshot>({ kind: 'unmeasured' });
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -212,13 +227,21 @@ export function StockPanel({
       const result = await stockSearch({ text, kind: mediaKind, page });
       if (!result.ok) {
         if (result.error === 'cancelled') return;
-        setSearch({
-          kind: 'error',
-          code: result.error,
-          message: stockErrorText(result.error, result.detail),
+        const message = stockErrorText(result.error, result.detail);
+        setSearch((current) => {
+          // A failed "Load more" must not destroy the pages the user already
+          // has. Those results are still valid and still placeable; replacing
+          // them with an error screen costs a search the user already paid a
+          // provider request for.
+          if (page > 1 && current.kind === 'results') {
+            setLoadMoreError(message);
+            return current;
+          }
+          return { kind: 'error', code: result.error, message };
         });
         return;
       }
+      setLoadMoreError(null);
       setSearch((current) =>
         page > 1 && current.kind === 'results'
           ? {
@@ -312,7 +335,12 @@ export function StockPanel({
       }
 
       const { asset: downloaded } = result;
-      onAddStock({
+      // The verdict is the CALLER's, taken after the download with the timeline
+      // as it is now — the playhead may have moved onto occupied ground while
+      // the bytes were in flight. A refusal is shown on the tile the user was
+      // watching; silently dropping it would leave them waiting for a clip that
+      // was never coming.
+      const refusal = onAddStock({
         id: stockAssetId(item),
         path: downloaded.relativePath,
         kind: downloaded.kind,
@@ -335,9 +363,23 @@ export function StockPanel({
           : {}),
         source: downloaded.source,
       });
-      setTile(item.remoteId, { kind: 'idle' });
+      setTile(
+        item.remoteId,
+        refusal === null ? { kind: 'idle' } : { kind: 'failed', message: refusal },
+      );
     },
     [onAddStock, project.fps, project.id, projectHeight, setTile],
+  );
+
+  /**
+   * Why THIS item cannot be placed, or `null`. A still has no duration of its
+   * own, so it is probed at the length a placed still actually gets — the same
+   * number the builder will use, which is what keeps the button honest.
+   */
+  const blockedReasonFor = useCallback(
+    (item: StockItemWire): string | null =>
+      placementBlockedReasonFor(item.durationSeconds ?? DEFAULT_STOCK_STILL_SECONDS),
+    [placementBlockedReasonFor],
   );
 
   // ---------------------------------------------------------------------------
@@ -349,6 +391,13 @@ export function StockPanel({
 
   const onTileKeyDown = useCallback(
     (event: React.KeyboardEvent, index: number, item: StockItemWire): void => {
+      // A tile contains its own controls — Cancel, the licence link. Enter
+      // belongs to whatever is focused, so when focus is INSIDE the tile the
+      // tile must not also act: otherwise Enter on Cancel starts a second
+      // download, and Enter on the licence link is swallowed instead of opening
+      // the page the user is trying to read. Arrow navigation still works from
+      // anywhere in the tile.
+      const onTileItself = event.target === event.currentTarget;
       const move = (to: number): void => {
         const clamped = Math.max(0, Math.min(items.length - 1, to));
         const next = items[clamped];
@@ -383,7 +432,11 @@ export function StockPanel({
           move(items.length - 1);
           break;
         case 'Enter':
-          if (placementBlockedReason === null && !presentRemoteIds.has(item.remoteId)) {
+          if (
+            onTileItself &&
+            blockedReasonFor(item) === null &&
+            !presentRemoteIds.has(item.remoteId)
+          ) {
             event.preventDefault();
             void add(item);
           }
@@ -392,7 +445,7 @@ export function StockPanel({
           break;
       }
     },
-    [add, items, placementBlockedReason, presentRemoteIds],
+    [add, blockedReasonFor, items, presentRemoteIds],
   );
 
   // Browser build: the tab is absent entirely (see Editor.tsx). This is the
@@ -473,9 +526,14 @@ export function StockPanel({
         </div>
       ) : (
         <>
-          {placementBlockedReason !== null && search.kind === 'results' ? (
+          {/* The panel-level note answers "why is everything disabled?", so it
+              speaks only when NOTHING here can be placed. Per-tile reasons live
+              on the tiles. */}
+          {search.kind === 'results' &&
+          search.items.length > 0 &&
+          search.items.every((item) => blockedReasonFor(item) !== null) ? (
             <p className="stock-blocked" role="status">
-              {placementBlockedReason}
+              {blockedReasonFor(search.items[0]!)}
             </p>
           ) : null}
 
@@ -523,7 +581,7 @@ export function StockPanel({
                     index={index}
                     state={tiles[item.remoteId] ?? { kind: 'idle' }}
                     inProject={presentRemoteIds.has(item.remoteId)}
-                    blockedReason={placementBlockedReason}
+                    blockedReason={blockedReasonFor(item)}
                     targetHeight={projectHeight}
                     tabbable={tabbableId === item.remoteId}
                     onFocus={() => setFocusedId(item.remoteId)}
@@ -533,6 +591,11 @@ export function StockPanel({
                   />
                 ))}
               </ul>
+              {loadMoreError !== null ? (
+                <p className="stock-error" role="alert">
+                  {loadMoreError}
+                </p>
+              ) : null}
               {search.hasMore ? (
                 // A button, never infinite scroll: every page is one of ~200
                 // requests an hour, and it should be one the user asked for.

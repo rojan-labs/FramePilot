@@ -15,6 +15,7 @@ import {
   placeAssetPatch,
   stockPlacementBlockedReason,
 } from './patch-builders.js';
+import { StockAssetPayloadSchema, stockOpsFromPayload } from '@framepilot/ai-sdk';
 import { applyUserPatch, createEditorState, redoEdit, undoEdit } from './store.js';
 import { demoAssetIds, demoTimeline } from './demo.js';
 
@@ -201,6 +202,62 @@ describe('stockPlacementBlockedReason', () => {
       const blocked = stockPlacementBlockedReason(demoTimeline, assetById, at, 12) !== null;
       const refused = addStockClipPatch(demoTimeline, assetById, STOCK_VIDEO, at) === null;
       expect(blocked).toBe(refused);
+    }
+  });
+});
+
+describe('the agent path and the manual path place the same clip', () => {
+  // THE parity test Phase 4's Definition of Done promises, and the one that was
+  // missing: this is the only package that can import both the renderer's
+  // builder and the agent's, so it is the only place the two can actually be
+  // compared. A frozen literal here would prove nothing — it would only assert
+  // that someone once wrote the expectation down.
+  //
+  // The agent path is `stockOpsFromPayload` (ai-sdk), which parses the host
+  // payload and calls `buildAddStockOps`; the manual path is
+  // `addStockClipPatch`, which wraps the same call with its own patch identity.
+  const projectFor = (timeline: Timeline, assets: readonly Asset[]) => ({
+    id: 'p1',
+    name: 'P',
+    version: 1 as const,
+    fps: 30,
+    resolution: { width: 1920, height: 1080 },
+    assets: [...assets],
+    timeline,
+    transcript: [],
+    aiMemory: {},
+    history: [],
+  });
+
+  const agentOpsFor = (timeline: Timeline, assets: readonly Asset[], asset: Asset, at: number) => {
+    const parsed = StockAssetPayloadSchema.parse({ asset, atSeconds: at });
+    const outcome = stockOpsFromPayload(
+      projectFor(timeline, assets) as unknown as Parameters<typeof stockOpsFromPayload>[0],
+      parsed,
+    );
+    return outcome.ok ? outcome.operations : null;
+  };
+
+  it.each([
+    ['a video onto an empty timeline', EMPTY, [] as Asset[], STOCK_VIDEO, 0],
+    ['a photo onto an empty timeline', EMPTY, [] as Asset[], STOCK_PHOTO, 0],
+    ['a video after the existing footage', demoTimeline, [...assetById.values()], STOCK_VIDEO, 20],
+    ['a photo after the existing footage', demoTimeline, [...assetById.values()], STOCK_PHOTO, 20],
+  ])('produces identical operations for %s', (_label, timeline, assets, asset, at) => {
+    const manual = addStockClipPatch(timeline, new Map(assets.map((a) => [a.id, a])), asset, at);
+    const agent = agentOpsFor(timeline, assets, asset, at);
+    expect(manual).not.toBeNull();
+    expect(agent).not.toBeNull();
+    // Deep-equal on the OPERATIONS, not on a re-derived timeline: identical
+    // operations guarantee identical timelines, and a mismatch names the field.
+    expect(agent).toEqual(manual!.operations);
+  });
+
+  it('refuses on both paths for the same occupied span — neither can be the permissive one', () => {
+    for (const at of [0, 2, 6, 13.9]) {
+      const manual = addStockClipPatch(demoTimeline, assetById, STOCK_VIDEO, at);
+      const agent = agentOpsFor(demoTimeline, [...assetById.values()], STOCK_VIDEO, at);
+      expect(agent === null).toBe(manual === null);
     }
   });
 });

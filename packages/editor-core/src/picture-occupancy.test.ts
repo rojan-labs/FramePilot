@@ -39,14 +39,29 @@ describe('picturePlacementConflict', () => {
     expect(picturePlacementConflict(tl, assets, -5, 0)).toBe(false);
   });
 
-  it('sees a conflict across separate tracks, because the preview flattens them', () => {
+  it('sees a conflict on a track OTHER than the first, because the preview flattens them', () => {
+    // The load-bearing ADR 0140 property, and the one a per-track refactor would
+    // silently break: the occupied span is on `video_2` while `video_1` is empty
+    // over it, so an implementation that only consulted "the" picture track
+    // would report no conflict and ship an export that does not match the
+    // preview. Overlap is measured in TIME, never by layer.
     const tl = timeline([
-      { id: 'video_1', type: 'video', clips: [clip('a_video', 0, 10)] },
-      { id: 'video_2', type: 'video', clips: [] },
+      { id: 'video_1', type: 'video', clips: [clip('a_video', 0, 2)] },
+      { id: 'video_2', type: 'video', clips: [clip('a_image', 6, 12)] },
     ]);
-    // Which layer the clips sit on does not affect whether the preview can show
-    // both — overlap is measured in time.
-    expect(picturePlacementConflict(tl, assets, 2, 4)).toBe(true);
+    expect(picturePlacementConflict(tl, assets, 7, 9)).toBe(true);
+    // And the gap BETWEEN the two tracks' clips is genuinely free.
+    expect(picturePlacementConflict(tl, assets, 2, 6)).toBe(false);
+  });
+
+  it('sees a conflict from two tracks whose clips together leave no gap', () => {
+    // Neither track alone covers 3–7s; together they do. An implementation that
+    // answered per track would let a clip through into the seam.
+    const tl = timeline([
+      { id: 'video_1', type: 'video', clips: [clip('a_video', 0, 5)] },
+      { id: 'video_2', type: 'video', clips: [clip('a_image', 5, 10)] },
+    ]);
+    expect(picturePlacementConflict(tl, assets, 3, 7)).toBe(true);
   });
 
   it('counts images as picture', () => {

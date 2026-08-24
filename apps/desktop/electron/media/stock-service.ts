@@ -73,6 +73,13 @@ const SEARCH_CACHE_MAX = 50;
  * more images than a track list holds previews, and re-searching a query the
  * user already looked at must cost nothing.
  */
+/**
+ * How many searched items stay actionable by `remoteId`. Generous — many pages
+ * of results — but finite: the renderer can only act on what it is still
+ * showing, and an unbounded table is a slow leak in the process that also runs
+ * the window.
+ */
+const KNOWN_ITEMS_MAX = 2000;
 const THUMBNAIL_CACHE_MAX_BYTES = 40 * 1024 * 1024;
 /**
  * Hover-scrub renditions. Their own budget, because one of them outweighs a
@@ -178,6 +185,10 @@ export class StockService {
   /**
    * Items seen in a search, so the renderer can act on one by `remoteId` alone.
    * This is the table that lets every provider URL stay in main.
+   *
+   * Bounded, like every other cache here: a long session of searches would
+   * otherwise grow it without limit. Oldest-first eviction is right because
+   * "act on a result" only ever means a result the user can still see.
    */
   private readonly knownItems = new Map<string, StockItem>();
   private readonly downloads = new Map<string, AbortController>();
@@ -214,7 +225,7 @@ export class StockService {
       // Cache first, always. A cached hit spent no request, so it deliberately
       // does NOT touch the quota store — moving the meter here would make the
       // Settings readout drift away from what the provider actually counted.
-      for (const item of cached.items) this.knownItems.set(item.remoteId, item);
+      for (const item of cached.items) this.rememberItem(item);
       return {
         ok: true,
         items: cached.items.map(toStockItemWire),
@@ -280,7 +291,7 @@ export class StockService {
       hasMore: result.hasMore,
       expiresAt: this.now() + SEARCH_TTL_MS,
     });
-    for (const item of result.items) this.knownItems.set(item.remoteId, item);
+    for (const item of result.items) this.rememberItem(item);
   }
 
   // -------------------------------------------------------------------------
@@ -320,13 +331,41 @@ export class StockService {
         signal: AbortSignal.timeout(STOCK_THUMBNAIL_TIMEOUT_MS),
       });
       if (!response.ok) throw statusError(response.status);
+      // Checked BEFORE buffering, not after. The cache budget below refuses an
+      // oversized entry, but by then the bytes are already resident in main —
+      // a provider serving a 2 GB "preview" would spike the process that also
+      // runs the window's event loop. A declared length above the whole cache
+      // budget cannot be worth showing, so it is declined unread.
+      const declared = Number(response.headers.get('content-length') ?? '0');
+      const budget = which === 'preview' ? PREVIEW_CACHE_MAX_BYTES : THUMBNAIL_CACHE_MAX_BYTES;
+      if (Number.isFinite(declared) && declared > budget) {
+        throw new StockProviderError('too_large', 'preview is implausibly large');
+      }
       const data = Buffer.from(await response.arrayBuffer());
+      if (data.byteLength > budget) {
+        // A missing or lying Content-Length is the case the check above cannot
+        // cover; the bytes are spent either way, but they are not kept.
+        throw new StockProviderError('too_large', 'preview is implausibly large');
+      }
       const contentType =
         response.headers.get('content-type') ?? (which === 'preview' ? 'video/mp4' : 'image/jpeg');
       this.rememberBytes(which, remoteId, { contentType, data });
       return { ok: true, contentType, data: toArrayBuffer(data) };
     } catch (error) {
       return { ok: false, ...toWireError(normalizeFetchError(error)) };
+    }
+  }
+
+  /** Remember an item by id, evicting the oldest once the table is full. */
+  private rememberItem(item: StockItem): void {
+    // Re-inserting moves it to the back of the insertion order, so an item the
+    // user keeps seeing is never the one evicted.
+    this.knownItems.delete(item.remoteId);
+    this.knownItems.set(item.remoteId, item);
+    while (this.knownItems.size > KNOWN_ITEMS_MAX) {
+      const oldest = this.knownItems.keys().next();
+      if (oldest.done === true) break;
+      this.knownItems.delete(oldest.value);
     }
   }
 
@@ -443,7 +482,11 @@ export class StockService {
       // A partial file must never be reachable — not by the bin, not by
       // `fp-media://`, not by a later dedupe check.
       await unlink(tempPath).catch(() => undefined);
-      const cancelled = controller.signal.aborted;
+      // A stall aborts the SAME controller a user cancel does, so "the signal is
+      // aborted" no longer identifies a cancel on its own. An error the stream
+      // classified deliberately (`StockProviderError`) is trusted over the
+      // signal: a raw `AbortError` is what a real user cancel leaves behind.
+      const cancelled = controller.signal.aborted && !(error instanceof StockProviderError);
       const wire = cancelled
         ? { error: 'cancelled' as const }
         : isDiskFull(error)
@@ -503,19 +546,38 @@ export class StockService {
     // an array of Buffers is a 400 MB spike in the main process, and main is also
     // the window's event loop.
     const sink = createWriteStream(tempPath);
+    // A write stream that fails to open or flush (EACCES on the projects root,
+    // EMFILE under load, ENOSPC at flush time) emits 'error' asynchronously. With
+    // no listener that is an UNCAUGHT exception in the main process — the whole
+    // app, not this one download. Captured here and re-thrown through the normal
+    // failure path so it becomes a tool error the user can read.
+    let sinkError: Error | null = null;
+    sink.on('error', (error: Error) => {
+      sinkError = error;
+    });
     let completed = 0;
     let lastProgressAt = this.now();
     const reader = body.getReader();
+    // A stall and a user cancel both reach the reader as an abort, and they are
+    // not the same event: a cancel is deliberate and renders as silence, a stall
+    // is a failure the user needs told about. The flag is what tells them apart
+    // after the fact, since `AbortSignal.reason` is not carried through the
+    // reader's rejection.
+    let stalled = false;
 
     try {
       for (;;) {
-        const stall = setTimeout(() => controller.abort(), STOCK_DOWNLOAD_STALL_MS);
+        const stall = setTimeout(() => {
+          stalled = true;
+          controller.abort();
+        }, STOCK_DOWNLOAD_STALL_MS);
         let chunk: Awaited<ReturnType<typeof reader.read>>;
         try {
           chunk = await reader.read();
         } finally {
           clearTimeout(stall);
         }
+        if (sinkError !== null) throw sinkError;
         if (chunk.done) break;
 
         completed += chunk.value.byteLength;
@@ -530,9 +592,21 @@ export class StockService {
           this.emit(request, 'downloading', completed, total);
         }
       }
+    } catch (error) {
+      // Re-labelled before it escapes: an abort we caused by timing out must not
+      // reach the user as "cancelled", which the UI renders as silence.
+      if (stalled && error instanceof Error && error.name === 'AbortError') {
+        throw new StockProviderError('timeout', 'the download stalled');
+      }
+      throw error;
     } finally {
       await closeStream(sink);
     }
+
+    // Only reachable once the loop drained cleanly, so a flush error raised
+    // during `end()` still fails the download rather than renaming a short file
+    // into the bin.
+    if (sinkError !== null) throw sinkError;
 
     // A body that stopped short of its declared length is a corrupt file, not a
     // small one. Catching it here keeps a truncated MP4 out of the bin.
@@ -689,8 +763,18 @@ function writeChunk(sink: NodeJS.WritableStream, chunk: Buffer): Promise<void> {
   });
 }
 
+/**
+ * Close the sink, never rejecting and never hanging.
+ *
+ * `end()`'s callback does not fire on a stream that has already errored, so a
+ * failed write would leave this promise pending forever inside a `finally` — the
+ * download would never settle and its temp file would never be swept. The
+ * 'error' listener resolves the same promise; the error itself is reported by
+ * the caller's own `sinkError` capture.
+ */
 function closeStream(sink: NodeJS.WritableStream & { close?: () => void }): Promise<void> {
   return new Promise((resolve) => {
+    sink.once('error', () => resolve());
     sink.end(() => resolve());
   });
 }

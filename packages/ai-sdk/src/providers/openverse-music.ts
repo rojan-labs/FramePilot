@@ -63,14 +63,22 @@ const USER_AGENT = 'FramePilot/1.0 (+https://framepilot.app)';
 const NO_CREDIT_LICENSES: ReadonlySet<string> = new Set(['cc0', 'pdm']);
 
 /**
- * Licence codes that permit commercial use.
+ * Licence codes that permit commercial use **of an edited bed**.
  *
  * An allow-list, again deliberately. `by-nc*` are the obvious exclusions, but so
  * is anything unrecognised: see the module note on asymmetric failure modes.
  * `sampling+` is excluded — it permits commercial *sampling* but not commercial
  * advertising use, which is exactly the case a badge cannot make safe.
+ *
+ * **`by-nd` is excluded** (maintainer decision 2026-08-25), even though Openverse's
+ * own `license_type=commercial` filter includes it. ND permits commercial *use*
+ * but restricts **derivatives** — and the first thing this feature does to a bed
+ * is duck it under narration and automate its level, which is precisely the gray
+ * zone ND exists for. Licence safety is this feature's whole premise, so the
+ * ambiguous case is refused rather than shipped with a caveat the user would have
+ * to read to be safe.
  */
-const COMMERCIAL_LICENSES: ReadonlySet<string> = new Set(['cc0', 'pdm', 'by', 'by-sa', 'by-nd']);
+const COMMERCIAL_LICENSES: ReadonlySet<string> = new Set(['cc0', 'pdm', 'by', 'by-sa']);
 
 /**
  * One Openverse audio record, as loosely as the API actually behaves.

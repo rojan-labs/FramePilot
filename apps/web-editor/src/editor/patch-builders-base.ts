@@ -12,6 +12,9 @@
  * same id (replayable, testable; consistent with the engine's id derivation).
  */
 import {
+  buildAddMusicOps,
+  buildAddStockOps,
+  nextMusicLayerId,
   picturePlacementConflict as corePicturePlacementConflict,
   type AdjustAudioOp,
   type Easing,
@@ -1573,63 +1576,20 @@ export function addStockClipPatch(
   asset: Asset,
   atStart: number,
 ): Patch | null {
-  const start = atStart < 0 ? 0 : atStart;
-  // A photo has no duration of its own, so it takes the same default length a
-  // dragged-in still gets. The user trims it afterwards; there is no separate
-  // "still duration" setting to keep in sync.
-  const duration = asset.durationSeconds ?? DEFAULT_CLIP_SECONDS;
-  const end = start + duration;
+  // The SHAPE of the placement is decided in `editor-core` so this panel path
+  // and the agent's `add_stock` cannot drift; only the patch identity (id,
+  // author, reason) is this caller's own.
+  const placement = buildAddStockOps(timeline, [...assetById.values()], asset, atStart);
+  if (placement === null) return null;
 
-  if (picturePlacementConflict(timeline, assetById, start, end)) return null;
-
-  const kind = assetKind(asset);
-  const target = timeline.tracks.find(
-    (t) => layerKind(t, assetById) === kind && hasRoomFor(t, start, end),
-  );
-
-  if (target) {
-    return {
-      patchId: patchId(`addstock_${asset.id}_${target.id}_${ms(start)}`),
-      createdBy: 'user',
-      reason: `Add stock ${kind} "${asset.id}" at ${start.toFixed(2)}s`,
-      operations: [
-        { type: 'add_asset', asset },
-        {
-          type: 'add_clip',
-          trackId: target.id,
-          assetId: asset.id,
-          // Deterministic, so an agent-placed clip and a hand-placed one are
-          // indistinguishable — including to a later op that names the clip.
-          clipId: `${target.id}_${asset.id}_clip`,
-          start,
-          end,
-          sourceStart: 0,
-          sourceEnd: duration,
-        },
-      ],
-    };
-  }
-
-  const layerType = layerTypeForKind(kind);
-  const layerId = nextLayerId(timeline, layerType);
+  const { operations, trackId, createdLayer, start, kind } = placement;
   return {
-    patchId: patchId(`addstock_${asset.id}_${layerId}_${ms(start)}`),
+    patchId: patchId(`addstock_${asset.id}_${trackId}_${ms(start)}`),
     createdBy: 'user',
-    reason: `Add stock ${kind} "${asset.id}" on a new layer at ${start.toFixed(2)}s`,
-    operations: [
-      { type: 'add_asset', asset },
-      { type: 'add_layer', layerId, layerType, atIndex: 0 },
-      {
-        type: 'add_clip',
-        trackId: layerId,
-        assetId: asset.id,
-        clipId: `${layerId}_clip`,
-        start,
-        end,
-        sourceStart: 0,
-        sourceEnd: duration,
-      },
-    ],
+    reason: createdLayer
+      ? `Add stock ${kind} "${asset.id}" on a new layer at ${start.toFixed(2)}s`
+      : `Add stock ${kind} "${asset.id}" at ${start.toFixed(2)}s`,
+    operations: [...operations],
   };
 }
 
@@ -1690,32 +1650,21 @@ export function addAssetPatch(asset: Asset): Patch {
  *
  * Reuses `add_asset` + `add_layer` + `add_clip`. No new timeline operation:
  * those three already express "music bed on its own track" completely.
+ *
+ * The operations themselves come from `editor-core`'s `buildAddMusicOps`, the
+ * same call the agent's `add_music` makes — so an agent-placed bed and a
+ * hand-placed one are the same bed, down to the layer id and the fallback length
+ * used when a provider reported no duration.
  */
 export function addMusicTrackPatch(timeline: Timeline, asset: Asset, atStart = 0): Patch {
   const start = atStart < 0 ? 0 : atStart;
-  const duration = asset.durationSeconds ?? DEFAULT_CLIP_SECONDS;
-  const layerId = nextLayerId(timeline, 'audio');
+  const operations = buildAddMusicOps(timeline, asset, start);
+  const layerId = nextMusicLayerId(timeline);
   return {
     patchId: patchId(`addmusic_${asset.id}_${layerId}_${ms(start)}`),
     createdBy: 'user',
     reason: `Add music "${asset.id}" on a new music layer at ${start.toFixed(2)}s`,
-    operations: [
-      { type: 'add_asset', asset },
-      { type: 'add_layer', layerId, layerType: 'audio', atIndex: 0, role: 'music' },
-      {
-        type: 'add_clip',
-        trackId: layerId,
-        assetId: asset.id,
-        // Same deterministic id the agent path uses (`music-placement.ts`), so an
-        // agent-placed bed and a hand-placed one stay indistinguishable — including
-        // by a later adjust_audio that names the clip.
-        clipId: `${layerId}_clip`,
-        start,
-        end: start + duration,
-        sourceStart: 0,
-        sourceEnd: duration,
-      },
-    ],
+    operations,
   };
 }
 

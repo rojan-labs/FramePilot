@@ -57,9 +57,7 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1"
-          ]
+          "decisionIds": ["decision_1"]
         },
         "execution": {
           "authorized": true
@@ -108,7 +106,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 20730,
+      "usedTokens": 20738,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -141,16 +139,16 @@
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17041,
+            "tokenEstimate": 17049,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 20730,
+          "estimatedInputTokensBeforeSend": 20738,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 171078,
+          "estimatedRemainingCapacity": 171070,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -272,19 +270,14 @@
           ]
         },
         "stage": "analyze",
-        "completedStages": [
-          "interpret",
-          "inspect"
-        ],
+        "completedStages": ["interpret", "inspect"],
         "stageEnteredAtTurn": 1,
         "facts": [
           {
             "id": "fact_1",
             "kind": "derived",
             "statement": "Reading the pacing playbook → Unknown skill \"pacing\". Available: audio-polish, beat-synced-editing, broll-and-layering, caption-design, cinematic-storytelling, color-grading, cut-a",
-            "evidenceIds": [
-              "ev_1"
-            ],
+            "evidenceIds": ["ev_1"],
             "scope": "revision_independent",
             "observedAtRevision": 0,
             "stage": "analyze"
@@ -305,9 +298,7 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1"
-          ]
+          "decisionIds": ["decision_1"]
         },
         "execution": {
           "authorized": true
@@ -356,7 +347,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 20928,
+      "usedTokens": 20936,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -389,16 +380,16 @@
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17041,
+            "tokenEstimate": 17049,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 20928,
+          "estimatedInputTokensBeforeSend": 20936,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170880,
+          "estimatedRemainingCapacity": 170872,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -568,9 +559,7 @@
             ],
             "revision": 1
           },
-          "summary": [
-            "[video_1] ~ clip clip_a (0–6s → 3–6s)"
-          ]
+          "summary": ["[video_1] ~ clip clip_a (0–6s → 3–6s)"]
         },
         "text": "Agent step"
       },
@@ -621,21 +610,14 @@
           ]
         },
         "stage": "apply",
-        "completedStages": [
-          "interpret",
-          "inspect",
-          "analyze",
-          "plan"
-        ],
+        "completedStages": ["interpret", "inspect", "analyze", "plan"],
         "stageEnteredAtTurn": 2,
         "facts": [
           {
             "id": "fact_1",
             "kind": "derived",
             "statement": "Reading the pacing playbook → Unknown skill \"pacing\". Available: audio-polish, beat-synced-editing, broll-and-layering, caption-design, cinematic-storytelling, color-grading, cut-a",
-            "evidenceIds": [
-              "ev_1"
-            ],
+            "evidenceIds": ["ev_1"],
             "scope": "revision_independent",
             "observedAtRevision": 0,
             "stage": "analyze"
@@ -656,9 +638,7 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1"
-          ]
+          "decisionIds": ["decision_1"]
         },
         "execution": {
           "authorized": true
@@ -837,21 +817,14 @@
           ]
         },
         "stage": "apply",
-        "completedStages": [
-          "interpret",
-          "inspect",
-          "analyze",
-          "plan"
-        ],
+        "completedStages": ["interpret", "inspect", "analyze", "plan"],
         "stageEnteredAtTurn": 2,
         "facts": [
           {
             "id": "fact_1",
             "kind": "derived",
             "statement": "Reading the pacing playbook → Unknown skill \"pacing\". Available: audio-polish, beat-synced-editing, broll-and-layering, caption-design, cinematic-storytelling, color-grading, cut-a",
-            "evidenceIds": [
-              "ev_1"
-            ],
+            "evidenceIds": ["ev_1"],
             "scope": "revision_independent",
             "observedAtRevision": 0,
             "stage": "analyze"
@@ -872,9 +845,7 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1"
-          ]
+          "decisionIds": ["decision_1"]
         },
         "execution": {
           "authorized": true
@@ -964,9 +935,7 @@
             "id": "fact_1",
             "kind": "derived",
             "statement": "Reading the pacing playbook → Unknown skill \"pacing\". Available: audio-polish, beat-synced-editing, broll-and-layering, caption-design, cinematic-storytelling, color-grading, cut-a",
-            "evidenceIds": [
-              "ev_1"
-            ],
+            "evidenceIds": ["ev_1"],
             "scope": "revision_independent",
             "observedAtRevision": 0,
             "stage": "analyze"
@@ -987,9 +956,7 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1"
-          ]
+          "decisionIds": ["decision_1"]
         },
         "execution": {
           "authorized": true

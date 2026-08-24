@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Operation } from '@framepilot/editor-core';
+import { buildAddMusicOps, type Operation } from '@framepilot/editor-core';
 import { applyUserPatch, createEditorState, redoEdit, undoEdit } from './store.js';
 
 type AddKeyframesOp = Extract<Operation, { type: 'add_keyframes' }>;
@@ -1065,6 +1065,25 @@ describe('addMusicTrackPatch (fetched music bed)', () => {
     const { durationSeconds: _omitted, ...noDuration } = bed;
     const patch = addMusicTrackPatch(tl, noDuration as Asset, 0);
     expect((patch.operations[2] as { end: number }).end).toBeGreaterThan(0);
+  });
+
+  // THE cross-path parity test. This is the only package that can import both
+  // the renderer's builder and the agent's, so it is the only place the two can
+  // actually be compared — a frozen literal elsewhere would only assert that
+  // someone once wrote the expectation down. The drift this catches is real:
+  // before the builders converged, the agent used `music_N` layer ids and a 30s
+  // fallback while this path used `layer_audio_N` and 5s, so an agent-placed bed
+  // and a hand-placed one were different beds.
+  describe('agrees with the agent path, operation for operation', () => {
+    it.each([
+      ['a bed at the head', bed, 0],
+      ['a bed placed later in the timeline', bed, 12],
+      ['a bed whose provider reported no duration', { ...bed, durationSeconds: undefined }, 0],
+    ])('%s', (_label, asset, at) => {
+      const manual = addMusicTrackPatch(tl, asset as Asset, at);
+      const agent = buildAddMusicOps(tl, asset as Asset, at);
+      expect(agent).toEqual(manual.operations);
+    });
   });
 
   it('validates, applies, and ONE undo removes asset, layer and clip together', () => {

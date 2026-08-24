@@ -916,7 +916,9 @@ function StockQuotaReadout({ quota }: { readonly quota: StockQuotaSnapshot }): J
     );
   }
 
-  const monthly = quota.kind === 'measured' ? quota.monthly : quota.monthly;
+  // Both arms carried `monthly`, so the ternary chose between two identical
+  // expressions. The `unmeasured` case returned above, so this is simply it.
+  const { monthly } = quota;
   const percent =
     monthly && monthly.limit > 0 ? Math.round((monthly.remaining / monthly.limit) * 100) : null;
   const low = percent !== null && percent <= 10;

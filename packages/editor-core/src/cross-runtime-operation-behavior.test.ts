@@ -95,6 +95,13 @@ describe('cross-runtime operation behavior fixture', () => {
         if (!track) return;
         if (typeof expected.locked === 'boolean') expect(track.locked).toBe(expected.locked);
         if (typeof expected.muted === 'boolean') expect(track.muted).toBe(expected.muted);
+        if (typeof expected.trackType === 'string') expect(track.type).toBe(expected.trackType);
+        if (typeof expected.trackIndex === 'number')
+          expect(timeline.tracks.indexOf(track)).toBe(expected.trackIndex);
+        // The mix role, which is what `duck_roles` and the role-based ducking
+        // controller read. A runtime that drops it on the way in produces a bed
+        // nothing can find.
+        if (typeof expected.role === 'string') expect(track.role).toBe(expected.role);
       }
     });
   }

@@ -72,7 +72,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   credit for you. Downloaded tracks become ordinary project files, so the project still opens
   and exports offline. You can also just ask: **"add calm background music under the voice"**
   in Agent mode searches, picks, places and ducks it under your dialogue in one go.
-  (`apps/desktop`, `apps/web-editor`, `packages/ai-sdk`, ADR 0139 — see
+  Every track you can see is one you can freely duck, trim and publish: no-derivatives
+  (CC BY-ND) tracks are filtered out along with non-commercial ones, because ducking a bed
+  under narration is arguably a derivative work and that is not a question you should have to
+  answer. (`apps/desktop`, `apps/web-editor`, `packages/ai-sdk`, ADR 0138, ADR 0139 — see
   [the guide](docs/guides/music-sourcing.md))
 
 - **Your project remembers which tracks need crediting.** Music you add from a provider now

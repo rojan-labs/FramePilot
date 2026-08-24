@@ -452,6 +452,27 @@ describe('SoundsPanel', () => {
     await waitFor(() => expect(bridgeCalls.preview).toHaveBeenCalledTimes(1));
   });
 
+  it('leaves Enter to the control that has focus inside the row', async () => {
+    // The row's own Enter handler used to fire regardless of what was focused,
+    // so Enter on Cancel started a SECOND download of the track the user was
+    // trying to stop, and Enter on the licence link was swallowed.
+    bridgeCalls.search.mockResolvedValue({ ok: true, tracks: [wireTrack()] });
+    bridgeCalls.download.mockImplementation(() => new Promise(() => undefined));
+    render(<SoundsPanel project={emptyProject} onAddMusic={vi.fn()} />);
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'calm' } });
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+      await Promise.resolve();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(bridgeCalls.download).toHaveBeenCalledTimes(1));
+
+    const cancel = screen.getByRole('button', { name: /cancel/i });
+    fireEvent.keyDown(cancel, { key: 'Enter', bubbles: true });
+    expect(bridgeCalls.download).toHaveBeenCalledTimes(1);
+  });
+
   // -------------------------------------------------------------------------
   // Browser build
   // -------------------------------------------------------------------------

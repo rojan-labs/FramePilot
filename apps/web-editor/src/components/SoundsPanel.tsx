@@ -311,6 +311,13 @@ export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Elem
 
   const onRowKeyDown = useCallback(
     (event: React.KeyboardEvent, index: number, track: MusicTrackWire): void => {
+      // A row contains its own controls — Cancel, the licence link. Enter and
+      // Space belong to whatever is focused, so when focus is INSIDE the row the
+      // row must not also act: otherwise Enter on Cancel starts a second
+      // download, and Enter on the licence link is swallowed instead of opening
+      // the page the user is trying to read before they commit to the track.
+      // Arrow navigation still works from anywhere in the row.
+      const onRowItself = event.target === event.currentTarget;
       const move = (to: number): void => {
         const clamped = Math.max(0, Math.min(tracks.length - 1, to));
         const next = tracks[clamped];
@@ -336,10 +343,12 @@ export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Elem
           move(tracks.length - 1);
           break;
         case 'Enter':
+          if (!onRowItself) break;
           event.preventDefault();
           void add(track);
           break;
         case ' ':
+          if (!onRowItself) break;
           event.preventDefault();
           void audition(track);
           break;

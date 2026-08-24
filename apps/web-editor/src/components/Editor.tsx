@@ -15,7 +15,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Asset, Project } from '@framepilot/timeline-schema';
-import type { HistoryEntry } from '@framepilot/editor-core';
+import { DEFAULT_STOCK_STILL_SECONDS, type HistoryEntry } from '@framepilot/editor-core';
 import type { InteractionKeyframeRef, SourceMonitorInteraction } from '@framepilot/ai-sdk';
 import { WorkspaceShell, useDockHeight } from '@framepilot/ui';
 import { useEditor } from '../editor/useEditor.js';
@@ -111,15 +111,6 @@ export interface EditorProps {
 
 type LeftTab = 'media' | 'effects' | 'transitions' | 'overlays' | 'captions' | 'sounds' | 'stock';
 type RightTab = 'ai' | 'inspector';
-
-/**
- * Length used to test whether a stock clip would fit at the playhead.
- *
- * A probe, not a promise: the real clip's duration is only known after the
- * download. Using a representative few seconds keeps the Add button's enabled
- * state honest for the common case without blocking on bytes nobody has fetched.
- */
-const DEFAULT_STOCK_PROBE_SECONDS = 5;
 
 const LEFT_TABS: readonly { id: LeftTab; label: string; icon: LucideIcon }[] = [
   { id: 'media', label: 'Assets', icon: Folder },
@@ -433,23 +424,36 @@ export function Editor({
     return (
       <StockPanel
         project={project}
-        placementBlockedReason={stockPlacementBlockedReason(
-          editor.state.timeline,
-          assetById,
-          editor.state.playhead,
-          DEFAULT_STOCK_PROBE_SECONDS,
-        )}
-        onAddStock={(asset) => {
-          const patch = addStockClipPatch(
+        placementBlockedReasonFor={(durationSeconds) =>
+          stockPlacementBlockedReason(
             editor.state.timeline,
             assetById,
-            asset,
             editor.state.playhead,
-          );
-          // `null` means the playhead moved onto occupied ground while the
-          // download was in flight. The panel already shows the reason; adding
-          // it anywhere else would be worse than not adding it.
-          if (patch) editor.applyPatch(patch);
+            durationSeconds,
+          )
+        }
+        onAddStock={(asset) => {
+          // Read from the store at CLICK time, not from the closure the tile was
+          // rendered with: a download takes seconds, and the playhead and the
+          // timeline both move during them.
+          const live = editor.state;
+          const liveAssetById = new Map(live.assets.map((a) => [a.id, a]));
+          const patch = addStockClipPatch(live.timeline, liveAssetById, asset, live.playhead);
+          if (patch === null) {
+            // Said, not swallowed: the user watched this download. The tile
+            // shows the sentence and keeps the asset out of the bin, so a retry
+            // after moving the playhead is one click.
+            return (
+              stockPlacementBlockedReason(
+                live.timeline,
+                liveAssetById,
+                live.playhead,
+                asset.durationSeconds ?? DEFAULT_STOCK_STILL_SECONDS,
+              ) ?? 'That spot is occupied — move the playhead and try again.'
+            );
+          }
+          editor.applyPatch(patch);
+          return null;
         }}
         {...(onOpenSettings ? { onOpenSettings: () => onOpenSettings('ai') } : {})}
       />

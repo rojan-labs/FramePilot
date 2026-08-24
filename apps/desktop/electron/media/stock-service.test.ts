@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StockItem, StockProvider, StockSearchPage } from '@framepilot/ai-sdk';
-import { StockProviderError } from '@framepilot/ai-sdk';
+import { STOCK_DOWNLOAD_STALL_MS, StockProviderError } from '@framepilot/ai-sdk';
 import { StockService } from './stock-service.js';
 import { StockQuotaStore } from './stock-quota.js';
 
@@ -348,7 +348,9 @@ describe('download', () => {
       attribution: 'Video by Ruvim on Pexels',
       creator: 'Ruvim',
     });
-    expect(existsSync(join(root, result.asset.relativePath.replace(/\//g, '/')))).toBe(true);
+    // `relativePath` is POSIX by contract; `join` handles the separator on
+    // Windows, so no rewriting is needed here.
+    expect(existsSync(join(root, result.asset.relativePath))).toBe(true);
 
     const ledger = JSON.parse(readFileSync(join(mediaDir(), 'sources.json'), 'utf8'));
     expect(ledger.entries[0]).toMatchObject({
@@ -565,6 +567,48 @@ describe('download', () => {
       operationId: 'op1',
     });
     expect(result).toMatchObject({ ok: false, error: 'cancelled' });
+    expect(leftovers()).toEqual([]);
+  });
+
+  it('reports a network stall as a timeout, not as the user\u2019s own cancel', async () => {
+    // Both reach the reader as an abort, and the UI renders a cancel as silence.
+    // A stalled download that says "cancelled" therefore looks to the user like
+    // something they did — they wait, then nothing ever happens.
+    const fetchImpl = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      // A body that never produces a chunk, and that fails the way a real one
+      // does when the request is aborted underneath it.
+      const stream = new ReadableStream<Uint8Array>({
+        pull() {
+          return new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => {
+              reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+            });
+          });
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, { status: 200, headers: { 'content-type': 'video/mp4' } }),
+      );
+    });
+    const service = await seeded(fetchImpl);
+    // Installed only now: seeding does real filesystem and quota work, which a
+    // frozen clock would hang.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const pending = service.download({
+        projectId: PROJECT_ID,
+        remoteId: VIDEO_ITEM.remoteId,
+        operationId: 'op-stall',
+      });
+      // Let the fetch resolve and the read loop arm its stall timer before the
+      // clock jumps past it; advancing first would step over a timer that does
+      // not exist yet.
+      await new Promise((resolve) => setImmediate(resolve));
+      await vi.advanceTimersByTimeAsync(STOCK_DOWNLOAD_STALL_MS + 10);
+      expect(await pending).toMatchObject({ ok: false, error: 'timeout' });
+    } finally {
+      vi.useRealTimers();
+    }
     expect(leftovers()).toEqual([]);
   });
 

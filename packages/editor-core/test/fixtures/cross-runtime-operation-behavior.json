@@ -30,13 +30,22 @@
           }
         ]
       },
-      { "id": "overlay_main", "type": "overlay", "clips": [] }
+      {
+        "id": "overlay_main",
+        "type": "overlay",
+        "clips": []
+      }
     ]
   },
   "cases": [
     {
       "name": "trim clip",
-      "operation": { "type": "trim_clip", "clipId": "clip_a", "start": 0.5, "end": 3.5 },
+      "operation": {
+        "type": "trim_clip",
+        "clipId": "clip_a",
+        "start": 0.5,
+        "end": 3.5
+      },
       "expect": {
         "clipId": "clip_a",
         "trackId": "video_main",
@@ -48,7 +57,11 @@
     },
     {
       "name": "split clip",
-      "operation": { "type": "split_clip", "clipId": "clip_a", "at": 2 },
+      "operation": {
+        "type": "split_clip",
+        "clipId": "clip_a",
+        "at": 2
+      },
       "expect": {
         "trackId": "video_main",
         "clipIds": ["clip_a", "clip_a__split_2000", "clip_b"],
@@ -63,7 +76,12 @@
         "toTrackId": "overlay_main",
         "toStart": 1
       },
-      "expect": { "clipId": "clip_a", "trackId": "overlay_main", "start": 1, "end": 5 }
+      "expect": {
+        "clipId": "clip_a",
+        "trackId": "overlay_main",
+        "start": 1,
+        "end": 5
+      }
     },
     {
       "name": "add text",
@@ -90,26 +108,59 @@
         "locked": true,
         "muted": true
       },
-      "expect": { "trackId": "video_main", "locked": true, "muted": true }
+      "expect": {
+        "trackId": "video_main",
+        "locked": true,
+        "muted": true
+      }
     },
     {
       "name": "set clip speed",
-      "operation": { "type": "set_clip_speed", "clipId": "clip_a", "speed": 2 },
-      "expect": { "clipId": "clip_a", "speed": 2, "start": 0, "end": 2 }
+      "operation": {
+        "type": "set_clip_speed",
+        "clipId": "clip_a",
+        "speed": 2
+      },
+      "expect": {
+        "clipId": "clip_a",
+        "speed": 2,
+        "start": 0,
+        "end": 2
+      }
     },
     {
       "name": "set clip crop",
       "operation": {
         "type": "set_clip_crop",
         "clipId": "clip_a",
-        "crop": { "x": 0.1, "y": 0.2, "width": 0.7, "height": 0.6 }
+        "crop": {
+          "x": 0.1,
+          "y": 0.2,
+          "width": 0.7,
+          "height": 0.6
+        }
       },
-      "expect": { "clipId": "clip_a", "crop": { "x": 0.1, "y": 0.2, "width": 0.7, "height": 0.6 } }
+      "expect": {
+        "clipId": "clip_a",
+        "crop": {
+          "x": 0.1,
+          "y": 0.2,
+          "width": 0.7,
+          "height": 0.6
+        }
+      }
     },
     {
       "name": "set blend mode",
-      "operation": { "type": "set_clip_blend_mode", "clipId": "clip_a", "blendMode": "multiply" },
-      "expect": { "clipId": "clip_a", "blendMode": "multiply" }
+      "operation": {
+        "type": "set_clip_blend_mode",
+        "clipId": "clip_a",
+        "blendMode": "multiply"
+      },
+      "expect": {
+        "clipId": "clip_a",
+        "blendMode": "multiply"
+      }
     },
     {
       "name": "add mask",
@@ -171,8 +222,16 @@
         "gainDb": 0,
         "eq": {
           "bands": [
-            { "kind": "high-pass", "frequencyHz": 80 },
-            { "kind": "peaking", "frequencyHz": 3000, "gainDb": 2.5, "q": 1.2 }
+            {
+              "kind": "high-pass",
+              "frequencyHz": 80
+            },
+            {
+              "kind": "peaking",
+              "frequencyHz": 3000,
+              "gainDb": 2.5,
+              "q": 1.2
+            }
           ]
         },
         "dynamics": {
@@ -189,8 +248,16 @@
         "gainDb": 0,
         "eq": {
           "bands": [
-            { "kind": "high-pass", "frequencyHz": 80 },
-            { "kind": "peaking", "frequencyHz": 3000, "gainDb": 2.5, "q": 1.2 }
+            {
+              "kind": "high-pass",
+              "frequencyHz": 80
+            },
+            {
+              "kind": "peaking",
+              "frequencyHz": 3000,
+              "gainDb": 2.5,
+              "q": 1.2
+            }
           ]
         },
         "dynamics": {
@@ -211,8 +278,15 @@
         "automation": {
           "property": "gainDb",
           "points": [
-            { "timeSeconds": 0, "value": -20 },
-            { "timeSeconds": 2, "value": 0, "easing": "ease-in-out" }
+            {
+              "timeSeconds": 0,
+              "value": -20
+            },
+            {
+              "timeSeconds": 2,
+              "value": 0,
+              "easing": "ease-in-out"
+            }
           ]
         }
       },
@@ -235,6 +309,22 @@
             "easing": "ease-in-out"
           }
         ]
+      }
+    },
+    {
+      "name": "add layer with a mix role",
+      "operation": {
+        "type": "add_layer",
+        "layerId": "music_1",
+        "layerType": "audio",
+        "atIndex": 0,
+        "role": "music"
+      },
+      "expect": {
+        "trackId": "music_1",
+        "trackType": "audio",
+        "trackIndex": 0,
+        "role": "music"
       }
     }
   ]

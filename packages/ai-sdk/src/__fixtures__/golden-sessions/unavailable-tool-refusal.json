@@ -57,9 +57,7 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1"
-          ]
+          "decisionIds": ["decision_1"]
         },
         "execution": {
           "authorized": true
@@ -108,7 +106,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 20723,
+      "usedTokens": 20731,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -141,16 +139,16 @@
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17041,
+            "tokenEstimate": 17049,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 20723,
+          "estimatedInputTokensBeforeSend": 20731,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 171085,
+          "estimatedRemainingCapacity": 171077,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -244,9 +242,7 @@
           ]
         },
         "stage": "inspect",
-        "completedStages": [
-          "interpret"
-        ],
+        "completedStages": ["interpret"],
         "stageEnteredAtTurn": 1,
         "facts": [],
         "decisions": [
@@ -264,9 +260,7 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1"
-          ]
+          "decisionIds": ["decision_1"]
         },
         "execution": {
           "authorized": true
@@ -315,7 +309,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 20758,
+      "usedTokens": 20766,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -348,16 +342,16 @@
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17041,
+            "tokenEstimate": 17049,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 20758,
+          "estimatedInputTokensBeforeSend": 20766,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 171050,
+          "estimatedRemainingCapacity": 171042,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -431,9 +425,7 @@
           ]
         },
         "stage": "inspect",
-        "completedStages": [
-          "interpret"
-        ],
+        "completedStages": ["interpret"],
         "stageEnteredAtTurn": 1,
         "facts": [],
         "decisions": [
@@ -451,9 +443,7 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1"
-          ]
+          "decisionIds": ["decision_1"]
         },
         "execution": {
           "authorized": true
@@ -514,9 +504,7 @@
           ]
         },
         "stage": "inspect",
-        "completedStages": [
-          "interpret"
-        ],
+        "completedStages": ["interpret"],
         "stageEnteredAtTurn": 1,
         "facts": [],
         "decisions": [
@@ -534,9 +522,7 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1"
-          ]
+          "decisionIds": ["decision_1"]
         },
         "execution": {
           "authorized": false
