@@ -549,7 +549,15 @@ async function appendLedger(ledgerPath: string, entry: SourcesLedgerEntry): Prom
   // Re-read rather than trusting the snapshot taken before the download: a
   // second download may have finished while this one was streaming.
   const current = await readLedger(ledgerPath);
-  const merged = [...current.entries.filter((e) => e.remoteId !== entry.remoteId), entry];
+  // Matched on provider AND id: the ledger is shared with the stock slice, and a
+  // Pexels item that happened to share a numeric id with an Openverse track must
+  // not evict it.
+  const merged = [
+    ...current.entries.filter(
+      (e) => !(e.provider === entry.provider && e.remoteId === entry.remoteId),
+    ),
+    entry,
+  ];
   const temp = `${ledgerPath}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
   await writeFile(temp, `${JSON.stringify({ version: 1, entries: merged }, null, 2)}\n`, 'utf8');
   await rename(temp, ledgerPath);

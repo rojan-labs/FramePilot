@@ -18,6 +18,13 @@ import type {
   ExportSaveAsResult,
   MediaImportRequest,
   MediaImportResult,
+  StockSearchRequest,
+  StockSearchResult,
+  StockBytesResult,
+  StockDownloadRequest,
+  StockDownloadResult,
+  StockDownloadProgressWire,
+  StockQuotaSnapshot,
   ImportAssetRequest,
   ImportAssetResult,
   TranscriptionRequest,
@@ -144,6 +151,14 @@ const Channels = {
   musicDownload: 'framepilot:music:download',
   musicDownloadCancel: 'framepilot:music:download-cancel',
   musicDownloadProgress: 'framepilot:music:download-progress',
+  stockSearch: 'framepilot:stock:search',
+  stockThumbnail: 'framepilot:stock:thumbnail',
+  stockPreview: 'framepilot:stock:preview',
+  stockDownload: 'framepilot:stock:download',
+  stockDownloadCancel: 'framepilot:stock:download-cancel',
+  stockDownloadProgress: 'framepilot:stock:download-progress',
+  stockQuota: 'framepilot:stock:quota',
+  stockQuotaChanged: 'framepilot:stock:quota-changed',
 } as const;
 
 const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge = {
@@ -238,6 +253,33 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
       listener(payload);
     ipcRenderer.on(Channels.musicDownloadProgress, handler);
     return () => ipcRenderer.removeListener(Channels.musicDownloadProgress, handler);
+  },
+  // Stock sourcing. Same property as music, and worth restating because it is
+  // the one thing that must not erode: no provider URL crosses this bridge in
+  // either direction, and neither does the API key.
+  stockSearch: (request: StockSearchRequest) =>
+    ipcRenderer.invoke(Channels.stockSearch, request) as Promise<StockSearchResult>,
+  stockThumbnail: (remoteId: string) =>
+    ipcRenderer.invoke(Channels.stockThumbnail, remoteId) as Promise<StockBytesResult>,
+  stockPreview: (remoteId: string) =>
+    ipcRenderer.invoke(Channels.stockPreview, remoteId) as Promise<StockBytesResult>,
+  stockDownload: (request: StockDownloadRequest) =>
+    ipcRenderer.invoke(Channels.stockDownload, request) as Promise<StockDownloadResult>,
+  stockDownloadCancel: (operationId: string) => {
+    ipcRenderer.send(Channels.stockDownloadCancel, operationId);
+  },
+  onStockDownloadProgress: (listener: (message: StockDownloadProgressWire) => void) => {
+    const handler = (_event: IpcRendererEvent, payload: StockDownloadProgressWire): void =>
+      listener(payload);
+    ipcRenderer.on(Channels.stockDownloadProgress, handler);
+    return () => ipcRenderer.removeListener(Channels.stockDownloadProgress, handler);
+  },
+  stockQuota: () => ipcRenderer.invoke(Channels.stockQuota) as Promise<StockQuotaSnapshot>,
+  onStockQuotaChanged: (listener: (snapshot: StockQuotaSnapshot) => void) => {
+    const handler = (_event: IpcRendererEvent, payload: StockQuotaSnapshot): void =>
+      listener(payload);
+    ipcRenderer.on(Channels.stockQuotaChanged, handler);
+    return () => ipcRenderer.removeListener(Channels.stockQuotaChanged, handler);
   },
   openProject: (path: string) =>
     ipcRenderer.invoke(Channels.projectOpen, path) as Promise<ProjectOpenResult>,

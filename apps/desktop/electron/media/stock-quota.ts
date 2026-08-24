@@ -118,7 +118,10 @@ export class StockQuotaStore {
     // Only ever move forward. A slow response that started before a faster one
     // must not overwrite the newer numbers with its staler view.
     const current = this.state.monthly;
-    if (current !== undefined && Date.parse(current.observedAt) > Date.parse(observation.observedAt)) {
+    if (
+      current !== undefined &&
+      Date.parse(current.observedAt) > Date.parse(observation.observedAt)
+    ) {
       return;
     }
 
@@ -131,10 +134,7 @@ export class StockQuotaStore {
   }
 
   /** Record a 429, preserving whatever the monthly figures last said. */
-  public observeRateLimited(
-    headers?: HeaderLike,
-    at: Date = new Date(this.now()),
-  ): void {
+  public observeRateLimited(headers?: HeaderLike, at: Date = new Date(this.now())): void {
     const retryAfterSeconds = headers ? parseRetryAfterSeconds(headers) : undefined;
     this.state = {
       version: 1,

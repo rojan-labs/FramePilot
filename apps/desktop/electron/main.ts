@@ -112,6 +112,12 @@ import {
   type MusicPreviewResult,
   type MusicDownloadResult,
   type MusicDownloadRequest,
+  type StockSearchRequest,
+  type StockSearchResult,
+  type StockBytesResult,
+  type StockDownloadRequest,
+  type StockDownloadResult,
+  type StockQuotaSnapshot,
   type TranscriptionRequest,
   type TranscriptionResult,
   type ConversationSaveResult,
@@ -173,6 +179,8 @@ import { ExportHub } from './render/export-hub.js';
 import { saveExportAs } from './render/export-save.js';
 import { importAssetViaSidecar } from './media/asset-media-client.js';
 import { MusicService } from './media/music-service.js';
+import { StockService, isStockKind } from './media/stock-service.js';
+import { StockQuotaStore } from './media/stock-quota.js';
 import { musicErrorMessage } from '@framepilot/ai-sdk';
 import { LocalTelemetry, telemetryEnabledFromEnv } from './telemetry/telemetry.js';
 import { resolveUpdateChannel } from './updater/channel.js';
@@ -673,6 +681,46 @@ function registerIpcHandlers(): void {
     },
   });
 
+  /**
+   * Stock sourcing, alongside music and for the same structural reason: main
+   * holds the key and the network, the renderer holds no provider URL.
+   *
+   * The quota store is separate from `ai-config.json` because it is observed
+   * telemetry rather than configuration — it changes on the provider's schedule,
+   * it is disposable, and a corrupt read must degrade to "not measured" rather
+   * than take the AI settings down with it.
+   */
+  const stockQuota = new StockQuotaStore({
+    filePath: path.join(app.getPath('userData'), 'stock-quota.json'),
+    isKeyConfigured: () => aiConfig.resolvePexelsApiKey() !== undefined,
+  });
+  stockQuota.subscribe((snapshot) => {
+    if (mainWindow !== null && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IpcChannels.stockQuotaChanged, snapshot);
+    }
+  });
+  const stockService = new StockService({
+    projectsRoot: resolveProjectsDir(process.env, app.getPath('documents')),
+    resolveApiKey: () => aiConfig.resolvePexelsApiKey(),
+    quota: stockQuota,
+    fetchImpl: electronFetch,
+    deriveAssetMedia: async (absolutePath) => {
+      // Thumbnails are requested here (unlike music, which asks for none): a
+      // stock clip in the bin without a filmstrip is the one that looks broken.
+      const derived = await importAssetViaSidecar(
+        engineBaseUrl,
+        { inputPath: absolutePath, thumbnails: 5, proxy: true },
+        electronFetch,
+      );
+      return derived.ok ? derived : null;
+    },
+    onProgress: (progress) => {
+      if (mainWindow !== null && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IpcChannels.stockDownloadProgress, progress);
+      }
+    },
+  });
+
   capabilityPackService = capabilityPackLocation
     .resolve()
     .then(({ activeRoot }) => createCapabilityPackService(activeRoot));
@@ -996,6 +1044,76 @@ function registerIpcHandlers(): void {
   ipcMain.on(IpcChannels.musicDownloadCancel, (_event, operationId: unknown) => {
     if (typeof operationId !== 'string') return;
     musicService.cancelDownload(operationId);
+  });
+
+  // Stock sourcing. Every argument is renderer-supplied and therefore untrusted:
+  // narrowed here, then acted on by `remoteId` against items THIS process
+  // fetched. The renderer cannot name a URL for main to go and get.
+  ipcMain.handle(
+    IpcChannels.stockSearch,
+    async (_event, request: unknown): Promise<StockSearchResult> => {
+      requireLicense();
+      const req = request as StockSearchRequest | null;
+      if (typeof req?.text !== 'string' || !isStockKind(req.kind)) {
+        return { ok: false, error: 'provider_unavailable', detail: 'invalid search request' };
+      }
+      return await stockService.search({
+        text: req.text,
+        kind: req.kind,
+        ...(typeof req.page === 'number' && Number.isFinite(req.page) ? { page: req.page } : {}),
+        ...(typeof req.limit === 'number' && Number.isFinite(req.limit) ? { limit: req.limit } : {}),
+        ...(req.orientation === 'landscape' ||
+        req.orientation === 'portrait' ||
+        req.orientation === 'square'
+          ? { orientation: req.orientation }
+          : {}),
+      });
+    },
+  );
+  ipcMain.handle(
+    IpcChannels.stockThumbnail,
+    async (_event, remoteId: unknown): Promise<StockBytesResult> => {
+      requireLicense();
+      if (typeof remoteId !== 'string') {
+        return { ok: false, error: 'provider_unavailable', detail: 'invalid item id' };
+      }
+      return await stockService.thumbnail(remoteId);
+    },
+  );
+  ipcMain.handle(
+    IpcChannels.stockPreview,
+    async (_event, remoteId: unknown): Promise<StockBytesResult> => {
+      requireLicense();
+      if (typeof remoteId !== 'string') {
+        return { ok: false, error: 'provider_unavailable', detail: 'invalid item id' };
+      }
+      return await stockService.preview(remoteId);
+    },
+  );
+  ipcMain.handle(
+    IpcChannels.stockDownload,
+    async (_event, request: unknown): Promise<StockDownloadResult> => {
+      requireLicense();
+      const req = request as StockDownloadRequest | null;
+      if (
+        typeof req?.projectId !== 'string' ||
+        typeof req.remoteId !== 'string' ||
+        typeof req.operationId !== 'string'
+      ) {
+        return { ok: false, error: 'download_failed', detail: 'invalid download request' };
+      }
+      return await stockService.download(req);
+    },
+  );
+  ipcMain.on(IpcChannels.stockDownloadCancel, (_event, operationId: unknown) => {
+    if (typeof operationId !== 'string') return;
+    stockService.cancelDownload(operationId);
+  });
+  ipcMain.handle(IpcChannels.stockQuota, async (): Promise<StockQuotaSnapshot> => {
+    requireLicense();
+    // Reads the last observation. Never triggers a provider request — a Settings
+    // panel that spent quota to display quota would be its own worst enemy.
+    return stockQuota.snapshot();
   });
 
   ipcMain.handle(IpcChannels.projectRecent, () => recentFiles.list());

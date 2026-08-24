@@ -202,7 +202,9 @@ describe('photo normalization', () => {
 
   it('drops an avg_color that is not a plain hex triple', () => {
     // It goes straight into an inline style; provider text does not.
-    expect(normalizePexelsPhoto({ ...PHOTO, avg_color: 'red; background:url(x)' })?.avgColor).toBeUndefined();
+    expect(
+      normalizePexelsPhoto({ ...PHOTO, avg_color: 'red; background:url(x)' })?.avgColor,
+    ).toBeUndefined();
   });
 
   it('marks attribution as NOT required, and still carries the credit', () => {
@@ -282,9 +284,17 @@ describe('video normalization', () => {
 
 describe('search results', () => {
   it('returns normalized items and paging', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(
-      respond({ page: 1, per_page: 24, total_results: 8000, next_page: 'https://api.pexels.com/v1/search?page=2', photos: [PHOTO] }),
-    );
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        respond({
+          page: 1,
+          per_page: 24,
+          total_results: 8000,
+          next_page: 'https://api.pexels.com/v1/search?page=2',
+          photos: [PHOTO],
+        }),
+      );
     const page = await provider(fetchImpl).search(photoQuery);
     expect(page.items).toHaveLength(1);
     expect(page.totalResults).toBe(8000);
@@ -297,9 +307,9 @@ describe('search results', () => {
   });
 
   it('keeps the good rows when one record is malformed', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(
-      respond({ photos: [{ id: 1 }, PHOTO, { nonsense: true }] }),
-    );
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(respond({ photos: [{ id: 1 }, PHOTO, { nonsense: true }] }));
     // One odd row must not cost the user their other results.
     expect((await provider(fetchImpl).search(photoQuery)).items).toHaveLength(1);
   });
@@ -355,15 +365,18 @@ describe('failures', () => {
 
   it('separates an hourly 429 from a spent month', async () => {
     const hourly = vi.fn().mockResolvedValue(
-      respond({}, {
-        status: 429,
-        headers: {
-          'x-ratelimit-limit': '20000',
-          'x-ratelimit-remaining': '19400',
-          'x-ratelimit-reset': RESET,
-          'retry-after': '120',
+      respond(
+        {},
+        {
+          status: 429,
+          headers: {
+            'x-ratelimit-limit': '20000',
+            'x-ratelimit-remaining': '19400',
+            'x-ratelimit-reset': RESET,
+            'retry-after': '120',
+          },
         },
-      }),
+      ),
     );
     await expect(provider(hourly).search(photoQuery)).rejects.toMatchObject({
       code: 'rate_limited',
@@ -371,14 +384,17 @@ describe('failures', () => {
     });
 
     const spent = vi.fn().mockResolvedValue(
-      respond({}, {
-        status: 429,
-        headers: {
-          'x-ratelimit-limit': '20000',
-          'x-ratelimit-remaining': '0',
-          'x-ratelimit-reset': RESET,
+      respond(
+        {},
+        {
+          status: 429,
+          headers: {
+            'x-ratelimit-limit': '20000',
+            'x-ratelimit-remaining': '0',
+            'x-ratelimit-reset': RESET,
+          },
         },
-      }),
+      ),
     );
     // "Try again within the hour" would send this user back 400 times before
     // September. The month is genuinely spent and the sentence must say so.
@@ -406,9 +422,9 @@ describe('failures', () => {
     const cancelled = vi.fn().mockRejectedValue(abortError);
     const controller = new AbortController();
     controller.abort();
-    await expect(
-      provider(cancelled).search(photoQuery, controller.signal),
-    ).rejects.toMatchObject({ code: 'cancelled' });
+    await expect(provider(cancelled).search(photoQuery, controller.signal)).rejects.toMatchObject({
+      code: 'cancelled',
+    });
 
     const timedOut = vi.fn().mockRejectedValue(abortError);
     await expect(provider(timedOut).search(photoQuery)).rejects.toMatchObject({ code: 'timeout' });

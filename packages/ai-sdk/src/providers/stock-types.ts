@@ -176,7 +176,10 @@ const MAX_RESET_HORIZON_MS = 70 * 24 * 60 * 60 * 1000;
  * half-filled observation, because a bar rendered from a limit with no remaining
  * is a guess, and this whole surface exists to avoid guessing.
  */
-export function parseQuotaHeaders(headers: HeaderLike, at: Date): StockQuotaObservation | undefined {
+export function parseQuotaHeaders(
+  headers: HeaderLike,
+  at: Date,
+): StockQuotaObservation | undefined {
   const limit = numericHeader(headers, 'x-ratelimit-limit');
   const remaining = numericHeader(headers, 'x-ratelimit-remaining');
   const reset = numericHeader(headers, 'x-ratelimit-reset');

@@ -117,7 +117,11 @@ const PexelsVideoSchema = z.object({
   duration: z.number().nullish(),
   avg_color: z.string().nullish(),
   user: z
-    .object({ id: z.union([z.number(), z.string()]).nullish(), name: z.string().nullish(), url: z.string().nullish() })
+    .object({
+      id: z.union([z.number(), z.string()]).nullish(),
+      name: z.string().nullish(),
+      url: z.string().nullish(),
+    })
     .nullish(),
   video_files: z.array(z.unknown()).nullish(),
 });
@@ -211,7 +215,12 @@ export function normalizePexelsPhoto(raw: unknown): StockItem | null {
 
   // Tile bytes, where a crop is exactly what is wanted. `medium` first because
   // it is the smallest size that still reads at grid scale.
-  const thumbnailUrl = firstSafeUrl([record.src.medium, record.src.small, record.src.tiny, original]);
+  const thumbnailUrl = firstSafeUrl([
+    record.src.medium,
+    record.src.small,
+    record.src.tiny,
+    original,
+  ]);
   if (thumbnailUrl === undefined) return null;
 
   const id = remoteId(record.id);
@@ -310,9 +319,10 @@ function normalizeVideoFile(raw: unknown): StockVariant | null {
   if (!isSafeStockUrl(link)) return null;
 
   const contentType = (file.file_type ?? 'video/mp4').trim().toLowerCase();
-  const fps = typeof file.fps === 'number' && Number.isFinite(file.fps) && file.fps > 0
-    ? Math.round(file.fps * 100) / 100
-    : undefined;
+  const fps =
+    typeof file.fps === 'number' && Number.isFinite(file.fps) && file.fps > 0
+      ? Math.round(file.fps * 100) / 100
+      : undefined;
 
   return {
     // `quality` alone is not an id — a result routinely carries several `hd`
@@ -372,9 +382,7 @@ export class PexelsStockProvider implements StockProvider {
 
     const limit = Math.max(1, Math.min(query.limit, STOCK_SEARCH_MAX_LIMIT));
     const page = Math.max(1, Math.trunc(query.page));
-    const url = new URL(
-      query.kind === 'video' ? PEXELS_VIDEO_SEARCH_URL : PEXELS_PHOTO_SEARCH_URL,
-    );
+    const url = new URL(query.kind === 'video' ? PEXELS_VIDEO_SEARCH_URL : PEXELS_PHOTO_SEARCH_URL);
     url.searchParams.set('query', text);
     url.searchParams.set('per_page', String(limit));
     url.searchParams.set('page', String(page));
@@ -407,7 +415,8 @@ export class PexelsStockProvider implements StockProvider {
         response.headers === undefined
           ? undefined
           : parseQuotaHeaders(response.headers, new Date());
-      if (!response.ok) throw this.statusToError(response.status, response.headers, quota?.remaining);
+      if (!response.ok)
+        throw this.statusToError(response.status, response.headers, quota?.remaining);
 
       let payload: unknown;
       try {
