@@ -68,7 +68,7 @@ test.describe('Credits at export', () => {
 
     const dialog = page.getByRole('dialog', { name: 'Export video' });
     await expect(dialog.getByRole('heading', { name: 'Credits' })).toBeVisible();
-    await expect(dialog.getByText('No tracks in this project require credit.')).toBeVisible();
+    await expect(dialog.getByText('Nothing in this project requires credit.')).toBeVisible();
 
     // No copy control when there is nothing to copy.
     await expect(dialog.getByRole('button', { name: 'Copy required credits' })).toHaveCount(0);
