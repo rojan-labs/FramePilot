@@ -181,6 +181,26 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   music matters, and if it does, the timing is guaranteed. Edits where it never looked at the
   music are unaffected.
 
+### Security
+
+- **Closed a critical test-runner vulnerability (CVE-2026-47429).** The Vitest
+  dev dependency used across every workspace package allowed arbitrary file
+  read and execution while its UI server was listening. Upgraded to ≥ 3.2.6 in
+  all packages, plus two test-harness timing fixes the new runner requires
+  (byte-exact font comparison) and CI-sized budgets for the parse-budget stress
+  test that ran ~42s under coverage on the 2-vCPU runner.
+- **Closed a critical dependency vulnerability in `tar` (CVE-2026-59873).**
+  A build-tooling transitive dependency could be crashed while unpacking
+  hostile archives. All consumers now resolve to tar ≥ 7.5.19 via a pnpm
+  override; packaging and rebuild flows are unaffected.
+- **Hardened every external-binary launch against argument injection.**
+  ffmpeg, ffprobe and whisper-cli invocations now pass through one audited
+  validation gate before anything executes: arguments must be plain strings,
+  NUL bytes are rejected outright, the binary itself can never be
+  option-shaped, and dash-leading operand paths are defused. Values that reach
+  these commands ultimately come from user or agent input, so a hostile value
+  can no longer be shaped into an option of the target binary.
+
 ### Changed
 
 - **Captions on a fast-cut video can be checked again.** Asked to improve the captions on a

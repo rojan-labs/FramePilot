@@ -231,20 +231,27 @@ describe('aiConfigStorage', () => {
       expect(loadBrowserAiConfig().asrProvider).toBe('whisper-cli');
     });
 
-    it('retains legacy hosted key/model fields only for old caller migration', () => {
-      applyBrowserUpdate({ asrApiKey: 'legacy-key', asrModel: 'legacy-model' });
-      expect(loadBrowserAiConfig()).toMatchObject({
-        asrApiKey: 'legacy-key',
-        asrModel: 'legacy-model',
-      });
-      expect(toAiConfig(loadBrowserAiConfig())).toMatchObject({
-        asrApiKey: 'legacy-key',
-        asrModel: 'legacy-model',
-      });
+    it('retains the legacy key in-session but never persists it to storage', () => {
+      const updated = applyBrowserUpdate({ asrApiKey: 'legacy-key', asrModel: 'legacy-model' });
+      // Old callers keep reading the key within the session that set it…
+      expect(updated.asrApiKey).toBe('legacy-key');
+      expect(updated.asrModel).toBe('legacy-model');
+      // …but only the non-secret model field survives a reload: the key must
+      // never land in localStorage in clear text (CodeQL alert #60).
+      const raw = JSON.parse(localStorage.getItem('framepilot.aiConfig') ?? '{}') as Record<
+        string,
+        unknown
+      >;
+      expect(raw).not.toHaveProperty('asrApiKey');
+      expect(raw.asrModel).toBe('legacy-model');
+      const loaded = loadBrowserAiConfig();
+      expect(loaded).not.toHaveProperty('asrApiKey');
+      expect(toAiConfig(loaded)).not.toHaveProperty('asrApiKey');
       applyBrowserUpdate({ asrApiKey: null, asrModel: null });
       expect(loadBrowserAiConfig().asrApiKey).toBeUndefined();
       expect(loadBrowserAiConfig().asrModel).toBeUndefined();
       applyBrowserUpdate({ asrApiKey: 'x', asrModel: 'x' });
+      expect(loadBrowserAiConfig().asrModel).toBe('x');
       applyBrowserUpdate({ asrApiKey: '  ', asrModel: '  ' });
       expect(loadBrowserAiConfig().asrApiKey).toBeUndefined();
       expect(loadBrowserAiConfig().asrModel).toBeUndefined();

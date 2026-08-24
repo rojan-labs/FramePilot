@@ -59,7 +59,7 @@ jobs:
       MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
       DIST_BUCKET: ${{ secrets.DIST_BUCKET }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -67,7 +67,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v7
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -83,7 +83,7 @@ jobs:
         # GitHub does not allow the `secrets` context directly in an `if` expression. Project it
         # through the step environment so the workflow remains valid when signing is unconfigured.
         if: runner.os == 'macOS' && env.MAC_CERT_P12 != ''
-        uses: apple-actions/import-codesign-certs@v3
+        uses: apple-actions/import-codesign-certs@v7
         with:
           p12-file-base64: ${{ env.MAC_CERT_P12 }}
           p12-password: ${{ secrets.MAC_CERT_PASSWORD }}
@@ -178,7 +178,7 @@ jobs:
 
       - name: Upload artifacts (manual run)
         if: "!startsWith(github.ref, 'refs/tags/')"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.os }}
           path: |

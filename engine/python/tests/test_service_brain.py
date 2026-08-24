@@ -141,16 +141,17 @@ def test_asset_media_brain_failure_degrades_never_blocks_import(
     assert body["kind"] == "video" and body["durationSeconds"] == 4.0
 
 
-def test_asset_media_without_projects_root_skips_brain(
+def test_asset_media_without_project_ids_skips_brain(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Brain recording is an honest cache (B0.5): missing ids skip it silently."""
     _fake_probe(monkeypatch)
-    client = TestClient(create_app(Settings()))
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
     src = tmp_path / "clip.mp4"
     src.write_bytes(b"fake video bytes")
     resp = client.post(
         "/asset-media",
-        json={"input_path": str(src), "thumbnails": 0, "projectId": "p1", "assetId": "a1"},
+        json={"input_path": str(src), "thumbnails": 0},
     )
     assert resp.status_code == 200
     assert resp.json()["brainRecorded"] is False
