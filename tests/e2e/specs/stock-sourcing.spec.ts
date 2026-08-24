@@ -17,10 +17,17 @@
  *  - Provider normalization and every HTTP arm:
  *    `packages/ai-sdk/src/providers/pexels-stock.test.ts` (36 tests).
  *  - Every row of the CONTRACTS §5 UI matrix, the hover-scrub behaviour and the
- *    keyboard model: `apps/web-editor/src/components/StockPanel.test.tsx` (38).
- *  - The placement refusal that keeps preview and export in agreement:
- *    `apps/web-editor/src/editor/stock-placement.test.ts` and
- *    `packages/editor-core/src/picture-occupancy.test.ts`.
+ *    keyboard model: `apps/web-editor/src/components/StockPanel.test.tsx` (42).
+ *  - The placement refusal that keeps preview and export in agreement, and the
+ *    single builder both the panel and `add_stock` call:
+ *    `packages/editor-core/src/stock-placement.test.ts`,
+ *    `packages/editor-core/src/picture-occupancy.test.ts` and
+ *    `apps/web-editor/src/editor/stock-placement.test.ts` — the last of which
+ *    holds the agent-vs-manual deep-equal, since it is the one package that can
+ *    import both real builders.
+ *  - That a completed `add_stock` download actually becomes a patch rather than
+ *    a reported success on an unchanged timeline:
+ *    `packages/ai-sdk/src/orchestrator-stream.test.ts`.
  *  - The CSP guarantee itself: `apps/desktop/electron/security/media-protocol.test.ts`.
  *
  * What is left for THIS suite is what only a real browser can prove: that the web
