@@ -595,16 +595,26 @@ describe('download', () => {
     // frozen clock would hang.
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
-      const pending = service.download({
-        projectId: PROJECT_ID,
-        remoteId: VIDEO_ITEM.remoteId,
-        operationId: 'op-stall',
-      });
-      // Let the fetch resolve and the read loop arm its stall timer before the
-      // clock jumps past it; advancing first would step over a timer that does
-      // not exist yet.
-      await new Promise((resolve) => setImmediate(resolve));
-      await vi.advanceTimersByTimeAsync(STOCK_DOWNLOAD_STALL_MS + 10);
+      let settled = false;
+      const pending = service
+        .download({
+          projectId: PROJECT_ID,
+          remoteId: VIDEO_ITEM.remoteId,
+          operationId: 'op-stall',
+        })
+        .then((result) => {
+          settled = true;
+          return result;
+        });
+      // Advance in slices, yielding a real macrotask between each, rather than
+      // waiting one tick and jumping the whole stall window: the read loop only
+      // arms its timer after the fetch promise chain resolves, and how many ticks
+      // that takes depends on how loaded the machine is. A single-shot advance
+      // passes locally and times out on a contended CI runner.
+      for (let i = 0; i < 60 && !settled; i += 1) {
+        await new Promise((resolve) => setImmediate(resolve));
+        await vi.advanceTimersByTimeAsync(STOCK_DOWNLOAD_STALL_MS / 10);
+      }
       expect(await pending).toMatchObject({ ok: false, error: 'timeout' });
     } finally {
       vi.useRealTimers();
