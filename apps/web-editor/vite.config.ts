@@ -79,6 +79,10 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],
+    // Heavy jsdom renders and 20k-event persistence round-trips sit near the
+    // vitest default when the full turbo graph runs in parallel; give them
+    // real headroom instead of load-dependent flakes.
+    testTimeout: 15_000,
     coverage: {
       // Measure source modules only. `main.tsx` is the DOM mount glue
       // (createRoot) with no logic to unit-test — mirroring the desktop app
