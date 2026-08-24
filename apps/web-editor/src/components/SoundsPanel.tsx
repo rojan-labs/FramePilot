@@ -494,7 +494,11 @@ function SoundRow({
       </button>
 
       <div className="sounds-meta">
-        <span className="sounds-title">{track.title}</span>
+        {/* `title` gives the full text back on hover when the ellipsis bites —
+            a truncated title with no way to read it is worse than a clipped one. */}
+        <span className="sounds-title" title={track.title}>
+          {track.title}
+        </span>
         <span className="sounds-sub">
           <span className="sounds-duration">{formatDuration(track.durationSeconds)}</span>
           {/* Both licence states are labelled. Silence would read as "unknown",
@@ -575,9 +579,11 @@ function LicenceBadge({
   readonly href?: string | undefined;
   readonly text: string;
 }): JSX.Element {
-  if (href === undefined) return <span className={className}>{text}</span>;
+  // `title` restores the full licence text on hover — the badge ellipses first,
+  // never overlaps, but what was cut must stay readable somewhere.
+  if (href === undefined) return <span className={className} title={text}>{text}</span>;
   return (
-    <a className={className} href={href} target="_blank" rel="noreferrer noopener">
+    <a className={className} href={href} target="_blank" rel="noreferrer noopener" title={text}>
       {text}
     </a>
   );

@@ -66,21 +66,9 @@ body {
   font-weight: var(--font-weight-medium);
 }
 
-.settings-dialog .switch {
-  width: 38px;
-  min-width: 38px;
-  height: var(--hit-target-min);
-  min-height: var(--hit-target-min);
-}
-
-.settings-dialog .switch-thumb {
-  top: 4px;
-  left: 4px;
-}
-
-.settings-dialog .switch.is-on .switch-thumb {
-  transform: translateX(16px);
-}
+/* Settings rows use the shared Switch's `md` size (see SettingsDialog `Toggle`);
+   the old local 38×24 resize of `.switch` moved into the primitive so every
+   surface gets identical anatomy from one implementation. */
 
 /* -------------------------------------------------------------------------
  * Inspector: precision density without sub-11px labels. Keep glyphs visually

@@ -41,6 +41,15 @@
   --accent-subtle: rgba(59, 130, 246, 0.14);
   --focus-ring: rgba(59, 130, 246, 0.55);
 
+  /* Switch — the shared binary control (packages/ui Switch). OFF must read as a
+     deliberate solid track on any panel (an 8%-white overlay all but vanished on
+     dark surfaces), ON is the accent. The knob stays white in both themes so the
+     control matches its reference art; the OFF track token is what keeps
+     knob-vs-track contrast ≥ 3:1 per theme. */
+  --switch-track-off: #33343a;
+  --switch-track-off-hover: #3e4047;
+  --switch-knob: #ffffff;
+
   /* Semantic — crisp but restrained. */
   --success: #3fb950;
   --success-subtle: rgba(63, 185, 80, 0.14);
@@ -201,6 +210,12 @@
     --danger: #cf222e;
     --danger-subtle: rgba(207, 34, 46, 0.12);
 
+    /* Switch OFF on a light panel: a mid gray that keeps the white knob ≥ 3:1
+       and still reads as "off" next to the saturated ON accent. */
+    --switch-track-off: #7d8088;
+    --switch-track-off-hover: #6f7280;
+    --switch-knob: #ffffff;
+
     --playhead: #2563eb;
     --clip-video: rgba(35, 131, 226, 0.16);
     --clip-video-border: rgba(35, 131, 226, 0.55);
@@ -263,6 +278,12 @@
   --warning-subtle: rgba(154, 103, 0, 0.12);
   --danger: #cf222e;
   --danger-subtle: rgba(207, 34, 46, 0.12);
+
+  /* Switch OFF on a light panel: a mid gray that keeps the white knob ≥ 3:1
+     and still reads as "off" next to the saturated ON accent. */
+  --switch-track-off: #7d8088;
+  --switch-track-off-hover: #6f7280;
+  --switch-knob: #ffffff;
 
   --playhead: #2563eb;
   --clip-video: rgba(35, 131, 226, 0.16);

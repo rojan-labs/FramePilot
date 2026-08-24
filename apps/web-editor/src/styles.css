@@ -3639,14 +3639,30 @@ input[type='checkbox']:focus-visible {
   flex-direction: column;
   align-items: center;
   gap: var(--space-2);
+  /* Constrain to the letterboxed frame: the frame keeps its aspect ratio at any
+     stage size (9:16 in a wide stage is narrow), and an unconstrained child
+     overflowed the frame edges with mid-sentence line breaks. */
+  max-width: 100%;
+  min-width: 0;
+  padding-inline: var(--space-4);
+  text-align: center;
   color: var(--text-tertiary);
 }
 .preview-empty svg {
+  flex: none;
   opacity: 0.6;
 }
 .preview-empty-text {
   margin: 0;
   font-size: 0.85rem;
+  overflow-wrap: break-word;
+}
+.preview-empty-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: var(--leading);
+  color: var(--text-tertiary);
+  overflow-wrap: break-word;
 }
 
 /* Overlay layer spans the whole frame; each text overlay positions itself within
@@ -7746,12 +7762,16 @@ details.inspector-panel[open] > .inspector-section-head::before {
   color: var(--muted-2);
 }
 .sounds-duration {
+  flex: none;
   font-variant-numeric: tabular-nums;
 }
 
 /* Both licence states are labelled. An unlabelled row would read as "unknown",
    which is the one thing a licence badge must never mean. */
 .sounds-badge {
+  /* Flex items default to min-width:auto, which would push the badge past the
+     row instead of letting its ellipsis bite. */
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
