@@ -141,8 +141,8 @@ describe('selectTools', () => {
         .map((tool) => tool.name)
         .sort(),
     ).toEqual(['get_timeline', 'trim_clip']);
-    expect(selectTools({ names: ['detect_faces'] })).toHaveLength(0);
-    expect(selectTools({ names: ['detect_faces'], includeUnavailable: true })).toHaveLength(1);
+    expect(selectTools({ names: ['generate_mask'] })).toHaveLength(0);
+    expect(selectTools({ names: ['generate_mask'], includeUnavailable: true })).toHaveLength(1);
   });
 });
 

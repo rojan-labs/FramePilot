@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 80,
+  "toolCount": 81,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -1241,19 +1241,6 @@
         }
       }
     },
-    "detect_faces": {
-      "kind": "unavailable",
-      "mutates": false,
-      "available": false,
-      "hostUiOnly": false,
-      "schema": {
-        "type": [
-          "object"
-        ],
-        "additionalProperties": false,
-        "properties": {}
-      }
-    },
     "detect_scenes": {
       "kind": "analysis",
       "mutates": false,
@@ -1276,6 +1263,59 @@
             ],
             "minimum": 0,
             "maximum": 1
+          }
+        }
+      }
+    },
+    "detect_subjects": {
+      "kind": "analysis",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "intent"
+        ],
+        "properties": {
+          "intent": {
+            "type": [
+              "string"
+            ]
+          },
+          "labels": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "string"
+              ],
+              "enum": [
+                "face",
+                "object",
+                "person"
+              ]
+            }
+          },
+          "maxDetections": {
+            "type": [
+              "integer"
+            ],
+            "maximum": 100,
+            "exclusiveMinimum": 0
+          },
+          "target": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "playhead",
+              "this"
+            ]
           }
         }
       }
@@ -4217,6 +4257,48 @@
               "bounding_box",
               "face",
               "object"
+            ]
+          }
+        }
+      }
+    },
+    "track_subject_automatically": {
+      "kind": "analysis",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "intent"
+        ],
+        "properties": {
+          "intent": {
+            "type": [
+              "string"
+            ]
+          },
+          "subject": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "plane",
+              "point",
+              "region",
+              "silhouette"
+            ]
+          },
+          "target": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "playhead",
+              "this"
             ]
           }
         }

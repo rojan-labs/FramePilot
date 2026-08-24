@@ -24,7 +24,7 @@ const intendedDependencies = [
     capabilityId: 'tracking_mask.automatic_subject_track',
     packId: 'framepilot.subject-intelligence',
     minimumVersion: '1.0.0',
-    packCapabilityId: 'tracking.subject',
+    packCapabilityId: 'subject.detect',
     requiredFor: 'analysis',
     supportedPlatforms: [
       { os: 'darwin', arch: 'arm64' },
@@ -62,10 +62,15 @@ export function capabilityPackDependencyDriftIssues(
     seen.add(dependency.capabilityId);
     if (capability === undefined) {
       issues.push({ capabilityId: dependency.capabilityId, message: 'Capability does not exist.' });
-    } else if (capability.availability.state === 'available') {
+    }
+    // An AVAILABLE capability declaring a pack dependency is exactly right since
+    // 2026-08: pack-backed capabilities are executable end to end, and this
+    // manifest is what drives the prompted install proposal when the pack is
+    // missing. What would be drift is a dependency for a PLANNED capability.
+    else if (capability.availability.state === 'planned') {
       issues.push({
         capabilityId: dependency.capabilityId,
-        message: 'An available capability cannot still require an uninstalled pack.',
+        message: 'A planned capability has no runtime to back a pack install yet.',
       });
     }
   }

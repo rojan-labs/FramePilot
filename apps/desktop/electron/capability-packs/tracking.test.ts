@@ -12,6 +12,7 @@ import type {
 import type { CapabilityPackProposalResultWire } from '@framepilot/shared-types';
 import {
   CapabilityPackTrackingService,
+  SUBJECT_PACK_ID,
   TRACKING_PACK_ID,
   type TrackingPackStore,
 } from './tracking.js';
@@ -49,6 +50,19 @@ function installed(overrides: Partial<InstalledCapabilityPack> = {}): InstalledC
     },
   };
   return { ...base, ...overrides };
+}
+
+function installedSubject(): InstalledCapabilityPack {
+  return installed({
+    identity: { ...identity(), id: SUBJECT_PACK_ID, artifactDigest: 'd'.repeat(64) },
+    installRelativePath: `${SUBJECT_PACK_ID}/1.0.0/darwin-arm64`,
+    acquisition: {
+      catalogDigest: 'e'.repeat(64),
+      approvedAt: '2026-08-13T00:00:00.000Z',
+      licenseSpdx: ['Apache-2.0'],
+      mediaEgressApproved: false,
+    },
+  });
 }
 
 function request(overrides: Partial<CapabilityPackWorkerRequest> = {}): CapabilityPackWorkerRequest {
@@ -292,15 +306,56 @@ describe('CapabilityPackTrackingService', () => {
     expect(leases).toEqual({ acquired: 1, released: 1 });
   });
 
-  it('refuses a capability this pack does not provide', async () => {
-    const { service, leases } = harness({});
+  it('routes subject.detect to the Subject Intelligence pack and provisions its model root', async () => {
+    const seen: { entrypoint?: string; extraEnvironment?: Record<string, string> } = {};
+    const { service, leases } = harness({
+      records: [installed(), installedSubject()],
+      runWorker: async (input) => {
+        const typed = input as {
+          entrypoint: string;
+          extraEnvironment?: Record<string, string>;
+        };
+        seen.entrypoint = typed.entrypoint;
+        seen.extraEnvironment = typed.extraEnvironment;
+        return {
+          type: 'result',
+          protocolVersion: 1,
+          requestId: 'req-1',
+          projectRevision: 12,
+          capability: 'subject.detect',
+          backend: 'opencv-dnn-5.0.0',
+          modelDigests: {},
+          detections: [],
+        };
+      },
+    });
 
     const outcome = await service.run(
       request({ capability: 'subject.detect' } as Partial<CapabilityPackWorkerRequest>),
       { projectRevision: 12, mediaRoot: MEDIA_ROOT },
     );
 
-    expect(outcome).toMatchObject({ status: 'failed' });
+    // Weights-backed pack: the worker resolves models inside its own install root.
+    expect(seen.entrypoint).toBe(
+      '/packs/framepilot.subject-intelligence/1.0.0/darwin-arm64/bin/framepilot-subject-intelligence',
+    );
+    expect(seen.extraEnvironment?.FRAMEPILOT_CAPABILITY_PACK_ROOT).toBe(
+      '/packs/framepilot.subject-intelligence/1.0.0/darwin-arm64',
+    );
+    expect(outcome.status).toBe('completed');
+    expect(leases).toEqual({ acquired: 1, released: 1 });
+  });
+
+  it('proposes the subject install when only the tracking pack is present', async () => {
+    const { service, leases, propose } = harness({});
+
+    const outcome = await service.run(
+      request({ capability: 'subject.segment' } as Partial<CapabilityPackWorkerRequest>),
+      { projectRevision: 12, mediaRoot: MEDIA_ROOT },
+    );
+
+    expect(outcome.status).toBe('pack_missing');
+    expect(propose).toHaveBeenCalledWith('subject.segment');
     expect(leases.acquired).toBe(0);
   });
 });

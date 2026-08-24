@@ -56,6 +56,8 @@ describe('tool-parity fixture', () => {
         'professional_edit',
         'professional_motion',
         'professional_tracking_mask',
+        'detect_subjects',
+        'track_subject_automatically',
       ].sort(),
     );
   });

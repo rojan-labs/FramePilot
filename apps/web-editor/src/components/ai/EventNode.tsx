@@ -28,7 +28,7 @@
  * Reasoning/tool cards are collapsible and keyboard-operable; reference chips dispatch an
  * optional reveal callback (M5 wires it to the editor).
  */
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { ToolStatus } from '@framepilot/ai-sdk';
@@ -53,6 +53,7 @@ import { describeOperation } from '@framepilot/ai-sdk';
 import { Button } from '@framepilot/ui';
 import { toReviewCard } from '../../editor/ai.js';
 import { DiffPreviewModal } from './DiffPreviewModal.js';
+import { PackInstallInlineCard, packMissingProposal } from './PackInstallInlineCard.js';
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -809,6 +810,12 @@ function ToolCard({
   const gated = !isToolAvailable(node.toolName);
   const title = node.title ?? meta.label;
   const hasDetails = Boolean(result);
+  // A failed pack-backed tool carries the exact signed install proposal. The
+  // model cannot install anything; this card is the human's path to fix it.
+  const missingPackProposal = useMemo(() => {
+    if (node.status !== 'failed') return null;
+    return packMissingProposal(result?.result);
+  }, [node.status, result]);
   const expanded = open && canExpand;
   const Chevron = expanded ? ChevronDown : ChevronRight;
   // Live elapsed while the call runs (from the running event's timestamp);
@@ -884,6 +891,7 @@ function ToolCard({
             dozens of large payloads mounted. Hidden while a question is pending: the prompt
             below is the only thing worth reading then. */}
         {expanded && result && !node.ask && <ToolOutput result={result} />}
+        {missingPackProposal !== null && <PackInstallInlineCard proposal={missingPackProposal} />}
         {onAnswer && <AskPrompt node={node} onAnswer={onAnswer} />}
       </div>
       {detailsOpen && (

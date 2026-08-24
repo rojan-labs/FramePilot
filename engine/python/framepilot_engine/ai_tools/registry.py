@@ -18,7 +18,8 @@ validation gate and the advertised schema can never drift.
 Build-order invariant (PRD §23): tools whose underlying engine capability does
 not exist yet are registered for discoverability but marked ``available=False``
 so the dispatcher refuses to invoke them rather than fabricate a result:
-``detect_faces`` / ``generate_mask`` (dependency-gated CV work). ``render_preview``
+``generate_mask`` (dependency-gated CV work; ``detect_faces`` was superseded by the
+desktop-only pack-backed ``detect_subjects`` in 2026-08). ``render_preview``
 / ``export_video`` are available, non-mutating *actions*. ``analyze_silence`` /
 ``detect_scenes`` are available, non-mutating *analysis* tools: their ffmpeg
 engine (``framepilot_engine.analysis``) exists, and — like actions — the host
@@ -1520,16 +1521,13 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         input_model=SessionContextArgs,
     ),
     # --- Not-yet-available tools (engine TBD; build-order invariant) ---
-    "detect_faces": _spec(
-        "detect_faces",
-        "Detect faces via a dedicated CV model (unavailable — no face detector is bundled). "
-        "FramePilot cannot determine who or what is on screen without that capability.",
-        kind="unavailable",
-        available=False,
-    ),
+    # detect_faces was superseded by the pack-backed `detect_subjects` on the TS
+    # side (2026-08); detection is desktop-host-only and stays off this surface.
     "generate_mask": _spec(
         "generate_mask",
-        "Generate a subject mask (engine TBD).",
+        "Generate a subject mask (unavailable — segmentation produces bitmap masks, "
+        "and timeline masks steer by rectangle bounds). The measured alternative on "
+        "the desktop host is track_subject_automatically with subject=silhouette.",
         kind="unavailable",
         mutating=True,
         available=False,

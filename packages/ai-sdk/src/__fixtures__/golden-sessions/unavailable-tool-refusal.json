@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "unavailable-tool-refusal",
-  "covers": "A registered-but-unavailable tool (`detect_faces`). PRD §23 requires refusal at invocation, never a fabricated result — the invariant §5.3 puts INSIDE the tool wrapper so it holds whatever calls the tool.",
+  "covers": "A registered-but-unavailable tool (`generate_mask`). PRD §23 requires refusal at invocation, never a fabricated result — the invariant §5.3 puts INSIDE the tool wrapper so it holds whatever calls the tool.",
   "prompt": "who is on screen?",
   "events": [
     {
@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19431,
+      "usedTokens": 19925,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -141,16 +141,16 @@
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15762,
+            "tokenEstimate": 16256,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19431,
+          "estimatedInputTokensBeforeSend": 19925,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172377,
+          "estimatedRemainingCapacity": 171883,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -193,9 +193,9 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "tool_call",
-      "toolName": "detect_faces",
+      "toolName": "generate_mask",
       "status": "running",
-      "title": "Detect faces"
+      "title": "Generate mask"
     },
     {
       "id": "f",
@@ -203,10 +203,10 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "tool_call",
-      "toolName": "detect_faces",
+      "toolName": "generate_mask",
       "status": "warning",
       "runtimeMs": 0,
-      "title": "Detect faces"
+      "title": "Generate mask"
     },
     {
       "id": "turn_golden:result:4",
@@ -215,7 +215,7 @@
       "turnId": "turn_golden",
       "type": "tool_result",
       "toolCallId": "f",
-      "summary": "Skipped \"detect_faces\" — not available yet"
+      "summary": "Skipped \"generate_mask\" — not available yet"
     },
     {
       "id": "turn_golden:run-state",
@@ -231,7 +231,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 5,
+        "version": 3,
         "objective": {
           "request": "who is on screen?",
           "outcome": "who is on screen?",
@@ -243,23 +243,12 @@
             }
           ]
         },
-        "stage": "analyze",
+        "stage": "inspect",
         "completedStages": [
-          "interpret",
-          "inspect"
+          "interpret"
         ],
         "stageEnteredAtTurn": 1,
-        "facts": [
-          {
-            "id": "fact_1",
-            "kind": "footage",
-            "statement": "Detect faces → Skipped \"detect_faces\" — not available yet",
-            "evidenceIds": [],
-            "scope": "revision_independent",
-            "observedAtRevision": 0,
-            "stage": "analyze"
-          }
-        ],
+        "facts": [],
         "decisions": [
           {
             "id": "decision_1",
@@ -326,7 +315,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19492,
+      "usedTokens": 19960,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -352,23 +341,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1820,
+            "tokenEstimate": 1794,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15762,
+            "tokenEstimate": 16256,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19492,
+          "estimatedInputTokensBeforeSend": 19960,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172316,
+          "estimatedRemainingCapacity": 171848,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -378,14 +367,14 @@
         },
         "memory": {
           "runId": "turn_golden",
-          "stage": "analyze",
+          "stage": "inspect",
           "projectRevision": 0,
           "objectiveKnown": true,
           "committedDecisions": 1,
-          "facts": 1,
+          "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue analyze: finish the analysis the plan depends on."
+          "nextAction": "Continue inspect: read only what the objective still needs."
         }
       }
     },
@@ -429,7 +418,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 5,
+        "version": 3,
         "objective": {
           "request": "who is on screen?",
           "outcome": "who is on screen?",
@@ -441,23 +430,12 @@
             }
           ]
         },
-        "stage": "analyze",
+        "stage": "inspect",
         "completedStages": [
-          "interpret",
-          "inspect"
+          "interpret"
         ],
         "stageEnteredAtTurn": 1,
-        "facts": [
-          {
-            "id": "fact_1",
-            "kind": "footage",
-            "statement": "Detect faces → Skipped \"detect_faces\" — not available yet",
-            "evidenceIds": [],
-            "scope": "revision_independent",
-            "observedAtRevision": 0,
-            "stage": "analyze"
-          }
-        ],
+        "facts": [],
         "decisions": [
           {
             "id": "decision_1",
@@ -523,7 +501,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 7,
+        "version": 5,
         "objective": {
           "request": "who is on screen?",
           "outcome": "who is on screen?",
@@ -535,23 +513,12 @@
             }
           ]
         },
-        "stage": "analyze",
+        "stage": "inspect",
         "completedStages": [
-          "interpret",
-          "inspect"
+          "interpret"
         ],
         "stageEnteredAtTurn": 1,
-        "facts": [
-          {
-            "id": "fact_1",
-            "kind": "footage",
-            "statement": "Detect faces → Skipped \"detect_faces\" — not available yet",
-            "evidenceIds": [],
-            "scope": "revision_independent",
-            "observedAtRevision": 0,
-            "stage": "analyze"
-          }
-        ],
+        "facts": [],
         "decisions": [
           {
             "id": "decision_1",
@@ -597,7 +564,7 @@
         "blockedOn": {
           "reason": "Verification found: No traceable project mutation for the committed plan.",
           "missing": "VERIFICATION_INCONCLUSIVE",
-          "atStage": "analyze"
+          "atStage": "inspect"
         },
         "integrity": {
           "status": "needs_review",
@@ -607,7 +574,7 @@
               "message": "Verification found: No traceable project mutation for the committed plan.",
               "stage": "verify",
               "blocking": true,
-              "atVersion": 6
+              "atVersion": 4
             }
           ]
         },

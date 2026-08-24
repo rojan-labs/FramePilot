@@ -21,6 +21,7 @@ export * from './domain-tools/professional-edit.js';
 export * from './domain-tools/professional-motion.js';
 export * from './domain-tools/professional-color.js';
 export * from './domain-tools/professional-tracking-mask.js';
+export * from './domain-tools/automatic-tracking.js';
 export * from './domain-tools/professional-audio.js';
 export * from './controllers/timeline-controller.js';
 export * from './controllers/motion-controller.js';

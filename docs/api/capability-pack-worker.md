@@ -130,3 +130,75 @@ The canonical schemas live in `packages/capability-packs/src/worker-protocol.ts`
 lives in `packages/capability-packs/src/node/worker-client.ts`. Platform builds, exact locks,
 licenses/SBOM, desktop invocation, smoothing/occlusion consumers, and pixel-negative controls are
 tracked in C4 of `plan/PROFESSIONAL-EDITOR-P0-P3-CLOSURE.md`.
+
+## Desktop development loop: running a worker without a catalog
+
+The production install path starts at a signed HTTPS catalog, which does not exist yet. To run
+Tracking Lite on a dev machine, register a locally built payload directly into the pack store:
+
+```bash
+FRAMEPILOT_DEV_PACK_REGISTRATION=1 pnpm --filter @framepilot/capability-packs release:pack -- \
+  register-local input.json "$HOME/Library/Application Support/FramePilot/capability-packs" record.json
+```
+
+`input.json` carries `{packId, version, payloadRoot, entrypoint, capabilities, licenses, os, arch}`:
+
+```json
+{
+  "packId": "framepilot.tracking-lite",
+  "version": "1.0.0-dev.local",
+  "payloadRoot": "/absolute/path/to/built/pack",
+  "entrypoint": "bin/framepilot-tracking-lite",
+  "capabilities": ["tracking.point", "tracking.region", "tracking.planar"],
+  "licenses": ["Apache-2.0"],
+  "os": "darwin",
+  "arch": "arm64"
+}
+```
+
+What registration does and does not trust:
+
+- **Gated**: without `FRAMEPILOT_DEV_PACK_REGISTRATION=1` it refuses (`LocalRegistrationDisabledError`),
+  so a packaged build or CI can never take this path by accident.
+- **Health-checked**: the staged worker must pass the same isolated health check a signed install
+  runs — handshake identity (id/version/release digest), protocol version, capability roster
+  equality, backend probe — before anything is recorded. A failed check leaves the store empty.
+- **Content-digested**: `artifactDigest` is a sha256 over the sorted payload tree (symlinks
+  preserved), `releaseDigest` derives from id/version/capabilities, so identical bytes replace
+  their record cleanly while changed bytes land under a distinct identity instead of shadowing a
+  stale healthy one.
+- **Not signed**: the acquisition receipt's `catalogDigest` names itself as a dev registration;
+  nothing here touches keys or catalogs. Rebuilding with the same `version` leaves the previous
+  record behind — bump the prerelease (or clear the store root) to avoid two healthy candidates.
+
+Once registered, both packs are reachable from two places:
+
+**The agent.** `track_subject_automatically` resolves one selected clip via
+`resolveAutomaticTrackingObjective`, builds the exact pack request (the mask supplies all
+geometry), runs the isolated worker through the desktop media-intelligence authority (leases +
+typed failures + install proposals), and the orchestrator compiles the validated samples into the
+same reversible `track_object` patch as manual tracking, recording `${packId}@${version}` as
+provenance. `subject="silhouette"` routes through the Subject Intelligence worker instead: it
+segments inside the drawn mask and follows each measured silhouette's bounding box. The read-only
+`detect_subjects` tool runs `subject.detect` on a selected clip and returns frame-indexed,
+confidence-scored boxes as evidence — it never becomes geometry an edit can claim. A missing pack
+fails honestly with `pack_missing`; an unusable track is reported as refused, never smoothed into
+a plausible edit.
+
+**The editor.** The Inspector's Mask tab offers Measure-and-follow actions on clips with a drawn
+rectangle/ellipse mask (box / centre / silhouette). They call the same authority over the
+`capabilityPackTrack` IPC channel with progress and cancellation, convert returned samples with
+the identical `compileTrackingCommand` path, and apply through the editor's checked pipeline so
+desktop persistence and undo behave like any other manual edit. When a job answers
+`pack_missing` — from the Inspector or from a failed agent tool card in the AI sidebar — the exact
+signed install proposal is shown inline; nothing downloads without that approval, and the host
+rejects any approval that no longer matches it.
+
+Weights-backed packs need their model files located inside the install root. The runtime client
+accepts `extraEnvironment` (strictly `FRAMEPILOT_`-prefixed, merged after the environment scrub),
+and the desktop authority provisions `FRAMEPILOT_CAPABILITY_PACK_ROOT=<install root>` for the
+Subject Intelligence pack; dev registration provisions the same variable against the staged copy,
+so a locally built payload mirrors the installed layout exactly.
+
+> The storage root above is the default for macOS; `capability-pack-location.json` next to it may
+> point at a relocated root (Settings › Storage).

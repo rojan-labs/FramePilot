@@ -24,6 +24,7 @@
 import { createLogger } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
 import type { AnalysisBudget } from './kernel/cost/analysis-caps.js';
+import type { EditorInteractionContext } from './editor-context/interaction-context.js';
 import type { AiImage, ToolCall } from './providers/types.js';
 
 const log = createLogger('ai-sdk:tool-executor');
@@ -35,6 +36,13 @@ const log = createLogger('ai-sdk:tool-executor');
  */
 export interface HostExecutionContext {
   readonly project: Project;
+  /**
+   * The editor's live selection snapshot, when the driving surface has one.
+   * Host tools that resolve "the selected clip" resolve against this, exactly
+   * like mutate tools — never by guessing what the user pointed at. Absent ⇒
+   * such tools must fail honestly rather than pick a clip themselves.
+   */
+  readonly interaction?: EditorInteractionContext;
   /**
    * The driving model's id, recorded as the provenance actor when a vision
    * commit persists what the model saw (plan B4.3). Optional: absent ⇒ a
