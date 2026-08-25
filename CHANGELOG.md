@@ -99,6 +99,24 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant's questions — and the answers you gave them — are readable now.** When
+  FramePilot asks you something mid-run, the choices used to be three paragraphs of prose with
+  nothing to click on but the words themselves. They are now proper rows with a radio mark, a
+  hover target, and the consequence line under each label, with your own free-text answer in
+  the same card and one clearly separated footer for Send and for Dismiss. Afterwards, the
+  question and the answer you gave stay **visible on the row where it happened** — before, you
+  had to expand each block in turn, and what you found inside was the raw `{ question, answer }`
+  payload rather than the answer in your own words.
+  (`apps/web-editor/src/components/ai/EventNode.tsx`)
+
+- **Dismissing a question stops the run — including its spinner.** "Dismiss and stop" ends the
+  run, but the step it belonged to was never told, so it kept spinning with its elapsed counter
+  climbing minutes after everything had stopped, and it kept offering a reply box that reached
+  nothing. Any step still marked live when no run is in flight — a dismissed question, a call cut
+  short by an abort, a run the app closed around — now settles as stopped, and says whether you
+  answered it, dismissed it, or never got the chance.
+  (`apps/web-editor/src/components/ai/EventNode.tsx`, `apps/web-editor/src/components/ai/AiSidebar.tsx`)
+
 - **Asking a question can no longer add music or stock footage to your timeline.** When you ask
   the assistant something rather than telling it to make an edit, it runs on a read-only
   surface — it can look at your project but not change it. Two tools were escaping that:

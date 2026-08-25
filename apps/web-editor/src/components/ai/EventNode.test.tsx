@@ -93,7 +93,14 @@ describe('EventNode', () => {
 
     const settled = render(
       <EventNode
-        node={{ kind: 'assistant', id: 'b', ts: 0, turnId: 't', text: '**Done**', streaming: false }}
+        node={{
+          kind: 'assistant',
+          id: 'b',
+          ts: 0,
+          turnId: 't',
+          text: '**Done**',
+          streaming: false,
+        }}
       />,
     );
     expect(within(settled.container).getByText('Done').tagName).toBe('STRONG');
@@ -735,9 +742,7 @@ describe('EventNode', () => {
 
   it('offers a live "Show preview" only when a project is available to preview against', () => {
     const { rerender } = render(
-      <EventNode
-        node={{ kind: 'diff', id: 'd10', ts: 0, turnId: 't', edit: fakeEdit }}
-      />,
+      <EventNode node={{ kind: 'diff', id: 'd10', ts: 0, turnId: 't', edit: fakeEdit }} />,
     );
     // No project → the preview popup can't re-assemble a before/after, so the live
     // affordance is gated (a disabled "Preview"), never an active "Show preview".
@@ -1097,5 +1102,79 @@ describe("EventNode — the model's question (P12)", () => {
     // invite answering a question that is no longer being asked.
     render(<EventNode node={{ ...askNode(), status: 'completed' }} onAnswer={() => {}} />);
     expect(screen.queryByLabelText('Your answer')).toBeNull();
+  });
+
+  it('shows the question and the answer given to it without expanding anything', () => {
+    // The editor's own decisions are what they scroll back for. Both used to be behind
+    // an accordion, and behind it was the raw `{ question, answer }` payload.
+    render(
+      <EventNode
+        node={{
+          ...askNode(),
+          status: 'completed',
+          result: {
+            id: 'res',
+            conversationId: 'c',
+            ts: 0,
+            turnId: 't',
+            type: 'tool_result',
+            toolCallId: 'ask1',
+            summary: 'Punch in on the centre',
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText(/no faces to track/)).toBeTruthy();
+    expect(screen.getByText('Punch in on the centre')).toBeTruthy();
+    // Nothing to open: no chevron, no details button, no JSON.
+    expect(screen.queryByRole('button', { name: 'View details' })).toBeNull();
+    expect(screen.getByRole('button', { name: /You answered/ }).getAttribute('disabled')).not.toBe(
+      null,
+    );
+  });
+
+  it('says plainly when the question was dismissed instead of answered', () => {
+    render(
+      <EventNode
+        node={{
+          ...askNode(),
+          status: 'cancelled',
+          result: {
+            id: 'res',
+            conversationId: 'c',
+            ts: 0,
+            turnId: 't',
+            type: 'tool_result',
+            toolCallId: 'ask1',
+            summary: 'Question dismissed',
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText(/dismissed this and stopped the run/)).toBeTruthy();
+  });
+
+  it('remembers a dismissal the stopped run never settled', () => {
+    // Dismissing STOPS the run, so the card it belongs to is usually never settled by a
+    // `tool_result`. Without the local memory the row would report "never answered" for
+    // a question the editor had just this second dismissed.
+    const onAnswer = vi.fn();
+    const { rerender } = render(<EventNode node={askNode()} onAnswer={onAnswer} />);
+    fireEvent.click(screen.getByRole('button', { name: /Dismiss and stop/ }));
+    rerender(<EventNode node={askNode()} onAnswer={onAnswer} runEnded />);
+    expect(screen.getByText(/dismissed this and stopped the run/)).toBeTruthy();
+  });
+
+  it('settles a question the run ended around — no live prompt, no endless spinner', () => {
+    // The bug this fixes: dismissing (or any abort that never settles the card) left the
+    // row spinning with its elapsed counter climbing, still offering a reply to a gate
+    // that had died with the run.
+    const onAnswer = vi.fn();
+    render(<EventNode node={askNode()} onAnswer={onAnswer} runEnded />);
+    expect(screen.queryByLabelText('Your answer')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Dismiss and stop/ })).toBeNull();
+    expect(screen.getByText(/run ended before this was answered/)).toBeTruthy();
+    expect(screen.queryByLabelText('Running…')).toBeNull();
+    expect(screen.getByLabelText('Stopped')).toBeTruthy();
   });
 });

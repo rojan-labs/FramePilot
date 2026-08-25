@@ -13,6 +13,36 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-25, the question surface):** `[x]` **`ask_user` is answerable and
+its answers are readable; a run that ends without settling a step no longer leaves it
+spinning.** Reported from a real desktop run.
+
+1. **The question card was prose with no affordance.** Options rendered as a label and a
+   description with nothing to click but the words, so a card asking about a 640×360-into-
+   1080×1920 mismatch read as three paragraphs. Rebuilt as a decision card: a badged heading,
+   full-width choice rows with a radio mark that fills on the way out, hover targets, the
+   free-text answer in the same card, and a footer that separates Send from **Dismiss and
+   stop** (which is not the quiet twin of Send — it stops the run).
+2. **You had to expand two blocks to read back your own answers, and found JSON inside.** A
+   settled `ask_user` row is no longer an accordion at all: `AskReceipt` shows the question and
+   the answer inline, in the words both were written in. The details/copy affordances that
+   served the raw `{ question, answer }` payload are gone from ask rows.
+3. **Dismissing left the row spinning forever.** Dismissing STOPS the run, so the card it
+   belonged to is never settled by a `tool_result` — it kept its spinner, its elapsed counter
+   climbed for minutes, and it kept offering a reply box the dead gate could not receive. Any
+   node still marked `running` while no run is in flight now settles as stopped (`staleStatus`,
+   plus `AiSidebar`'s `runEnded`, which deliberately does NOT fire for a durable run this
+   renderer is one paint away from re-attaching to). The receipt distinguishes answered,
+   dismissed, and never-answered, remembering a dismissal the stopped run could not report.
+4. **`.ai-ask*` had three owners and they disagreed.** The stale copy in `styles.css` stacked
+   each choice `flex-direction: column`, putting the radio mark on its own line above its
+   label — the same three-files-one-component failure the notice card had. Deleted;
+   `AiSidebar.beautiful.css` owns it.
+
+Evidence: web-editor 2587 tests green (4 new in `EventNode.test.tsx` covering the receipt, the
+dismissal memory, and the stale-run freeze), typecheck + lint clean, and the card rendered
+against the real stylesheets in light and dark.
+
 **Status snapshot (2026-08-25, tool-surface audit):** `[x]` **An audit of the 85-tool registry
 found one contract defect and one unreachable setting; both are fixed on
 `fix/tool-contract-and-embeddings-ui`.**
