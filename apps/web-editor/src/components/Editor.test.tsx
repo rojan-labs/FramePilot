@@ -315,6 +315,26 @@ describe('Editor workspace', () => {
     expect(screen.getByLabelText('overlays panel')).toBeDefined();
   });
 
+  it('keeps Collapse out of the scrolling tab strip, so a short window cannot hide it', () => {
+    // The strip scrolls when the tabs do not fit. Collapse living inside it
+    // would scroll away exactly when the window is too short to spare the
+    // width — the moment the user most needs it.
+    render(<Editor project={demoProject} onOpenSettings={() => {}} />);
+    const tablist = screen.getByRole('tablist', { name: 'library tabs' });
+
+    expect(screen.getByRole('button', { name: 'Collapse library panel' })).toBeDefined();
+    expect(
+      within(tablist).queryByRole('button', { name: 'Collapse library panel' }),
+    ).toBeNull();
+    // A tablist should contain tabs and nothing else.
+    expect(within(tablist).queryAllByRole('button')).toHaveLength(0);
+  });
+
+  it('does not repeat Settings in the rail — the Topbar owns it, with the shortcut', () => {
+    render(<Editor project={demoProject} onOpenSettings={() => {}} />);
+    expect(screen.queryByRole('button', { name: 'Preferences' })).toBeNull();
+  });
+
   it('generates a caption track from the transcript', async () => {
     renderEditor();
     fireEvent.click(screen.getByRole('tab', { name: 'Captions' }));

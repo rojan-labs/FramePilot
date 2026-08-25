@@ -177,40 +177,25 @@
 }
 
 .rail-activitybar {
-  /* Wide enough for the longest label ("Transitions") at the 9px label size
-     without ellipsis: 54px tab in a 66px rail. */
-  width: 66px;
-  padding: 10px 6px 8px;
+  /* Icon-only, so the width is the hit box plus a hair — not the longest word.
+     "Transitions" at 9px was what forced the old 66px; a 32px square in a 40px
+     rail gives the timeline back 26px of horizontal space on every window. */
+  width: 40px;
+  padding: 4px;
+  /* Between the tab strip and the pinned Collapse — twice the 2px inside each
+     group, which is what makes them read as two groups without a divider. */
   gap: 4px;
   background: var(--bg-raised);
   border-right: 1px solid var(--border-subtle);
 }
 
 .activity-tab {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  width: 54px;
-  height: 46px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
   border-radius: var(--fp-control-radius);
   color: var(--text-tertiary);
-}
-
-/* The reference labels the primary tool rail. Real spans (not an
-   attr(aria-label) pseudo-element) so the visual string can be laid out
-   independently of the accessible name. */
-.activity-tab-label {
-  max-width: 100%;
-  overflow: hidden;
-  color: currentColor;
-  font-size: 9px;
-  font-weight: var(--font-weight-medium);
-  line-height: 1;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .activity-tab:hover {
@@ -224,13 +209,16 @@
   box-shadow: inset 0 0 0 1px var(--border-subtle);
 }
 
+/* Centred against the box rather than measured from its top, so the marker
+   stays put if the tab size is ever tuned again. */
 .activity-tab.is-active::before {
   content: '';
   position: absolute;
-  top: 7px;
-  left: 4px;
+  top: 50%;
+  left: 2px;
   width: 2px;
-  height: 18px;
+  height: 14px;
+  transform: translateY(-50%);
   border-radius: 999px;
   background: var(--fp-orange);
 }

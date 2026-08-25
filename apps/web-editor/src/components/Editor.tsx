@@ -66,7 +66,6 @@ import {
   ICON_SIZE,
   ImagePlus,
   type LucideIcon,
-  Settings,
   SlidersHorizontal,
   Sparkles,
   ArrowLeftRight,
@@ -570,52 +569,54 @@ export function Editor({
         expandIcon: <ChevronRight size={ICON_SIZE.sm} aria-hidden="true" />,
         children: (
           <>
-            <nav className="rail-activitybar" role="tablist" aria-label="library tabs">
-              {visibleLeftTabs().map(({ id, label, icon: Icon }) => (
-                <Tooltip key={id} label={label} placement="right">
+            {/* Icons only. The name lives in the tooltip and in `aria-label`, not
+                in a 9px caption under every glyph: this is a fixed shelf of seven
+                destinations an editor learns in a session, and printing the word
+                under each one cost 18px of width and 12px of height per tab
+                forever to teach something once.
+
+                Two boxes, not one list: the tabs scroll when a short window
+                cannot fit them all, while Collapse stays pinned to the bottom
+                edge. Putting them in one scroller would push the only way to
+                collapse the rail off-screen exactly when the window is too short
+                to spare the width. */}
+            <nav className="rail-activitybar" aria-label="Library">
+              <div className="activity-tabs" role="tablist" aria-label="library tabs">
+                {visibleLeftTabs().map(({ id, label, icon: Icon }) => (
+                  <Tooltip key={id} label={label} placement="right">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={leftTab === id}
+                      aria-controls={`rail-${id}`}
+                      aria-label={label}
+                      className={`activity-tab${leftTab === id ? ' is-active' : ''}`}
+                      onClick={() => setLeftTab(id)}
+                    >
+                      {/* `sm` is the scale's documented size for tabs and list
+                          rows; `md` is the toolbar size, and using it here made
+                          the rail shout louder than the panel it opens. */}
+                      <Icon size={ICON_SIZE.sm} aria-hidden="true" />
+                    </button>
+                  </Tooltip>
+                ))}
+              </div>
+              {/* Collapse only. Preferences used to sit here too, duplicating the
+                  Topbar's Settings button — which is the one with the ⌘, badge on
+                  it. Two doors to the same dialog, and the rail's was the one
+                  nobody could discover a shortcut from. */}
+              <div className="activity-rail-footer">
+                <Tooltip label="Collapse panel" placement="right">
                   <button
                     type="button"
-                    role="tab"
-                    aria-selected={leftTab === id}
-                    aria-controls={`rail-${id}`}
-                    aria-label={label}
-                    className={`activity-tab${leftTab === id ? ' is-active' : ''}`}
-                    onClick={() => setLeftTab(id)}
+                    className="activity-tab rail-collapse"
+                    aria-label="Collapse library panel"
+                    onClick={() => toggleRail('left')}
                   >
-                    <Icon size={ICON_SIZE.md} aria-hidden="true" />
-                    {/* Visual label under the icon. Kept as real text (not a CSS
-                        attr(aria-label) pseudo-element) so the short display
-                        string can differ from the accessible name and so the
-                        ellipsis is a layout decision, not an a11y side effect. */}
-                    <span className="activity-tab-label" aria-hidden="true">
-                      {label}
-                    </span>
+                    <ChevronLeft size={ICON_SIZE.sm} aria-hidden="true" />
                   </button>
                 </Tooltip>
-              ))}
-              <span className="activity-spacer" />
-              {onOpenSettings && (
-                <Tooltip label="Preferences" placement="right">
-                  <button
-                    type="button"
-                    className="activity-tab"
-                    aria-label="Preferences"
-                    onClick={() => onOpenSettings()}
-                  >
-                    <Settings size={ICON_SIZE.md} aria-hidden="true" />
-                  </button>
-                </Tooltip>
-              )}
-              <Tooltip label="Collapse panel" placement="right">
-                <button
-                  type="button"
-                  className="activity-tab rail-collapse"
-                  aria-label="Collapse library panel"
-                  onClick={() => toggleRail('left')}
-                >
-                  <ChevronLeft size={ICON_SIZE.md} aria-hidden="true" />
-                </button>
-              </Tooltip>
+              </div>
             </nav>
             <div className="rail-left-body">
               <div

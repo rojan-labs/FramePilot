@@ -1471,24 +1471,65 @@ input[type='checkbox']:focus-visible {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-2);
+  /* Between the scrolling tabs and the pinned footer — one step wider than the
+     gap inside each group, so the two read as two groups. */
+  gap: var(--space-1);
   flex: none;
-  width: 56px;
-  padding: var(--space-3) 0;
+  width: 40px;
+  min-height: 0;
+  padding: var(--space-1) 0;
   background: var(--bg-app);
   border-right: 1px solid var(--border-subtle);
 }
 
-.activity-spacer {
-  flex: 1;
+/* The scrolling half. A short window (a laptop with the timeline pulled up, or
+   a 768px-tall display) cannot fit every tab, and flex would otherwise squash
+   them — square hit boxes crushed into letterboxes — or run them off the bottom
+   edge with no way to reach the last one. Dropping the captions bought back
+   enough height that this is now a safety net rather than the everyday case. */
+.activity-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  /* A half-step, not a scale value: these are square targets whose own padding
+     already separates them, and the full 4px made a seven-item strip taller
+     than a short window without buying any legibility. The hit boxes are
+     untouched — only the air between them. */
+  gap: 2px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* No visible scrollbar: a gutter inside a 40px rail would eat a third of it
+     and read as a rendering fault. The strip is short, every item is one click
+     from the next, and the overflow is self-evident from the cut-off tab. */
+  scrollbar-width: none;
+}
+
+.activity-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* Collapse. Pinned, because losing the only control that collapses the rail is
+   worst exactly when the window is too short to fit everything — which is when
+   it would have scrolled away. */
+.activity-rail-footer {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
 }
 
 .activity-tab {
   position: relative;
+  /* Never squashed by a short rail; the strip scrolls instead. */
+  flex: none;
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  /* Square: a 16px glyph with 8px of breathing room on every side. */
+  width: 32px;
+  height: 32px;
   padding: 0;
   background: transparent;
   border: none;
