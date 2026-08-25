@@ -432,9 +432,11 @@ select:focus-visible,
   color: var(--fp-orange);
 }
 
-.ai-stream-inner {
-  padding-inline: 12px;
-}
+/* No `padding-inline` here. `--ai-shell-gutter` (AiSidebar.polish.css, "Shared
+   horizontal rhythm") is the ONE gutter for this panel — the header and the
+   stream both take it, which is what makes the message column line up with the
+   header above it. A second gutter nested inside the first spent 24px of a
+   359px sidebar and pushed the messages 12px out of that alignment. */
 
 .ai-empty {
   padding: 28px 14px 20px;

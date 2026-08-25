@@ -275,15 +275,15 @@
   padding: 5px 2px;
 }
 
+/* No per-message avatar. It cost an 18px column plus the row's 7px gap on the
+   left of EVERY assistant message — 25px of a 359px sidebar, repeated down the
+   whole thread, to restate what the reader already knows from the alternation.
+   The user's turn is a bounded card and the assistant's is flush text; that
+   contrast is what separates the turns, and it does not need a glyph as well.
+   This restores the decision `styles.css` already documents at `.ai-avatar`.
+   The element stays in the DOM for the a11y/test structure. */
 .ai-event--assistant .ai-avatar {
-  flex: 0 0 18px;
-  width: 18px;
-  height: 18px;
-  display: grid;
-  place-items: center;
-  margin-top: 1px;
-  color: var(--ai-ink-3);
-  background: transparent;
+  display: none;
 }
 
 .ai-bubble--assistant {
