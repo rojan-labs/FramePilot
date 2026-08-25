@@ -51,13 +51,31 @@ ML runtime, sample media, or optional effect payload may enter `extraResources` 
 | -------------------- | --------------------------------------------------------------------- | -------------------------------------------------------- |
 | Speech               | Whisper runtime; multilingual model variants                          | 150 MiB–1.5 GiB weights/runtime                          |
 | Tracking Lite        | Point, region, and planar tracker worker                              | Native CV runtime; platform-specific                     |
-| Subject Intelligence | Face/object detection and segmentation                                | ONNX runtime plus large model weights                    |
+| Subject Intelligence | Face/object detection and segmentation                                | ~42 MiB of pinned model weights (no second ML runtime — OpenCV `dnn`) |
 | Audio Intelligence   | Dialogue isolation, denoise, source separation                        | Large inference models; not required for ordinary mixing |
 | Creative Assets      | Effects, templates, LUT collections, fonts with redistribution rights | Catalog grows independently of the app                   |
 
 P0–P3 closure requires Speech, Tracking Lite, and Subject Intelligence. Audio Intelligence and
 Creative Assets use the same platform but remain later professional-capability work unless an eval
 in the original P0–P3 roster requires them.
+
+**Catalog licence policy — maintainer decision, 2026-08-25.** The previously open question was
+whether the default catalog may carry copyleft/restricted components. The maintainer's answer:
+**yes, weak copyleft is acceptable, because FramePilot's own source is open.** Concretely this
+permits the LGPL-2.1 natives that the OpenCV wheels redistribute (FFmpeg, libbluray, gnutls,
+nettle, hogweed — enumerated in `workers/tracking-lite/LICENSES.md`), which both Tracking Lite
+and Subject Intelligence depend on.
+
+Two things this decision does **not** dissolve, because they are distribution obligations rather
+than compatibility ones:
+
+1. The catalog record must still **disclose** the LGPL components and carry a **written source
+   offer** before a user approves a download. Being open source satisfies licence *compatibility*;
+   it does not satisfy the notice-and-offer duty owed to the person receiving the binary.
+2. The SBOM licence gate stays as-is. It currently fails on any **strong** copyleft (AGPL/GPL)
+   pinned weight — that is what kept Ultralytics YOLOv8 out — and this decision deliberately does
+   not relax it. Weak copyleft in a transitively bundled native is a different risk from strong
+   copyleft in a model weight we chose.
 
 ### 2.3 Local-first hybrid
 
