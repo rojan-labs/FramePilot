@@ -24,6 +24,7 @@ from typing import Annotated, Any, Literal, NamedTuple, cast
 from pydantic import BaseModel, Field
 
 from framepilot_engine.timeline.models import (
+    AudioRole,
     BlendMode,
     CaptionStyle,
     Clip,
@@ -413,6 +414,12 @@ class AddLayer(_Operation):
     layer_type: TrackType = Field(alias="layerType")
     at_index: int = Field(alias="atIndex")
     clips: list[Clip] | None = None
+    # Mix role (schema v17), set at creation by a caller that KNOWS — placing a
+    # fetched music bed, say. Never inferred from a track name. Without this
+    # field Pydantic silently dropped the TS side's ``role``, so a bed that
+    # arrived labelled ``music`` applied as an unlabelled track and
+    # ``remove_layer``'s inverse could not restore the label.
+    role: AudioRole | None = None
 
 
 class RemoveLayer(_Operation):
@@ -1192,6 +1199,7 @@ def _apply_add_layer(timeline: Timeline, op: AddLayer) -> Timeline:
         id=op.layer_id,
         type=op.layer_type,
         clips=[c.model_copy(deep=True) for c in (op.clips or [])],
+        role=op.role,
     )
     tracks = list(timeline.tracks)
     tracks.insert(at, layer)
@@ -1346,6 +1354,10 @@ def invert_operation(timeline_before: Timeline, operation: Operation) -> list[Op
                 layer_type=track.type,
                 at_index=index,
                 clips=[c.model_copy(deep=True) for c in track.clips],
+                # Lossless includes the mix role: without it, undoing the removal
+                # of a music layer restored an unlabelled track and the duck that
+                # depended on the label silently stopped applying.
+                role=track.role,
             )
         ]
     if isinstance(operation, MoveLayer):

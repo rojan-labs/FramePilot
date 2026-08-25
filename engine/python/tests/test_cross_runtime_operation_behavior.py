@@ -112,3 +112,14 @@ def test_cross_runtime_operation_behavior_fixture() -> None:
                 assert track.locked == expected["locked"]
             if "muted" in expected:
                 assert track.muted == expected["muted"]
+            if "trackType" in expected:
+                assert track.type == expected["trackType"], behavior["name"]
+            if "trackIndex" in expected:
+                assert timeline.tracks.index(track) == expected["trackIndex"], behavior["name"]
+            # The mix role, which is what ``duck_roles`` and the role-based
+            # ducking controller read. A runtime that drops it on the way in
+            # produces a bed nothing can find.
+            if "role" in expected:
+                assert track.role is not None and track.role.value == expected["role"], (
+                    behavior["name"]
+                )

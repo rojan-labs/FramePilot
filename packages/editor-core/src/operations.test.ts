@@ -1994,6 +1994,44 @@ describe('add_layer / remove_layer', () => {
       applyOperation(baseTimeline(), { type: 'remove_layer', layerId: 'ghost' }),
     ).toThrow(/Track not found/);
   });
+
+  it('labels a new audio layer with the mix role its caller declared', () => {
+    // `Track.role` is never *inferred* — guessing "Audio 2" is music mixes the
+    // wrong thing. But a caller placing a fetched music bed knows, and until
+    // now there was no way to say so: `duck_roles` read a label nothing wrote.
+    const after = expectRoundTrip(baseTimeline(), {
+      type: 'add_layer',
+      layerId: 'music_1',
+      layerType: 'audio',
+      atIndex: 0,
+      role: 'music',
+    });
+    expect(after.tracks[0]!.role).toBe('music');
+  });
+
+  it('leaves a layer unlabelled when no role was declared', () => {
+    const after = applyOperation(baseTimeline(), {
+      type: 'add_layer',
+      layerId: 'plain',
+      layerType: 'audio',
+      atIndex: 0,
+    });
+    expect(after.tracks[0]!.role).toBeUndefined();
+  });
+
+  it('restores the mix role when a labelled layer is deleted and undone', () => {
+    // Without this the track came back unlabelled and `duck_roles` quietly
+    // stopped finding the bed — a silent regression in a working mix.
+    const withMusic = applyOperation(baseTimeline(), {
+      type: 'add_layer',
+      layerId: 'music_1',
+      layerType: 'audio',
+      atIndex: 0,
+      role: 'music',
+    });
+    const restored = expectRoundTrip(withMusic, { type: 'remove_layer', layerId: 'music_1' });
+    expect(restored.tracks.find((t) => t.id === 'music_1')).toBeUndefined();
+  });
 });
 
 // --- move_layer (Phase 2) --------------------------------------------------

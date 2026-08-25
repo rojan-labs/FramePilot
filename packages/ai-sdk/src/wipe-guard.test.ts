@@ -173,4 +173,34 @@ describe('detectTimelineWipe — aggregate coverage & remove_layer', () => {
       detectTimelineWipe([{ type: 'remove_layer', layerId: 'video_1' }], reworked, guard),
     ).toBeNull();
   });
+
+  it('never trips on add_music, which only ever adds or adjusts its own new clip', () => {
+    // P4.5 asks whether `add_music` needs a guard trigger. It does not, and this
+    // records the answer: the guard exists to catch a run deleting work the user
+    // already had, and these four ops — bin, layer, clip, and the duck the tool
+    // may author against its OWN clip — remove nothing. Kept as a test rather
+    // than a comment so a future widening of the guard has to notice it.
+    const ops = [
+      { type: 'add_asset', asset: { id: 'm1', path: 'media/bed.mp3', kind: 'audio' } },
+      { type: 'add_layer', layerId: 'music_1', layerType: 'audio', atIndex: 0, role: 'music' },
+      {
+        type: 'add_clip',
+        trackId: 'music_1',
+        assetId: 'm1',
+        clipId: 'music_1_clip',
+        start: 0,
+        end: 30,
+        sourceStart: 0,
+        sourceEnd: 30,
+      },
+      {
+        type: 'adjust_audio',
+        clipId: 'music_1_clip',
+        gainDb: 0,
+        duckUnderTrackId: 'dialogue_1',
+        duckAmountDb: -12,
+      },
+    ] as Parameters<typeof detectTimelineWipe>[0];
+    expect(detectTimelineWipe(ops, makeProject(), guard)).toBeNull();
+  });
 });

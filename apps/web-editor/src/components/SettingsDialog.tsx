@@ -40,6 +40,7 @@ import type { TimeDisplay } from '../editor/selectors.js';
 import { resolveEngineBaseUrl } from '../editor/ai.js';
 import { createVisualIndexClient, twelveLabsKey } from '../editor/visualIndex.js';
 import { useAiConfig } from '../editor/useAiConfig.js';
+import { onStockQuotaChanged, stockQuota, type StockQuotaSnapshot } from '../editor/bridge.js';
 import { useUserMemory } from '../editor/useUserMemory.js';
 import {
   BASE_URL_PROVIDERS,
@@ -67,7 +68,14 @@ import { useModalFocusTrap } from './ai/useModalFocusTrap.js';
 import { CapabilityPackStorageSettings } from './CapabilityPackStorageSettings.js';
 import { getBridge } from '../editor/bridge.js';
 
-export type SettingsSection = 'display' | 'editing' | 'playback' | 'ai' | 'storage' | 'memory' | 'shortcuts';
+export type SettingsSection =
+  | 'display'
+  | 'editing'
+  | 'playback'
+  | 'ai'
+  | 'storage'
+  | 'memory'
+  | 'shortcuts';
 
 export interface SettingsDialogProps {
   readonly open: boolean;
@@ -201,12 +209,7 @@ function Segmented<T extends string>({
         <span className="setting-label">{label}</span>
         {hint ? <span className="setting-hint">{hint}</span> : null}
       </div>
-      <SegmentedControl
-        label={label}
-        value={value}
-        options={options}
-        onValueChange={onChange}
-      />
+      <SegmentedControl label={label} value={value} options={options} onValueChange={onChange} />
     </div>
   );
 }
@@ -504,7 +507,10 @@ function LocalAsrSetup(): JSX.Element {
   const total = progress?.totalBytes ?? null;
   const displayedTotal = packProgress?.totalBytes ?? total;
   const downloaded = packProgress?.completedBytes ?? progress?.downloadedBytes ?? 0;
-  const percent = displayedTotal && displayedTotal > 0 ? Math.min(100, Math.round((downloaded / displayedTotal) * 100)) : null;
+  const percent =
+    displayedTotal && displayedTotal > 0
+      ? Math.min(100, Math.round((downloaded / displayedTotal) * 100))
+      : null;
   const hint =
     status === 'loading'
       ? 'Checking the local engine…'
@@ -539,10 +545,19 @@ function LocalAsrSetup(): JSX.Element {
         )}
       </div>
       {packProposal !== null && packOperationId === null ? (
-        <div className="capability-cleanup-review" role="region" aria-label="Local transcription download approval">
-          <strong>{packProposal.displayName} · {formatMegabytes(packProposal.downloadBytes)}</strong>
+        <div
+          className="capability-cleanup-review"
+          role="region"
+          aria-label="Local transcription download approval"
+        >
+          <strong>
+            {packProposal.displayName} · {formatMegabytes(packProposal.downloadBytes)}
+          </strong>
           <span>{packProposal.description}</span>
-          <span>Installed size {formatMegabytes(packProposal.installedBytes)} · Licenses {packProposal.licenses.map(({ spdx }) => spdx).join(', ')}</span>
+          <span>
+            Installed size {formatMegabytes(packProposal.installedBytes)} · Licenses{' '}
+            {packProposal.licenses.map(({ spdx }) => spdx).join(', ')}
+          </span>
           <span>{packProposal.privacy.disclosure}</span>
           <Button type="button" disabled={settingUp} onClick={() => void approvePack()}>
             Approve exact version and download
@@ -747,6 +762,268 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
   );
 }
 
+/**
+ * Stock media — the Pexels key, and what is left of this month's allowance.
+ *
+ * ## Why the key field is not value-bound
+ *
+ * Every other key input in this dialog shows its saved value, because those keys
+ * are renderer-readable by design: the renderer forwards them onward, to the
+ * sidecar or the transcription path. Nothing forwards this one — main holds it
+ * and main makes every request — so it is write-only, and there is no value to
+ * bind. The affordance is "Configured / Replace / Clear" instead.
+ *
+ * ## Why the quota says "Monthly", and why it also says "as of"
+ *
+ * Pexels enforces ~200 requests/hour AND 20,000/month, but reports only the
+ * monthly figure in its headers. A bar labelled just "quota" would therefore be
+ * contradicted by the first 429 that arrives while it still reads 19,400 left.
+ * And because the same key can be used elsewhere, these are last-observed
+ * values, not live ones — so the panel says when it saw them
+ * (`plan/3rd-party-sourcing/photo-video/PEXELS-API.md` §3).
+ */
+function StockMediaSettings(): JSX.Element {
+  const { config, setPexelsApiKey } = useAiConfig();
+  const [quota, setQuota] = useState<StockQuotaSnapshot>({ kind: 'no_key' });
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  useEffect(() => {
+    void stockQuota().then(setQuota);
+    // Pushed on every observation rather than polled: there is no remote to
+    // poll, and the quota only moves when we ourselves make a request.
+    return onStockQuotaChanged(setQuota);
+  }, []);
+
+  const configured = config.pexelsReady === true;
+  const showField = !configured || editing;
+
+  const save = (): void => {
+    const key = draft.trim();
+    if (key === '') return;
+    setPexelsApiKey(key);
+    setDraft('');
+    setEditing(false);
+  };
+
+  return (
+    <SettingGroup
+      title="Stock media"
+      description="Search Pexels for photos and video without leaving the editor."
+    >
+      <div className="setting-row setting-row--stack">
+        <label className="setting-field-label" htmlFor="stock-pexels-key">
+          Pexels API key
+        </label>
+        {showField ? (
+          <div className="setting-inline-actions">
+            <input
+              id="stock-pexels-key"
+              type="password"
+              className="setting-text-input"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="563492ad…"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') save();
+              }}
+            />
+            {/* Distinct accessible names: this panel already has a "Save" for
+                provider keys, and two identically-named buttons on one screen
+                are ambiguous to anyone navigating by name. */}
+            <Button
+              variant="ghost"
+              type="button"
+              aria-label="Save Pexels API key"
+              disabled={draft.trim() === ''}
+              onClick={save}
+            >
+              Save
+            </Button>
+            {configured ? (
+              <Button
+                variant="ghost"
+                type="button"
+                aria-label="Cancel replacing the Pexels API key"
+                onClick={() => {
+                  setEditing(false);
+                  setDraft('');
+                }}
+              >
+                Cancel
+              </Button>
+            ) : null}
+          </div>
+        ) : (
+          <div className="setting-inline-actions">
+            <span className="ai-tone" data-tone="completed">
+              Configured
+            </span>
+            <Button
+              variant="ghost"
+              type="button"
+              aria-label="Replace the Pexels API key"
+              onClick={() => setEditing(true)}
+            >
+              Replace
+            </Button>
+            <Button
+              variant="ghost"
+              type="button"
+              aria-label="Clear the Pexels API key"
+              onClick={() => {
+                setPexelsApiKey(null);
+                setDraft('');
+                setEditing(false);
+              }}
+            >
+              Clear
+            </Button>
+          </div>
+        )}
+        <span className="setting-hint">
+          Free and instant from{' '}
+          <a href="https://www.pexels.com/api/new/" target="_blank" rel="noopener noreferrer">
+            pexels.com/api
+          </a>
+          . Only the words you search leave this machine; downloaded files are stored with the
+          project. The key is kept by the app and never sent to the editor window.
+        </span>
+      </div>
+
+      <StockQuotaReadout quota={quota} />
+    </SettingGroup>
+  );
+}
+
+/** The quota block. Four states, and each one says exactly what it knows. */
+function StockQuotaReadout({ quota }: { readonly quota: StockQuotaSnapshot }): JSX.Element | null {
+  if (quota.kind === 'no_key') return null;
+
+  if (quota.kind === 'unmeasured') {
+    return (
+      <div className="setting-row">
+        <div className="setting-text">
+          <span className="setting-label">Monthly API quota</span>
+          {/* Not a zero and not a guessed 20,000: we genuinely do not know yet,
+              and a fabricated number here would be indistinguishable from a
+              real reading. */}
+          <span className="setting-hint">Not measured yet — search once to see your quota.</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Both arms carried `monthly`, so the ternary chose between two identical
+  // expressions. The `unmeasured` case returned above, so this is simply it.
+  const { monthly } = quota;
+  const percent =
+    monthly && monthly.limit > 0 ? Math.round((monthly.remaining / monthly.limit) * 100) : null;
+  const low = percent !== null && percent <= 10;
+
+  return (
+    <>
+      {monthly ? (
+        <div className="setting-row setting-row--stack">
+          <div className="setting-text">
+            <span className="setting-label">Monthly API quota</span>
+            <span className="setting-hint stock-quota-figures">
+              {monthly.remaining.toLocaleString()} of {monthly.limit.toLocaleString()} requests left
+            </span>
+          </div>
+          <div
+            className="ai-progress-track"
+            role="progressbar"
+            aria-label="Monthly Pexels API quota remaining"
+            aria-valuenow={percent ?? 0}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <div
+              className="ai-progress-fill"
+              data-tone={low ? 'warning' : undefined}
+              style={{ width: `${percent ?? 0}%` }}
+            />
+          </div>
+          <span className="setting-hint">
+            {/* Absolute so it is unambiguous across timezones, relative so it is
+                readable at a glance. */}
+            Resets {formatAbsolute(monthly.resetAt)} · {formatRelative(monthly.resetAt)}
+          </span>
+          <span className="setting-hint setting-note">
+            As of {formatRelative(monthly.observedAt)}. The same key used elsewhere moves these
+            numbers without this app hearing about it.
+          </span>
+        </div>
+      ) : null}
+
+      {quota.kind === 'hourly_limited' ? (
+        <div className="setting-row">
+          <div className="setting-text">
+            <span className="setting-label">Hourly limit</span>
+            {/* Its own line rather than a correction to the bar above: Pexels
+                does not report the hourly window, so a healthy monthly figure
+                and an hourly 429 are both true at the same time. */}
+            <span className="setting-hint">
+              Reached about {formatRelative(quota.since)}. Pexels allows roughly 200 requests an
+              hour and does not report that window, so it is not shown above.
+              {quota.retryAfterSeconds !== undefined
+                ? ` Retry in about ${Math.ceil(quota.retryAfterSeconds / 60)} min.`
+                : ''}
+            </span>
+          </div>
+          <span className="ai-tone" data-tone="warning">
+            limited
+          </span>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** `1 Sep 2026, 00:00` in the viewer's own locale and timezone. */
+function formatAbsolute(iso: string): string {
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return 'unknown';
+  return when.toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+/** `in 8 days` / `2 minutes ago`. Readable at a glance; the absolute form is exact. */
+function formatRelative(iso: string): string {
+  const when = Date.parse(iso);
+  if (Number.isNaN(when)) return 'unknown';
+  const deltaSeconds = Math.round((when - Date.now()) / 1000);
+  const units: readonly [Intl.RelativeTimeFormatUnit, number][] = [
+    ['second', 60],
+    ['minute', 60],
+    ['hour', 24],
+    ['day', 30],
+    ['month', 12],
+  ];
+  let value = deltaSeconds;
+  for (const [unit, step] of units) {
+    if (Math.abs(value) < step) {
+      return new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' }).format(
+        Math.round(value),
+        unit,
+      );
+    }
+    value /= step;
+  }
+  return new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' }).format(
+    Math.round(value),
+    'year',
+  );
+}
+
 function isRealProvider(name: AiProviderName): name is Exclude<AiProviderName, 'mock'> {
   return (REAL_PROVIDERS as readonly AiProviderName[]).includes(name);
 }
@@ -791,6 +1068,7 @@ function AiSettings({ projectId }: { readonly projectId?: string }): JSX.Element
       </SettingGroup>
       <AsrSettings />
       <MediaIntelligenceSettings {...(projectId ? { projectId } : {})} />
+      <StockMediaSettings />
       <SettingGroup title="Diagnostics" description="Optional details for development and QA.">
         <Toggle
           label="Show AI usage details"

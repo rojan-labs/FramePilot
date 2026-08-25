@@ -6,13 +6,15 @@
  */
 import { appendFile, mkdir, rename, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import {
-  decodeMediaImportChunk,
-  type MediaImportChunkHeader,
-} from '@framepilot/shared-types';
+import { decodeMediaImportChunk, type MediaImportChunkHeader } from '@framepilot/shared-types';
 import { resolveWithin } from '@framepilot/shared-types/safety';
 
 const MEDIA_DIR = 'media';
+
+/** The project-relative media directory. One definition, every writer. */
+export function mediaRelativeDir(projectId: string): string {
+  return path.posix.join(MEDIA_DIR, safeProjectId(projectId));
+}
 
 export interface MediaImportIO {
   mkdirp(dir: string): Promise<void>;
@@ -64,7 +66,13 @@ export function safeFileName(fileName: string): string {
   return `${stem || 'media'}${safeExt}`;
 }
 
-function safeProjectId(projectId: string): string {
+/**
+ * Exported so the music download path lands files in exactly the directory
+ * imported ones do. Downloaded media is not special: `fp-media://` and the
+ * render engine must resolve it with no change, which means it must not get its
+ * own directory scheme (`plan/3rd-party-sourcing/PHASE-3-download-and-place.md`).
+ */
+export function safeProjectId(projectId: string): string {
   const safe = path
     .basename(projectId)
     .replace(/\\/g, '_')
@@ -74,7 +82,12 @@ function safeProjectId(projectId: string): string {
   return safe || 'untitled';
 }
 
-async function dedupeName(dir: string, safeName: string, io: MediaImportIO): Promise<string> {
+/** Exported for the music download path — see {@link safeProjectId}. */
+export async function dedupeName(
+  dir: string,
+  safeName: string,
+  io: MediaImportIO,
+): Promise<string> {
   if (!(await io.exists(path.join(dir, safeName)))) return safeName;
   const ext = path.extname(safeName);
   const stem = safeName.slice(0, safeName.length - ext.length);

@@ -95,6 +95,12 @@ const TOOL_META: Record<string, ToolMeta> = {
   analyze_silence: { label: 'Analyze silence', Icon: AudioLines },
   detect_scenes: { label: 'Detect scenes', Icon: Film },
   detect_beats: { label: 'Detect beats', Icon: Music },
+  // Editor-facing labels, not tool names: the card says what the agent is doing,
+  // in the words the person watching would use.
+  search_music: { label: 'Search for music', Icon: Music },
+  add_music: { label: 'Add background music', Icon: Music },
+  search_stock: { label: 'Search stock media', Icon: ImagePlus },
+  add_stock: { label: 'Add a stock shot', Icon: ImagePlus },
   find_similar: { label: 'Find similar', Icon: Sparkles },
   search_visual: { label: 'Search visual evidence', Icon: Search },
   describe_footage: { label: 'Describe footage', Icon: Film },

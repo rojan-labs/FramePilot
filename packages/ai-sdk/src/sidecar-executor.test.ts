@@ -913,6 +913,126 @@ describe('visual grounding (MI6.1)', () => {
       expect((outcome.data as { words: unknown }).words).toEqual(words);
     });
 
+    it('fails honestly when the music host override is absent', async () => {
+      // The browser surface and every test build have no host override. The tool
+      // must SAY it cannot run — a fabricated track list is the failure mode this
+      // arm exists to prevent, and it is the one most likely to rot (ADR 0118).
+      const executor = createSidecarExecutor({
+        baseUrl: 'http://x',
+        fetchFn: fetchStub({ ok: true, json: {} }),
+      });
+      for (const name of ['search_music', 'add_music']) {
+        const outcome = await executor.run(call(name, { query: 'calm', remoteId: 'ov-1' }), ctx);
+        expect(outcome.status).toBe('failed');
+        expect(outcome.summary).toContain('desktop app');
+        expect(outcome.data).toBeUndefined();
+      }
+    });
+
+    it('never reaches the sidecar for a music tool', async () => {
+      // The provider connection lives in the trusted host. A sidecar round-trip
+      // here would mean the key or the URL had leaked a process boundary.
+      let sidecarHit = false;
+      const executor = createSidecarExecutor({
+        baseUrl: 'http://x',
+        fetchFn: fetchStub({ ok: true, json: {} }, () => {
+          sidecarHit = true;
+        }),
+        hostMusicSearch: async () => ({ status: 'completed', summary: 'ok', data: { tracks: [] } }),
+        hostAddMusic: async () => ({ status: 'completed', summary: 'ok', data: {} }),
+      });
+      await executor.run(call('search_music', { query: 'calm' }), ctx);
+      await executor.run(call('add_music', { remoteId: 'ov-1' }), ctx);
+      expect(sidecarHit).toBe(false);
+    });
+
+    it('forwards the query and limit to the music host', async () => {
+      let seen: { query: string; limit: number | undefined } | null = null;
+      const executor = createSidecarExecutor({
+        baseUrl: 'http://x',
+        fetchFn: fetchStub({ ok: true, json: {} }),
+        hostMusicSearch: async (query, limit) => {
+          seen = { query, limit };
+          return { status: 'completed', summary: 'ok', data: { tracks: [] } };
+        },
+      });
+      await executor.run(call('search_music', { query: 'calm piano', limit: 5 }), ctx);
+      expect(seen).toEqual({ query: 'calm piano', limit: 5 });
+    });
+
+    it('forwards every declared add_music placement argument to the host', async () => {
+      // `atSeconds` and `duckUnderTrackId` are advertised on the tool and in the
+      // skill text. Accepting them and then dropping them here would place a
+      // full-gain bed at 0 s while the run reported it placed and ducked.
+      let seen: Record<string, unknown> | null = null;
+      const executor = createSidecarExecutor({
+        baseUrl: 'http://x',
+        fetchFn: fetchStub({ ok: true, json: {} }),
+        hostAddMusic: async (_project, args) => {
+          seen = { ...args };
+          return { status: 'completed', summary: 'ok', data: {} };
+        },
+      });
+      await executor.run(
+        call('add_music', {
+          remoteId: 'ov-1',
+          atSeconds: 12,
+          duckUnderTrackId: 'dialogue_1',
+        }),
+        ctx,
+      );
+      expect(seen).toEqual({ remoteId: 'ov-1', atSeconds: 12, duckUnderTrackId: 'dialogue_1' });
+    });
+
+    it('omits absent or out-of-contract placement arguments rather than passing junk', async () => {
+      // A negative start is clamped to 0 (both builders clamp anyway); a blank
+      // sidechain is "not requested", not a duck under "".
+      let seen: Record<string, unknown> | null = null;
+      const executor = createSidecarExecutor({
+        baseUrl: 'http://x',
+        fetchFn: fetchStub({ ok: true, json: {} }),
+        hostAddMusic: async (_project, args) => {
+          seen = { ...args };
+          return { status: 'completed', summary: 'ok', data: {} };
+        },
+      });
+      await executor.run(
+        call('add_music', { remoteId: 'ov-1', atSeconds: -3, duckUnderTrackId: '   ' }),
+        ctx,
+      );
+      expect(seen).toEqual({ remoteId: 'ov-1', atSeconds: 0 });
+    });
+
+    it("surfaces the host's own failure sentence rather than a generic one", async () => {
+      // A user told only "something went wrong" cannot tell a rate limit from an
+      // outage — and the model would retry the one case where retrying is wrong.
+      const executor = createSidecarExecutor({
+        baseUrl: 'http://x',
+        fetchFn: fetchStub({ ok: true, json: {} }),
+        hostMusicSearch: async () => ({
+          status: 'failed',
+          summary: 'Too many searches in a row. Try again in a moment.',
+        }),
+      });
+      const outcome = await executor.run(call('search_music', { query: 'calm' }), ctx);
+      expect(outcome.status).toBe('failed');
+      expect(outcome.summary).toContain('Too many searches');
+    });
+
+    it('reports a refused non-commercial track with the reason, not silently', async () => {
+      const executor = createSidecarExecutor({
+        baseUrl: 'http://x',
+        fetchFn: fetchStub({ ok: true, json: {} }),
+        hostAddMusic: async () => ({
+          status: 'failed',
+          summary: "This track can't be used in monetized videos.",
+        }),
+      });
+      const outcome = await executor.run(call('add_music', { remoteId: 'ov-1' }), ctx);
+      expect(outcome.status).toBe('failed');
+      expect(outcome.summary).toContain('monetized');
+    });
+
     it('passes undefined assetId to hostTranscribe when the call omits it', async () => {
       const executor = createSidecarExecutor({
         baseUrl: 'http://x',

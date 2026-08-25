@@ -104,3 +104,6 @@ terminal-history.txt
 
 # Dev-only tool/capability run log (FRAMEPILOT_RUNS_LOG, see run-log.ts).
 framepilot.runs.jsonl
+
+goal.md
+run.md

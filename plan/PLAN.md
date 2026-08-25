@@ -73,7 +73,7 @@ mis-read by the analysis.** One 28-minute run, five turns, zero net edits. The g
    material (or its held edge frame) underneath. **ADR 0135.**
 2. **`crop` masked in place in the monitor and filled the frame in the render.** The editor saw
    a small picture in black while the export was full-bleed, reported it, and the agent wrote
-   compensating scale keyframes (3.2×, then 1.78×) which the render applies *on top of* its own
+   compensating scale keyframes (3.2×, then 1.78×) which the render applies _on top of_ its own
    fill scale. `preview/crop-fill.ts` now holds one arithmetic for both monitors. **ADR 0135.**
 3. **The beat grid vetoed proposals with no cut in them.** `resolveGrid`'s ungrounded rejection
    ran before boundary collection, so once `detect_beats` had run every later proposal was
@@ -127,7 +127,7 @@ snapshot. Those baselines have been regenerated twice before (`64e4db1`, `b19438
 regenerating them again is a separate call.
 Two engine transition tests were rewritten because they encoded the defect (one solid-colour
 asset on both sides of a cut cannot tell a working transition from a black flash; another
-asserted a centred ramp is *darker* before the cut, which was only true while it faded to
+asserted a centred ramp is _darker_ before the cut, which was only true while it faded to
 black).
 
 **Status snapshot (2026-08-21):** `[x]` **Footage understanding showed nothing for new
@@ -158,14 +158,14 @@ unread → read → map and each honest failure.
 
 **Status snapshot (2026-08-21):** `[x]` **The agent leaked its own run state into the
 chat, and into the edit history.** A captured run opened 21 of its replies with harness
-bookkeeping — *"I'll continue from the interpret stage."*, *"I'll continue from where the
-run left off."* — and because the run has one text channel, the same sentence was stored as
+bookkeeping — _"I'll continue from the interpret stage."_, _"I'll continue from where the
+run left off."_ — and because the run has one text channel, the same sentence was stored as
 the patch `reason` and rendered as the proposed edit's Summary and Reason.
 
 Root cause: `buildStateBriefing` hands the model an imperative second-person briefing
 ("You are at 'interpret'. Continue from here."), and nothing in the contract said which of
-that machinery the editor may see. Every rule governed what the model should *do*; none
-governed what it may *say about itself*. Not a truncation/retry/cancellation artifact — the
+that machinery the editor may see. Every rule governed what the model should _do_; none
+governed what it may _say about itself_. Not a truncation/retry/cancellation artifact — the
 leaking turns were ordinary successful ones.
 
 Fixed at the contract (a privacy clause on the briefing itself, and a NARRATION rule opening
@@ -211,12 +211,12 @@ believing emphasis had never landed. Two records were lying, and they compounded
    satisfied turns excluded from the rejection tally.
 4. The verify fold records `criterion: objective.description`, and objectives are seeded from
    `userPrompt` — so the run's memory ended with `PASS <the entire request> — All checks
-   passed.` on a run that called **no effect or transition tool at all**. `buildStateBriefing`
+passed.` on a run that called **no effect or transition tool at all**. `buildStateBriefing`
    feeds that straight back to the model under `VERIFIED`: the CLAIMS OF COMPLETION overclaim
    the contract forbids, arriving through the one channel the contract cannot reach.
    `briefing.ts` already suppresses this echo in three other sections; `VERIFIED` was missed.
    Fixed: an echoed criterion renders as `the timeline consistency checks (NOT the request
-   itself)`; a real criterion is untouched.
+itself)`; a real criterion is untouched.
 
 ADR 0131. Evidence: `agent-call-note.test.ts` (end-to-end through `streamAgent`),
 `kernel/already-satisfied.test.ts` (through the real reducer, 9 cases) and
@@ -457,7 +457,7 @@ could not ask for it back. Five defects, all fixed with `file:line` evidence:
 
 1. **`recall_evidence` could not match a keyword query.** `evidence-store.ts#recall` tested
    `part.includes(wholeQuery)` — one literal substring — so `captionStyle track layer_caption_4
-   style` could only match if that exact 45-character string sat inside a single record. Every
+style` could only match if that exact 45-character string sat inside a single record. Every
    queried recall in both runs returned "No part of ev_N matches" against payloads that plainly
    contained the terms. Queries are now tokenised and scored (`rank`), with a whole-phrase hit
    ranked above scattered term hits. This mattered most on the ACTION RECOVERY turn, where
@@ -558,22 +558,23 @@ nextAction text, token estimates — no event, operation or status changed).
 
 Deliberately NOT fixed here, each needing its own reviewed slice — all four are recorded in
 ADR 0127 with `file:line`:
+
 - [~] **The interpretation slot holds an echo.** `conductor.ts` pre-fills the run objective
-      with the raw prompt at construction and `setObjective` is idempotent, so no turn can
-      ever write a real interpretation. The briefing no longer RENDERS the echo four times,
-      but the run's derived reading (montage length vs music bed, clip-count arithmetic,
-      visual search unavailable) is still never durable. Needs a seam for the model to write
-      an interpretation once — the remaining half of the 391-second thinking block.
-      **Half-fixed (2026-08-20, caption-restyle run below):** the seed is now recorded as
-      `objective.provisional` and `setObjective` lets the FIRST real interpretation replace a
-      placeholder while still protecting an interpretation from being rewritten — so the slot
-      is no longer permanently occupied. What remains is the model-facing seam itself: no tool
-      or turn hook calls `setObjective`, so nothing yet writes the interpretation the slot is
-      now open for. Keep this item until that caller exists.
-      **Still open after the caption run (2026-08-20, ADR 0129):** re-examined and confirmed
-      to be a REPORTING defect, not the cause of that failure — the run failed honestly on
-      `no traceable project mutation`, and the echoed criterion made the verdict vague rather
-      than wrong. Priority stays below correctness work for that reason.
+  with the raw prompt at construction and `setObjective` is idempotent, so no turn can
+  ever write a real interpretation. The briefing no longer RENDERS the echo four times,
+  but the run's derived reading (montage length vs music bed, clip-count arithmetic,
+  visual search unavailable) is still never durable. Needs a seam for the model to write
+  an interpretation once — the remaining half of the 391-second thinking block.
+  **Half-fixed (2026-08-20, caption-restyle run below):** the seed is now recorded as
+  `objective.provisional` and `setObjective` lets the FIRST real interpretation replace a
+  placeholder while still protecting an interpretation from being rewritten — so the slot
+  is no longer permanently occupied. What remains is the model-facing seam itself: no tool
+  or turn hook calls `setObjective`, so nothing yet writes the interpretation the slot is
+  now open for. Keep this item until that caller exists.
+  **Still open after the caption run (2026-08-20, ADR 0129):** re-examined and confirmed
+  to be a REPORTING defect, not the cause of that failure — the run failed honestly on
+  `no traceable project mutation`, and the echoed criterion made the verdict vague rather
+  than wrong. Priority stays below correctness work for that reason.
 - [ ] **The decision-recording seam is unwired.** `addDecision`/`commitDecision`/
       `reviseDecision`/`recordObjective`/`setBlocker` have no production callers.
 - [ ] **`stage-policy.ts#planningExhausted` is dead code** duplicating
@@ -704,7 +705,7 @@ evidence to answer, and elsewhere described frames it had not seen. Frames now r
 both routes, are attached once rather than re-billed every later turn of a growing transcript, and a
 memo-served replay states plainly that no picture is attached instead of forwarding the "attached as
 an image" note behind an empty hand. Three adjacent dishonesties went with it: inspection commands
-("look into the frame") were classified as *edits*, so a correctly answered question ended as a red
+("look into the frame") were classified as _edits_, so a correctly answered question ended as a red
 `failed` run under ADR 0081's no-mutation rule; the visual-search/footage-map/status messages told
 the model to call `index_media`, which is implicit lifecycle work withheld from every model-facing
 scope; and the status line claimed the model "cannot see" without an embeddings key, when
@@ -7221,6 +7222,158 @@ capability matching for `glm-5v-turbo`.
       Python engine 1,421 tests; workspace typecheck/lint/build and website production build
       green. **Last updated:** 2026-07-30
 
+## Third-party media sourcing — `[~]` shipped on Openverse · two evidence runs outstanding
+
+> **Sub-plan: [`plan/3rd-party-sourcing/README.md`](./3rd-party-sourcing/README.md)**
+> (created 2026-08-23, maintainer-approved). FramePilot can only edit media the user already
+> put on disk. This gives it one outward reach: **background music from a third-party
+> provider, fetched in the Electron main process and materialized as an ordinary project
+> asset.**
+
+The audit corrected the premise. Only _acquisition_ is missing — everything downstream is
+built and idle: `add_asset` + invert (`project-operations.ts:17`), `placeAssetPatch`
+(`patch-builders-base.ts:1477`), `adjust_audio` with `duckUnderTrackId`/fades/normalize
+(`operations.ts:242`), `AudioRoleSchema` `music` (`timeline-schema/src/index.ts:52`),
+`detect_beats`, and `POST /asset-media` which already returns duration/kind/peaks/proxy for
+any on-disk path (`service.py:348`). A grep for every major provider name returns **zero
+hits** — no prior art, no half-built branch.
+
+Two constraints found: the renderer **cannot** reach a provider host
+(`connect-src 'self' fp-media: <engine>`, `media-protocol.ts:139`) — but `media-src`/`img-src`
+already allow `blob:`, so previews ride IPC bytes and **no CSP change is needed**; and `Asset`
+has **no provenance field** and `Project` no metadata bag. Zero new dependencies (Node `fetch`
+in main; `httpx` already an engine dep). Reuses the ASR provider shape, the `hostTranscribe`
+key-custody pattern, and the Capability-Pack download _shape_ — but **not** Capability Packs
+themselves (ADR 0114 packs are immutable FramePilot-controlled runtimes, not per-project
+licensed media).
+
+**Maintainer decision 2026-08-23 (D2): attribution-required tracks are supported** — the UI
+shows the licence and the user may use any track the provider offers. A search-time badge
+cannot discharge a publish-time obligation, so attribution is **persisted**: `Asset.source`,
+**schema v19 → v20 with a migration, approved as part of that decision**, plus a Credits view
+that lists and copies every required credit at export. Non-commercial-only licences stay
+refused — FramePilot users monetize, and no badge makes an NC track safe.
+
+**Provider research done 2026-08-23 (D4, sourced in `PROVIDERS.md`): every candidate gates
+commercial API use.** Freesound is non-commercial-only without an MTG/UPF agreement; Jamendo
+needs a quote; **Pixabay has no music endpoint in its public API at all**. Decision: **build
+on Openverse** (no key, no agreement, 1M+ CC audio records, commercial-use filtering, and a
+pre-formatted `attribution` string per result) and **ship on Epidemic Sound ES Connect**
+(purpose-built for embedding a licensed catalogue in third-party editors, no attribution, the
+user's own subscription confers commercial rights; self-serve free tier now, partnership to
+go live). The second provider is therefore earned, not speculative — the adapter generalizes
+when Epidemic actually lands.
+
+**Provider set closed 2026-08-23 — do not reopen without maintainer sign-off.** Openverse
+**ships** as the free tier (not a scaffold), accepted against its uneven aggregate catalogue.
+**Epidemic's free tier cannot go live** (_"only licensed for paid tiers"_) — the account is
+registered for evaluation (50 downloads · 100 streams · 50 create versions, enough for P1–P3),
+and launching needs the sales-priced Scale/Enterprise tier, so **Openverse is what actually
+ships** until that is signed. Bring-your-own-Epidemic-subscription is the confirmed shape,
+mirroring bring-your-own-AI-key. Storyblocks, Soundstripe, Shutterstock, Artlist and Pond5
+were evaluated and **parked** (comparison + cost-model trade-off in `PROVIDERS.md`);
+AI-generated music is parked, not declined.
+
+- [~] **P0** Openverse closed — endpoint, field set and **server-side NC filtering all
+  verified against the live API 2026-08-23**, no key, no SDK, no dependency added.
+  Epidemic's paid-tier conversation is **maintainer-blocked** and gates only the paid
+  upgrade, nothing that shipped.
+- [x] **P1** Asset provenance, schema v20, credits surface (ADR 0138)
+- [x] **P2** Search + audition — Openverse adapter, main-process IPC, Sounds tab.
+      **Deliberate divergence: no API key field**, because Openverse takes none and its
+      optional auth is OAuth2 client-credentials, not a bearer key. Building it would have
+      shipped a Settings control that does nothing. Recorded in the phase file and ADR 0139.
+- [~] **P3** Download → asset → timeline → export — code and tests complete (cancel,
+  truncation, ENOSPC, dedupe, offline reopen, one-press undo). **The manual real-media
+  run is outstanding.**
+- [~] **P4** `search_music`/`add_music`, parity green across TS ↔ Python ↔ MCP ↔
+  classification ↔ the flags contract. **Registry token delta measured: +370 per
+  request** (15,762 → 16,132). The agent evidence run is outstanding with P3's.
+
+**Shipped:** ADR 0138 (provenance persisted) · ADR 0139 (provider media fetched in main,
+including why no key field exists) · `docs/guides/music-sourcing.md` · privacy-page line ·
+`CHANGELOG.md`. Two findings the plan's research did not have, both now normalized and
+tested: Openverse reports **duration in milliseconds**, and its Jamendo records report
+`filetype: "mp32"` — a quality code, not a container, which would have written files
+nothing can open.
+
+**What is left is not code.** Both outstanding items need a human at a desktop build with
+real 5–15 minute footage: hear the bed under the voice in an actual export, and confirm the
+credit survives save-and-reopen (`product-discipline.mdc` §8 — tiny fixtures cannot stand in
+for a media claim).
+
+**Stock photo & video is no longer deferred — see the section below.** The deferral was
+reversed by maintainer decision 2026-08-24 and `DEFERRED-stock-footage-and-sfx.md` records the
+reversal; that file's stock half is history, not a live decision. **SFX remains deferred** (a
+placement problem, not a search problem; Freesound is the obvious source and is itself
+commercially gated; `auto-SFX` is already tracked and blocked on the Phase 9.0 gate). An
+**owned** music catalog stays out of scope per
+`FRAMEPILOT-AI-PRODUCT-PLAN.md:22`; searching a _third party's_ catalog is a recorded,
+deliberate delta from that decision (README §D1), not a reversal.
+
+**Sequencing:** `product-discipline.mdc` §2 ranks integrations below finished-edit quality,
+and the 2026-08-21/22 snapshots show consecutive captured runs each surfacing new priority-1
+editorial defects. Picked up when that batch closes; not interleaved with it. Phase 4's cost
+is known in advance: the registry is already 78 descriptors ≈ 15,710 tokens per request
+(§ above, line ~118), so the agent tool waits until a human has confirmed the provider
+returns usable tracks. **Last updated:** 2026-08-23
+
+## Third-party stock photo & video (Pexels) — `[~]` shipped · evidence runs outstanding
+
+> **Sub-plan: [`plan/3rd-party-sourcing/photo-video/README.md`](./3rd-party-sourcing/photo-video/README.md)**
+> (created 2026-08-24). The picture half of the sourcing reach the music slice opened:
+> **photos and video from Pexels, fetched in the Electron main process and materialized as
+> an ordinary project asset**, with the same provenance, credits and undo guarantees.
+
+**The deferral was reversed by maintainer decision 2026-08-24**, on the argument the original
+deferral itself made: the reason to hold was the SUC-P1 compositing blocker, and a cutaway
+that _replaces_ picture rather than stacking on it does not need compositing. So the feature
+ships **non-overlapping only** — the panel disables **Add** with a reason, and `add_stock`
+fails with one, when the target span already holds picture (ADR 0140). Picture-in-picture
+waits on SUC-P1, and that is stated in the guide rather than left to be discovered.
+
+Reuses every mechanism the music slice built: `Asset.source` provenance (schema v20, no new
+migration), the Credits surface, the main-process key custody, the observed-not-counted quota
+store, the atomic temp→rename download path, and the `hostUiOnly` tool gate. **Zero new
+dependencies.** The one genuinely new piece is `picture-occupancy.ts` — the shared
+"is this span already picture?" predicate — plus `stock-placement.ts`, the single builder the
+Stock panel and `add_stock` both call so an agent-placed clip and a hand-placed one are the
+same clip.
+
+**Pexels chosen (ADR 0141):** free, no revenue share, commercial use permitted without
+attribution (courtesy credit surfaced anyway, in its own **Suggested** group), photos and
+video from one key, 200 requests/hour. The key is **write-only** in Settings and never leaves
+main.
+
+- [x] **P0** Key custody + observed quota store
+- [x] **P1** Pexels adapter — photos and videos, licence codes normalized, unknown codes dropped
+- [x] **P2** Main-process service, IPC surface, quota wiring
+- [x] **P3** Stock panel with hover-scrub preview, per-tile placement verdicts, Credits'
+      Suggested group
+- [x] **P4** `search_stock` / `add_stock`, with the orchestrator arm that turns the host's
+      download into a validated patch and the cross-path parity test that pins it to the
+      panel's own builder
+- [~] **P5** Docs and evidence — ADRs 0140/0141, `docs/guides/stock-sourcing.md` and the
+  CHANGELOG are written; **the real-media desktop run is outstanding**, as it is for the
+  music slice.
+- [x] **P6** Both panels open with content instead of an empty list (2026-08-25). An empty
+      search box now browses the provider's own feed — Pexels `/v1/curated` and
+      `/videos/popular`, Openverse's catalogue without a `q` — labelled so a browse never
+      reads as results for a search nobody ran; the missing-key state still wins over it, and
+      an IPC call that rejects now surfaces as an error rather than a permanent skeleton.
+      The Openverse browse is verified live; **the two Pexels browse endpoints are covered by
+      offline tests only** and join the outstanding evidence run (`PEXELS-API.md` §5 Q6).
+- [x] **P7** Panel layout: one control row, uniform tiles (2026-08-25). Search, the kind select
+      and the Pexels credit share a row; the prose above the grid is gone. Stock tiles were
+      carrying the item's own aspect ratio, which let a portrait tile resolve taller than its
+      grid row and overlap the row beneath — measured at up to 75 px of collision in a
+      headless-Chromium repro of the real stylesheet, and 0 after.
+
+**What is left is not code**, exactly as above: a human at a desktop build placing a real
+Pexels clip into a real edit, exporting it, and confirming the courtesy credit survives
+save-and-reopen. `product-discipline.mdc` §8 — tiny fixtures cannot stand in for a media
+claim. **Last updated:** 2026-08-25
+
 ## Scene Understanding & Advanced Compositing — `[ ]` not started
 
 > **Sub-plan: [`plan/SCENE-UNDERSTANDING-AND-COMPOSITING.md`](./SCENE-UNDERSTANDING-AND-COMPOSITING.md)**
@@ -7469,10 +7622,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-              Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-              a pre-existing local edit commenting out temperature forwarding, untouched here);
-              engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-              **Last updated:** 2026-08-14
+                      Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                      a pre-existing local edit commenting out temperature forwarding, untouched here);
+                      engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                      **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 

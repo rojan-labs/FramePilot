@@ -29,19 +29,19 @@ for how the model is used, and [patch-format.md](patch-format.md) for how it is 
 }
 ```
 
-| Field        | Type             | Notes                                                                              |
-| ------------ | ---------------- | ---------------------------------------------------------------------------------- |
-| `id`         | string           | Stable project identifier.                                                         |
-| `name`       | string           | Display name.                                                                      |
-| `version`    | number           | User-facing project revision. File migration uses the top-level `schemaVersion` envelope. |
-| `fps`        | number           | Project frame rate (timeline time base).                                           |
-| `resolution` | `{width,height}` | Canvas resolution.                                                                 |
-| `assets`     | Asset[]          | Imported media references (originals live in `assets/`, never modified).           |
-| `timeline`   | Timeline         | Tracks + clips (below).                                                            |
-| `transcript` | TranscriptWord[] | Word-level timestamps from transcription.                                          |
-| `capabilityPacks` | CapabilityPackPin[] | Optional immutable logical on-demand pack releases used by this project (schema v19). |
-| `aiMemory`   | object           | Per-project AI memory (style, pacing, accepted/rejected edits — see ai-engine.md). |
-| `history`    | Patch[]          | Applied patches; backs undo/redo and crash recovery.                               |
+| Field             | Type                | Notes                                                                                     |
+| ----------------- | ------------------- | ----------------------------------------------------------------------------------------- |
+| `id`              | string              | Stable project identifier.                                                                |
+| `name`            | string              | Display name.                                                                             |
+| `version`         | number              | User-facing project revision. File migration uses the top-level `schemaVersion` envelope. |
+| `fps`             | number              | Project frame rate (timeline time base).                                                  |
+| `resolution`      | `{width,height}`    | Canvas resolution.                                                                        |
+| `assets`          | Asset[]             | Imported media references (originals live in `assets/`, never modified).                  |
+| `timeline`        | Timeline            | Tracks + clips (below).                                                                   |
+| `transcript`      | TranscriptWord[]    | Word-level timestamps from transcription.                                                 |
+| `capabilityPacks` | CapabilityPackPin[] | Optional immutable logical on-demand pack releases used by this project (schema v19).     |
+| `aiMemory`        | object              | Per-project AI memory (style, pacing, accepted/rejected edits — see ai-engine.md).        |
+| `history`         | Patch[]             | Applied patches; backs undo/redo and crash recovery.                                      |
 
 ### Capability Pack pins (schema v19)
 
@@ -50,6 +50,56 @@ for how the model is used, and [patch-format.md](patch-format.md) for how it is 
 whether absence affects `render`, `edit`, or only `analysis`. It never stores a platform artifact,
 filesystem path, download URL, or credential, so projects remain portable between macOS and
 Windows. See [capability-packs.md](capability-packs.md) and ADR 0114.
+
+### Asset provenance (schema v20)
+
+An `Asset` fetched from a third-party media provider carries an optional `source` recording
+where it came from and what crediting it obliges. Assets the user imported themselves have no
+`source` — absent means "nothing to credit", never "unknown".
+
+```json
+{
+  "id": "asset_bed",
+  "path": "media/calm_lofi_bed.mp3",
+  "kind": "audio",
+  "source": {
+    "provider": "openverse",
+    "remoteId": "ov-12345",
+    "license": "cc-by",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "attributionRequired": true,
+    "attribution": "\"Calm Lofi Bed\" by Ada Lovelace is licensed under CC BY 4.0.",
+    "creator": "Ada Lovelace",
+    "creatorUrl": "https://example.test/ada",
+    "sourceUrl": "https://openverse.org/audio/ov-12345",
+    "fetchedAt": "2026-08-23T12:00:00.000Z"
+  }
+}
+```
+
+| Field                 | Type    | Notes                                                                 |
+| --------------------- | ------- | --------------------------------------------------------------------- |
+| `provider`            | string  | Provider roster name, e.g. `openverse`.                               |
+| `remoteId`            | string  | Provider-local id. Download dedupe, and finding the item again later. |
+| `license`             | string  | Licence identifier verbatim from the provider.                        |
+| `licenseUrl`          | string? | Canonical licence text, so the user can read the actual terms.        |
+| `attributionRequired` | boolean | **Required.** Stored, not derived — see below.                        |
+| `attribution`         | string? | The ready-to-paste credit line, carried verbatim from the provider.   |
+| `creator`             | string? | Creator name.                                                         |
+| `creatorUrl`          | string? | Creator page on the provider.                                         |
+| `sourceUrl`           | string? | Landing page for the item.                                            |
+| `fetchedAt`           | string  | ISO-8601. What the terms were understood to be, and when.             |
+
+`attributionRequired` is **stored rather than derived** from `license`: licence vocabularies
+differ per provider and change over time, and a project written today must still know what it
+agreed to then. It is required rather than defaulted, because defaulting it to `false` would
+silently downgrade a credit obligation to none.
+
+The engine models this field (`AssetSource` in `timeline/models.py`) but reads nothing from it
+— provenance cannot affect a render. It exists on the Python side so an engine round-trip does
+not strip the one durable record of an obligation.
+
+The editor reads it back in the export dialog's **Credits** section. See ADR 0138.
 
 ---
 
@@ -124,18 +174,18 @@ a plain clip field rather than nested inside the caption `Effect`'s free-form
 }
 ```
 
-| Field                     | Meaning                                                                    |
-| ------------------------- | --------------------------------------------------------------------------- |
-| `fontFamily`              | CSS-style font family name.                                                 |
-| `fontScale`               | Font size multiplier relative to the caption track's base size (`> 0`).     |
-| `textColor`               | Caption text color (any CSS color string).                                  |
-| `outlineColor`            | Text outline/stroke color.                                                  |
-| `outlineWidth`            | Outline/stroke width (`>= 0`).                                              |
-| `position`                | Vertical anchor: `top` \| `middle` \| `bottom`.                             |
-| `highlight.enabled`       | Whether the active spoken word is highlighted.                              |
-| `highlight.color`         | Highlight color.                                                            |
-| `highlight.animation`     | `none` \| `pop` \| `karaoke-fill`.                                          |
-| `presetId`                | Id of a built-in style preset (e.g. a `CAPTION_TEMPLATES` entry) it was seeded from. |
+| Field                 | Meaning                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------ |
+| `fontFamily`          | CSS-style font family name.                                                          |
+| `fontScale`           | Font size multiplier relative to the caption track's base size (`> 0`).              |
+| `textColor`           | Caption text color (any CSS color string).                                           |
+| `outlineColor`        | Text outline/stroke color.                                                           |
+| `outlineWidth`        | Outline/stroke width (`>= 0`).                                                       |
+| `position`            | Vertical anchor: `top` \| `middle` \| `bottom`.                                      |
+| `highlight.enabled`   | Whether the active spoken word is highlighted.                                       |
+| `highlight.color`     | Highlight color.                                                                     |
+| `highlight.animation` | `none` \| `pop` \| `karaoke-fill`.                                                   |
+| `presetId`            | Id of a built-in style preset (e.g. a `CAPTION_TEMPLATES` entry) it was seeded from. |
 
 All fields are optional/defaulted so a v4 caption clip (no `captionStyle` at all)
 migrates cleanly to an unstyled v5 clip. See ADR 0045 for why this is structured

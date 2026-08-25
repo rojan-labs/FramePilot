@@ -26,6 +26,7 @@
  * in-progress export; reopening the dropdown shows it mid-flight.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Asset } from '@framepilot/timeline-schema';
 import { Button } from '@framepilot/ui';
 import {
   type ExportProgressMessage,
@@ -37,6 +38,7 @@ import {
   onExportProgress,
 } from '../editor/bridge.js';
 import { Checkbox } from './Checkbox.js';
+import { CreditsSection } from './CreditsSection.js';
 import { Select } from './Select.js';
 import { Tooltip } from './Tooltip.js';
 import { Download, ICON_SIZE, X } from './icons.js';
@@ -84,6 +86,12 @@ export interface ExportDialogProps {
   readonly ensureSaved: () => Promise<string | null>;
   /** Reveal the exported file in the OS file manager. */
   readonly onReveal: (path: string) => void;
+  /**
+   * The project's media bin, for the Credits list. Export is where a licence
+   * obligation stops being theoretical, so it is where the credits are shown
+   * (schema v20, ADR 0138).
+   */
+  readonly assets: readonly Asset[];
 }
 
 type Phase =
@@ -107,7 +115,7 @@ function suggestedFileName(outputPath: string): string {
   return outputPath.split(/[/\\]/).pop() || 'export.mp4';
 }
 
-export function ExportDialog({ ensureSaved, onReveal }: ExportDialogProps): JSX.Element {
+export function ExportDialog({ ensureSaved, onReveal, assets }: ExportDialogProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const onClose = useCallback(() => setOpen(false), []);
@@ -356,6 +364,8 @@ export function ExportDialog({ ensureSaved, onReveal }: ExportDialogProps): JSX.
             >
               Even out volume (voice compression)
             </Checkbox>
+
+            <CreditsSection assets={assets} />
 
             {phase.kind === 'queued' && (
               <p className="export-status" role="status">

@@ -321,9 +321,7 @@ def add_text_layer(args: AddTextLayerArgs, ctx: ToolContext) -> Operations:
 def add_caption_layer(args: AddCaptionLayerArgs, ctx: ToolContext) -> Operations:
     duration = args.end - args.start
     overlapping_words = [
-        word
-        for word in ctx.project.transcript
-        if word.start < args.end and word.end > args.start
+        word for word in ctx.project.transcript if word.start < args.end and word.end > args.start
     ]
     if duration > MAX_CAPTION_CUE_SECONDS or len(overlapping_words) > MAX_CAPTION_CUE_WORDS:
         raise ValueError(
@@ -649,10 +647,21 @@ def _model_asset(asset: Asset) -> dict[str, Any]:
     opens a proxy — the timeline canvas and preview player read those from the project —
     yet the raw dump crowded the asset ids the read exists to deliver out of every
     downstream budget (evidence preview, ``recall_evidence``, the result popup). Mirrors
-    ``packages/ai-sdk/src/model-view.ts``; both tool surfaces must return the same shape.
+    ``Asset.source`` (provider provenance, schema v20) is collapsed for a related but
+    distinct reason: it is not render data, but eight fields of licence URLs, creator
+    URLs and fetch timestamps are not reasoning material either. The one fact the model
+    can act on is that a track obliges a credit, so that survives as
+    ``attributionRequired`` and the rest does not — the full record lives in the project
+    file, where the Credits view reads it (ADR 0138).
+
+    Mirrors ``packages/ai-sdk/src/model-view.ts``; both tool surfaces must return the
+    same shape.
     """
     dumped = asset.model_dump(by_alias=True)
     dumped.pop("media", None)
+    source = dumped.pop("source", None)
+    if isinstance(source, dict) and source.get("attributionRequired") is True:
+        dumped["attributionRequired"] = True
     return dumped
 
 

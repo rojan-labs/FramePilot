@@ -65,6 +65,14 @@ export interface AiConfigContextValue {
    */
   readonly setAsrProvider: (provider: AsrProviderName) => void;
   /**
+   * Save (`string`) or clear (`null`/empty) the Pexels stock-media key.
+   *
+   * Write-only in the strict sense, unlike every other key above: this one is
+   * used only by the main process, so it goes renderer→main and never comes
+   * back. `config.pexelsReady` is all the renderer ever learns about it.
+   */
+  readonly setPexelsApiKey: (key: string | null) => void;
+  /**
    * Save (`string`) or clear (`null`/empty) the model id passed to the hosted ASR
    * provider. Clearing reverts to the provider's built-in default.
    */
@@ -138,6 +146,7 @@ export function AiConfigProvider({ children }: AiConfigProviderProps): JSX.Eleme
       setAsrApiKey: (key) => applyUpdate({ asrApiKey: key }),
       setAsrProvider: (asrProvider) => applyUpdate({ asrProvider }),
       setAsrModel: (model) => applyUpdate({ asrModel: model }),
+      setPexelsApiKey: (key) => applyUpdate({ pexelsApiKey: key }),
     }),
     [config, applyUpdate],
   );
@@ -178,6 +187,10 @@ export function useAiConfig(): AiConfigContextValue {
         setStandalone(browserToAiConfig(applyBrowserUpdate({ asrProvider }))),
       setAsrModel: (model) =>
         setStandalone(browserToAiConfig(applyBrowserUpdate({ asrModel: model }))),
+      // No browser equivalent: stock sourcing is desktop-only, so outside the
+      // desktop shell this is a no-op rather than a localStorage write that
+      // would look like it worked.
+      setPexelsApiKey: () => undefined,
     }),
     [standalone],
   );

@@ -59,8 +59,13 @@ layout.
   preview-engine selection is not exposed as a preference.
 - **AI** configures the active reasoning provider and each provider's key/model
   fields. It also configures local or TwelveLabs speech-to-text, TwelveLabs media
-  understanding, project preparation status, and the optional AI usage-details
-  diagnostic.
+  understanding, project preparation status, the Pexels key for stock photo and
+  video search, and the optional AI usage-details diagnostic.
+  - **Stock media** is the one key field that never shows its value back. It is
+    used only by the app's main process, so once saved it reads **Configured**
+    with Replace/Clear rather than round-tripping to the editor window. Beneath
+    it, the monthly provider quota is shown as last observed — see
+    `stock-sourcing.md` for why the hourly limit is not shown alongside it.
 - **Memory** stores cross-project audience, brand, caption, pacing, and platform
   preferences, plus saved workflow recipes. Project memory can override these
   defaults for an individual edit.

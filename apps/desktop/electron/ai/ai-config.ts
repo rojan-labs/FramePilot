@@ -58,6 +58,12 @@ interface StoredConfig {
   asrApiKey?: string;
   asrProvider?: AsrProviderName;
   asrModel?: string;
+  /**
+   * Pexels stock-media key. Write-only: it is read by `resolvePexelsApiKey()` in
+   * this process and never reaches `toAiConfig()`, unlike `twelveLabs`/`asrApiKey`
+   * which the renderer forwards onward and therefore must be able to see.
+   */
+  pexelsApiKey?: string;
 }
 
 const REAL_PROVIDERS: readonly Exclude<AiProviderName, 'mock'>[] = [
@@ -160,6 +166,9 @@ function parseStored(raw: string): StoredConfig {
     ...(typeof parsed['asrModel'] === 'string' && parsed['asrModel'] !== ''
       ? { asrModel: parsed['asrModel'] }
       : {}),
+    ...(typeof parsed['pexelsApiKey'] === 'string' && parsed['pexelsApiKey'] !== ''
+      ? { pexelsApiKey: parsed['pexelsApiKey'] }
+      : {}),
   };
 }
 
@@ -194,6 +203,7 @@ function cloneStored(config: StoredConfig): StoredConfig {
     ...(config.asrApiKey === undefined ? {} : { asrApiKey: config.asrApiKey }),
     ...(config.asrProvider === undefined ? {} : { asrProvider: config.asrProvider }),
     ...(config.asrModel === undefined ? {} : { asrModel: config.asrModel }),
+    ...(config.pexelsApiKey === undefined ? {} : { pexelsApiKey: config.pexelsApiKey }),
   };
 }
 
@@ -209,7 +219,8 @@ function isTextOnlyUpdate(update: AiConfigUpdate): boolean {
     update.visualCaptionProvider === undefined &&
     update.asrApiKey === undefined &&
     update.asrProvider === undefined &&
-    update.asrModel === undefined
+    update.asrModel === undefined &&
+    update.pexelsApiKey === undefined
   );
 }
 
@@ -314,6 +325,19 @@ export class AiConfigStore {
     return env !== undefined && env.trim() !== '' ? env : undefined;
   }
 
+  /**
+   * The Pexels key, file value first and `PEXELS_API_KEY` as a fallback.
+   *
+   * Mirrors `resolveAsrApiKey()` deliberately, so there is one shape for
+   * "provider key with an env fallback" rather than two.
+   */
+  public resolvePexelsApiKey(): string | undefined {
+    const stored = this.current().pexelsApiKey;
+    if (stored !== undefined && stored.trim() !== '') return stored;
+    const env = process.env['PEXELS_API_KEY'];
+    return env !== undefined && env.trim() !== '' ? env : undefined;
+  }
+
   public resolveAsrProvider(): AsrProviderName {
     const stored = this.current().asrProvider;
     if (stored !== undefined) return stored;
@@ -358,6 +382,10 @@ export class AiConfigStore {
       ...(asrApiKey !== undefined ? { asrApiKey } : {}),
       ...(stored.asrProvider !== undefined ? { asrProvider: stored.asrProvider } : {}),
       ...(stored.asrModel !== undefined ? { asrModel: stored.asrModel } : {}),
+      // A boolean, never the key. This projection is the whole custody boundary:
+      // if the key ever appears here it is one `JSON.stringify` away from a log,
+      // a devtools panel, and a renderer-side crash report.
+      pexelsReady: this.resolvePexelsApiKey() !== undefined,
     };
   }
 
@@ -374,6 +402,8 @@ export class AiConfigStore {
       // Presence check, not a value read: the raw key never enters this (or
       // any) log payload — CodeQL alert #61 (clear-text logging).
       asrApiKeyChanged: 'asrApiKey' in update,
+      // Presence check, not a value read — same reason as the line above.
+      pexelsApiKeyChanged: 'pexelsApiKey' in update,
       asrProvider: update.asrProvider,
       asrModel: update.asrModel,
     });
@@ -436,6 +466,13 @@ export class AiConfigStore {
       const model = update.asrModel.trim();
       if (model === '') delete config.asrModel;
       else config.asrModel = model;
+    }
+
+    if (update.pexelsApiKey === null) delete config.pexelsApiKey;
+    else if (typeof update.pexelsApiKey === 'string') {
+      const key = update.pexelsApiKey.trim();
+      if (key === '') delete config.pexelsApiKey;
+      else config.pexelsApiKey = key;
     }
 
     this.dirty = true;

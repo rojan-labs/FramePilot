@@ -57,9 +57,7 @@
           "id": "plan_turn_parity_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1"
-          ]
+          "decisionIds": ["decision_1"]
         },
         "execution": {
           "authorized": true
@@ -108,7 +106,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 19929,
+      "usedTokens": 20734,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -134,23 +132,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1763,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 16256,
+            "tokenEstimate": 17049,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19929,
+          "estimatedInputTokensBeforeSend": 20734,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 852071,
+          "estimatedRemainingCapacity": 851266,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -211,21 +209,21 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1763,
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 16256,
+            "tokenEstimate": 17049,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19929,
+          "estimatedInputTokensBeforeSend": 20734,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -389,9 +387,7 @@
             ],
             "revision": 1
           },
-          "summary": [
-            "[video_1] ~ clip clip_a (0–6s → 2–6s)"
-          ]
+          "summary": ["[video_1] ~ clip clip_a (0–6s → 2–6s)"]
         },
         "text": "Agent step"
       },
@@ -442,9 +438,7 @@
           ]
         },
         "stage": "inspect",
-        "completedStages": [
-          "interpret"
-        ],
+        "completedStages": ["interpret"],
         "stageEnteredAtTurn": 1,
         "facts": [],
         "decisions": [
@@ -462,9 +456,7 @@
           "id": "plan_turn_parity_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1"
-          ]
+          "decisionIds": ["decision_1"]
         },
         "execution": {
           "authorized": true
@@ -527,7 +519,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 19972,
+      "usedTokens": 20778,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -553,23 +545,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1806,
+            "tokenEstimate": 1819,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 16256,
+            "tokenEstimate": 17049,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19972,
+          "estimatedInputTokensBeforeSend": 20778,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 852028,
+          "estimatedRemainingCapacity": 851222,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -631,21 +623,21 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1806,
+            "tokenEstimate": 1819,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 16256,
+            "tokenEstimate": 17049,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19972,
+          "estimatedInputTokensBeforeSend": 20778,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -877,9 +869,7 @@
           ]
         },
         "stage": "inspect",
-        "completedStages": [
-          "interpret"
-        ],
+        "completedStages": ["interpret"],
         "stageEnteredAtTurn": 1,
         "facts": [],
         "decisions": [
@@ -897,9 +887,7 @@
           "id": "plan_turn_parity_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1"
-          ]
+          "decisionIds": ["decision_1"]
         },
         "execution": {
           "authorized": true
@@ -975,7 +963,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 19991,
+      "usedTokens": 20796,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -1001,23 +989,23 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1825,
+            "tokenEstimate": 1837,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 16256,
+            "tokenEstimate": 17049,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19991,
+          "estimatedInputTokensBeforeSend": 20796,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 852009,
+          "estimatedRemainingCapacity": 851204,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -1088,21 +1076,21 @@
             "id": "s3",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 1825,
+            "tokenEstimate": 1837,
             "included": true
           },
           {
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 16256,
+            "tokenEstimate": 17049,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 19991,
+          "estimatedInputTokensBeforeSend": 20796,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -1162,9 +1150,7 @@
           ]
         },
         "stage": "inspect",
-        "completedStages": [
-          "interpret"
-        ],
+        "completedStages": ["interpret"],
         "stageEnteredAtTurn": 1,
         "facts": [],
         "decisions": [
@@ -1182,9 +1168,7 @@
           "id": "plan_turn_parity_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1"
-          ]
+          "decisionIds": ["decision_1"]
         },
         "execution": {
           "authorized": true
@@ -1298,9 +1282,7 @@
           "id": "plan_turn_parity_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1"
-          ]
+          "decisionIds": ["decision_1"]
         },
         "execution": {
           "authorized": true

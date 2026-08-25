@@ -476,13 +476,38 @@ input[type='checkbox']:focus-visible {
 
 /* ---- Topbar (slim application bar) -------------------------------------- */
 .topbar {
+  /* The containing block for the hoisted monitor band, which is pinned to the
+     monitor column's edges rather than laid out in this row's flow. */
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  height: 48px;
+  height: 44px;
   padding: 0 var(--space-3);
   background: var(--bg-raised);
   border-bottom: 1px solid var(--border-subtle);
+}
+
+/* The monitor's Source/Program switch and its view controls, hoisted out of the
+   band that used to sit under this header. That band cost the picture 29px of
+   height (28px row + its rule) to say something this bar had room for all
+   along — the middle of an application header is the emptiest space in the
+   window.
+
+   The band inside is pinned to the monitor COLUMN's edges (measured in
+   `Editor`), not laid out in this bar's flow — the switch has to land on the
+   picture's left edge and the view controls on its right, or the pair reads as
+   belonging to the header rather than to the monitor underneath it. This
+   element is the span it is allowed to use. */
+.topbar-monitor {
+  /* The band's containing block, so its measured insets are relative to THIS
+     span and it can never overrun the brand or the window actions. */
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-self: stretch;
+  align-items: center;
+  min-width: 0;
 }
 
 .topbar-brand {
@@ -1471,24 +1496,65 @@ input[type='checkbox']:focus-visible {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-2);
+  /* Between the scrolling tabs and the pinned footer — one step wider than the
+     gap inside each group, so the two read as two groups. */
+  gap: var(--space-1);
   flex: none;
-  width: 56px;
-  padding: var(--space-3) 0;
+  width: 40px;
+  min-height: 0;
+  padding: var(--space-1) 0;
   background: var(--bg-app);
   border-right: 1px solid var(--border-subtle);
 }
 
-.activity-spacer {
-  flex: 1;
+/* The scrolling half. A short window (a laptop with the timeline pulled up, or
+   a 768px-tall display) cannot fit every tab, and flex would otherwise squash
+   them — square hit boxes crushed into letterboxes — or run them off the bottom
+   edge with no way to reach the last one. Dropping the captions bought back
+   enough height that this is now a safety net rather than the everyday case. */
+.activity-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  /* A half-step, not a scale value: these are square targets whose own padding
+     already separates them, and the full 4px made a seven-item strip taller
+     than a short window without buying any legibility. The hit boxes are
+     untouched — only the air between them. */
+  gap: 2px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* No visible scrollbar: a gutter inside a 40px rail would eat a third of it
+     and read as a rendering fault. The strip is short, every item is one click
+     from the next, and the overflow is self-evident from the cut-off tab. */
+  scrollbar-width: none;
+}
+
+.activity-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* Collapse. Pinned, because losing the only control that collapses the rail is
+   worst exactly when the window is too short to fit everything — which is when
+   it would have scrolled away. */
+.activity-rail-footer {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
 }
 
 .activity-tab {
   position: relative;
+  /* Never squashed by a short rail; the strip scrolls instead. */
+  flex: none;
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  /* Square: a 16px glyph with 8px of breathing room on every side. */
+  width: 32px;
+  height: 32px;
   padding: 0;
   background: transparent;
   border: none;
@@ -3254,10 +3320,15 @@ input[type='checkbox']:focus-visible {
    header, 16px of stage padding top AND bottom, an 11px transport margin and a
    34px transport row. On a 900px window with the timeline dock open that left the
    canvas less than half its column. These two custom properties are the density
-   contract for every monitor band: ONE 28px chrome row above the picture (tabs +
-   view controls) and ONE below (transport), with 24px borderless hit-boxes inside
-   them. They live on :root rather than .stage-monitor because the source monitor
-   and the WebCodecs monitor share the same band classes and must stay in step. */
+   contract for every monitor band: ONE 28px chrome row (transport) below the
+   picture, with 24px borderless hit-boxes inside it. They live on :root rather
+   than .stage-monitor because the source monitor and the WebCodecs monitor share
+   the same band classes and must stay in step.
+
+   The band that used to sit ABOVE the picture — Source/Program plus the view
+   controls — now renders in the application bar's empty middle instead (see
+   `.topbar-monitor`), returning its 28px and its rule to the frame. It keeps
+   these same measurements when no topbar is present to hoist it into. */
 :root {
   /* A chrome band's row height. 28px fits a 24px control with 2px of air. */
   --monitor-row-h: 28px;
@@ -3283,6 +3354,44 @@ input[type='checkbox']:focus-visible {
   border-bottom: 1px solid var(--line);
 }
 
+/* Hoisted into the application bar. It is no longer a band ABOVE the picture —
+   it is a group INSIDE another surface, so it drops the three things that made
+   it a band: its own background, its bottom rule, and the full width it used to
+   push its two halves apart with. Height comes from the topbar. */
+/* `left`/`right` come from `Editor`, measured off the monitor column, so the
+   switch sits on the picture's left edge and the view controls on its right —
+   `margin-left: auto` on the actions does the rest. */
+.monitor-header[data-hoisted='true'] {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  /* The theme floors the standalone band at 42px; here the bar's own height is
+     the floor, and 42 of 44 would leave the row a pixel off-centre. */
+  min-height: 0;
+  padding: 0 var(--space-2);
+  background: none;
+  border-bottom: none;
+}
+
+/* Full height, so each rule runs the whole bar and meets the topbar's own
+   bottom border — where `.rail-left`'s `border-right` (or `.rail-right`'s
+   `border-left`) picks it up. Same `--line` for the same reason: it IS that
+   border, continued. Drawn only on a side that actually reached the column's
+   edge; see `rulesLeft`/`rulesRight`. */
+.monitor-header[data-rule-left='true'] {
+  border-left: 1px solid var(--line);
+}
+
+.monitor-header[data-rule-right='true'] {
+  border-right: 1px solid var(--line);
+}
+
+/* No scroll gutter in a bar with no spare height to show one; the topbar's own
+   flex shrinks this cluster instead. */
+.monitor-header[data-hoisted='true'] .monitor-header-actions {
+  overflow-x: visible;
+}
+
 .monitor-tabs {
   display: flex;
   gap: 0.25rem;
@@ -3292,6 +3401,8 @@ input[type='checkbox']:focus-visible {
 
 .monitor-header-actions {
   display: flex;
+  align-items: center;
+  gap: var(--space-1);
   justify-content: flex-end;
   min-width: 0;
   margin-left: auto;
@@ -4413,7 +4524,11 @@ input[type='checkbox']:focus-visible {
 .track-controls {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  /* Zero: these five flags are one control cluster, and each 16px box already
+     carries a pixel of padding around its 14px glyph. The 2px on top of that
+     read as five separate buttons that happened to land near each other, which
+     is the wrong story for visibility/mute/lock/solo on ONE lane. */
+  gap: 0;
   margin-left: auto; /* cluster flags to the right edge, away from the glyph */
   opacity: 0.55;
   transition: opacity var(--dur-fast) var(--ease);
@@ -7621,6 +7736,260 @@ details.inspector-panel[open] > .inspector-section-head::before {
 }
 .export-status--error {
   color: var(--danger);
+}
+
+/* ---------------------------------------------------------------------------
+   Sounds panel — third-party music search (plan/3rd-party-sourcing).
+   Token-driven, reusing the existing palette and Button variants (ADR 0028).
+   No parallel component language.
+   --------------------------------------------------------------------------- */
+.sounds-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+  min-height: 0;
+}
+
+.sounds-search {
+  display: block;
+}
+.sounds-search-input {
+  width: 100%;
+  padding: var(--space-2);
+  font-size: 0.85rem;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+}
+.sounds-search-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.sounds-hint,
+.sounds-note {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.sounds-error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--danger);
+}
+
+.sounds-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+/* Re-searching dims the previous results rather than clearing them: a list that
+   blanks on every keystroke makes the panel feel broken while it works. */
+.sounds-list.is-stale {
+  opacity: 0.5;
+}
+
+.sounds-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  /* Fixed height, shared with the skeleton, so nothing shifts as results land. */
+  min-height: 52px;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm, 6px);
+}
+.sounds-row:hover {
+  background: var(--surface-2);
+}
+.sounds-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.sounds-row--skeleton {
+  background: var(--surface-2);
+  opacity: 0.6;
+}
+
+.sounds-play {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.sounds-play:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.sounds-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: sounds-spin 0.7s linear infinite;
+}
+@keyframes sounds-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sounds-spinner {
+    animation: none;
+  }
+}
+
+.sounds-meta {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.sounds-title {
+  overflow: hidden;
+  font-size: 0.82rem;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sounds-sub {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  font-size: 0.72rem;
+  color: var(--muted-2);
+}
+.sounds-duration {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Both licence states are labelled. An unlabelled row would read as "unknown",
+   which is the one thing a licence badge must never mean. */
+.sounds-badge {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sounds-badge--credit {
+  color: var(--accent);
+}
+.sounds-badge--free {
+  color: var(--muted-2);
+}
+
+.sounds-row-error {
+  font-size: 0.72rem;
+  color: var(--danger);
+}
+
+.sounds-progress-group {
+  display: flex;
+  flex: none;
+  gap: var(--space-1);
+  align-items: center;
+}
+.sounds-progress {
+  width: 72px;
+  height: 4px;
+  overflow: hidden;
+  background: var(--surface-3, var(--surface-2));
+  border-radius: 2px;
+}
+.sounds-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sounds-progress-fill {
+    transition: none;
+  }
+}
+.sounds-cancel {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+
+.sounds-present {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  align-items: center;
+  font-size: 0.72rem;
+  color: var(--muted-2);
+}
+
+/* Credits — licence obligations recorded in `Asset.source` (schema v20), shown
+   next to the button that produces the file the user is about to publish. */
+.export-credits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+.export-credits h3 {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.export-credits-note,
+.export-credits-empty {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.export-credits-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.export-credits-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.export-credits-line {
+  font-size: 0.8rem;
+  color: var(--text);
+  /* A credit line is a fixed legal string, so it wraps rather than truncating —
+     an ellipsis here would hide part of the obligation. */
+  overflow-wrap: anywhere;
+}
+.export-credits-license {
+  font-size: 0.74rem;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+a.export-credits-license {
+  color: var(--accent);
 }
 
 .export-foot {
@@ -13187,4 +13556,384 @@ details.inspector-panel[open] > .inspector-section-head::before {
 .clip-transition-pill[data-disabled] {
   opacity: 0.45;
   border-style: dashed;
+}
+
+/* ---------------------------------------------------------------------------
+   Stock panel — third-party photo & video search
+   (plan/3rd-party-sourcing/photo-video). Token-driven, reusing the existing
+   palette and Button variants (ADR 0028). No parallel component language.
+   --------------------------------------------------------------------------- */
+.stock-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+  min-height: 0;
+}
+
+/* One row: search, kind, attribution. Everything that is not a result lives
+   here, so the space below the row belongs entirely to the grid. */
+.stock-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.stock-search {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+.stock-search-input {
+  width: 100%;
+  padding: var(--space-2);
+  font-size: 0.85rem;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+}
+.stock-search-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.stock-search-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* The kind filter. A select, so it costs one control's width in a sidebar that
+   has none to spare, and states the current kind without a second chip. */
+.stock-kind-select {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
+  padding: 0 var(--space-2);
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+}
+.stock-kind-select select {
+  padding: var(--space-2) 0;
+  font-size: 0.76rem;
+  color: var(--text);
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+.stock-kind-select select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.stock-kind-select:has(select:disabled) {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.stock-note {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.stock-error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--danger);
+}
+.stock-hint {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+/* The placement refusal. A status line rather than a toast: it is a standing
+   condition the user can resolve by moving the playhead, not an event. */
+.stock-blocked {
+  margin: 0;
+  padding: var(--space-2);
+  font-size: 0.76rem;
+  line-height: 1.4;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-left: 2px solid var(--warn, var(--accent));
+  border-radius: 0 var(--radius-sm, 6px) var(--radius-sm, 6px) 0;
+}
+
+.stock-quota-strip {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+.stock-quota-strip[data-tone='warning'] {
+  color: var(--warn, var(--accent));
+}
+.stock-inline-link {
+  padding: 0;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  font: inherit;
+}
+
+/* The scrolling half. A multi-column box with a fixed height fills that height
+   and then adds columns sideways, so the scroll has to live on the wrapper and
+   the masonry inside it has to be free to grow. */
+.stock-results {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* A masonry, the way the provider's own site shows this feed: every tile keeps
+   the shape it was shot in, and the columns absorb the difference. Columns are
+   sized by width, so a wider panel gets a third one without a media query. */
+.stock-grid {
+  column-width: 130px;
+  column-gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* Re-searching dims rather than clears: a grid that blanks on every keystroke
+   makes the panel feel broken while it works. */
+.stock-grid.is-stale {
+  opacity: 0.5;
+}
+
+.stock-tile {
+  position: relative;
+  display: block;
+  /* Never split a photograph across a column break. */
+  break-inside: avoid;
+  margin-bottom: var(--space-2);
+  overflow: hidden;
+  /* The aspect ratio is the item's own and comes from the markup. `min-height`
+     is pinned because the automatic minimum would otherwise let any in-flow
+     child grow the tile past that ratio — which is what used to push tiles into
+     the ones beneath them. */
+  min-height: 0;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm, 6px);
+}
+.stock-tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.stock-tile--skeleton {
+  aspect-ratio: 3 / 2;
+  opacity: 0.6;
+}
+
+.stock-thumb {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.stock-thumb--pending {
+  background: transparent;
+}
+
+/* The hover rendition sits above the still and takes over once it can paint.
+   Opacity rather than display, so the swap has no layout cost. */
+.stock-preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 140ms ease-out;
+}
+.stock-tile:hover .stock-preview {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stock-preview {
+    transition: none;
+  }
+}
+
+/* The scrub position. A hairline, because the cursor is already the pointer —
+   this only has to confirm which frame is being shown. */
+.stock-scrub {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--text);
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+/* Absolute, like every other overlay in the tile: a caption in normal flow adds
+   its own height, and a tile taller than its aspect ratio overlaps its
+   neighbour. Nothing inside a tile may contribute to layout. */
+.stock-tile-meta {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: var(--space-2);
+  /* Legible over any photograph, without dimming the whole tile. */
+  background: linear-gradient(to top, rgb(0 0 0 / 72%), transparent);
+  opacity: 0;
+  transition: opacity 140ms ease-out;
+}
+.stock-tile:hover .stock-tile-meta,
+.stock-tile:focus-visible .stock-tile-meta,
+.stock-tile:focus-within .stock-tile-meta {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stock-tile-meta {
+    transition: none;
+  }
+}
+.stock-tile-title {
+  overflow: hidden;
+  font-size: 0.74rem;
+  color: #fff;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stock-tile-facts {
+  display: flex;
+  gap: var(--space-2);
+  font-size: 0.68rem;
+  color: rgb(255 255 255 / 78%);
+  font-variant-numeric: tabular-nums;
+}
+.stock-tile-creator {
+  overflow: hidden;
+  font-size: 0.68rem;
+  color: rgb(255 255 255 / 62%);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stock-tile-creator a {
+  color: inherit;
+}
+
+.stock-tile-action {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+  opacity: 0;
+  transition: opacity 140ms ease-out;
+}
+.stock-tile:hover .stock-tile-action,
+.stock-tile:focus-visible .stock-tile-action,
+.stock-tile:focus-within .stock-tile-action,
+/* A download in flight stays visible without a hover: the user needs to be able
+   to find its Cancel after moving the mouse away. */
+.stock-tile:has(.stock-progress) .stock-tile-action {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stock-tile-action {
+    transition: none;
+  }
+}
+
+.stock-present {
+  padding: 2px var(--space-1);
+  font-size: 0.68rem;
+  color: #fff;
+  background: rgb(0 0 0 / 55%);
+  border-radius: 4px;
+}
+
+.stock-progress {
+  width: 56px;
+  height: 4px;
+  overflow: hidden;
+  background: rgb(0 0 0 / 55%);
+  border-radius: 2px;
+}
+.stock-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stock-progress-fill {
+    transition: none;
+  }
+}
+.stock-cancel {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  color: #fff;
+  cursor: pointer;
+  background: rgb(0 0 0 / 55%);
+  border: 0;
+  border-radius: 4px;
+}
+
+.stock-tile-error {
+  position: absolute;
+  right: var(--space-1);
+  bottom: var(--space-1);
+  left: var(--space-1);
+  padding: 2px var(--space-1);
+  font-size: 0.68rem;
+  color: #fff;
+  background: var(--danger);
+  border-radius: 4px;
+}
+
+/* Required by the Pexels API guidelines, and rendered in every panel state
+   rather than only where it is convenient. It sits in the control row, so it
+   costs no vertical space at all. */
+.stock-credit {
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+/* Settings → Stock media. The key row's actions sit inline because the control
+   is a state ("Configured") plus its two verbs, not a field with a label. */
+.setting-inline-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.setting-inline-actions .setting-text-input {
+  flex: 1;
+  min-width: 0;
+}
+.stock-quota-figures {
+  font-variant-numeric: tabular-nums;
+}
+.ai-progress-fill[data-tone='warning'] {
+  background: var(--warn, var(--danger));
+}
+
+/* Credits: two groups, one obligation each. The subhead carries the distinction
+   between a licence term and a courtesy — see CreditsSection.tsx. */
+.export-credits-group + .export-credits-group {
+  margin-top: var(--space-3);
+}
+.export-credits-subhead {
+  margin: 0 0 var(--space-1);
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--muted);
 }

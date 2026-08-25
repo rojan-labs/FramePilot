@@ -8,6 +8,30 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Stock photos and video, without leaving the editor.** A new **Stock** tab searches Pexels
+  for a shot you don't have and puts it straight on the timeline. Hover a video tile to preview
+  it, then move your cursor across the tile to scrub through the clip — left edge to right edge
+  is start to end — so you can reach the exact moment you're judging instead of waiting for a
+  loop. FramePilot downloads the smallest version that still covers your project's resolution,
+  which is usually the difference between a 24 MB file and a 400 MB one, and stores it with the
+  project so it keeps working offline. Bring your own free Pexels key (Settings → AI → Stock
+  media); only the words you type leave your machine. The AI agent can use it too, via
+  "add an establishing shot of a city skyline". Note one deliberate limit: stock can't yet sit
+  on top of existing footage, because the preview shows one picture layer at a time while the
+  export composites them — so it's placed in empty stretches of the timeline, and the panel
+  tells you when the playhead is occupied rather than producing a clip that would export
+  differently from what you saw. (`apps/web-editor`, `apps/desktop`, `packages/ai-sdk`,
+  `packages/editor-core`, ADR 0140, ADR 0141)
+- **Your provider quota, where you can see it.** Settings shows how many Pexels requests you
+  have left this month, when the window resets, and when FramePilot last saw those numbers. It
+  never guesses: before your first search it says so plainly rather than showing a full bar, and
+  because Pexels doesn't report its hourly limit, an hourly cutoff appears as its own line
+  beside the monthly figures instead of contradicting them. (`apps/desktop`, `apps/web-editor`)
+- **Credits now separates required from suggested.** A CC-BY music track has to be credited;
+  a Pexels photo doesn't, but the photographer would like to be. The export dialog lists both,
+  each with its own one-click copy, so the badge that means "you must" keeps meaning it.
+  (`apps/web-editor/src/components/CreditsSection.tsx`)
+
 - **The AI can now really track a subject — through an installed CV pack.** Asking the agent to
   follow a subject used to fall back to interpolating whatever mask motion you drew by hand, and
   face/object detection answered "unavailable". There is now a real path: with the Tracking Lite
@@ -40,27 +64,47 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   signed install would. Failed health checks register nothing; digests are computed from actual
   payload content. Never available in packaged builds.
 
-### Security
+- **Find background music without leaving the app.** A new **Sounds** tab in the left rail
+  searches over a million openly licensed tracks — search by mood or instrument ("calm piano",
+  "driving synth"), press play to hear one, and Add drops it on its own music track. No account
+  and no API key: it works the moment you open it. Every track is cleared for monetized video;
+  the ones that ask you to credit the artist say so on the row, and FramePilot remembers the
+  credit for you. Downloaded tracks become ordinary project files, so the project still opens
+  and exports offline. You can also just ask: **"add calm background music under the voice"**
+  in Agent mode searches, picks, places and ducks it under your dialogue in one go.
+  Every track you can see is one you can freely duck, trim and publish: no-derivatives
+  (CC BY-ND) tracks are filtered out along with non-commercial ones, because ducking a bed
+  under narration is arguably a derivative work and that is not a question you should have to
+  answer. (`apps/desktop`, `apps/web-editor`, `packages/ai-sdk`, ADR 0138, ADR 0139 — see
+  [the guide](docs/guides/music-sourcing.md))
 
-- **Closed a critical test-runner vulnerability (CVE-2026-47429).** The Vitest
-  dev dependency used across every workspace package allowed arbitrary file
-  read and execution while its UI server was listening. Upgraded to ≥ 3.2.6 in
-  all packages, plus two test-harness timing fixes the new runner requires
-  (byte-exact font comparison) and CI-sized budgets for the parse-budget stress
-  test that ran ~42s under coverage on the 2-vCPU runner.
-- **Closed a critical dependency vulnerability in `tar` (CVE-2026-59873).**
-  A build-tooling transitive dependency could be crashed while unpacking
-  hostile archives. All consumers now resolve to tar ≥ 7.5.19 via a pnpm
-  override; packaging and rebuild flows are unaffected.
-- **Hardened every external-binary launch against argument injection.**
-  ffmpeg, ffprobe and whisper-cli invocations now pass through one audited
-  validation gate before anything executes: arguments must be plain strings,
-  NUL bytes are rejected outright, the binary itself can never be
-  option-shaped, and dash-leading operand paths are defused. Values that reach
-  these commands ultimately come from user or agent input, so a hostile value
-  can no longer be shaped into an option of the target binary.
+- **Your project remembers which tracks need crediting.** Music you add from a provider now
+  carries its licence with it — who made it, under what terms, and the exact line to credit
+  them with. Open Export and there is a **Credits** section listing every track in the project
+  that requires a credit, with one button that copies them all ready to paste into a video
+  description. If nothing needs crediting, it says so, so you do not have to go and check. A
+  badge in a search panel cannot help you weeks later when you actually publish; this can.
+  (`packages/timeline-schema`, `apps/web-editor`, schema v20, ADR 0138)
 
 ### Fixed
+
+- **A download you started keeps going — and keeps showing — when you switch tabs.** Queuing a
+  40 MB clip and going back to the timeline is the normal thing to do, but coming back to the
+  Sounds or Stock tab used to show an idle row: no progress bar, no Cancel, and an Add button
+  that would happily start the same download a second time. The file was still arriving the
+  whole time; only the panel had forgotten. Progress, Cancel and the "already downloading" guard
+  now survive leaving the tab, and a download that fails while you are away tells you so when
+  you come back instead of vanishing. (`apps/web-editor`)
+
+- **Auditioning two tracks quickly no longer leaves the first one playing.** Clicking play on one
+  track and then another before the first had loaded could end with both audible at once and the
+  first unreachable by the stop button. Only the track you asked for last plays now.
+  (`apps/web-editor/src/components/SoundsPanel.tsx`)
+
+- **Stock results stop being replaced by the search you already moved on from.** A slow query
+  landing after a faster later one could swap the grid back to results you had abandoned, or
+  raise its error over results that were fine. Only the newest search writes to the grid.
+  (`apps/web-editor/src/components/StockPanel.tsx`)
 
 - **The AI is told what is in your footage; it decides what to do about it.** It used to be
   handed a ranked list of moves worked out in code — every highlight got "a push-in makes it
@@ -214,8 +258,39 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   music matters, and if it does, the timing is guaranteed. Edits where it never looked at the
   music are unaffected.
 
+### Security
+
+- **Closed a critical test-runner vulnerability (CVE-2026-47429).** The Vitest
+  dev dependency used across every workspace package allowed arbitrary file
+  read and execution while its UI server was listening. Upgraded to ≥ 3.2.6 in
+  all packages, plus two test-harness timing fixes the new runner requires
+  (byte-exact font comparison) and CI-sized budgets for the parse-budget stress
+  test that ran ~42s under coverage on the 2-vCPU runner.
+- **Closed a critical dependency vulnerability in `tar` (CVE-2026-59873).**
+  A build-tooling transitive dependency could be crashed while unpacking
+  hostile archives. All consumers now resolve to tar ≥ 7.5.19 via a pnpm
+  override; packaging and rebuild flows are unaffected.
+- **Hardened every external-binary launch against argument injection.**
+  ffmpeg, ffprobe and whisper-cli invocations now pass through one audited
+  validation gate before anything executes: arguments must be plain strings,
+  NUL bytes are rejected outright, the binary itself can never be
+  option-shaped, and dash-leading operand paths are defused. Values that reach
+  these commands ultimately come from user or agent input, so a hostile value
+  can no longer be shaped into an option of the target binary.
+
 ### Changed
 
+- **Sounds and Stock open with something in them.** Both panels used to greet you with an empty
+  list and a line telling you to type — which reads as a broken tab, and asks you to name a
+  track or a shot before you have heard or seen one. They now load straight away: Sounds lists
+  openly-licensed music you can audition, and Stock shows the Pexels curated photo feed or its
+  most-watched video. Typing still searches, exactly as before. Both panels also got their space
+  back — search, the Photos/Video filter and the Pexels credit share one row, and everything
+  below it is results. Stock tiles are one uniform size now, which fixes portrait shots
+  colliding with the row beneath them. If Stock has no Pexels key yet it keeps saying so, with
+  the link to Settings, instead of pretending to be empty — and if a panel cannot reach the
+  provider at all, it now says that too rather than sitting on its loading skeleton forever.
+  (`apps/web-editor`, `packages/ai-sdk`)
 - **Captions on a fast-cut video can be checked again.** Asked to improve the captions on a
   20-second montage, the AI would read the footage, think it through, and then change
   nothing. The caption checker was the reason: it treated every *picture* cut as a place a

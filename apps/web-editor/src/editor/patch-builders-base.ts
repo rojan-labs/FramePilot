@@ -12,6 +12,10 @@
  * same id (replayable, testable; consistent with the engine's id derivation).
  */
 import {
+  buildAddMusicOps,
+  buildAddStockOps,
+  nextMusicLayerId,
+  picturePlacementConflict as corePicturePlacementConflict,
   type AdjustAudioOp,
   type Easing,
   KEYFRAME_REPLACE_EPSILON,
@@ -1515,6 +1519,98 @@ export function placeAssetPatch(
   };
 }
 
+/**
+ * Does anything already occupy the picture chain over `[start, end)`?
+ *
+ * Delegates to `@framepilot/editor-core` so the renderer and the Electron main
+ * process (which refuses an agent's `add_stock` before spending a download)
+ * cannot drift apart on the answer. The map-to-array adapter is here because
+ * this file already holds the lookup in map form.
+ */
+export function picturePlacementConflict(
+  timeline: Timeline,
+  assetById: ReadonlyMap<string, Asset>,
+  start: number,
+  end: number,
+): boolean {
+  return corePicturePlacementConflict(timeline, [...assetById.values()], start, end);
+}
+
+/**
+ * Add a fetched stock photo/video to the bin AND place it, as **one** patch —
+ * or refuse, when placing it would make the preview disagree with the export.
+ *
+ * ## Why this can return `null`, and why that is the feature
+ *
+ * The preview is a single-picture-layer engine and the export is not, so a stock
+ * clip laid over existing footage would show one thing on screen and render
+ * another — the divergence documented as blocker #1 in
+ * `plan/SCENE-UNDERSTANDING-AND-COMPOSITING.md` §0.2, which `SUC-P1` exists to
+ * close.
+ *
+ * {@link placeAssetPatch} resolves that case by creating a new front layer, and
+ * that is right for a file the user dragged in themselves: they chose to stack,
+ * and they can see what they did. It is wrong for a one-click **Add** in a search
+ * panel, where the user asked for "put this here" and has no reason to suspect
+ * the result is unpreviewable.
+ *
+ * Note what this does **not** refuse: placing into empty time. A clip that
+ * overlaps nothing composites identically either way, so a fresh layer is
+ * created exactly as `placeAssetPatch` would — otherwise the first photo added
+ * to an empty timeline would be rejected for conflicting with nothing.
+ *
+ * One patch, not two, because the user did one thing: its inverse removes the
+ * clip and the asset together, so a single undo leaves the project exactly as it
+ * was. The file stays on disk — non-destructive invariant 1 — and can be
+ * re-placed from the bin.
+ *
+ * @param timeline - Current timeline.
+ * @param assetById - Asset lookup, for deriving existing clips' kinds.
+ * @param asset - The downloaded stock asset.
+ * @param atStart - Desired timeline start (seconds); clamped to >= 0.
+ * @returns One patch, or `null` when the span is already occupied by picture media.
+ */
+export function addStockClipPatch(
+  timeline: Timeline,
+  assetById: ReadonlyMap<string, Asset>,
+  asset: Asset,
+  atStart: number,
+): Patch | null {
+  // The SHAPE of the placement is decided in `editor-core` so this panel path
+  // and the agent's `add_stock` cannot drift; only the patch identity (id,
+  // author, reason) is this caller's own.
+  const placement = buildAddStockOps(timeline, [...assetById.values()], asset, atStart);
+  if (placement === null) return null;
+
+  const { operations, trackId, createdLayer, start, kind } = placement;
+  return {
+    patchId: patchId(`addstock_${asset.id}_${trackId}_${ms(start)}`),
+    createdBy: 'user',
+    reason: createdLayer
+      ? `Add stock ${kind} "${asset.id}" on a new layer at ${start.toFixed(2)}s`
+      : `Add stock ${kind} "${asset.id}" at ${start.toFixed(2)}s`,
+    operations: [...operations],
+  };
+}
+
+/**
+ * Why {@link addStockClipPatch} would refuse, in a form the UI can render.
+ *
+ * Split out so the panel can disable **Add** with a reason *before* the user
+ * clicks, rather than letting them click and then explaining. Shares the
+ * predicate with the builder, so the two cannot disagree.
+ */
+export function stockPlacementBlockedReason(
+  timeline: Timeline,
+  assetById: ReadonlyMap<string, Asset>,
+  atStart: number,
+  durationSeconds: number,
+): string | null {
+  const start = atStart < 0 ? 0 : atStart;
+  if (!picturePlacementConflict(timeline, assetById, start, start + durationSeconds)) return null;
+  return "There's already footage at the playhead — move the playhead, or make a gap.";
+}
+
 // ---------------------------------------------------------------------------
 // Media-bin (project-scoped) builders — assets & folders (schema v3, ADR 0026)
 //
@@ -1530,6 +1626,45 @@ export function addAssetPatch(asset: Asset): Patch {
     createdBy: 'user',
     reason: `Add asset "${asset.id}"`,
     operations: [{ type: 'add_asset', asset }],
+  };
+}
+
+/**
+ * Add a fetched music track to the bin AND place it on a `music`-role layer, as
+ * **one** patch.
+ *
+ * One patch, not three, because the user did one thing. Its inverse removes the
+ * clip, the layer and the asset together, so a single undo leaves the project
+ * exactly as it was — rather than the three-press cleanup a three-patch version
+ * would demand, with two intermediate states that make no sense on their own
+ * (an asset in the bin whose clip is gone; a layer with nothing on it).
+ *
+ * The file itself stays on disk. That is non-destructive invariant 1: undoing a
+ * placement is not a reason to delete bytes the user paid a request for, and
+ * the asset can be re-placed from the bin.
+ *
+ * The layer is labelled `role: 'music'` at creation so `adjust_audio`'s
+ * `duckUnderTrackId` and the role-based ducking controller can see the bed. The
+ * role is only ever set here because this caller *knows* — it is never inferred
+ * from a track name (ADR 0112).
+ *
+ * Reuses `add_asset` + `add_layer` + `add_clip`. No new timeline operation:
+ * those three already express "music bed on its own track" completely.
+ *
+ * The operations themselves come from `editor-core`'s `buildAddMusicOps`, the
+ * same call the agent's `add_music` makes — so an agent-placed bed and a
+ * hand-placed one are the same bed, down to the layer id and the fallback length
+ * used when a provider reported no duration.
+ */
+export function addMusicTrackPatch(timeline: Timeline, asset: Asset, atStart = 0): Patch {
+  const start = atStart < 0 ? 0 : atStart;
+  const operations = buildAddMusicOps(timeline, asset, start);
+  const layerId = nextMusicLayerId(timeline);
+  return {
+    patchId: patchId(`addmusic_${asset.id}_${layerId}_${ms(start)}`),
+    createdBy: 'user',
+    reason: `Add music "${asset.id}" on a new music layer at ${start.toFixed(2)}s`,
+    operations,
   };
 }
 

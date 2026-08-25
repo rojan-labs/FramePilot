@@ -30,6 +30,7 @@ from framepilot_engine.ai_tools.registry import TOOL_REGISTRY, NoArgs, ToolSpec
 from framepilot_engine.timeline.models import (
     Asset,
     AssetMedia,
+    AssetSource,
     Clip,
     Folder,
     Project,
@@ -470,6 +471,59 @@ def test_asset_reads_strip_engine_derived_render_media(project: Project) -> None
     # The stored project keeps its media — only the model-facing copy drops it.
     assert project.assets[0].media is not None
     assert "peaks" not in json.dumps(state)
+
+
+def test_asset_reads_collapse_provenance_to_the_one_actionable_bit(project: Project) -> None:
+    """The model learns a credit is owed; it does not get eight fields of licence metadata.
+
+    Mirrors ``toModelAsset`` in ``packages/ai-sdk/src/model-view.ts``. Licence URLs,
+    creator URLs and fetch timestamps are not reasoning material — the model never
+    opens a licence page — but "this track obliges a credit" is something it can say
+    out loud in a summary.
+    """
+    project.assets = [
+        Asset(
+            id="asset_credit",
+            path="media/bed.mp3",
+            kind="audio",
+            source=AssetSource(
+                provider="openverse",
+                remote_id="ov-1",
+                license="cc-by",
+                license_url="https://creativecommons.org/licenses/by/4.0/",
+                attribution_required=True,
+                attribution='"Bed" by Ada is licensed under CC BY 4.0.',
+                creator="Ada",
+                fetched_at="2026-08-23T12:00:00.000Z",
+            ),
+        ),
+        Asset(
+            id="asset_cc0",
+            path="media/sting.mp3",
+            kind="audio",
+            source=AssetSource(
+                provider="openverse",
+                remote_id="ov-2",
+                license="cc0",
+                attribution_required=False,
+                fetched_at="2026-08-23T12:00:00.000Z",
+            ),
+        ),
+        Asset(id="asset_imported", path="media/cam.mp4", kind="video"),
+    ]
+    ctx = ToolContext(project=project)
+
+    listed = run_tool("list_assets", {}, ctx).data["assets"]
+    assert listed[0]["attributionRequired"] is True
+    # Absent means "nothing to credit", never "unknown" — a CC0 track and a file the
+    # user dragged in are both genuinely free of obligation, so neither is flagged.
+    assert "attributionRequired" not in listed[1]
+    assert "attributionRequired" not in listed[2]
+    assert "source" not in json.dumps(listed)
+    assert "creativecommons.org" not in json.dumps(listed)
+    # The stored project keeps the full record — only the model-facing copy collapses it.
+    assert project.assets[0].source is not None
+    assert project.assets[0].source.attribution is not None
 
 
 def test_list_assets_rejects_bad_args(binned_ctx: ToolContext) -> None:

@@ -34,6 +34,18 @@ import type {
   TranscriptionResult,
   RevealResult,
   CapabilityPackProjectResolutionWire,
+  MusicSearchResult,
+  MusicPreviewResult,
+  MusicDownloadRequest,
+  MusicDownloadResult,
+  MusicDownloadProgressWire,
+  StockSearchRequest,
+  StockSearchResult,
+  StockBytesResult,
+  StockDownloadRequest,
+  StockDownloadResult,
+  StockDownloadProgressWire,
+  StockQuotaSnapshot,
 } from '@framepilot/shared-types';
 
 // Re-exported for renderer call-sites and tests that referenced these names.
@@ -52,6 +64,21 @@ export type {
   RecentProject,
   RevealResult,
   SidecarStatus,
+  MusicSearchResult,
+  MusicPreviewResult,
+  MusicDownloadRequest,
+  MusicDownloadResult,
+  MusicTrackWire,
+  MusicErrorCodeWire,
+  MusicDownloadProgressWire,
+  StockItemWire,
+  StockVariantWire,
+  StockMediaKindWire,
+  StockOrientationWire,
+  StockErrorCodeWire,
+  StockDownloadProgressWire,
+  StockQuotaSnapshot,
+  StockQuotaObservationWire,
 } from '@framepilot/shared-types';
 
 /**
@@ -337,4 +364,210 @@ export function onProjectChanged(
     if (!parsed.success) return; // never load an invalid external write
     callback({ path: event.path, project: parsed.data, revision: event.revision ?? 0 });
   });
+}
+
+// ---------------------------------------------------------------------------
+// Music sourcing (plan/3rd-party-sourcing)
+// ---------------------------------------------------------------------------
+
+/**
+ * The "this is desktop-only" answer, shared by every music helper.
+ *
+ * Reaching a provider needs the main process — the renderer's CSP forbids it,
+ * deliberately. In the browser the Sounds tab is absent rather than
+ * present-and-broken, so this is a backstop, not the user-facing path.
+ */
+const MUSIC_DESKTOP_ONLY = {
+  ok: false,
+  error: 'provider_unavailable',
+  detail: 'Music search is only available in the desktop app.',
+} as const;
+
+/**
+ * The detail line for an IPC call that rejected rather than answering.
+ *
+ * Main returns failures as values, so a rejection means the handler itself threw
+ * — an unlicensed session, a service that failed to construct. Those used to
+ * surface as a promise nobody caught, which left the panel on its skeleton
+ * forever: a permanent "loading" is the one failure state a user cannot act on.
+ */
+function ipcFailureDetail(error: unknown): string {
+  return error instanceof Error && error.message !== '' ? error.message : 'unavailable';
+}
+
+/** Search the configured music provider through the main process. */
+export async function musicSearch(
+  query: string,
+  limit?: number,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<MusicSearchResult> {
+  if (!bridge?.musicSearch) return MUSIC_DESKTOP_ONLY;
+  try {
+    return await bridge.musicSearch(query, limit);
+  } catch (error) {
+    return { ok: false, error: 'provider_unavailable', detail: ipcFailureDetail(error) };
+  }
+}
+
+/**
+ * Fetch audition bytes for one track.
+ *
+ * Main holds the provider URL; this receives bytes, which the caller wraps in a
+ * `blob:` URL. That is what keeps the provider host out of `connect-src`.
+ */
+export async function musicPreview(
+  remoteId: string,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<MusicPreviewResult> {
+  if (!bridge?.musicPreview) return MUSIC_DESKTOP_ONLY;
+  return bridge.musicPreview(remoteId);
+}
+
+/** Download one track into the project's media folder. */
+export async function musicDownload(
+  request: MusicDownloadRequest,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<MusicDownloadResult> {
+  if (!bridge?.musicDownload) {
+    return {
+      ok: false,
+      error: 'download_failed',
+      detail: 'Downloading music is only available in the desktop app.',
+    };
+  }
+  return bridge.musicDownload(request);
+}
+
+/** Cancel an in-flight download. No-op without a bridge. */
+export function musicDownloadCancel(
+  operationId: string,
+  bridge: RendererBridge | null = getBridge(),
+): void {
+  bridge?.musicDownloadCancel?.(operationId);
+}
+
+/**
+ * Subscribe to download progress. A no-op returning a no-op outside the desktop
+ * shell, so callers need no environment check.
+ */
+export function onMusicDownloadProgress(
+  callback: (message: MusicDownloadProgressWire) => void,
+  bridge: RendererBridge | null = getBridge(),
+): () => void {
+  if (!bridge?.onMusicDownloadProgress) return () => {};
+  return bridge.onMusicDownloadProgress(callback);
+}
+
+// ---------------------------------------------------------------------------
+// Stock photo & video sourcing (plan/3rd-party-sourcing/photo-video)
+// ---------------------------------------------------------------------------
+
+/**
+ * The "this is desktop-only" answer, shared by every stock helper.
+ *
+ * Reaching a provider needs the main process — the renderer's CSP forbids it,
+ * deliberately. In the browser the Stock tab is absent rather than
+ * present-and-broken, so this is a backstop, not the user-facing path.
+ */
+const STOCK_DESKTOP_ONLY = {
+  ok: false,
+  error: 'provider_unavailable',
+  detail: 'Stock search is only available in the desktop app.',
+} as const;
+
+/** Search the stock provider through the main process. */
+export async function stockSearch(
+  request: StockSearchRequest,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<StockSearchResult> {
+  if (!bridge?.stockSearch) return STOCK_DESKTOP_ONLY;
+  try {
+    return await bridge.stockSearch(request);
+  } catch (error) {
+    return { ok: false, error: 'provider_unavailable', detail: ipcFailureDetail(error) };
+  }
+}
+
+/**
+ * Fetch grid-tile bytes for one item.
+ *
+ * Main holds the provider URL; this receives bytes, which the caller wraps in a
+ * `blob:` URL. That is what keeps the provider host out of `connect-src`.
+ */
+export async function stockThumbnail(
+  remoteId: string,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<StockBytesResult> {
+  if (!bridge?.stockThumbnail) return STOCK_DESKTOP_ONLY;
+  return bridge.stockThumbnail(remoteId);
+}
+
+/** Fetch the low-res rendition used for hover preview and scrubbing. */
+export async function stockPreview(
+  remoteId: string,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<StockBytesResult> {
+  if (!bridge?.stockPreview) return STOCK_DESKTOP_ONLY;
+  return bridge.stockPreview(remoteId);
+}
+
+/** Download one rendition into the project's media folder. */
+export async function stockDownload(
+  request: StockDownloadRequest,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<StockDownloadResult> {
+  if (!bridge?.stockDownload) {
+    return {
+      ok: false,
+      error: 'download_failed',
+      detail: 'Downloading stock media is only available in the desktop app.',
+    };
+  }
+  return bridge.stockDownload(request);
+}
+
+/** Cancel an in-flight download. No-op without a bridge. */
+export function stockDownloadCancel(
+  operationId: string,
+  bridge: RendererBridge | null = getBridge(),
+): void {
+  bridge?.stockDownloadCancel?.(operationId);
+}
+
+/**
+ * Subscribe to download progress. A no-op returning a no-op outside the desktop
+ * shell, so callers need no environment check.
+ */
+export function onStockDownloadProgress(
+  listener: (message: StockDownloadProgressWire) => void,
+  bridge: RendererBridge | null = getBridge(),
+): () => void {
+  return bridge?.onStockDownloadProgress?.(listener) ?? (() => undefined);
+}
+
+/** Read the last observed provider quota. Never triggers a provider request. */
+export async function stockQuota(
+  bridge: RendererBridge | null = getBridge(),
+): Promise<StockQuotaSnapshot> {
+  if (!bridge?.stockQuota) return { kind: 'no_key' };
+  try {
+    return await bridge.stockQuota();
+  } catch {
+    // Not `no_key`: a rejected call says nothing about whether a key exists, and
+    // claiming it does would send the user to Settings to fix what is not broken.
+    return { kind: 'unmeasured' };
+  }
+}
+
+/**
+ * Subscribe to quota changes, pushed by main on every observation.
+ *
+ * Pushed rather than polled: the quota only moves when *we* make a request, so
+ * an interval would be both wasteful and staler than the event it replaced.
+ */
+export function onStockQuotaChanged(
+  listener: (snapshot: StockQuotaSnapshot) => void,
+  bridge: RendererBridge | null = getBridge(),
+): () => void {
+  return bridge?.onStockQuotaChanged?.(listener) ?? (() => undefined);
 }

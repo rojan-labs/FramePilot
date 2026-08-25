@@ -40,7 +40,7 @@ describe('tool-parity fixture', () => {
     expect(fixture.tools.trim_clip?.kind).toBe('mutate');
   });
 
-  it('keeps the exact interaction-dependent host-only allowlist', () => {
+  it('keeps the exact host-only allowlist', () => {
     const fixture = buildFixture(TOOL_REGISTRY) as {
       tools: Record<string, { kind: string; hostUiOnly: boolean }>;
     };
@@ -49,13 +49,25 @@ describe('tool-parity fixture', () => {
       .map(([name]) => name);
     expect(hostUiOnly.sort()).toEqual(
       [
+        // Needs a human looking at the app.
         'ask_user',
+        // Need live editor interaction state (selection, playhead, source monitor).
         'measure_color',
         'professional_color',
         'professional_audio',
         'professional_edit',
         'professional_motion',
         'professional_tracking_mask',
+        // Need the Electron MAIN process: the provider network and the project
+        // media directory live there, and there is no sidecar route to fall back
+        // to — the sidecar has no business holding a provider connection (ADR 0139).
+        // Desktop Agent mode is unaffected; this gates the standalone MCP surface.
+        'search_music',
+        'add_music',
+        'search_stock',
+        'add_stock',
+        // Pack-worker tools execute in the isolated Capability Pack worker process,
+        // which the standalone MCP server also has no route to (ADR 0114).
         'detect_subjects',
         'track_subject_automatically',
       ].sort(),

@@ -14,6 +14,13 @@
 import { type AnyOperation, applyProjectPatch } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
 import {
+  DEFAULT_DUCK_DB,
+  MusicAssetPayloadSchema,
+  buildAddMusicOps,
+  musicDuckSidechainIssue,
+} from './music-placement.js';
+import { StockAssetPayloadSchema, stockOpsFromPayload } from './stock-placement.js';
+import {
   AUTOMATIC_TRACKING_TOOL_NAME,
   AutomaticTrackingMeasurementSchema,
   automaticTrackingOpsFromMeasurement,
@@ -1486,6 +1493,88 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
     case 'search_visual':
     case 'describe_footage':
       return visualEvidenceDigest(obj);
+    case 'search_music': {
+      // A JSON blob of track rows, cut mid-string, is exactly what the model
+      // cannot act on: it needs the `remoteId` to pass to `add_music` and the
+      // credit flag to say something true about the licence afterwards. Both
+      // survive here; the URLs and licence links never reach the model at all.
+      const tracks = (obj.tracks ?? []) as Array<Record<string, unknown>>;
+      if (!Array.isArray(tracks) || tracks.length === 0) {
+        return 'no tracks matched — try a broader mood word';
+      }
+      const lines = tracks.map((track) => {
+        const seconds = typeof track.durationSeconds === 'number' ? track.durationSeconds : 0;
+        const length = `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, '0')}`;
+        const credit =
+          track.attributionRequired === true
+            ? `credit ${typeof track.creator === 'string' ? track.creator : 'required'}`
+            : 'no credit';
+        return `${String(track.remoteId)} · ${String(track.title)} · ${length} · ${String(track.license)} (${credit})`;
+      });
+      return `${tracks.length} track${tracks.length === 1 ? '' : 's'}:\n${lines.join('\n')}`;
+    }
+    case 'add_music': {
+      // What the run needs on its next turn: the track is down, where it went,
+      // and whether it owes a credit. The full provenance record lives in the
+      // project; repeating it here would be tokens spent on a licence URL the
+      // model never opens.
+      const asset = (obj.asset ?? {}) as Record<string, unknown>;
+      const source = (asset.source ?? {}) as Record<string, unknown>;
+      const seconds = typeof asset.durationSeconds === 'number' ? asset.durationSeconds : 0;
+      const credit =
+        source.attributionRequired === true
+          ? `requires crediting ${typeof source.creator === 'string' ? source.creator : 'the creator'} (saved with the project)`
+          : 'no credit required';
+      return `added ${String(asset.path ?? 'track')} · ${seconds.toFixed(1)}s · ${String(source.license ?? 'unknown licence')} · ${credit}`;
+    }
+    case 'search_stock': {
+      // The model needs the `remoteId` to pass to `add_stock`, the kind (they
+      // are separate catalogues), and enough shape to judge whether a shot fits
+      // the frame. Provider URLs never reach it at all.
+      const items = (obj.items ?? []) as Array<Record<string, unknown>>;
+      if (!Array.isArray(items) || items.length === 0) {
+        return 'nothing matched — try a broader subject word';
+      }
+      const lines = items.map((item) => {
+        const seconds = typeof item.durationSeconds === 'number' ? item.durationSeconds : null;
+        const length =
+          seconds === null
+            ? 'still'
+            : `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, '0')}`;
+        const shape =
+          typeof item.width === 'number' && typeof item.height === 'number'
+            ? `${item.width}×${item.height}`
+            : 'unknown size';
+        const by = typeof item.creator === 'string' ? ` · by ${item.creator}` : '';
+        return `${String(item.remoteId)} · ${String(item.title)} · ${length} · ${shape}${by}`;
+      });
+      // Carried through because it changes what the run should do next: a run
+      // with 40 requests left should stop browsing and commit.
+      const left =
+        typeof obj.requestsLeftThisMonth === 'number'
+          ? `\n(${obj.requestsLeftThisMonth} provider requests left this month)`
+          : '';
+      return `${items.length} result${items.length === 1 ? '' : 's'}:\n${lines.join('\n')}${left}`;
+    }
+    case 'add_stock': {
+      // What the run needs on its next turn: the file is down, where it went,
+      // and where it is going. The full provenance record lives in the project;
+      // repeating it here would spend tokens on a licence URL nobody opens.
+      //
+      // "downloaded", never "added": this digests the HOST's payload, which is
+      // proof of a download and nothing more. The placement is authored by the
+      // `add_stock` arm above and reported in its own note, so a payload that
+      // reaches this digest by another route must not claim a timeline change.
+      const asset = (obj.asset ?? {}) as Record<string, unknown>;
+      const source = (asset.source ?? {}) as Record<string, unknown>;
+      const seconds = typeof asset.durationSeconds === 'number' ? asset.durationSeconds : null;
+      const length = seconds === null ? 'still' : `${seconds.toFixed(1)}s`;
+      const at = typeof obj.atSeconds === 'number' ? ` at ${obj.atSeconds.toFixed(1)}s` : '';
+      const by = typeof source.creator === 'string' ? ` · by ${source.creator}` : '';
+      return `downloaded ${String(asset.path ?? 'file')} · ${length}${at} · ${String(
+        source.license ?? 'unknown licence',
+      )}${by}`;
+    }
     case 'session_context': {
       // The sections are markdown the user effectively wrote (their rejections,
       // their reasons). previewJson would JSON-escape and mid-cut them; the
@@ -2598,6 +2687,123 @@ export class Orchestrator {
         return {
           ops,
           note: outcome.summary,
+          summary: outcome.summary,
+          status: 'completed',
+          project: applyProjectPatch(ctx.project, probe.patch),
+          data: outcome.data,
+        };
+      }
+      // `add_music` is a host-backed mutation, exactly like `transcribe`: the host
+      // downloads and materializes the file, and the orchestrator turns what came
+      // back into the SAME reversible operations the Sounds panel builds by hand.
+      // The host never edits the timeline (AGENTS.md invariant 5).
+      if (call.name === 'add_music' && outcome.status === 'completed') {
+        const parsed = MusicAssetPayloadSchema.safeParse(outcome.data);
+        if (!parsed.success) {
+          // Fail closed. A download that produced nothing placeable must not be
+          // reported as a completed edit on an unchanged timeline (ADR 0083).
+          const note =
+            'Rejected "add_music" — the download did not return a usable audio asset, so nothing was placed.';
+          return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
+        }
+        const { asset, atSeconds, duckUnderTrackId } = parsed.data;
+        // A duck at a track that does not exist (or has no clips) would validate
+        // cleanly and then render as NO duck — the bed plays full level while the
+        // model reports it dropped under the voice. Fail with the specific
+        // sentence instead of letting that through.
+        const duckIssue = musicDuckSidechainIssue(ctx.project, duckUnderTrackId);
+        if (duckIssue !== null) {
+          const note = `Rejected "add_music" — ${duckIssue}`;
+          return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
+        }
+        // Already in the bin. Deterministic asset ids make a re-add land as a
+        // `duplicate_asset` validation error whose text ("Asset id already
+        // exists: music_openverse_ov_1") reads to the model as a bug rather than
+        // as an answer. Said plainly here, before an edit is even assembled.
+        if (ctx.project.assets.some((existing) => existing.id === asset.id)) {
+          const note =
+            `That track is already in your media bin — it was not downloaded again. ` +
+            `Place it from the bin, or pick a different track.`;
+          return { ops: [], note, summary: note, status: 'warning', data: note };
+        }
+        const ops = buildAddMusicOps(ctx.project.timeline, asset, atSeconds, duckUnderTrackId);
+        const probe = assembleEdit(ctx.project, ops, 'Add background music', 'agent');
+        if (!probe.validation.valid) {
+          const problems = probe.validation.issues
+            .filter((issue) => issue.severity === 'error')
+            .map((issue) => issue.message)
+            .join('; ');
+          const note = `Rejected "add_music" — ${problems}`;
+          return { ops: [], note, summary: note, status: 'failed', data: problems };
+        }
+        // Tell the model about the credit rather than leaving it a surprise for the
+        // user at publish time: it can then mention it in its own summary.
+        const creditNote = asset.source.attributionRequired
+          ? ` This track requires crediting ${asset.source.creator ?? 'its creator'} — the credit is saved with the project and appears under Export → Credits.`
+          : ' This track needs no credit.';
+        // Say what was actually authored, so the model never narrates a duck that
+        // did not happen.
+        const duckNote =
+          duckUnderTrackId === undefined
+            ? ''
+            : ` The bed ducks ${String(DEFAULT_DUCK_DB)} dB under "${duckUnderTrackId}".`;
+        return {
+          ops,
+          note: `${outcome.summary}${creditNote}${duckNote}`,
+          summary: outcome.summary,
+          status: 'completed',
+          project: applyProjectPatch(ctx.project, probe.patch),
+          data: outcome.data,
+        };
+      }
+      // `add_stock` is the picture twin of `add_music`: the host downloaded the
+      // rendition and materialized the file, and the orchestrator turns what came
+      // back into the SAME reversible operations the Stock panel builds by hand
+      // (`buildAddStockOps`, shared in editor-core). The host never edits the
+      // timeline (AGENTS.md invariant 5).
+      if (call.name === 'add_stock' && outcome.status === 'completed') {
+        const parsed = StockAssetPayloadSchema.safeParse(outcome.data);
+        if (!parsed.success) {
+          // Fail closed. A download that produced nothing placeable must not be
+          // reported as a completed edit on an unchanged timeline (ADR 0083) —
+          // quota and disk were spent either way, and saying "added" about a
+          // timeline that did not move is the one outcome the user cannot see.
+          const note =
+            'Rejected "add_stock" — the download did not return a usable photo or video asset, so nothing was placed.';
+          return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
+        }
+        const { asset: stockAsset } = parsed.data;
+        // Same as `add_music`: a deterministic id means a re-add would surface a
+        // raw `duplicate_asset` message instead of an answer.
+        if (ctx.project.assets.some((existing) => existing.id === stockAsset.id)) {
+          const note =
+            `That clip is already in your media bin — it was not downloaded again. ` +
+            `Place it from the bin, or pick a different one.`;
+          return { ops: [], note, summary: note, status: 'warning', data: note };
+        }
+        const placement = stockOpsFromPayload(ctx.project, parsed.data);
+        if (!placement.ok) {
+          const note = `Rejected "add_stock" — ${placement.reason}`;
+          return { ops: [], note, summary: note, status: 'failed', data: note };
+        }
+        const ops = [...placement.operations];
+        const probe = assembleEdit(ctx.project, ops, 'Add stock media', 'agent');
+        if (!probe.validation.valid) {
+          const problems = probe.validation.issues
+            .filter((issue) => issue.severity === 'error')
+            .map((issue) => issue.message)
+            .join('; ');
+          const note = `Rejected "add_stock" — ${problems}`;
+          return { ops: [], note, summary: note, status: 'failed', data: problems };
+        }
+        // Same reasoning as `add_music`: tell the model about the credit now, so
+        // it can mention it, rather than leaving it a surprise at publish time.
+        const creditNote = stockAsset.source.attributionRequired
+          ? ` This clip requires crediting ${stockAsset.source.creator ?? 'its creator'} — the credit is saved with the project and appears under Export → Credits.`
+          : ' This clip needs no credit.';
+        return {
+          ops,
+          note: `${outcome.summary} Placed at ${placement.start.toFixed(1)}s.${creditNote}`,
           summary: outcome.summary,
           status: 'completed',
           project: applyProjectPatch(ctx.project, probe.patch),

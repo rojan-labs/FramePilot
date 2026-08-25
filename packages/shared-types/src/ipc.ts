@@ -493,6 +493,18 @@ export interface AiConfig {
    * `nemotron-asr-streaming` for NVIDIA). Round-trips to the UI (non-secret).
    */
   readonly asrModel?: string;
+  /**
+   * Whether a Pexels API key is configured — **the key itself is never sent**.
+   *
+   * This is the first provider slot in the app to follow the chat-key custody
+   * rule rather than the {@link twelveLabs}/{@link asrApiKey} one. Those two are
+   * renderer-readable because the renderer *forwards* them: to the sidecar in a
+   * `/brain/visual/*` body, and to the transcription path. Nothing forwards this
+   * one — main holds it, main makes every request — so the renderer is given a
+   * boolean and nothing to leak
+   * (`plan/3rd-party-sourcing/photo-video/CONTRACTS.md` §2).
+   */
+  readonly pexelsReady?: boolean;
 }
 
 /**
@@ -540,6 +552,14 @@ export interface AiConfigUpdate {
    * clears it (revert to the provider default). See {@link AiConfig.asrModel}.
    */
   readonly asrModel?: string | null;
+  /**
+   * Pexels API key for stock photo/video search: a non-empty string saves it,
+   * `null` (or empty) clears it.
+   *
+   * Write-only in the strict sense — it goes renderer→main and never comes back.
+   * {@link AiConfig.pexelsReady} is all the renderer ever learns about it.
+   */
+  readonly pexelsApiKey?: string | null;
 }
 
 /** A renderer-safe visual-index slice; caption credentials stay in desktop main. */
@@ -1035,8 +1055,17 @@ export type TrackingRunResultWire =
         readonly projectRevision: number;
       } & PackMeasurementWire)
   /** No healthy pack is installed. The user is offered the exact signed install. */
-  | { readonly ok: false; readonly code: 'pack_missing'; readonly proposal: CapabilityPackProposalResultWire }
-  | { readonly ok: false; readonly code: string; readonly error: string; readonly retryable: boolean };
+  | {
+      readonly ok: false;
+      readonly code: 'pack_missing';
+      readonly proposal: CapabilityPackProposalResultWire;
+    }
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly error: string;
+      readonly retryable: boolean;
+    };
 
 export interface TrackingProgressWire {
   readonly requestId: string;
@@ -1123,6 +1152,351 @@ export type CapabilityPackRelocationResultWire =
     }
   | { readonly ok: false; readonly code: string; readonly error: string };
 
+// ---------------------------------------------------------------------------
+// Third-party music sourcing (plan/3rd-party-sourcing)
+// ---------------------------------------------------------------------------
+
+/**
+ * One search result as the RENDERER sees it.
+ *
+ * Note what is **not** here: `previewUrl` and `downloadUrl`. The renderer
+ * addresses a track by `remoteId` and asks main to act on it, so there is no
+ * provider host in the renderer to reach — which is what makes the CSP promise
+ * structural rather than a convention someone can forget. A proposal to add a
+ * provider origin to `connect-src` means something has gone wrong upstream of
+ * this type (`plan/3rd-party-sourcing/README.md` §3).
+ *
+ * Mirrors `ProviderTrackWire` in `@framepilot/ai-sdk`; declared structurally
+ * here so the renderer does not import the SDK for a wire shape.
+ */
+export interface MusicTrackWire {
+  readonly remoteId: string;
+  readonly provider: string;
+  readonly title: string;
+  readonly durationSeconds: number;
+  /** Container hint, e.g. 'mp3'. Already sanitized by the adapter. */
+  readonly format: string;
+  /** Licence identifier verbatim from the provider, e.g. 'cc0' | 'by'. */
+  readonly license: string;
+  // These carry `| undefined` explicitly because the adapter's Zod schema
+  // produces optional properties that way, and the repo runs
+  // `exactOptionalPropertyTypes`. Widening here beats rebuilding the object
+  // field-by-field at every boundary just to drop absent keys.
+  readonly licenseUrl?: string | undefined;
+  /**
+   * Whether the licence obliges a credit. Both TRUE and FALSE are rendered as a
+   * label — an unlabelled row would read as "unknown", which is the one thing a
+   * licence badge must never mean.
+   */
+  readonly attributionRequired: boolean;
+  /** Always true on the wire: non-commercial results are dropped at the adapter. */
+  readonly commercialUse: boolean;
+  readonly attribution?: string | undefined;
+  readonly creator?: string | undefined;
+  readonly creatorUrl?: string | undefined;
+  readonly sourceUrl?: string | undefined;
+}
+
+/**
+ * Failure codes for the music surface. A closed union with one specific sentence
+ * per arm — there is no generic "something went wrong", because a user told only
+ * that cannot tell a typo from an outage from an empty catalogue.
+ */
+export type MusicErrorCodeWire =
+  | 'unauthorized'
+  | 'rate_limited'
+  | 'provider_unavailable'
+  | 'offline'
+  | 'timeout'
+  | 'cancelled'
+  | 'non_commercial_only'
+  | 'disk_full'
+  | 'download_failed'
+  | 'derive_failed';
+
+export type MusicSearchResult =
+  | { readonly ok: true; readonly tracks: readonly MusicTrackWire[] }
+  | { readonly ok: false; readonly error: MusicErrorCodeWire; readonly detail?: string };
+
+/**
+ * Audition bytes. Main fetches them; the renderer wraps them in a `blob:` URL,
+ * which the existing `media-src ... blob:` policy already permits. This is the
+ * whole reason no CSP change is needed to preview provider audio.
+ */
+export type MusicPreviewResult =
+  | { readonly ok: true; readonly contentType: string; readonly data: ArrayBuffer }
+  | { readonly ok: false; readonly error: MusicErrorCodeWire; readonly detail?: string };
+
+/** Mirrors {@link CapabilityPackProgressWire}'s shape, for the same reasons. */
+export interface MusicDownloadProgressWire {
+  readonly operationId: string;
+  readonly remoteId: string;
+  readonly phase: 'downloading' | 'deriving' | 'installed' | 'cancelled' | 'failed';
+  readonly completedBytes: number;
+  readonly totalBytes: number;
+  readonly errorCode?: MusicErrorCodeWire;
+  readonly detail?: string;
+}
+
+/**
+ * The materialized asset, ready for `add_asset`.
+ *
+ * `source` is the schema-v20 provenance record. It is built in MAIN, from what
+ * the provider actually returned, rather than assembled in the renderer from a
+ * search row — the renderer's copy of a track is display state, and a credit
+ * obligation must not depend on it still being on screen.
+ */
+export interface MusicDownloadedAssetWire {
+  /** Project-relative path, in the same media folder imported files land in. */
+  readonly relativePath: string;
+  readonly durationSeconds?: number;
+  readonly kind: 'audio';
+  readonly media?: {
+    readonly proxyPath?: string | null;
+    readonly peaks?: readonly number[] | null;
+    readonly peaksPerSecond?: number | null;
+    readonly thumbnailPaths?: readonly string[] | null;
+  } | null;
+  readonly source: {
+    readonly provider: string;
+    readonly remoteId: string;
+    readonly license: string;
+    readonly licenseUrl?: string;
+    readonly attributionRequired: boolean;
+    readonly attribution?: string;
+    readonly creator?: string;
+    readonly creatorUrl?: string;
+    readonly sourceUrl?: string;
+    readonly fetchedAt: string;
+  };
+  /** TRUE when this track was already in the project and nothing was fetched. */
+  readonly deduped: boolean;
+}
+
+export type MusicDownloadResult =
+  | { readonly ok: true; readonly asset: MusicDownloadedAssetWire }
+  | { readonly ok: false; readonly error: MusicErrorCodeWire; readonly detail?: string };
+
+export interface MusicDownloadRequest {
+  /** Which project's media folder receives the file. */
+  readonly projectId: string;
+  readonly remoteId: string;
+  /** Correlates progress events and cancellation with this request. */
+  readonly operationId: string;
+}
+
+// ---------------------------------------------------------------------------
+// Stock photo & video (plan/3rd-party-sourcing/photo-video)
+// ---------------------------------------------------------------------------
+
+/** Two media kinds, one provider, one panel. Never `audio` — Pexels serves none. */
+export type StockMediaKindWire = 'photo' | 'video';
+
+export type StockOrientationWire = 'landscape' | 'portrait' | 'square';
+
+/**
+ * One downloadable rendition as the RENDERER sees it: dimensions and bytes, no URL.
+ *
+ * The tile must be able to say "1920×1080 · 24 MB" so the user can size up a
+ * download before committing to it. It must not be able to *fetch* it.
+ */
+export interface StockVariantWire {
+  readonly id: string;
+  readonly width: number;
+  readonly height: number;
+  readonly fps?: number | undefined;
+  readonly contentType: string;
+  readonly format: string;
+  readonly approxBytes?: number | undefined;
+}
+
+/**
+ * One search result as the RENDERER sees it.
+ *
+ * Note what is **not** here: `thumbnailUrl`, `previewUrl`, and every variant
+ * `url`. The renderer addresses an item by `remoteId` (+ `variantId`) and asks
+ * main to act on it, so there is no provider host in the renderer to reach —
+ * which is what makes the CSP promise structural rather than a convention
+ * (`plan/3rd-party-sourcing/photo-video/README.md` §4).
+ *
+ * Mirrors `StockItemWire` in `@framepilot/ai-sdk`; declared structurally here so
+ * the renderer does not import the SDK for a wire shape.
+ */
+export interface StockItemWire {
+  readonly remoteId: string;
+  readonly provider: string;
+  readonly kind: StockMediaKindWire;
+  readonly title: string;
+  readonly width: number;
+  readonly height: number;
+  /** Videos only. A photo has no duration and is not given a fake one. */
+  readonly durationSeconds?: number | undefined;
+  /** Provider-supplied average colour — the tile placeholder while bytes load. */
+  readonly avgColor?: string | undefined;
+  readonly variants: readonly StockVariantWire[];
+  /** TRUE when a hover-scrub rendition exists, without saying where it lives. */
+  readonly hasPreview: boolean;
+  readonly license: string;
+  readonly licenseUrl?: string | undefined;
+  /**
+   * FALSE for Pexels: the content licence obliges the end user to credit nobody.
+   * The API guidelines’ "prominent link to Pexels" binds the app, and the panel
+   * discharges it. See `photo-video/README.md` §D4 for why this is not set TRUE
+   * "to be safe" — a badge that cries wolf is what makes the real one ignorable.
+   */
+  readonly attributionRequired: boolean;
+  readonly attribution?: string | undefined;
+  readonly creator?: string | undefined;
+  readonly creatorUrl?: string | undefined;
+  readonly sourceUrl?: string | undefined;
+}
+
+/**
+ * Failure codes for the stock surface.
+ *
+ * `rate_limited` and `quota_exhausted` are separate arms because they need
+ * different sentences and different remedies — wait an hour, versus wait until
+ * next month — and the provider only reports the monthly figure.
+ */
+export type StockErrorCodeWire =
+  | 'no_key'
+  | 'unauthorized'
+  | 'rate_limited'
+  | 'quota_exhausted'
+  | 'provider_unavailable'
+  | 'offline'
+  | 'timeout'
+  | 'cancelled'
+  | 'too_large'
+  | 'disk_full'
+  | 'download_failed'
+  | 'derive_failed';
+
+export type StockSearchResult =
+  | {
+      readonly ok: true;
+      readonly items: readonly StockItemWire[];
+      readonly page: number;
+      readonly totalResults: number;
+      readonly hasMore: boolean;
+    }
+  | { readonly ok: false; readonly error: StockErrorCodeWire; readonly detail?: string };
+
+/**
+ * Thumbnail or hover-preview bytes. Main fetches them; the renderer wraps them in
+ * a `blob:` URL, which the existing `img-src`/`media-src ... blob:` policy already
+ * permits. This is why previewing provider media needs no CSP change.
+ */
+export type StockBytesResult =
+  | { readonly ok: true; readonly contentType: string; readonly data: ArrayBuffer }
+  | { readonly ok: false; readonly error: StockErrorCodeWire; readonly detail?: string };
+
+/** What one provider response told us about the quota. Facts only. */
+export interface StockQuotaObservationWire {
+  /** `X-Ratelimit-Limit` — the MONTHLY allowance. */
+  readonly limit: number;
+  readonly remaining: number;
+  /** ISO-8601: when the monthly period rolls over. */
+  readonly resetAt: string;
+  /** ISO-8601: when *we* saw it. Every displayed number is "as of" this. */
+  readonly observedAt: string;
+}
+
+/**
+ * The quota as the UI must render it. The `kind` field is the honesty.
+ *
+ * `unmeasured` exists so the panel can say "not measured yet" instead of
+ * rendering a guessed 20,000, and `hourly_limited` exists because Pexels enforces
+ * ~200 requests/hour but reports only the monthly figure — so a 429 can arrive
+ * while `monthly` still looks healthy, and both facts are true at once
+ * (`photo-video/PEXELS-API.md` §3).
+ */
+export type StockQuotaSnapshot =
+  | { readonly kind: 'no_key' }
+  | { readonly kind: 'unmeasured' }
+  | { readonly kind: 'measured'; readonly monthly: StockQuotaObservationWire }
+  | {
+      readonly kind: 'hourly_limited';
+      readonly monthly?: StockQuotaObservationWire;
+      readonly since: string;
+      /** From `Retry-After` when the provider sends one. Never invented. */
+      readonly retryAfterSeconds?: number;
+    };
+
+/** Mirrors {@link MusicDownloadProgressWire}, for the same reasons. */
+export interface StockDownloadProgressWire {
+  readonly operationId: string;
+  readonly remoteId: string;
+  readonly phase: 'downloading' | 'deriving' | 'installed' | 'cancelled' | 'failed';
+  readonly completedBytes: number;
+  readonly totalBytes: number;
+  readonly errorCode?: StockErrorCodeWire;
+  readonly detail?: string;
+}
+
+/**
+ * The materialized asset, ready for `add_asset`.
+ *
+ * `source` is built in MAIN from what the provider actually returned, not
+ * assembled in the renderer from a search tile — the renderer’s copy of an item
+ * is display state, and provenance must not depend on it still being on screen.
+ */
+export interface StockDownloadedAssetWire {
+  readonly relativePath: string;
+  readonly durationSeconds?: number;
+  readonly kind: 'video' | 'image';
+  /** The rendition actually fetched, so the UI can report what it got. */
+  readonly width?: number;
+  readonly height?: number;
+  readonly media?: {
+    readonly proxyPath?: string | null;
+    readonly peaks?: readonly number[] | null;
+    readonly peaksPerSecond?: number | null;
+    readonly thumbnailPaths?: readonly string[] | null;
+  } | null;
+  readonly source: {
+    readonly provider: string;
+    readonly remoteId: string;
+    readonly license: string;
+    readonly licenseUrl?: string;
+    readonly attributionRequired: boolean;
+    readonly attribution?: string;
+    readonly creator?: string;
+    readonly creatorUrl?: string;
+    readonly sourceUrl?: string;
+    readonly fetchedAt: string;
+  };
+  /** TRUE when this rendition was already in the project and nothing was fetched. */
+  readonly deduped: boolean;
+}
+
+export type StockDownloadResult =
+  | { readonly ok: true; readonly asset: StockDownloadedAssetWire }
+  | { readonly ok: false; readonly error: StockErrorCodeWire; readonly detail?: string };
+
+export interface StockSearchRequest {
+  readonly text: string;
+  readonly kind: StockMediaKindWire;
+  readonly page?: number;
+  readonly limit?: number;
+  readonly orientation?: StockOrientationWire;
+}
+
+export interface StockDownloadRequest {
+  readonly projectId: string;
+  readonly remoteId: string;
+  /**
+   * Which rendition to fetch. Absent ⇒ main chooses by the project’s own height,
+   * which is the path the panel and the agent both take; naming one explicitly is
+   * for a user who deliberately picked a size.
+   */
+  readonly variantId?: string;
+  /** Project frame height, so main can size the download to the timeline. */
+  readonly targetHeight?: number;
+  readonly targetFps?: number;
+  readonly operationId: string;
+}
+
 export interface FramePilotBridge {
   ping(): Promise<'pong'>;
   /**
@@ -1142,7 +1516,10 @@ export interface FramePilotBridge {
   /** Resolve one capability through the root-verified catalog; never accepts a renderer URL. */
   capabilityPackPropose?(capabilityId: string): Promise<CapabilityPackProposalResultWire>;
   /** Resolve the active project's exact immutable dependency; main rereads the project authority. */
-  capabilityPackProposeProjectDependency?(projectId: string, packId: string): Promise<CapabilityPackProposalResultWire>;
+  capabilityPackProposeProjectDependency?(
+    projectId: string,
+    packId: string,
+  ): Promise<CapabilityPackProposalResultWire>;
   /** Reconcile and report the active project's authoritative dependency state. */
   capabilityPackProjectStatus?(projectId: string): Promise<CapabilityPackProjectResolutionWire>;
   /** Run one tracking job in an isolated signed pack worker; main resolves the media. */
@@ -1152,17 +1529,69 @@ export interface FramePilotBridge {
   /** Bounded progress for an in-flight tracking job. */
   onCapabilityPackTrackProgress?(handler: (progress: TrackingProgressWire) => void): () => void;
   /** Install only the exact signed proposal the user explicitly approved. */
-  capabilityPackInstall?(approval: CapabilityPackInstallApprovalWire): Promise<CapabilityPackInstallStartResultWire>;
+  capabilityPackInstall?(
+    approval: CapabilityPackInstallApprovalWire,
+  ): Promise<CapabilityPackInstallStartResultWire>;
   /** Cancel one main-owned install operation. */
   capabilityPackCancel?(operationId: string): void;
   /** Build a non-mutating explicit cleanup proposal. */
-  capabilityPackPlanEviction?(requestedBytes: number): Promise<CapabilityPackEvictionPlanResultWire>;
+  capabilityPackPlanEviction?(
+    requestedBytes: number,
+  ): Promise<CapabilityPackEvictionPlanResultWire>;
   /** Execute only an unexpired plan and exact identity list previously displayed. */
-  capabilityPackExecuteEviction?(approval: CapabilityPackEvictionApprovalWire): Promise<CapabilityPackActionResultWire>;
+  capabilityPackExecuteEviction?(
+    approval: CapabilityPackEvictionApprovalWire,
+  ): Promise<CapabilityPackActionResultWire>;
   /** Subscribe to install progress; the returned function unsubscribes. */
   onCapabilityPackProgress?(listener: (message: CapabilityPackProgressWire) => void): () => void;
   /** Subscribe to storage-copy progress; the returned function unsubscribes. */
-  onCapabilityPackRelocationProgress?(listener: (message: CapabilityPackRelocationProgressWire) => void): () => void;
+  onCapabilityPackRelocationProgress?(
+    listener: (message: CapabilityPackRelocationProgressWire) => void,
+  ): () => void;
+  /**
+   * Search a third-party music provider. Main holds the network; the renderer
+   * never receives a provider URL (see {@link MusicTrackWire}).
+   *
+   * Optional, like every other desktop-only capability, so the browser build
+   * type-checks and the Sounds tab is absent rather than present-and-broken.
+   */
+  musicSearch?(query: string, limit?: number): Promise<MusicSearchResult>;
+  /** Fetch audition bytes for one track; the renderer wraps them in a `blob:` URL. */
+  musicPreview?(remoteId: string): Promise<MusicPreviewResult>;
+  /** Download one track into the project's media folder and derive its media. */
+  musicDownload?(request: MusicDownloadRequest): Promise<MusicDownloadResult>;
+  /** Cancel an in-flight download by operation id (fire-and-forget). */
+  musicDownloadCancel?(operationId: string): void;
+  /** Subscribe to download progress; the returned function unsubscribes. */
+  onMusicDownloadProgress?(listener: (message: MusicDownloadProgressWire) => void): () => void;
+  /**
+   * Search a stock photo/video provider. Main holds the key and the network; the
+   * renderer never receives a provider URL (see {@link StockItemWire}).
+   *
+   * Optional, like every other desktop-only capability, so the browser build
+   * type-checks and the Stock tab is absent rather than present-and-broken.
+   */
+  stockSearch?(request: StockSearchRequest): Promise<StockSearchResult>;
+  /** Grid-tile bytes for one item; the renderer wraps them in a `blob:` URL. */
+  stockThumbnail?(remoteId: string): Promise<StockBytesResult>;
+  /** Hover-scrub preview bytes for one video item. Photos reuse the thumbnail. */
+  stockPreview?(remoteId: string): Promise<StockBytesResult>;
+  /** Download one rendition into the project's media folder and derive its media. */
+  stockDownload?(request: StockDownloadRequest): Promise<StockDownloadResult>;
+  /** Cancel an in-flight download by operation id (fire-and-forget). */
+  stockDownloadCancel?(operationId: string): void;
+  /** Subscribe to download progress; the returned function unsubscribes. */
+  onStockDownloadProgress?(listener: (message: StockDownloadProgressWire) => void): () => void;
+  /** Read the last observed provider quota. Never triggers a provider request. */
+  stockQuota?(): Promise<StockQuotaSnapshot>;
+  /**
+   * Subscribe to quota changes, pushed by main on every observation.
+   *
+   * Pushed rather than polled: there is no remote to poll. The quota only moves
+   * when *we* make a request, so an interval would be both wasteful and staler
+   * than the event it replaced.
+   */
+  onStockQuotaChanged?(listener: (snapshot: StockQuotaSnapshot) => void): () => void;
   openProject(path: string): Promise<ProjectOpenResult>;
   /** Show a native OS file picker and open the selected project. */
   openProjectDialog(): Promise<ProjectOpenResult>;

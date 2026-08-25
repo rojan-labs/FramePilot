@@ -15,7 +15,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Asset, Project } from '@framepilot/timeline-schema';
-import type { HistoryEntry } from '@framepilot/editor-core';
+import { DEFAULT_STOCK_STILL_SECONDS, type HistoryEntry } from '@framepilot/editor-core';
 import type { InteractionKeyframeRef, SourceMonitorInteraction } from '@framepilot/ai-sdk';
 import { WorkspaceShell, useDockHeight } from '@framepilot/ui';
 import { useEditor } from '../editor/useEditor.js';
@@ -43,6 +43,15 @@ import { MediaBin } from './MediaBin.js';
 import { EffectsPanel } from './EffectsPanel.js';
 import { OverlaysPanel } from './OverlaysPanel.js';
 import { TransitionsPanel } from './TransitionsPanel.js';
+import { MonitorHeaderPortal } from './MonitorHeaderPortal.js';
+import { SoundsPanel } from './SoundsPanel.js';
+import { StockPanel } from './StockPanel.js';
+import {
+  addMusicTrackPatch,
+  addStockClipPatch,
+  stockPlacementBlockedReason,
+} from '../editor/patch-builders.js';
+import { isDesktop } from '../editor/bridge.js';
 import { Toasts } from './Toasts.js';
 import { HistoryPanel } from './HistoryPanel.js';
 import { FootageUnderstandingPanel } from './FootageUnderstandingPanel.js';
@@ -56,11 +65,12 @@ import {
   ChevronRight,
   Folder,
   ICON_SIZE,
+  ImagePlus,
   type LucideIcon,
-  Settings,
   SlidersHorizontal,
   Sparkles,
   ArrowLeftRight,
+  Music,
   Type,
   Wand2,
 } from './icons.js';
@@ -83,6 +93,15 @@ export interface EditorProps {
   readonly onToggleHelp?: () => void;
   /** Open the Settings dialog (`⌘,`), optionally deep-linked to a tab (H2). */
   readonly onOpenSettings?: (section?: SettingsSection) => void;
+  /**
+   * The Topbar's centre box (owned by {@link App}), where the Source/Program
+   * switch and the monitor's view controls render.
+   *
+   * Absent — in a standalone Editor render or a test — and the band falls back
+   * to its own row above the picture, so the monitor is never left without its
+   * controls just because there is no application bar around it.
+   */
+  readonly monitorHeaderSlot?: HTMLElement | null;
   /** Whether the project history panel is open (owned by {@link App}). */
   readonly historyOpen?: boolean;
   /** Toggle the history panel (`⌘⇧H`). */
@@ -99,7 +118,7 @@ export interface EditorProps {
   readonly onCloseTranscription?: () => void;
 }
 
-type LeftTab = 'media' | 'effects' | 'transitions' | 'overlays' | 'captions';
+type LeftTab = 'media' | 'effects' | 'transitions' | 'overlays' | 'captions' | 'sounds' | 'stock';
 type RightTab = 'ai' | 'inspector';
 
 const LEFT_TABS: readonly { id: LeftTab; label: string; icon: LucideIcon }[] = [
@@ -108,7 +127,24 @@ const LEFT_TABS: readonly { id: LeftTab; label: string; icon: LucideIcon }[] = [
   { id: 'transitions', label: 'Transitions', icon: ArrowLeftRight },
   { id: 'overlays', label: 'Text', icon: Type },
   { id: 'captions', label: 'Captions', icon: Captions },
+  { id: 'sounds', label: 'Sounds', icon: Music },
+  { id: 'stock', label: 'Stock', icon: ImagePlus },
 ];
+
+/** Tabs that need the main process to reach a third-party provider. */
+const DESKTOP_ONLY_TABS: ReadonlySet<LeftTab> = new Set<LeftTab>(['sounds', 'stock']);
+
+/**
+ * The tabs actually shown.
+ *
+ * Sounds and Stock need the main process to reach a provider — the renderer's
+ * CSP forbids it, deliberately — so in a plain browser those tabs are **absent**
+ * rather than present-and-broken. A tab that opens a panel explaining it cannot
+ * work is worse than no tab: it costs a click to learn nothing.
+ */
+function visibleLeftTabs(): readonly { id: LeftTab; label: string; icon: LucideIcon }[] {
+  return isDesktop() ? LEFT_TABS : LEFT_TABS.filter((tab) => !DESKTOP_ONLY_TABS.has(tab.id));
+}
 
 const RIGHT_TABS: readonly { id: RightTab; label: string; icon: LucideIcon }[] = [
   { id: 'ai', label: 'AI', icon: Wand2 },
@@ -164,6 +200,7 @@ export function Editor({
   onCloseUnderstanding,
   transcriptionOpen = false,
   onCloseTranscription,
+  monitorHeaderSlot = null,
 }: EditorProps): JSX.Element {
   const editor = useEditor(project.timeline, {
     assets: project.assets,
@@ -186,6 +223,75 @@ export function Editor({
   const [monitorHeaderControlsHost, setMonitorHeaderControlsHost] = useState<HTMLDivElement | null>(
     null,
   );
+  /**
+   * The monitor column, measured so the hoisted header band can be pinned to
+   * exactly its left and right edges up in the application bar.
+   *
+   * Measured rather than derived from the persisted rail widths: those are one
+   * input among several — a collapsed rail, the activity bar, a splitter drag
+   * mid-gesture — and re-deriving the column's position from them would be a
+   * second implementation of the layout that is wrong whenever the first
+   * changes. The element already knows where it is.
+   *
+   * Both numbers are insets from the topbar's centre slot, not from the window,
+   * so the band can never escape the space that slot reserves.
+   */
+  const stageMonitorRef = useRef<HTMLDivElement | null>(null);
+  const [monitorBandInset, setMonitorBandInset] = useState<{
+    readonly left: number;
+    readonly right: number;
+    /** Whether that edge really landed on the column's, and so earns a rule. */
+    readonly rulesLeft: boolean;
+    readonly rulesRight: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    const stage = stageMonitorRef.current;
+    if (stage === null || monitorHeaderSlot === null) {
+      setMonitorBandInset(null);
+      return;
+    }
+    const measure = (): void => {
+      const column = stage.getBoundingClientRect();
+      const slot = monitorHeaderSlot.getBoundingClientRect();
+      // Minus one on each side so the band's own rules land ON the rail borders
+      // rather than one pixel inside them: `.rail-left`'s `border-right` and
+      // `.rail-right`'s `border-left` sit OUTSIDE the column's rect, and the
+      // whole point is for the two hairlines to read as those same borders
+      // carried up through the bar.
+      //
+      // Clamped at zero against the slot — the free span between the brand and
+      // the window actions — so collapsing a rail widens the column past what
+      // the bar can spare and the band stops at that edge instead of sliding
+      // under Export.
+      const left = column.left - 1 - slot.left;
+      const right = slot.right - (column.right + 1);
+      // A hairline is only drawn on the side that actually reached the column's
+      // edge. Clamped, it would be a rule with nothing below it to continue —
+      // which reads as a stray line, not as the rail border carried upward.
+      setMonitorBandInset({
+        left: Math.max(0, left),
+        right: Math.max(0, right),
+        rulesLeft: left >= 0,
+        rulesRight: right >= 0,
+      });
+    };
+    measure();
+    // jsdom (unit tests) has no ResizeObserver — degrade to measuring on mount
+    // plus window resize, like the toolbar/rail observers do.
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure);
+      return () => window.removeEventListener('resize', measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(stage);
+    observer.observe(monitorHeaderSlot);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [monitorHeaderSlot]);
   const [sourceAsset, setSourceAsset] = useState<Asset | undefined>(undefined);
   const openInSource = useCallback((asset: Asset) => {
     setSourceAsset(asset);
@@ -378,6 +484,60 @@ export function Editor({
   const effectsEl = useMemo(() => <EffectsPanel editor={editor} />, [nonPlayheadKey]);
   const overlaysEl = useMemo(() => <OverlaysPanel editor={editor} />, [nonPlayheadKey]);
   const transitionsEl = useMemo(() => <TransitionsPanel editor={editor} />, [nonPlayheadKey]);
+  const soundsEl = useMemo(
+    () => (
+      <SoundsPanel
+        project={project}
+        onAddMusic={(asset) => {
+          // One patch: bin + music layer + clip. One undo takes all three back.
+          editor.applyPatch(addMusicTrackPatch(editor.state.timeline, asset));
+        }}
+      />
+    ),
+    [nonPlayheadKey, project],
+  );
+  const stockEl = useMemo(() => {
+    // Recomputed with the playhead, because the answer changes as it moves —
+    // the tile must be able to disable Add with a reason *before* the click.
+    const assetById = new Map(project.assets.map((asset) => [asset.id, asset]));
+    return (
+      <StockPanel
+        project={project}
+        placementBlockedReasonFor={(durationSeconds) =>
+          stockPlacementBlockedReason(
+            editor.state.timeline,
+            assetById,
+            editor.state.playhead,
+            durationSeconds,
+          )
+        }
+        onAddStock={(asset) => {
+          // Read from the store at CLICK time, not from the closure the tile was
+          // rendered with: a download takes seconds, and the playhead and the
+          // timeline both move during them.
+          const live = editor.state;
+          const liveAssetById = new Map(live.assets.map((a) => [a.id, a]));
+          const patch = addStockClipPatch(live.timeline, liveAssetById, asset, live.playhead);
+          if (patch === null) {
+            // Said, not swallowed: the user watched this download. The tile
+            // shows the sentence and keeps the asset out of the bin, so a retry
+            // after moving the playhead is one click.
+            return (
+              stockPlacementBlockedReason(
+                live.timeline,
+                liveAssetById,
+                live.playhead,
+                asset.durationSeconds ?? DEFAULT_STOCK_STILL_SECONDS,
+              ) ?? 'That spot is occupied — move the playhead and try again.'
+            );
+          }
+          editor.applyPatch(patch);
+          return null;
+        }}
+        {...(onOpenSettings ? { onOpenSettings: () => onOpenSettings('ai') } : {})}
+      />
+    );
+  }, [project, editor.state.playhead, editor.state.timeline, onOpenSettings]);
   const openTransitionLibrary = useCallback(() => setLeftTab('transitions'), []);
   const aiProject = useMemo(
     () => projectForAi(project, editor.state),
@@ -489,52 +649,54 @@ export function Editor({
         expandIcon: <ChevronRight size={ICON_SIZE.sm} aria-hidden="true" />,
         children: (
           <>
-            <nav className="rail-activitybar" role="tablist" aria-label="library tabs">
-              {LEFT_TABS.map(({ id, label, icon: Icon }) => (
-                <Tooltip key={id} label={label} placement="right">
+            {/* Icons only. The name lives in the tooltip and in `aria-label`, not
+                in a 9px caption under every glyph: this is a fixed shelf of seven
+                destinations an editor learns in a session, and printing the word
+                under each one cost 18px of width and 12px of height per tab
+                forever to teach something once.
+
+                Two boxes, not one list: the tabs scroll when a short window
+                cannot fit them all, while Collapse stays pinned to the bottom
+                edge. Putting them in one scroller would push the only way to
+                collapse the rail off-screen exactly when the window is too short
+                to spare the width. */}
+            <nav className="rail-activitybar" aria-label="Library">
+              <div className="activity-tabs" role="tablist" aria-label="library tabs">
+                {visibleLeftTabs().map(({ id, label, icon: Icon }) => (
+                  <Tooltip key={id} label={label} placement="right">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={leftTab === id}
+                      aria-controls={`rail-${id}`}
+                      aria-label={label}
+                      className={`activity-tab${leftTab === id ? ' is-active' : ''}`}
+                      onClick={() => setLeftTab(id)}
+                    >
+                      {/* `sm` is the scale's documented size for tabs and list
+                          rows; `md` is the toolbar size, and using it here made
+                          the rail shout louder than the panel it opens. */}
+                      <Icon size={ICON_SIZE.sm} aria-hidden="true" />
+                    </button>
+                  </Tooltip>
+                ))}
+              </div>
+              {/* Collapse only. Preferences used to sit here too, duplicating the
+                  Topbar's Settings button — which is the one with the ⌘, badge on
+                  it. Two doors to the same dialog, and the rail's was the one
+                  nobody could discover a shortcut from. */}
+              <div className="activity-rail-footer">
+                <Tooltip label="Collapse panel" placement="right">
                   <button
                     type="button"
-                    role="tab"
-                    aria-selected={leftTab === id}
-                    aria-controls={`rail-${id}`}
-                    aria-label={label}
-                    className={`activity-tab${leftTab === id ? ' is-active' : ''}`}
-                    onClick={() => setLeftTab(id)}
+                    className="activity-tab rail-collapse"
+                    aria-label="Collapse library panel"
+                    onClick={() => toggleRail('left')}
                   >
-                    <Icon size={ICON_SIZE.md} aria-hidden="true" />
-                    {/* Visual label under the icon. Kept as real text (not a CSS
-                        attr(aria-label) pseudo-element) so the short display
-                        string can differ from the accessible name and so the
-                        ellipsis is a layout decision, not an a11y side effect. */}
-                    <span className="activity-tab-label" aria-hidden="true">
-                      {label}
-                    </span>
+                    <ChevronLeft size={ICON_SIZE.sm} aria-hidden="true" />
                   </button>
                 </Tooltip>
-              ))}
-              <span className="activity-spacer" />
-              {onOpenSettings && (
-                <Tooltip label="Preferences" placement="right">
-                  <button
-                    type="button"
-                    className="activity-tab"
-                    aria-label="Preferences"
-                    onClick={() => onOpenSettings()}
-                  >
-                    <Settings size={ICON_SIZE.md} aria-hidden="true" />
-                  </button>
-                </Tooltip>
-              )}
-              <Tooltip label="Collapse panel" placement="right">
-                <button
-                  type="button"
-                  className="activity-tab rail-collapse"
-                  aria-label="Collapse library panel"
-                  onClick={() => toggleRail('left')}
-                >
-                  <ChevronLeft size={ICON_SIZE.md} aria-hidden="true" />
-                </button>
-              </Tooltip>
+              </div>
             </nav>
             <div className="rail-left-body">
               <div
@@ -545,6 +707,8 @@ export function Editor({
                 {leftTab === 'media' && mediaBinEl}
                 {leftTab === 'effects' && effectsEl}
                 {leftTab === 'transitions' && transitionsEl}
+                {leftTab === 'sounds' && soundsEl}
+                {leftTab === 'stock' && stockEl}
                 {leftTab === 'overlays' && overlaysEl}
                 {leftTab === 'captions' && (
                   <CaptionEditor
@@ -606,53 +770,69 @@ export function Editor({
         ),
       }}
       center={
-        <div className="stage-monitor">
-          <div className="monitor-header">
+        <div className="stage-monitor" ref={stageMonitorRef}>
+          {/* The band lives in the application bar when there is one — see
+              `.topbar-monitor`. `data-hoisted` is what drops its own background
+              and bottom rule and pins it to the measured column edges: up there
+              it is part of the bar's surface, not a strip laid over the picture. */}
+          <MonitorHeaderPortal host={monitorHeaderSlot}>
             <div
-              className="monitor-tabs segmented"
-              role="tablist"
-              aria-label="monitor"
-              onKeyDown={(event) => {
-                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-                const tabs = Array.from(
-                  event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
-                );
-                const from = tabs.indexOf(event.target as HTMLButtonElement);
-                const next = tabs[event.key === 'ArrowRight' ? from + 1 : from - 1];
-                if (!next) return;
-                event.preventDefault();
-                next.focus();
-              }}
+              className="monitor-header"
+              {...(monitorHeaderSlot ? { 'data-hoisted': 'true' } : {})}
+              {...(monitorBandInset
+                ? {
+                    style: { left: monitorBandInset.left, right: monitorBandInset.right },
+                    'data-rule-left': monitorBandInset.rulesLeft ? 'true' : undefined,
+                    'data-rule-right': monitorBandInset.rulesRight ? 'true' : undefined,
+                  }
+                : {})}
             >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={monitorTab === 'source'}
-                aria-controls="monitor-source"
-                tabIndex={monitorTab === 'source' ? 0 : -1}
-                className={`monitor-tab${monitorTab === 'source' ? ' is-active' : ''}`}
-                onClick={() => setMonitorTab('source')}
+              <div
+                className="monitor-tabs segmented"
+                role="tablist"
+                aria-label="monitor"
+                onKeyDown={(event) => {
+                  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                  const tabs = Array.from(
+                    event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+                  );
+                  const from = tabs.indexOf(event.target as HTMLButtonElement);
+                  const next = tabs[event.key === 'ArrowRight' ? from + 1 : from - 1];
+                  if (!next) return;
+                  event.preventDefault();
+                  next.focus();
+                }}
               >
-                Source
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={monitorTab === 'program'}
-                aria-controls="monitor-program"
-                tabIndex={monitorTab === 'program' ? 0 : -1}
-                className={`monitor-tab${monitorTab === 'program' ? ' is-active' : ''}`}
-                onClick={() => setMonitorTab('program')}
-              >
-                Program
-              </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={monitorTab === 'source'}
+                  aria-controls="monitor-source"
+                  tabIndex={monitorTab === 'source' ? 0 : -1}
+                  className={`monitor-tab${monitorTab === 'source' ? ' is-active' : ''}`}
+                  onClick={() => setMonitorTab('source')}
+                >
+                  Source
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={monitorTab === 'program'}
+                  aria-controls="monitor-program"
+                  tabIndex={monitorTab === 'program' ? 0 : -1}
+                  className={`monitor-tab${monitorTab === 'program' ? ' is-active' : ''}`}
+                  onClick={() => setMonitorTab('program')}
+                >
+                  Program
+                </button>
+              </div>
+              <div
+                ref={setMonitorHeaderControlsHost}
+                className="monitor-header-actions"
+                aria-label="monitor view controls"
+              />
             </div>
-            <div
-              ref={setMonitorHeaderControlsHost}
-              className="monitor-header-actions"
-              aria-label="monitor view controls"
-            />
-          </div>
+          </MonitorHeaderPortal>
           <div
             className="monitor-tab-body"
             id={monitorTab === 'source' ? 'monitor-source' : 'monitor-program'}

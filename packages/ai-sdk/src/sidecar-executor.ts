@@ -177,6 +177,62 @@ export interface SidecarExecutorOptions {
     assetId: string | undefined,
     signal?: AbortSignal,
   ) => Promise<HostToolOutcome | null>;
+  /**
+   * Host-side `search_music`. The provider network lives in the trusted host — the
+   * renderer's CSP forbids it and the sidecar has no business holding a provider
+   * connection — so this is the only way the tool can run.
+   *
+   * Absent (browser surface, tests) ⇒ the tool fails HONESTLY rather than
+   * silently no-opping or, worse, reporting a fabricated list of tracks.
+   */
+  readonly hostMusicSearch?: (
+    query: string,
+    limit: number | undefined,
+    signal?: AbortSignal,
+  ) => Promise<HostToolOutcome>;
+  /**
+   * Host-side `add_music`: download the track, materialize it, and hand back the
+   * asset plus whatever placement the model asked for. The orchestrator turns
+   * that into the SAME reversible operations the Sounds panel builds by hand —
+   * the host does the side effect, never the edit (AGENTS.md invariant 5).
+   */
+  readonly hostAddMusic?: (
+    project: Project,
+    args: {
+      readonly remoteId: string;
+      readonly atSeconds?: number;
+      readonly duckUnderTrackId?: string;
+    },
+    signal?: AbortSignal,
+  ) => Promise<HostToolOutcome>;
+  /**
+   * Host-side `search_stock`. Same reasoning as {@link hostMusicSearch}: the
+   * provider key and the network live in the trusted host.
+   */
+  readonly hostStockSearch?: (
+    args: {
+      readonly query: string;
+      readonly kind: 'photo' | 'video';
+      readonly limit?: number;
+      readonly orientation?: 'landscape' | 'portrait' | 'square';
+    },
+    signal?: AbortSignal,
+  ) => Promise<HostToolOutcome>;
+  /**
+   * Host-side `add_stock`: download the chosen rendition and hand back the asset
+   * plus its placement. The orchestrator turns that into the SAME reversible
+   * operations the Stock panel builds by hand — the host does the side effect,
+   * never the edit (AGENTS.md invariant 5).
+   */
+  readonly hostAddStock?: (
+    project: Project,
+    args: {
+      readonly remoteId: string;
+      readonly kind: 'photo' | 'video';
+      readonly atSeconds?: number;
+    },
+    signal?: AbortSignal,
+  ) => Promise<HostToolOutcome>;
 }
 
 /**
@@ -1029,6 +1085,113 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
           });
           return hosted;
         }
+      }
+      // Music sourcing is host-only: the provider key, the network and the disk
+      // write all live in main. Missing the override is a real unavailability,
+      // not a reason to invent a result (ADR 0118).
+      if (call.name === 'search_music') {
+        if (!options.hostMusicSearch) {
+          return {
+            status: 'failed',
+            summary:
+              'Music search is not available on this surface — it runs in the FramePilot desktop app.',
+          };
+        }
+        const query = typeof call.arguments?.query === 'string' ? call.arguments.query : '';
+        const limit = typeof call.arguments?.limit === 'number' ? call.arguments.limit : undefined;
+        log.action('run → host music search', { tool: call.name });
+        return await options.hostMusicSearch(query, limit, signal);
+      }
+      if (call.name === 'add_music') {
+        if (!options.hostAddMusic) {
+          return {
+            status: 'failed',
+            summary:
+              'Adding music is not available on this surface — it runs in the FramePilot desktop app.',
+          };
+        }
+        // Every declared parameter is forwarded. Dropping `atSeconds` or
+        // `duckUnderTrackId` here would accept the model's instruction and then
+        // silently ignore it — a bed at 0 s, full gain, reported as ducked.
+        const remoteId =
+          typeof call.arguments?.remoteId === 'string' ? call.arguments.remoteId : '';
+        const rawAtSeconds =
+          typeof call.arguments?.atSeconds === 'number' ? call.arguments.atSeconds : undefined;
+        // A negative start is out of the tool's contract; both builders clamp to
+        // 0 anyway, so clamp here rather than failing the whole download for it.
+        const atSeconds = rawAtSeconds === undefined ? undefined : Math.max(0, rawAtSeconds);
+        const rawDuckUnderTrackId =
+          typeof call.arguments?.duckUnderTrackId === 'string'
+            ? call.arguments.duckUnderTrackId
+            : undefined;
+        const duckUnderTrackId =
+          rawDuckUnderTrackId !== undefined && rawDuckUnderTrackId.trim() !== ''
+            ? rawDuckUnderTrackId.trim()
+            : undefined;
+        log.action('run → host music download', { tool: call.name });
+        return await options.hostAddMusic(
+          ctx.project,
+          {
+            remoteId,
+            ...(atSeconds === undefined ? {} : { atSeconds }),
+            ...(duckUnderTrackId === undefined ? {} : { duckUnderTrackId }),
+          },
+          signal,
+        );
+      }
+      // Stock sourcing is host-only for the same reasons as music. Missing the
+      // override is a real unavailability, not a reason to invent a result.
+      if (call.name === 'search_stock') {
+        if (!options.hostStockSearch) {
+          return {
+            status: 'failed',
+            summary:
+              'Stock search is not available on this surface — it runs in the FramePilot desktop app.',
+          };
+        }
+        const query = typeof call.arguments?.query === 'string' ? call.arguments.query : '';
+        const kind = call.arguments?.kind === 'photo' ? 'photo' : 'video';
+        const limit = typeof call.arguments?.limit === 'number' ? call.arguments.limit : undefined;
+        const rawOrientation = call.arguments?.orientation;
+        const orientation =
+          rawOrientation === 'landscape' ||
+          rawOrientation === 'portrait' ||
+          rawOrientation === 'square'
+            ? rawOrientation
+            : undefined;
+        log.action('run → host stock search', { tool: call.name, kind });
+        return await options.hostStockSearch(
+          {
+            query,
+            kind,
+            ...(limit === undefined ? {} : { limit }),
+            ...(orientation === undefined ? {} : { orientation }),
+          },
+          signal,
+        );
+      }
+      if (call.name === 'add_stock') {
+        if (!options.hostAddStock) {
+          return {
+            status: 'failed',
+            summary:
+              'Adding stock media is not available on this surface — it runs in the FramePilot desktop app.',
+          };
+        }
+        const remoteId =
+          typeof call.arguments?.remoteId === 'string' ? call.arguments.remoteId : '';
+        const kind = call.arguments?.kind === 'photo' ? 'photo' : 'video';
+        const rawAtSeconds =
+          typeof call.arguments?.atSeconds === 'number' ? call.arguments.atSeconds : undefined;
+        // A negative start is out of contract; the builder clamps to 0 anyway, so
+        // clamp here rather than failing a download over it.
+        const atSeconds = rawAtSeconds === undefined ? undefined : Math.max(0, rawAtSeconds);
+        log.action('run → host stock download', { tool: call.name, kind });
+        return await options.hostAddStock(
+          ctx.project,
+          { remoteId, kind, ...(atSeconds === undefined ? {} : { atSeconds }) },
+          signal,
+        );
       }
       if (call.name === 'measure_color') {
         const clipId = typeof call.arguments.clipId === 'string' ? call.arguments.clipId : '';

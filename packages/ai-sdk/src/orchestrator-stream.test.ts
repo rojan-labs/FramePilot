@@ -891,7 +891,7 @@ describe('streamAgent', () => {
     expect(events.at(-1)).toMatchObject({ status: 'failed' });
   });
 
-  it('retries a dropped step in place, and uses the retry\'s answer', async () => {
+  it("retries a dropped step in place, and uses the retry's answer", async () => {
     // The provider dropping ONE request must not end the run: `ResilientProvider` cannot
     // replay it (the failure lands after a 200), so the step retries here.
     const provider = new ScriptedStreamProvider([
@@ -935,7 +935,9 @@ describe('streamAgent', () => {
     );
     // The fragment is not the run's last word.
     expect(
-      events.some((e) => e.type === 'assistant_message' && /23-shot/.test((e as { text: string }).text)),
+      events.some(
+        (e) => e.type === 'assistant_message' && /23-shot/.test((e as { text: string }).text),
+      ),
     ).toBe(false);
     expect(events.at(-1)).toMatchObject({ status: 'failed' });
   });
@@ -2083,9 +2085,11 @@ describe('streamAgent robustness (parity with agent())', () => {
         autoRepair: false,
       }),
     );
-    expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Deterministic self-check:'))).toBe(
-      true,
-    );
+    expect(
+      events.some(
+        (e) => e.type === 'notification' && e.text.startsWith('Deterministic self-check:'),
+      ),
+    ).toBe(true);
     expect(events.some((e) => e.type === 'warning' && e.text.includes('Duration'))).toBe(true);
     // autoRepair:false → no repair pass runs.
     expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Repair pass'))).toBe(
@@ -2210,9 +2214,11 @@ describe('streamAgent robustness (parity with agent())', () => {
         durationTargetSeconds: 1,
       }),
     );
-    expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Deterministic self-check:'))).toBe(
-      false,
-    );
+    expect(
+      events.some(
+        (e) => e.type === 'notification' && e.text.startsWith('Deterministic self-check:'),
+      ),
+    ).toBe(false);
     expect(events.at(-1)).toMatchObject({ status: 'cancelled' });
   });
 });
@@ -2724,6 +2730,121 @@ describe('streamAgent host tool execution (Phase T)', () => {
       const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 't1');
       expect(result?.type === 'tool_result' ? result.summary : '').toMatch(/no valid timed words/);
       expect(events.some((e) => e.type === 'diff')).toBe(false);
+    });
+  });
+
+  describe('add_stock (host-backed mutation)', () => {
+    // The fixture's picture runs 0–10s, so 12s is empty and 2s is occupied.
+    const stockCall = {
+      id: 's1',
+      name: 'add_stock',
+      arguments: { remoteId: 'px_1', kind: 'video' as const, atSeconds: 12 },
+    };
+    const stockAsset = {
+      id: 'stock_pexels_px_1',
+      path: 'media/stock/px_1.mp4',
+      kind: 'video' as const,
+      durationSeconds: 4,
+      source: {
+        provider: 'pexels',
+        remoteId: 'px_1',
+        license: 'Pexels License',
+        attributionRequired: true,
+        creator: 'Ada Photographer',
+        fetchedAt: '2026-08-24T00:00:00.000Z',
+      },
+    };
+    const hostRun = (data: unknown) => ({
+      run: async (): Promise<HostToolOutcome> => ({
+        status: 'completed' as const,
+        summary: 'Downloaded "media/stock/px_1.mp4".',
+        ...(data === undefined ? {} : { data }),
+      }),
+    });
+    const stockProvider = () =>
+      new ScriptedProvider([
+        { text: 'sourcing b-roll', toolCalls: [stockCall] },
+        { text: 'done', toolCalls: [] },
+      ]);
+
+    // THE regression this suite exists for: before the `add_stock` arm existed,
+    // the host spent quota and disk, the call fell through to the generic settle
+    // with `ops: []`, and the model was told the clip had been added to a
+    // timeline that had not moved.
+    it('turns the downloaded asset into a real, reversible placement patch', async () => {
+      const provider = stockProvider();
+      const events = await drain(
+        new Orchestrator(provider, {
+          executor: hostRun({ asset: stockAsset, atSeconds: 12 }),
+        }).streamAgent(input, opts()),
+      );
+      const diff = events.find((e) => e.type === 'diff');
+      expect(diff).toBeDefined();
+      const ops =
+        diff?.type === 'diff' ? diff.edit.patch.operations.map((op: AnyOperation) => op.type) : [];
+      expect(ops).toContain('add_asset');
+      expect(ops).toContain('add_clip');
+      const terminal = events.filter((e) => e.type === 'tool_call' && e.id === 's1').at(-1);
+      expect(terminal).toMatchObject({ status: 'completed' });
+      // The credit is surfaced to the model on its next turn, not left as a
+      // publish-time surprise for the user.
+      const fedBack = JSON.stringify(provider.requests[1]?.messages ?? []);
+      expect(fedBack).toMatch(/Ada Photographer/);
+      expect(fedBack).toMatch(/Placed at 12\.0s/);
+    });
+
+    it('fails closed when the host returns no usable asset — never "added" on an unchanged timeline', async () => {
+      const events = await drain(
+        new Orchestrator(stockProvider(), { executor: hostRun(undefined) }).streamAgent(
+          input,
+          opts(),
+        ),
+      );
+      const terminal = events.filter((e) => e.type === 'tool_call' && e.id === 's1').at(-1);
+      expect(terminal).toMatchObject({ status: 'failed' });
+      expect(events.some((e) => e.type === 'diff')).toBe(false);
+      const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 's1');
+      expect(result?.type === 'tool_result' ? result.summary : '').toMatch(/nothing was placed/);
+    });
+
+    it('answers a re-add plainly instead of leaking a duplicate_asset validator message', async () => {
+      // Stock asset ids are deterministic, so adding the same clip twice hits
+      // `duplicate_asset` — whose text ("Asset id already exists: stock_pexels_px_1")
+      // reads to the model as a bug rather than as an answer.
+      const withStock = makeProject({
+        assets: [
+          { id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 30 },
+          { ...stockAsset },
+        ],
+      });
+      const events = await drain(
+        new Orchestrator(stockProvider(), {
+          executor: hostRun({ asset: stockAsset, atSeconds: 12 }),
+        }).streamAgent({ project: withStock, userPrompt: 'add b-roll' }, opts()),
+      );
+      expect(events.some((e) => e.type === 'diff')).toBe(false);
+      const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 's1');
+      expect(result?.type === 'tool_result' ? result.summary : '').toMatch(
+        /already in your media bin/,
+      );
+      expect(result?.type === 'tool_result' ? result.summary : '').not.toMatch(/Asset id already/);
+    });
+
+    it('fails closed when the span filled up between the host check and the placement', async () => {
+      const events = await drain(
+        new Orchestrator(stockProvider(), {
+          // The host allowed 12s; the payload asks for 2s, which the fixture's
+          // picture already occupies. The orchestrator is the second check.
+          executor: hostRun({ asset: stockAsset, atSeconds: 2 }),
+        }).streamAgent(input, opts()),
+      );
+      const terminal = events.filter((e) => e.type === 'tool_call' && e.id === 's1').at(-1);
+      expect(terminal).toMatchObject({ status: 'failed' });
+      expect(events.some((e) => e.type === 'diff')).toBe(false);
+      const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 's1');
+      expect(result?.type === 'tool_result' ? result.summary : '').toMatch(
+        /already picture on the timeline/,
+      );
     });
   });
 

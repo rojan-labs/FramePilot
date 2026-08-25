@@ -3,18 +3,19 @@
 > **Status:** **Horizon 0 shipped (2026-07-10)**, **Horizon 1 shipped (2026-07-11)** — H1.1
 > through H1.7 all complete (see each H1.x entry below and `plan/PLAN.md` for full
 > breakdowns); Horizon 2 not yet started. The **master product roadmap** for making
-> FramePilot the best AI video editor *for video editors*. Written from the editor's point of
+> FramePilot the best AI video editor _for video editors_. Written from the editor's point of
 > view, for the **end product** — not an MVP. It covers everything we must build: new
 > **capabilities**, new **tools**, **AI-model integrations** (perception + generation), schema
 > evolution, and a **rewritten, best-in-class editor UI** — end to end from raw footage to a
 > published short.
 >
 > **Two decisions baked into this revision:**
+>
 > - **AI does the hard perception & generation, not us.** Transcription, vision/content
 >   understanding, background removal, voiceover, and generative b-roll are delivered by
 >   **AI models** (hosted APIs + optional local models), behind one provider abstraction — we do
->   **not** build our own CV/ML/generative stack. Our job is to *sample media → call the model →
->   turn the result into validated, reversible edits*, honestly and cheaply.
+>   **not** build our own CV/ML/generative stack. Our job is to _sample media → call the model →
+>   turn the result into validated, reversible edits_, honestly and cheaply.
 > - **The UI gets rewritten.** The editor surface is upgraded to a genuinely usable, beautiful,
 >   pro-grade UI — a dedicated workstream (**WS-J**) referencing **DaVinci Resolve**, **Adobe
 >   Premiere Pro**, and **CapCut**.
@@ -23,13 +24,19 @@
 > audio; beat-sync and ducking still work on it) and **collaboration/sharing** (single-user for
 > now).
 >
+> **Delta, 2026-08-23 — deliberate, not a reversal.** This decision dropped an **owned** catalog:
+> FramePilot hosting and licensing a library. It did not rule on **searching a third party's**
+> catalog, and the maintainer chose to build that. Shipped as the **Sounds** tab and the
+> `search_music`/`add_music` tools, on Openverse. The no-owned-catalog decision above still
+> stands. See `plan/3rd-party-sourcing/README.md` §D1 and ADR 0139.
+>
 > **Relationship to other plans.** The orchestration maturity work is **Workstream A**; its
 > task-level detail lives in [`AGENT-NATIVE-COMPLETION-PLAN.md`](./AGENT-NATIVE-COMPLETION-PLAN.md).
 > This document is the product superset.
 >
 > **Audience:** anyone picking up a piece of the product. Every capability is tagged with what it
 > needs — `[model]` `[engine]` `[schema+migration]` `[editor-core op]` `[AI tool]` `[UI]` `[pkg]` —
-> and honors the build order (the media/model integration ships *before* the AI behavior that
+> and honors the build order (the media/model integration ships _before_ the AI behavior that
 > calls it).
 
 ---
@@ -54,7 +61,7 @@ courses): silence-cutting, chaptering, pacing. Designed for (1) first; generaliz
 engine has found the silences, scenes, and beats → the editor says or points at what they want in
 plain creative language → **watches** the AI's proposal (and alternatives) land on a beautiful
 timeline → refines by pointing at moments → exports platform-native in one step. From raw file to
-publishable short faster than any tool, with an AI that actually knows what's *in* the video, in a
+publishable short faster than any tool, with an AI that actually knows what's _in_ the video, in a
 UI that feels as good as Premiere/Resolve and as approachable as CapCut.
 
 **Competitive frame.** Descript (transcript-first editing) · Opus Clip / Vizard (long→short) ·
@@ -71,20 +78,21 @@ The **deterministic spine is genuinely strong**; the **media-intelligence and cr
 surface is thin**; there are **honesty gaps** where edits exist but don't render; and the **UI is
 functional but not yet pro-grade**.
 
-| Layer | State | Notes |
-|---|---|---|
-| **Patch engine** (`editor-core`) | ✅ Strong | 20 typed ops, apply/**invert**/validate/diff, transactional, undo/redo, forward-only migrations |
-| **Timeline schema** (v4) | ✅ Solid base | video/audio/caption/overlay tracks, clips **with source in/out**, keyframes, free-form effects, transforms (scale/x/y/rotation/opacity), masks, transitions, audio gain/fade/duck/normalize, color grade, word-level transcript, assets/folders |
-| **Render engine** (MoviePy) | ✅ Real | compositing, transforms, 6 transitions, masks, parametric color grade, per-clip audio mix + master LUFS/denoise/limiter, **caption burn-in**, validation, 3 export presets |
-| **Analysis** | ◑ 3 real | `analyze_silence`, `detect_scenes` (cuts), `detect_beats` — ffmpeg. **No ASR, no vision, no classification.** |
-| **AI kernel** | ◑ Spine lit | recipe path (0-model, 6 recipes) live; planner path live-but-gated; sequential agent loop; thin semantic index; memory store; multi-provider incl. Ollama; MCP (single-shot) |
-| **UI** (`web-editor` / `ui`) | ◑ Functional | timeline, preview player, media bin, AI sidebar exist and work; not yet pro-grade ergonomics/polish; several panels minimal |
-| **Render queue** | ◑ Built, dark | async job queue exists but `/render` runs synchronously |
+| Layer                            | State         | Notes                                                                                                                                                                                                                                           |
+| -------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Patch engine** (`editor-core`) | ✅ Strong     | 20 typed ops, apply/**invert**/validate/diff, transactional, undo/redo, forward-only migrations                                                                                                                                                 |
+| **Timeline schema** (v4)         | ✅ Solid base | video/audio/caption/overlay tracks, clips **with source in/out**, keyframes, free-form effects, transforms (scale/x/y/rotation/opacity), masks, transitions, audio gain/fade/duck/normalize, color grade, word-level transcript, assets/folders |
+| **Render engine** (MoviePy)      | ✅ Real       | compositing, transforms, 6 transitions, masks, parametric color grade, per-clip audio mix + master LUFS/denoise/limiter, **caption burn-in**, validation, 3 export presets                                                                      |
+| **Analysis**                     | ◑ 3 real      | `analyze_silence`, `detect_scenes` (cuts), `detect_beats` — ffmpeg. **No ASR, no vision, no classification.**                                                                                                                                   |
+| **AI kernel**                    | ◑ Spine lit   | recipe path (0-model, 6 recipes) live; planner path live-but-gated; sequential agent loop; thin semantic index; memory store; multi-provider incl. Ollama; MCP (single-shot)                                                                    |
+| **UI** (`web-editor` / `ui`)     | ◑ Functional  | timeline, preview player, media bin, AI sidebar exist and work; not yet pro-grade ergonomics/polish; several panels minimal                                                                                                                     |
+| **Render queue**                 | ◑ Built, dark | async job queue exists but `/render` runs synchronously                                                                                                                                                                                         |
 
 **Honesty gaps to close (from the audit):**
-- **No transcription** — `transcript` is populated *externally*; nothing produces it. Captions,
+
+- **No transcription** — `transcript` is populated _externally_; nothing produces it. Captions,
   footage search, filler-cut, hooks all depend on it. **Biggest foundational hole.**
-- **Text/title overlays don't render** — ops exist and validate, but the compiler *skips* `text`
+- **Text/title overlays don't render** — ops exist and validate, but the compiler _skips_ `text`
   clips (`render/compiler.py:584`). An AI title edit "applies" but never appears.
 - **Captions are baseline-only** (fixed white box) — not animated word-highlight captions.
 - **LUT effect silently no-ops** — accepted/stored but not rendered (`compiler.py:419`).
@@ -94,7 +102,7 @@ functional but not yet pro-grade**.
   scenes/emotion), segmentation, filler-word detection.
 - **No generative media:** TTS, image/b-roll gen, background removal, upscaling.
 
-**Principle that follows:** before more AI *behavior*, (a) close the honesty gaps, (b) give the AI
+**Principle that follows:** before more AI _behavior_, (a) close the honesty gaps, (b) give the AI
 its **senses via models**, and (c) make the **UI worthy of the engine**. The kernel can't cut to a
 reaction it can't perceive, and a great engine behind a mediocre UI still loses the editor.
 
@@ -103,29 +111,25 @@ reaction it can't perceive, and a great engine behind a mediocre UI still loses 
 ## 3. Principles & invariants (every task obeys these)
 
 Inherited (AGENTS.md / ADR 0044), non-negotiable:
+
 1. **Build order:** media/model integration → validated render → AI tool → agent behavior. The
-   capability's *input* (a model result, an engine render) ships and is tested before the AI that
+   capability's _input_ (a model result, an engine render) ships and is tested before the AI that
    uses it. **Never fake a detection, transcription, or generation.**
 2. **AI emits patches only** — validated, **invertible** `editor-core` ops via the single
    `operationsForCall` trust boundary. Model outputs (a transcript, a detected box, a generated
-   asset) become *data or assets*, then *validated ops* — never raw project mutation.
+   asset) become _data or assets_, then _validated ops_ — never raw project mutation.
 3. **No schema change without a migration + doc + tests.** (§8 sequences them.)
 4. **Render vs. preview wall is absolute** — MoviePy renders; the UI previews with HTML/canvas/proxy.
 5. **One policy across in-app surfaces** (browser + desktop, same kernel). MCP stays single-shot.
 6. **Honesty** — no fabricated success; no edit that "applies" but doesn't render; a gated
-   capability *looks* gated. **Model-backed features are availability-, cost-, and consent-gated:**
+   capability _looks_ gated. **Model-backed features are availability-, cost-, and consent-gated:**
    if the model is unavailable/offline/over-budget, say so — never fabricate its output.
 
-The editor lens (where it conflicts with a coder-tool instinct, it wins):
-7. **Preview-first** — judge by watching (before ↔ after player), not by reading ops.
-8. **Taste stays human** — verification checks technical safety, never aesthetics.
-9. **Hide the machinery** — no "DAG/recipe/planner/tokens/model-ids" in the UI; speak edits; show
-   usage in plan terms.
-10. **End-to-end or it doesn't ship** — `[schema]`→`[engine/model]`→`[op+invert+validate]`→
-    `[tool]`→`[UI/preview]`→tests. A half-wired capability (today's text overlays, LUT) is a bug.
-11. **Model results are cached and consented** — perception/generation calls are content-hash
-    cached; generated media is labeled with provenance; anything sent to a hosted model is
-    disclosed, and a local/offline model is offered where one exists.
+The editor lens (where it conflicts with a coder-tool instinct, it wins): 7. **Preview-first** — judge by watching (before ↔ after player), not by reading ops. 8. **Taste stays human** — verification checks technical safety, never aesthetics. 9. **Hide the machinery** — no "DAG/recipe/planner/tokens/model-ids" in the UI; speak edits; show
+usage in plan terms. 10. **End-to-end or it doesn't ship** — `[schema]`→`[engine/model]`→`[op+invert+validate]`→
+`[tool]`→`[UI/preview]`→tests. A half-wired capability (today's text overlays, LUT) is a bug. 11. **Model results are cached and consented** — perception/generation calls are content-hash
+cached; generated media is labeled with provenance; anything sent to a hosted model is
+disclosed, and a local/offline model is offered where one exists.
 
 ---
 
@@ -133,52 +137,52 @@ The editor lens (where it conflicts with a coder-tool instinct, it wins):
 
 `✅` live · `◑` partial/gated · `❌` absent. "Delivered by" says model vs engine vs UI.
 
-| # | Capability | Today | Delivered by | WS / Horizon |
-|---|---|---|---|---|
-| C1 | **Transcription (ASR)** | ✅ (H0.1) | **AI model** (hosted Whisper; optional local) | WS-B / H0 |
-| C2 | **Text/title overlay rendering** | ✅ (H0.2) | engine (compiler) | WS-C / H0 |
-| C3 | **Animated / karaoke captions** | ✅ (H1.1) | schema + engine + caption editor UI | WS-C+J / H1 |
-| C4 | **Silence / filler / pause cleanup** | ✅ `remove_silence` + `filler_cleanup` (H1.4) | engine + transcript (C1) | WS-C / H0–H1 |
-| C5 | **Speed / time-remap / ramps** | ◑ constant-rate shipped (H1.2/H1.2b); ramps/speed-curves deferred (ADR 0046) | schema + engine + op | WS-C / H1 |
-| C6 | **Crop / reframe rect** | ✅ (H1.2c/H1.2d) | schema + engine + op | WS-C / H1 |
-| C7 | **Auto-reframe (16:9→9:16, subject-aware)** | ❌ | **AI model** (subject detect/track) + reframe op | WS-B+C / H2 |
-| C8 | **Blend modes** | ✅ (H1.2e/H1.2f) | schema + compositor | WS-C / H1 |
-| C9 | **Stickers / emoji / GIF / shapes** | ❌ | asset kind + overlay render + UI | WS-C / H2 |
-| C10 | **Face / subject / object detection + tracking** | ◑ stub | **AI model** (vision/segmentation API) | WS-B / H2 |
-| C11 | **Scene/shot classification, emotion, on-screen text, moments** | ❌ | **AI model** (multimodal vision) → semantic index | WS-B / H2 |
-| C12 | **Footage content search** | ◑ transcript search v1 (H1.5/J4) | transcript now (C1); visual via model later (C10/11) | WS-B+E / H1→H2 |
-| C13 | **Background removal / matting / green-screen** | ❌ | **AI model** (segmentation/matting API) + chroma op | WS-D / H3 |
-| C14 | **TTS / AI voiceover** | ❌ | **AI model** (TTS API) → audio asset | WS-D / H3 |
-| C15 | **Generative b-roll / image / video** | ❌ | **AI model** (image/video gen API) → asset | WS-D / H3 |
-| C16 | **Upscaling / enhancement** | ❌ | **AI model** (enhancement API) | WS-D / H3 |
-| C17 | **Music: import + beat-sync + auto-duck** | ◑ duck exists | engine (on **user-imported** audio; no catalog) | WS-C / H2 |
-| C18 | **Audio cleanup (denoise/EQ; filler cut)** | ◑ denoise/limiter/single-band EQ+compression (H1.4) + `filler_cleanup` (C4); multiband/buses/auto-SFX deferred (richer audio master spec) | engine + transcript (C1); AI-model denoise optional | WS-B+C / H1 |
-| C19 | **Long→short repurposing (auto-clip)** | ❌ | **AI model** (transcript+moments) + clip planner | WS-G / H2 |
-| C20 | **Platform-aware export / delivery** | ✅ 5 presets, async queue (H1.3) | engine + async queue | WS-C+I / H1 |
-| C21 | **Markers / chapters** | ◑ schema+op+UI done (2026-07-11); auto-chapter pending | schema + op + UI; auto-chapter via C1 | WS-C / H1 |
-| C22 | **Templates / brand kit / style memory** | ◑ style presets | schema + UI + learned taste | WS-H / H2 |
-| C23 | **Preview-first review + variations (A/B)** | ❌ preview disabled | UI + kernel | WS-E+J / H1 |
-| C24 | **Point-react-refine + Cmd+K + context pinning** | ❌ | UI + kernel | WS-E+J / H1 |
-| C25 | **Parallel/observable/verified kernel; tiers; recovery** | ◑ | WS-A (AGENT-NATIVE) | WS-A / H0–H1 |
-| C26 | **Autonomy: manual/auto/agent, approval, steering, long-horizon** | ◑ | WS-A + WS-F | WS-F / H1–H2 |
-| C27 | **Async render queue / scale / cloud render** | ◑ built, dark | engine + infra | WS-I / H1→H3 |
-| C28 | **Personalization / learned taste** | ◑ memory store | kernel (accept/reject → signals) | WS-H / H2 |
-| C29 | **Offline / local model + engine reachability** | ◑ Ollama | provider wiring + status | WS-A+B / H1 |
-| C30 | **Pro-grade editor UI** (timeline/monitors/bin/inspector/color/audio/export) | ◑ functional | **UI rewrite** | **WS-J / H0–H3** |
+| #   | Capability                                                                   | Today                                                                                                                                     | Delivered by                                         | WS / Horizon     |
+| --- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ---------------- |
+| C1  | **Transcription (ASR)**                                                      | ✅ (H0.1)                                                                                                                                 | **AI model** (hosted Whisper; optional local)        | WS-B / H0        |
+| C2  | **Text/title overlay rendering**                                             | ✅ (H0.2)                                                                                                                                 | engine (compiler)                                    | WS-C / H0        |
+| C3  | **Animated / karaoke captions**                                              | ✅ (H1.1)                                                                                                                                 | schema + engine + caption editor UI                  | WS-C+J / H1      |
+| C4  | **Silence / filler / pause cleanup**                                         | ✅ `remove_silence` + `filler_cleanup` (H1.4)                                                                                             | engine + transcript (C1)                             | WS-C / H0–H1     |
+| C5  | **Speed / time-remap / ramps**                                               | ◑ constant-rate shipped (H1.2/H1.2b); ramps/speed-curves deferred (ADR 0046)                                                              | schema + engine + op                                 | WS-C / H1        |
+| C6  | **Crop / reframe rect**                                                      | ✅ (H1.2c/H1.2d)                                                                                                                          | schema + engine + op                                 | WS-C / H1        |
+| C7  | **Auto-reframe (16:9→9:16, subject-aware)**                                  | ❌                                                                                                                                        | **AI model** (subject detect/track) + reframe op     | WS-B+C / H2      |
+| C8  | **Blend modes**                                                              | ✅ (H1.2e/H1.2f)                                                                                                                          | schema + compositor                                  | WS-C / H1        |
+| C9  | **Stickers / emoji / GIF / shapes**                                          | ❌                                                                                                                                        | asset kind + overlay render + UI                     | WS-C / H2        |
+| C10 | **Face / subject / object detection + tracking**                             | ◑ stub                                                                                                                                    | **AI model** (vision/segmentation API)               | WS-B / H2        |
+| C11 | **Scene/shot classification, emotion, on-screen text, moments**              | ❌                                                                                                                                        | **AI model** (multimodal vision) → semantic index    | WS-B / H2        |
+| C12 | **Footage content search**                                                   | ◑ transcript search v1 (H1.5/J4)                                                                                                          | transcript now (C1); visual via model later (C10/11) | WS-B+E / H1→H2   |
+| C13 | **Background removal / matting / green-screen**                              | ❌                                                                                                                                        | **AI model** (segmentation/matting API) + chroma op  | WS-D / H3        |
+| C14 | **TTS / AI voiceover**                                                       | ❌                                                                                                                                        | **AI model** (TTS API) → audio asset                 | WS-D / H3        |
+| C15 | **Generative b-roll / image / video**                                        | ❌                                                                                                                                        | **AI model** (image/video gen API) → asset           | WS-D / H3        |
+| C16 | **Upscaling / enhancement**                                                  | ❌                                                                                                                                        | **AI model** (enhancement API)                       | WS-D / H3        |
+| C17 | **Music: import + beat-sync + auto-duck**                                    | ◑ duck exists                                                                                                                             | engine (on **user-imported** audio; no catalog)      | WS-C / H2        |
+| C18 | **Audio cleanup (denoise/EQ; filler cut)**                                   | ◑ denoise/limiter/single-band EQ+compression (H1.4) + `filler_cleanup` (C4); multiband/buses/auto-SFX deferred (richer audio master spec) | engine + transcript (C1); AI-model denoise optional  | WS-B+C / H1      |
+| C19 | **Long→short repurposing (auto-clip)**                                       | ❌                                                                                                                                        | **AI model** (transcript+moments) + clip planner     | WS-G / H2        |
+| C20 | **Platform-aware export / delivery**                                         | ✅ 5 presets, async queue (H1.3)                                                                                                          | engine + async queue                                 | WS-C+I / H1      |
+| C21 | **Markers / chapters**                                                       | ◑ schema+op+UI done (2026-07-11); auto-chapter pending                                                                                    | schema + op + UI; auto-chapter via C1                | WS-C / H1        |
+| C22 | **Templates / brand kit / style memory**                                     | ◑ style presets                                                                                                                           | schema + UI + learned taste                          | WS-H / H2        |
+| C23 | **Preview-first review + variations (A/B)**                                  | ❌ preview disabled                                                                                                                       | UI + kernel                                          | WS-E+J / H1      |
+| C24 | **Point-react-refine + Cmd+K + context pinning**                             | ❌                                                                                                                                        | UI + kernel                                          | WS-E+J / H1      |
+| C25 | **Parallel/observable/verified kernel; tiers; recovery**                     | ◑                                                                                                                                         | WS-A (AGENT-NATIVE)                                  | WS-A / H0–H1     |
+| C26 | **Autonomy: manual/auto/agent, approval, steering, long-horizon**            | ◑                                                                                                                                         | WS-A + WS-F                                          | WS-F / H1–H2     |
+| C27 | **Async render queue / scale / cloud render**                                | ◑ built, dark                                                                                                                             | engine + infra                                       | WS-I / H1→H3     |
+| C28 | **Personalization / learned taste**                                          | ◑ memory store                                                                                                                            | kernel (accept/reject → signals)                     | WS-H / H2        |
+| C29 | **Offline / local model + engine reachability**                              | ◑ Ollama                                                                                                                                  | provider wiring + status                             | WS-A+B / H1      |
+| C30 | **Pro-grade editor UI** (timeline/monitors/bin/inspector/color/audio/export) | ◑ functional                                                                                                                              | **UI rewrite**                                       | **WS-J / H0–H3** |
 
-*(Dropped from earlier drafts per decision: owned music catalog, collaboration/sharing.)*
+_(Dropped from earlier drafts per decision: owned music catalog, collaboration/sharing.)_
 
 ---
 
 ## 5. Workstreams
 
 - **WS-A — Orchestration maturity.** Parallel proposer+DAG kernel, tiers, semantic slices, cost/
-  replay/recovery, cross-surface parity, verify. *Detail: `AGENT-NATIVE-COMPLETION-PLAN.md`.*
+  replay/recovery, cross-surface parity, verify. _Detail: `AGENT-NATIVE-COMPLETION-PLAN.md`._
 - **WS-B — Media intelligence via AI models (perception).** The AI's senses — ASR, vision/content
   understanding, subject detection/tracking, moment signals — delivered by **models behind a
   provider abstraction**, not a custom ML stack. Engine side is thin: sample frames/audio → call
   model → cache → feed the semantic index.
-- **WS-C — Editing capability surface.** Fill the primitive gaps for a *complete* edit: render
+- **WS-C — Editing capability surface.** Fill the primitive gaps for a _complete_ edit: render
   text/titles, animated captions, speed/ramps, crop, blend modes, stickers, markers,
   beat-sync/duck on imported music, platform export. Each = schema + engine + op + tool + UI.
 - **WS-D — Generative studio via AI models.** Create media, not just cut it: TTS, image/b-roll/
@@ -203,16 +207,17 @@ The editor lens (where it conflicts with a coder-tool instinct, it wins):
 ## 6. WS-J in depth — the UI/UX rewrite (references: Resolve · Premiere · CapCut)
 
 The engine deserves a UI that matches it. We rewrite the editor surface (`packages/ui` +
-`apps/web-editor`, mirrored on desktop) into a coherent, professional, *approachable* product.
+`apps/web-editor`, mirrored on desktop) into a coherent, professional, _approachable_ product.
 
 **What we borrow from each (deliberately):**
+
 - **DaVinci Resolve** — workspace clarity (page/mode-based layouts), the **inspector** model
   (context-sensitive parametric controls), color tooling (wheels/curves/scopes), dark, dense,
   legible pro aesthetic, keyboard-driven speed.
 - **Adobe Premiere Pro** — **timeline ergonomics** (ripple/roll/slip/slide, track targeting,
   snapping, nesting), **source vs program monitors**, **Effect Controls** panel with keyframe
   lanes, robust shortcut system, project/bin organization.
-- **CapCut** — *approachability and delight*: one-click effects/transitions, the **animated caption
+- **CapCut** — _approachability and delight_: one-click effects/transitions, the **animated caption
   editor**, sticker/text pickers, template feel, friendly defaults, motion polish, "it just looks
   fun and easy."
 
@@ -259,8 +264,8 @@ The engine deserves a UI that matches it. We rewrite the editor surface (`packag
 - **J6 — Animated caption editor** `[UI]` `[H1]`: CapCut-class — pick a style preset, edit words,
   set word-highlight/animation, reposition, preview live. Backs C3.
 - **J7 — AI sidebar redesign** `[UI]` `[H0→H2]`: the run HUD, preview-first review queue,
-  variations, plan step-list, mid-run steering, context chips, Cmd+K — *detail in
-  `AGENT-NATIVE-COMPLETION-PLAN.md` P12*, built on the J1 design system.
+  variations, plan step-list, mid-run steering, context chips, Cmd+K — _detail in
+  `AGENT-NATIVE-COMPLETION-PLAN.md` P12_, built on the J1 design system.
 - **J8 — Color panel** `[UI]` `[H2]`: Resolve-inspired wheels/curves + scopes (backs the existing
   parametric grade + LUT once wired). Approachable "looks" for creators, deep controls underneath.
 - **J9 — Audio mixer** `[UI]` `[H2]`: per-track levels/meters, fades, ducking controls, master
@@ -283,8 +288,9 @@ the design system, not a big-bang rewrite.
 Horizons are product milestones, not dates. Tasks are grouped by workstream and tagged.
 
 ### Horizon 0 — Foundation true · kernel mature · UI groundwork
-*Goal: nothing pretends to work; the AI gains hearing (ASR via model); the kernel is parallel/
-observable/verified; the UI rewrite's foundation and timeline land.*
+
+_Goal: nothing pretends to work; the AI gains hearing (ASR via model); the kernel is parallel/
+observable/verified; the UI rewrite's foundation and timeline land._
 
 - **H0.1 — Transcription via AI model [WS-B]**
   - [x] `[model][pkg]` Add a **speech provider** (2026-07-10): extended `ai-sdk/providers` (not a
@@ -330,7 +336,7 @@ observable/verified; the UI rewrite's foundation and timeline land.*
   - [x] `[test]` Goldens proving titles + LUTs actually appear (`test_compile_burns_in_text_overlay`,
         `test_compile_applies_lut_from_sandboxed_cube_file` in
         `engine/python/tests/test_render_compiler.py`).
-- **H0.3 — Orchestration maturity spine [WS-A]** *(AGENT-NATIVE)*: tier routing (P3.4); semantic
+- **H0.3 — Orchestration maturity spine [WS-A]** _(AGENT-NATIVE)_: tier routing (P3.4); semantic
   index ingests real analysis **+ transcript** and slices (P4, now unblocked); parallel "what's
   running" + first-frame shimmer (P8.1/P8.2); cost/replay/recovery in **plan terms not tokens**
   (P7); engine reachability + offline/local path + status chip (P5).
@@ -359,7 +365,7 @@ observable/verified; the UI rewrite's foundation and timeline land.*
   - [x] `[UI]` **P8.1/P8.2 — parallel "what's running" view + shimmer** (2026-07-10): a new
         `TaskRunView` renders `view.tasks` (already fully computed, never rendered) as simultaneous
         cards, confirmed live end to end through `streamPlannedEdit → executePlannedEdit →
-        runGraph`; the first status shimmer was already guaranteed within one frame, proven with a
+    runGraph`; the first status shimmer was already guaranteed within one frame, proven with a
         test rather than duplicated. P8.3–P8.7 remain explicitly deferred. See P8.
 - **H0.4 — UI foundation [WS-J]**: design system & workspace shell (J1); **timeline rewrite** begins
   (J2).
@@ -368,7 +374,7 @@ observable/verified; the UI rewrite's foundation and timeline land.*
         token (surfaces/borders/text/accent/semantic/clip colors, spacing, radius, type scale,
         elevation, motion, z-index) — a byte-identical extraction of the dark values that used to
         be duplicated directly in `apps/web-editor/src/styles.css`'s `:root` (`styles.css` now
-        `@import`s it), plus a net-new **light theme** (same token *names*, new *values*,
+        `@import`s it), plus a net-new **light theme** (same token _names_, new _values_,
         preserving every relationship the dark ramp encodes: surfaces still layer base→elevated,
         text still uses an opacity hierarchy, one accent, flat type-coded clip fills, etc.). Theme
         resolution mirrors the app's existing `data-reduced-motion` override pattern:
@@ -427,8 +433,9 @@ now wired end to end into preview audio) — with ripple/roll/slip/slide, track 
 and a dedicated keyframe-lane row explicitly carried forward as H1's timeline-rewrite body of work.
 
 ### Horizon 1 — The complete instant creator editor
-*Goal: a creator does a full short-form edit end to end — AI does the grunt work instantly and
-free, every proposal judged by watching — in a UI that feels pro and friendly.*
+
+_Goal: a creator does a full short-form edit end to end — AI does the grunt work instantly and
+free, every proposal judged by watching — in a UI that feels pro and friendly._
 
 - **H1.1 — Animated captions [WS-C + WS-J/J6]** `[x] shipped 2026-07-10`: `[schema v5]` rich
   caption style (font/color/outline/position/**word-highlight**/animation/presets, per-word timing
@@ -451,7 +458,7 @@ free, every proposal judged by watching — in a UI that feels pro and friendly.
   H1.3a) and the desktop/web-editor export dialog now consumes it end to end — live
   queued/running/cancel status (no fake progress bar; the contract has no numeric percentage),
   H1.3b. Export presets are now **creator actions** (Reels/TikTok/Shorts/YouTube, plus Square) with
-  aspect + burned captions + a per-platform loudness *default* (-14 LUFS social convention; still
+  aspect + burned captions + a per-platform loudness _default_ (-14 LUFS social convention; still
   user-overridable, H1.3b). Reframe-to-aspect (center/scale now, subject-aware in H2) remains a
   separate, not-yet-started follow-up.
 - **H1.4 — Transcript-driven cleanup [WS-B/WS-C]** `[x]` shipped 2026-07-11: `[engine]`
@@ -462,7 +469,7 @@ free, every proposal judged by watching — in a UI that feels pro and friendly.
 - **H1.5 — Editor-first AI experience [WS-E + WS-J/J3,J7]**: **preview-first review** (before↔after
   player as the headline; enable the disabled Preview) · **variations / A-B** · **point-react-
   refine + Cmd+K + context pinning** · **creative vocabulary** · **footage search v1** over
-  transcript. *(All cross-ref AGENT-NATIVE P8/P12/P13.)*
+  transcript. _(All cross-ref AGENT-NATIVE P8/P12/P13.)_
   - `[x]` done (2026-07-10, extended 2026-07-11): the **before/after AI-review player** slice —
     thread the already-computed `assembleEdit` before/after Timeline diff (previously discarded)
     through a new `editor-core` `structuredDiffTimeline` helper + `ai-sdk` plumbing into a real
@@ -525,7 +532,7 @@ free, every proposal judged by watching — in a UI that feels pro and friendly.
     combined cost of both calls when the toggle is on, never hidden. See
     `plan/AGENT-NATIVE-COMPLETION-PLAN.md` P13.1 for the full breakdown, including what's
     deferred (desktop IPC threading, concurrent candidate calls).
-- **H1.6 — Autonomy: planner-primary [WS-F]** *(AGENT-NATIVE P11)*: the parallel planner becomes the
+- **H1.6 — Autonomy: planner-primary [WS-F]** _(AGENT-NATIVE P11)_: the parallel planner becomes the
   **primary** agent route; technical verify on every path; plan-approval step-list; mid-run steering.
   - `[x]` done (2026-07-11): **P11.1/P11.2/P11.5/P11.6 (kernel half)** — the
     planner path's `isRecognizedPlan`/`executePlannedEdit` now recognise the UNION of the
@@ -560,8 +567,9 @@ export — mechanical steps instant/free, creative steps reviewed — in a timel
 UI that feels professional.
 
 ### Horizon 2 — The creative co-editor that understands the footage
-*Goal: the AI makes **story-level** decisions because a model lets it **see**. Repurposing,
-subject-aware reframing, brand, and long-horizon autonomy land.*
+
+_Goal: the AI makes **story-level** decisions because a model lets it **see**. Repurposing,
+subject-aware reframing, brand, and long-horizon autonomy land._
 
 - **H2.1 — Vision / content understanding via models [WS-B]**: `[model][engine]` a **vision layer**
   in `@framepilot/ai-media` — sample keyframes → multimodal model → scene/shot classification,
@@ -577,11 +585,11 @@ subject-aware reframing, brand, and long-horizon autonomy land.*
   moment signals + pacing) → `[kernel/UI]` **auto-clip pipeline**: one long input → a batch of
   proposed shorts (captioned + reframed + hooked), each previewable and fully editable after.
 - **H2.4 — Music (imported) [WS-C]**: beat-sync (extends `detect_beats`) and **auto-duck** dialogue
-  on the user's **imported** audio. *(No owned catalog.)*
+  on the user's **imported** audio. _(No owned catalog.)_
 - **H2.5 — Personalization & brand [WS-H]**: `[AI]` actionable taste memory (accepted-vs-rejected →
   preference signals); `[schema/UI]` **brand kit + templates** (fonts/colors/caption style/intro-
   outro/watermark) that replay across projects.
-- **H2.6 — Long-horizon supervised autonomy [WS-F]** *(AGENT-NATIVE Appendix A, now in scope)*:
+- **H2.6 — Long-horizon supervised autonomy [WS-F]** _(AGENT-NATIVE Appendix A, now in scope)_:
   "make this a polished 45s reel" runs as one **supervised, budgeted, interruptible arc** across
   segments, pausing for approval on big moves, always resumable.
 - **H2.7 — UI [WS-J]**: color panel + scopes (J8), audio mixer (J9), command palette + keyboard
@@ -593,9 +601,10 @@ brand; a supervised agent takes a rough cut to a polished short with human appro
 color/audio/command-palette UI is in.
 
 ### Horizon 3 — Generative studio & scale
-*Goal: create media (via models), not just arrange it; run at product scale.*
 
-- **H3.1 — Generative media via models [WS-D]** *(strict honesty/consent/labeling)*:
+_Goal: create media (via models), not just arrange it; run at product scale._
+
+- **H3.1 — Generative media via models [WS-D]** _(strict honesty/consent/labeling)_:
   `[model][pkg][AI tool]` **TTS/voiceover** → audio asset; **generative b-roll / image / video** →
   imported visual asset (the `add_asset` seam anticipates this); **background removal / matting**
   and **chroma key**; **upscaling/enhancement**. Every output is a **reviewed, deletable, labeled**
@@ -618,12 +627,12 @@ and render in the cloud — all model-backed, reviewed, and labeled — inside o
 We do **not** build CV/ML/generative engines. We build **provider abstractions + thin media-prep**,
 mirroring the proven `ai-sdk/providers` pattern.
 
-| Piece | Purpose | Horizon | Notes |
-|---|---|---|---|
-| **`@framepilot/ai-media`** (pkg) | One abstraction over **perception + generation models**: speech (ASR), vision (describe/classify/OCR/moments), detection/segmentation, TTS, image/video gen, matting, upscale | H0→H3 | Multi-provider (hosted + optional local); honest availability; cost + consent + content-hash cache; results become data/assets, then validated ops |
-| **Media-prep helpers** (engine) | Sample frames, extract audio, thumbnail keyframes to feed models | H0→H2 | Thin; no ML deps in-repo — the models are hosted/optional-local |
-| **Async render workers** (engine/infra) | Scale exports | H3 | Generalizes `render/queue.py` |
-| **`packages/ui` rewrite** (WS-J) | Design system + all editor panels | H0→H3 | Resolve/Premiere/CapCut references |
+| Piece                                   | Purpose                                                                                                                                                                       | Horizon | Notes                                                                                                                                              |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`@framepilot/ai-media`** (pkg)        | One abstraction over **perception + generation models**: speech (ASR), vision (describe/classify/OCR/moments), detection/segmentation, TTS, image/video gen, matting, upscale | H0→H3   | Multi-provider (hosted + optional local); honest availability; cost + consent + content-hash cache; results become data/assets, then validated ops |
+| **Media-prep helpers** (engine)         | Sample frames, extract audio, thumbnail keyframes to feed models                                                                                                              | H0→H2   | Thin; no ML deps in-repo — the models are hosted/optional-local                                                                                    |
+| **Async render workers** (engine/infra) | Scale exports                                                                                                                                                                 | H3      | Generalizes `render/queue.py`                                                                                                                      |
+| **`packages/ui` rewrite** (WS-J)        | Design system + all editor panels                                                                                                                                             | H0→H3   | Resolve/Premiere/CapCut references                                                                                                                 |
 
 Extend existing packages: `editor-core` (speed/crop/blend/markers/captions/reframe/chroma ops),
 `timeline-schema` (§9 migrations), `ai-sdk` (new tools + tiers + semantic ingestion + perception/
@@ -635,25 +644,26 @@ sharing service.
 **Dependency stance:** hosted models add **API integrations**, not heavy local deps — lighter than
 a bundled CV/ML stack, but still gated on maintainer sign-off for **provider strategy, cost model,
 and consent/labeling policy** (CLAUDE.md §5). Optional local models (whisper.cpp, a local vision/
-matting model) are the offline fallback and *do* carry a packaging decision.
+matting model) are the offline fallback and _do_ carry a packaging decision.
 
 ---
 
 ## 9. Schema evolution roadmap (each = migration + doc + tests, forward-only)
 
 Current `SCHEMA_VERSION = 4`; additive/stepwise:
+
 - **v5 — Rich caption style** (font/color/outline/position/karaoke/animation/presets). [H1.1]
 - **v6 — Speed / time-remap** (decouple source vs timeline duration; speed curve). [H1.2]
 - **v7 — Crop rect.** [H1.2]
 - **v8 — Blend mode.** [H1.2]
 - **v9 — Markers / chapters.** [H1.2]
 - **v10 — Sticker/emoji/GIF asset kind + overlay clip type.** [H2/C9]
-- **v11 — Perception metadata** (detections/tracks/scene tags) — *kept in a content-hashed sidecar
-  index, not the project file, to stay lean; only stable references land in the doc.* [H2.1]
+- **v11 — Perception metadata** (detections/tracks/scene tags) — _kept in a content-hashed sidecar
+  index, not the project file, to stay lean; only stable references land in the doc._ [H2.1]
 - **v12 — Brand kit / template model.** [H2.5]
 - **v13 — Generated-asset provenance** (model, prompt, consent/labeling flags). [H3.1]
 
-Transcript is already modeled — H0.1 only *populates* it (no migration). Keep the project file
+Transcript is already modeled — H0.1 only _populates_ it (no migration). Keep the project file
 lean; heavy model outputs live in the memoized semantic index / sidecar cache.
 
 ---
@@ -685,17 +695,18 @@ lean; heavy model outputs live in the memoized semantic index / sidecar cache.
 ## 11. Sequencing & first moves
 
 **Critical path.** Perception gates the creative AI (can't edit footage a model hasn't described);
-the UI gates adoption (a great engine behind a weak UI loses the editor). So: *senses (models) +
-UI foundation → primitives + experience → understanding + repurposing → generative + scale.*
+the UI gates adoption (a great engine behind a weak UI loses the editor). So: _senses (models) +
+UI foundation → primitives + experience → understanding + repurposing → generative + scale._
 
-| Wave | Focus | Why first |
-|---|---|---|
-| 1 (H0) | **ASR via model** · close honesty gaps (text render, LUT) · kernel maturity spine · **design system + timeline rewrite** | Give the AI hearing; stop pretending; mature the engine; put the UI on a real foundation |
-| 2 (H1) | Animated captions + caption editor · speed/crop/blend/markers · platform export (async queue) · preview-first + variations + Cmd+K · filler-cut · planner-primary autonomy · monitors/bin/inspector/export UI | The complete instant creator editor |
-| 3 (H2) | Vision via models · auto-reframe · long→short repurposing · imported-music beat-sync/duck · brand + taste · long-horizon autonomy · color/audio/command-palette UI | The creative co-editor that sees — the moat |
-| 4 (H3) | Generative media via models · cloud render · UI polish pass | The studio at scale |
+| Wave   | Focus                                                                                                                                                                                                         | Why first                                                                                |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 1 (H0) | **ASR via model** · close honesty gaps (text render, LUT) · kernel maturity spine · **design system + timeline rewrite**                                                                                      | Give the AI hearing; stop pretending; mature the engine; put the UI on a real foundation |
+| 2 (H1) | Animated captions + caption editor · speed/crop/blend/markers · platform export (async queue) · preview-first + variations + Cmd+K · filler-cut · planner-primary autonomy · monitors/bin/inspector/export UI | The complete instant creator editor                                                      |
+| 3 (H2) | Vision via models · auto-reframe · long→short repurposing · imported-music beat-sync/duck · brand + taste · long-horizon autonomy · color/audio/command-palette UI                                            | The creative co-editor that sees — the moat                                              |
+| 4 (H3) | Generative media via models · cloud render · UI polish pass                                                                                                                                                   | The studio at scale                                                                      |
 
 **Start here (highest leverage):**
+
 1. **H0.1 — ASR via an AI-model speech provider.** The keystone sense; unlocks captions, footage
    search, filler-cut, hooks, and H2 repurposing.
 2. **H0.2 — close the honesty gaps** (render text overlays; wire LUT) — small, makes the product
@@ -705,6 +716,7 @@ UI foundation → primitives + experience → understanding + repurposing → ge
 4. **H0.3 — kernel maturity spine** (AGENT-NATIVE P3.4/P4/P7/P8), now unblocked by real transcript.
 
 **Decisions to confirm before building (ASK the maintainer — CLAUDE.md §5):**
+
 - **AI-model provider strategy** — which speech/vision/segmentation/TTS/image/video providers;
   hosted vs optional-local; the **cost model** (per §7, usage shown to users in plan terms).
 - **Consent & labeling policy** — disclosure for footage sent to hosted models; provenance/

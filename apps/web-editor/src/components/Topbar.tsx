@@ -10,6 +10,7 @@
  * All project IO is owned by {@link App}; this is the presentation.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Asset } from '@framepilot/timeline-schema';
 import { Button } from '@framepilot/ui';
 import { Menu, MenuItem } from './Menu.js';
 import { Tooltip } from './Tooltip.js';
@@ -64,6 +65,8 @@ export interface TopbarProps {
   readonly ensureSavedForExport: () => Promise<string | null>;
   /** Reveal an exported file in the OS file manager. */
   readonly onRevealExport: (path: string) => void;
+  /** The project's media bin, for the export dialog's Credits list (schema v20). */
+  readonly assets: readonly Asset[];
   /** Toggle the project history panel. */
   readonly onOpenHistory: () => void;
   /** Whether the history panel is currently open (drives the active state). */
@@ -78,6 +81,17 @@ export interface TopbarProps {
   readonly transcriptionOpen?: boolean;
   readonly onOpenShortcuts: () => void;
   readonly onOpenSettings: () => void;
+  /**
+   * Receives the empty box in the middle of the bar, for the editor to portal
+   * the monitor's Source/Program switch and view controls into.
+   *
+   * A callback ref rather than a rendered child because the owner of those
+   * controls is `Editor`, a SIBLING of this component — the monitor tab state
+   * they read lives there, and hoisting it into `App` just to render it here
+   * would drag the whole monitor's state up two levels to win 29px of picture.
+   * `null` on unmount so the portal tears down with the bar.
+   */
+  readonly onMonitorSlotRef?: (element: HTMLDivElement | null) => void;
 }
 
 export function Topbar({
@@ -93,6 +107,7 @@ export function Topbar({
   onRename,
   ensureSavedForExport,
   onRevealExport,
+  assets,
   onOpenHistory,
   historyOpen = false,
   onOpenUnderstanding,
@@ -101,6 +116,7 @@ export function Topbar({
   transcriptionOpen = false,
   onOpenShortcuts,
   onOpenSettings,
+  onMonitorSlotRef,
 }: TopbarProps): JSX.Element {
   const hasPath = path.trim() !== '';
   const { settings, update: updateSettings } = useSettings();
@@ -266,6 +282,10 @@ export function Topbar({
         </Tooltip>
       </span>
 
+      {/* Filled by `Editor` through a portal; empty (and zero-height) in any
+          render without a monitor, such as the Topbar's own tests. */}
+      <div className="topbar-monitor" ref={onMonitorSlotRef ?? null} />
+
       {/* Every tooltip in the header opens DOWNWARD: the topbar sits flush against
           the window's top edge, so a default top-placed bubble is clipped (or
           overlaps the OS chrome) instead of pointing at its control. */}
@@ -341,7 +361,11 @@ export function Topbar({
         >
           Send feedback
         </Button>
-        <ExportDialog ensureSaved={ensureSavedForExport} onReveal={onRevealExport} />
+        <ExportDialog
+          ensureSaved={ensureSavedForExport}
+          onReveal={onRevealExport}
+          assets={assets}
+        />
         <Tooltip
           label={effectiveTheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
           placement="bottom"

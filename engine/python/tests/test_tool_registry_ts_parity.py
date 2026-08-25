@@ -107,6 +107,13 @@ def test_host_ui_only_tools_are_detected_and_excluded() -> None:
     assert host_ui_only == {
         "ask_user",
         "measure_color",
+        # Main-process only: the provider network and the project media directory
+        # live in Electron main, and there is no sidecar route to fall back to
+        # (ADR 0139). Desktop Agent mode still offers them.
+        "search_music",
+        "add_music",
+        "search_stock",
+        "add_stock",
         "professional_audio",
         "professional_color",
         "professional_edit",

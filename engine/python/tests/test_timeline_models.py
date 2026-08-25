@@ -257,3 +257,73 @@ def test_project_capability_pack_pins_round_trip_under_camel_case() -> None:
 def test_audio_role_rejects_an_unknown_role() -> None:
     with pytest.raises(ValidationError):
         Track.model_validate({"id": "a1", "type": "audio", "role": "narration", "clips": []})
+
+
+def test_asset_source_round_trips_through_the_engine_under_camel_case() -> None:
+    """Provenance survives an engine round-trip (schema v20, ADR 0139).
+
+    The engine reads nothing from ``Asset.source`` — provenance cannot affect a
+    render. It is tested here because the failure mode is silent: a model that
+    dropped the field would erase the only durable record that a track needs
+    crediting, and the loss would only surface at publish time.
+    """
+    source = {
+        "provider": "openverse",
+        "remoteId": "ov-12345",
+        "license": "cc-by",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+        "attributionRequired": True,
+        "attribution": '"Calm Lofi Bed" by Ada Lovelace is licensed under CC BY 4.0.',
+        "creator": "Ada Lovelace",
+        "creatorUrl": "https://example.test/ada",
+        "sourceUrl": "https://openverse.org/audio/ov-12345",
+        "fetchedAt": "2026-08-23T12:00:00.000Z",
+    }
+    project = Project.model_validate(
+        {
+            "id": "p",
+            "name": "P",
+            "assets": [{"id": "a1", "path": "media/bed.mp3", "kind": "audio", "source": source}],
+        }
+    )
+
+    asset_source = project.assets[0].source
+    assert asset_source is not None
+    assert asset_source.attribution_required is True
+    assert asset_source.creator == "Ada Lovelace"
+
+    dumped = project.model_dump(by_alias=True)["assets"][0]["source"]
+    assert dumped == source
+    assert Project.model_validate(project.model_dump(by_alias=True)) == project
+
+
+def test_asset_without_a_source_stays_absent_rather_than_inventing_provenance() -> None:
+    """A user-imported file has no provenance, and the engine must not manufacture one."""
+    project = Project.model_validate(
+        {"id": "p", "name": "P", "assets": [{"id": "a1", "path": "media/cam.mp4"}]}
+    )
+    assert project.assets[0].source is None
+    assert project.model_dump(by_alias=True)["assets"][0]["source"] is None
+
+
+def test_asset_source_requires_the_attribution_flag_to_be_explicit() -> None:
+    """Defaulting the flag would silently downgrade a credit obligation to none."""
+    with pytest.raises(ValidationError):
+        Project.model_validate(
+            {
+                "id": "p",
+                "name": "P",
+                "assets": [
+                    {
+                        "id": "a1",
+                        "path": "media/bed.mp3",
+                        "source": {
+                            "provider": "openverse",
+                            "remoteId": "ov-1",
+                            "license": "cc-by",
+                            "fetchedAt": "2026-08-23T12:00:00.000Z",
+                        },
+                    }
+                ],
+            }
+        )

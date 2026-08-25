@@ -39,7 +39,11 @@ import {
   type OpenDialogOptions,
 } from 'electron';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
-import type { Patch } from '@framepilot/editor-core';
+import {
+  DEFAULT_STOCK_STILL_SECONDS,
+  type Patch,
+  stockPlacementConflictReason,
+} from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
 import {
   readProjectFile,
@@ -108,6 +112,16 @@ import {
   type MediaImportResult,
   type ImportAssetRequest,
   type ImportAssetResult,
+  type MusicSearchResult,
+  type MusicPreviewResult,
+  type MusicDownloadResult,
+  type MusicDownloadRequest,
+  type StockSearchRequest,
+  type StockSearchResult,
+  type StockBytesResult,
+  type StockDownloadRequest,
+  type StockDownloadResult,
+  type StockQuotaSnapshot,
   type TranscriptionRequest,
   type TranscriptionResult,
   type ConversationSaveResult,
@@ -168,6 +182,11 @@ import { exportViaSidecar } from './render/export-client.js';
 import { ExportHub } from './render/export-hub.js';
 import { saveExportAs } from './render/export-save.js';
 import { importAssetViaSidecar } from './media/asset-media-client.js';
+import { MusicService } from './media/music-service.js';
+import { StockService, isStockKind } from './media/stock-service.js';
+
+import { StockQuotaStore } from './media/stock-quota.js';
+import { musicErrorMessage, stockErrorMessage } from '@framepilot/ai-sdk';
 import { LocalTelemetry, telemetryEnabledFromEnv } from './telemetry/telemetry.js';
 import { resolveUpdateChannel } from './updater/channel.js';
 import { createAutoUpdaterProvider, type AutoUpdaterLike } from './updater/auto-updater.js';
@@ -638,6 +657,75 @@ function registerIpcHandlers(): void {
         await sidecar.start();
       },
     });
+  /**
+   * Music sourcing lives entirely in main.
+   *
+   * The renderer's CSP cannot reach a provider host, and this does not change
+   * it: main fetches, and audition bytes reach the renderer over IPC as a
+   * `blob:` URL, which `media-src` already permits. The renderer is never handed
+   * a provider URL, so the guarantee is structural rather than a convention.
+   */
+  const musicService = new MusicService({
+    projectsRoot: resolveProjectsDir(process.env, app.getPath('documents')),
+    fetchImpl: electronFetch,
+    deriveAssetMedia: async (absolutePath) => {
+      // Reuses the existing /asset-media route — no new engine surface. A
+      // failure is non-fatal: a missing waveform is a degraded timeline row, a
+      // missing asset is a lost download.
+      const derived = await importAssetViaSidecar(
+        engineBaseUrl,
+        { inputPath: absolutePath, thumbnails: 0, proxy: false },
+        electronFetch,
+      );
+      return derived.ok ? derived : null;
+    },
+    onProgress: (progress) => {
+      if (mainWindow !== null && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IpcChannels.musicDownloadProgress, progress);
+      }
+    },
+  });
+
+  /**
+   * Stock sourcing, alongside music and for the same structural reason: main
+   * holds the key and the network, the renderer holds no provider URL.
+   *
+   * The quota store is separate from `ai-config.json` because it is observed
+   * telemetry rather than configuration — it changes on the provider's schedule,
+   * it is disposable, and a corrupt read must degrade to "not measured" rather
+   * than take the AI settings down with it.
+   */
+  const stockQuota = new StockQuotaStore({
+    filePath: path.join(app.getPath('userData'), 'stock-quota.json'),
+    isKeyConfigured: () => aiConfig.resolvePexelsApiKey() !== undefined,
+  });
+  stockQuota.subscribe((snapshot) => {
+    if (mainWindow !== null && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IpcChannels.stockQuotaChanged, snapshot);
+    }
+  });
+  const stockService = new StockService({
+    projectsRoot: resolveProjectsDir(process.env, app.getPath('documents')),
+    resolveApiKey: () => aiConfig.resolvePexelsApiKey(),
+    quota: stockQuota,
+    fetchImpl: electronFetch,
+    deriveAssetMedia: async (absolutePath) => {
+      // Thumbnails are requested here (unlike music, which asks for none): a
+      // stock clip in the bin without a filmstrip is the one that looks broken.
+      const derived = await importAssetViaSidecar(
+        engineBaseUrl,
+        { inputPath: absolutePath, thumbnails: 5, proxy: true },
+        electronFetch,
+      );
+      return derived.ok ? derived : null;
+    },
+    onProgress: (progress) => {
+      if (mainWindow !== null && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IpcChannels.stockDownloadProgress, progress);
+      }
+    },
+  });
+
   capabilityPackService = capabilityPackLocation
     .resolve()
     .then(({ activeRoot }) => createCapabilityPackService(activeRoot));
@@ -917,6 +1005,124 @@ function registerIpcHandlers(): void {
       return await (await capabilityPackService).executeEviction(approval);
     },
   );
+  // Music sourcing. Every argument is renderer-supplied and therefore untrusted:
+  // narrowed here, then acted on by `remoteId` against tracks THIS process
+  // fetched. The renderer cannot name a URL for main to go and get.
+  ipcMain.handle(
+    IpcChannels.musicSearch,
+    async (_event, query: unknown, limit: unknown): Promise<MusicSearchResult> => {
+      requireLicense();
+      if (typeof query !== 'string') {
+        return { ok: false, error: 'provider_unavailable', detail: 'invalid query' };
+      }
+      return await musicService.search(
+        query,
+        typeof limit === 'number' && Number.isFinite(limit) ? limit : undefined,
+      );
+    },
+  );
+  ipcMain.handle(
+    IpcChannels.musicPreview,
+    async (_event, remoteId: unknown): Promise<MusicPreviewResult> => {
+      requireLicense();
+      if (typeof remoteId !== 'string') {
+        return { ok: false, error: 'provider_unavailable', detail: 'invalid track id' };
+      }
+      return await musicService.preview(remoteId);
+    },
+  );
+  ipcMain.handle(
+    IpcChannels.musicDownload,
+    async (_event, request: unknown): Promise<MusicDownloadResult> => {
+      requireLicense();
+      const req = request as MusicDownloadRequest | null;
+      if (
+        typeof req?.projectId !== 'string' ||
+        typeof req.remoteId !== 'string' ||
+        typeof req.operationId !== 'string'
+      ) {
+        return { ok: false, error: 'download_failed', detail: 'invalid download request' };
+      }
+      return await musicService.download(req);
+    },
+  );
+  ipcMain.on(IpcChannels.musicDownloadCancel, (_event, operationId: unknown) => {
+    if (typeof operationId !== 'string') return;
+    musicService.cancelDownload(operationId);
+  });
+
+  // Stock sourcing. Every argument is renderer-supplied and therefore untrusted:
+  // narrowed here, then acted on by `remoteId` against items THIS process
+  // fetched. The renderer cannot name a URL for main to go and get.
+  ipcMain.handle(
+    IpcChannels.stockSearch,
+    async (_event, request: unknown): Promise<StockSearchResult> => {
+      requireLicense();
+      const req = request as StockSearchRequest | null;
+      if (typeof req?.text !== 'string' || !isStockKind(req.kind)) {
+        return { ok: false, error: 'provider_unavailable', detail: 'invalid search request' };
+      }
+      return await stockService.search({
+        text: req.text,
+        kind: req.kind,
+        ...(typeof req.page === 'number' && Number.isFinite(req.page) ? { page: req.page } : {}),
+        ...(typeof req.limit === 'number' && Number.isFinite(req.limit)
+          ? { limit: req.limit }
+          : {}),
+        ...(req.orientation === 'landscape' ||
+        req.orientation === 'portrait' ||
+        req.orientation === 'square'
+          ? { orientation: req.orientation }
+          : {}),
+      });
+    },
+  );
+  ipcMain.handle(
+    IpcChannels.stockThumbnail,
+    async (_event, remoteId: unknown): Promise<StockBytesResult> => {
+      requireLicense();
+      if (typeof remoteId !== 'string') {
+        return { ok: false, error: 'provider_unavailable', detail: 'invalid item id' };
+      }
+      return await stockService.thumbnail(remoteId);
+    },
+  );
+  ipcMain.handle(
+    IpcChannels.stockPreview,
+    async (_event, remoteId: unknown): Promise<StockBytesResult> => {
+      requireLicense();
+      if (typeof remoteId !== 'string') {
+        return { ok: false, error: 'provider_unavailable', detail: 'invalid item id' };
+      }
+      return await stockService.preview(remoteId);
+    },
+  );
+  ipcMain.handle(
+    IpcChannels.stockDownload,
+    async (_event, request: unknown): Promise<StockDownloadResult> => {
+      requireLicense();
+      const req = request as StockDownloadRequest | null;
+      if (
+        typeof req?.projectId !== 'string' ||
+        typeof req.remoteId !== 'string' ||
+        typeof req.operationId !== 'string'
+      ) {
+        return { ok: false, error: 'download_failed', detail: 'invalid download request' };
+      }
+      return await stockService.download(req);
+    },
+  );
+  ipcMain.on(IpcChannels.stockDownloadCancel, (_event, operationId: unknown) => {
+    if (typeof operationId !== 'string') return;
+    stockService.cancelDownload(operationId);
+  });
+  ipcMain.handle(IpcChannels.stockQuota, async (): Promise<StockQuotaSnapshot> => {
+    requireLicense();
+    // Reads the last observation. Never triggers a provider request — a Settings
+    // panel that spent quota to display quota would be its own worst enemy.
+    return stockQuota.snapshot();
+  });
+
   ipcMain.handle(IpcChannels.projectRecent, () => recentFiles.list());
 
   ipcMain.handle(
@@ -1681,11 +1887,239 @@ function registerIpcHandlers(): void {
       return { status: 'failed', summary: `transcribe failed: ${errorMessage(error)}` };
     }
   };
+  /**
+   * `search_music` for the agent — the same main-process service the Sounds
+   * panel uses, so a track the agent finds is a track a person could have found.
+   */
+  const hostMusicSearch = async (
+    query: string,
+    limit: number | undefined,
+  ): Promise<HostToolOutcome> => {
+    if (query.trim() === '') {
+      return { status: 'failed', summary: 'search_music needs something to search for.' };
+    }
+    const result = await musicService.search(query, limit);
+    if (!result.ok) {
+      // The provider's own reason, verbatim. "Something went wrong" would leave
+      // the model unable to tell a rate limit from an outage, and it would
+      // retry the one case where retrying is exactly wrong.
+      return { status: 'failed', summary: musicErrorMessage(result.error, result.detail) };
+    }
+    if (result.tracks.length === 0) {
+      // Nothing matched is not a failure, but it is also NOT a success the model
+      // should build on — `warning` is the arm that says "ran, nothing to do".
+      return {
+        status: 'warning',
+        summary: `No tracks matched "${query}". Try a broader mood word.`,
+        data: { tracks: [] },
+      };
+    }
+    return {
+      status: 'completed',
+      summary: `Found ${result.tracks.length} track${result.tracks.length === 1 ? '' : 's'} for "${query}".`,
+      data: { tracks: result.tracks },
+    };
+  };
+
+  /**
+   * `add_music` for the agent — download and materialize; the ORCHESTRATOR turns
+   * the returned asset into operations. This function deliberately produces no
+   * timeline change of its own (AGENTS.md invariant 5).
+   */
+  const hostAddMusic = async (
+    project: Project,
+    args: {
+      readonly remoteId: string;
+      readonly atSeconds?: number;
+      readonly duckUnderTrackId?: string;
+    },
+    _signal?: AbortSignal,
+  ): Promise<HostToolOutcome> => {
+    const { remoteId, atSeconds, duckUnderTrackId } = args;
+    if (remoteId.trim() === '') {
+      return {
+        status: 'failed',
+        summary: 'add_music needs the remoteId of a track from search_music.',
+      };
+    }
+    const result = await musicService.download({
+      projectId: project.id,
+      remoteId,
+      operationId: `agent_${remoteId}_${Date.now()}`,
+    });
+    if (!result.ok) {
+      return { status: 'failed', summary: musicErrorMessage(result.error, result.detail) };
+    }
+    const { asset } = result;
+    return {
+      status: 'completed',
+      summary: `Downloaded "${asset.relativePath}".`,
+      data: {
+        asset: {
+          id: `music_${asset.source.provider}_${asset.source.remoteId}`.replace(
+            /[^a-zA-Z0-9_]/g,
+            '_',
+          ),
+          path: asset.relativePath,
+          kind: 'audio',
+          ...(asset.durationSeconds === undefined
+            ? {}
+            : { durationSeconds: asset.durationSeconds }),
+          ...(asset.media ? { media: asset.media } : {}),
+          source: asset.source,
+        },
+        // Echoed back so the ORCHESTRATOR owns the placement decision; this
+        // function still produces no timeline change of its own.
+        ...(atSeconds === undefined ? {} : { atSeconds }),
+        ...(duckUnderTrackId === undefined ? {} : { duckUnderTrackId }),
+      },
+    };
+  };
+
+  /**
+   * `search_stock` for the agent — the same main-process service the Stock panel
+   * uses, so the agent and the human see one catalogue and one cache.
+   */
+  const hostStockSearch = async (args: {
+    readonly query: string;
+    readonly kind: 'photo' | 'video';
+    readonly limit?: number;
+    readonly orientation?: 'landscape' | 'portrait' | 'square';
+  }): Promise<HostToolOutcome> => {
+    if (args.query.trim() === '') {
+      return { status: 'failed', summary: 'search_stock needs something to search for.' };
+    }
+    const result = await stockService.search({
+      text: args.query,
+      kind: args.kind,
+      ...(args.limit === undefined ? {} : { limit: args.limit }),
+      ...(args.orientation === undefined ? {} : { orientation: args.orientation }),
+    });
+    if (!result.ok) {
+      // The provider's own reason, verbatim — including the hourly-vs-monthly
+      // distinction, so the model reports the right remedy instead of telling
+      // the user to wait a month for a limit that clears in an hour.
+      return { status: 'failed', summary: stockErrorMessage(result.error, result.detail) };
+    }
+    if (result.items.length === 0) {
+      // Nothing matched is not a failure, but it is also NOT a success the model
+      // should build on — `warning` is the arm that says "ran, nothing to do".
+      return {
+        status: 'warning',
+        summary: `Nothing matched "${args.query}". Try a broader subject word.`,
+        data: { items: [] },
+      };
+    }
+    const quota = stockQuota.snapshot();
+    return {
+      status: 'completed',
+      summary: `Found ${result.items.length} ${args.kind === 'video' ? 'clip' : 'photo'}${
+        result.items.length === 1 ? '' : 's'
+      } for "${args.query}".`,
+      data: {
+        items: result.items,
+        // The one place the quota surface pays off inside the agent loop: a
+        // multi-step run can see it is nearly out and stop speculating.
+        ...(quota.kind === 'measured' ? { requestsLeftThisMonth: quota.monthly.remaining } : {}),
+      },
+    };
+  };
+
+  /**
+   * `add_stock` for the agent — download and materialize; the ORCHESTRATOR turns
+   * the returned asset into operations. This function deliberately produces no
+   * timeline change of its own (AGENTS.md invariant 5).
+   *
+   * The placement refusal is checked HERE, before spending a download, because
+   * the answer does not depend on the bytes: if the span already holds picture
+   * media, the clip cannot be placed however good it turns out to be.
+   */
+  const hostAddStock = async (
+    project: Project,
+    args: {
+      readonly remoteId: string;
+      readonly kind: 'photo' | 'video';
+      readonly atSeconds?: number;
+    },
+  ): Promise<HostToolOutcome> => {
+    const { remoteId, atSeconds } = args;
+    if (remoteId.trim() === '') {
+      return {
+        status: 'failed',
+        summary: 'add_stock needs the remoteId of an item from search_stock.',
+      };
+    }
+    const item = stockService.knownItem(remoteId);
+    if (!item) {
+      return {
+        status: 'failed',
+        summary: 'That item is not in the current results — run search_stock first.',
+      };
+    }
+
+    const start = Math.max(0, atSeconds ?? 0);
+    // A still has no duration of its own; the placement builder gives it the
+    // same default length a dragged-in image gets, and the occupancy check has
+    // to use the same number or the two would disagree about what fits.
+    const durationSeconds = item.durationSeconds ?? DEFAULT_STOCK_STILL_SECONDS;
+    // Stated, not silently worked around. Stacking would preview differently from
+    // how it renders, and reporting success on a stacked clip would be a completed
+    // edit that lies. The sentence comes from `editor-core` so this pre-download
+    // refusal and the orchestrator's post-download one cannot word it differently.
+    const conflict = stockPlacementConflictReason(
+      project.timeline,
+      project.assets,
+      start,
+      durationSeconds,
+    );
+    if (conflict !== null) {
+      return { status: 'failed', summary: conflict };
+    }
+
+    const result = await stockService.download({
+      projectId: project.id,
+      remoteId,
+      targetHeight: project.resolution?.height ?? 1080,
+      ...(project.fps ? { targetFps: project.fps } : {}),
+      operationId: `agent_${remoteId}_${Date.now()}`,
+    });
+    if (!result.ok) {
+      return { status: 'failed', summary: stockErrorMessage(result.error, result.detail) };
+    }
+    const { asset } = result;
+    return {
+      status: 'completed',
+      summary: `Downloaded "${asset.relativePath}".`,
+      data: {
+        asset: {
+          id: `stock_${asset.source.provider}_${asset.source.remoteId}`.replace(
+            /[^a-zA-Z0-9_]/g,
+            '_',
+          ),
+          path: asset.relativePath,
+          kind: asset.kind,
+          ...(asset.durationSeconds === undefined
+            ? {}
+            : { durationSeconds: asset.durationSeconds }),
+          ...(asset.media ? { media: asset.media } : {}),
+          source: asset.source,
+        },
+        // Echoed back so the ORCHESTRATOR owns the placement decision; this
+        // function still produces no timeline change of its own.
+        atSeconds: start,
+      },
+    };
+  };
+
   const sidecarToolExecutor = createSidecarExecutor({
     baseUrl: engineBaseUrl,
     fetchFn: electronFetch,
     visualIndexCredentials,
     hostTranscribe,
+    hostMusicSearch,
+    hostAddMusic,
+    hostStockSearch,
+    hostAddStock,
   });
   // The agent's route into the Capability Pack tracking worker. Same authority
   // the renderer IPC path uses — one hub, leases and install proposals included.
@@ -1694,10 +2128,7 @@ function registerIpcHandlers(): void {
   });
   const toolExecutor: HostToolExecutor = {
     async run(call, ctx, signal) {
-      if (
-        call.name === AUTOMATIC_TRACKING_TOOL_NAME ||
-        call.name === DETECT_SUBJECTS_TOOL_NAME
-      ) {
+      if (call.name === AUTOMATIC_TRACKING_TOOL_NAME || call.name === DETECT_SUBJECTS_TOOL_NAME) {
         return automaticTrackingExecutor.run(call, ctx, signal);
       }
       return sidecarToolExecutor.run(call, ctx, signal);

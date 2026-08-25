@@ -1,0 +1,45 @@
+{
+  "_comment": "Recorded from GET https://api.openverse.org/v1/audio/?q=calm+ambient&license_type=commercial&page_size=3 on 2026-08-23, trimmed to the fields the adapter reads. Kept verbatim (including the Jamendo 'mp32' filetype and the non-ASCII creator name) so the tests exercise what the API actually returns rather than a tidied version of it. Tests never hit the network.",
+  "result_count": 240,
+  "results": [
+    {
+      "id": "bd0081f7-482a-4c8c-9690-2f5d89d9008a",
+      "title": "Calm ambient forrest sounds.mp3",
+      "duration": 127044,
+      "url": "https://cdn.freesound.org/previews/620/620449_10859468-hq.mp3",
+      "filetype": "mp3",
+      "license": "cc0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "\"Calm ambient forrest sounds.mp3\" by ZHRØ is marked with CC0 1.0. To view the terms, visit https://creativecommons.org/publicdomain/zero/1.0/.",
+      "creator": "ZHRØ",
+      "creator_url": "https://freesound.org/people/ZHRØ",
+      "foreign_landing_url": "https://freesound.org/people/ZHR%C3%98/sounds/620449"
+    },
+    {
+      "id": "bc5d7be7-f3f1-42fa-83f5-fe7b61d31db1",
+      "title": "PARPG Solitude (Calm, Ambient)",
+      "duration": 197000,
+      "url": "https://prod-1.storage.jamendo.com/?trackid=875307&format=mp32",
+      "filetype": "mp32",
+      "license": "by-sa",
+      "license_url": "https://creativecommons.org/licenses/by-sa/3.0/",
+      "attribution": "\"PARPG Solitude (Calm, Ambient)\" by Pal Zoltan Illes is licensed under CC BY-SA 3.0. To view a copy of this license, visit https://creativecommons.org/licenses/by-sa/3.0/.",
+      "creator": "Pal Zoltan Illes",
+      "creator_url": "https://www.jamendo.com/artist/344764/Pal_Zoltan_Illes",
+      "foreign_landing_url": "https://www.jamendo.com/track/875307"
+    },
+    {
+      "id": "521793f7-5a7d-431c-8647-72a108c69e34",
+      "title": "calm ambient in countryside - late afternoon",
+      "duration": 120000,
+      "url": "https://cdn.freesound.org/previews/636/636911_6913649-hq.mp3",
+      "filetype": "mp3",
+      "license": "cc0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "\"calm ambient in countryside - late afternoon\" by alessandrozangrossi is marked with CC0 1.0. To view the terms, visit https://creativecommons.org/publicdomain/zero/1.0/.",
+      "creator": "alessandrozangrossi",
+      "creator_url": "https://freesound.org/people/alessandrozangrossi",
+      "foreign_landing_url": "https://freesound.org/people/alessandrozangrossi/sounds/636911"
+    }
+  ]
+}

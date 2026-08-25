@@ -114,15 +114,23 @@ export interface ToolSpec {
   readonly cost?: ToolCost;
   readonly latency?: ToolLatency;
   /**
-   * True when only FramePilot's own UI can serve this tool, so it is not part of the
-   * MCP surface.
+   * True when only a running FramePilot host can serve this tool, so it is not part
+   * of the MCP surface.
    *
-   * `ask_user` is the case: it needs a human looking at the app. The MCP server has no
-   * UI to render a question in and nobody to answer it — advertising it there would
-   * promise a capability that surface does not have (ADR 0055). An external MCP client
-   * is itself an agent with its own user; if it wants to ask something it asks them
-   * directly and has no use for ours. Same reason it is absent from the Python registry:
-   * the engine sidecar cannot ask anyone anything.
+   * Two distinct reasons put a tool here, and both come down to the same thing:
+   * the standalone MCP server is a separate process that talks to the Python
+   * sidecar, with no Electron main and no editor in front of it. Advertising a
+   * tool it cannot execute would promise a capability that surface does not have.
+   *
+   * 1. **It needs a human looking at the app.** `ask_user` is the case (ADR 0055):
+   *    the MCP server has no UI to render a question in and nobody to answer it. An
+   *    external MCP client is itself an agent with its own user; if it wants to ask
+   *    something it asks them directly. Same reason it is absent from the Python
+   *    registry — the sidecar cannot ask anyone anything.
+   * 2. **It needs the Electron main process.** `search_music`/`add_music` are the
+   *    case: the provider network and the project media directory both live in
+   *    main, and there is no sidecar route to fall back to because the sidecar has
+   *    no business holding a provider connection (ADR 0139).
    */
   readonly hostUiOnly?: boolean;
   /**

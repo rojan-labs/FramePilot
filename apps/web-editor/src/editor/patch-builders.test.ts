@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Operation } from '@framepilot/editor-core';
+import { buildAddMusicOps, type Operation } from '@framepilot/editor-core';
 import { applyUserPatch, createEditorState, redoEdit, undoEdit } from './store.js';
 
 type AddKeyframesOp = Extract<Operation, { type: 'add_keyframes' }>;
@@ -48,6 +48,7 @@ import {
   moveLayerPatch,
   pasteClipPatch,
   placeAssetPatch,
+  addMusicTrackPatch,
   punchInPatch,
   removeAssetClipsPatch,
   rippleDeleteClipPatch,
@@ -998,6 +999,110 @@ describe('placeAssetPatch (auto-layering)', () => {
     expect(next.timeline.tracks[0]!.clips).toHaveLength(1); // new front layer seeded
     const undone = undoEdit(next);
     expect(undone.timeline.tracks).toHaveLength(tl.tracks.length);
+  });
+});
+
+describe('addMusicTrackPatch (fetched music bed)', () => {
+  const bed: Asset = {
+    id: 'music_openverse_ov_1',
+    path: 'media/p1/calm_bed.mp3',
+    kind: 'audio',
+    durationSeconds: 92,
+    source: {
+      provider: 'openverse',
+      remoteId: 'ov-1',
+      license: 'by',
+      licenseUrl: 'https://creativecommons.org/licenses/by/4.0/',
+      attributionRequired: true,
+      attribution: '"Calm Bed" by Ada is licensed under CC BY 4.0.',
+      creator: 'Ada',
+      fetchedAt: '2026-08-23T12:00:00.000Z',
+    },
+  };
+
+  it('is ONE patch of three ops — bin, music layer, clip', () => {
+    // One patch because the user did one thing. Three patches would demand a
+    // three-press undo through two states that make no sense alone: an asset
+    // whose clip is gone, then an empty layer.
+    const patch = addMusicTrackPatch(tl, bed, 0);
+    expect(patch.operations.map((op) => op.type)).toEqual(['add_asset', 'add_layer', 'add_clip']);
+  });
+
+  it('labels the new layer as music so ducking can find the bed', () => {
+    const patch = addMusicTrackPatch(tl, bed, 0);
+    expect(patch.operations[1]).toMatchObject({
+      type: 'add_layer',
+      layerType: 'audio',
+      role: 'music',
+    });
+  });
+
+  it('carries the provenance into the bin, which is what makes the credit durable', () => {
+    // If `source` is not written here the Credits view is empty and the feature
+    // is unsafe, not merely incomplete.
+    const patch = addMusicTrackPatch(tl, bed, 0);
+    const added = patch.operations[0] as { type: 'add_asset'; asset: Asset };
+    expect(added.asset.source?.attribution).toContain('Ada');
+    expect(added.asset.source?.attributionRequired).toBe(true);
+  });
+
+  it('spans the track its full duration from the requested start', () => {
+    const patch = addMusicTrackPatch(tl, bed, 5);
+    expect(patch.operations[2]).toMatchObject({
+      type: 'add_clip',
+      start: 5,
+      end: 97,
+      sourceStart: 0,
+      sourceEnd: 92,
+    });
+  });
+
+  it('clamps a negative start to zero rather than producing an invalid clip', () => {
+    expect(addMusicTrackPatch(tl, bed, -4).operations[2]).toMatchObject({ start: 0 });
+  });
+
+  it('falls back to a default length when the provider gave no duration', () => {
+    const { durationSeconds: _omitted, ...noDuration } = bed;
+    const patch = addMusicTrackPatch(tl, noDuration as Asset, 0);
+    expect((patch.operations[2] as { end: number }).end).toBeGreaterThan(0);
+  });
+
+  // THE cross-path parity test. This is the only package that can import both
+  // the renderer's builder and the agent's, so it is the only place the two can
+  // actually be compared — a frozen literal elsewhere would only assert that
+  // someone once wrote the expectation down. The drift this catches is real:
+  // before the builders converged, the agent used `music_N` layer ids and a 30s
+  // fallback while this path used `layer_audio_N` and 5s, so an agent-placed bed
+  // and a hand-placed one were different beds.
+  describe('agrees with the agent path, operation for operation', () => {
+    it.each([
+      ['a bed at the head', bed, 0],
+      ['a bed placed later in the timeline', bed, 12],
+      ['a bed whose provider reported no duration', { ...bed, durationSeconds: undefined }, 0],
+    ])('%s', (_label, asset, at) => {
+      const manual = addMusicTrackPatch(tl, asset as Asset, at);
+      const agent = buildAddMusicOps(tl, asset as Asset, at);
+      expect(agent).toEqual(manual.operations);
+    });
+  });
+
+  it('validates, applies, and ONE undo removes asset, layer and clip together', () => {
+    const state = createEditorState(tl, demoAssetIds);
+    const next = applyUserPatch(state, addMusicTrackPatch(tl, bed, 0));
+    expect(next.issues).toEqual([]);
+
+    const musicTrack = next.timeline.tracks[0]!;
+    expect(musicTrack.role).toBe('music');
+    expect(musicTrack.clips).toHaveLength(1);
+
+    const undone = undoEdit(next);
+    // All three gone in one press — not one, then a dangling layer.
+    expect(undone.timeline.tracks).toHaveLength(tl.tracks.length);
+    expect(undone.timeline.tracks.some((t) => t.role === 'music')).toBe(false);
+
+    const redone = redoEdit(undone);
+    expect(redone.timeline.tracks[0]!.role).toBe('music');
+    expect(redone.timeline.tracks[0]!.clips).toHaveLength(1);
   });
 });
 

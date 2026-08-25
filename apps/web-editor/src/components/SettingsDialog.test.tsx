@@ -5,6 +5,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SettingsProvider, loadSettings } from '../editor/useSettings.js';
+import { AiConfigProvider } from '../editor/useAiConfig.js';
 import { applyBrowserUpdate, loadBrowserAiConfig } from '../editor/aiConfigStorage.js';
 import { loadUserMemory } from '../editor/userMemoryStorage.js';
 import { SettingsDialog } from './SettingsDialog.js';
@@ -424,7 +425,8 @@ describe('SettingsDialog', () => {
     stubAsrFetch((url) => {
       calls.push(url);
       if (url.includes('/asr/status')) return { ok: true, status: 200, json: ASR_STATUS_MISSING };
-      if (url.includes('/asr/setup/progress')) return { ok: true, status: 200, json: IDLE_PROGRESS };
+      if (url.includes('/asr/setup/progress'))
+        return { ok: true, status: 200, json: IDLE_PROGRESS };
       return { ok: false, status: 500, json: { error: 'legacy setup must not run' } };
     });
     const identity = {
@@ -447,7 +449,11 @@ describe('SettingsDialog', () => {
           downloadBytes: 574_041_195,
           installedBytes: 620_000_000,
           licenses: [{ spdx: 'MIT', name: 'MIT', noticeUrl: 'https://example.com' }],
-          privacy: { execution: 'local' as const, mediaLeavesDevice: false, disclosure: 'Runs locally.' },
+          privacy: {
+            execution: 'local' as const,
+            mediaLeavesDevice: false,
+            disclosure: 'Runs locally.',
+          },
         },
       })),
       capabilityPackInstall: vi.fn(async () => ({ ok: true as const, operationId: 'operation-1' })),
@@ -462,14 +468,16 @@ describe('SettingsDialog', () => {
     expect(await screen.findByText(/Local Whisper · 547\.4 MB/)).toBeTruthy();
     expect(calls.some((url) => url.endsWith('/asr/setup'))).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: 'Approve exact version and download' }));
-    await waitFor(() => expect(host.capabilityPackInstall).toHaveBeenCalledWith({
-      proposalId: 'c'.repeat(64),
-      identity,
-      approvedSizeBytes: 574_041_195,
-      approvedLicenseSpdx: ['MIT'],
-      approvedMediaEgress: false,
-      approvedAt: expect.any(String),
-    }));
+    await waitFor(() =>
+      expect(host.capabilityPackInstall).toHaveBeenCalledWith({
+        proposalId: 'c'.repeat(64),
+        identity,
+        approvedSizeBytes: 574_041_195,
+        approvedLicenseSpdx: ['MIT'],
+        approvedMediaEgress: false,
+        approvedAt: expect.any(String),
+      }),
+    );
   });
 
   it('shows a real byte-level progress bar while the model downloads', async () => {
@@ -742,5 +750,142 @@ describe('SettingsDialog', () => {
     expect(loadSettings().transcribeOnImport).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'On demand' }));
     expect(loadSettings().transcribeOnImport).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Stock media — key custody and the quota readout
+  // ---------------------------------------------------------------------------
+
+  describe('Stock media', () => {
+    /**
+     * Render inside a real {@link AiConfigProvider}.
+     *
+     * The other tests get away without one because their keys round-trip through
+     * the localStorage fallback. The Pexels key deliberately does not: it is
+     * desktop-only and write-only, so the fallback no-ops rather than pretending
+     * a browser save worked.
+     */
+    const openWithAiConfig = (): void => {
+      render(
+        <SettingsProvider>
+          <AiConfigProvider>
+            <SettingsDialog open onClose={() => {}} />
+          </AiConfigProvider>
+        </SettingsProvider>,
+      );
+    };
+
+    /**
+     * A bridge host with a controllable quota snapshot.
+     *
+     * `aiConfigGet` must return a real `AiConfig` — the provider hands whatever
+     * it gets straight to the tree, so a browser-storage shape here would leave
+     * the AI section unable to render at all.
+     */
+    function stubStockHost(
+      snapshot: import('@framepilot/shared-types').StockQuotaSnapshot,
+      options: { pexelsReady?: boolean } = {},
+    ): FramePilotBridge {
+      const config = {
+        activeProvider: 'nvidia' as const,
+        providers: [],
+        embeddingsAutoIndex: true,
+        pexelsReady: options.pexelsReady ?? false,
+      };
+      const host = {
+        stockQuota: vi.fn(async () => snapshot),
+        onStockQuotaChanged: vi.fn(() => () => undefined),
+        aiConfigGet: vi.fn(async () => config),
+        aiConfigSet: vi.fn(async () => config),
+      } as unknown as FramePilotBridge;
+      window.framepilot = host;
+      return host;
+    }
+
+    const MONTHLY = {
+      limit: 20000,
+      remaining: 18431,
+      resetAt: new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString(),
+      observedAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
+    };
+
+    it('offers a key field with no quota block before a key exists', async () => {
+      stubStockHost({ kind: 'no_key' });
+      openWithAiConfig();
+      fireEvent.click(screen.getByText('AI'));
+      expect(await screen.findByLabelText('Pexels API key')).toBeTruthy();
+      // No key, no quota to speak of — a bar here would be inventing one.
+      expect(screen.queryByRole('progressbar', { name: /Monthly Pexels/ })).toBeNull();
+    });
+
+    it('says "not measured yet" rather than showing a guessed maximum', async () => {
+      stubStockHost({ kind: 'unmeasured' });
+      openWithAiConfig();
+      fireEvent.click(screen.getByText('AI'));
+      expect(await screen.findByText(/Not measured yet/)).toBeTruthy();
+      expect(screen.queryByText(/20,000/)).toBeNull();
+    });
+
+    it('renders the monthly figures, the reset, and when it saw them', async () => {
+      stubStockHost({ kind: 'measured', monthly: MONTHLY });
+      openWithAiConfig();
+      fireEvent.click(screen.getByText('AI'));
+
+      expect(await screen.findByText(/18,431 of 20,000 requests left/)).toBeTruthy();
+      // "Monthly" is in the label because the hourly cap is invisible to us; a
+      // bar labelled just "quota" is a lie waiting for the first 429.
+      expect(screen.getByText('Monthly API quota')).toBeTruthy();
+      expect(screen.getByText(/^Resets /)).toBeTruthy();
+      // Last-observed, not live: the same key used elsewhere moves these.
+      expect(screen.getByText(/^As of /)).toBeTruthy();
+
+      const bar = screen.getByRole('progressbar', { name: 'Monthly Pexels API quota remaining' });
+      expect(bar.getAttribute('aria-valuenow')).toBe('92');
+    });
+
+    it('states the hourly limit beside a healthy monthly bar, not instead of it', async () => {
+      stubStockHost({
+        kind: 'hourly_limited',
+        monthly: { ...MONTHLY, remaining: 19400 },
+        since: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
+        retryAfterSeconds: 120,
+      });
+      openWithAiConfig();
+      fireEvent.click(screen.getByText('AI'));
+
+      // Both facts are true at once, and the panel has to hold both.
+      expect(await screen.findByText(/19,400 of 20,000 requests left/)).toBeTruthy();
+      expect(screen.getByText('Hourly limit')).toBeTruthy();
+      expect(screen.getByText(/roughly 200 requests an hour/)).toBeTruthy();
+      expect(screen.getByText(/Retry in about 2 min/)).toBeTruthy();
+    });
+
+    it('saves a key through to the main-process store', async () => {
+      const host = stubStockHost({ kind: 'unmeasured' });
+      openWithAiConfig();
+      fireEvent.click(screen.getByText('AI'));
+
+      const field = await screen.findByLabelText('Pexels API key');
+      fireEvent.change(field, { target: { value: '  563492ad-secret  ' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Save Pexels API key' }));
+
+      await waitFor(() =>
+        expect(host.aiConfigSet).toHaveBeenCalledWith(
+          expect.objectContaining({ pexelsApiKey: '563492ad-secret' }),
+        ),
+      );
+    });
+
+    it('never renders the key back, because it is write-only', async () => {
+      stubStockHost({ kind: 'measured', monthly: MONTHLY }, { pexelsReady: true });
+      openWithAiConfig();
+      fireEvent.click(screen.getByText('AI'));
+
+      // The custody boundary, visible in the UI: there is a state, not a value.
+      expect(await screen.findByText('Configured')).toBeTruthy();
+      expect(screen.queryByLabelText('Pexels API key')).toBeNull();
+      expect(screen.getByRole('button', { name: 'Replace the Pexels API key' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Clear the Pexels API key' })).toBeTruthy();
+    });
   });
 });

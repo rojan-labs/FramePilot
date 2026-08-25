@@ -659,6 +659,15 @@ class DetectBeatsArgs(BaseModel):
     hard_sync: bool | None = Field(default=None, alias="hardSync")
 
 
+# `search_music`, `add_music`, `search_stock` and `add_stock` are deliberately
+# ABSENT from this mirror, like `ask_user`. They execute in the Electron main
+# process — the provider network, the API keys and the project media directory all
+# live there — and the sidecar has no route to fall back to, because it has no
+# business holding a provider connection. They are marked `hostUiOnly` on the TS
+# side, and `test_tool_registry_ts_parity.py` enforces that host-only tools stay
+# out of here (ADR 0139).
+
+
 class SearchMediaArgs(BaseModel):
     """Full-text search over transcript/markers/asset names (plan B2.2).
 

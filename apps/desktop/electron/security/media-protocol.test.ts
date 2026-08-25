@@ -112,4 +112,27 @@ describe('buildCsp', () => {
     expect(prod).not.toContain("'unsafe-eval'");
     expect(prod).not.toContain('localhost:5173');
   });
+
+  it('never lets the renderer reach a music provider host', () => {
+    // Music sourcing added a network dependency and deliberately did NOT touch
+    // this policy: main fetches, and audition bytes reach the renderer over IPC
+    // as a blob: URL, which `media-src` already permits. A provider origin
+    // appearing in `connect-src` would mean someone moved the fetch into the
+    // renderer — see plan/3rd-party-sourcing/README.md §3.
+    const csp = buildCsp('http://127.0.0.1:8765');
+    const connect = csp
+      .split('; ')
+      .find((directive) => directive.startsWith('connect-src '))!
+      .slice('connect-src '.length);
+
+    expect(connect.split(' ').sort()).toEqual(
+      ["'self'", 'fp-media:', 'http://127.0.0.1:8765'].sort(),
+    );
+    for (const host of ['openverse.org', 'api.openverse.org', 'freesound', 'jamendo', 'epidemic']) {
+      expect(csp).not.toContain(host);
+    }
+    // The two directives that make the IPC-bytes design work are still open.
+    expect(csp).toContain('media-src fp-media: blob: data:');
+    expect(csp).toContain('img-src');
+  });
 });
