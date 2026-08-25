@@ -38,6 +38,7 @@
     "website:start": "pnpm --filter @framepilot/website start",
     "website:generate:og": "pnpm --filter @framepilot/website generate:og",
     "website:fetch:pricing": "pnpm --filter @framepilot/website fetch:pricing",
+    "packs:register": "./scripts/dev-register-all-packs.sh",
     "engine:sync": "cd engine/python && uv sync --extra dev",
     "engine:test": "cd engine/python && uv run pytest",
     "engine:test:cov": "cd engine/python && uv run pytest --cov",

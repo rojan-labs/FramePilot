@@ -1028,17 +1028,13 @@ reachable, move it up.
 
 | Capability | Where it exists | Why it is not testable |
 | --- | --- | --- |
-| **Automatic subject tracking** (`tracking_mask.automatic_subject_track`) | Registered capability, marked `unavailable` | Requires the on-demand **Subject Intelligence Capability Pack**. No tracker is bundled or downloaded. Test the **refusal** instead — §16.3. |
-| **Face detection** (`detect_faces`) | `domain-tools/tracking-mask.ts`, `available: false` | Dependency-gated CV engine does not exist. The orchestrator refuses rather than fabricating. |
-| **Subject mask generation** (`generate_mask`) | Same, `available: false` | Same. Engine TBD. |
-| **Subject Intelligence pack itself** | `workers/subject-intelligence/` | Model / licence / size decision is **blocked on the maintainer** (`CODEX_HANDOFF.md`). Not shipped, not installable. |
-| **Tracking Lite pack** (point / region / planar tracking) | `workers/tracking-lite/` | A separately packaged artifact. Platform builds, locks/licences/SBOM, **desktop invocation**, and decoded-media pixel proof all remain open — it is not wired into the running app. |
-| **Text behind object** (PRD §6.6) | `engine/python/.../masking/mask.py` | Depends on segmentation, which depends on Subject Intelligence. No user path. |
-| **Local semantic vision review pack** | `VisionRunReviewControls`, temporal/vision review | Desktop activation awaits the Subject Intelligence worker. Cloud review is consent-gated only. |
+| **Subject mask generation** (`generate_mask`) | `domain-tools/tracking-mask.ts`, `available: false` | **Permanently unavailable by design, not a gap.** Segmentation produces a bitmap; the timeline mask model steers by rectangle bounds. The measured path that exists is `track_subject_automatically` with `subject="silhouette"` — see §22. |
+| **Text behind object** (PRD §6.6) | `engine/python/.../masking/mask.py` | Segmentation now exists (§22), but no user path composites text behind the returned matte. Engine ✓, no entry point. |
+| **Local semantic vision review pack** | `VisionRunReviewControls`, temporal/vision review | The Subject Intelligence worker now exists and installs locally (§22), but its adoption by `VisionRunReviewControls` is unconfirmed. Cloud review is consent-gated only. |
 | **Mask geometry authoring** | `addMaskPatch` | `bounds` is **hardcoded** to the centre 60%; no handles, no numeric fields. Engine ✓, UI not operable. Masking is only *partly* testable — see §16.1. |
 | **Multicam angle-group authoring** | Schema v18 camera angle groups | **Zero** multicam UI components. Whether §4 is reachable at all depends on the AI authoring the group — unconfirmed. See the §4 caveat. |
 | **`autocomplete` AI mode** | `orchestrator.ts` (`AiMode` includes `'autocomplete'`) | The sidebar exposes only `agent` / `chat` / `edit`. No UI entry point. |
-| **Capability Pack install flow** | `CapabilityPackDependencyDialog`, `CapabilityPackStorageSettings`, `apps/desktop/electron/capability-packs/` | The dialogs exist, but there is **no signed published catalog and no signing credentials** (C6 is blocked on the maintainer). You can look at Storage settings; you cannot install a pack. |
+| **Capability Pack install flow — the signed-catalog path** | `CapabilityPackDependencyDialog`, `CapabilityPackStorageSettings`, `apps/desktop/electron/capability-packs/` | The **download-from-catalog** half is still unreachable: no signed published catalog and no signing credentials (C6). Catalog and artifact URLs are hard-required to be `https:`, so a `file://` catalog cannot stand in. The **installed-pack** half is fully testable via local registration — see §22. |
 | **Export/preview columns of the §7.2 capability matrix** | `plan/PLAN.md` | The plan itself marks these `?` — explicitly **not audited**. Do not infer status from this document either. |
 
 ---
@@ -1082,6 +1078,103 @@ confirm is visible rather than papered over.
     `PROGRESS.md`, matching the existing root-level working-document convention. The nearest
     alternative home would be `docs/guides/` (which holds `release-checklist-v1.md`) — move it
     there if you would rather this be a published guide than a working checklist.
+
+---
+
+## 22. Capability Pack media intelligence (locally registered packs)
+
+`AI` · `desktop` — automatic tracking, subject detection, and segmentation. These run in an
+isolated Capability Pack worker (ADR 0114), so they need a pack **installed** before any of it is
+reachable. They are honest about absence: with no pack installed the agent returns an install
+proposal, never a fabricated track.
+
+### 22.0 Setup — register the packs locally (once per machine)
+
+There is no signed catalog yet, and you cannot fake one: both the catalog URL and every artifact
+URL are hard-required to be `https:`. The supported development path is
+`framepilot-pack register-local`, which skips the catalog but still runs the pack through the
+**same isolated health check** a signed install would run, and writes a real store record.
+
+```bash
+pnpm packs:register        # registers every locally buildable pack, then prints the store
+```
+
+That is a thin wrapper over the per-pack scripts, which you can also run individually:
+
+```bash
+./scripts/dev-register-tracking-lite.sh          # point / region / planar tracking
+./scripts/dev-register-subject-intelligence.sh   # face / person / object detection + segmentation
+```
+
+`pnpm packs:register` deliberately continues past a pack that fails to build, reports every
+outcome, and exits non-zero if any failed — so one broken pack does not leave the other
+unregistered.
+
+All of them are gated by `FRAMEPILOT_DEV_PACK_REGISTRATION=1`, which the scripts set only for the
+registration call. Never set it in a packaged build. The store lands in
+`~/Library/Application Support/@framepilot/desktop/capability-packs` — note `@framepilot/desktop`,
+not `FramePilot`, because `app.setName()` is never called.
+
+`pnpm packs:register` ends by reading the store back and printing it; every row must read
+`installed healthy`. To check it later without re-registering:
+
+```bash
+node -e "const d=require(process.env.HOME+'/Library/Application Support/@framepilot/desktop/capability-packs/index.json');d.records.forEach(r=>console.log(r.identity.id,r.identity.version,r.state,r.health.status))"
+```
+
+The registered payload points at the worker's `.venv` in your checkout — if you delete or move
+`workers/*/.venv`, re-run the script.
+
+- [ ] **22.0 Packs registered** — Result: __/__/____ · PASS / FAIL · notes:
+
+### 22.1 Subject detection — faces, people, objects
+
+- Setup: 22.0 done. Import footage that actually contains people.
+- Do: right rail → **AI** (Agent mode) → "find the faces in this clip".
+- Expect: detections come back as **evidence**, with confidences; the timeline is not mutated by
+  detection alone. Nothing found returns nothing — there is no fallback centre-frame box.
+- Fail if: a detection appears on footage with no people in it, or every box is identical/centred
+  (that is a fabricated result, which the pack is specifically built not to produce).
+- **Verified at the worker level on 2026-08-25**, not yet through the UI: the installed pack
+  returned 82 detections (66 face, 16 person) on the pinned group-photo fixture and `[]` on
+  footage with no people. UI-level confirmation is what this row is for.
+- Result: __/__/____ · PASS / FAIL · notes:
+
+### 22.2 Automatic tracking — point / region / planar
+
+- Setup: 22.0 done. A clip with a clearly moving subject.
+- Do: select the clip, place the playhead, then ask "track this subject and make the text follow
+  it" (or use `track_subject_automatically`).
+- Expect: keyframes are written from **measured** samples; a lost target freezes the last known
+  box and is reported lost rather than extrapolated into invented motion.
+- Fail if: motion continues smoothly through a full occlusion (that is invention), or the run
+  claims success while writing no keyframes.
+- Note: `professional_*` tools need a live interaction snapshot — click a clip and place the
+  playhead first, or the tool throws (§21.6).
+- Result: __/__/____ · PASS / FAIL · notes:
+
+### 22.3 Silhouette segmentation
+
+- Setup: 22.0 done. A clip with a reasonably large person — PPHumanSeg is portrait/half-body
+  trained and will honestly refuse a tiny distant figure.
+- Do: ask to track a subject with `subject="silhouette"`.
+- Expect: the mask follows the measured silhouette's bounding box.
+- Fail if: an all-zero or full-frame "mask" is returned instead of a `target_lost` refusal.
+- **Known-good vs known-refusal, verified at the worker level:** a point prompt resolved against a
+  real person detection returned a genuine RLE mask (confidence 0.70); a small region holding a
+  distant face correctly returned `target_lost`. A refusal on a small subject is **correct
+  behaviour**, not a bug.
+- Result: __/__/____ · PASS / FAIL · notes:
+
+### 22.4 The honest refusal when no pack is installed
+
+- Setup: temporarily move the store aside:
+  `mv ~/Library/Application\ Support/@framepilot/desktop/capability-packs{,.bak}`
+- Do: ask for automatic tracking.
+- Expect: an explicit **install proposal**, and no timeline change. Nothing downloads silently.
+- Fail if: the agent fabricates a track, or a download starts without approval.
+- Restore the store afterwards (`mv` it back).
+- Result: __/__/____ · PASS / FAIL · notes:
 
 ---
 
