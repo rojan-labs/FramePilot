@@ -277,6 +277,12 @@ export function Editor({
       });
     };
     measure();
+    // jsdom (unit tests) has no ResizeObserver — degrade to measuring on mount
+    // plus window resize, like the toolbar/rail observers do.
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure);
+      return () => window.removeEventListener('resize', measure);
+    }
     const observer = new ResizeObserver(measure);
     observer.observe(stage);
     observer.observe(monitorHeaderSlot);
