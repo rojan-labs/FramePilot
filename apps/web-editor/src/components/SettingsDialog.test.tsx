@@ -242,13 +242,39 @@ describe('SettingsDialog', () => {
     it('says plainly that no key means local facts only, rather than implying failure', () => {
       openAi();
       expect(screen.getByText('Local facts only')).toBeTruthy();
-      expect(screen.getByText(/remain available without TwelveLabs/)).toBeTruthy();
+      expect(screen.getByText(/remain available without a media-understanding key/)).toBeTruthy();
     });
 
     it('reports TwelveLabs ready once a key is configured', () => {
       applyBrowserUpdate({ twelveLabs: 'tlk-1' });
       openAi();
       expect(screen.getByText('TwelveLabs ready')).toBeTruthy();
+    });
+
+    it('shows and persists the on-device embeddings key', () => {
+      applyBrowserUpdate({ nvidiaEmbeddings: 'nvapi-existing' });
+      openAi();
+      const input = screen.getByLabelText('On-device embeddings key') as HTMLInputElement;
+      expect(input.value).toBe('nvapi-existing');
+      fireEvent.change(input, { target: { value: 'nvapi-new' } });
+      expect(loadBrowserAiConfig().nvidiaEmbeddings).toBe('nvapi-new');
+    });
+
+    it('reports the on-device backend when only an embeddings key is set', () => {
+      applyBrowserUpdate({ nvidiaEmbeddings: 'nvapi-1' });
+      openAi();
+      expect(screen.getByText('On-device ready')).toBeTruthy();
+      expect(screen.queryByText('Local facts only')).toBeNull();
+    });
+
+    // The engine resolves TwelveLabs before the on-device embedder, so with both keys set
+    // the badge must name the hosted backend — a user reading "On-device" while media
+    // leaves the machine is the failure this guards.
+    it('names the hosted backend and explains priority when both keys are set', () => {
+      applyBrowserUpdate({ twelveLabs: 'tlk-1', nvidiaEmbeddings: 'nvapi-1' });
+      openAi();
+      expect(screen.getByText('TwelveLabs ready')).toBeTruthy();
+      expect(screen.getByText(/TwelveLabs takes priority/)).toBeTruthy();
     });
 
     it('offers no manual indexing controls — preparation is automatic', () => {
