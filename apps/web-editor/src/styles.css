@@ -4524,7 +4524,11 @@ input[type='checkbox']:focus-visible {
 .track-controls {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  /* Zero: these five flags are one control cluster, and each 16px box already
+     carries a pixel of padding around its 14px glyph. The 2px on top of that
+     read as five separate buttons that happened to land near each other, which
+     is the wrong story for visibility/mute/lock/solo on ONE lane. */
+  gap: 0;
   margin-left: auto; /* cluster flags to the right edge, away from the glyph */
   opacity: 0.55;
   transition: opacity var(--dur-fast) var(--ease);
