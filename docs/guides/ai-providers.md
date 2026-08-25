@@ -102,9 +102,18 @@ separate media-intelligence capability with separate keys:
 FRAMEPILOT_NVIDIA_EMBEDDINGS_KEYS=key-one,key-two
 ```
 
+Or set the same keys per-user in **Settings → AI → Media intelligence → On-device
+embeddings key** (comma-separated), which forwards them with the index/search request
+instead of requiring a server-side env var.
+
 Those embedding keys can rotate on failure. Configuring them permits selected sampled
 frames to leave the device for hosted embedding generation. This is distinct from giving the
 chat model visual access to the current edit.
+
+If a **TwelveLabs** key is also configured, it wins: the engine resolves the hosted
+backend before the on-device embedder, and Settings names the backend that will actually
+run. Clear the TwelveLabs key to fall back to on-device embeddings. See
+[`twelvelabs-understanding.md`](./twelvelabs-understanding.md).
 
 ## OpenRouter
 

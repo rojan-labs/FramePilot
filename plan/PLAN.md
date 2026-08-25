@@ -13,6 +13,83 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-25, the question surface):** `[x]` **`ask_user` is answerable and
+its answers are readable; a run that ends without settling a step no longer leaves it
+spinning.** Reported from a real desktop run.
+
+1. **The question card was prose with no affordance.** Options rendered as a label and a
+   description with nothing to click but the words, so a card asking about a 640×360-into-
+   1080×1920 mismatch read as three paragraphs. Rebuilt as a decision card: a badged heading,
+   full-width choice rows with a radio mark that fills on the way out, hover targets, the
+   free-text answer in the same card, and a footer that separates Send from **Dismiss and
+   stop** (which is not the quiet twin of Send — it stops the run).
+2. **You had to expand two blocks to read back your own answers, and found JSON inside.** A
+   settled `ask_user` row is no longer an accordion at all: `AskReceipt` shows the question and
+   the answer inline, in the words both were written in. The details/copy affordances that
+   served the raw `{ question, answer }` payload are gone from ask rows.
+3. **Dismissing left the row spinning forever.** Dismissing STOPS the run, so the card it
+   belonged to is never settled by a `tool_result` — it kept its spinner, its elapsed counter
+   climbed for minutes, and it kept offering a reply box the dead gate could not receive. Any
+   node still marked `running` while no run is in flight now settles as stopped (`staleStatus`,
+   plus `AiSidebar`'s `runEnded`, which deliberately does NOT fire for a durable run this
+   renderer is one paint away from re-attaching to). The receipt distinguishes answered,
+   dismissed, and never-answered, remembering a dismissal the stopped run could not report.
+4. **`.ai-ask*` had three owners and they disagreed.** The stale copy in `styles.css` stacked
+   each choice `flex-direction: column`, putting the radio mark on its own line above its
+   label — the same three-files-one-component failure the notice card had. Deleted;
+   `AiSidebar.beautiful.css` owns it.
+
+Evidence: web-editor 2587 tests green (4 new in `EventNode.test.tsx` covering the receipt, the
+dismissal memory, and the stale-run freeze), typecheck + lint clean, and the card rendered
+against the real stylesheets in light and dark.
+
+**Status snapshot (2026-08-25, tool-surface audit):** `[x]` **An audit of the 85-tool registry
+found one contract defect and one unreachable setting; both are fixed on
+`fix/tool-contract-and-embeddings-ui`.**
+
+1. **`add_music`/`add_stock` carried a pure-read contract.** Both were missing from
+   `TOOL_CONTRACT_DECLARATIONS`, so they fell to the `analysis` kind default and resolved
+   identically to `get_frame` — cacheable, parallel, and needing no `write`. Because
+   `QUESTION_ROUTE_PERMISSIONS` is `['read','analysis']`, the question route advertised both
+   while correctly withholding `trim_clip`/`export_video`: a turn that cannot apply ops could
+   still download media and place a clip. `mutates` cannot catch this class (`analysisTool`
+   always sets it false), so `analysis`-kind tools are now classified EXHAUSTIVELY in
+   `tool-contract.test.ts`, mirroring how `tool-classification.ts` fixed the same drift for run
+   memory — a new analysis tool fails CI until someone decides whether it changes project state.
+   Verified: question route 34 → 32 descriptors, agent route unchanged at 80.
+2. **`nvidiaEmbeddings` was the only live `BrowserAiConfig` field with no UI.** The storage
+   field, setter, and request threading all existed; `MediaIntelligenceSettings` rendered only
+   the TwelveLabs input, so on-device visual search was reachable only through a server-side env
+   var — the real reason `search_visual`/`describe_footage`/`map_footage` read as broken. Added
+   the field, and made the backend badge name the backend that will actually run (TwelveLabs
+   resolves first) instead of the one most recently typed.
+
+3. **The MCP boundary is now a stated position, not an artifact.** 13 tools are `hostUiOnly`
+   and absent from the MCP surface, and the docs gave one reason for it — "no authoritative
+   live editor state" — which is true of the `professional_*` controllers but NOT of the four
+   sourcing tools, whose real reason is that the provider network and keys live in the Electron
+   main process. `docs/api/mcp-server.md` now groups all 13 by their actual reason and says
+   which groups could ever be lifted (sourcing: yes, given a keyed egress path outside main;
+   `ask_user`: never). Do not promise MCP parity with in-app Agent mode without moving one of
+   those rows.
+4. **`detect_faces` removed from the docs.** It was described in four places as a registered
+   tool awaiting its engine; it is not in the registry at all — the Subject Intelligence pack
+   superseded it with `detect_subjects`. `generate_mask` is the only `available: false` tool
+   left, and it is not waiting on a model. `docs/architecture/ai-engine.md` had also claimed
+   `analyze_silence`/`detect_scenes` were unavailable; both shipped long ago.
+
+Checked and found already correct (no change needed): `search_stock` already reports remaining
+provider quota to the model, and `search_music` cannot — Openverse is keyless and anonymous, so
+it reports no allowance, only a 429 whose retry-after is already surfaced legibly. Run-memory
+scope for `add_music`/`add_stock` was already `timeline_dependent` in `tool-classification.ts`.
+
+Known limitation, unchanged and correctly enforced: `add_stock` REFUSES rather than stacks when
+the target span already holds picture, because the preview flattens picture from every track
+while the export composites it (ADR 0140). The refusal is the feature — `buildAddStockOps`
+returns null with a paired reason sentence, and a test asserts the Stock panel and the tool
+cannot disagree. Lifting it is the picture-layer work (SUC-P1), which needs maintainer sign-off
+before anyone starts it.
+
 **Status snapshot (2026-08-22, second pass):** `[x]` **Run 2 (`e6d5ba92`) re-tested the fixes
 above and exposed a deeper class of gap: the runtime was deciding editorial questions, and the
 completion gate could not see coverage.** The run completed, met both measurable criteria (50+
@@ -7622,10 +7699,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                      Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                      a pre-existing local edit commenting out temperature forwarding, untouched here);
-                      engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                      **Last updated:** 2026-08-14
+                          Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                          a pre-existing local edit commenting out temperature forwarding, untouched here);
+                          engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                          **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 

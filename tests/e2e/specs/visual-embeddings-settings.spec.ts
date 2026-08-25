@@ -76,7 +76,7 @@ test.describe('media intelligence settings: browser surface + honest-unavailable
     // understanding backend is off and name what still works, rather than implying
     // footage is understood — the never-claim-a-fake-result invariant.
     await expect(panel.getByText('Local facts only')).toBeVisible();
-    await expect(panel.getByText(/remain available without TwelveLabs/)).toBeVisible();
+    await expect(panel.getByText(/remain available without a media-understanding key/)).toBeVisible();
   });
 
   test('a configured key flips the reported state, and the value round-trips', async ({ page }) => {

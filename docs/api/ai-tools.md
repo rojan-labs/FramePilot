@@ -100,7 +100,7 @@ nothing in a non-empty bin.
 | `export_video`            | Final export (after approval)                                  | action           | yes        |
 | `analyze_silence`         | Detect silent gaps (ffmpeg silencedetect)                      | analysis         | yes        |
 | `detect_scenes`           | Detect scene cuts (ffmpeg scene score)                         | analysis         | yes        |
-| `detect_faces`            | Detect faces in frames                                         | read             | **no\***   |
+| `detect_subjects`         | Detect people/objects in frames (Subject Intelligence pack)    | analysis         | yes        |
 | `generate_mask`           | Produce a subject mask                                         | write            | **no\***   |
 
 `add_clip` intentionally has only one authoritative duration. `start`/`end`
@@ -110,12 +110,18 @@ places at 1× speed. A legacy `sourceEnd` argument is accepted for compatibility
 but cannot override that invariant. Speed changes happen afterward through the
 typed `set_clip_speed` operation.
 
-\* `detect_faces` and `generate_mask` are registered for discoverability but their engine
-(a dependency-gated CV model) does not exist yet, so they are `available: false`. The
-orchestrator refuses to invoke an unavailable tool rather than fabricate a result — no AI
-feature pretends to use an engine that has not been built (build-order invariant,
-[ADR 0004](../adr/0004-timeline-patch-engine-before-ai.md)). They become available when the
-corresponding engine work lands.
+\* `generate_mask` is registered for discoverability but stays `available: false`, and for a
+reason that will not be resolved by shipping a model: a segmentation produces a **bitmap**,
+while a timeline mask steers by **rectangle bounds**. The measured path that does exist is
+`track_subject_automatically` with `subject="silhouette"`, which segments inside a drawn mask
+and animates that mask to follow the silhouette's bounding box. The orchestrator refuses to
+invoke an unavailable tool rather than fabricate a result — no AI feature pretends to use an
+engine that has not been built (build-order invariant,
+[ADR 0004](../adr/0004-timeline-patch-engine-before-ai.md)).
+
+`detect_faces` was the other entry here. It is **gone**, not renamed to `available: false`:
+the Subject Intelligence pack superseded it with `detect_subjects`, which returns
+person/object labels rather than face boxes alone.
 
 `render_preview` and `export_video` are **actions** (they run the render engine — see
 [python-engine-api.md](python-engine-api.md)) rather than read or write tools; `export_video`

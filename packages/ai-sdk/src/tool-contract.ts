@@ -79,6 +79,34 @@ export const TOOL_CONTRACT_DECLARATIONS: Readonly<Record<string, ToolContract>> 
     stateDependency: 'asset_content',
     cacheScope: 'none',
   },
+  // `add_music`/`add_stock` are sourcing tools whose NAMES read as analysis and whose
+  // registry kind IS `analysis` — they are reached through `search_music`/`search_stock`
+  // — but each one downloads a third-party file into the project and places a clip via a
+  // reversible patch. Without these rows they fell to the `analysis` kind default and
+  // landed on a contract identical to `get_frame`: a pure read, cacheable within a
+  // revision, safe to run in parallel, and needing no `write` permission. That last one
+  // is what made it visible — `QUESTION_ROUTE_PERMISSIONS` is `['read','analysis']`, so
+  // the question route advertised both to the model while correctly withholding
+  // `trim_clip` and `export_video`, and a turn that cannot apply ops could still fetch
+  // media and place it. `cacheScope: 'none'` for the same reason
+  // `track_subject_automatically` declares it: replaying a memoized placement would
+  // re-apply a stale edit as if it were fresh.
+  add_music: {
+    executionPlane: 'host',
+    effectClass: 'mutation',
+    permissions: ['analysis', 'write'],
+    concurrency: 'serial',
+    stateDependency: 'project_revision',
+    cacheScope: 'none',
+  },
+  add_stock: {
+    executionPlane: 'host',
+    effectClass: 'mutation',
+    permissions: ['analysis', 'write'],
+    concurrency: 'serial',
+    stateDependency: 'project_revision',
+    cacheScope: 'none',
+  },
   get_frame: {
     executionPlane: 'host',
     effectClass: 'pure_read',

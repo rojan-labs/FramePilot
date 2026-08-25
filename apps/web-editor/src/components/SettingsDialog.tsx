@@ -38,7 +38,11 @@ import {
 } from '../editor/useSettings.js';
 import type { TimeDisplay } from '../editor/selectors.js';
 import { resolveEngineBaseUrl } from '../editor/ai.js';
-import { createVisualIndexClient, twelveLabsKey } from '../editor/visualIndex.js';
+import {
+  createVisualIndexClient,
+  nvidiaEmbeddingsKeys,
+  twelveLabsKey,
+} from '../editor/visualIndex.js';
 import { useAiConfig } from '../editor/useAiConfig.js';
 import { onStockQuotaChanged, stockQuota, type StockQuotaSnapshot } from '../editor/bridge.js';
 import { useUserMemory } from '../editor/useUserMemory.js';
@@ -665,7 +669,7 @@ function AsrSettings(): JSX.Element {
 type MediaStatusState = VisualStatusResponse | 'loading' | 'error' | 'no-project';
 
 function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string }): JSX.Element {
-  const { config, setTwelveLabs } = useAiConfig();
+  const { config, setTwelveLabs, setNvidiaEmbeddings } = useAiConfig();
   const client = useMemo(() => createVisualIndexClient(), []);
   const [status, setStatus] = useState<MediaStatusState>(projectId ? 'loading' : 'no-project');
 
@@ -685,7 +689,15 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
     return () => window.clearInterval(timer);
   }, [projectId, refresh]);
 
-  const keyConfigured = twelveLabsKey(config) !== undefined;
+  // Two backends can be configured at once, and the engine resolves TwelveLabs FIRST
+  // (`service.py` checks `resolve_twelvelabs` before `resolve_visual_embedder`), so the
+  // badge has to name the one that will actually run rather than the one most recently
+  // typed — otherwise a user with both keys reads "on-device" while media is leaving the
+  // machine.
+  const hostedKey = twelveLabsKey(config) !== undefined;
+  const onDeviceKey = nvidiaEmbeddingsKeys(config) !== undefined;
+  const keyConfigured = hostedKey || onDeviceKey;
+  const activeBackend = hostedKey ? 'TwelveLabs' : onDeviceKey ? 'On-device' : undefined;
   let statusText = 'Open a project to see media-understanding coverage.';
   let tone: 'idle' | 'running' | 'completed' | 'warning' = 'idle';
   if (status === 'loading') {
@@ -731,6 +743,26 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
           transcription. Media may leave this device and provider credits may be used.
         </span>
       </div>
+      <div className="setting-row setting-row--stack">
+        <label className="setting-field-label" htmlFor="ai-nvidia-embeddings">
+          On-device embeddings key
+        </label>
+        <input
+          id="ai-nvidia-embeddings"
+          type="password"
+          className="setting-text-input"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="nvapi-…"
+          value={config.nvidiaEmbeddings ?? ''}
+          onChange={(event) => setNvidiaEmbeddings(event.target.value || null)}
+        />
+        <span className="setting-hint">
+          NVIDIA API key(s) for visual embeddings, comma-separated. Footage is indexed and searched
+          on this machine — only the embedding request leaves it, never the media. Used when no
+          TwelveLabs key is set.
+        </span>
+      </div>
       <div className="setting-row">
         <div className="setting-text">
           <span className="setting-label">Automatic preparation</span>
@@ -740,7 +772,7 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
           </span>
         </div>
         <span className="ai-tone" data-tone={keyConfigured ? 'completed' : 'idle'}>
-          {keyConfigured ? 'TwelveLabs ready' : 'Local facts only'}
+          {activeBackend ? `${activeBackend} ready` : 'Local facts only'}
         </span>
       </div>
       <div className="setting-row">
@@ -752,10 +784,16 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
           {tone}
         </span>
       </div>
+      {hostedKey && onDeviceKey ? (
+        <p className="setting-hint setting-note">
+          Both keys are set. TwelveLabs takes priority, so footage is understood by the hosted
+          service — clear that key to fall back to on-device embeddings.
+        </p>
+      ) : null}
       {!keyConfigured ? (
         <p className="setting-hint setting-note">
           Deterministic inspection, timeline editing, frame rendering, local transcription, and
-          cached results remain available without TwelveLabs.
+          cached results remain available without a media-understanding key.
         </p>
       ) : null}
     </SettingGroup>

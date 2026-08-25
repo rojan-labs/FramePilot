@@ -173,8 +173,10 @@ The full contract and the table of every core tool are in
   writes (PRD §18.2).
 - Tool inputs are **schema-validated** before execution.
 - **Read tools** return state (e.g. `get_timeline`, `get_transcript`,
-  `get_selected_range`). `analyze_silence`, `detect_scenes`, `detect_faces` are
-  registered but `available: false` until their engine exists.
+  `get_selected_range`). `analyze_silence` and `detect_scenes` are **analysis** tools —
+  ffmpeg-backed reads the engine sidecar executes — and both have shipped. The only tool
+  still `available: false` is `generate_mask`, and not for want of a model: segmentation
+  yields a bitmap while timeline masks steer by rectangle bounds.
 - **Write tools** return typed **operations** that the orchestrator assembles into a
   **patch** (e.g. `trim_clip`, `delete_range`, `add_caption_layer`, `add_keyframes`),
   which then flows through validate → diff → preview → apply. The provider never returns

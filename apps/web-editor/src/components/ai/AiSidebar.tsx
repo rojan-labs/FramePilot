@@ -1257,6 +1257,27 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     [session],
   );
 
+  /**
+   * Nothing on screen can still be live.
+   *
+   * A card only leaves `running` when its own settling event arrives, and a run that ends
+   * without one — the editor dismissed the model's question (dismissing IS a stop), the
+   * transport aborted mid-call, the app was closed mid-run — used to leave that card
+   * spinning with its elapsed counter climbing forever, still offering a reply to a gate
+   * that had died with the run. `EventNode` settles those rows as stopped.
+   *
+   * A durable host run this renderer is about to re-attach to (a reload mid-run) is NOT
+   * over: it is one paint away from streaming again, and freezing its cards for that one
+   * frame would flash "Stopped" across a run that never stopped.
+   */
+  const runEnded =
+    !running &&
+    (view.status === 'completed' ||
+      view.status === 'failed' ||
+      view.status === 'cancelled' ||
+      view.status === 'idle' ||
+      recoveryConversationId !== (active?.id ?? null));
+
   // The run's own edits, newest run only: what "Undo run" would take back.
   //
   // Undo is the entire safety net now that edits apply as they land, so this is the one
@@ -1345,6 +1366,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         onSeek={onSeek}
         {...(onReveal ? { onReveal } : {})}
         onAnswer={onAnswer}
+        runEnded={runEnded}
         {...(failedToApply ? { applyFailed: true } : {})}
         // D1: a retryable error notice's inline Retry re-runs the last turn
         // through the SAME `retry` callback the action bar uses below — never a

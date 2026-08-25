@@ -8954,88 +8954,13 @@ a.export-credits-license {
   animation: ai-spin 0.7s linear infinite;
 }
 
-/* The model's question (P12). This one IS a card: the run is stopped until the editor
-   answers, so it must read as a thing addressed to them — not another status line to
-   scroll past. */
-.ai-ask {
-  margin: var(--space-2) 0 var(--space-1);
-  padding: var(--space-3);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
-}
-.ai-ask-question {
-  margin: 0 0 var(--space-2);
-  font-size: 13px;
-  color: var(--text-primary);
-}
-.ai-ask-options {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  margin-bottom: var(--space-2);
-}
-.ai-ask-option {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--space-2);
-  text-align: left;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  cursor: pointer;
-}
-.ai-ask-option:hover {
-  border-color: var(--accent);
-  background: var(--bg-hover);
-}
-.ai-ask-option:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-.ai-ask-option-label {
-  font-size: 13px;
-}
-.ai-ask-option-detail {
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-.ai-ask-free {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-}
-.ai-ask-input {
-  flex: 1;
-  min-width: 0;
-  padding: var(--space-2);
-  font-size: 13px;
-  color: var(--text-primary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-}
-.ai-ask-input:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: -1px;
-}
-/* Dismissing stops the run, so it is deliberately quiet — a last resort, not a peer of
-   the answers. */
-.ai-ask-dismiss {
-  margin-top: var(--space-2);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font-size: 12px;
-  color: var(--text-tertiary);
-  text-decoration: underline;
-  cursor: pointer;
-}
-.ai-ask-dismiss:hover {
-  color: var(--text-secondary);
-}
+/* The model's question (P12) is a decision card in its own right — the run is stopped
+   until the editor answers, so it must read as a thing addressed to them rather than
+   another status line to scroll past. It has ONE owner: `AiSidebar.beautiful.css`.
+   A second, older copy of `.ai-ask*` lived here and disagreed with it (choices stacked
+   as `flex-direction: column`, so the radio mark sat on a line of its own above its
+   label), which is exactly the three-files-one-component failure the notice card had. */
+
 .ai-tool-name {
   flex: 1 1 auto;
   min-width: 0;

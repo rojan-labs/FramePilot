@@ -16,11 +16,26 @@ see the [MCP server guide](../guides/mcp-server.md); for the rationale see
    (`@framepilot/ai-sdk`), mapped 1:1 via `buildMcpTools()`. The `inputSchema` is the
    exact JSON Schema the registry derived from each tool's Zod schema, so the MCP
    surface can never drift from the in-app AI surface. A parity test
-   (`src/tools.test.ts`) enforces this. Tools with `available: false` (`detect_faces`,
-   `generate_mask` — dependency-gated CV) are **omitted** until their engine exists. Tools marked
-   `hostUiOnly` are also omitted because MCP has no authoritative live editor selection, playhead,
-   source-monitor, effect, or keyframe snapshot. This includes the professional timeline, motion,
-   color, tracking/mask, and audio controllers; explicit-target registry operations remain portable.
+   (`src/tools.test.ts`) enforces this. Tools with `available: false` (`generate_mask` —
+   a segmentation is a bitmap, while timeline masks steer by rectangle bounds) are
+   **omitted** until their engine exists. Tools marked `hostUiOnly` are also omitted, and
+   refused by name in `session.ts` — hiding a tool from the list is not enforcement when a
+   client can still call it directly.
+
+   **The `hostUiOnly` boundary, stated in full.** It is not one rule but three, and they
+   are worth separating because they fail differently and would be lifted differently.
+   Of the 13 tools currently withheld:
+
+   | Reason                                                                                                        | Tools                                                                                                    | Could MCP ever have these?                                                                                                                                              |
+   | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | **No authoritative live editor state** — no selection, playhead, source-monitor, effect, or keyframe snapshot | the five `professional_*` controllers, `measure_color`, `track_subject_automatically`, `detect_subjects` | Only with a way to carry an explicit target instead of "what the human has selected". Explicit-target registry operations are already portable and stay on the surface. |
+   | **Provider network and API keys live in the Electron main process** — the sidecar has no route for them       | `search_music`, `search_stock`, `add_music`, `add_stock`                                                 | Yes in principle: this is a wiring boundary, not a semantic one. It needs a keyed egress path outside main before it is safe, so it is deferred rather than impossible. |
+   | **No human to answer**                                                                                        | `ask_user` (ADR 0059)                                                                                    | No — the tool's whole contract is a round trip to a person looking at the editor.                                                                                       |
+
+   Treat this table as the product position, not an implementation note: an external agent
+   driving FramePilot over MCP gets the full deterministic editing surface and none of the
+   sourcing, professional-controller, or ask-the-editor capabilities. Do not promise MCP
+   parity with in-app Agent mode without changing one of the three rows above.
 
 ### Session tools
 

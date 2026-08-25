@@ -67,6 +67,8 @@ import {
   ICON_SIZE,
   Layers,
   Maximize2,
+  MessageCircleQuestion,
+  Minus,
   Music,
   Sparkles,
   Type,
@@ -98,6 +100,20 @@ const TOOL_STATUS_LABEL: Record<ToolStatus, string> = {
  * them findable when you scroll a hundred rows looking for the one that went wrong.
  * `running` keeps the spinner: it is the only mark that must read as *live*.
  */
+/**
+ * What a step's status IS once the run around it is over.
+ *
+ * A card only ever leaves `running` when its own settling event arrives. A run that ends
+ * without one — the editor dismissed the model's question, the transport aborted
+ * mid-call, the desktop hub timed the run out — used to leave that card spinning and its
+ * elapsed counter climbing forever, minutes after everything had stopped. Nothing can be
+ * running when no run is: the row settles as `cancelled`, which is what actually
+ * happened to it.
+ */
+function staleStatus(status: ToolStatus, runEnded?: boolean): ToolStatus {
+  return runEnded === true && status === 'running' ? 'cancelled' : status;
+}
+
 function ToolStatusIcon({ status }: { status: ToolStatus }): JSX.Element {
   const tone = toolStatusTone(status);
   return (
@@ -244,18 +260,26 @@ function thoughtLabel(thoughtMs: number): string {
   return `Thought for ${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
-function Reasoning({ node }: { node: ReasoningNode }): JSX.Element | null {
+function Reasoning({
+  node,
+  runEnded,
+}: {
+  node: ReasoningNode;
+  /** The run is over — a still-streaming thought is stale, not live (see `staleStatus`). */
+  runEnded?: boolean;
+}): JSX.Element | null {
   // Auto-expand while the model is still thinking so its streamed rationale is
   // visible live; auto-collapse to a summary line the moment it settles (product
   // ask #1). The reviewer can still open it afterwards — and once they've toggled
   // it by hand we stop auto-collapsing so we never fight their choice.
-  const [open, setOpen] = useState(!node.done);
+  const done = node.done || runEnded === true;
+  const [open, setOpen] = useState(!done);
   const userToggledRef = useRef(false);
-  const wasDoneRef = useRef(node.done);
+  const wasDoneRef = useRef(done);
   useEffect(() => {
-    if (!wasDoneRef.current && node.done && !userToggledRef.current) setOpen(false);
-    wasDoneRef.current = node.done;
-  }, [node.done]);
+    if (!wasDoneRef.current && done && !userToggledRef.current) setOpen(false);
+    wasDoneRef.current = done;
+  }, [done]);
   const toggle = useCallback(() => {
     userToggledRef.current = true;
     setOpen((v) => !v);
@@ -264,7 +288,7 @@ function Reasoning({ node }: { node: ReasoningNode }): JSX.Element | null {
   // fail, and giving it a tone would make it compete with the tool rows around it.
   const bead = (
     <StepSlot>
-      <span className="ai-step-node" data-live={!node.done} aria-hidden="true" />
+      <span className="ai-step-node" data-live={!done} aria-hidden="true" />
     </StepSlot>
   );
   // A settled node with no captured rationale has nothing to open, so it renders
@@ -273,7 +297,7 @@ function Reasoning({ node }: { node: ReasoningNode }): JSX.Element | null {
   // returned no thinking (it wasn't asked, it doesn't support it, or the request was
   // degraded) must not be presented as having shown its work. While still thinking the
   // row stays regardless — the shimmer signals live activity, which IS true.
-  if (node.done && node.summaries.every((summary) => summary.trim() === '')) return null;
+  if (done && node.summaries.every((summary) => summary.trim() === '')) return null;
   const settledLabel = node.thoughtMs !== undefined ? thoughtLabel(node.thoughtMs) : 'Reasoning';
   const Chevron = open ? ChevronDown : ChevronRight;
   return (
@@ -281,8 +305,8 @@ function Reasoning({ node }: { node: ReasoningNode }): JSX.Element | null {
       {bead}
       <div className="ai-step-body">
         <button type="button" className="ai-reasoning-toggle" aria-expanded={open} onClick={toggle}>
-          <span className={!node.done ? 'ai-shimmer-text' : undefined}>
-            {node.done ? settledLabel : 'Thinking…'}
+          <span className={!done ? 'ai-shimmer-text' : undefined}>
+            {done ? settledLabel : 'Thinking…'}
           </span>
           <Chevron size={ICON_SIZE.sm} aria-hidden="true" className="ai-reveal-chevron" />
         </button>
@@ -292,7 +316,7 @@ function Reasoning({ node }: { node: ReasoningNode }): JSX.Element | null {
               <div className="ai-reasoning-list">
                 {node.summaries.map((summary, i) => (
                   <div key={i} className="ai-reasoning-line">
-                    {node.done ? (
+                    {done ? (
                       <Markdown text={summary} />
                     ) : (
                       <div className="ai-streaming-text">{summary}</div>
@@ -691,50 +715,72 @@ function ToolDetailsModal({
  * offered no options, or alongside them when none of the choices fit — a model can only
  * guess at the options, and the editor should never be trapped inside its guesses.
  *
- * Dismissing is deliberately distinct from answering: it stops the run rather than
- * feeding the model a reply the editor never gave.
+ * The layout is a proper decision card (the same grammar as the plan-approval card): the
+ * question is the heading, each choice is a full-width row with a radio mark, hover
+ * highlight and its own consequence line, and the footer separates the two things that
+ * are NOT the same gesture — sending an answer, and dismissing the question, which stops
+ * the run rather than feeding the model a reply the editor never gave.
+ *
+ * Picking a choice answers immediately (one click, as before). The mark fills on the way
+ * out so the card visibly says which one you hit before it settles into its receipt.
  */
 function AskPrompt({
   node,
   onAnswer,
+  runEnded,
 }: {
   node: ToolNode;
   onAnswer: AnswerHandler;
+  /** The run this question belongs to is over — nothing can be answered any more. */
+  runEnded?: boolean;
 }): JSX.Element | null {
   const ask = node.ask;
   const [text, setText] = useState('');
+  const [chosen, setChosen] = useState<string | null>(null);
   // The run is stopped until this is answered, so the answer field takes focus the moment
   // the question appears — the editor should never have to hunt for where to reply.
   const inputRef = useRef<HTMLInputElement>(null);
-  const pending = Boolean(ask) && node.status === 'running';
+  // Once the call settles, the exchange is over: the answer is the node's result, and a
+  // live prompt would invite answering a question that is no longer being asked. A node
+  // still marked `running` after the RUN ended is the same thing — the gate it would
+  // resolve died with the run (see `runEnded`).
+  const pending = Boolean(ask) && node.status === 'running' && runEnded !== true;
   useEffect(() => {
     if (pending) inputRef.current?.focus();
   }, [pending]);
-  // Once the call settles, the exchange is over: the answer is the node's result, and a
-  // live prompt would invite answering a question that is no longer being asked.
-  if (!ask || node.status !== 'running') return null;
-  const submitText = (): void => {
-    const answer = text.trim();
-    if (answer) onAnswer({ toolCallId: ask.toolCallId, kind: 'answered', answer });
+  if (!ask || !pending) return null;
+  const answerWith = (value: string): void => {
+    const answer = value.trim();
+    if (!answer) return;
+    setChosen(answer);
+    onAnswer({ toolCallId: ask.toolCallId, kind: 'answered', answer });
   };
+  const options = ask.options ?? [];
   return (
     <div className="ai-ask" role="group" aria-label="A question from FramePilot">
-      <p className="ai-ask-question">{ask.question}</p>
-      {ask.options && ask.options.length > 0 && (
+      <div className="ai-ask-head">
+        <span className="ai-ask-badge" aria-hidden="true">
+          <MessageCircleQuestion size={13} />
+        </span>
+        <p className="ai-ask-question">{ask.question}</p>
+      </div>
+      {options.length > 0 && (
         <div className="ai-ask-options">
-          {ask.options.map((option) => (
+          {options.map((option) => (
             <button
               key={option.label}
               type="button"
               className="ai-ask-option"
-              onClick={() =>
-                onAnswer({ toolCallId: ask.toolCallId, kind: 'answered', answer: option.label })
-              }
+              aria-pressed={chosen === option.label.trim()}
+              onClick={() => answerWith(option.label)}
             >
-              <span className="ai-ask-option-label">{option.label}</span>
-              {option.description && (
-                <span className="ai-ask-option-detail">{option.description}</span>
-              )}
+              <span className="ai-ask-mark" aria-hidden="true" />
+              <span className="ai-ask-option-text">
+                <span className="ai-ask-option-label">{option.label}</span>
+                {option.description && (
+                  <span className="ai-ask-option-detail">{option.description}</span>
+                )}
+              </span>
             </button>
           ))}
         </div>
@@ -745,29 +791,100 @@ function AskPrompt({
           type="text"
           className="ai-ask-input"
           value={text}
-          placeholder={
-            ask.options && ask.options.length > 0 ? 'Or tell it something else…' : 'Your answer…'
-          }
+          placeholder={options.length > 0 ? 'Or tell it something else…' : 'Type your answer…'}
           aria-label="Your answer"
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
-              submitText();
+              answerWith(text);
             }
           }}
         />
-        <Button variant="secondary" onClick={submitText} disabled={text.trim() === ''}>
+      </div>
+      <div className="ai-ask-footer">
+        <button
+          type="button"
+          className="ai-ask-dismiss"
+          onClick={() => onAnswer({ toolCallId: ask.toolCallId, kind: 'cancelled' })}
+        >
+          Dismiss and stop
+        </button>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => answerWith(text)}
+          disabled={text.trim() === ''}
+        >
           Send
         </Button>
       </div>
-      <button
-        type="button"
-        className="ai-ask-dismiss"
-        onClick={() => onAnswer({ toolCallId: ask.toolCallId, kind: 'cancelled' })}
-      >
-        Dismiss and stop
-      </button>
+    </div>
+  );
+}
+
+/**
+ * What the exchange settled to, always visible (product ask: "I have to expand blocks to
+ * see my own answers").
+ *
+ * A question and the answer given to it are the two things in a run the editor is most
+ * likely to scroll back for — they are decisions they made, not machine output. So they
+ * are NOT behind the accordion, and never rendered as the raw `{ question, answer }`
+ * payload the details view used to show: the question in the model's words, the answer in
+ * the editor's, on the row where it happened.
+ */
+function AskReceipt({
+  node,
+  runEnded,
+  reply,
+}: {
+  node: ToolNode;
+  runEnded?: boolean;
+  /**
+   * What the editor did here, remembered locally.
+   *
+   * Normally the settled call carries it (`node.result.summary` IS the answer). It does
+   * not when the run died around the question — dismissing is exactly that case, since
+   * dismissing STOPS the run — so without this the row would report "never answered" for
+   * a question the editor had just this second answered or dismissed.
+   */
+  reply?: AiStreamAnswerMessage | null;
+}): JSX.Element | null {
+  const ask = node.ask;
+  if (!ask) return null;
+  // Still live — `AskPrompt` owns this node until it settles.
+  if (node.status === 'running' && runEnded !== true) return null;
+  const state: 'answered' | 'dismissed' | 'unanswered' =
+    node.status === 'completed' || (node.status === 'running' && reply?.kind === 'answered')
+      ? 'answered'
+      : node.status === 'cancelled' || reply?.kind === 'cancelled'
+        ? 'dismissed'
+        : 'unanswered';
+  const answer =
+    node.result?.summary?.trim() ||
+    (reply?.kind === 'answered' ? reply.answer.trim() : undefined) ||
+    undefined;
+  return (
+    <div className="ai-ask-receipt" data-state={state}>
+      <p className="ai-ask-receipt-question">{ask.question}</p>
+      <p className="ai-ask-receipt-answer">
+        <span className="ai-ask-receipt-mark" aria-hidden="true">
+          {state === 'answered' ? (
+            <Check size={12} />
+          ) : state === 'dismissed' ? (
+            <Ban size={12} />
+          ) : (
+            <Minus size={12} />
+          )}
+        </span>
+        <span className="ai-ask-receipt-text">
+          {state === 'answered'
+            ? (answer ?? 'Answered')
+            : state === 'dismissed'
+              ? 'You dismissed this and stopped the run.'
+              : (answer ?? 'The run ended before this was answered.')}
+        </span>
+      </p>
     </div>
   );
 }
@@ -776,6 +893,7 @@ function ToolCard({
   node,
   onReveal,
   onAnswer,
+  runEnded,
   expanded: controlledOpen,
   onToggleExpanded,
 }: {
@@ -783,6 +901,8 @@ function ToolCard({
   onReveal?: RevealHandler;
   /** Answers the model's question when this call is an `ask_user` (P12). */
   onAnswer?: AnswerHandler;
+  /** The run is over. A card still marked `running` is stale — see {@link staleStatus}. */
+  runEnded?: boolean;
   /** Controlled expansion (the sidebar remembers it for the whole run); falls back to local state. */
   expanded?: boolean;
   onToggleExpanded?: (nodeId: string, open: boolean) => void;
@@ -797,7 +917,12 @@ function ToolCard({
   // (`result.result`), or a summary too long to fit on the one-line row. A trivial
   // one-line summary with no output stays a quiet status row — no chevron (#1).
   const hasOutput = result?.result !== undefined && result?.result !== null;
-  const canExpand = hasOutput || summaryExceedsOneLine(summary);
+  // A question is never an accordion: `AskReceipt` shows the question and the answer in
+  // full, in plain words, so the only thing opening the row could add is the raw
+  // `{ question, answer }` payload — which is what made an editor expand two boxes to
+  // read back their own answers.
+  const isAsk = Boolean(node.ask);
+  const canExpand = !isAsk && (hasOutput || summaryExceedsOneLine(summary));
   const [localOpen, setLocalOpen] = useState(false);
   const open = controlledOpen ?? localOpen;
   const setOpen = (next: boolean): void => {
@@ -805,23 +930,45 @@ function ToolCard({
     else setLocalOpen(next);
   };
   const [detailsOpen, setDetailsOpen] = useState(false);
+  // A question's reply, kept here as well as sent: dismissing STOPS the run, so the card
+  // it belongs to is often never settled by an event. See {@link AskReceipt.reply}.
+  const [askReply, setAskReply] = useState<AiStreamAnswerMessage | null>(null);
+  const answerAndRemember = useCallback(
+    (reply: AiStreamAnswerMessage): void => {
+      setAskReply(reply);
+      onAnswer?.(reply);
+    },
+    [onAnswer],
+  );
   const meta = toolMeta(node.toolName);
   const Icon = meta.Icon;
   const gated = !isToolAvailable(node.toolName);
-  const title = node.title ?? meta.label;
-  const hasDetails = Boolean(result);
+  const status = staleStatus(node.status, runEnded);
+  // The row says what the exchange IS now, not what the model called: "Asking you: <the
+  // first 40 characters of the question>" was a truncated copy of a question shown in
+  // full three lines below it. The status label is the one thing the collapsed row can
+  // add that the card itself does not.
+  const askTitle = !isAsk
+    ? undefined
+    : status === 'running'
+      ? 'Waiting for your answer'
+      : status === 'cancelled'
+        ? 'You dismissed the question'
+        : 'You answered';
+  const title = askTitle ?? node.title ?? meta.label;
+  const hasDetails = Boolean(result) && !isAsk;
   // A failed pack-backed tool carries the exact signed install proposal. The
   // model cannot install anything; this card is the human's path to fix it.
   const missingPackProposal = useMemo(() => {
-    if (node.status !== 'failed') return null;
+    if (status !== 'failed') return null;
     return packMissingProposal(result?.result);
-  }, [node.status, result]);
+  }, [status, result]);
   const expanded = open && canExpand;
   const Chevron = expanded ? ChevronDown : ChevronRight;
   // Live elapsed while the call runs (from the running event's timestamp);
   // frozen to the reported runtime once it settles (U4). Whole seconds only —
   // a decimal that repaints every tick reads as jitter, not progress.
-  const running = node.status === 'running' && !gated;
+  const running = status === 'running' && !gated;
   const nowTs = useTicker(running);
   const elapsedMs = running ? Math.max(0, nowTs - node.ts) : undefined;
   return (
@@ -834,7 +981,7 @@ function ToolCard({
             </span>
           </Tooltip>
         ) : (
-          <ToolStatusIcon status={node.status} />
+          <ToolStatusIcon status={status} />
         )}
       </StepSlot>
       <div className="ai-step-body">
@@ -890,9 +1037,12 @@ function ToolCard({
             of the one-line summary. Rendered only while open so a long run doesn't keep
             dozens of large payloads mounted. Hidden while a question is pending: the prompt
             below is the only thing worth reading then. */}
-        {expanded && result && !node.ask && <ToolOutput result={result} />}
+        {expanded && result && !isAsk && <ToolOutput result={result} />}
         {missingPackProposal !== null && <PackInstallInlineCard proposal={missingPackProposal} />}
-        {onAnswer && <AskPrompt node={node} onAnswer={onAnswer} />}
+        {isAsk && <AskReceipt node={node} reply={askReply} {...(runEnded ? { runEnded } : {})} />}
+        {onAnswer && (
+          <AskPrompt node={node} onAnswer={answerAndRemember} {...(runEnded ? { runEnded } : {})} />
+        )}
       </div>
       {detailsOpen && (
         <ToolDetailsModal
@@ -1130,9 +1280,7 @@ function DiffCard({
               onClick={() => setSelectedVariant(i)}
             >
               {variantLabel(i)}
-              {i === appliedVariant && (
-                <span className="ai-diff-variant-applied"> · applied</span>
-              )}
+              {i === appliedVariant && <span className="ai-diff-variant-applied"> · applied</span>}
             </button>
           ))}
         </div>
@@ -1437,6 +1585,7 @@ export const EventNode = memo(function EventNode({
   onReveal,
   onAnswer,
   onSeek,
+  runEnded,
   applyFailed,
   stepOutcomes,
   expanded,
@@ -1452,6 +1601,12 @@ export const EventNode = memo(function EventNode({
   onAnswer?: AnswerHandler;
   /** Move the editor playhead (diff "Jump to timeline" / preview seek). */
   onSeek?: (seconds: number) => void;
+  /**
+   * No run is in flight. Any node still marked live belongs to a run that ended without
+   * settling it, so it renders as stopped instead of spinning forever — and a pending
+   * question stops offering a reply nothing is listening for.
+   */
+  runEnded?: boolean;
   /** The edit could not be written (stale against the current timeline). */
   applyFailed?: boolean;
   /** What each plan step's own edit did, keyed by step id — see {@link StepOutcome}. */
@@ -1474,7 +1629,7 @@ export const EventNode = memo(function EventNode({
     case 'assistant':
       return <AssistantMessage node={node} />;
     case 'reasoning':
-      return <Reasoning node={node} />;
+      return <Reasoning node={node} {...(runEnded ? { runEnded } : {})} />;
     case 'plan':
       return (
         <PlanChecklist
@@ -1489,6 +1644,7 @@ export const EventNode = memo(function EventNode({
           node={node}
           {...(onReveal ? { onReveal } : {})}
           {...(onAnswer ? { onAnswer } : {})}
+          {...(runEnded ? { runEnded } : {})}
           {...(expanded !== undefined ? { expanded } : {})}
           {...(onToggleExpanded ? { onToggleExpanded } : {})}
         />
