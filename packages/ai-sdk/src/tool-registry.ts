@@ -25,8 +25,11 @@
  *   sidecar computes it. No patch, no in-process data.
  * - **unavailable** (`available: false`): registered for discoverability but its
  *   engine does not exist yet. Per the build-order invariant we must NOT fake the
- *   capability (`detect_faces`, `generate_mask` depend on a dependency-gated CV
- *   engine). The orchestrator refuses to invoke these rather than fabricate a result.
+ *   capability. `generate_mask` is the only one left, and it is not waiting on a
+ *   model: segmentation yields a bitmap while timeline masks steer by rectangle
+ *   bounds, so the measured path is `track_subject_automatically` with
+ *   `subject="silhouette"` (see `domain-tools/tracking-mask.ts`). The orchestrator
+ *   refuses to invoke these rather than fabricate a result.
  */
 import { z } from 'zod/v4';
 import { createLogger } from '@framepilot/shared-types';
