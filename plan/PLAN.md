@@ -13,6 +13,33 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-25, tool-surface audit):** `[x]` **An audit of the 85-tool registry
+found one contract defect and one unreachable setting; both are fixed on
+`fix/tool-contract-and-embeddings-ui`.**
+
+1. **`add_music`/`add_stock` carried a pure-read contract.** Both were missing from
+   `TOOL_CONTRACT_DECLARATIONS`, so they fell to the `analysis` kind default and resolved
+   identically to `get_frame` — cacheable, parallel, and needing no `write`. Because
+   `QUESTION_ROUTE_PERMISSIONS` is `['read','analysis']`, the question route advertised both
+   while correctly withholding `trim_clip`/`export_video`: a turn that cannot apply ops could
+   still download media and place a clip. `mutates` cannot catch this class (`analysisTool`
+   always sets it false), so `analysis`-kind tools are now classified EXHAUSTIVELY in
+   `tool-contract.test.ts`, mirroring how `tool-classification.ts` fixed the same drift for run
+   memory — a new analysis tool fails CI until someone decides whether it changes project state.
+   Verified: question route 34 → 32 descriptors, agent route unchanged at 80.
+2. **`nvidiaEmbeddings` was the only live `BrowserAiConfig` field with no UI.** The storage
+   field, setter, and request threading all existed; `MediaIntelligenceSettings` rendered only
+   the TwelveLabs input, so on-device visual search was reachable only through a server-side env
+   var — the real reason `search_visual`/`describe_footage`/`map_footage` read as broken. Added
+   the field, and made the backend badge name the backend that will actually run (TwelveLabs
+   resolves first) instead of the one most recently typed.
+
+Deferred, recorded so it is not silently undone: 13 tools are `hostUiOnly` and therefore absent
+from the MCP surface (music/stock sourcing, all five `professional_*`, automatic tracking,
+`measure_color`, `detect_subjects`, `ask_user`) because the provider network and API keys live in
+the Electron main process. That is a defensible boundary but currently an artifact rather than a
+stated product position — decide it before promising MCP parity.
+
 **Status snapshot (2026-08-22, second pass):** `[x]` **Run 2 (`e6d5ba92`) re-tested the fixes
 above and exposed a deeper class of gap: the runtime was deciding editorial questions, and the
 completion gate could not see coverage.** The run completed, met both measurable criteria (50+
@@ -7622,10 +7649,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                      Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                      a pre-existing local edit commenting out temperature forwarding, untouched here);
-                      engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                      **Last updated:** 2026-08-14
+                        Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                        a pre-existing local edit commenting out temperature forwarding, untouched here);
+                        engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                        **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 
