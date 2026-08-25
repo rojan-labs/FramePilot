@@ -20,8 +20,9 @@ Do not add unrelated movement, cover an emotional performance, or use blend mode
 
 ## Sourcing a shot the user never filmed
 
-`search_stock` reaches a stock library; `add_stock` downloads one and places it.
-Reach for them **last**, not first.
+`search_stock` reaches a stock library; `add_stock` downloads one. Give it
+`atSeconds` and the clip also lands on the timeline there; leave `atSeconds` off
+and it just arrives in the media bin. Reach for them **last**, not first.
 
 - Exhaust the user's own footage first. On a screen recording or a product demo,
   a punch-in or a reframe of their own frame is almost always the better cut, and
@@ -38,6 +39,14 @@ Reach for them **last**, not first.
   be trimmed like any other clip afterwards.
 - The provider is metered. `search_stock` tells you how many requests remain when
   it knows — if the number is small, commit to a candidate rather than browsing.
+- **Building a sequence out of stock? Gather first, place second.** Call
+  `add_stock` without `atSeconds` for each clip you want, then lay them out with
+  `add_clip` once you know the order. Downloading straight onto the timeline
+  forces you to commit to a running order before you have seen the second shot,
+  and the occupancy rule above then refuses it.
+- A search result is only a `remoteId` until you download it. There is no path to
+  guess and no URL to paste: `add_stock` is the only thing that turns a candidate
+  into media this project owns.
 
 ## Required inputs
 

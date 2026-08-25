@@ -2839,9 +2839,15 @@ export class Orchestrator {
         const creditNote = stockAsset.source.attributionRequired
           ? ` This clip requires crediting ${stockAsset.source.creator ?? 'its creator'} — the credit is saved with the project and appears under Export → Credits.`
           : ' This clip needs no credit.';
+        // Never "Placed at 0.0s" for a bin-only download: the model narrates from this note,
+        // and a position it can see on the timeline is the one thing it must not invent.
+        const whereNote =
+          placement.start === undefined
+            ? ' It is in your media bin, not on the timeline yet — place it with add_clip.'
+            : ` Placed at ${placement.start.toFixed(1)}s.`;
         return {
           ops,
-          note: `${outcome.summary} Placed at ${placement.start.toFixed(1)}s.${creditNote}`,
+          note: `${outcome.summary}${whereNote}${creditNote}`,
           summary: outcome.summary,
           status: 'completed',
           project: applyProjectPatch(ctx.project, probe.patch),

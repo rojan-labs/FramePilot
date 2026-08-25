@@ -17,7 +17,7 @@
  */
 import { z } from 'zod';
 import type { Asset, Project } from '@framepilot/timeline-schema';
-import { type AnyOperation, buildAddStockOps } from '@framepilot/editor-core';
+import { type AnyOperation, buildAddStockOps, buildStockBinOps } from '@framepilot/editor-core';
 
 /**
  * The host's `add_stock` payload.
@@ -58,9 +58,14 @@ export const StockAssetPayloadSchema = z.object({
 });
 export type StockAssetPayload = z.infer<typeof StockAssetPayloadSchema>;
 
-/** What {@link stockOpsFromPayload} decided, or why it could not decide. */
+/**
+ * What {@link stockOpsFromPayload} decided, or why it could not decide.
+ *
+ * `start` is absent for a BIN-ONLY download — the clip is in the media bin and nowhere on
+ * the timeline, so there is no position to report and the note must not invent one.
+ */
 export type StockPlacementOutcome =
-  | { readonly ok: true; readonly operations: readonly AnyOperation[]; readonly start: number }
+  | { readonly ok: true; readonly operations: readonly AnyOperation[]; readonly start?: number }
   | { readonly ok: false; readonly reason: string };
 
 /**
@@ -81,14 +86,23 @@ export function stockOpsFromPayload(
   payload: StockAssetPayload,
 ): StockPlacementOutcome {
   const { asset, atSeconds } = payload;
-  const placement = buildAddStockOps(
-    project.timeline,
-    project.assets,
-    asset as Asset,
-    atSeconds ?? 0,
-  );
+  // NO POSITION MEANS THE BIN, not "the top of the sequence".
+  //
+  // `atSeconds ?? 0` used to make every download an immediate placement at 0s, so there was
+  // no way to gather candidates before assembling a cut — and `buildAddStockOps` refuses a
+  // span that already holds picture, which meant the SECOND download of a comparison always
+  // failed on the first one. A captured run said twice that it was "locking the media into
+  // the bin first so the cut has something to sit on", found no tool that did that, and
+  // reached for `add_asset` with a path it invented.
+  //
+  // Gathering is now what the absent argument means. Placement is unchanged when a position
+  // is given, and `add_clip` places from the bin afterwards like any other asset.
+  if (atSeconds === undefined) {
+    return { ok: true, operations: buildStockBinOps(asset as Asset) };
+  }
+  const placement = buildAddStockOps(project.timeline, project.assets, asset as Asset, atSeconds);
   if (placement === null) {
-    const start = Math.max(0, atSeconds ?? 0);
+    const start = Math.max(0, atSeconds);
     return {
       ok: false,
       reason:

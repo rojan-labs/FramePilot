@@ -273,13 +273,14 @@ export const MEDIA_TOOLS: readonly ToolSpec[] = [
     {
       name: 'add_stock',
       description:
-        'Place a photo or clip from search_stock on the timeline as a cutaway. Pass its ' +
-        'remoteId and kind; it lands at atSeconds (default the playhead position you ' +
-        'were given). Downloads the file into the project at the project’s own ' +
-        'resolution, so it keeps working offline. FAILS with a reason if that moment ' +
-        'already has picture on it — stock cannot yet sit on top of existing footage, ' +
-        'so choose an empty stretch or make room first. Undoing removes the clip and ' +
-        'the file reference in one step.',
+        'Download a photo or clip from search_stock into this project. Pass its remoteId ' +
+        'and kind. With atSeconds it also lands on the timeline as a cutaway at that ' +
+        'moment; WITHOUT atSeconds it just arrives in the media bin, which is how you ' +
+        'gather several candidates before deciding the order — place them later with ' +
+        'add_clip. Fetched at the project’s own resolution, so it keeps working offline. ' +
+        'A placement FAILS with a reason if that moment already has picture on it: stock ' +
+        'cannot yet sit on top of existing footage, so choose an empty stretch or make ' +
+        'room first. Undoing removes the clip and the file reference in one step.',
       // Main-process only, like `search_stock` — see the note there.
       hostUiOnly: true,
     },

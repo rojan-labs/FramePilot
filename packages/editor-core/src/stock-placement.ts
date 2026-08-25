@@ -161,6 +161,27 @@ function nextLayerId(timeline: Timeline, layerType: Track['type']): string {
  * @param atStart - Desired timeline start (seconds); clamped to >= 0.
  * @returns The placement, or `null` when the span already holds picture media.
  */
+/**
+ * The operations that put a downloaded stock asset in the BIN and nowhere else.
+ *
+ * `add_stock` used to be download-AND-place with no other mode, so a run could not gather
+ * candidates before assembling a cut: the second download of a comparison always failed,
+ * because {@link buildAddStockOps} refuses a span that already holds picture. A captured run
+ * said twice that it was "locking the media into the bin first", found no tool that did
+ * that, and invented an asset path instead.
+ *
+ * Deliberately here beside its placing sibling rather than inlined at the call site: both
+ * are the shape of a stock arrival, both are shared with the Stock panel, and a bin entry
+ * authored somewhere else is how the two paths drift (ADR 0140).
+ *
+ * @param asset - The downloaded stock asset, provenance included.
+ * @returns The single reversible operation that registers it. One undo removes the bin
+ *   entry; the file stays on disk (non-destructive invariant 1).
+ */
+export function buildStockBinOps(asset: Asset): readonly AnyOperation[] {
+  return [{ type: 'add_asset', asset }];
+}
+
 export function buildAddStockOps(
   timeline: Timeline,
   assets: readonly Asset[],

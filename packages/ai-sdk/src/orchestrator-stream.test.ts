@@ -2793,6 +2793,82 @@ describe('streamAgent host tool execution (Phase T)', () => {
       expect(fedBack).toMatch(/Placed at 12\.0s/);
     });
 
+    // GAP-005. Gathering candidates had no tool: `atSeconds ?? 0` made every download an
+    // immediate placement at the head of the sequence, so the SECOND clip of a comparison
+    // always hit the first one's occupancy refusal. A captured run said twice it was
+    // "locking the media into the bin first", found nothing that did that, and reached for
+    // `add_asset` with a path it invented.
+    it('downloads into the bin alone when no position is given', async () => {
+      const binCall = {
+        id: 's2',
+        name: 'add_stock',
+        arguments: { remoteId: 'px_1', kind: 'video' },
+      };
+      const provider = new ScriptedProvider([
+        { text: 'gathering', toolCalls: [binCall] },
+        { text: 'done', toolCalls: [] },
+      ]);
+      const events = await drain(
+        new Orchestrator(provider, {
+          executor: hostRun({ asset: stockAsset }),
+        }).streamAgent(input, opts()),
+      );
+      const diff = events.find((e) => e.type === 'diff');
+      const ops =
+        diff?.type === 'diff' ? diff.edit.patch.operations.map((op: AnyOperation) => op.type) : [];
+      expect(ops).toEqual(['add_asset']);
+      // The note must not name a timeline position the model cannot see — it narrates from
+      // this text, and an invented "Placed at 0.0s" is exactly the claim ADR 0083 forbids.
+      const fedBack = JSON.stringify(provider.requests[1]?.messages ?? []);
+      expect(fedBack).toMatch(/media bin, not on the timeline yet/);
+      expect(fedBack).not.toMatch(/Placed at/);
+    });
+
+    // The rule that made gathering impossible must not apply to gathering.
+    it('accepts a bin download at a moment where a placement would be refused', async () => {
+      const binCall = {
+        id: 's3',
+        name: 'add_stock',
+        arguments: { remoteId: 'px_1', kind: 'video' },
+      };
+      const occupied = {
+        ...stockCall,
+        id: 's4',
+        arguments: { ...stockCall.arguments, atSeconds: 2 },
+      };
+      const provider = new ScriptedProvider([
+        { text: 'placing at an occupied moment', toolCalls: [occupied] },
+        { text: 'gathering instead', toolCalls: [binCall] },
+        { text: 'done', toolCalls: [] },
+      ]);
+      // The host echoes back the position it was asked for (see StockAssetPayloadSchema), so
+      // the fixture must too — the two calls differ in exactly that field.
+      const echoing = {
+        run: async (toolCall: {
+          arguments: Record<string, unknown>;
+        }): Promise<HostToolOutcome> => ({
+          status: 'completed' as const,
+          summary: 'Downloaded "media/stock/px_1.mp4".',
+          data: {
+            asset: stockAsset,
+            ...(toolCall.arguments.atSeconds === undefined
+              ? {}
+              : { atSeconds: toolCall.arguments.atSeconds }),
+          },
+        }),
+      };
+      const events = await drain(
+        new Orchestrator(provider, { executor: echoing }).streamAgent(input, opts()),
+      );
+      const calls = events.filter((e) => e.type === 'tool_call');
+      expect(calls.filter((e) => e.type === 'tool_call' && e.id === 's4').at(-1)).toMatchObject({
+        status: 'failed',
+      });
+      expect(calls.filter((e) => e.type === 'tool_call' && e.id === 's3').at(-1)).toMatchObject({
+        status: 'completed',
+      });
+    });
+
     it('fails closed when the host returns no usable asset — never "added" on an unchanged timeline', async () => {
       const events = await drain(
         new Orchestrator(stockProvider(), { executor: hostRun(undefined) }).streamAgent(
