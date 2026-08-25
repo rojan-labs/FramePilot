@@ -835,8 +835,11 @@ describe('project (media-bin) tools — add_asset & manage_assets', () => {
   // guessed a path instead; nothing looked at it, so the patch validated, the card showed a
   // checkmark, and the project gained a reference to a file that cannot exist. A dead end
   // the run can act on beats a success it cannot.
+  // Traversal is deliberately NOT tested here: it is owned by the layers that resolve paths
+  // (the MCP session's sandbox, the desktop commit check), because a string test for ".."
+  // cannot see through `a/b/../../../etc` or a symlink.
   it('add_asset refuses a path the model invented rather than was handed', () => {
-    for (const path of ['stock://pexels/20349219', '///', '  ', '../../etc/passwd', 'clip']) {
+    for (const path of ['stock://pexels/20349219', '///', '  ', 'clip']) {
       expect(() => buildProject('add_asset', { path, kind: 'video' })).toThrow();
     }
   });

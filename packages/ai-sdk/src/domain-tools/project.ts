@@ -84,6 +84,13 @@ const KIND_FOLDERS: Record<Asset['kind'], { id: string; name: string }> = {
  * Shape-only by design: this layer is pure (PRD §18.2 — a tool touches no filesystem), so
  * it cannot prove a file exists. That proof belongs to the host, which has the projects
  * root, and is enforced there before the patch is committed.
+ *
+ * CONTAINMENT is deliberately not here either, for the same reason plus a better one: a
+ * string test for ".." cannot see through `a/b/../../../etc`, symlinks, or an absolute path,
+ * and a check that looks like containment without being it is worse than none. Traversal is
+ * owned by the layers that RESOLVE — `resolveWithin` behind the MCP session's
+ * `assertAssetPathsSandboxed` and the desktop's `unresolvableAddedAssets` — each of which
+ * refuses with its own typed reason. One rule, one owner.
  */
 const PROVIDER_URI = /^[a-z][a-z0-9+.-]*:\/\//i;
 const HAS_EXTENSION = /\.[a-z0-9]{2,5}$/i;
@@ -97,9 +104,6 @@ const modelAuthoredMediaPath = z
       'That is a URL or provider URI, not a media file in this project. Stock media has no ' +
       'path until it is downloaded — pass the remoteId from search_stock to add_stock (or ' +
       'search_music to add_music) and the download supplies the real one.',
-  })
-  .refine((value) => !value.split(/[/\\]/).includes('..'), {
-    message: 'An asset path may not step outside the project with "..".',
   })
   .refine((value) => HAS_EXTENSION.test(value), {
     message:

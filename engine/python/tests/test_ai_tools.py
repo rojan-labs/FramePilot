@@ -1064,7 +1064,6 @@ def test_add_asset_derives_id_and_emits_op() -> None:
     [
         "stock://pexels/20349219",  # the captured fabrication
         "https://example.com/clip.mp4",
-        "../../etc/passwd",
         "clip",  # no extension: not a file
         "   ",
     ],

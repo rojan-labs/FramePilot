@@ -316,12 +316,14 @@ def validate_model_authored_media_path(value: str) -> str:
     Mirrors ``modelAuthoredMediaPath`` in ``packages/ai-sdk/src/domain-tools/project.ts``.
 
     Shape only: neither this layer nor its TS twin may touch the filesystem (PRD §18.2), so
-    the proof that a file EXISTS belongs to the host, which owns the projects root.
+    the proof that a file EXISTS belongs to the host, which owns the projects root. Traversal
+    containment lives there too, with the layers that RESOLVE paths — a string test for ".."
+    cannot see through ``a/b/../../../etc``, a symlink, or an absolute path, and a check that
+    looks like containment without being it is worse than none.
 
     :param value: The path the model supplied.
     :returns: The trimmed path.
-    :raises ValueError: If the path is empty, a URL/provider URI, contains ``..``, or names
-        no file extension.
+    :raises ValueError: If the path is empty, a URL/provider URI, or names no file extension.
     """
     path = value.strip()
     if not path:
@@ -332,8 +334,6 @@ def validate_model_authored_media_path(value: str) -> str:
             "has no path until it is downloaded — pass the remoteId from search_stock to "
             "add_stock (or search_music to add_music)."
         )
-    if ".." in re.split(r"[/\\]", path):
-        raise ValueError('An asset path may not step outside the project with "..".')
     if not _HAS_EXTENSION.search(path):
         raise ValueError(
             'An asset path must name a media FILE with its extension (e.g. "interview.mp4").'
