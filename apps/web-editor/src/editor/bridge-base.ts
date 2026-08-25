@@ -383,6 +383,18 @@ const MUSIC_DESKTOP_ONLY = {
   detail: 'Music search is only available in the desktop app.',
 } as const;
 
+/**
+ * The detail line for an IPC call that rejected rather than answering.
+ *
+ * Main returns failures as values, so a rejection means the handler itself threw
+ * — an unlicensed session, a service that failed to construct. Those used to
+ * surface as a promise nobody caught, which left the panel on its skeleton
+ * forever: a permanent "loading" is the one failure state a user cannot act on.
+ */
+function ipcFailureDetail(error: unknown): string {
+  return error instanceof Error && error.message !== '' ? error.message : 'unavailable';
+}
+
 /** Search the configured music provider through the main process. */
 export async function musicSearch(
   query: string,
@@ -390,7 +402,11 @@ export async function musicSearch(
   bridge: RendererBridge | null = getBridge(),
 ): Promise<MusicSearchResult> {
   if (!bridge?.musicSearch) return MUSIC_DESKTOP_ONLY;
-  return bridge.musicSearch(query, limit);
+  try {
+    return await bridge.musicSearch(query, limit);
+  } catch (error) {
+    return { ok: false, error: 'provider_unavailable', detail: ipcFailureDetail(error) };
+  }
 }
 
 /**
@@ -465,7 +481,11 @@ export async function stockSearch(
   bridge: RendererBridge | null = getBridge(),
 ): Promise<StockSearchResult> {
   if (!bridge?.stockSearch) return STOCK_DESKTOP_ONLY;
-  return bridge.stockSearch(request);
+  try {
+    return await bridge.stockSearch(request);
+  } catch (error) {
+    return { ok: false, error: 'provider_unavailable', detail: ipcFailureDetail(error) };
+  }
 }
 
 /**
@@ -530,7 +550,13 @@ export async function stockQuota(
   bridge: RendererBridge | null = getBridge(),
 ): Promise<StockQuotaSnapshot> {
   if (!bridge?.stockQuota) return { kind: 'no_key' };
-  return bridge.stockQuota();
+  try {
+    return await bridge.stockQuota();
+  } catch {
+    // Not `no_key`: a rejected call says nothing about whether a key exists, and
+    // claiming it does would send the user to Settings to fix what is not broken.
+    return { kind: 'unmeasured' };
+  }
 }
 
 /**

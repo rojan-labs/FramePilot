@@ -9,6 +9,8 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import {
+  PEXELS_PHOTO_CURATED_URL,
+  PEXELS_VIDEO_POPULAR_URL,
   PexelsStockProvider,
   createStockProvider,
   normalizePexelsPhoto,
@@ -131,16 +133,35 @@ describe('request shape', () => {
     expect(new URL(String(fetchImpl.mock.calls[0]?.[0])).searchParams.get('per_page')).toBe('80');
   });
 
-  it('never calls the network for an empty query or a missing key', async () => {
+  it('never calls the network without a key, whatever the query', async () => {
     const fetchImpl = vi.fn();
-    const page = await provider(fetchImpl).search({ ...photoQuery, text: '   ' });
-    expect(page.items).toEqual([]);
-    expect(fetchImpl).not.toHaveBeenCalled();
-
     await expect(provider(fetchImpl, '').search(photoQuery)).rejects.toMatchObject({
       code: 'no_key',
     });
+    await expect(provider(fetchImpl, '').search({ ...photoQuery, text: '' })).rejects.toMatchObject(
+      { code: 'no_key' },
+    );
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('browses the curated photo feed when no words were typed', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(respond({ photos: [] }));
+    await provider(fetchImpl).search({ ...photoQuery, text: '   ', orientation: 'portrait' });
+    const url = new URL(String(fetchImpl.mock.calls[0]?.[0]));
+    expect(url.origin + url.pathname).toBe(PEXELS_PHOTO_CURATED_URL);
+    // Neither belongs on the curated endpoint: one is meaningless, the other is
+    // a search-only filter Pexels rejects there.
+    expect(url.searchParams.get('query')).toBeNull();
+    expect(url.searchParams.get('orientation')).toBeNull();
+    expect(url.searchParams.get('per_page')).toBe(String(photoQuery.limit));
+  });
+
+  it('browses the popular video feed when no words were typed', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(respond({ videos: [] }));
+    await provider(fetchImpl).search({ ...photoQuery, kind: 'video', text: '', page: 2 });
+    const url = new URL(String(fetchImpl.mock.calls[0]?.[0]));
+    expect(url.origin + url.pathname).toBe(PEXELS_VIDEO_POPULAR_URL);
+    expect(url.searchParams.get('page')).toBe('2');
   });
 });
 
@@ -284,17 +305,15 @@ describe('video normalization', () => {
 
 describe('search results', () => {
   it('returns normalized items and paging', async () => {
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValue(
-        respond({
-          page: 1,
-          per_page: 24,
-          total_results: 8000,
-          next_page: 'https://api.pexels.com/v1/search?page=2',
-          photos: [PHOTO],
-        }),
-      );
+    const fetchImpl = vi.fn().mockResolvedValue(
+      respond({
+        page: 1,
+        per_page: 24,
+        total_results: 8000,
+        next_page: 'https://api.pexels.com/v1/search?page=2',
+        photos: [PHOTO],
+      }),
+    );
     const page = await provider(fetchImpl).search(photoQuery);
     expect(page.items).toHaveLength(1);
     expect(page.totalResults).toBe(8000);

@@ -142,7 +142,9 @@ describe('StockPanel', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     bridge.desktop.mockReturnValue(true);
-    bridge.search.mockReset();
+    // Every mount now browses, so the bridge must answer from the first render.
+    // Individual tests override this with the items they care about.
+    bridge.search.mockReset().mockResolvedValue(okSearch([]));
     bridge.thumbnail.mockReset().mockResolvedValue({ ok: false });
     bridge.preview.mockReset().mockResolvedValue({ ok: false });
     bridge.download.mockReset();
@@ -182,11 +184,49 @@ describe('StockPanel', () => {
     expect(onOpenSettings).toHaveBeenCalled();
   });
 
-  it('shows a prompt that says when NOT to reach for stock', () => {
+  it('browses the curated feed on mount instead of showing an empty panel', async () => {
+    bridge.search.mockResolvedValue(okSearch([wireItem()]));
     renderPanel();
-    // The niche this product serves is screen recordings, where a punch-in is
-    // usually the better cut. Saying so here costs nothing and saves edits.
-    expect(screen.getByText(/punch-in on your own footage/i)).toBeDefined();
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      await Promise.resolve();
+    });
+    // The empty box IS the browse — no words, fired immediately, no debounce.
+    expect(bridge.search).toHaveBeenCalledWith({ text: '', kind: 'video', page: 1 });
+    // Labelled for a screen reader, not with a line of prose above the grid:
+    // the panel is a sidebar, and the tiles are what it is for.
+    expect(screen.getByRole('list', { name: 'Popular on Pexels — video' })).toBeDefined();
+    expect(screen.queryByText(/Popular on Pexels/)).toBeNull();
+  });
+
+  it('offers the key setup rather than a browse when there is no key', async () => {
+    bridge.quota.mockResolvedValue({ kind: 'no_key' });
+    bridge.search.mockResolvedValue({ ok: false, error: 'no_key' });
+    renderPanel();
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+      await Promise.resolve();
+    });
+    // Whether or not the mount browse got out before the key state landed, what
+    // the user ends up looking at is the thing they can act on.
+    expect(screen.getByText(/free Pexels API key/i)).toBeDefined();
+    expect(screen.queryByRole('list')).toBeNull();
+  });
+
+  it('keeps everything that is not a result in the one control row', async () => {
+    bridge.search.mockResolvedValue(okSearch([wireItem()]));
+    renderPanel();
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      await Promise.resolve();
+    });
+    // Search, filter and the required Pexels credit share a row; below it there
+    // is the grid and nothing else to read.
+    const controls = document.querySelector('.stock-controls');
+    expect(controls?.querySelector('#stock-search-input')).not.toBeNull();
+    expect(controls?.querySelector('#stock-kind-select')).not.toBeNull();
+    expect(controls?.querySelector('.stock-credit')).not.toBeNull();
+    expect(document.querySelectorAll('.stock-note')).toHaveLength(0);
   });
 
   it('renders the Pexels credit in every state, including errors', async () => {
@@ -340,7 +380,9 @@ describe('StockPanel', () => {
     await typeQuery('city');
     expect(bridge.search).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'video' }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Photos' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Media kind' }), {
+      target: { value: 'photo' },
+    });
     await act(async () => {
       vi.advanceTimersByTime(400);
       await Promise.resolve();

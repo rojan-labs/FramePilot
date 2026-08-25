@@ -113,7 +113,9 @@ describe('SoundsPanel', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     bridgeCalls.desktop.mockReturnValue(true);
-    bridgeCalls.search.mockReset();
+    // Every mount now browses, so the bridge must answer from the first render.
+    // Individual tests override this with the tracks they care about.
+    bridgeCalls.search.mockReset().mockResolvedValue({ ok: true, tracks: [] });
     bridgeCalls.preview.mockReset();
     bridgeCalls.download.mockReset();
     bridgeCalls.cancel.mockReset();
@@ -136,10 +138,19 @@ describe('SoundsPanel', () => {
   // Default, loading, results, empty
   // -------------------------------------------------------------------------
 
-  it('shows a prompt describing what to search for, with no spinner', () => {
+  it('browses the catalogue on mount instead of showing an empty panel', async () => {
+    bridgeCalls.search.mockResolvedValue({ ok: true, tracks: [wireTrack()] });
     renderPanel();
-    expect(screen.getByText(/Search by mood or instrument/)).toBeDefined();
-    expect(screen.queryByRole('list')).toBeNull();
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      await Promise.resolve();
+    });
+    // The empty box IS the browse — no words, fired immediately, no debounce.
+    expect(bridgeCalls.search).toHaveBeenCalledWith('');
+    // Labelled for a screen reader, not with a line of prose above the list:
+    // the panel is a sidebar, and the tracks are what it is for.
+    expect(screen.getByRole('list', { name: 'Openly licensed music' })).toBeDefined();
+    expect(document.querySelectorAll('.sounds-hint')).toHaveLength(0);
   });
 
   it('does not search until the user stops typing', async () => {
@@ -151,9 +162,10 @@ describe('SoundsPanel', () => {
       vi.advanceTimersByTime(400);
       await Promise.resolve();
     });
-    // One request for the settled text, not one per keystroke.
-    expect(bridgeCalls.search).toHaveBeenCalledTimes(1);
-    expect(bridgeCalls.search).toHaveBeenCalledWith('calm');
+    // One request for the settled text, not one per keystroke. The mount browse
+    // is not among them either: typing before it fired retired it, exactly as a
+    // superseded search is retired.
+    expect(bridgeCalls.search.mock.calls).toEqual([['calm']]);
   });
 
   it('renders skeleton rows while the first search is in flight', async () => {

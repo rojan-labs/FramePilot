@@ -185,6 +185,11 @@ These are cheap to answer with one live request each, and each one changes code:
 4. **Exact `video_files` variety for a typical result** — how many renditions, which
    `fps` values, whether `quality` is reliable enough to sort by or whether `height` must be.
 5. **Response on an empty query result** — `{photos: [], total_results: 0}` vs an error.
+6. **Do the browse endpoints answer in the same envelope?** The panel sends an empty search box
+   to `/v1/curated` (photos) and `/videos/popular` (video), and the adapter parses the reply with
+   the _search_ envelope schema. The documentation says they match, and the offline tests assume
+   it; one live request per endpoint is what turns that into a fact. Also confirm they carry the
+   same `X-Ratelimit-*` headers, since a browse now happens on every panel open.
 
 Record the answers in this file, and commit the live responses verbatim as the adapter
 fixtures — the same discipline the Openverse adapter used (`openverse-music.ts`).

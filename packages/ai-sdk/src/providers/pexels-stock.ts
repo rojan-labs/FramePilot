@@ -64,6 +64,18 @@ export const PEXELS_PHOTO_SEARCH_URL = 'https://api.pexels.com/v1/search';
 export const PEXELS_VIDEO_SEARCH_URL = 'https://api.pexels.com/videos/search';
 
 /**
+ * Where an empty query goes.
+ *
+ * A panel that shows nothing until the user types is a panel that looks broken,
+ * and "search for a shot" is a worse first prompt than a wall of usable shots.
+ * Pexels publishes exactly this list — hand-picked photos, most-watched video —
+ * so browsing is the provider's own front page rather than a query invented here
+ * and presented as if it were curation.
+ */
+export const PEXELS_PHOTO_CURATED_URL = 'https://api.pexels.com/v1/curated';
+export const PEXELS_VIDEO_POPULAR_URL = 'https://api.pexels.com/videos/popular';
+
+/**
  * Pexels asks integrators to identify themselves, and a generic agent string
  * earns harsher throttling. Being anonymous about it would also be rude to a
  * service handing out free keys.
@@ -355,6 +367,12 @@ function firstSafeUrl(candidates: readonly (string | null | undefined)[]): strin
   return undefined;
 }
 
+/** The endpoint for this kind, in the mode the caller is in. */
+function browseOrSearchUrl(kind: StockSearchQuery['kind'], browsing: boolean): string {
+  if (kind === 'video') return browsing ? PEXELS_VIDEO_POPULAR_URL : PEXELS_VIDEO_SEARCH_URL;
+  return browsing ? PEXELS_PHOTO_CURATED_URL : PEXELS_PHOTO_SEARCH_URL;
+}
+
 // ---------------------------------------------------------------------------
 // Adapter
 // ---------------------------------------------------------------------------
@@ -375,18 +393,21 @@ export class PexelsStockProvider implements StockProvider {
 
   public async search(query: StockSearchQuery, signal?: AbortSignal): Promise<StockSearchPage> {
     const text = query.text.trim();
-    if (text === '') {
-      return { items: [], page: query.page, totalResults: 0, hasMore: false };
-    }
+    // No words means browse, not "no results": the curated endpoints answer with
+    // the same envelope the search ones do, so only the URL changes here.
+    const browsing = text === '';
     if (this.config.apiKey.trim() === '') throw new StockProviderError('no_key');
 
     const limit = Math.max(1, Math.min(query.limit, STOCK_SEARCH_MAX_LIMIT));
     const page = Math.max(1, Math.trunc(query.page));
-    const url = new URL(query.kind === 'video' ? PEXELS_VIDEO_SEARCH_URL : PEXELS_PHOTO_SEARCH_URL);
-    url.searchParams.set('query', text);
+    const url = new URL(browseOrSearchUrl(query.kind, browsing));
+    if (!browsing) url.searchParams.set('query', text);
     url.searchParams.set('per_page', String(limit));
     url.searchParams.set('page', String(page));
-    if (query.orientation !== undefined) url.searchParams.set('orientation', query.orientation);
+    // `orientation` is a search-only filter; the curated endpoints reject it.
+    if (query.orientation !== undefined && !browsing) {
+      url.searchParams.set('orientation', query.orientation);
+    }
 
     const timeout = new AbortController();
     const timer = setTimeout(() => timeout.abort(), STOCK_SEARCH_TIMEOUT_MS);
@@ -395,7 +416,13 @@ export class PexelsStockProvider implements StockProvider {
 
     try {
       // The query text goes to the provider; nothing else about the project does.
-      log.action('search → request', { provider: 'pexels', kind: query.kind, page, limit });
+      log.action('search → request', {
+        provider: 'pexels',
+        kind: query.kind,
+        mode: browsing ? 'browse' : 'search',
+        page,
+        limit,
+      });
       const response = await this.fetchImpl(url.toString(), {
         method: 'GET',
         headers: {

@@ -94,6 +94,7 @@ type TileState =
   | { readonly kind: 'failed'; readonly message: string };
 
 type SearchState =
+  /** No key: there is nothing to browse and nothing to search. */
   | { readonly kind: 'empty' }
   | { readonly kind: 'loading' }
   | {
@@ -185,7 +186,9 @@ export function StockPanel({
 }: StockPanelProps): JSX.Element {
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<StockMediaKindWire>('video');
-  const [search, setSearch] = useState<SearchState>({ kind: 'empty' });
+  // Starts loading, not empty: the browse request is fired by the mount effect
+  // below, and a skeleton is the honest thing to show while it is in flight.
+  const [search, setSearch] = useState<SearchState>({ kind: 'loading' });
   /**
    * Why the last "Load more" failed, shown beside the retained results.
    *
@@ -193,7 +196,12 @@ export function StockPanel({
    * user already has are still good, and only the next page is missing.
    */
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
-  const [quota, setQuota] = useState<StockQuotaSnapshot>({ kind: 'unmeasured' });
+  /**
+   * `null` until main has answered, which is NOT the same as "unmeasured".
+   * Browsing before the answer arrives would spend a request on a session that
+   * has no key to spend it with.
+   */
+  const [quota, setQuota] = useState<StockQuotaSnapshot | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const gridRef = useRef<HTMLUListElement | null>(null);
   const downloads = useDownloads(stockDownloads);
@@ -207,6 +215,9 @@ export function StockPanel({
    * but does not close it: "Load more" fires with no debounce at all.
    */
   const searchGenerationRef = useRef(0);
+
+  /** Whether main has told us there is no key to search with. */
+  const keyless = quota?.kind === 'no_key';
 
   const projectHeight = project.resolution?.height ?? 1080;
 
@@ -290,11 +301,15 @@ export function StockPanel({
   );
 
   useEffect(() => {
-    const text = query.trim();
-    if (text === '') {
+    // Nothing to browse and nothing to search without a key. The panel says so
+    // instead. This is a state check, not a request check: main answers `no_key`
+    // from the key store without touching the provider, so an unconfigured
+    // session costs nothing either way.
+    if (keyless) {
       setSearch({ kind: 'empty' });
       return;
     }
+    const text = query.trim();
 
     // Previous results stay visible and dimmed rather than clearing: a grid that
     // blanks on every keystroke makes the panel feel broken while it works.
@@ -303,10 +318,16 @@ export function StockPanel({
     );
 
     let cancelled = false;
-    const timer = setTimeout(() => {
-      if (cancelled) return;
-      void runSearch(text, kind, 1);
-    }, SEARCH_DEBOUNCE_MS);
+    // An empty box is a browse, and a browse is not typing — it fires at once.
+    // The debounce exists to stop billing a request per keystroke, and there are
+    // no keystrokes here.
+    const timer = setTimeout(
+      () => {
+        if (cancelled) return;
+        void runSearch(text, kind, 1);
+      },
+      text === '' ? 0 : SEARCH_DEBOUNCE_MS,
+    );
 
     return () => {
       cancelled = true;
@@ -316,7 +337,10 @@ export function StockPanel({
       // repopulate a grid the user just emptied.
       searchGenerationRef.current += 1;
     };
-  }, [query, kind, runSearch]);
+    // `keyless` is a boolean, deliberately: depending on the quota OBJECT would
+    // re-run this on every observation — and each search produces one, which is
+    // a loop.
+  }, [query, kind, runSearch, keyless]);
 
   // ---------------------------------------------------------------------------
   // Download
@@ -422,21 +446,18 @@ export function StockPanel({
         // a selector is a needless dependency on `CSS.escape`.
         gridRef.current?.querySelectorAll<HTMLElement>('.stock-tile')[clamped]?.focus();
       };
-      // Two columns, so vertical movement is a two-step. Derived from the
-      // rendered grid rather than assumed, so a narrower panel still navigates.
-      const columns = gridColumnCount(gridRef.current);
+      // A masonry has no rows to step across: tiles are different heights and
+      // flow DOWN one column before starting the next, so "the tile below" is
+      // simply the next one. Stepping by a column count here would skip past
+      // whatever the user is looking at.
       switch (event.key) {
         case 'ArrowRight':
+        case 'ArrowDown':
           move(index + 1);
           break;
         case 'ArrowLeft':
-          move(index - 1);
-          break;
-        case 'ArrowDown':
-          move(index + columns);
-          break;
         case 'ArrowUp':
-          move(index - columns);
+          move(index - 1);
           break;
         case 'Home':
           move(0);
@@ -474,10 +495,17 @@ export function StockPanel({
     );
   }
 
-  const noKey = quota.kind === 'no_key' || (search.kind === 'error' && search.code === 'no_key');
+  const noKey = keyless || (search.kind === 'error' && search.code === 'no_key');
+  /** An empty box shows the provider's own curated feed rather than a blank panel. */
+  const browsing = query.trim() === '';
+  const browseLabel = kind === 'video' ? 'Popular on Pexels' : 'Curated on Pexels';
 
   return (
     <div className="stock-panel">
+      {/* One row holds everything that is not a result: what to search, what to
+          search for, and who the media comes from. Below it is the grid and
+          nothing else — a sidebar this narrow cannot spend two lines on prose
+          the user reads once. */}
       <div className="stock-controls">
         <label className="stock-search" htmlFor="stock-search-input">
           <span className="sr-only">Search for photos and video</span>
@@ -485,32 +513,41 @@ export function StockPanel({
             id="stock-search-input"
             type="search"
             className="stock-search-input"
-            placeholder={kind === 'video' ? 'Search for video…' : 'Search for photos…'}
+            placeholder={kind === 'video' ? 'Search video…' : 'Search photos…'}
             value={query}
             disabled={noKey}
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
-        <div className="stock-kinds" role="group" aria-label="Media kind">
-          {(['video', 'photo'] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              className="stock-kind"
-              data-active={kind === option ? 'true' : undefined}
-              aria-pressed={kind === option}
-              disabled={noKey}
-              onClick={() => setKind(option)}
-            >
-              {option === 'video' ? (
-                <Film size={ICON_SIZE.sm} aria-hidden="true" />
-              ) : (
-                <ImageIcon size={ICON_SIZE.sm} aria-hidden="true" />
-              )}
-              {option === 'video' ? 'Video' : 'Photos'}
-            </button>
-          ))}
-        </div>
+        {/* A select rather than the old segmented pair: it states the current
+            kind in the width of one control instead of two. */}
+        <label className="stock-kind-select" htmlFor="stock-kind-select">
+          <span className="sr-only">Media kind</span>
+          {kind === 'video' ? (
+            <Film size={ICON_SIZE.sm} aria-hidden="true" />
+          ) : (
+            <ImageIcon size={ICON_SIZE.sm} aria-hidden="true" />
+          )}
+          <select
+            id="stock-kind-select"
+            value={kind}
+            disabled={noKey}
+            onChange={(event) => setKind(event.target.value as StockMediaKindWire)}
+          >
+            <option value="video">Video</option>
+            <option value="photo">Photos</option>
+          </select>
+        </label>
+        {/* Required by the Pexels API guidelines. It lives in this row for the
+            same reason everything else does — it is not a result. */}
+        <a
+          className="stock-credit"
+          href="https://www.pexels.com"
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          Pexels
+        </a>
       </div>
 
       {/* Announced politely so a screen-reader user hears the count and the
@@ -519,11 +556,14 @@ export function StockPanel({
         {search.kind === 'results' && !search.stale
           ? `${search.items.length} ${kind === 'video' ? 'clip' : 'photo'}${
               search.items.length === 1 ? '' : 's'
-            } found`
+            } ${browsing ? 'shown' : 'found'}`
           : ''}
       </span>
 
-      <QuotaStrip quota={quota} {...(onOpenSettings ? { onOpenSettings } : {})} />
+      <QuotaStrip
+        quota={quota ?? { kind: 'unmeasured' }}
+        {...(onOpenSettings ? { onOpenSettings } : {})}
+      />
 
       {noKey ? (
         <div className="stock-hint">
@@ -550,14 +590,6 @@ export function StockPanel({
             </p>
           ) : null}
 
-          {search.kind === 'empty' && (
-            <p className="stock-note">
-              Search for a shot you don&rsquo;t have — &ldquo;city skyline at dusk&rdquo;,
-              &ldquo;hands typing&rdquo;. For screen recordings, a punch-in on your own footage is
-              usually the better cut.
-            </p>
-          )}
-
           {search.kind === 'loading' && (
             <ul className="stock-grid" aria-busy="true">
               {Array.from({ length: SKELETON_TILES }, (_, index) => (
@@ -569,8 +601,9 @@ export function StockPanel({
 
           {search.kind === 'noResults' && (
             <p className="stock-note">
-              Nothing matched &ldquo;{search.query}&rdquo;. Try a broader word — a subject rather
-              than a scene.
+              {search.query === ''
+                ? 'Pexels returned nothing to browse. Search for a subject instead.'
+                : `Nothing matched “${search.query}”. Try a broader word — a subject rather than a scene.`}
             </p>
           )}
 
@@ -581,11 +614,20 @@ export function StockPanel({
           )}
 
           {search.kind === 'results' && (
-            <>
+            // The scroll lives HERE, not on the grid. A multi-column box with a
+            // fixed height fills that height and then adds columns sideways —
+            // the grid has to be free to grow so its columns stay vertical.
+            <div className="stock-results">
               <ul
                 ref={gridRef}
                 className={`stock-grid${search.stale ? ' is-stale' : ''}`}
-                aria-label={kind === 'video' ? 'Stock video results' : 'Stock photo results'}
+                aria-label={
+                  browsing
+                    ? `${browseLabel} — ${kind === 'video' ? 'video' : 'photos'}`
+                    : kind === 'video'
+                      ? 'Stock video results'
+                      : 'Stock photo results'
+                }
               >
                 {search.items.map((item, index) => (
                   <StockTile
@@ -620,19 +662,10 @@ export function StockPanel({
                   Load more
                 </Button>
               ) : null}
-            </>
+            </div>
           )}
         </>
       )}
-
-      {/* Required by the Pexels API guidelines, and rendered in every state
-          rather than only where it is convenient. */}
-      <p className="stock-credit">
-        Photos and video from{' '}
-        <a href="https://www.pexels.com" target="_blank" rel="noreferrer noopener">
-          Pexels
-        </a>
-      </p>
     </div>
   );
 }
@@ -650,13 +683,6 @@ function prefersReducedMotion(): boolean {
     : false;
 }
 
-/** How many tiles fit per row, read from the rendered grid. */
-function gridColumnCount(grid: HTMLElement | null): number {
-  if (!grid) return 2;
-  const columns = getComputedStyle(grid).gridTemplateColumns;
-  const count = columns.split(' ').filter((value) => value.trim() !== '').length;
-  return count > 0 ? count : 2;
-}
 
 // ---------------------------------------------------------------------------
 // Quota strip
@@ -739,8 +765,14 @@ function StockTile({
       data-remote-id={item.remoteId}
       tabIndex={tabbable ? 0 : -1}
       style={{
-        // The provider's own average colour, so the tile has its final shape and
-        // roughly its final weight before a byte of image arrives.
+        // The provider's own average colour and the item's own shape, so the tile
+        // has its final size and roughly its final weight before a byte of image
+        // arrives — and a portrait clip is not cropped to a landscape cell.
+        //
+        // This only holds because everything inside the tile is absolutely
+        // positioned. A single in-flow child (the caption used to be one) makes
+        // the tile taller than its ratio via `min-height: auto`, and THAT is what
+        // made tiles overlap the ones beneath them.
         backgroundColor: item.avgColor,
         aspectRatio: `${item.width} / ${item.height}`,
       }}

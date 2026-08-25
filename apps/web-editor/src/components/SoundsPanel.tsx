@@ -66,7 +66,6 @@ type RowState =
   | { readonly kind: 'downloadFailed'; readonly message: string };
 
 type SearchState =
-  | { readonly kind: 'empty' }
   | { readonly kind: 'loading' }
   | {
       readonly kind: 'results';
@@ -117,7 +116,9 @@ export function musicAssetId(track: MusicTrackWire): string {
 
 export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Element {
   const [query, setQuery] = useState('');
-  const [search, setSearch] = useState<SearchState>({ kind: 'empty' });
+  // Starts loading, not empty: the browse request is fired by the mount effect
+  // below, and a skeleton is the honest thing to show while it is in flight.
+  const [search, setSearch] = useState<SearchState>({ kind: 'loading' });
   const [rows, setRows] = useState<Readonly<Record<string, RowState>>>({});
   const [playing, setPlaying] = useState<string | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -200,11 +201,10 @@ export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Elem
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
+    // An empty box is a browse, not a blank panel: the provider answers without
+    // a query, and an editor hunting for a bed usually wants to hear one before
+    // they can name what they are after.
     const text = query.trim();
-    if (text === '') {
-      setSearch({ kind: 'empty' });
-      return;
-    }
 
     // Previous results stay visible and dimmed rather than clearing: a list that
     // blanks on every keystroke makes the panel feel broken while it works.
@@ -213,21 +213,26 @@ export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Elem
     );
 
     let cancelled = false;
-    const timer = setTimeout(() => {
-      void musicSearch(text).then((result) => {
-        if (cancelled) return;
-        if (!result.ok) {
-          if (result.error === 'cancelled') return;
-          setSearch({ kind: 'error', message: errorMessage(result.error, result.detail) });
-          return;
-        }
-        setSearch(
-          result.tracks.length === 0
-            ? { kind: 'noResults', query: text }
-            : { kind: 'results', tracks: result.tracks, stale: false },
-        );
-      });
-    }, SEARCH_DEBOUNCE_MS);
+    // The debounce exists to stop billing a request per keystroke. A browse has
+    // no keystrokes, so it fires at once.
+    const timer = setTimeout(
+      () => {
+        void musicSearch(text).then((result) => {
+          if (cancelled) return;
+          if (!result.ok) {
+            if (result.error === 'cancelled') return;
+            setSearch({ kind: 'error', message: errorMessage(result.error, result.detail) });
+            return;
+          }
+          setSearch(
+            result.tracks.length === 0
+              ? { kind: 'noResults', query: text }
+              : { kind: 'results', tracks: result.tracks, stale: false },
+          );
+        });
+      },
+      text === '' ? 0 : SEARCH_DEBOUNCE_MS,
+    );
 
     return () => {
       cancelled = true;
@@ -352,6 +357,8 @@ export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Elem
   // Keyboard: one tab stop, arrows move between rows (mirrors the bin grid)
   // ---------------------------------------------------------------------------
 
+  /** An empty box lists what the provider offers rather than showing nothing. */
+  const browsing = query.trim() === '';
   const tracks = search.kind === 'results' ? search.tracks : [];
   const tabbableId = focusedId ?? tracks[0]?.remoteId ?? null;
 
@@ -426,7 +433,7 @@ export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Elem
           id="sounds-search-input"
           type="search"
           className="sounds-search-input"
-          placeholder="Search for music…"
+          placeholder="Search music…"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
@@ -436,16 +443,11 @@ export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Elem
           without the list stealing focus mid-type. */}
       <span className="sr-only" aria-live="polite">
         {search.kind === 'results' && !search.stale
-          ? `${search.tracks.length} track${search.tracks.length === 1 ? '' : 's'} found`
+          ? `${search.tracks.length} track${search.tracks.length === 1 ? '' : 's'} ${
+              browsing ? 'shown' : 'found'
+            }`
           : ''}
       </span>
-
-      {search.kind === 'empty' && (
-        <p className="sounds-hint">
-          Search by mood or instrument — &ldquo;calm piano&rdquo;, &ldquo;upbeat synth&rdquo;.
-          Results are openly licensed and cleared for monetized videos.
-        </p>
-      )}
 
       {search.kind === 'loading' && (
         <ul className="sounds-list" aria-busy="true">
@@ -458,8 +460,9 @@ export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Elem
 
       {search.kind === 'noResults' && (
         <p className="sounds-hint">
-          No tracks matched &ldquo;{search.query}&rdquo;. Try a broader word — a mood rather than a
-          title.
+          {search.query === ''
+            ? 'The music provider returned no tracks. Search by mood or instrument instead.'
+            : `No tracks matched “${search.query}”. Try a broader word — a mood rather than a title.`}
         </p>
       )}
 
@@ -473,7 +476,7 @@ export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Elem
         <ul
           ref={listRef}
           className={`sounds-list${search.stale ? ' is-stale' : ''}`}
-          aria-label="Music search results"
+          aria-label={browsing ? 'Openly licensed music' : 'Music search results'}
         >
           {search.tracks.map((track, index) => (
             <SoundRow

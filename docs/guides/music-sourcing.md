@@ -12,7 +12,9 @@ rather than present and broken.
 
 ## Using it
 
-1. Open the **Sounds** tab in the left rail (below Captions).
+1. Open the **Sounds** tab in the left rail (below Captions). It opens on a list
+   of openly-licensed tracks you can play straight away, rather than an empty
+   panel waiting on a search.
 2. Search by **mood or instrument** — "calm piano", "driving synth", "warm
    acoustic". This is a catalogue of openly-licensed production music, so a song
    title returns nothing useful.

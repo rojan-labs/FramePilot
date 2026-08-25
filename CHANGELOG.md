@@ -280,6 +280,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Sounds and Stock open with something in them.** Both panels used to greet you with an empty
+  list and a line telling you to type — which reads as a broken tab, and asks you to name a
+  track or a shot before you have heard or seen one. They now load straight away: Sounds lists
+  openly-licensed music you can audition, and Stock shows the Pexels curated photo feed or its
+  most-watched video. Typing still searches, exactly as before. Both panels also got their space
+  back — search, the Photos/Video filter and the Pexels credit share one row, and everything
+  below it is results. Stock tiles are one uniform size now, which fixes portrait shots
+  colliding with the row beneath them. If Stock has no Pexels key yet it keeps saying so, with
+  the link to Settings, instead of pretending to be empty — and if a panel cannot reach the
+  provider at all, it now says that too rather than sitting on its loading skeleton forever.
+  (`apps/web-editor`, `packages/ai-sdk`)
 - **Captions on a fast-cut video can be checked again.** Asked to improve the captions on a
   20-second montage, the AI would read the footage, think it through, and then change
   nothing. The caption checker was the reason: it treated every *picture* cut as a place a

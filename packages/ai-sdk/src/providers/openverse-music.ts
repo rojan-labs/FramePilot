@@ -209,11 +209,14 @@ export class OpenverseMusicProvider implements MusicProvider {
     signal?: AbortSignal,
   ): Promise<readonly ProviderTrack[]> {
     const text = query.text.trim();
-    if (text === '') return [];
+    // No words means browse, not "no results". The same endpoint answers without
+    // `q` — a panel that shows nothing until the user types reads as broken, and
+    // an editor looking for a bed usually wants to hear one before they can name
+    // what they are after.
     const limit = Math.max(1, Math.min(query.limit, MUSIC_SEARCH_MAX_LIMIT));
 
     const url = new URL(`${OPENVERSE_API_BASE}/audio/`);
-    url.searchParams.set('q', text);
+    if (text !== '') url.searchParams.set('q', text);
     // Server-side commercial-use filtering, so an NC track never arrives to be
     // mishandled. `normalizeOpenverseTrack` checks again anyway.
     url.searchParams.set('license_type', 'commercial');
@@ -226,7 +229,11 @@ export class OpenverseMusicProvider implements MusicProvider {
 
     try {
       // The query text goes to the provider; nothing else about the project does.
-      log.action('search → request', { provider: 'openverse', limit });
+      log.action('search → request', {
+        provider: 'openverse',
+        mode: text === '' ? 'browse' : 'search',
+        limit,
+      });
       const response = await this.fetchImpl(url.toString(), {
         method: 'GET',
         headers: { accept: 'application/json', 'user-agent': USER_AGENT },

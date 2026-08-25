@@ -64,8 +64,10 @@ rather than infinite scroll. Downloads don't count against the search quota.
 
 ## Finding and previewing
 
-Open the **Stock** tab in the left rail, choose **Video** or **Photos**, and
-search by subject — "city skyline at dusk", "hands typing" — rather than by mood.
+Open the **Stock** tab in the left rail and pick **Video** or **Photos** from the
+dropdown beside the search box. With the box empty you get Pexels' own feed —
+hand-picked photos, most-watched video. Type to search by subject — "city skyline
+at dusk", "hands typing" — rather than by mood.
 
 **Hover a video tile to preview it.** Then move your cursor across the tile and
 the clip follows: left edge is the start, right edge is the end, with a hairline

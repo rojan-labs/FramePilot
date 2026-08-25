@@ -7356,6 +7356,18 @@ main.
 - [~] **P5** Docs and evidence — ADRs 0140/0141, `docs/guides/stock-sourcing.md` and the
   CHANGELOG are written; **the real-media desktop run is outstanding**, as it is for the
   music slice.
+- [x] **P6** Both panels open with content instead of an empty list (2026-08-25). An empty
+      search box now browses the provider's own feed — Pexels `/v1/curated` and
+      `/videos/popular`, Openverse's catalogue without a `q` — labelled so a browse never
+      reads as results for a search nobody ran; the missing-key state still wins over it, and
+      an IPC call that rejects now surfaces as an error rather than a permanent skeleton.
+      The Openverse browse is verified live; **the two Pexels browse endpoints are covered by
+      offline tests only** and join the outstanding evidence run (`PEXELS-API.md` §5 Q6).
+- [x] **P7** Panel layout: one control row, uniform tiles (2026-08-25). Search, the kind select
+      and the Pexels credit share a row; the prose above the grid is gone. Stock tiles were
+      carrying the item's own aspect ratio, which let a portrait tile resolve taller than its
+      grid row and overlap the row beneath — measured at up to 75 px of collision in a
+      headless-Chromium repro of the real stylesheet, and 0 after.
 
 **What is left is not code**, exactly as above: a human at a desktop build placing a real
 Pexels clip into a real edit, exporting it, and confirming the courtesy credit survives
@@ -7610,10 +7622,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                  Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                  a pre-existing local edit commenting out temperature forwarding, untouched here);
-                  engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                  **Last updated:** 2026-08-14
+                      Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                      a pre-existing local edit commenting out temperature forwarding, untouched here);
+                      engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                      **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 

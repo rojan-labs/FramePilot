@@ -102,12 +102,15 @@ describe('OpenverseMusicProvider.search', () => {
     expect(tracks.find((track) => track.license === 'by-sa')?.format).toBe('mp3');
   });
 
-  it('returns an empty list for an empty query without calling the provider', async () => {
+  it('browses the catalogue when no words were typed', async () => {
     const { fetchImpl, calls } = stubFetch(recorded);
-    expect(await new OpenverseMusicProvider(fetchImpl).search({ text: '   ', limit: 10 })).toEqual(
-      [],
-    );
-    expect(calls).toHaveLength(0);
+    const tracks = await new OpenverseMusicProvider(fetchImpl).search({ text: '   ', limit: 10 });
+    expect(tracks.length).toBeGreaterThan(0);
+    const url = new URL(String(calls[0]?.url));
+    // No `q` at all, rather than an empty one: the commercial filter still
+    // applies, so a browse cannot surface a track search would have refused.
+    expect(url.searchParams.get('q')).toBeNull();
+    expect(url.searchParams.get('license_type')).toBe('commercial');
   });
 
   it('handles an empty result set without inventing a failure', async () => {
