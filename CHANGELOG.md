@@ -8,6 +8,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Semantic footage search can now run on your own machine.** FramePilot can find things by
+  what they look like — "where does the whiteboard appear", "cut to the product shot" — but
+  that needs a media-understanding key, and until now the only one you could enter was
+  TwelveLabs, which sends your footage to a hosted service. Settings → AI → Media intelligence
+  gains an **On-device embeddings key** field, so you can point FramePilot at your own NVIDIA
+  key and have footage indexed and searched on your machine instead: only the embedding
+  request leaves it, never the media. The panel now also names which backend is actually
+  running, and says so plainly when both keys are set — TwelveLabs takes priority, so it
+  tells you that rather than letting you assume your footage stayed local.
+  (`apps/web-editor/src/components/SettingsDialog.tsx`)
+
 - **Stock photos and video, without leaving the editor.** A new **Stock** tab searches Pexels
   for a shot you don't have and puts it straight on the timeline. Hover a video tile to preview
   it, then move your cursor across the tile to scrub through the clip — left edge to right edge
@@ -87,6 +98,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (`packages/timeline-schema`, `apps/web-editor`, schema v20, ADR 0138)
 
 ### Fixed
+
+- **Asking a question can no longer add music or stock footage to your timeline.** When you ask
+  the assistant something rather than telling it to make an edit, it runs on a read-only
+  surface — it can look at your project but not change it. Two tools were escaping that:
+  `add_music` and `add_stock` were classed as lookups rather than edits, so a question could
+  end with a track downloaded and a clip placed. They are now treated as the edits they are,
+  which also stops a repeated placement being served from cache as though it had just
+  happened. Searching for music and stock still works while you are asking questions —
+  looking costs nothing and changes nothing; only placing is held back for edit mode.
+  (`packages/ai-sdk/src/tool-contract.ts`)
 
 - **A download you started keeps going — and keeps showing — when you switch tabs.** Queuing a
   40 MB clip and going back to the timeline is the normal thing to do, but coming back to the

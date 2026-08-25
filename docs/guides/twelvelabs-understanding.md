@@ -18,14 +18,18 @@ license caveat that comes with it).
   together (TwelveLabs fuses visual + audio + transcription internally).
 - You already have a TwelveLabs account/API key.
 
-If you don't set a key, nothing changes — the built-in indexer is used.
+If you don't set a key, nothing changes — the built-in indexer is used. That built-in
+path needs its own key: set **On-device embeddings key** in the same Settings section
+(or `FRAMEPILOT_NVIDIA_EMBEDDINGS_KEYS`). With both configured TwelveLabs takes
+priority, and Settings names the backend that will actually run.
 
 ## Enabling it
 
 1. Get an API key from the [TwelveLabs dashboard](https://www.twelvelabs.io/).
-2. **Desktop / web-editor:** Settings → AI → Embeddings → **TwelveLabs API key**.
-   Paste the key and (optionally) click **Index now**, or leave _Auto-index
-   imported media_ on so new footage indexes in the background.
+2. **Desktop / web-editor:** Settings → AI → Media intelligence → **TwelveLabs API
+   key**. Paste the key; there is no manual indexing step. FramePilot prepares media
+   on import or on first semantic need, joins duplicate requests, and reuses
+   unchanged results.
 3. **Engine env (headless/CI/desktop sidecar):** set `TWELVELABS_API_KEY`. The
    Settings key takes precedence; the env var is the fallback.
 
