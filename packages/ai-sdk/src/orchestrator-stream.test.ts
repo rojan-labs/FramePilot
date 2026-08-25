@@ -3476,7 +3476,11 @@ describe('streamAgent micro-compaction of old tool results (E2)', () => {
     // By turn 5 the log crossed the threshold: old entries carry the cleared marker,
     // their "what was called" prefixes intact, while the freshest keep real payloads.
     const turn5Log = provider.requests[4]!.messages.at(-1)!.content;
-    expect(turn5Log).toContain('[old result cleared — re-read if needed]');
+    // The cleared entries name the handle their payload is still held under, rather than the
+    // bare "re-read if needed" they used to carry. Every host-tool result is stored now (it
+    // used to be `measure_color` alone), so the marker is an address the model can follow in
+    // one call instead of an invitation to re-run engine or metered-provider work.
+    expect(turn5Log).toMatch(/\[old result cleared — call recall_evidence\("ev_\d+"\)/);
     expect(turn5Log).toContain('Found silences');
     // The repeat call was answered from the run memo — no fresh engine work claimed
     // (its cleared predecessor did not break memoization), and the reducer then

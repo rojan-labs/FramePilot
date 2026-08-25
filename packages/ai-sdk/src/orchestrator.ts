@@ -436,6 +436,22 @@ const DEFAULT_CHITCHAT_REPLY =
  */
 export const CLEARED_RESULT_MARKER = '[old result cleared — re-read if needed]';
 
+/**
+ * The same clearing, for an entry whose payload IS still held in the evidence store.
+ *
+ * "Re-read if needed" is only actionable when re-reading is free. For a metered provider
+ * search (`search_stock`, `search_music`) it means another billable request against a
+ * catalogue whose ordering is not stable — and a captured run, having lost every candidate
+ * `remoteId` to this marker, invented an asset path rather than re-query. Naming the handle
+ * inline turns the marker from an apology into an instruction the model can follow in one
+ * call, without correlating the log against the briefing's citations.
+ */
+export const clearedWithHandle = (handle: string): string =>
+  `[old result cleared — call recall_evidence("${handle}") to see it again]`;
+
+/** A trailing evidence citation on a log note (`… → payload [ev_3]`). */
+const NOTE_EVIDENCE_HANDLE = /\s\[(ev_\d+)\]$/;
+
 /** Estimated log size (tokens) above which the payload-clearing tier engages (E2.2). */
 export const AGENT_LOG_CLEAR_THRESHOLD_TOKENS = 1000;
 
@@ -469,7 +485,10 @@ export function clearNotePayloads(entry: string): string {
   return entry.replace(NOTE_PAYLOAD, (match, payload: string) => {
     if (payload.startsWith('they answered:')) return match;
     if (payload.length < MIN_CLEARABLE_PAYLOAD_CHARS) return match;
-    return ` → ${CLEARED_RESULT_MARKER}`;
+    // The payload goes; its HANDLE stays. Clearing the citation along with the content is
+    // what left the model holding an offer to "re-read" with no address to read from.
+    const cited = NOTE_EVIDENCE_HANDLE.exec(payload);
+    return ` → ${cited?.[1] ? clearedWithHandle(cited[1]) : CLEARED_RESULT_MARKER}`;
   });
 }
 
@@ -2644,10 +2663,29 @@ export class Orchestrator {
           host.beatEvidence.hardSync = true;
         }
       }
-      const colorEvidence =
-        call.name === 'measure_color' &&
-        outcome.status === 'completed' &&
-        outcome.data !== undefined
+      // EVERY host-tool payload is stored, not just `measure_color`'s.
+      //
+      // The read path (below) has always stored its results and handed the model a handle,
+      // which is what makes `compactAgentLog`'s "[old result cleared — recall …]" marker an
+      // honest offer. The HOST path stored nothing but a colour measurement, so the same
+      // marker was a lie for every sidecar and provider result the run had seen: cleared
+      // from the prompt after two turns, absent from the store, and citable by no fact
+      // (`distil` below attaches an `evidenceId` only when `evidence.lookup` finds one —
+      // which is why every fact in the captured run carried `evidenceIds: []`).
+      //
+      // For `search_stock`/`search_music` that gap is not merely wasteful, it is
+      // unrecoverable: "re-read if needed" means another METERED provider request whose
+      // ordering is not stable, and the short-TTL cache misses on any rewording. A captured
+      // run reached the edit with no candidate left in context and invented an asset path
+      // rather than re-query — twice, in two independent attempts.
+      //
+      // Storing is safe for the whole group by construction: `EvidenceStore.put` derives
+      // invalidation from `tool-classification.ts`, which is explicit and parity-tested for
+      // every registered tool, so a timeline-dependent result is still evicted by the next
+      // applied patch exactly as before. This changes what is RECOVERABLE, never what is
+      // considered current.
+      const hostEvidence =
+        outcome.status === 'completed' && outcome.data !== undefined
           ? host.evidence?.put({
               key: callMemoKey(call),
               source: call.name,
@@ -2870,7 +2908,7 @@ export class Orchestrator {
       const preview = data !== undefined ? ` → ${summarizeReadResult(call.name, data)}` : '';
       return {
         ops: [],
-        note: `${base}${runtimeCached ? ' (cached)' : ''}${preview}${colorEvidence ? ` [${colorEvidence.id}]` : ''}`,
+        note: `${base}${runtimeCached ? ' (cached)' : ''}${preview}${hostEvidence ? ` [${hostEvidence.id}]` : ''}`,
         summary: `${base}${runtimeCached ? ' (cached)' : ''}`,
         status: outcome.status,
         ...(runtimeCached ? { fromCache: true } : {}),

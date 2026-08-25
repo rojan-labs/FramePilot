@@ -12,6 +12,7 @@ import {
   AGENT_LOG_CLEAR_THRESHOLD_TOKENS,
   AGENT_LOG_PAYLOAD_FRESH,
   CLEARED_RESULT_MARKER,
+  clearedWithHandle,
   clearNotePayloads,
   compactAgentLog,
   parseAgentPlan,
@@ -339,6 +340,47 @@ describe('agent mode', () => {
     expect(run.steps[0]?.note).toMatch(/silences/);
   });
 
+  // GAP-003, end to end. A stock search is the one read a run genuinely cannot repeat for
+  // free: the provider is metered and its ordering is not stable. Before this, the host
+  // path stored no evidence at all (only `measure_color` did), so the candidates were
+  // unreachable the moment compaction cleared them — and the captured run fabricated an
+  // asset path rather than re-query. The handle is what makes the recovery real.
+  it('stores a metered provider search so its candidates survive out of context', async () => {
+    const provider = new ScriptedProvider([
+      {
+        text: 'searching',
+        toolCalls: [call('search_stock', { query: 'mars orbiter', kind: 'video' })],
+      },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const executor = {
+      run: async () => ({
+        status: 'completed' as const,
+        summary: 'Found 2 clips for "mars orbiter"',
+        data: {
+          items: Array.from({ length: 10 }, (_, i) => ({
+            remoteId: String(8474616 + i),
+            title: `Mars orbiter approach ${i}`,
+            durationSeconds: 8,
+            width: 1080,
+            height: 1920,
+            creator: 'RDNE Stock project',
+          })),
+        },
+      }),
+    };
+    const run = await new Orchestrator(provider, { executor }).agent(input, { maxSteps: 3 });
+    const note = run.steps[0]?.note ?? '';
+    // The candidates ride this turn's note...
+    expect(note).toMatch(/8474616/);
+    // ...and the handle is what gets them back on a later turn, once the payload is gone.
+    const handle = /\[(ev_\d+)\]$/.exec(note)?.[1];
+    expect(handle).toBeDefined();
+    expect(clearNotePayloads(note)).toBe(
+      `${note.slice(0, note.indexOf(' → '))} → ${clearedWithHandle(handle!)}`,
+    );
+  });
+
   it('converges and stops when the model re-analyzes the same asset without editing (arg-varying spin)', async () => {
     // Replaces the old "edit nudge": there is no prompt forcing function anymore. Instead
     // the run converges deterministically. detect_beats on the SAME asset with a different
@@ -419,7 +461,10 @@ describe('agent mode', () => {
       run: async () => ({ status: 'completed' as const, summary: 'weird', data: () => 0 }),
     };
     const run = await new Orchestrator(provider, { executor }).agent(input, { maxSteps: 3 });
-    expect(run.steps[0]?.note).toBe('weird → null');
+    // The trailing handle is the store citation every host-tool result now carries, so the
+    // payload stays recoverable once compaction clears it. The point of this case is the
+    // bounded `null` preview, not the absence of a handle.
+    expect(run.steps[0]?.note).toBe('weird → null [ev_1]');
   });
 
   it('surfaces an executor failure as a failed call, never a success', async () => {
@@ -980,6 +1025,27 @@ describe('micro-compaction of old tool results (E2)', () => {
         `Step 7: Searched media for "intro" → ${CLEARED_RESULT_MARKER}`,
       );
     });
+
+    // The captured regression. A stock search's candidates (`remoteId`s the run needs to
+    // place anything) were cleared behind "re-read if needed" — but re-reading a METERED
+    // provider is not free, its ordering is not stable, and the run had no handle to recall.
+    // It invented an asset path instead. The payload still goes; the address must not.
+    it('keeps the evidence handle when it clears a payload that has one', () => {
+      const candidates = Array.from(
+        { length: 10 },
+        (_, i) => `${8474600 + i} · Video ${8474600 + i} · 0:08 · 1080×1920 · by RDNE`,
+      ).join('\n');
+      const entry = `Step 3: Search stock → 10 results:\n${candidates} [ev_4]`;
+      const cleared = clearNotePayloads(entry);
+      expect(cleared).toBe(`Step 3: Search stock → ${clearedWithHandle('ev_4')}`);
+      expect(cleared).toContain('recall_evidence("ev_4")');
+      expect(cleared).not.toContain('8474600');
+    });
+
+    it('falls back to the plain marker when no handle was cited', () => {
+      expect(clearNotePayloads(readEntry)).toContain(CLEARED_RESULT_MARKER);
+      expect(clearNotePayloads(readEntry)).not.toContain('recall_evidence');
+    });
   });
 
   describe('compactAgentLog clearing tier (E2.2)', () => {
@@ -1099,7 +1165,10 @@ describe('callNoveltyKey (reconnaissance vs the analysis spin)', () => {
  * actually has rather than a hand-kept copy of them that could drift from it. Same
  * technique as the tool-parity fixture guard: rebuild the claim from the live source.
  */
-const summarizeReadResultSource = readFileSync(new URL('./orchestrator.ts', import.meta.url), 'utf8');
+const summarizeReadResultSource = readFileSync(
+  new URL('./orchestrator.ts', import.meta.url),
+  'utf8',
+);
 
 /**
  * Reads that are honestly served by the bounded JSON preview, each with the reason.
@@ -1242,7 +1311,11 @@ describe('summarizeReadResult carries a verification report the run can act on',
       'no silent gaps found in the audio',
     );
     expect(
-      summarizeReadResult('analyze_silence', { assetId: 'a1', ranges: [], reason: 'no audio track' }),
+      summarizeReadResult('analyze_silence', {
+        assetId: 'a1',
+        ranges: [],
+        reason: 'no audio track',
+      }),
     ).toBe('no silence detected — no audio track');
     expect(summarizeReadResult('detect_scenes', { assetId: 'a1', cuts: [] })).toBe(
       'no scene cuts detected in a1',
@@ -1308,9 +1381,7 @@ describe('summarizeReadResult carries a verification report the run can act on',
         { trackId: 'v', at: 1, fromClipId: 'a', toClipId: 'b', maxTransitionSeconds: 0.2 },
       ]).split('\n')[0],
     ).toBe('1 cut:');
-    expect(summarizeReadResult('detect_scenes', { cuts: [] })).toBe(
-      'no scene cuts detected in ?',
-    );
+    expect(summarizeReadResult('detect_scenes', { cuts: [] })).toBe('no scene cuts detected in ?');
     expect(summarizeReadResult('detect_scenes', { cuts: [{ time: 2 }] }).split('\n')[0]).toBe(
       '1 scene cut in ?:',
     );
@@ -1329,7 +1400,7 @@ describe('summarizeReadResult carries a verification report the run can act on',
 });
 
 describe('summarizeReadResult (agent must never invent ids)', () => {
-  it('get_timeline: carries a caption track\'s committed STYLE, not just its clip count', () => {
+  it("get_timeline: carries a caption track's committed STYLE, not just its clip count", () => {
     // The failure this closes: asked to "use a different caption style", a run read the
     // timeline — whose payload holds `templateId: headline` and the accent already applied
     // — but the digest rendered only ids and clip counts. The distilled fact was "5
@@ -1357,7 +1428,7 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
     expect(head).toContain('accent=keywords (3 keywords)');
   });
 
-  it("get_timeline: the DISTILLED FACT carries the style, not just the digest", () => {
+  it('get_timeline: the DISTILLED FACT carries the style, not just the digest', () => {
     // End to end through the surface that actually matters. A digest nobody distils is a
     // digest the next turn never sees.
     const note = summarizeReadResult('get_timeline', {
@@ -1438,7 +1509,12 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
 
   it('discover_caption_styles: reports an empty match instead of an empty list', () => {
     expect(
-      summarizeReadResult('discover_caption_styles', { matched: 0, returned: 0, fonts: [], templates: [] }),
+      summarizeReadResult('discover_caption_styles', {
+        matched: 0,
+        returned: 0,
+        fonts: [],
+        templates: [],
+      }),
     ).toContain('no caption templates match');
   });
 
@@ -1507,7 +1583,13 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
       trackCount: 2,
       clipCount: 87,
       tracks: [
-        { id: 'layer_caption_4', type: 'caption', clipCount: 40, firstClipStart: 0.09, lastClipEnd: 19.75 },
+        {
+          id: 'layer_caption_4',
+          type: 'caption',
+          clipCount: 40,
+          firstClipStart: 0.09,
+          lastClipEnd: 19.75,
+        },
         { id: 'audio_music', type: 'audio', clipCount: 0, firstClipStart: null, lastClipEnd: null },
       ],
       markerCount: 1,
