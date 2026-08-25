@@ -148,6 +148,7 @@ import { RecentFilesStore, type RecentFilesIO } from './projects/recent-files.js
 import { ConversationStore, type ConversationStoreIO } from './ai/conversation-store.js';
 import { AiStreamHub, parseAiStreamRequest, prepareAiEventForTransport } from './ai/ai-stream.js';
 import { shouldAutoCommitAiDiff } from './ai/patch-settlement.js';
+import { decideCommitTarget } from './ai/commit-target.js';
 import { RunStore, FileRunStoreIO } from './ai/run-store.js';
 import { RunCoordinator, RunGateway } from './ai/run-coordinator.js';
 import { RunIpcHub } from './ai/run-ipc.js';
@@ -2362,6 +2363,23 @@ function registerIpcHandlers(): void {
     if (durableSnapshot === null) {
       throw new Error('The durable AI run could not be restored.');
     }
+    // PRE-FLIGHT, not a per-patch check. Under `auto_commit` the host writes every edit
+    // itself, so "is this the project the GUI has open?" decides whether ANY edit this run
+    // proposes can land. Asking only at commit time (below, where the same rule guards the
+    // mid-run race) let a doomed run spend model tokens and METERED stock/music quota for
+    // minutes before its first patch was rejected. Refuse here instead — before a single
+    // provider request is made — and say which project the app is actually on.
+    if (shouldAutoCommitAiDiff(durableSnapshot.patchPolicy, undefined)) {
+      const target = decideCommitTarget(await activeProject.current(), project.id);
+      if (!target.ok) {
+        aiLog.warn('AI run refused — project is not the authoritative one', {
+          runId: durableRunId,
+          projectId: project.id,
+          code: target.code,
+        });
+        throw new Error(target.reason);
+      }
+    }
     let autoExpectedRevision = currentRevision;
     let autoCommitted = false;
     let lifecycleWriteError: unknown;
@@ -2404,14 +2422,14 @@ function registerIpcHandlers(): void {
           // committed result and reports findings; it does not decide whether the edit may be
           // written, which is what used to hold every edit behind a multi-minute render.
           if (shouldAutoCommitAiDiff(durableSnapshot.patchPolicy, transportEvent.verification)) {
-            const active = await activeProject.current();
-            if (!active || active.projectId !== project.id) {
+            // The MID-RUN race: the pre-flight above proved the project was open when the
+            // run started; the user can still switch away while it works. Same rule, same
+            // module, so the two readings cannot drift.
+            const target = decideCommitTarget(await activeProject.current(), project.id);
+            if (!target.ok) {
               const staleEvent = {
                 ...transportEvent,
-                commit: {
-                  state: 'stale' as const,
-                  reason: 'The project is no longer the active authoritative project.',
-                },
+                commit: { state: 'stale' as const, reason: target.reason },
               };
               await runGatewayCoordinator.recordPatchLifecycle({
                 runId: durableRunId,
@@ -2433,16 +2451,16 @@ function registerIpcHandlers(): void {
               autoExpectedRevision,
               patch,
               async (nextProject) => {
-                projectWatcher.markSelfWrite(active.path, nextProject);
-                await writeProjectFile(active.path, nextProject);
-                await projectWatcher.watch(active.path);
+                projectWatcher.markSelfWrite(target.path, nextProject);
+                await writeProjectFile(target.path, nextProject);
+                await projectWatcher.watch(target.path);
                 await recovery.snapshot({
-                  path: active.path,
+                  path: target.path,
                   project: nextProject,
                   savedAt: Date.now(),
                 });
                 await activeProject.record({
-                  path: active.path,
+                  path: target.path,
                   projectId: nextProject.id,
                   updatedAt: Date.now(),
                 });
@@ -2491,9 +2509,9 @@ function registerIpcHandlers(): void {
               state: committed.rebased ? 'rebased' : 'committed',
               projectRevision: committed.revision,
             });
-            indexProjectBrain(committed.project.id, active.path);
+            indexProjectBrain(committed.project.id, target.path);
             event.sender.send(IpcChannels.projectChanged, {
-              path: active.path,
+              path: target.path,
               project: committed.project,
               revision: committed.revision,
             } satisfies ProjectChangedEvent);
