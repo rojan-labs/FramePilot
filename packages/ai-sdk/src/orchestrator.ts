@@ -106,6 +106,8 @@ import { alignBeatBackedBoundaries } from './kernel/beat-grid/beat-alignment.js'
 import { beatGridFor } from './kernel/semantic-index/semantic-index.js';
 import { describeUnrecovered, ensureContextInvariants } from './kernel/context/invariants.js';
 import { EvidenceStore, evidenceScopeFor } from './kernel/evidence-store.js';
+import { hostRefusalFor, type HostPatchRefusal } from './kernel/commit-ledger.js';
+import { recordHostRefusal } from './kernel/working-state.js';
 import type { RunStage, RunWorkingState } from './kernel/working-state.js';
 import { type ConductorHandlers, runAgentGraph } from './kernel/agent-graph.js';
 import {
@@ -5339,6 +5341,70 @@ export class Orchestrator {
     // Mirror of the reducer's cumulative applied ops; feeds the completion report and
     // keeps the closure's view of "what landed" in lockstep with the reducer.
     const cumulativeOps: AnyOperation[] = [];
+    /**
+     * Patches this run has proposed and the HOST has not yet ruled on
+     * (`kernel/commit-ledger.ts`).
+     *
+     * Local validation is the last word only where nothing else can speak. On desktop the
+     * host re-checks each patch against the authoritative project and can refuse it — wrong
+     * project open, revision moved, media not on disk — and it used to record that verdict
+     * for the UI alone. So the run's ledger read `succeeded` for two edits a captured
+     * project never received, and the briefing then listed them under "ALREADY APPLIED — do
+     * not repeat", guaranteeing the run would never retry the work it still owed.
+     *
+     * Collected at turn boundaries rather than inline, because the graph's event queue is a
+     * fire-and-forget push: the diff may not have reached the host when the turn's generator
+     * resumes. By the next turn it has — a model call sits in between — and `finalize` is
+     * the backstop for the last one.
+     */
+    const unsettledPatches: {
+      patchId: string;
+      intent: string;
+      workingBefore: Project;
+      opCount: number;
+    }[] = [];
+    const hostRefusals: HostPatchRefusal[] = [];
+    /**
+     * Collect the host's verdicts on everything still outstanding.
+     *
+     * A refusal REWINDS the working copy to the state before the refused patch. Continuing
+     * to edit against a project the authority never accepted is how a run builds a second,
+     * private timeline and reports it as the user's — the failure this whole mechanism
+     * exists to end. Later patches are rewound with it: they were built on top of work that
+     * does not exist, so they cannot be salvaged independently.
+     */
+    const reconcileHostVerdicts = async (): Promise<void> => {
+      const ledger = agentOptions.commitLedger;
+      if (ledger === undefined || unsettledPatches.length === 0) return;
+      const outstanding = unsettledPatches.splice(0);
+      // AWAIT the verdicts rather than sampling them. There is no ordering to sample
+      // against — the graph queue is a fire-and-forget push, so a diff may or may not have
+      // reached the host by any point the run chooses to look, and in practice it usually
+      // had not. Waiting is also the property that matters: a turn is never planned against
+      // an edit whose fate is unknown. A ledger's presence is the host's promise to rule on
+      // every patch exactly once (`deferred` included), so this cannot outlive the run.
+      const verdicts = await Promise.all(
+        outstanding.map(async (patch) => ({
+          patch,
+          reason: hostRefusalFor(await ledger.settled(patch.patchId)),
+        })),
+      );
+      const firstRefused = verdicts.findIndex((v) => v.reason !== undefined);
+      if (firstRefused === -1) return;
+      for (const { patch, reason } of verdicts.slice(firstRefused)) {
+        // Everything from the first refusal on is unsalvageable, refused or not: a later
+        // patch was validated against a timeline that only ever existed in this run's own
+        // copy. Reported as the same loss, because that is what it is.
+        const cause = reason ?? verdicts[firstRefused]!.reason!;
+        hostRefusals.push({ patchId: patch.patchId, intent: patch.intent, reason: cause });
+        log.push(`The editor could not write "${patch.intent}" — ${cause}`);
+      }
+      const removedOps = verdicts
+        .slice(firstRefused)
+        .reduce((total, v) => total + v.patch.opCount, 0);
+      working = verdicts[firstRefused]!.patch.workingBefore;
+      cumulativeOps.splice(Math.max(0, cumulativeOps.length - removedOps));
+    };
     // C1: the run's real, priced cost — accumulated across the classifier call (seeded
     // via `initialCost`), each turn's `streamAssistant` call (`runTurn`), and the Critic
     // repair pass (`runVerify`/`attemptRepair`'s `onUsage`). Mirrors `editVariations`'s
@@ -5402,6 +5468,15 @@ export class Orchestrator {
     const analysisRunId = `run:${options.turnId}`;
 
     /** A turn result with the fixed fields the reducer ignores for early exits. */
+    /**
+     * Every `agent_turn` result leaves through here, which is why the host's refusals are
+     * attached here and not at the one exit that happens to produce an edit.
+     *
+     * They are collected at the START of a turn (`reconcileHostVerdicts`) and belong to
+     * whatever result that turn produces — including the turn where the model says it is
+     * done, which is exactly when the last patch's verdict lands and exactly the result the
+     * first version of this fix missed.
+     */
     const turnBase = (
       stepIndex: number,
       endSeq: number,
@@ -5427,6 +5502,7 @@ export class Orchestrator {
       intent: '',
       log: [...log],
       endSeq,
+      ...(hostRefusals.length > 0 ? { hostRefusals: hostRefusals.splice(0) } : {}),
       ...over,
     });
 
@@ -5595,6 +5671,10 @@ export class Orchestrator {
           );
         }
 
+        // The host has had a turn's worth of time (a model call) to rule on the previous
+        // turn's patch. Collect the verdict BEFORE this turn reads the project, so a turn
+        // is never planned against edits the authority refused.
+        await reconcileHostVerdicts();
         const names = projectNames(working);
         const segmentId = `${emit.assistantId}:seg-${index}`;
         // Pre-request invariants (ADR 0080). A turn that goes out with no objective or
@@ -5603,7 +5683,19 @@ export class Orchestrator {
         // Repair what state already implies; say so plainly when it cannot be repaired,
         // rather than letting the model compensate by starting over.
         /* v8 ignore next -- RunTurnEffect.working is optional on the type (additive, for the legacy loop and older fixtures per its own doc comment), but every REAL run_turn effect dispatched here comes from conductor.ts#runTurnEffect, which always sets working unconditionally — the undefined side is not reachable through the live gateway/conductor path today. */
-        const invariants = effect.working ? ensureContextInvariants(effect.working) : undefined;
+        // Apply the verdicts just collected to THIS turn's briefing, not only to the fold
+        // that follows it. The reducer corrects the ledger when the turn ends — but the
+        // prompt is built now, and a briefing that lists a refused edit under
+        // "ALREADY APPLIED — do not repeat" tells the model the one thing it still owes is
+        // already done. That is a whole wasted turn, on the turn that could have fixed it.
+        const briefedWorking =
+          effect.working && hostRefusals.length > 0
+            ? hostRefusals.reduce(
+                (acc, refusal) => recordHostRefusal(acc, refusal.patchId, refusal.reason),
+                effect.working,
+              )
+            : effect.working;
+        const invariants = briefedWorking ? ensureContextInvariants(briefedWorking) : undefined;
         if (invariants && invariants.unrecovered.length > 0) {
           yield emit.warning(describeUnrecovered(invariants.unrecovered));
           // Integrity loss is an execution barrier. Do not call the model and do not
@@ -5614,7 +5706,7 @@ export class Orchestrator {
           });
         }
         /* v8 ignore next -- see the guard above: `effect.working` is always defined on the live path, so `invariants` is always defined too once we reach here, and the `?? effect.working` fallback never runs. */
-        const taskMemory = invariants?.state ?? effect.working;
+        const taskMemory = invariants?.state ?? briefedWorking;
         // C2: the turn's assistant text is about to stream, before its tool calls (if
         // any) are even known — `generating` is the specific, honest status for that
         // phase (vs. the generic `editing` the caller set for the whole run).
@@ -5861,8 +5953,8 @@ export class Orchestrator {
           beatHardSync: beatEvidence.hardSync === true,
         });
         if (applied.offGrid) offGridNote = applied.offGrid;
-        log.push(`Step ${index}: ${applied.record.note}`);
         const describedActions: DescribedAction[] = [];
+        const workingBefore = working;
         if (applied.applied) {
           working = applied.working;
           cumulativeOps.push(...turnOps);
@@ -5891,8 +5983,19 @@ export class Orchestrator {
               runId: analysisRunId,
               ...(planStepId === undefined ? {} : { planStepId }),
             });
+            // NOT adjudicated here. The graph buffers events (`kernel/agent-graph.ts`'s
+            // queue is a fire-and-forget push), so the host may not have seen this diff yet
+            // when the generator resumes — the verdict is collected at the NEXT turn
+            // boundary and at finalize instead, by `reconcileHostVerdicts` below.
+            unsettledPatches.push({
+              patchId: applied.edit.patch.patchId,
+              intent: applied.record.note,
+              workingBefore,
+              opCount: turnOps.length,
+            });
           }
         }
+        log.push(`Step ${index}: ${applied.record.note}`);
         return turnBase(index, emit.seq(), {
           ...common,
           anyToolFailed,
@@ -5901,6 +6004,7 @@ export class Orchestrator {
           appliedOps: applied.applied ? [...turnOps] : [],
           describedActions,
           note: applied.record.note,
+          ...(applied.edit ? { patchId: applied.edit.patch.patchId } : {}),
           ...(applied.rejection === undefined ? {} : { rejection: applied.rejection }),
           ...(applied.satisfied === true ? { satisfied: true } : {}),
         });
@@ -5915,6 +6019,10 @@ export class Orchestrator {
       ): AsyncGenerator<AiEvent, ConductorResult> {
         const emit = createTurnEmitter(state.turnRef, state.seq);
         activeEmit = emit;
+        // The backstop for the LAST turn's patch, which no later turn boundary will reach.
+        // Critiquing a timeline the authoritative project never received would grade the
+        // run's private copy and report the verdict as if it were the user's.
+        await reconcileHostVerdicts();
         let report = critique(
           working,
           self.critiqueOptions(input, agentOptions, state.cumulativeOps.length > 0),

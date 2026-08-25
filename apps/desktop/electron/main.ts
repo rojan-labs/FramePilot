@@ -150,6 +150,7 @@ import { AiStreamHub, parseAiStreamRequest, prepareAiEventForTransport } from '.
 import { shouldAutoCommitAiDiff } from './ai/patch-settlement.js';
 import { decideCommitTarget } from './ai/commit-target.js';
 import { describeUnresolvableAssets, unresolvableAddedAssets } from './ai/asset-paths.js';
+import { InMemoryPatchCommitLedger } from '@framepilot/ai-sdk';
 import { RunStore, FileRunStoreIO } from './ai/run-store.js';
 import { RunCoordinator, RunGateway } from './ai/run-coordinator.js';
 import { RunIpcHub } from './ai/run-ipc.js';
@@ -2384,6 +2385,15 @@ function registerIpcHandlers(): void {
         throw new Error(target.reason);
       }
     }
+    // The run's own record of what the HOST did with each patch it proposed
+    // (`@framepilot/ai-sdk` `kernel/commit-ledger.ts`). Before this, the verdict below was
+    // stamped onto the outgoing event for the UI and the run was told nothing — so its
+    // ledger recorded `succeeded` for edits this process had just refused to write.
+    //
+    // The contract is "rule on EVERY patch exactly once": the run WAITS on each verdict, so
+    // a diff that leaves here without one would hang it. Every branch of the diff arm below
+    // records, `deferred` included.
+    const commitLedger = new InMemoryPatchCommitLedger();
     let autoExpectedRevision = currentRevision;
     let autoCommitted = false;
     let lifecycleWriteError: unknown;
@@ -2396,6 +2406,7 @@ function registerIpcHandlers(): void {
     );
     return aiStreamHub.start(event.sender, hydratedRequest, {
       durableRunId,
+      commitLedger,
       controls: durableControls.controls,
       effectObserver: createDurableEffectObserver(durableRunId, project.id),
       onLifecycleEvent: (stageEvent) => {
@@ -2431,6 +2442,7 @@ function registerIpcHandlers(): void {
             // module, so the two readings cannot drift.
             const target = decideCommitTarget(await activeProject.current(), project.id);
             if (!target.ok) {
+              commitLedger.record(patch.patchId, { state: 'stale', reason: target.reason });
               const staleEvent = {
                 ...transportEvent,
                 commit: { state: 'stale' as const, reason: target.reason },
@@ -2463,6 +2475,7 @@ function registerIpcHandlers(): void {
             });
             if (unresolvable.length > 0) {
               const reason = describeUnresolvableAssets(unresolvable);
+              commitLedger.record(patch.patchId, { state: 'stale', reason });
               aiLog.warn('AI patch refused — references media that is not on disk', {
                 runId: durableRunId,
                 patchId: patch.patchId,
@@ -2512,6 +2525,7 @@ function registerIpcHandlers(): void {
                 committed.code === 'revision_conflict'
                   ? 'The project changed and this edit overlaps newer work. Replan from the current revision.'
                   : 'The proposed edit failed authoritative validation.';
+              commitLedger.record(patch.patchId, { state: 'stale', reason });
               await runGatewayCoordinator.recordPatchLifecycle({
                 runId: durableRunId,
                 projectId: project.id,
@@ -2540,6 +2554,10 @@ function registerIpcHandlers(): void {
               aiStreamHub.failDurable(durableRunId);
               return { event: staleEvent, durableSequence: durableEvent.sequence };
             }
+            commitLedger.record(patch.patchId, {
+              state: 'committed',
+              revision: committed.revision,
+            });
             autoExpectedRevision = committed.revision;
             autoCommitted = true;
             await runGatewayCoordinator.recordPatchLifecycle({
@@ -2569,6 +2587,16 @@ function registerIpcHandlers(): void {
               event: JsonValueSchema.parse(committedEvent),
             });
             return { event: committedEvent, durableSequence: durableEvent.sequence };
+          }
+        }
+        // EVERY diff leaves here with a verdict. The run waits on one (see the ledger's
+        // `settled`), so a patch this arm declined to decide — a `review`-policy run, where
+        // the renderer applies — must say `deferred` rather than nothing at all. Silence
+        // would not read as approval; it would read as "not yet", forever.
+        if (transportEvent.type === 'diff') {
+          const patchId = transportEvent.edit.patch.patchId;
+          if (commitLedger.outcomeFor(patchId) === undefined) {
+            commitLedger.record(patchId, { state: 'deferred' });
           }
         }
         const durableEvent = await runGatewayCoordinator.recordStreamEvent({

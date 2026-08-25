@@ -13,6 +13,7 @@
  * this module only defines the data it returns.
  */
 import type { AnyOperation, Patch } from '@framepilot/editor-core';
+import type { PatchCommitLedger } from './kernel/commit-ledger.js';
 import type { EditResult } from './assemble.js';
 import type { CritiqueReport, RenderValidationInput } from './critic.js';
 import type { TargetPlatform } from './context-builder.js';
@@ -138,6 +139,21 @@ export interface AgentOptions {
     readonly turns?: number;
     readonly minOutputTokens?: number;
   };
+  /**
+   * Where the HOST records what it actually did with each proposed patch
+   * (`kernel/commit-ledger.ts`).
+   *
+   * Local validation is the last word only where there is nothing else to consult. On
+   * desktop the host re-checks every patch against the authoritative project and can refuse
+   * it — wrong project open, revision moved, media not on disk — and it used to stamp that
+   * verdict onto the outgoing event for the UI and tell the run nothing. A captured run
+   * therefore recorded `succeeded` for two edits the project never received, and its own
+   * briefing then listed them under "ALREADY APPLIED — do not repeat".
+   *
+   * Optional, and deliberately non-serialisable: a surface with no host arbiter (the browser
+   * build, MCP, the tests) passes none and behaves exactly as before.
+   */
+  readonly commitLedger?: PatchCommitLedger;
 }
 
 /** The result of a standalone review/critic pass (PRD §8.6). */

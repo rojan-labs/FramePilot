@@ -73,12 +73,14 @@ import {
   onProjectRevisionChanged,
   parseWorkingState,
   recordFact,
+  recordHostRefusal,
   recordOperation,
   recordVerification,
   setObjective,
   setExecutionAuthorization,
   setNextAction,
 } from './working-state.js';
+import type { HostPatchRefusal } from './commit-ledger.js';
 
 // Hard resource rails — blast-radius and cost bounds, NOT behavioral tuning. They exist
 // so a runaway or malfunctioning run hits a ceiling; they are deliberately generous
@@ -586,6 +588,19 @@ export interface AgentTurnResult {
    * run re-attempting emphasis that was already on the timeline, twenty-four times.
    */
   readonly satisfied?: boolean;
+  /** The patch this turn produced, so a later host refusal can correct its ledger row. */
+  readonly patchId?: string;
+  /**
+   * Patches an earlier turn proposed that the HOST then refused to write
+   * (`kernel/commit-ledger.ts`).
+   *
+   * Arrive a turn late by construction: the host rules on a diff after it is published, and
+   * the graph's event queue is a fire-and-forget push, so the verdict is not available when
+   * the turn that produced the patch ends. Folding them here is what stops the ledger
+   * claiming `succeeded` for an edit the authoritative project never received — the state a
+   * captured run was in when it reported a revision that did not exist.
+   */
+  readonly hostRefusals?: readonly HostPatchRefusal[];
   /** The validated operations that applied (empty when `applied` is false). */
   readonly appliedOps: readonly AnyOperation[];
   /** Pre-described applied ops for the reducer's `timeline_action` cards. */
@@ -1115,6 +1130,33 @@ export function onTurnResult(
   em: Emitter,
 ): ConductorStep {
   const events: AiEvent[] = [];
+  // FIRST, before any other read of the ledger.
+  //
+  // The host's verdicts arrive a turn late by construction (see
+  // `AgentTurnResult.hostRefusals`): it rules on a diff after publishing it, and the graph's
+  // event queue is a fire-and-forget push, so no verdict exists when the turn that produced
+  // the patch ends. Each one corrects a row previously recorded as `succeeded` and winds the
+  // project revision back to what still exists.
+  //
+  // At the top because `onTurnResult` returns from several places — the applied path folds
+  // and returns long before the rejection path is reached — and a correction applied on only
+  // one of them would leave the ledger claiming success exactly where an edit did land
+  // locally and was then refused, which is the whole case.
+  if (r.hostRefusals && r.hostRefusals.length > 0) {
+    state = {
+      ...state,
+      working: r.hostRefusals.reduce(
+        (acc, refusal) => recordHostRefusal(acc, refusal.patchId, refusal.reason),
+        state.working,
+      ),
+      // The refused ops never reached the project, so they must not go on counting toward
+      // the run's completion report or its "what landed" account.
+      cumulativeOps: [],
+    };
+    for (const refusal of r.hostRefusals) {
+      events.push(em.warning(`Couldn’t apply “${refusal.intent}” — ${refusal.reason}`));
+    }
+  }
   // Task stage first (ADR 0075 §3.2): derived from what the turn DID — the roles of the
   // tools it ran and whether a patch landed — never from what its prose claimed. A turn
   // that re-announces "let me understand the project" while calling nothing new moves
@@ -1289,6 +1331,10 @@ export function onTurnResult(
           idempotencyKey: `${state.working.runId}:${planId}:${decisionId}:${r.signature}:${index}`,
           projectRevisionBefore: revisionBefore,
           projectRevisionAfter: revisionAfter,
+          // The patch these rows came from, so a LATER host refusal can find and correct
+          // them (`working-state.ts#recordHostRefusal`). Without it the ledger has no way
+          // back from "succeeded" to the truth, which is the state a captured run ended in.
+          ...(r.patchId === undefined ? {} : { patchId: r.patchId }),
           ...(objectiveId ? { objectiveId } : {}),
         }),
       advancedWorking,
@@ -1381,6 +1427,7 @@ export function onTurnResult(
     ? recordOperation(state.working, {
         intent: r.signature,
         status: r.satisfied === true ? 'succeeded' : 'failed',
+        ...(r.patchId === undefined ? {} : { patchId: r.patchId }),
         ...(r.satisfied === true ? {} : { failureReason: r.rejection ?? r.note }),
         planId: state.working.plan.id!,
         decisionId:

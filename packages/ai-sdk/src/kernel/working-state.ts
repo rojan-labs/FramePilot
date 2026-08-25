@@ -918,6 +918,54 @@ export function recordOperation(
 }
 
 /**
+ * Correct a `succeeded` operation the HOST then refused to write.
+ *
+ * The ledger records success on local validation alone (`conductor.ts#foldTurn`), which on
+ * desktop is not the last word: the host re-checks every patch against the authoritative
+ * project and can refuse it. A captured run's ledger read `status: 'succeeded'`,
+ * `projectRevisionAfter: 1` for two edits against a project still at revision 0 with an
+ * empty bin — and the briefing then listed them under "ALREADY APPLIED — do not repeat",
+ * so the run would never retry the one thing it still owed.
+ *
+ * Corrects IN PLACE rather than appending a second row: `recordOperation` keys updates on
+ * `idempotencyKey`, and the key carries the outcome, so re-recording the same work as failed
+ * would leave the false success standing beside its own correction. The project revision is
+ * wound back to what the operation started from, because that is the revision that still
+ * exists.
+ *
+ * @param state - The run's working state.
+ * @param patchId - The refused patch, matched against the operations' recorded `patchId`.
+ * @param reason - The host's own words for the refusal; carried into `failureReason` so the
+ *   briefing's "FAILED — fix the cause" section has a cause behind it.
+ * @returns The corrected state, or `state` unchanged when no operation matches.
+ */
+export function recordHostRefusal(
+  state: RunWorkingState,
+  patchId: string,
+  reason: string,
+): RunWorkingState {
+  const refused = state.operations.filter((op) => op.patchId === patchId);
+  if (refused.length === 0) return state;
+  const operations = state.operations.map((op) =>
+    op.patchId === patchId
+      ? {
+          ...op,
+          status: 'failed' as const,
+          failureReason: reason,
+          projectRevisionAfter: op.projectRevisionBefore,
+        }
+      : op,
+  );
+  // The earliest revision any refused operation started from: nothing the host rejected ever
+  // advanced the project, so the run must not go on believing it did.
+  const rewound = Math.min(...refused.map((op) => op.projectRevisionBefore));
+  return bump(state, {
+    operations,
+    currentProjectRevision: Math.min(state.currentProjectRevision, rewound),
+  });
+}
+
+/**
  * Record a verification and, when it passes, discharge the objective it was checking.
  * This is the ONLY path that satisfies an objective (§3.8) — reading, mapping, planning
  * and asserting cannot, which is what makes the completion report trustworthy.

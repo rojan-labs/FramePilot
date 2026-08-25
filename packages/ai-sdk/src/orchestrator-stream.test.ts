@@ -10,6 +10,7 @@ import { Orchestrator, agentCompletionReport, type StreamOptions } from './orche
 import type { AnyOperation } from '@framepilot/editor-core';
 import { MockProvider } from './providers/mock.js';
 import { reduceEvents, type AiEvent } from './events.js';
+import { InMemoryPatchCommitLedger } from './kernel/commit-ledger.js';
 import { createAskUserGate, createPlanApprovalGate, createSteeringQueue } from './run-controls.js';
 import { DIMINISHING_RETURNS_TURNS, PLAN_APPROVAL_STEP_THRESHOLD } from './kernel/conductor.js';
 
@@ -3519,6 +3520,93 @@ describe('streamAgent prompt-prefix stability (E3)', () => {
  * cleared in place in the fed-back action log (the call-history prefixes survive), a
  * repeat call is still served from the run memo, and the run converges normally.
  */
+/**
+ * GAP-002 — the host's verdict, told back to the run that proposed the patch.
+ *
+ * The orchestrator recorded an operation as `succeeded` on the strength of its own
+ * validation against its own working copy. On desktop that is not the last word, and when
+ * the host refused a patch it stamped the verdict onto the outgoing event for the UI and
+ * told the run nothing. A captured run's ledger read `succeeded`, `projectRevisionAfter: 1`
+ * against a project still at revision 0 with an empty media bin.
+ */
+describe('streamAgent host commit verdict', () => {
+  const trim = {
+    id: 'e1',
+    name: 'trim_clip',
+    arguments: { clipId: 'clip_a', start: 1, end: 4 },
+  };
+  const editProvider = () =>
+    new ScriptedProvider([
+      { text: 'trimming', toolCalls: [trim] },
+      { text: 'done', toolCalls: [] },
+    ]);
+
+  it('records a refused edit as a failure carrying the host’s reason, not a success', async () => {
+    const ledger = new InMemoryPatchCommitLedger();
+    const provider = editProvider();
+    // Stand in for the host: refuse whatever patch is proposed, at the moment `beforePublish`
+    // would — while the run's generator is suspended on the diff it just yielded.
+    const events: AiEvent[] = [];
+    for await (const event of new Orchestrator(provider).streamAgent(input, opts(), {
+      commitLedger: ledger,
+      maxSteps: 3,
+    })) {
+      if (event.type === 'diff') {
+        ledger.record(event.edit.patch.patchId, {
+          state: 'stale',
+          reason: 'this project is not open in FramePilot',
+        });
+      }
+      events.push(event);
+    }
+    // The run must tell the EDITOR the work was lost, and name the host's cause. Before this
+    // the same run reported an applied edit against a project that never received one.
+    // The reason has to reach the editor AND the model, or neither can act on it.
+    // The reason has to reach the editor AND the model, or neither can act on it.
+    expect(JSON.stringify(events)).toMatch(/this project is not open in FramePilot/);
+    // The run's own working state must agree: the operation is FAILED, carrying the reason,
+    // and the project revision it thinks it produced never moved. In the captured run this
+    // read `succeeded` / `projectRevisionAfter: 1` against a project still at revision 0.
+    const finalState = events.filter((e) => e.type === 'run_state').at(-1);
+    const working = finalState?.type === 'run_state' ? finalState.working : undefined;
+    expect(working?.operations.every((op) => op.status !== 'succeeded')).toBe(true);
+    expect(working?.currentProjectRevision).toBe(0);
+    // The one thing the old behaviour got exactly backwards: an edit the project never
+    // received must never be listed as work already done.
+    const fedBack = JSON.stringify(provider.requests.at(-1)?.messages ?? []);
+    expect(fedBack).not.toMatch(/ALREADY APPLIED[\s\S]*Trimmed/);
+  });
+
+  it('leaves a committed edit exactly as it was — approval is not a new code path', async () => {
+    const ledger = new InMemoryPatchCommitLedger();
+    const provider = editProvider();
+    const events: AiEvent[] = [];
+    for await (const event of new Orchestrator(provider).streamAgent(input, opts(), {
+      commitLedger: ledger,
+      maxSteps: 3,
+    })) {
+      if (event.type === 'diff') {
+        ledger.record(event.edit.patch.patchId, { state: 'committed', revision: 2 });
+      }
+      events.push(event);
+    }
+    expect(events.some((e) => e.type === 'diff')).toBe(true);
+    const fedBack = JSON.stringify(provider.requests.at(-1)?.messages ?? []);
+    expect(fedBack).not.toMatch(/Rejected —/);
+  });
+
+  // Every surface without a host arbiter (the browser build, MCP, these tests) passes no
+  // ledger, and local validation stays the last word because it is the only word.
+  it('is unchanged when no host is listening', async () => {
+    const provider = editProvider();
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 3 }),
+    );
+    expect(events.some((e) => e.type === 'diff')).toBe(true);
+    expect(JSON.stringify(provider.requests.at(-1)?.messages ?? [])).not.toMatch(/Rejected —/);
+  });
+});
+
 describe('streamAgent micro-compaction of old tool results (E2)', () => {
   it('clears old payloads from the fed-back log, keeps memo-served repeats, and converges', async () => {
     const silence = (id: string, assetId: string) => ({

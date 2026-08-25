@@ -684,6 +684,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":3}:0",
             "projectRevisionBefore": 0,
             "projectRevisionAfter": 1,
+            "patchId": "patch_bce93659",
             "objectiveId": "objective_1"
           }
         ],
@@ -900,6 +901,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":3}:0",
             "projectRevisionBefore": 0,
             "projectRevisionAfter": 1,
+            "patchId": "patch_bce93659",
             "objectiveId": "objective_1"
           }
         ],
@@ -1015,6 +1017,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":3}:0",
             "projectRevisionBefore": 0,
             "projectRevisionAfter": 1,
+            "patchId": "patch_bce93659",
             "objectiveId": "objective_1"
           }
         ],

@@ -41,6 +41,7 @@ import {
   createAskUserGate,
 } from '@framepilot/ai-sdk';
 import { parseProject } from '@framepilot/timeline-schema';
+import type { PatchCommitLedger } from '@framepilot/ai-sdk';
 import { createLogger } from '@framepilot/shared-types';
 import type {
   AiProviderName,
@@ -525,9 +526,7 @@ function streamFor(
         ...(controls.temporalEvidence === undefined
           ? {}
           : { temporalEvidence: controls.temporalEvidence }),
-        ...(controls.visionReview === undefined
-          ? {}
-          : { visionReview: controls.visionReview }),
+        ...(controls.visionReview === undefined ? {} : { visionReview: controls.visionReview }),
       });
     case 'chat':
       // E5.5: chat/question turns can `ask_user` — thread the run's controls (the IPC
@@ -578,6 +577,12 @@ export async function runAiStream(
   footageMapFor?: (projectId: string) => Promise<string | undefined>,
   /** Reads this project's session-memory digest (see `HubOptions.sessionContextFor`). */
   sessionContextFor?: (projectId: string) => Promise<string | undefined>,
+  /**
+   * Where the caller's commit decisions are recorded for the run to read back
+   * (see {@link AiStreamRunHooks.commitLedger}). Live, so it is passed here rather than
+   * marshalled through the request.
+   */
+  commitLedger?: PatchCommitLedger,
 ): Promise<void> {
   const project = parseProject(request.project);
   if (request.interaction) assertEditorInteractionReferences(project, request.interaction);
@@ -637,14 +642,20 @@ export async function runAiStream(
     runId: request.durableRunId ?? request.turnId,
     signal,
   };
-  const agentOptions: AgentOptions = request.agentOptions
-    ? {
-        ...request.agentOptions,
-        ...(request.agentOptions.targetPlatform !== undefined
-          ? { targetPlatform: request.agentOptions.targetPlatform as TargetPlatform }
-          : {}),
-      }
-    : {};
+  const agentOptions: AgentOptions = {
+    ...(request.agentOptions
+      ? {
+          ...request.agentOptions,
+          ...(request.agentOptions.targetPlatform !== undefined
+            ? { targetPlatform: request.agentOptions.targetPlatform as TargetPlatform }
+            : {}),
+        }
+      : {}),
+    // Not serialisable and never part of the parsed request: the ledger is a live channel
+    // back from this process's commit decisions to the run that proposed them
+    // (`kernel/commit-ledger.ts`), threaded by the caller that owns those decisions.
+    ...(commitLedger ? { commitLedger } : {}),
+  };
   log.action('runAiStream start', {
     mode: request.mode,
     provider: request.provider ?? '(active)',
@@ -776,6 +787,15 @@ export interface AiStreamSettlement {
 export interface AiStreamRunHooks {
   readonly controls?: AgentRunControls;
   readonly durableRunId?: string;
+  /**
+   * Where {@link beforePublish} records what it did with each proposed patch, and the run
+   * reads it back (`@framepilot/ai-sdk` `kernel/commit-ledger.ts`).
+   *
+   * Passing one is a promise to rule on EVERY diff exactly once — the run waits on each
+   * verdict, so a diff published without one stalls it. Omit it entirely on a surface that
+   * does not arbitrate commits, and local validation stays the last word as before.
+   */
+  readonly commitLedger?: PatchCommitLedger;
   readonly effectObserver?: EffectRuntimeObserver;
   /** Canonical editor-run stages, kept separate from renderer presentation events. */
   readonly onLifecycleEvent?: (event: EditorRunStageEvent) => void;
@@ -942,6 +962,7 @@ export class AiStreamHub {
           this.options.visualStatusFor,
           this.options.footageMapFor,
           this.options.sessionContextFor,
+          hooks.commitLedger,
         );
         if (timedOut) {
           settlement = {

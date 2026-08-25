@@ -420,6 +420,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":2}:0",
             "projectRevisionBefore": 0,
             "projectRevisionAfter": 1,
+            "patchId": "patch_bce93a18",
             "objectiveId": "objective_1"
           }
         ],
@@ -784,6 +785,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":2}:0",
             "projectRevisionBefore": 0,
             "projectRevisionAfter": 1,
+            "patchId": "patch_bce93a18",
             "objectiveId": "objective_1"
           },
           {
@@ -797,6 +799,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":8,\"end\":9}:0",
             "projectRevisionBefore": 1,
             "projectRevisionAfter": 2,
+            "patchId": "patch_76c10f5b",
             "objectiveId": "objective_1"
           }
         ],
@@ -998,6 +1001,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":2}:0",
             "projectRevisionBefore": 0,
             "projectRevisionAfter": 1,
+            "patchId": "patch_bce93a18",
             "objectiveId": "objective_1"
           },
           {
@@ -1011,6 +1015,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":8,\"end\":9}:0",
             "projectRevisionBefore": 1,
             "projectRevisionAfter": 2,
+            "patchId": "patch_76c10f5b",
             "objectiveId": "objective_1"
           }
         ],
@@ -1114,6 +1119,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":2}:0",
             "projectRevisionBefore": 0,
             "projectRevisionAfter": 1,
+            "patchId": "patch_bce93a18",
             "objectiveId": "objective_1"
           },
           {
@@ -1127,6 +1133,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":8,\"end\":9}:0",
             "projectRevisionBefore": 1,
             "projectRevisionAfter": 2,
+            "patchId": "patch_76c10f5b",
             "objectiveId": "objective_1"
           }
         ],
