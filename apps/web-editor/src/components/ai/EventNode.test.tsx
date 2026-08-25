@@ -740,6 +740,32 @@ describe('EventNode', () => {
     expect(screen.queryByRole('button', { name: 'Jump to timeline' })).toBeNull();
   });
 
+  // The generic line above covers a revision conflict, where "ask again" works. It was ALSO
+  // shown for a project FramePilot no longer has open, where the timeline did not change and
+  // asking again fails identically forever — so a captured run's user retried into the same
+  // wall and gave up. When the host sends a cause, the cause is what the editor reads.
+  it('shows the host’s own reason for a failed commit instead of the generic line', () => {
+    render(
+      <EventNode
+        node={{
+          kind: 'diff',
+          id: 'd2b',
+          ts: 0,
+          turnId: 't',
+          edit: fakeEdit,
+          commit: {
+            state: 'stale',
+            reason: 'This edit belongs to a project FramePilot no longer has open.',
+          },
+        }}
+        applyFailed
+      />,
+    );
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toMatch(/no longer has open/i);
+    expect(alert.textContent).not.toMatch(/timeline changed/i);
+  });
+
   it('offers a live "Show preview" only when a project is available to preview against', () => {
     const { rerender } = render(
       <EventNode node={{ kind: 'diff', id: 'd10', ts: 0, turnId: 't', edit: fakeEdit }} />,
