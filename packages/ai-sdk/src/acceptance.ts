@@ -186,16 +186,28 @@ export function checkableAcceptance(
 }
 
 /**
- * The acceptance criteria to record on the run's objective: one line per checkable condition,
- * then the request itself for everything judgement owns.
+ * The criterion standing in for everything the request asks that no check can settle.
  *
- * The request stays LAST and always: it is the part no check settles, and dropping it would
- * narrow the run's memory of what was asked to whatever happened to be measurable.
+ * It used to be the request PASTED IN — `criteria.push(prompt)`. The intent was right (the
+ * unmeasurable half of the ask must not be forgotten) and the mechanism was a copy: the run
+ * already persists the request verbatim as `objective.request`, one field away, and the
+ * copy then rode along into `decisions`, `objectives`, `nextAction` and every telemetry row
+ * that carries the working state. In a captured run that was a ~7,000-token brief stored
+ * five times over, and `briefing.ts` has to filter four of those copies back out as noise
+ * before it can render anything.
+ *
+ * A pointer keeps the meaning and drops the duplication. Nothing is lost: every reader of
+ * the criteria holds the objective it belongs to.
  */
-export function acceptanceCriteria(
-  prompt: string,
-  acceptance: CheckableAcceptance,
-): readonly string[] {
+export const JUDGEMENT_CRITERION =
+  'Everything else the request asks for — taste, pacing, structure — which no automatic ' +
+  'check settles. Judge it against the request itself.';
+
+/**
+ * The acceptance criteria to record on the run's objective: one line per checkable condition,
+ * then {@link JUDGEMENT_CRITERION} for everything judgement owns.
+ */
+export function acceptanceCriteria(acceptance: CheckableAcceptance): readonly string[] {
   const criteria: string[] = [];
   if (acceptance.durationSeconds !== undefined) {
     criteria.push(`The finished sequence runs about ${String(acceptance.durationSeconds)}s.`);
@@ -209,7 +221,7 @@ export function acceptanceCriteria(
   if (acceptance.deliverableFile === true) {
     criteria.push('A rendered file is delivered (the Export dialog, not this panel).');
   }
-  criteria.push(prompt);
+  criteria.push(JUDGEMENT_CRITERION);
   return criteria;
 }
 

@@ -46,11 +46,7 @@ import {
   type TurnRef,
   createTurnEmitter,
 } from '../events.js';
-import {
-  acceptanceCriteria,
-  checkableAcceptance,
-  hasCheckableAcceptance,
-} from '../acceptance.js';
+import { acceptanceCriteria, checkableAcceptance, hasCheckableAcceptance } from '../acceptance.js';
 import { explicitDurationTargetSeconds } from '../critic.js';
 import type { Command } from './commands.js';
 import { deriveObjectiveText } from './continuation.js';
@@ -905,7 +901,7 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
     command.input.userPrompt,
     explicitDurationTargetSeconds(command.input.userPrompt),
   );
-  const criteria = acceptanceCriteria(objectiveText, checkable);
+  const criteria = acceptanceCriteria(checkable);
   const interpreted = setObjective(created, {
     outcome: objectiveText,
     acceptance: criteria.map((description) => ({ description })),

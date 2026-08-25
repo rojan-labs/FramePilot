@@ -9,6 +9,7 @@
  * validator-rejection accounting, the no-progress guard, `timeline_action` emission,
  * and verify(+repair)→finalize. Event-id seq is seeded from each result's `endSeq`.
  */
+import { JUDGEMENT_CRITERION } from '../acceptance.js';
 import { describe, expect, it } from 'vitest';
 import type { AnyOperation } from '@framepilot/editor-core';
 import type { ContextInput } from '../context-builder.js';
@@ -170,8 +171,9 @@ describe('onCommand', () => {
     const descriptions = working.objective.acceptance.map((entry) => entry.description);
     expect(descriptions.some((text) => text.includes('30s'))).toBe(true);
     expect(descriptions.some((text) => text.includes('20 distinct shots'))).toBe(true);
-    // The request itself is still a criterion — it is the part no check settles.
-    expect(descriptions.at(-1)).toBe('make a 30 second reel from at least 20 different best moments');
+    // The unmeasurable half of the ask is still a criterion — as a pointer to the request,
+    // not a copy of it (the run already persists it verbatim as `objective.request`).
+    expect(descriptions.at(-1)).toBe(JUDGEMENT_CRITERION);
     // A reading with something checkable in it is not a placeholder.
     expect(working.objective.provisional).toBe(false);
   });
@@ -197,7 +199,9 @@ describe('onCommand', () => {
     const { working } = onCommand(idle, nudged).state;
     const goal = 'use a different caption style and emphasize the captions';
     expect(working.objective.outcome).toBe(goal);
-    expect(working.objective.acceptance[0]!.description).toBe(goal);
+    // Nothing here is checkable, so the judgement criterion is the only one — and it points
+    // at the objective rather than copying it.
+    expect(working.objective.acceptance.map((c) => c.description)).toEqual([JUDGEMENT_CRITERION]);
     // The decision and the objective verification reports against must name the real work.
     expect(working.decisions[0]!.decision).toBe(goal);
     expect(working.objectives[0]!.description).toBe(goal);

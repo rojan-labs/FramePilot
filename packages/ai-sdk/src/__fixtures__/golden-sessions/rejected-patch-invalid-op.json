@@ -34,7 +34,7 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "trim the missing clip"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
@@ -242,7 +242,7 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "trim the missing clip"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
@@ -429,7 +429,7 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "trim the missing clip"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
@@ -512,7 +512,7 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "trim the missing clip"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },

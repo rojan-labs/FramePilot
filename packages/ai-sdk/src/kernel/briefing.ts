@@ -126,7 +126,18 @@ export function buildStateBriefing(state: RunWorkingState): string {
   // Suppressing the echoes is not a substitute for a real interpretation — that needs a
   // seam for the model to write one, tracked separately. It is the honest rendering of
   // the state that exists: the request is known, nothing else is.
-  const echoesRequest = (text: string): boolean => text.trim() === state.objective.request.trim();
+  const request = state.objective.request.trim();
+  const echoesRequest = (text: string): boolean => text.trim() === request;
+  /**
+   * Looser than {@link echoesRequest}: true when the text is the request WRAPPED in
+   * something, not only when it equals it.
+   *
+   * `recoveryAction` composes its instruction as `Do this now: ${objective}. Everything you
+   * need is in the run state above.`, and an objective is seeded from `userPrompt` — so the
+   * exact-match test above could never see it. Substring, because the wrapper's shape is
+   * that module's business and this one should not have to know it.
+   */
+  const restatesRequest = (text: string): boolean => request.length > 0 && text.includes(request);
 
   if (state.objective.outcome && !echoesRequest(state.objective.outcome)) {
     const criteria = state.objective.acceptance
@@ -218,11 +229,26 @@ export function buildStateBriefing(state: RunWorkingState): string {
   }
 
   if (state.nextAction) {
-    sections.push(
-      `DO THIS NOW\n${state.nextAction.action}${
-        state.nextAction.toolHint ? ` (use ${state.nextAction.toolHint})` : ''
-      }`,
-    );
+    // The fifth echo, and the one this filter was missing.
+    //
+    // `recoveryAction` builds its instruction from the first outstanding objective, and an
+    // objective is seeded from `userPrompt` — so a run whose objective was never re-read
+    // rendered "DO THIS NOW" as the editor's entire request, verbatim, appended to the same
+    // request the model is already holding. In a captured run that brief was ~7,000 tokens,
+    // re-sent every turn, under a heading whose whole job is to name ONE concrete step
+    // ("deliberately deterministic and prose-free", `kernel/loop-detector.ts`).
+    //
+    // Worse than the tokens: recovery fires precisely when the loop detector has decided the
+    // run is not progressing, and telling a stalled run to "do this now: [everything]" is
+    // the least useful thing that heading can say. Suppressed like the four sections above —
+    // the request is already the last thing in the prompt.
+    if (!restatesRequest(state.nextAction.action)) {
+      sections.push(
+        `DO THIS NOW\n${state.nextAction.action}${
+          state.nextAction.toolHint ? ` (use ${state.nextAction.toolHint})` : ''
+        }`,
+      );
+    }
   }
 
   // Nothing established yet — say nothing rather than print empty headings.

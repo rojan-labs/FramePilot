@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  JUDGEMENT_CRITERION,
   acceptanceCriteria,
   asksForRenderedFile,
   checkableAcceptance,
@@ -51,7 +52,7 @@ describe('explicitMinShotCount', () => {
 });
 
 describe('explicitCoverage', () => {
-  it('reads the treatments run 2\'s brief demanded of every clip', () => {
+  it("reads the treatments run 2's brief demanded of every clip", () => {
     // Verbatim from the brief that was answered with one graded clip and one moved clip out
     // of forty-seven, while every criterion the run had was satisfied.
     const brief = [
@@ -116,7 +117,7 @@ describe('checkableAcceptance', () => {
     const prompt = 'a 30s reel, delivered as a rendered mp4';
     const acceptance = checkableAcceptance(prompt, 30);
     expect(acceptance.deliverableFile).toBe(true);
-    const criteria = acceptanceCriteria(prompt, acceptance);
+    const criteria = acceptanceCriteria(acceptance);
     expect(criteria.some((line) => line.includes('Export dialog'))).toBe(true);
   });
 
@@ -124,24 +125,36 @@ describe('checkableAcceptance', () => {
     const acceptance = checkableAcceptance('reframe every clip to fill the frame', undefined);
     expect(acceptance).toEqual({ coverage: ['crop'] });
     expect(hasCheckableAcceptance(acceptance)).toBe(true);
-    expect(acceptanceCriteria('reframe every clip to fill the frame', acceptance)[0]).toContain(
+    expect(acceptanceCriteria(acceptance)[0]).toContain(
       'Every picture clip carries its own reframe',
     );
   });
 });
 
 describe('acceptanceCriteria', () => {
-  it('lists each checkable condition and keeps the request last', () => {
+  it('lists each checkable condition and keeps the judgement criterion last', () => {
     const prompt = 'a 30s reel from at least 20 moments';
-    const criteria = acceptanceCriteria(prompt, { durationSeconds: 30, minShotCount: 20 });
+    const criteria = acceptanceCriteria({ durationSeconds: 30, minShotCount: 20 });
     expect(criteria).toHaveLength(3);
     expect(criteria[0]).toContain('30s');
     expect(criteria[1]).toContain('20 distinct shots');
-    // The request is the part no check settles, so it is never dropped.
-    expect(criteria.at(-1)).toBe(prompt);
+    // The unmeasurable half of the ask is still recorded — as a pointer, not a copy.
+    expect(criteria.at(-1)).toBe(JUDGEMENT_CRITERION);
   });
 
-  it('is just the request when nothing is measurable', () => {
-    expect(acceptanceCriteria('make it pop', {})).toEqual(['make it pop']);
+  it('is only the judgement criterion when nothing is measurable', () => {
+    expect(acceptanceCriteria({})).toEqual([JUDGEMENT_CRITERION]);
+  });
+
+  // The regression. `criteria.push(prompt)` copied the whole brief into the objective, from
+  // where it rode into decisions, objectives, nextAction and every telemetry row carrying the
+  // working state. A captured run stored a ~7,000-token prompt five times over, and
+  // `briefing.ts` filters four of those copies back out as noise before rendering anything.
+  // The request is already persisted verbatim as `objective.request`, one field away.
+  it('never copies the request into a criterion, however long the brief', () => {
+    const brief = `${'Make a high-retention vertical reel. '.repeat(200)}30 seconds.`;
+    const criteria = acceptanceCriteria(checkableAcceptance(brief, 30));
+    expect(criteria.some((line) => line.includes('high-retention'))).toBe(false);
+    expect(criteria.join('').length).toBeLessThan(400);
   });
 });

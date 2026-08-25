@@ -44,7 +44,7 @@ describe('distil', () => {
     });
   });
 
-  it('records the digest\'s conclusion, not the rest of its records', () => {
+  it("records the digest's conclusion, not the rest of its records", () => {
     // A read digest is a head line plus its records. The head line is the conclusion; the
     // records belong in the evidence store, and flattening them into a 180-character fact
     // would put four of forty-six clips in the briefing and call it what the run knows.
@@ -68,9 +68,7 @@ describe('distil', () => {
     // montage run re-derived the project's shape on six consecutive turns, re-read the
     // media bin, and spent 391 seconds in one thinking block. An absent fact at least
     // shows the gap.
-    expect(
-      distil({ ...settled, summary: 'Reading the transcript 0:22–0:23' }),
-    ).toBeUndefined();
+    expect(distil({ ...settled, summary: 'Reading the transcript 0:22–0:23' })).toBeUndefined();
     expect(distil({ ...settled, summary: '   ' })).toBeUndefined();
   });
 
@@ -134,7 +132,7 @@ describe('buildStateBriefing', () => {
     expect(text).toContain('do not restart');
   });
 
-  it('does not print the editor\'s request back under four different headings', () => {
+  it("does not print the editor's request back under four different headings", () => {
     // The conductor seeds objective, acceptance, the committed plan's decision and the
     // run's objective ALL from the raw prompt before any turn runs. Rendered naively, the
     // briefing said the same sentence five times — and "DECIDED" listing the request tells
@@ -285,6 +283,26 @@ describe('buildStateBriefing', () => {
     expect(text).toContain('missing: a caption track');
     expect(text).toContain('DO THIS NOW');
     expect(text).toContain('Apply the three ripple deletes (use ripple_delete)');
+  });
+
+  // The fifth echo, and the one the filter missed. `recoveryAction` composes its instruction
+  // out of the first outstanding objective, and an objective is seeded from `userPrompt` — so
+  // "DO THIS NOW" rendered the editor's entire request back at a model already holding it. A
+  // captured run paid ~7,000 tokens a turn for that, under the one heading whose job is to
+  // name a single concrete step, and it fired exactly when the run had stopped progressing.
+  it('suppresses a next action that is only the request restated', () => {
+    const request = 'make me a 30 second vertical reel about the Mars Climate Orbiter';
+    let state = setObjective(initialWorkingState({ runId: 'run_2', request, projectRevision: 0 }), {
+      outcome: request,
+      acceptance: [],
+    });
+    state = setNextAction(state, {
+      stage: 'apply',
+      action: `Do this now: ${request}. Everything you need is in the run state above.`,
+    });
+    const text = buildStateBriefing(state);
+    expect(text).not.toContain('DO THIS NOW');
+    expect(text).not.toContain('Mars Climate Orbiter');
   });
 
   it('omits the hint and the missing clause when neither was recorded', () => {
