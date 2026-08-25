@@ -29,11 +29,10 @@ import {
   musicDownloadCancel,
   musicPreview,
   musicSearch,
-  onMusicDownloadProgress,
-  type MusicDownloadProgressWire,
   type MusicErrorCodeWire,
   type MusicTrackWire,
 } from '../editor/bridge.js';
+import { musicDownloads, useDownloads } from '../editor/download-registry.js';
 import { ICON_SIZE, Music, Pause, Play, X } from './icons.js';
 
 /** Typing pause before a search fires. Long enough to not bill every keystroke. */
@@ -50,7 +49,14 @@ export interface SoundsPanelProps {
   readonly onAddMusic: (asset: Asset) => void;
 }
 
-/** What a row is doing right now. Exactly one row can be `downloading`. */
+/**
+ * What a row is doing right now.
+ *
+ * The audition half lives in component state — it is tied to an `Audio` element
+ * this mount owns, and stopping on unmount is the correct behaviour. The
+ * download half comes from {@link musicDownloads} instead, because a download
+ * outlives the panel: see `download-registry.ts`.
+ */
 type RowState =
   | { readonly kind: 'idle' }
   | { readonly kind: 'previewLoading' }
@@ -115,10 +121,22 @@ export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Elem
   const [rows, setRows] = useState<Readonly<Record<string, RowState>>>({});
   const [playing, setPlaying] = useState<string | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const downloads = useDownloads(musicDownloads);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const blobUrlRef = useRef<string | null>(null);
   const listRef = useRef<HTMLUListElement | null>(null);
+  /**
+   * Which audition is the current one.
+   *
+   * Two clicks in quick succession leave two `musicPreview` calls in flight, and
+   * they can land in either order. Without this the loser's blob would overwrite
+   * `blobUrlRef` — leaking the winner's bytes for the life of the document — and
+   * its `Audio` element would play on top, unreachable by the next stop because
+   * `audioRef` no longer points at it. The generation is captured before the
+   * await and re-checked after: only the latest click gets to make sound.
+   */
+  const auditionGenerationRef = useRef(0);
 
   /** Assets already in this project, so a duplicate row can say so. */
   const presentRemoteIds = useMemo(
@@ -135,8 +153,37 @@ export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Elem
     setRows((current) => ({ ...current, [remoteId]: state }));
   }, []);
 
+  /**
+   * The state a row renders.
+   *
+   * A download outranks the audition: it is the thing with a progress bar, a
+   * Cancel, and consequences. It is read from the registry rather than `rows`
+   * so it is still there after a tab switch and back.
+   */
+  const rowState = useCallback(
+    (remoteId: string): RowState => {
+      const download = downloads[remoteId];
+      if (download?.kind === 'downloading') {
+        return {
+          kind: 'downloading',
+          operationId: download.operationId,
+          percent: download.percent,
+        };
+      }
+      if (download?.kind === 'failed') {
+        return { kind: 'downloadFailed', message: download.message };
+      }
+      return rows[remoteId] ?? { kind: 'idle' };
+    },
+    [downloads, rows],
+  );
+
   /** Stop playback and release the blob URL. Called on stop, swap, and unmount. */
   const stopAudition = useCallback((): void => {
+    // Any audition still resolving is now stale, including the one being
+    // stopped: bumping here is what stops a late `musicPreview` from starting
+    // playback the user has already cancelled.
+    auditionGenerationRef.current += 1;
     audioRef.current?.pause();
     audioRef.current = null;
     if (blobUrlRef.current !== null) {
@@ -202,11 +249,18 @@ export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Elem
         return;
       }
       stopAudition();
+      const generation = auditionGenerationRef.current;
+      const isCurrent = (): boolean => auditionGenerationRef.current === generation;
 
       // The spinner belongs to this row's button only — the list does not enter
       // a loading state, so the other rows stay usable.
       setRow(track.remoteId, { kind: 'previewLoading' });
       const result = await musicPreview(track.remoteId);
+      if (!isCurrent()) {
+        // Superseded while the bytes were in flight. The row is not touched:
+        // whatever the user did instead owns the display now.
+        return;
+      }
       if (!result.ok) {
         setRow(track.remoteId, {
           kind: 'previewFailed',
@@ -224,6 +278,9 @@ export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Elem
         setRow(track.remoteId, { kind: 'idle' });
       };
       await audio.play().catch(() => undefined);
+      // `play()` is itself awaited, so a stop during it must be honoured —
+      // otherwise the row claims to be playing audio that has been paused.
+      if (!isCurrent()) return;
       setPlaying(track.remoteId);
       setRow(track.remoteId, { kind: 'playing' });
     },
@@ -234,25 +291,17 @@ export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Elem
   // Download
   // ---------------------------------------------------------------------------
 
-  useEffect(() => {
-    return onMusicDownloadProgress((message: MusicDownloadProgressWire) => {
-      if (message.phase !== 'downloading') return;
-      setRows((current) => {
-        const row = current[message.remoteId];
-        if (row?.kind !== 'downloading') return current;
-        const percent =
-          message.totalBytes > 0
-            ? Math.min(100, Math.round((message.completedBytes / message.totalBytes) * 100))
-            : null;
-        return { ...current, [message.remoteId]: { ...row, percent } };
-      });
-    });
-  }, []);
-
   const add = useCallback(
     async (track: MusicTrackWire): Promise<void> => {
+      // Guarded here rather than only in the click handler, because the row's
+      // Enter shortcut reaches this too — and a second download of a track
+      // already in flight would fight the first over the same destination file.
+      if (musicDownloads.getSnapshot()[track.remoteId]?.kind === 'downloading') return;
       const operationId = `music_${track.remoteId}_${Date.now()}`;
-      setRow(track.remoteId, { kind: 'downloading', operationId, percent: null });
+      // Registered before the await, so switching tabs mid-download and coming
+      // back still shows the progress bar and a working Cancel.
+      musicDownloads.start(track.remoteId, operationId);
+      setRow(track.remoteId, { kind: 'idle' });
 
       const result = await musicDownload({
         projectId: project.id,
@@ -263,12 +312,8 @@ export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Elem
       if (!result.ok) {
         // A cancel is not a failure — the user did it deliberately, so the row
         // returns to idle with no error text.
-        setRow(
-          track.remoteId,
-          result.error === 'cancelled'
-            ? { kind: 'idle' }
-            : { kind: 'downloadFailed', message: errorMessage(result.error, result.detail) },
-        );
+        if (result.error === 'cancelled') musicDownloads.clear(track.remoteId);
+        else musicDownloads.fail(track.remoteId, errorMessage(result.error, result.detail));
         return;
       }
 
@@ -297,6 +342,7 @@ export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Elem
           : {}),
         source: downloaded.source,
       });
+      musicDownloads.clear(track.remoteId);
       setRow(track.remoteId, { kind: 'idle' });
     },
     [onAddMusic, project.id, setRow],
@@ -434,7 +480,7 @@ export function SoundsPanel({ project, onAddMusic }: SoundsPanelProps): JSX.Elem
               key={track.remoteId}
               track={track}
               index={index}
-              state={rows[track.remoteId] ?? { kind: 'idle' }}
+              state={rowState(track.remoteId)}
               inProject={presentRemoteIds.has(track.remoteId)}
               tabbable={tabbableId === track.remoteId}
               onFocus={() => setFocusedId(track.remoteId)}

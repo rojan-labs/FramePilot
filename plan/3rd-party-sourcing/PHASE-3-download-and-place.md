@@ -194,3 +194,9 @@ is not done** — every prior gate can pass on a synthetic 2-second fixture.
 
 **Deferred out of this phase:** the agent tool (Phase 4), download queue/resume across restarts,
 cross-project media cache, favourites, "where did this come from?" UI over `sources.json`.
+
+**Added after review (2026-08-25):** a download's progress, its Cancel and its
+"already in flight" guard now live in `apps/web-editor/src/editor/download-registry.ts`
+rather than in the panel, so switching tabs mid-download no longer loses them — the tab
+slot unmounts the panel, which is exactly what a user does after queuing a file. Resume
+across an app **restart** remains deferred: nothing here persists to disk.

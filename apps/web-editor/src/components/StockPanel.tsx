@@ -35,7 +35,6 @@ import { DEFAULT_STOCK_STILL_SECONDS } from '@framepilot/editor-core';
 import { Button } from '@framepilot/ui';
 import {
   isDesktop,
-  onStockDownloadProgress,
   onStockQuotaChanged,
   stockDownload,
   stockDownloadCancel,
@@ -43,12 +42,12 @@ import {
   stockQuota,
   stockSearch,
   stockThumbnail,
-  type StockDownloadProgressWire,
   type StockErrorCodeWire,
   type StockItemWire,
   type StockMediaKindWire,
   type StockQuotaSnapshot,
 } from '../editor/bridge.js';
+import { stockDownloads, useDownloads } from '../editor/download-registry.js';
 import { Film, ICON_SIZE, Image as ImageIcon, X } from './icons.js';
 
 /** Typing pause before a search fires. Long enough not to bill every keystroke. */
@@ -81,6 +80,14 @@ export interface StockPanelProps {
   readonly onOpenSettings?: () => void;
 }
 
+/**
+ * What a tile is doing.
+ *
+ * `downloading` and `failed` are read from {@link stockDownloads} rather than
+ * component state, because a download outlives the panel: the Stock tab unmounts
+ * on a tab switch, which is exactly what a user does while a clip lands. See
+ * `download-registry.ts`.
+ */
 type TileState =
   | { readonly kind: 'idle' }
   | { readonly kind: 'downloading'; readonly operationId: string; readonly percent: number | null }
@@ -186,10 +193,20 @@ export function StockPanel({
    * user already has are still good, and only the next page is missing.
    */
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
-  const [tiles, setTiles] = useState<Readonly<Record<string, TileState>>>({});
   const [quota, setQuota] = useState<StockQuotaSnapshot>({ kind: 'unmeasured' });
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const gridRef = useRef<HTMLUListElement | null>(null);
+  const downloads = useDownloads(stockDownloads);
+  /**
+   * Which search the grid is currently showing.
+   *
+   * Requests are not cancellable once sent, and a slow page-1 for "cat" can land
+   * after a fast page-1 for "dog" — replacing the results the user is actually
+   * looking at with the ones they abandoned. Each request captures the counter
+   * and only writes if it is still the newest. Debouncing narrows this window
+   * but does not close it: "Load more" fires with no debounce at all.
+   */
+  const searchGenerationRef = useRef(0);
 
   const projectHeight = project.resolution?.height ?? 1080;
 
@@ -205,9 +222,11 @@ export function StockPanel({
     [project.assets],
   );
 
-  const setTile = useCallback((remoteId: string, state: TileState): void => {
-    setTiles((current) => ({ ...current, [remoteId]: state }));
-  }, []);
+  /** The tile's download state. Absent from the registry means nothing is going on. */
+  const tileState = useCallback(
+    (remoteId: string): TileState => downloads[remoteId] ?? { kind: 'idle' },
+    [downloads],
+  );
 
   // ---------------------------------------------------------------------------
   // Quota — one source, pushed by main, shared with Settings
@@ -224,7 +243,12 @@ export function StockPanel({
 
   const runSearch = useCallback(
     async (text: string, mediaKind: StockMediaKindWire, page: number): Promise<void> => {
+      const generation = ++searchGenerationRef.current;
       const result = await stockSearch({ text, kind: mediaKind, page });
+      // Superseded while in flight. Dropped in silence: the newer search owns
+      // the grid, and reporting this one's outcome — results OR an error — would
+      // talk about a query the user has already moved on from.
+      if (searchGenerationRef.current !== generation) return;
       if (!result.ok) {
         if (result.error === 'cancelled') return;
         const message = stockErrorText(result.error, result.detail);
@@ -287,6 +311,10 @@ export function StockPanel({
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      // Also retire any request already sent for the previous query. Clearing
+      // the box shows the empty state, and a straggler landing afterwards would
+      // repopulate a grid the user just emptied.
+      searchGenerationRef.current += 1;
     };
   }, [query, kind, runSearch]);
 
@@ -294,25 +322,16 @@ export function StockPanel({
   // Download
   // ---------------------------------------------------------------------------
 
-  useEffect(() => {
-    return onStockDownloadProgress((message: StockDownloadProgressWire) => {
-      if (message.phase !== 'downloading') return;
-      setTiles((current) => {
-        const tile = current[message.remoteId];
-        if (tile?.kind !== 'downloading') return current;
-        const percent =
-          message.totalBytes > 0
-            ? Math.min(100, Math.round((message.completedBytes / message.totalBytes) * 100))
-            : null;
-        return { ...current, [message.remoteId]: { ...tile, percent } };
-      });
-    });
-  }, []);
-
   const add = useCallback(
     async (item: StockItemWire): Promise<void> => {
+      // Guarded here rather than only in the click handler, because the tile's
+      // Enter shortcut reaches this too — and a second download of an item
+      // already in flight would fight the first over the same destination file.
+      if (stockDownloads.getSnapshot()[item.remoteId]?.kind === 'downloading') return;
       const operationId = `stock_${item.remoteId}_${Date.now()}`;
-      setTile(item.remoteId, { kind: 'downloading', operationId, percent: null });
+      // Registered before the await, so switching tabs mid-download and coming
+      // back still shows the progress bar and a working Cancel.
+      stockDownloads.start(item.remoteId, operationId);
 
       const result = await stockDownload({
         projectId: project.id,
@@ -325,12 +344,8 @@ export function StockPanel({
       if (!result.ok) {
         // A cancel is not a failure — the user did it deliberately, so the tile
         // returns to idle with no error text.
-        setTile(
-          item.remoteId,
-          result.error === 'cancelled'
-            ? { kind: 'idle' }
-            : { kind: 'failed', message: stockErrorText(result.error, result.detail) },
-        );
+        if (result.error === 'cancelled') stockDownloads.clear(item.remoteId);
+        else stockDownloads.fail(item.remoteId, stockErrorText(result.error, result.detail));
         return;
       }
 
@@ -363,12 +378,10 @@ export function StockPanel({
           : {}),
         source: downloaded.source,
       });
-      setTile(
-        item.remoteId,
-        refusal === null ? { kind: 'idle' } : { kind: 'failed', message: refusal },
-      );
+      if (refusal === null) stockDownloads.clear(item.remoteId);
+      else stockDownloads.fail(item.remoteId, refusal);
     },
-    [onAddStock, project.fps, project.id, projectHeight, setTile],
+    [onAddStock, project.fps, project.id, projectHeight],
   );
 
   /**
@@ -579,7 +592,7 @@ export function StockPanel({
                     key={item.remoteId}
                     item={item}
                     index={index}
-                    state={tiles[item.remoteId] ?? { kind: 'idle' }}
+                    state={tileState(item.remoteId)}
                     inProject={presentRemoteIds.has(item.remoteId)}
                     blockedReason={blockedReasonFor(item)}
                     targetHeight={projectHeight}

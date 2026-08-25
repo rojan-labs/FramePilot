@@ -147,6 +147,11 @@ Each failure has its own message and its own remedy:
 A cancelled or failed download leaves nothing behind — no partial file, no orphan
 entry in your bin.
 
+You can leave the **Stock** tab while a clip downloads. The progress bar, the
+Cancel button and the guard against starting the same download twice are all
+still there when you come back, and a failure that happened while you were away
+is reported then rather than lost. Downloads do **not** survive quitting the app.
+
 ## What this doesn't do
 
 Recorded so their absence reads as a decision:

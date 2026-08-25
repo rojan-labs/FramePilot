@@ -267,3 +267,10 @@ this run, Phase 3 is not done** — every prior gate can pass on a synthetic 2-s
 **Deferred out of this phase:** the agent tool (Phase 4); overlay/PiP placement (`SUC-P1`);
 ripple-insert UI (P3.7); download queue/resume across restarts; cross-project media cache;
 favourites; "where did this come from?" UI over `sources.json`.
+
+**Added after review (2026-08-25):** the tile's download state — progress, Cancel, and the
+"already in flight" guard — moved into `apps/web-editor/src/editor/download-registry.ts`, a
+module singleton shared with the Sounds panel, so it survives the tab slot unmounting the
+panel. Search also gained a resolution-time sequence guard, so a slow query landing after a
+faster later one can no longer replace the grid (or raise its error over live results).
+Resume across an app **restart** remains deferred: nothing here persists to disk.

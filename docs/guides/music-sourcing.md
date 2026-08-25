@@ -113,6 +113,11 @@ A cancelled or failed download **leaves nothing behind** — no partial file and
 no half-added asset. Downloads never retry themselves: a silent retry on a
 metered service would spend your quota without asking.
 
+You can leave the **Sounds** tab while a track downloads. The progress bar, the
+Cancel button and the guard against starting the same download twice are all
+still there when you come back, and a failure that happened while you were away
+is reported then rather than lost. Downloads do **not** survive quitting the app.
+
 ## Which licences you will see
 
 Every result is cleared for **commercial, monetized** video, and cleared for the kind of

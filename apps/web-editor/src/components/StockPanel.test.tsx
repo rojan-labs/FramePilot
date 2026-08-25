@@ -23,6 +23,7 @@ import {
   stockErrorText,
   tileVariant,
 } from './StockPanel.js';
+import { resetDownloadRegistriesForTests } from '../editor/download-registry.js';
 
 const bridge = vi.hoisted(() => ({
   search: vi.fn(),
@@ -56,6 +57,9 @@ vi.mock('../editor/bridge.js', () => ({
       bridge.quotaListeners = bridge.quotaListeners.filter((l) => l !== listener);
     };
   },
+  // The download registry module imports both provider feeds; only the stock one
+  // is exercised here, but the named export has to exist for the import to bind.
+  onMusicDownloadProgress: () => () => {},
 }));
 
 function wireItem(overrides: Partial<StockItemWire> = {}): StockItemWire {
@@ -109,9 +113,9 @@ const emptyProject = {
 
 function renderPanel(
   options: { project?: Project; blocked?: string | null; onOpenSettings?: () => void } = {},
-): { onAddStock: ReturnType<typeof vi.fn> } {
+): { onAddStock: ReturnType<typeof vi.fn>; unmount: () => void } {
   const onAddStock = vi.fn().mockReturnValue(null);
-  render(
+  const { unmount } = render(
     <StockPanel
       project={options.project ?? emptyProject}
       placementBlockedReasonFor={() => options.blocked ?? null}
@@ -119,7 +123,7 @@ function renderPanel(
       {...(options.onOpenSettings ? { onOpenSettings: options.onOpenSettings } : {})}
     />,
   );
-  return { onAddStock };
+  return { onAddStock, unmount };
 }
 
 async function typeQuery(text: string): Promise<void> {
@@ -146,6 +150,9 @@ describe('StockPanel', () => {
     bridge.quota.mockReset().mockResolvedValue({ kind: 'unmeasured' });
     bridge.progressListeners = [];
     bridge.quotaListeners = [];
+    // The registry is a module singleton by design — it has to outlive the
+    // panel. That makes it shared state between tests, so it is cleared here.
+    resetDownloadRegistriesForTests();
   });
 
   afterEach(() => vi.useRealTimers());
@@ -214,6 +221,63 @@ describe('StockPanel', () => {
       await Promise.resolve();
     });
     expect(bridge.search).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a search that resolves after a newer one', async () => {
+    // Requests cannot be recalled once sent, and a slow "cats" can land after a
+    // fast "dogs" — replacing the grid the user is looking at with the one they
+    // abandoned two keystrokes ago. The debounce narrows this window; it does
+    // not close it, and "Load more" does not debounce at all.
+    let resolveCats: (value: unknown) => void = () => undefined;
+    let resolveDogs: (value: unknown) => void = () => undefined;
+    bridge.search
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveCats = resolve;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveDogs = resolve;
+        }),
+      );
+    renderPanel();
+    await typeQuery('cats');
+    await typeQuery('dogs');
+
+    await act(async () => {
+      resolveDogs(okSearch([wireItem({ remoteId: 'dog', title: 'A dog' })]));
+      await Promise.resolve();
+      resolveCats(okSearch([wireItem({ remoteId: 'cat', title: 'A cat' })]));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText('A dog')).toBeDefined();
+    expect(screen.queryByText('A cat')).toBeNull();
+  });
+
+  it('does not let an abandoned query report its error over live results', async () => {
+    let failCats: (value: unknown) => void = () => undefined;
+    bridge.search
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          failCats = resolve;
+        }),
+      )
+      .mockResolvedValueOnce(okSearch([wireItem({ remoteId: 'dog', title: 'A dog' })]));
+    renderPanel();
+    await typeQuery('cats');
+    await typeQuery('dogs');
+
+    await act(async () => {
+      failCats({ ok: false, error: 'offline' });
+      await Promise.resolve();
+    });
+
+    // The results the user is looking at survive; no alert about a query they
+    // have already moved on from.
+    expect(screen.getByText('A dog')).toBeDefined();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('shows skeleton tiles at real proportions while loading', async () => {
@@ -457,6 +521,63 @@ describe('StockPanel', () => {
         source: expect.objectContaining({ attributionRequired: false }),
       }),
     );
+  });
+
+  it('keeps a download alive, with its progress and Cancel, across a tab switch', async () => {
+    // The Stock tab unmounts when the user switches tabs — which is exactly what
+    // someone does after queuing a 40 MB clip. Before the registry, coming back
+    // showed an idle tile with an Add button while main was still fetching, so a
+    // second click would start a competing download of the same file.
+    bridge.search.mockResolvedValue(okSearch([wireItem()]));
+    bridge.download.mockReturnValue(new Promise(() => undefined));
+    const { unmount } = renderPanel();
+    await typeQuery('city');
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    unmount();
+
+    // Progress that arrives while the panel is away is still recorded.
+    act(() => {
+      for (const listener of bridge.progressListeners) {
+        listener({
+          operationId: 'x',
+          remoteId: '3129671',
+          phase: 'downloading',
+          completedBytes: 30,
+          totalBytes: 100,
+        });
+      }
+    });
+
+    renderPanel();
+    await typeQuery('city');
+    const bar = screen.getByRole('progressbar', { name: /Downloading/ });
+    expect(bar.getAttribute('aria-valuenow')).toBe('30');
+    expect(screen.getByRole('button', { name: /Cancel downloading/ })).toBeDefined();
+    expect(screen.queryByRole('button', { name: 'Add' })).toBeNull();
+  });
+
+  it('refuses to start a second download of an item already in flight', async () => {
+    // The tile's own Enter shortcut can reach `add` while the bar is up, and two
+    // downloads would fight over the same destination file.
+    bridge.search.mockResolvedValue(okSearch([wireItem()]));
+    bridge.download.mockReturnValue(new Promise(() => undefined));
+    renderPanel();
+    await typeQuery('city');
+
+    const tile = screen.getAllByRole('listitem')[0] as HTMLElement;
+    fireEvent.keyDown(tile, { key: 'Enter' });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    fireEvent.keyDown(tile, { key: 'Enter' });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(bridge.download).toHaveBeenCalledTimes(1);
   });
 
   it('asks per tile, so a long clip is refused where a short one fits', async () => {

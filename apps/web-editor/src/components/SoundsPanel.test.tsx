@@ -11,6 +11,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { Project } from '@framepilot/timeline-schema';
 import type { MusicDownloadProgressWire, MusicTrackWire } from '@framepilot/shared-types';
 import { SoundsPanel, formatDuration, musicAssetId } from './SoundsPanel.js';
+import { resetDownloadRegistriesForTests } from '../editor/download-registry.js';
 
 const bridgeCalls = vi.hoisted(() => ({
   search: vi.fn(),
@@ -33,6 +34,9 @@ vi.mock('../editor/bridge.js', () => ({
       bridgeCalls.progressListeners = bridgeCalls.progressListeners.filter((l) => l !== listener);
     };
   },
+  // The download registry module imports both provider feeds; only the music one
+  // is exercised here, but the named export has to exist for the import to bind.
+  onStockDownloadProgress: () => () => {},
 }));
 
 function wireTrack(overrides: Partial<MusicTrackWire> = {}): MusicTrackWire {
@@ -68,10 +72,32 @@ const emptyProject = {
   history: [],
 } as unknown as Project;
 
-function renderPanel(project: Project = emptyProject): { onAddMusic: ReturnType<typeof vi.fn> } {
+function renderPanel(project: Project = emptyProject): {
+  onAddMusic: ReturnType<typeof vi.fn>;
+  unmount: () => void;
+} {
   const onAddMusic = vi.fn();
-  render(<SoundsPanel project={project} onAddMusic={onAddMusic} />);
-  return { onAddMusic };
+  const { unmount } = render(<SoundsPanel project={project} onAddMusic={onAddMusic} />);
+  return { onAddMusic, unmount };
+}
+
+/**
+ * jsdom implements neither `URL.createObjectURL` nor `URL.revokeObjectURL`, so
+ * they are installed rather than spied on. `afterEach` puts back what was there.
+ */
+let objectUrlOriginals: Partial<typeof URL> | null = null;
+function stubObjectUrls(): {
+  createObjectURL: ReturnType<typeof vi.fn>;
+  revokeObjectURL: ReturnType<typeof vi.fn>;
+} {
+  const createObjectURL = vi.fn(() => 'blob:preview');
+  const revokeObjectURL = vi.fn();
+  objectUrlOriginals = {
+    createObjectURL: URL.createObjectURL,
+    revokeObjectURL: URL.revokeObjectURL,
+  };
+  Object.assign(URL, { createObjectURL, revokeObjectURL });
+  return { createObjectURL, revokeObjectURL };
 }
 
 /** Type a query and let the 300 ms debounce elapse. */
@@ -92,10 +118,18 @@ describe('SoundsPanel', () => {
     bridgeCalls.download.mockReset();
     bridgeCalls.cancel.mockReset();
     bridgeCalls.progressListeners = [];
+    // The registry is a module singleton by design — it has to outlive the
+    // panel. That makes it shared state between tests, so it is cleared here.
+    resetDownloadRegistriesForTests();
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
+    if (objectUrlOriginals !== null) {
+      Object.assign(URL, objectUrlOriginals);
+      objectUrlOriginals = null;
+    }
   });
 
   // -------------------------------------------------------------------------
@@ -279,6 +313,52 @@ describe('SoundsPanel', () => {
     expect(screen.getByRole('button', { name: 'Play Second' })).toBeDefined();
   });
 
+  it('lets only the newest audition reach the speakers when two previews race', async () => {
+    bridgeCalls.search.mockResolvedValue({
+      ok: true,
+      tracks: [wireTrack(), wireTrack({ remoteId: 'ov-2', title: 'Second' })],
+    });
+    let resolveFirst: (value: unknown) => void = () => undefined;
+    let resolveSecond: (value: unknown) => void = () => undefined;
+    bridgeCalls.preview
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFirst = resolve;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveSecond = resolve;
+        }),
+      );
+
+    const play = vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    vi.spyOn(window.HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
+    const { createObjectURL, revokeObjectURL } = stubObjectUrls();
+
+    renderPanel();
+    await typeQuery('calm');
+    fireEvent.click(screen.getByRole('button', { name: 'Play Calm Bed' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Play Second' }));
+
+    // The abandoned first preview lands LAST — the order the clicks did not ask
+    // for, and the one a network makes routine.
+    await act(async () => {
+      resolveSecond({ ok: true, contentType: 'audio/mpeg', data: new ArrayBuffer(4) });
+      await Promise.resolve();
+      resolveFirst({ ok: true, contentType: 'audio/mpeg', data: new ArrayBuffer(4) });
+      await Promise.resolve();
+    });
+
+    // One blob and one `play()`. Without the generation guard the straggler
+    // created a second blob over the ref — leaking the live one for the life of
+    // the document — and played on top of it, unreachable by the next stop.
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(play).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Stop Second' })).toBeDefined();
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+  });
+
   // -------------------------------------------------------------------------
   // Download
   // -------------------------------------------------------------------------
@@ -354,6 +434,56 @@ describe('SoundsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Add' })).toBeDefined());
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('keeps a download alive, with its progress and Cancel, across a tab switch', async () => {
+    // The Sounds tab unmounts when the user switches tabs — which is exactly
+    // what someone does after queuing a download. Before the registry, coming
+    // back showed an idle row while the bytes were still arriving in main.
+    bridgeCalls.search.mockResolvedValue({ ok: true, tracks: [wireTrack()] });
+    bridgeCalls.download.mockReturnValue(new Promise(() => undefined));
+    const { unmount } = renderPanel();
+    await typeQuery('calm');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await act(async () => Promise.resolve());
+    unmount();
+
+    // Progress that arrives while the panel is away is still recorded.
+    act(() => {
+      for (const listener of bridgeCalls.progressListeners) {
+        listener({
+          operationId: 'x',
+          remoteId: 'ov-1',
+          phase: 'downloading',
+          completedBytes: 70,
+          totalBytes: 100,
+        });
+      }
+    });
+
+    renderPanel();
+    await typeQuery('calm');
+    const bar = screen.getByRole('progressbar', { name: 'Downloading Calm Bed' });
+    expect(bar.getAttribute('aria-valuenow')).toBe('70');
+    expect(screen.getByRole('button', { name: 'Cancel downloading Calm Bed' })).toBeDefined();
+  });
+
+  it('refuses to start a second download of a track already in flight', async () => {
+    // The row's own Enter shortcut can reach `add` while the progress bar is up,
+    // and two downloads would fight over the same destination file.
+    bridgeCalls.search.mockResolvedValue({ ok: true, tracks: [wireTrack()] });
+    bridgeCalls.download.mockReturnValue(new Promise(() => undefined));
+    renderPanel();
+    await typeQuery('calm');
+
+    const row = screen.getAllByRole('listitem')[0] as HTMLElement;
+    fireEvent.keyDown(row, { key: 'Enter' });
+    await act(async () => Promise.resolve());
+    fireEvent.keyDown(row, { key: 'Enter' });
+    await act(async () => Promise.resolve());
+
+    expect(bridgeCalls.download).toHaveBeenCalledTimes(1);
   });
 
   it('offers Retry with the reason after a failed download', async () => {

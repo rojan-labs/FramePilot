@@ -88,6 +88,24 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A download you started keeps going — and keeps showing — when you switch tabs.** Queuing a
+  40 MB clip and going back to the timeline is the normal thing to do, but coming back to the
+  Sounds or Stock tab used to show an idle row: no progress bar, no Cancel, and an Add button
+  that would happily start the same download a second time. The file was still arriving the
+  whole time; only the panel had forgotten. Progress, Cancel and the "already downloading" guard
+  now survive leaving the tab, and a download that fails while you are away tells you so when
+  you come back instead of vanishing. (`apps/web-editor`)
+
+- **Auditioning two tracks quickly no longer leaves the first one playing.** Clicking play on one
+  track and then another before the first had loaded could end with both audible at once and the
+  first unreachable by the stop button. Only the track you asked for last plays now.
+  (`apps/web-editor/src/components/SoundsPanel.tsx`)
+
+- **Stock results stop being replaced by the search you already moved on from.** A slow query
+  landing after a faster later one could swap the grid back to results you had abandoned, or
+  raise its error over results that were fine. Only the newest search writes to the grid.
+  (`apps/web-editor/src/components/StockPanel.tsx`)
+
 - **The AI is told what is in your footage; it decides what to do about it.** It used to be
   handed a ranked list of moves worked out in code — every highlight got "a push-in makes it
   land", a chapter whose title contained a word like "reveal" got another, a long quiet
