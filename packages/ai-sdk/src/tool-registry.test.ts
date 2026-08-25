@@ -831,9 +831,20 @@ describe('project (media-bin) tools — add_asset & manage_assets', () => {
     ]);
   });
 
-  it('add_asset falls back to a stable id when the path has no usable characters', () => {
-    const ops = buildProject('add_asset', { path: '///' });
-    expect((ops[0] as { asset: { id: string } }).asset.id).toBe('asset_media');
+  // The captured failure. The model had lost every stock `remoteId` to log compaction and
+  // guessed a path instead; nothing looked at it, so the patch validated, the card showed a
+  // checkmark, and the project gained a reference to a file that cannot exist. A dead end
+  // the run can act on beats a success it cannot.
+  it('add_asset refuses a path the model invented rather than was handed', () => {
+    for (const path of ['stock://pexels/20349219', '///', '  ', '../../etc/passwd', 'clip']) {
+      expect(() => buildProject('add_asset', { path, kind: 'video' })).toThrow();
+    }
+  });
+
+  it('names add_stock in the refusal, so the model knows where the real path comes from', () => {
+    expect(() => buildProject('add_asset', { path: 'stock://pexels/20349219' })).toThrow(
+      /add_stock/,
+    );
   });
 
   it('manage_assets plan accepts folders-only or assignments-only', () => {

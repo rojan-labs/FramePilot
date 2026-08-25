@@ -57,7 +57,9 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -106,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 20733,
+      "usedTokens": 20777,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -139,16 +141,16 @@
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17049,
+            "tokenEstimate": 17093,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 20733,
+          "estimatedInputTokensBeforeSend": 20777,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 171075,
+          "estimatedRemainingCapacity": 171031,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -279,14 +281,18 @@
           ]
         },
         "stage": "inspect",
-        "completedStages": ["interpret"],
+        "completedStages": [
+          "interpret"
+        ],
         "stageEnteredAtTurn": 1,
         "facts": [
           {
             "id": "fact_1",
             "kind": "project",
             "statement": "Reading the timeline → 2 tracks, 2 clips: video_1(2), audio_1(0)",
-            "evidenceIds": ["ev_1"],
+            "evidenceIds": [
+              "ev_1"
+            ],
             "scope": "timeline_dependent",
             "observedAtRevision": 0,
             "stage": "inspect"
@@ -307,7 +313,9 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -356,7 +364,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 20825,
+      "usedTokens": 20869,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -389,16 +397,16 @@
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17049,
+            "tokenEstimate": 17093,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 20825,
+          "estimatedInputTokensBeforeSend": 20869,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170983,
+          "estimatedRemainingCapacity": 170939,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -530,14 +538,18 @@
           ]
         },
         "stage": "inspect",
-        "completedStages": ["interpret"],
+        "completedStages": [
+          "interpret"
+        ],
         "stageEnteredAtTurn": 1,
         "facts": [
           {
             "id": "fact_1",
             "kind": "project",
             "statement": "Reading the timeline → 2 tracks, 2 clips: video_1(2), audio_1(0)",
-            "evidenceIds": ["ev_1"],
+            "evidenceIds": [
+              "ev_1"
+            ],
             "scope": "timeline_dependent",
             "observedAtRevision": 0,
             "stage": "inspect"
@@ -558,7 +570,9 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -607,7 +621,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 14667,
+      "usedTokens": 14711,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -640,16 +654,16 @@
             "id": "s4",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 10609,
+            "tokenEstimate": 10653,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 14667,
+          "estimatedInputTokensBeforeSend": 14711,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 177141,
+          "estimatedRemainingCapacity": 177097,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -744,14 +758,18 @@
           ]
         },
         "stage": "inspect",
-        "completedStages": ["interpret"],
+        "completedStages": [
+          "interpret"
+        ],
         "stageEnteredAtTurn": 1,
         "facts": [
           {
             "id": "fact_1",
             "kind": "project",
             "statement": "Reading the timeline → 2 tracks, 2 clips: video_1(2), audio_1(0)",
-            "evidenceIds": ["ev_1"],
+            "evidenceIds": [
+              "ev_1"
+            ],
             "scope": "timeline_dependent",
             "observedAtRevision": 0,
             "stage": "inspect"
@@ -772,7 +790,9 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -837,14 +857,18 @@
           ]
         },
         "stage": "inspect",
-        "completedStages": ["interpret"],
+        "completedStages": [
+          "interpret"
+        ],
         "stageEnteredAtTurn": 1,
         "facts": [
           {
             "id": "fact_1",
             "kind": "project",
             "statement": "Reading the timeline → 2 tracks, 2 clips: video_1(2), audio_1(0)",
-            "evidenceIds": ["ev_1"],
+            "evidenceIds": [
+              "ev_1"
+            ],
             "scope": "timeline_dependent",
             "observedAtRevision": 0,
             "stage": "inspect"
@@ -865,7 +889,9 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": false

@@ -1059,6 +1059,28 @@ def test_add_asset_derives_id_and_emits_op() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "stock://pexels/20349219",  # the captured fabrication
+        "https://example.com/clip.mp4",
+        "../../etc/passwd",
+        "clip",  # no extension: not a file
+        "   ",
+    ],
+)
+def test_add_asset_refuses_a_path_the_model_invented(path: str) -> None:
+    """Mirrors ``modelAuthoredMediaPath`` in the TS registry.
+
+    A captured agent run lost its stock ``remoteId``s to log compaction and guessed a path
+    instead. Nothing looked at it: the patch validated and the card showed a checkmark for a
+    bin entry pointing at nothing. A dead end the run can act on beats a success it cannot.
+    """
+    ctx = ToolContext(project=_bin_project(), selection=None)
+    with pytest.raises(ToolInputError):
+        run_tool("add_asset", {"path": path}, ctx)
+
+
 def test_add_asset_honors_explicit_fields() -> None:
     ctx = ToolContext(project=_bin_project(), selection=None)
     result = run_tool(

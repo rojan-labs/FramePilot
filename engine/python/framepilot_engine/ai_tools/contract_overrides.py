@@ -17,6 +17,7 @@ from framepilot_engine.ai_tools.registry import (
     FilterStr,
     ToolSpec,
     caption_template_count,
+    validate_model_authored_media_path,
 )
 
 _STRICT = ConfigDict(extra="forbid", populate_by_name=True)
@@ -34,6 +35,11 @@ _COLOR_RANGES: dict[str, tuple[float, float]] = {
 
 class _AddAssetArgs(BaseModel):
     model_config = _STRICT
+    # A captured agent run, having lost its stock `remoteId`s to log compaction, guessed
+    # `stock://pexels/20349219` here. Nothing examined it on either side of the boundary, so
+    # the patch validated and the bin would have gained a reference to a file that cannot
+    # exist. Same rule as the TS `modelAuthoredMediaPath`, shared with `AddAssetArgs` so the
+    # override and the spec model cannot drift.
     path: str
     # Defaults mirror the TS registry (`kind: z.enum([...]).default('video')`). A
     # documented default is not "healing invalid input" — omitting the argument is a
@@ -43,6 +49,8 @@ class _AddAssetArgs(BaseModel):
     duration_seconds: float | None = Field(default=None, alias="durationSeconds", ge=0.0)
     folder_id: FilterStr = Field(default=None, alias="folderId")
     id: FilterStr = None
+
+    _path_shape = field_validator("path")(validate_model_authored_media_path)
 
 
 class _AddClipArgs(BaseModel):
@@ -332,9 +340,7 @@ class _CaptionHighlight(BaseModel):
     enabled: bool | None = None
     color: str | None = Field(default=None, min_length=1)
     animation: (
-        Literal[
-            "none", "color", "pop", "karaoke-fill", "background", "glow", "underline", "pulse"
-        ]
+        Literal["none", "color", "pop", "karaoke-fill", "background", "glow", "underline", "pulse"]
         | None
     ) = None
     background: str | None = Field(default=None, min_length=1)

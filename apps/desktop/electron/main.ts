@@ -149,6 +149,7 @@ import { ConversationStore, type ConversationStoreIO } from './ai/conversation-s
 import { AiStreamHub, parseAiStreamRequest, prepareAiEventForTransport } from './ai/ai-stream.js';
 import { shouldAutoCommitAiDiff } from './ai/patch-settlement.js';
 import { decideCommitTarget } from './ai/commit-target.js';
+import { describeUnresolvableAssets, unresolvableAddedAssets } from './ai/asset-paths.js';
 import { RunStore, FileRunStoreIO } from './ai/run-store.js';
 import { RunCoordinator, RunGateway } from './ai/run-coordinator.js';
 import { RunIpcHub } from './ai/run-ipc.js';
@@ -2369,6 +2370,9 @@ function registerIpcHandlers(): void {
     // mid-run race) let a doomed run spend model tokens and METERED stock/music quota for
     // minutes before its first patch was rejected. Refuse here instead — before a single
     // provider request is made — and say which project the app is actually on.
+    // Resolved once for the run: both the pre-flight below and the per-patch asset check in
+    // `beforePublish` need the sandbox root, and it cannot change under a running run.
+    const projectsRoot = await ensureProjectsDir();
     if (shouldAutoCommitAiDiff(durableSnapshot.patchPolicy, undefined)) {
       const target = decideCommitTarget(await activeProject.current(), project.id);
       if (!target.ok) {
@@ -2445,6 +2449,42 @@ function registerIpcHandlers(): void {
               });
               aiStreamHub.failDurable(durableRunId);
               return { event: staleEvent, durableSequence: durableEvent.sequence };
+            }
+            // The existence proof the pure tool layer cannot give (PRD §18.2 — a tool
+            // touches no filesystem). `add_asset`'s schema rejects the shapes a guessing
+            // model produces, but `stock/pexels/8474616.mp4` is a well-formed relative
+            // media path and was still a fabrication: a captured run proposed exactly that,
+            // the patch validated, and the bin would have gained a reference to nothing.
+            // Every real producer (`add_stock`, `add_music`, the user's import) has already
+            // written its file by the time the patch arrives, so this refuses guesses
+            // without ever refusing real work.
+            const unresolvable = unresolvableAddedAssets(patch, target.path, projectsRoot, {
+              exists: existsSync,
+            });
+            if (unresolvable.length > 0) {
+              const reason = describeUnresolvableAssets(unresolvable);
+              aiLog.warn('AI patch refused — references media that is not on disk', {
+                runId: durableRunId,
+                patchId: patch.patchId,
+                assets: unresolvable.map((problem) => problem.assetPath),
+              });
+              await runGatewayCoordinator.recordPatchLifecycle({
+                runId: durableRunId,
+                projectId: project.id,
+                patchId: patch.patchId,
+                state: 'stale',
+                reason,
+              });
+              const refusedEvent = {
+                ...transportEvent,
+                commit: { state: 'stale' as const, reason },
+              };
+              const durableEvent = await runGatewayCoordinator.recordStreamEvent({
+                runId: durableRunId,
+                projectId: project.id,
+                event: JsonValueSchema.parse(refusedEvent),
+              });
+              return { event: refusedEvent, durableSequence: durableEvent.sequence };
             }
             const committed = await projectCommands.commitPatch(
               project.id,

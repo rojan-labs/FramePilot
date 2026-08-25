@@ -48,9 +48,15 @@ export function emptyFilterNote(assets: readonly Asset[]): string {
 // Project (media-bin) mutating tools — assets & folders (schema v3, ADR 0026)
 // ---------------------------------------------------------------------------
 
-/** Deterministic, filesystem-safe asset id derived from a media path. */
+/**
+ * Deterministic, filesystem-safe asset id derived from a media path.
+ *
+ * No empty-result fallback: {@link modelAuthoredMediaPath} requires an alphanumeric file
+ * extension, so the squeezed string always has characters left. A `|| 'media'` arm here
+ * would be an unreachable branch pretending to guard something.
+ */
 const assetIdFromPath = (path: string): string =>
-  `asset_${path.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'media'}`;
+  `asset_${path.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '')}`;
 
 /** Canonical by-kind folders for the deterministic `manage_assets` fallback. */
 const KIND_FOLDERS: Record<Asset['kind'], { id: string; name: string }> = {
@@ -59,9 +65,51 @@ const KIND_FOLDERS: Record<Asset['kind'], { id: string; name: string }> = {
   image: { id: 'folder_images', name: 'Images' },
 };
 
+/**
+ * A media path a MODEL may author.
+ *
+ * `path` used to be a bare `z.string()`, and nothing downstream looked at it either — the
+ * editor-core validator checks an `add_asset` op for a duplicate id and an unknown folder,
+ * and stops. So a captured run proposed `add_asset` with `stock://pexels/20349219`, the
+ * patch reported `valid: true`, the card showed "Added asset" with a checkmark, and the
+ * project gained a reference to a file that does not exist and never could. On the second
+ * attempt it tried `stock/pexels/8474616.mp4` — same result.
+ *
+ * Every asset that legitimately enters the bin comes from a HOST path that supplies a real,
+ * on-disk location it just wrote: `add_stock`, `add_music`, or the user's own import. The
+ * model's job is to name a `remoteId`, never a filename. This schema therefore rejects the
+ * shapes a model invents when it is guessing, and the refusal names the tool it should have
+ * reached for — a dead end the run can act on beats a checkmark it cannot.
+ *
+ * Shape-only by design: this layer is pure (PRD §18.2 — a tool touches no filesystem), so
+ * it cannot prove a file exists. That proof belongs to the host, which has the projects
+ * root, and is enforced there before the patch is committed.
+ */
+const PROVIDER_URI = /^[a-z][a-z0-9+.-]*:\/\//i;
+const HAS_EXTENSION = /\.[a-z0-9]{2,5}$/i;
+
+const modelAuthoredMediaPath = z
+  .string()
+  .trim()
+  .min(1, 'An asset path cannot be empty.')
+  .refine((value) => !PROVIDER_URI.test(value), {
+    message:
+      'That is a URL or provider URI, not a media file in this project. Stock media has no ' +
+      'path until it is downloaded — pass the remoteId from search_stock to add_stock (or ' +
+      'search_music to add_music) and the download supplies the real one.',
+  })
+  .refine((value) => !value.split(/[/\\]/).includes('..'), {
+    message: 'An asset path may not step outside the project with "..".',
+  })
+  .refine((value) => HAS_EXTENSION.test(value), {
+    message:
+      'An asset path must name a media FILE with its extension (e.g. "interview.mp4"). If ' +
+      'you are trying to use a stock clip, pass its remoteId to add_stock instead.',
+  });
+
 const addAssetSchema = z
   .object({
-    path: z.string(),
+    path: modelAuthoredMediaPath,
     kind: z.enum(['video', 'audio', 'image']).default('video'),
     durationSeconds: seconds.optional(),
     folderId: filterString(),
@@ -142,8 +190,10 @@ export const PROJECT_TOOLS: readonly ToolSpec[] = [
     {
       name: 'add_asset',
       description:
-        'Add a media asset to the project bin (e.g. a file an AI model just ' +
-        'generated). Does not place it on the timeline — use add_clip for that.',
+        'Register a media file that ALREADY EXISTS on disk into the bin. Downloads and ' +
+        'creates nothing: stock goes through add_stock and music through add_music, which ' +
+        'fetch the file and supply its real path. A path you were not handed is refused. ' +
+        'Does not place it on the timeline — use add_clip for that.',
     },
     addAssetSchema,
     (a) => {

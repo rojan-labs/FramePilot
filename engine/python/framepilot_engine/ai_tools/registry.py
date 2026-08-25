@@ -302,8 +302,55 @@ class TrackObjectArgs(BaseModel):
     engine: FilterStr = None
 
 
+#: A URL or provider URI (``stock://…``, ``https://…``) — never a media file in a project.
+_PROVIDER_URI = re.compile(r"^[a-z][a-z0-9+.-]*://", re.IGNORECASE)
+#: A media path names a FILE, so it ends in an extension.
+_HAS_EXTENSION = re.compile(r"\.[a-z0-9]{2,5}$", re.IGNORECASE)
+
+
+def validate_model_authored_media_path(value: str) -> str:
+    """Reject the media-path shapes a model produces when it is guessing a filename.
+
+    Shared by ``AddAssetArgs`` here and the ``_AddAssetArgs`` contract override, because two
+    Pydantic models validating the same field two different ways is how a boundary drifts.
+    Mirrors ``modelAuthoredMediaPath`` in ``packages/ai-sdk/src/domain-tools/project.ts``.
+
+    Shape only: neither this layer nor its TS twin may touch the filesystem (PRD §18.2), so
+    the proof that a file EXISTS belongs to the host, which owns the projects root.
+
+    :param value: The path the model supplied.
+    :returns: The trimmed path.
+    :raises ValueError: If the path is empty, a URL/provider URI, contains ``..``, or names
+        no file extension.
+    """
+    path = value.strip()
+    if not path:
+        raise ValueError("An asset path cannot be empty.")
+    if _PROVIDER_URI.match(path):
+        raise ValueError(
+            "That is a URL or provider URI, not a media file in this project. Stock media "
+            "has no path until it is downloaded — pass the remoteId from search_stock to "
+            "add_stock (or search_music to add_music)."
+        )
+    if ".." in re.split(r"[/\\]", path):
+        raise ValueError('An asset path may not step outside the project with "..".')
+    if not _HAS_EXTENSION.search(path):
+        raise ValueError(
+            'An asset path must name a media FILE with its extension (e.g. "interview.mp4").'
+        )
+    return path
+
+
 class AddAssetArgs(BaseModel):
-    """Add a media asset to the project bin (schema v3, ADR 0026)."""
+    """Add a media asset to the project bin (schema v3, ADR 0026).
+
+    ``path`` used to be a bare ``str`` on both sides of the parity boundary, and nothing
+    downstream examined it either. A captured agent run proposed ``stock://pexels/20349219``,
+    the patch validated, and the bin would have gained a reference to a file that cannot
+    exist. Mirrors ``modelAuthoredMediaPath`` in ``packages/ai-sdk/src/domain-tools/project.ts``:
+    shape only, because neither layer may touch the filesystem — the host owns the existence
+    proof.
+    """
 
     model_config = _STRICT
     path: str
@@ -311,6 +358,8 @@ class AddAssetArgs(BaseModel):
     duration_seconds: float | None = Field(default=None, alias="durationSeconds", ge=0.0)
     folder_id: FilterStr = Field(default=None, alias="folderId")
     id: FilterStr = None
+
+    _path_shape = field_validator("path")(validate_model_authored_media_path)
 
 
 class FolderPlanArg(BaseModel):
@@ -1362,7 +1411,10 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     # --- Project (media-bin) mutating tools — assets & folders (schema v3) ---
     "add_asset": _spec(
         "add_asset",
-        "Add a media asset to the project bin (e.g. AI-generated media).",
+        "Register a media file that ALREADY EXISTS on disk into the bin. Downloads and "
+        "creates nothing: stock goes through add_stock and music through add_music, "
+        "which fetch the file and supply its real path. A path you were not handed is "
+        "refused. Does not place it on the timeline — use add_clip for that.",
         kind="mutate",
         input_model=AddAssetArgs,
         mutating=True,
