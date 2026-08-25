@@ -13,6 +13,57 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-26, run gap analysis):** `[x]` **Ten gaps found by tracing a
+captured agent run (`c25cfb56`) against the codebase are closed on
+`fix/agent-run-gap-analysis`.** The run spent 3m20s and 19 metered provider searches on a
+project it could never write to, proposed two edits with fabricated media paths, had both
+refused, recorded both as `succeeded`, and was cancelled by the user.
+
+1. **A run started against a project the app did not have open.** The active-project check
+   lived only in the commit path, so it fired minutes and a dozen billable searches after it
+   could have. Now a pre-flight in `aiStreamStart`, reading the same
+   `decideCommitTarget` as the mid-run race guard so the two cannot drift.
+2. **The host's refusal never reached the run** — it was stamped on the outgoing event for
+   the UI alone, so the ledger read `succeeded`/`projectRevisionAfter: 1` against a project at
+   revision 0, and the briefing then filed the lost work under "ALREADY APPLIED — do not
+   repeat". `kernel/commit-ledger.ts` (ADR 0142); the run now _waits_ for each verdict rather
+   than sampling for one, because the graph's event queue gives no ordering to sample against.
+3. **Cleared tool payloads were unrecoverable.** `compactAgentLog` cleared results behind
+   "re-read if needed" while only `measure_color` was ever stored — so a stock search's
+   `remoteId`s were gone, and re-reading meant another metered request. Every host-tool
+   payload is stored now, and the marker names the handle to recall it with. **This is the
+   mechanism behind the fabricated paths**, reproduced identically in both attempts.
+4. **`add_asset` accepted any string as a media path** and the validator checked only id and
+   folder, so `stock://pexels/20349219` reported `valid: true`. Shape guard at the tool
+   boundary (both languages, one shared validator), existence proof at the host.
+5. **`add_stock` could not fill the bin.** Download and placement were one act, so the second
+   candidate of any comparison collided with the first — the run said twice it was "locking
+   the media into the bin first" and no tool did that. An absent position now means the bin.
+6. **The completion gate was never installed.** `assessEditCompletion` had one caller,
+   `autonomous-edit-runtime.ts`, which no production code ever ran — a green suite for a rail
+   that was not there. Folded into the conductor's finalize (plan-completeness only); the
+   parallel runtime deleted; the wiring itself now guarded by a test.
+7. **The whole prompt was stored five times and replayed once.** `nextAction` was the one
+   echo the briefing's filter missed, so "DO THIS NOW" re-sent a ~7,000-token brief every turn
+   — under the heading whose job is to name one step, fired exactly when the run had stalled.
+8. **"Couldn't apply" showed one hardcoded line for two unrelated causes**, sending the user
+   into a retry that could not succeed. The host's `commit.reason` now reaches the screen.
+9. **Voiceover and sound effects were silently undeliverable.** No TTS tool, no SFX
+   catalogue, and the brief asked for both per scene. Extends the existing `deliverableFile`
+   disclosure rather than inventing a second mechanism.
+10. **The main-process commit path had no tests.** Gaps 1, 2 and 8 all lived there.
+    `decideCommitTarget` and `unresolvableAddedAssets` are extracted and covered.
+
+Evidence: ai-sdk 3325, editor-core 918, desktop 467, web-editor 2588, mcp-server 135, engine
+2621 — all green; workspace typecheck and per-package lint clean. Three golden corpora
+regenerated; every delta inspected and attributable (+77 tokens/turn of tool descriptors, the
+acceptance criterion changing from a copy of the request to a pointer, operations gaining
+`patchId`, facts gaining the evidence citations they always should have carried, and the
+`plan-approval` scenario now reporting the planned step it silently left undone).
+
+Not addressed, and deliberately: whether to BUILD narration or SFX sourcing is a product
+decision, not a gap — item 9 is disclosure only.
+
 **Status snapshot (2026-08-25, the question surface):** `[x]` **`ask_user` is answerable and
 its answers are readable; a run that ends without settling a step no longer leaves it
 spinning.** Reported from a real desktop run.
@@ -7699,10 +7750,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                          Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                          a pre-existing local edit commenting out temperature forwarding, untouched here);
-                          engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                          **Last updated:** 2026-08-14
+                            Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                            a pre-existing local edit commenting out temperature forwarding, untouched here);
+                            engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                            **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 

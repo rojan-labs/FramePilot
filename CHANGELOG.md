@@ -99,6 +99,49 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant can no longer tell you it made an edit that never reached your project.**
+  When FramePilot's desktop app writes an agent edit, it re-checks it against the project you
+  actually have open, and can refuse it — you switched projects mid-run, the timeline moved
+  under it, or the edit points at media that is not on your disk. That refusal used to be
+  something only the card on screen knew about: the run itself carried on believing the edit
+  had landed, listed it among the work it had already done, and never went back for it. Now
+  the run is told, undoes the work it thought it had, tells you what happened **in the host's
+  own words instead of one all-purpose sentence**, and the "Couldn't apply" note names the
+  real reason — so "reopen that project" no longer looks like "try again", which could not
+  have worked. (`packages/ai-sdk`, `apps/desktop`, `apps/web-editor`)
+
+- **A run against a project you do not have open is refused up front, not after it has spent
+  your stock-library quota.** The check that decides whether an edit can be written used to
+  happen only when the first edit arrived — minutes and a dozen metered searches later. It now
+  runs before the assistant makes a single request, and says which project the app is on.
+  (`apps/desktop/electron/ai/commit-target.ts`)
+
+- **The assistant stops inventing filenames for stock clips.** Search results were dropped
+  from its short-term memory after a couple of turns, with an offer to "re-read if needed" it
+  could not take up — a stock search is a paid request to an outside library, not something
+  free to repeat. Left holding no real reference, it guessed a filename and put a broken clip
+  in your bin, with a green checkmark next to it. Results are now kept for the whole run and
+  the assistant is told exactly how to get them back, a made-up path is refused outright with
+  a pointer to the right tool, and the desktop app checks the file is really there before
+  writing anything. (`packages/ai-sdk`, `apps/desktop`)
+
+- **Gathering stock clips before you commit to an order.** `add_stock` always dropped a clip
+  straight onto the timeline, so the second clip of any comparison collided with the first and
+  was refused — there was no way to pull three candidates in and then decide. Ask for one
+  without a position and it now simply lands in your media bin. (`packages/editor-core`,
+  `packages/ai-sdk`)
+
+- **A run that leaves part of its plan undone says so.** If FramePilot showed you a seven-step
+  plan and finished four of them, the summary said "Applied N edits" and nothing about the
+  three you were promised. It now names what was left. (`packages/ai-sdk`)
+
+- **FramePilot says what it cannot do, instead of quietly leaving it out.** Ask for a reel with
+  a voiceover and whoosh transitions and you would have got a silent, effect-less cut with no
+  mention of either — there is no text-to-speech here, and the stock libraries cover music and
+  footage but not sound effects. The assistant now tells you which parts it cannot produce, and
+  what to do instead (record or import the track and it will cut, time, and caption it like any
+  other audio). (`packages/ai-sdk/src/acceptance.ts`)
+
 - **The assistant's questions — and the answers you gave them — are readable now.** When
   FramePilot asks you something mid-run, the choices used to be three paragraphs of prose with
   nothing to click on but the words themselves. They are now proper rows with a radio mark, a
