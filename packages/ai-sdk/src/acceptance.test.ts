@@ -133,7 +133,6 @@ describe('checkableAcceptance', () => {
 
 describe('acceptanceCriteria', () => {
   it('lists each checkable condition and keeps the judgement criterion last', () => {
-    const prompt = 'a 30s reel from at least 20 moments';
     const criteria = acceptanceCriteria({ durationSeconds: 30, minShotCount: 20 });
     expect(criteria).toHaveLength(3);
     expect(criteria[0]).toContain('30s');

@@ -6706,6 +6706,14 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
+      "id": "turn_1:notice:15",
+      "text": "Not everything in the plan was done — 1 of 2 planned tasks completed.",
+      "ts": 1000,
+      "turnId": "turn_1",
+      "type": "warning",
+    },
+    {
+      "conversationId": "conv_1",
       "id": "turn_1:run-state",
       "ts": 1000,
       "turnId": "turn_1",
@@ -6847,7 +6855,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
-      "id": "turn_1:usage:15",
+      "id": "turn_1:usage:16",
       "modelCalls": 3,
       "tokens": 0,
       "ts": 1000,
@@ -6857,7 +6865,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
-      "id": "turn_1:status:16",
+      "id": "turn_1:status:17",
       "status": "failed",
       "ts": 1000,
       "turnId": "turn_1",

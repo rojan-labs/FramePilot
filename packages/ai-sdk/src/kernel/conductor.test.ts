@@ -1034,6 +1034,46 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
     expect(events.some((e) => e.type === 'warning')).toBe(false);
   });
 
+  // GAP-006. `assessEditCompletion` was written to stop a run reporting incomplete planned
+  // work as success, and then wired only into `autonomous-edit-runtime.ts`, which no
+  // production code ever called — a green suite for a rail that was not installed. This is
+  // the rail, on the path that actually runs.
+  it('says so when the plan the editor was shown was not finished', () => {
+    const s = started({
+      phase: 'verifying',
+      cumulativeOps: ops(1),
+      appliedTurns: 1,
+      ledgerLength: 3,
+      planSteps: [
+        { id: 'step-1', label: 'Trim the intro', status: 'completed' },
+        { id: 'step-2', label: 'Add captions', status: 'pending' },
+        { id: 'step-3', label: 'Colour match', status: 'failed' },
+      ],
+    });
+    const warn = onEffectResult(s, verify()).events.find((e) => e.type === 'warning');
+    expect((warn as { text: string }).text).toContain('Not everything in the plan was done');
+    expect((warn as { text: string }).text).toContain('1 of 3');
+    expect((warn as { text: string }).text).toContain('1 planned task(s) failed');
+  });
+
+  it('stays quiet when every planned step finished', () => {
+    const s = started({
+      phase: 'verifying',
+      cumulativeOps: ops(1),
+      appliedTurns: 1,
+      ledgerLength: 1,
+      planSteps: [{ id: 'step-1', label: 'Trim the intro', status: 'completed' }],
+    });
+    expect(onEffectResult(s, verify()).events.some((e) => e.type === 'warning')).toBe(false);
+  });
+
+  // An unplanned run carries internal step rows for status tracking but never showed the
+  // editor a checklist, so there is no promise to report against.
+  it('never reports unfinished plan work for a run that drafted no plan', () => {
+    const s = started({ phase: 'verifying', cumulativeOps: ops(1), appliedTurns: 1 });
+    expect(onEffectResult(s, verify()).events.some((e) => e.type === 'warning')).toBe(false);
+  });
+
   it('uses the singular form when exactly one proposed change was rejected', () => {
     const s = started({ phase: 'verifying', rejectedOpCount: 1, rejectionReasons: ['bad'] });
     const warn = onEffectResult(s, verify()).events.find((e) => e.type === 'warning');

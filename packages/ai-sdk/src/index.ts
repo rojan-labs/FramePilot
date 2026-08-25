@@ -49,7 +49,6 @@ export * from './media-evidence.js';
 export * from './media-understanding-runtime.js';
 export * from './completion-gate.js';
 export * from './review-findings.js';
-export * from './autonomous-edit-runtime.js';
 export * from './autonomous-edit-golden.js';
 export * from './verify.js';
 export * from './temporal-review.js';

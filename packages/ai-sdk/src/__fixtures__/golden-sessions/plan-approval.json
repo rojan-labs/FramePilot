@@ -1055,6 +1055,14 @@
       "text": "Deterministic self-check: All checks passed."
     },
     {
+      "id": "turn_golden:notice:15",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "warning",
+      "text": "Not everything in the plan was done — 1 of 2 planned tasks completed."
+    },
+    {
       "id": "turn_golden:run-state",
       "conversationId": "conv_golden",
       "ts": 1000,
@@ -1196,7 +1204,7 @@
       }
     },
     {
-      "id": "turn_golden:usage:15",
+      "id": "turn_golden:usage:16",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1206,7 +1214,7 @@
       "modelCalls": 3
     },
     {
-      "id": "turn_golden:status:16",
+      "id": "turn_golden:status:17",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",

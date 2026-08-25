@@ -11,7 +11,6 @@ import type { HostToolEffect } from './kernel/effects.js';
 import { partitionConcurrencyBatches } from './concurrency.js';
 import { toolContract } from './tool-contract.js';
 import { getTool } from './tool-registry.js';
-import { runAutonomousEdit } from './autonomous-edit-runtime.js';
 
 const clip = (id: string, start: number, end: number) => ({
   id,
@@ -115,59 +114,5 @@ describe('assembly boundaries', () => {
     );
     expect(result.validation.valid).toBe(true);
     expect(result.patch.operations[0]).toMatchObject({ durationSeconds: 1 / 30 });
-  });
-});
-
-describe('autonomous idempotency store', () => {
-  it('stays bounded, evicting the oldest recorded runs', async () => {
-    let proposals = 0;
-    const adapters = {
-      getRevision: (state: { revision: number }) => state.revision,
-      normalizeIntent: async (request: string) => ({
-        request,
-        criteria: { intentKind: 'mutation' as const, requireTimelineChange: true },
-        measurableTasks: ['trim'],
-      }),
-      plan: async () => ({ tasks: ['trim'], evidenceQueries: [] }),
-      collectEvidence: async () => ['ev'],
-      proposePatch: async () => {
-        proposals += 1;
-        return { id: 'p1' };
-      },
-      validatePatch: async (patch: unknown) => ({ valid: true, patch, issues: [] }),
-      applyPatch: async (_p: unknown, state: { revision: number }) => ({
-        state: { revision: state.revision + 1 },
-        inverse: 'undo',
-        diff: { summary: ['[video_1] ~ clip clip_a (0–6s → 1–5s)'] },
-        appliedOperationCount: 1,
-        revision: state.revision + 1,
-      }),
-      verify: async () => ({
-        passed: true,
-        issues: [],
-        renderVerified: true,
-        visualEvidenceCount: 1,
-      }),
-      rollback: async (_i: unknown, state: unknown) => state,
-    } as unknown as Parameters<typeof runAutonomousEdit>[0]['adapters'];
-
-    const run = (index: number) =>
-      runAutonomousEdit({
-        request: `tighten ${String(index)}`,
-        initialState: { revision: 1 },
-        adapters,
-        idempotencyKey: `bound-${String(index)}`,
-      });
-
-    const first = await run(0);
-    expect(first.status).toBe('completed');
-    expect(await run(0)).toBe(first); // recorded, so a retry replays it
-
-    // Fill past the bound; the earliest entry is evicted rather than kept forever.
-    for (let index = 1; index <= 130; index += 1) await run(index);
-    const proposalsBeforeReplay = proposals;
-    const replayed = await run(0);
-    expect(replayed).not.toBe(first);
-    expect(proposals).toBe(proposalsBeforeReplay + 1);
   });
 });

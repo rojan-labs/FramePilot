@@ -81,6 +81,7 @@ import {
   setNextAction,
 } from './working-state.js';
 import type { HostPatchRefusal } from './commit-ledger.js';
+import { assessEditCompletion } from '../completion-gate.js';
 
 // Hard resource rails — blast-radius and cost bounds, NOT behavioral tuning. They exist
 // so a runaway or malfunctioning run hits a ceiling; they are deliberately generous
@@ -797,6 +798,51 @@ function finalize(state: ConductorState, em: Emitter, events: AiEvent[]): Conduc
   // "reviewed the footage but never made a change" notice would be both redundant and
   // literally false in that case (no turn ever ran), so it is skipped whenever this fold
   // already explained itself.
+  // The deterministic completion gate (`completion-gate.ts`), on the SHIPPING path.
+  //
+  // It was written to stop a run reporting a no-op, a cosmetic-only result, or incomplete
+  // planned work as success — and then wired only into `autonomous-edit-runtime.ts`, which no
+  // production code ever called. Its tests passed against fake adapters while agent mode, the
+  // path that actually runs, used none of it: a green suite for a rail that was not installed.
+  //
+  // The no-op halves (`no_applied_edit`, `no_meaningful_change`) are covered below by the
+  // empty-run notices, and duration by the Critic's `duration_target`. What nothing covered is
+  // PLANNED WORK LEFT UNDONE: a run that drafted a checklist, ran three of seven steps and
+  // finished reported "Applied N edits" with no mention of the four the editor was shown and
+  // never got.
+  //
+  // Gated on `ledgerLength > 0` — the editor was actually shown a checklist. An unplanned run
+  // keeps step rows internally for status tracking (see the `ledgerLength > 0` guard the plan
+  // event uses) and made no promise to report against. Gated on ops too, because a run that
+  // changed NOTHING gets the empty-run notice below, which is both truer and more actionable
+  // than a step tally.
+  if (!state.cancelled && state.ledgerLength > 0 && state.cumulativeOps.length > 0) {
+    const assessment = assessEditCompletion(
+      { intentKind: 'mutation', requireTimelineChange: false },
+      {
+        appliedOperationCount: state.cumulativeOps.length,
+        plannedTaskCount: state.planSteps.length,
+        completedTaskCount: state.planSteps.filter((step) => step.status === 'completed').length,
+        failedTaskCount: state.planSteps.filter((step) => step.status === 'failed').length,
+        rendered: false,
+        renderVerified: false,
+        visualEvidenceCount: 0,
+      },
+    );
+    // Only the plan-completeness findings: the rest are either covered elsewhere on this path
+    // or about a render this panel cannot run, and reporting those would be noise the editor
+    // has no action for.
+    const unfinished = assessment.failures.filter(
+      (failure) => failure.code === 'planned_work_incomplete' || failure.code === 'task_failed',
+    );
+    if (unfinished.length > 0) {
+      events.push(
+        em.warning(
+          `Not everything in the plan was done — ${unfinished.map((f) => f.message).join(' ')}`,
+        ),
+      );
+    }
+  }
   const alreadyExplained = events.some((e) => e.type === 'warning');
   if (!state.cancelled && state.cumulativeOps.length === 0) {
     if (state.rejectedOpCount > 0) {
