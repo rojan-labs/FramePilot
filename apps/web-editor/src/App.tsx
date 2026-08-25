@@ -66,6 +66,15 @@ export function App(): JSX.Element {
   const [capabilityPacks, setCapabilityPacks] =
     useState<CapabilityPackProjectResolutionWire | null>(null);
   const [capabilityGateDismissed, setCapabilityGateDismissed] = useState(false);
+  /**
+   * The Topbar's centre box, handed to the Editor so the monitor's Source/Program
+   * switch and view controls can render into it.
+   *
+   * State, not a ref: the Editor must RE-RENDER when the box appears, or its
+   * portal has nowhere to go on the first paint. This is the whole coupling
+   * between the two siblings — the monitor's state stays in `Editor`.
+   */
+  const [topbarMonitorSlot, setTopbarMonitorSlot] = useState<HTMLDivElement | null>(null);
 
   const firstRun = useRef(true);
   const suppressAutosave = useRef(false);
@@ -397,9 +406,11 @@ export function App(): JSX.Element {
                   setSettingsSection('display');
                   setSettingsOpen(true);
                 }}
+                onMonitorSlotRef={setTopbarMonitorSlot}
               />
 
               <Editor
+                monitorHeaderSlot={topbarMonitorSlot}
                 key={project.id}
                 project={project}
                 projectRevision={projectRevision}

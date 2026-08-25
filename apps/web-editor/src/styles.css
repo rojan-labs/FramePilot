@@ -476,13 +476,38 @@ input[type='checkbox']:focus-visible {
 
 /* ---- Topbar (slim application bar) -------------------------------------- */
 .topbar {
+  /* The containing block for the hoisted monitor band, which is pinned to the
+     monitor column's edges rather than laid out in this row's flow. */
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  height: 48px;
+  height: 44px;
   padding: 0 var(--space-3);
   background: var(--bg-raised);
   border-bottom: 1px solid var(--border-subtle);
+}
+
+/* The monitor's Source/Program switch and its view controls, hoisted out of the
+   band that used to sit under this header. That band cost the picture 29px of
+   height (28px row + its rule) to say something this bar had room for all
+   along — the middle of an application header is the emptiest space in the
+   window.
+
+   The band inside is pinned to the monitor COLUMN's edges (measured in
+   `Editor`), not laid out in this bar's flow — the switch has to land on the
+   picture's left edge and the view controls on its right, or the pair reads as
+   belonging to the header rather than to the monitor underneath it. This
+   element is the span it is allowed to use. */
+.topbar-monitor {
+  /* The band's containing block, so its measured insets are relative to THIS
+     span and it can never overrun the brand or the window actions. */
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-self: stretch;
+  align-items: center;
+  min-width: 0;
 }
 
 .topbar-brand {
@@ -3295,10 +3320,15 @@ input[type='checkbox']:focus-visible {
    header, 16px of stage padding top AND bottom, an 11px transport margin and a
    34px transport row. On a 900px window with the timeline dock open that left the
    canvas less than half its column. These two custom properties are the density
-   contract for every monitor band: ONE 28px chrome row above the picture (tabs +
-   view controls) and ONE below (transport), with 24px borderless hit-boxes inside
-   them. They live on :root rather than .stage-monitor because the source monitor
-   and the WebCodecs monitor share the same band classes and must stay in step. */
+   contract for every monitor band: ONE 28px chrome row (transport) below the
+   picture, with 24px borderless hit-boxes inside it. They live on :root rather
+   than .stage-monitor because the source monitor and the WebCodecs monitor share
+   the same band classes and must stay in step.
+
+   The band that used to sit ABOVE the picture — Source/Program plus the view
+   controls — now renders in the application bar's empty middle instead (see
+   `.topbar-monitor`), returning its 28px and its rule to the frame. It keeps
+   these same measurements when no topbar is present to hoist it into. */
 :root {
   /* A chrome band's row height. 28px fits a 24px control with 2px of air. */
   --monitor-row-h: 28px;
@@ -3324,6 +3354,44 @@ input[type='checkbox']:focus-visible {
   border-bottom: 1px solid var(--line);
 }
 
+/* Hoisted into the application bar. It is no longer a band ABOVE the picture —
+   it is a group INSIDE another surface, so it drops the three things that made
+   it a band: its own background, its bottom rule, and the full width it used to
+   push its two halves apart with. Height comes from the topbar. */
+/* `left`/`right` come from `Editor`, measured off the monitor column, so the
+   switch sits on the picture's left edge and the view controls on its right —
+   `margin-left: auto` on the actions does the rest. */
+.monitor-header[data-hoisted='true'] {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  /* The theme floors the standalone band at 42px; here the bar's own height is
+     the floor, and 42 of 44 would leave the row a pixel off-centre. */
+  min-height: 0;
+  padding: 0 var(--space-2);
+  background: none;
+  border-bottom: none;
+}
+
+/* Full height, so each rule runs the whole bar and meets the topbar's own
+   bottom border — where `.rail-left`'s `border-right` (or `.rail-right`'s
+   `border-left`) picks it up. Same `--line` for the same reason: it IS that
+   border, continued. Drawn only on a side that actually reached the column's
+   edge; see `rulesLeft`/`rulesRight`. */
+.monitor-header[data-rule-left='true'] {
+  border-left: 1px solid var(--line);
+}
+
+.monitor-header[data-rule-right='true'] {
+  border-right: 1px solid var(--line);
+}
+
+/* No scroll gutter in a bar with no spare height to show one; the topbar's own
+   flex shrinks this cluster instead. */
+.monitor-header[data-hoisted='true'] .monitor-header-actions {
+  overflow-x: visible;
+}
+
 .monitor-tabs {
   display: flex;
   gap: 0.25rem;
@@ -3333,6 +3401,8 @@ input[type='checkbox']:focus-visible {
 
 .monitor-header-actions {
   display: flex;
+  align-items: center;
+  gap: var(--space-1);
   justify-content: flex-end;
   min-width: 0;
   margin-left: auto;

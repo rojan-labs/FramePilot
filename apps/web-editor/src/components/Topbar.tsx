@@ -81,6 +81,17 @@ export interface TopbarProps {
   readonly transcriptionOpen?: boolean;
   readonly onOpenShortcuts: () => void;
   readonly onOpenSettings: () => void;
+  /**
+   * Receives the empty box in the middle of the bar, for the editor to portal
+   * the monitor's Source/Program switch and view controls into.
+   *
+   * A callback ref rather than a rendered child because the owner of those
+   * controls is `Editor`, a SIBLING of this component — the monitor tab state
+   * they read lives there, and hoisting it into `App` just to render it here
+   * would drag the whole monitor's state up two levels to win 29px of picture.
+   * `null` on unmount so the portal tears down with the bar.
+   */
+  readonly onMonitorSlotRef?: (element: HTMLDivElement | null) => void;
 }
 
 export function Topbar({
@@ -105,6 +116,7 @@ export function Topbar({
   transcriptionOpen = false,
   onOpenShortcuts,
   onOpenSettings,
+  onMonitorSlotRef,
 }: TopbarProps): JSX.Element {
   const hasPath = path.trim() !== '';
   const { settings, update: updateSettings } = useSettings();
@@ -269,6 +281,10 @@ export function Topbar({
           </span>
         </Tooltip>
       </span>
+
+      {/* Filled by `Editor` through a portal; empty (and zero-height) in any
+          render without a monitor, such as the Topbar's own tests. */}
+      <div className="topbar-monitor" ref={onMonitorSlotRef ?? null} />
 
       {/* Every tooltip in the header opens DOWNWARD: the topbar sits flush against
           the window's top edge, so a default top-placed bubble is clipped (or

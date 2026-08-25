@@ -97,7 +97,7 @@
 /* Application chrome ----------------------------------------------------- */
 
 .topbar {
-  height: 54px;
+  height: 44px;
   gap: 10px;
   padding: 0 14px;
   background: var(--bg-surface);

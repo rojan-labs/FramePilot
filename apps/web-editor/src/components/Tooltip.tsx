@@ -69,6 +69,36 @@ interface Coords {
   readonly transform: string;
 }
 
+/** Keep-clear margin from the window edge, used by both the flip and the clamp. */
+const VIEWPORT_MARGIN = 8;
+/**
+ * Bubble height assumed on the first positioning pass, before it has been laid
+ * out and can be measured. One line of tooltip text plus its padding; only ever
+ * used to decide a flip, where being a few pixels out changes nothing.
+ */
+const ASSUMED_BUBBLE_H = 28;
+
+/**
+ * Flip a `top` bubble below its anchor when there is no room above it.
+ *
+ * A control in the 44px application bar sits ~14px from the window's top edge,
+ * so a bubble drawn upward from it lands off-screen — the reason the topbar's
+ * own controls each pass `placement="bottom"` by hand. Anything portalled INTO
+ * that bar (the monitor's view controls) cannot know it is there, so the
+ * decision belongs here, where the anchor rect is already in hand.
+ *
+ * Only `top` flips. `left`/`right` are asked for to avoid covering something
+ * specific, and turning them into a `bottom` would defeat that.
+ */
+function resolvePlacement(
+  rect: DOMRect,
+  placement: TooltipPlacement,
+  bubbleHeight: number,
+): TooltipPlacement {
+  if (placement !== 'top') return placement;
+  return rect.top - GAP - bubbleHeight < VIEWPORT_MARGIN ? 'bottom' : 'top';
+}
+
 /** Compute fixed coordinates for the bubble from the anchor rect + placement. */
 function placeAt(rect: DOMRect, placement: TooltipPlacement): Coords {
   switch (placement) {
@@ -134,7 +164,9 @@ export function Tooltip({
     if (!open) return;
     const update = (): void => {
       const rect = anchorRef.current?.getBoundingClientRect();
-      if (rect) setCoords(placeAt(rect, placement));
+      if (!rect) return;
+      const height = bubbleRef.current?.offsetHeight ?? ASSUMED_BUBBLE_H;
+      setCoords(placeAt(rect, resolvePlacement(rect, placement, height)));
     };
     update();
     window.addEventListener('scroll', update, true);
@@ -156,12 +188,11 @@ export function Tooltip({
       return;
     }
     const width = bubbleRef.current?.offsetWidth ?? 0;
-    const margin = 8;
     const leftEdge = coords.left - width / 2;
     const rightEdge = coords.left + width / 2;
-    if (leftEdge < margin) setShiftX(margin - leftEdge);
-    else if (rightEdge > window.innerWidth - margin)
-      setShiftX(window.innerWidth - margin - rightEdge);
+    if (leftEdge < VIEWPORT_MARGIN) setShiftX(VIEWPORT_MARGIN - leftEdge);
+    else if (rightEdge > window.innerWidth - VIEWPORT_MARGIN)
+      setShiftX(window.innerWidth - VIEWPORT_MARGIN - rightEdge);
     else setShiftX(0);
   }, [open, coords, placement, label, shortcut]);
 

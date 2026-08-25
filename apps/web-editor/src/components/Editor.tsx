@@ -43,6 +43,7 @@ import { MediaBin } from './MediaBin.js';
 import { EffectsPanel } from './EffectsPanel.js';
 import { OverlaysPanel } from './OverlaysPanel.js';
 import { TransitionsPanel } from './TransitionsPanel.js';
+import { MonitorHeaderPortal } from './MonitorHeaderPortal.js';
 import { SoundsPanel } from './SoundsPanel.js';
 import { StockPanel } from './StockPanel.js';
 import {
@@ -92,6 +93,15 @@ export interface EditorProps {
   readonly onToggleHelp?: () => void;
   /** Open the Settings dialog (`⌘,`), optionally deep-linked to a tab (H2). */
   readonly onOpenSettings?: (section?: SettingsSection) => void;
+  /**
+   * The Topbar's centre box (owned by {@link App}), where the Source/Program
+   * switch and the monitor's view controls render.
+   *
+   * Absent — in a standalone Editor render or a test — and the band falls back
+   * to its own row above the picture, so the monitor is never left without its
+   * controls just because there is no application bar around it.
+   */
+  readonly monitorHeaderSlot?: HTMLElement | null;
   /** Whether the project history panel is open (owned by {@link App}). */
   readonly historyOpen?: boolean;
   /** Toggle the history panel (`⌘⇧H`). */
@@ -190,6 +200,7 @@ export function Editor({
   onCloseUnderstanding,
   transcriptionOpen = false,
   onCloseTranscription,
+  monitorHeaderSlot = null,
 }: EditorProps): JSX.Element {
   const editor = useEditor(project.timeline, {
     assets: project.assets,
@@ -212,6 +223,69 @@ export function Editor({
   const [monitorHeaderControlsHost, setMonitorHeaderControlsHost] = useState<HTMLDivElement | null>(
     null,
   );
+  /**
+   * The monitor column, measured so the hoisted header band can be pinned to
+   * exactly its left and right edges up in the application bar.
+   *
+   * Measured rather than derived from the persisted rail widths: those are one
+   * input among several — a collapsed rail, the activity bar, a splitter drag
+   * mid-gesture — and re-deriving the column's position from them would be a
+   * second implementation of the layout that is wrong whenever the first
+   * changes. The element already knows where it is.
+   *
+   * Both numbers are insets from the topbar's centre slot, not from the window,
+   * so the band can never escape the space that slot reserves.
+   */
+  const stageMonitorRef = useRef<HTMLDivElement | null>(null);
+  const [monitorBandInset, setMonitorBandInset] = useState<{
+    readonly left: number;
+    readonly right: number;
+    /** Whether that edge really landed on the column's, and so earns a rule. */
+    readonly rulesLeft: boolean;
+    readonly rulesRight: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    const stage = stageMonitorRef.current;
+    if (stage === null || monitorHeaderSlot === null) {
+      setMonitorBandInset(null);
+      return;
+    }
+    const measure = (): void => {
+      const column = stage.getBoundingClientRect();
+      const slot = monitorHeaderSlot.getBoundingClientRect();
+      // Minus one on each side so the band's own rules land ON the rail borders
+      // rather than one pixel inside them: `.rail-left`'s `border-right` and
+      // `.rail-right`'s `border-left` sit OUTSIDE the column's rect, and the
+      // whole point is for the two hairlines to read as those same borders
+      // carried up through the bar.
+      //
+      // Clamped at zero against the slot — the free span between the brand and
+      // the window actions — so collapsing a rail widens the column past what
+      // the bar can spare and the band stops at that edge instead of sliding
+      // under Export.
+      const left = column.left - 1 - slot.left;
+      const right = slot.right - (column.right + 1);
+      // A hairline is only drawn on the side that actually reached the column's
+      // edge. Clamped, it would be a rule with nothing below it to continue —
+      // which reads as a stray line, not as the rail border carried upward.
+      setMonitorBandInset({
+        left: Math.max(0, left),
+        right: Math.max(0, right),
+        rulesLeft: left >= 0,
+        rulesRight: right >= 0,
+      });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(stage);
+    observer.observe(monitorHeaderSlot);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [monitorHeaderSlot]);
   const [sourceAsset, setSourceAsset] = useState<Asset | undefined>(undefined);
   const openInSource = useCallback((asset: Asset) => {
     setSourceAsset(asset);
@@ -690,53 +764,69 @@ export function Editor({
         ),
       }}
       center={
-        <div className="stage-monitor">
-          <div className="monitor-header">
+        <div className="stage-monitor" ref={stageMonitorRef}>
+          {/* The band lives in the application bar when there is one — see
+              `.topbar-monitor`. `data-hoisted` is what drops its own background
+              and bottom rule and pins it to the measured column edges: up there
+              it is part of the bar's surface, not a strip laid over the picture. */}
+          <MonitorHeaderPortal host={monitorHeaderSlot}>
             <div
-              className="monitor-tabs segmented"
-              role="tablist"
-              aria-label="monitor"
-              onKeyDown={(event) => {
-                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-                const tabs = Array.from(
-                  event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
-                );
-                const from = tabs.indexOf(event.target as HTMLButtonElement);
-                const next = tabs[event.key === 'ArrowRight' ? from + 1 : from - 1];
-                if (!next) return;
-                event.preventDefault();
-                next.focus();
-              }}
+              className="monitor-header"
+              {...(monitorHeaderSlot ? { 'data-hoisted': 'true' } : {})}
+              {...(monitorBandInset
+                ? {
+                    style: { left: monitorBandInset.left, right: monitorBandInset.right },
+                    'data-rule-left': monitorBandInset.rulesLeft ? 'true' : undefined,
+                    'data-rule-right': monitorBandInset.rulesRight ? 'true' : undefined,
+                  }
+                : {})}
             >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={monitorTab === 'source'}
-                aria-controls="monitor-source"
-                tabIndex={monitorTab === 'source' ? 0 : -1}
-                className={`monitor-tab${monitorTab === 'source' ? ' is-active' : ''}`}
-                onClick={() => setMonitorTab('source')}
+              <div
+                className="monitor-tabs segmented"
+                role="tablist"
+                aria-label="monitor"
+                onKeyDown={(event) => {
+                  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                  const tabs = Array.from(
+                    event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+                  );
+                  const from = tabs.indexOf(event.target as HTMLButtonElement);
+                  const next = tabs[event.key === 'ArrowRight' ? from + 1 : from - 1];
+                  if (!next) return;
+                  event.preventDefault();
+                  next.focus();
+                }}
               >
-                Source
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={monitorTab === 'program'}
-                aria-controls="monitor-program"
-                tabIndex={monitorTab === 'program' ? 0 : -1}
-                className={`monitor-tab${monitorTab === 'program' ? ' is-active' : ''}`}
-                onClick={() => setMonitorTab('program')}
-              >
-                Program
-              </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={monitorTab === 'source'}
+                  aria-controls="monitor-source"
+                  tabIndex={monitorTab === 'source' ? 0 : -1}
+                  className={`monitor-tab${monitorTab === 'source' ? ' is-active' : ''}`}
+                  onClick={() => setMonitorTab('source')}
+                >
+                  Source
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={monitorTab === 'program'}
+                  aria-controls="monitor-program"
+                  tabIndex={monitorTab === 'program' ? 0 : -1}
+                  className={`monitor-tab${monitorTab === 'program' ? ' is-active' : ''}`}
+                  onClick={() => setMonitorTab('program')}
+                >
+                  Program
+                </button>
+              </div>
+              <div
+                ref={setMonitorHeaderControlsHost}
+                className="monitor-header-actions"
+                aria-label="monitor view controls"
+              />
             </div>
-            <div
-              ref={setMonitorHeaderControlsHost}
-              className="monitor-header-actions"
-              aria-label="monitor view controls"
-            />
-          </div>
+          </MonitorHeaderPortal>
           <div
             className="monitor-tab-body"
             id={monitorTab === 'source' ? 'monitor-source' : 'monitor-program'}
