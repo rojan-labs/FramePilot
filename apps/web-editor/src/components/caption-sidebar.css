@@ -216,6 +216,16 @@
   text-align: end;
 }
 
+/* Everything stacked ABOVE the cue list must refuse to flex-shrink. Mounting
+   "Return to current caption" (order 5) asks this column for ~30px mid-session;
+   if these rows give it up, the whole cue list jumps under the pointer between
+   mousedown and mouseup — the press lands on a different row/action and clicks
+   silently die. Squeeze the rows below the list instead. */
+.caption-workspace-host[data-caption-tab='review'] .caption-search-row,
+.caption-workspace-host[data-caption-tab='review'] .caption-selection-bar {
+  flex-shrink: 0;
+}
+
 .caption-workspace-host[data-caption-tab='review'] .caption-selection-bar {
   order: 2;
   align-items: center;
