@@ -15,6 +15,7 @@ import {
   explicitCoverage,
   explicitMinShotCount,
   hasCheckableAcceptance,
+  unmeetableDeliverables,
 } from './acceptance.js';
 
 describe('explicitMinShotCount', () => {
@@ -128,6 +129,70 @@ describe('checkableAcceptance', () => {
     expect(acceptanceCriteria(acceptance)[0]).toContain(
       'Every picture clip carries its own reframe',
     );
+  });
+});
+
+/**
+ * GAP-009. A captured brief specified, per scene, a voiceover and sound effects — and told
+ * the agent it had a sound-effects search tool. Neither exists in the registry: no
+ * text-to-speech, and no SFX catalogue (`search_music` is music, `search_stock` is picture).
+ * The run searched for neither, mentioned neither, and would have delivered a silent,
+ * effect-less cut against a brief whose every scene asked for both.
+ *
+ * The precedent is `deliverableFile`, which exists for exactly this reason and covered
+ * exactly one case. This is disclosure, not capability.
+ */
+describe('unmeetableDeliverables', () => {
+  it('spots a request to generate narration', () => {
+    expect(unmeetableDeliverables('add a voiceover explaining the story')).toEqual(['voiceover']);
+    expect(unmeetableDeliverables('I need AI narration over the b-roll')).toEqual(['voiceover']);
+  });
+
+  // The narrow half of the rule. Cutting to narration the project ALREADY has is ordinary
+  // work the agent does well, and flagging it would be a false alarm on a normal request.
+  it('does not flag editing against a voiceover that already exists', () => {
+    expect(unmeetableDeliverables('cut on the beats of the voiceover')).toEqual([]);
+    expect(unmeetableDeliverables('duck the music under the narration')).toEqual([]);
+  });
+
+  it('spots sound-effect sourcing by the words editors actually use', () => {
+    expect(unmeetableDeliverables('whoosh transitions and a bass hit on the reveal')).toEqual([
+      'soundEffects',
+    ]);
+    expect(unmeetableDeliverables('add sfx for each cut')).toEqual(['soundEffects']);
+  });
+
+  it('reports both when a brief asks for both', () => {
+    expect(
+      unmeetableDeliverables('Add a voiceover, plus sound effects on every transition.'),
+    ).toEqual(['voiceover', 'soundEffects']);
+  });
+
+  // How the captured brief actually asked: a scene template with a "Voiceover:" field the
+  // writer expects filled in. No verb, no article — invisible to both rules above.
+  it('spots a scene template’s own voiceover field', () => {
+    expect(unmeetableDeliverables('## SCENE 1\n\n**Voiceover:** "One tiny mistake."')).toEqual([
+      'voiceover',
+    ]);
+    expect(unmeetableDeliverables('For every scene specify:\n* Voiceover or dialogue:')).toEqual([
+      'voiceover',
+    ]);
+  });
+
+  it('says nothing about an ordinary editing request', () => {
+    expect(unmeetableDeliverables('cut this to 60 seconds and caption it')).toEqual([]);
+  });
+
+  it('becomes a criterion the run has to answer for, naming the way forward', () => {
+    const prompt = 'a 30s reel with a voiceover and whoosh transitions';
+    const acceptance = checkableAcceptance(prompt, 30);
+    expect(acceptance.unmeetable).toEqual(['voiceover', 'soundEffects']);
+    expect(hasCheckableAcceptance(acceptance)).toBe(true);
+    const criteria = acceptanceCriteria(acceptance).join('\n');
+    // Not just "cannot": what the editor can do instead.
+    expect(criteria).toMatch(/no text-to-speech/i);
+    expect(criteria).toMatch(/Record or import a voice track/i);
+    expect(criteria).toMatch(/Import the effects you want/i);
   });
 });
 
