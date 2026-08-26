@@ -137,6 +137,8 @@ describe('stockPlacementConflictReason', () => {
     const reason = stockPlacementConflictReason(tl, [existingVideo], 2, 6)!;
     expect(reason).toContain('2.0s');
     expect(reason).toContain('8.0s');
-    expect(reason).toMatch(/empty stretch/);
+    // The refusal has to end somewhere actionable. 10s is the end of the clip
+    // in the way, and nothing follows it.
+    expect(reason).toMatch(/starts at 10.0s/);
   });
 });

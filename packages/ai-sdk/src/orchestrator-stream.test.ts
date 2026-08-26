@@ -2937,6 +2937,91 @@ describe('streamAgent host tool execution (Phase T)', () => {
       });
     });
 
+    // THE run.md sequence. One placement lands at the head, then four more clips
+    // arrive with no position — the shape a reel actually gets built in. Every
+    // one of those four failed instantly in the captured run, because the
+    // desktop host read an absent position as `0` and refused them all against
+    // the clip that had just landed (see `apps/desktop/electron/ai/stock-host.ts`).
+    it('gathers four more clips after a placement has landed at the head', async () => {
+      const place = {
+        id: 'p1',
+        name: 'add_stock',
+        arguments: { remoteId: 'px_1', kind: 'video' as const, atSeconds: 12 },
+      };
+      const gathers = ['8475065', '854232', '7087631', '5377991'].map((remoteId, index) => ({
+        id: `g${index}`,
+        name: 'add_stock',
+        arguments: { remoteId, kind: 'video' as const },
+      }));
+      const provider = new ScriptedProvider([
+        { text: 'placing the opener', toolCalls: [place] },
+        { text: 'gathering the rest of the bank', toolCalls: gathers },
+        { text: 'done', toolCalls: [] },
+      ]);
+      // Each download is a distinct asset, and the host echoes a position only
+      // when it was given one — the contract `stock-host.ts` now honours.
+      const executor = {
+        run: async (toolCall: { arguments: Record<string, unknown> }): Promise<HostToolOutcome> => {
+          const remoteId = String(toolCall.arguments.remoteId);
+          return {
+            status: 'completed' as const,
+            summary: `Downloaded "media/stock/${remoteId}.mp4".`,
+            data: {
+              asset: {
+                ...stockAsset,
+                id: `stock_pexels_${remoteId}`,
+                path: `media/stock/${remoteId}.mp4`,
+                source: { ...stockAsset.source, remoteId },
+              },
+              ...(toolCall.arguments.atSeconds === undefined
+                ? {}
+                : { atSeconds: toolCall.arguments.atSeconds }),
+            },
+          };
+        },
+      };
+      const events = await drain(
+        new Orchestrator(provider, { executor }).streamAgent(input, opts()),
+      );
+
+      // Not one instant refusal among them.
+      for (const gather of gathers) {
+        expect(
+          events.filter((e) => e.type === 'tool_call' && e.id === gather.id).at(-1),
+        ).toMatchObject({ status: 'completed' });
+      }
+      expect(events.filter((e) => e.type === 'tool_call' && e.id === 'p1').at(-1)).toMatchObject({
+        status: 'completed',
+      });
+
+      // Each gather sees the state its predecessors produced: five distinct
+      // assets in the bin, and only the placed one on the timeline.
+      const added = events
+        .filter((e) => e.type === 'diff')
+        .flatMap((e) => (e.type === 'diff' ? (e.edit.patch.operations as AnyOperation[]) : []));
+      const assetIds = added
+        .filter((op) => op.type === 'add_asset')
+        .map((op) => (op as { asset: { id: string } }).asset.id);
+      expect(new Set(assetIds).size).toBe(5);
+      expect(added.filter((op) => op.type === 'add_clip')).toHaveLength(1);
+    });
+
+    // A refusal the model cannot act on is how the captured run stalled: it was
+    // told what was wrong and never where to go instead.
+    it('tells the model where the clip does fit when it refuses a placement', async () => {
+      const events = await drain(
+        new Orchestrator(stockProvider(), {
+          executor: hostRun({ asset: stockAsset, atSeconds: 2 }),
+        }).streamAgent(input, opts()),
+      );
+      const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 's1');
+      const summary = result?.type === 'tool_result' ? result.summary : '';
+      expect(summary).toMatch(/already picture on the timeline/);
+      // A number it can pass straight back as `atSeconds`.
+      expect(summary).toMatch(/starts at \d+\.\ds/);
+      expect(summary).not.toMatch(/pick an empty stretch/);
+    });
+
     it('fails closed when the host returns no usable asset — never "added" on an unchanged timeline', async () => {
       const events = await drain(
         new Orchestrator(stockProvider(), { executor: hostRun(undefined) }).streamAgent(

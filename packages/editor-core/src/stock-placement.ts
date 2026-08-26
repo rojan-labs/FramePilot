@@ -23,7 +23,7 @@
 import type { Asset, Timeline, Track } from '@framepilot/timeline-schema';
 import type { AnyOperation } from './patch.js';
 import { CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID } from './operations.js';
-import { picturePlacementConflict } from './picture-occupancy.js';
+import { firstFreePictureStart, picturePlacementConflict } from './picture-occupancy.js';
 
 /**
  * Length given to a still, matching the renderer's `DEFAULT_CLIP_SECONDS`: a
@@ -256,6 +256,13 @@ export function buildAddStockOps(
  * so the agent's host can decline *before* spending a download. Shares the
  * predicate with the builder, so the three answers cannot disagree.
  *
+ * The sentence NAMES A FREE MOMENT rather than stopping at "pick an empty
+ * stretch". A person can scrub the timeline and find one; the agent cannot see
+ * it, and a captured run re-proposed the same occupied moment four times because
+ * the refusal said what was wrong and never what to do instead. The suggestion
+ * comes from the same spans the refusal was computed over, so it can never name
+ * a moment this function would then reject.
+ *
  * @param timeline - Current timeline.
  * @param assets - The project's asset bin.
  * @param atStart - Desired timeline start (seconds); clamped to >= 0.
@@ -270,9 +277,10 @@ export function stockPlacementConflictReason(
   const start = atStart < 0 ? 0 : atStart;
   const end = start + durationSeconds;
   if (!picturePlacementConflict(timeline, assets, start, end)) return null;
+  const free = firstFreePictureStart(timeline, assets, durationSeconds, start);
   return (
     `There is already picture on the timeline between ${start.toFixed(1)}s and ` +
     `${end.toFixed(1)}s. Stock cannot sit on top of existing footage yet — ` +
-    `pick an empty stretch.`
+    `the first stretch long enough for this clip starts at ${free.toFixed(1)}s.`
   );
 }

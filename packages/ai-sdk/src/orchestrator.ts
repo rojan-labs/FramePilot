@@ -2835,7 +2835,10 @@ export class Orchestrator {
         const placement = stockOpsFromPayload(ctx.project, parsed.data);
         if (!placement.ok) {
           const note = `Rejected "add_stock" — ${placement.reason}`;
-          return { ops: [], note, summary: note, status: 'failed', data: note };
+          // The refusal goes back as DATA, not only as prose: the sentence is
+          // what the model reads, the fields are what a caller acts on, and both
+          // are built from the same numbers so they cannot disagree.
+          return { ops: [], note, summary: note, status: 'failed', data: placement.refusal };
         }
         const ops = [...placement.operations];
         const probe = assembleEdit(ctx.project, ops, 'Add stock media', 'agent');

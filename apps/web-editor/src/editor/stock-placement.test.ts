@@ -189,7 +189,8 @@ describe('stockPlacementBlockedReason', () => {
   it('names the problem and the fix, not just the problem', () => {
     const reason = stockPlacementBlockedReason(demoTimeline, assetById, 2, 5);
     expect(reason).toMatch(/already footage/i);
-    expect(reason).toMatch(/move the playhead|make a gap/i);
+    // The fix has to be a place, not an instruction to go looking for one.
+    expect(reason).toMatch(/move it to \d+\.\ds/i);
   });
 
   it('is null where placement would succeed', () => {

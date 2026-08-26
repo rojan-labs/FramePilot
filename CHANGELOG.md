@@ -107,6 +107,22 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant can gather several stock clips again instead of failing on all but the
+  first.** Asked to build a reel, it would download one clip, then be turned away from every
+  clip after it with "there is already picture on the timeline" — four instant refusals in a
+  row, against footage it had just added itself. Collecting candidates into your media bin
+  before deciding their order is supposed to be free of any timeline check, because nothing
+  is being placed yet; on the desktop app that check was running anyway, against a position
+  nobody had asked for. It no longer is, so a reel can be built from a bank of clips the way
+  it was meant to be.
+
+- **"Pick an empty stretch" now says which stretch.** When stock media genuinely can't go
+  where you asked — it still can't sit on top of existing footage, because the preview shows
+  one picture layer at a time while the export layers them — the message names the first
+  moment long enough to hold the clip. The Stock panel says where to move the playhead to,
+  and the assistant gets a timecode it can use directly rather than guessing again at the
+  spot it was just refused. (ADR 0145)
+
 - **The assistant can put footage in your video again, at any point in the edit.** Ask for a
   reel on an empty project and it would search a stock library, find eighty usable clips,
   and deliver thirty seconds of text on a black screen. Two separate rules were closing the

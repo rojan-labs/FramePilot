@@ -39,11 +39,7 @@ import {
   type OpenDialogOptions,
 } from 'electron';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
-import {
-  DEFAULT_STOCK_STILL_SECONDS,
-  type Patch,
-  stockPlacementConflictReason,
-} from '@framepilot/editor-core';
+import type { Patch } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
 import {
   readProjectFile,
@@ -190,6 +186,7 @@ import { StockService, isStockKind } from './media/stock-service.js';
 
 import { StockQuotaStore } from './media/stock-quota.js';
 import { musicErrorMessage, stockErrorMessage } from '@framepilot/ai-sdk';
+import { createStockHost } from './ai/stock-host.js';
 import { LocalTelemetry, telemetryEnabledFromEnv } from './telemetry/telemetry.js';
 import { resolveUpdateChannel } from './updater/channel.js';
 import { createAutoUpdaterProvider, type AutoUpdaterLike } from './updater/auto-updater.js';
@@ -2044,84 +2041,11 @@ function registerIpcHandlers(): void {
   };
 
   /**
-   * `add_stock` for the agent — download and materialize; the ORCHESTRATOR turns
-   * the returned asset into operations. This function deliberately produces no
-   * timeline change of its own (AGENTS.md invariant 5).
-   *
-   * The placement refusal is checked HERE, before spending a download, because
-   * the answer does not depend on the bytes: if the span already holds picture
-   * media, the clip cannot be placed however good it turns out to be.
+   * `add_stock` for the agent. The decision it carries — what an absent
+   * `atSeconds` means — lives in `ai/stock-host.ts` where it can be tested
+   * against the orchestrator's matching rule.
    */
-  const hostAddStock = async (
-    project: Project,
-    args: {
-      readonly remoteId: string;
-      readonly kind: 'photo' | 'video';
-      readonly atSeconds?: number;
-    },
-  ): Promise<HostToolOutcome> => {
-    const { remoteId, atSeconds } = args;
-    // One owner for "can this id be acted on", so the sentence the model gets names the
-    // session boundary rather than leaving it to guess why a valid id stopped working.
-    const unresolvable = stockService.unresolvableReason(remoteId);
-    if (unresolvable !== null) {
-      return { status: 'failed', summary: unresolvable };
-    }
-    const item = stockService.knownItem(remoteId)!;
-
-    const start = Math.max(0, atSeconds ?? 0);
-    // A still has no duration of its own; the placement builder gives it the
-    // same default length a dragged-in image gets, and the occupancy check has
-    // to use the same number or the two would disagree about what fits.
-    const durationSeconds = item.durationSeconds ?? DEFAULT_STOCK_STILL_SECONDS;
-    // Stated, not silently worked around. Stacking would preview differently from
-    // how it renders, and reporting success on a stacked clip would be a completed
-    // edit that lies. The sentence comes from `editor-core` so this pre-download
-    // refusal and the orchestrator's post-download one cannot word it differently.
-    const conflict = stockPlacementConflictReason(
-      project.timeline,
-      project.assets,
-      start,
-      durationSeconds,
-    );
-    if (conflict !== null) {
-      return { status: 'failed', summary: conflict };
-    }
-
-    const result = await stockService.download({
-      projectId: project.id,
-      remoteId,
-      targetHeight: project.resolution?.height ?? 1080,
-      ...(project.fps ? { targetFps: project.fps } : {}),
-      operationId: `agent_${remoteId}_${Date.now()}`,
-    });
-    if (!result.ok) {
-      return { status: 'failed', summary: stockErrorMessage(result.error, result.detail) };
-    }
-    const { asset } = result;
-    return {
-      status: 'completed',
-      summary: `Downloaded "${asset.relativePath}".`,
-      data: {
-        asset: {
-          id: `stock_${asset.source.provider}_${asset.source.remoteId}`.replace(
-            /[^a-zA-Z0-9_]/g,
-            '_',
-          ),
-          path: asset.relativePath,
-          kind: asset.kind,
-          ...(asset.durationSeconds === undefined
-            ? {}
-            : { durationSeconds: asset.durationSeconds }),
-          ...(asset.media ? { media: asset.media } : {}),
-          source: asset.source,
-        },
-        // Echoed back so the ORCHESTRATOR owns the placement decision; this
-        // function still produces no timeline change of its own.
-        atSeconds: start,
-      },
-    };
-  };
+  const hostAddStock = createStockHost(stockService);
 
   const sidecarToolExecutor = createSidecarExecutor({
     baseUrl: engineBaseUrl,

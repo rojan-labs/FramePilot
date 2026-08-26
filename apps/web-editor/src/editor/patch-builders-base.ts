@@ -14,6 +14,7 @@
 import {
   buildAddMusicOps,
   buildAddStockOps,
+  firstFreePictureStart,
   nextMusicLayerId,
   picturePlacementConflict as corePicturePlacementConflict,
   type AdjustAudioOp,
@@ -1599,6 +1600,12 @@ export function addStockClipPatch(
  * Split out so the panel can disable **Add** with a reason *before* the user
  * clicks, rather than letting them click and then explaining. Shares the
  * predicate with the builder, so the two cannot disagree.
+ *
+ * Keeps the panel's own framing — the user is placing at the playhead and that
+ * is what they can move — but names the SAME free moment the agent's refusal
+ * names, from the same helper. "Make a gap" was true and useless; a person
+ * still had to scrub for the spot, and the agent, which cannot scrub, re-asked
+ * for the occupied one four times.
  */
 export function stockPlacementBlockedReason(
   timeline: Timeline,
@@ -1608,7 +1615,11 @@ export function stockPlacementBlockedReason(
 ): string | null {
   const start = atStart < 0 ? 0 : atStart;
   if (!picturePlacementConflict(timeline, assetById, start, start + durationSeconds)) return null;
-  return "There's already footage at the playhead — move the playhead, or make a gap.";
+  const free = firstFreePictureStart(timeline, [...assetById.values()], durationSeconds, start);
+  return (
+    `There's already footage at the playhead — move it to ${free.toFixed(1)}s, ` +
+    `the first gap long enough for this clip.`
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -104,8 +104,25 @@ refused, recorded both as `succeeded`, and was cancelled by the user.
 10. **The main-process commit path had no tests.** Gaps 1, 2 and 8 all lived there.
     `decideCommitTarget` and `unresolvableAddedAssets` are extracted and covered.
 
-Evidence: ai-sdk 3325, editor-core 918, desktop 467, web-editor 2588, mcp-server 135, engine
-2621 — all green; workspace typecheck and per-package lint clean. Three golden corpora
+11. **The bin-gather mode never reached the desktop app.** Gap 5 above landed in
+    `editor-core`, the orchestrator and the tool description, but not in `main.ts`, where
+    `atSeconds ?? 0` still turned "no position" into "position 0". So it ran the ADR 0140
+    occupancy gate against a span nobody asked for, and echoed `atSeconds: 0` back — which
+    made the orchestrator's `undefined` branch unreachable on the priority surface. Captured
+    run `8e717596` shows the result: one `add_stock` succeeded in 4.4s, the next four failed
+    in under 70ms each against the clip it had just placed. Extracted to
+    `apps/desktop/electron/ai/stock-host.ts` behind an injected `StockHostIO` and tested
+    against the orchestrator's matching rule. ADR 0145.
+12. **A refusal named the problem and never the remedy.** "Pick an empty stretch" is
+    actionable for someone who can scrub the timeline and useless to an agent that cannot.
+    `firstFreePictureStart` joins `picturePlacementConflict` in `picture-occupancy.ts`,
+    computed from the same merged spans so a suggestion can never name a moment the predicate
+    then refuses; the agent refusal, the host's pre-download refusal and the Stock panel's
+    disabled **Add** all name it, and the orchestrator also returns it as data
+    (`StockPlacementRefusal`). ADR 0145.
+
+Evidence: ai-sdk 3346, editor-core 925, desktop 477, web-editor 2595, mcp-server 135, engine
+2624 — all green; workspace typecheck and per-package lint clean. Three golden corpora
 regenerated; every delta inspected and attributable (+77 tokens/turn of tool descriptors, the
 acceptance criterion changing from a copy of the request to a pointer, operations gaining
 `patchId`, facts gaining the evidence citations they always should have carried, and the
@@ -113,6 +130,14 @@ acceptance criterion changing from a copy of the request to a pointer, operation
 
 Not addressed, and deliberately: whether to BUILD narration or SFX sourcing is a product
 decision, not a gap — item 9 is disclosure only.
+
+Not addressed, and deliberately: stock still does not STACK. Run `8e717596`'s operator
+expected the AI insert to auto-layer the way the manual drag-and-drop path does (ADR 0032,
+`placeAssetPatch`), and that divergence is real — but it is the one ADR 0140 chose on
+purpose, because the preview flattens picture layers into one chain while the export
+composites them. The Stock panel's one-click **Add** does not auto-layer either, so the AI
+and UI stock paths agree today. Lifting the constraint is `SUC-P1`, a compositing project,
+and remains a maintainer decision rather than a bug fix.
 
 **Status snapshot (2026-08-25, the question surface):** `[x]` **`ask_user` is answerable and
 its answers are readable; a run that ends without settling a step no longer leaves it
@@ -7810,10 +7835,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                            Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                            a pre-existing local edit commenting out temperature forwarding, untouched here);
-                            engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                            **Last updated:** 2026-08-14
+                              Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                              a pre-existing local edit commenting out temperature forwarding, untouched here);
+                              engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                              **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 
