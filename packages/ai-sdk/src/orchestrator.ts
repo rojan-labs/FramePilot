@@ -1723,12 +1723,39 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
     case 'get_timeline_map':
     case 'map_time': {
       // `map_time` answers three shapes; only the no-argument one is the whole map.
+      // P3.2: the two POINTED shapes now answer in frames, and they used to reach the
+      // model as a JSON preview — the one call whose entire job is "do not do this
+      // arithmetic yourself" was handing back something the model had to parse.
+      if (Array.isArray(obj.hits)) {
+        const hits = obj.hits as Record<string, unknown>[];
+        if (hits.length === 0) {
+          return 'that moment of footage is not in the sequence — it was cut, or it is outside the clip';
+        }
+        return `${hits.length} place${hits.length === 1 ? '' : 's'} in the sequence (${String(
+          obj.fps ?? '?',
+        )}fps):\n${boundedRecords(
+          hits,
+          (hit) =>
+            `frame ${String(hit.sequenceFrame ?? '?')} (${round3(Number(hit.sequenceTime))}s) in ${String(hit.clipId)} on ${String(hit.trackId)}`,
+          'places',
+        )}`;
+      }
+      if (typeof obj.sequenceFrame === 'number') {
+        const at = (obj.at ?? null) as Record<string, unknown> | null;
+        const where =
+          at === null
+            ? 'nothing is playing there — a gap, or past the end of the sequence'
+            : `${String(at.clipId)} on ${String(at.trackId)}, source time ${round3(Number(at.sourceTime))}s of ${String(at.assetId)}`;
+        return `frame ${String(obj.sequenceFrame)} at ${String(obj.fps ?? '?')}fps: ${where}`;
+      }
       const spans = clipRecords(obj, 'spans');
       if (!spans) return previewJson(value, ANALYSIS_PREVIEW_MAX);
       const duration = typeof obj.duration === 'number' ? round2(obj.duration) : '?';
       return `timeline map, ${spans.length} clip${
         spans.length === 1 ? '' : 's'
-      }, sequence duration ${duration}s, revision ${String(obj.revision ?? '?')}:\n${boundedRecords(
+      }, sequence duration ${duration}s, ${String(obj.fps ?? '?')}fps, revision ${String(
+        obj.revision ?? '?',
+      )}:\n${boundedRecords(
         spans,
         sourceTimedClipLine,
         'clips',
@@ -1825,15 +1852,20 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
               .slice(0, 8)
               .map((r) => `${round3(Number(r.start))}–${round3(Number(r.end))}s`)
               .join(', ')}${runs.length > 8 ? ', …' : ''})`;
-      const head = `${words.length} mapped words${dropped}${runPart}, revision ${String(
-        obj.revision ?? '?',
-      )}`;
+      const head = `${words.length} mapped words${dropped}${runPart}, ${String(
+        obj.fps ?? '?',
+      )}fps, revision ${String(obj.revision ?? '?')}`;
       // Sequence times only: the source times are in the payload for anyone who recalls
       // it, but a cue is authored against the sequence and doubling the numbers here
       // halves how many words fit.
+      // P3.2: frames alongside seconds. A trim aimed at a word boundary has to be aimed
+      // at a FRAME, and asking the model to derive one from a float is asking it to do the
+      // arithmetic this tool exists to do for it.
       return `${head}:\n${boundedRecords(
         words,
-        (w) => `${round3(Number(w.start))}–${round3(Number(w.end))}s ${String(w.word)}`,
+        (w) =>
+          `f${String(w.startFrame ?? '?')}–${String(w.endFrame ?? '?')} ` +
+          `(${round3(Number(w.start))}–${round3(Number(w.end))}s) ${String(w.word)}`,
         'words',
         'narrow get_mapped_transcript to a window',
         WORD_DIGEST_MAX_ITEMS,
@@ -1910,10 +1942,13 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
       if (boundaries.length === 0) return 'no cuts — the sequence is one continuous clip per track';
       return `${boundaries.length} cut${boundaries.length === 1 ? '' : 's'}:\n${boundedRecords(
         boundaries,
+        // P3.2: the frame leads, because that is the unit the cut actually has. A
+        // professional editor does not think in 12.3874s; they think frame 371.
         (b) =>
-          `${round3(Number(b.at))}s ${String(b.trackId)} ${String(b.fromClipId)} → ${String(
-            b.toClipId,
-          )} (max transition ${round2(Number(b.maxTransitionSeconds))}s)`,
+          `frame ${String(b.frame ?? '?')} (${round3(Number(b.at))}s) ${String(b.trackId)} ` +
+          `${String(b.fromClipId)} → ${String(b.toClipId)} (max transition ${String(
+            b.maxTransitionFrames ?? '?',
+          )} frames / ${round2(Number(b.maxTransitionSeconds))}s)`,
         'cuts',
       )}`;
     }

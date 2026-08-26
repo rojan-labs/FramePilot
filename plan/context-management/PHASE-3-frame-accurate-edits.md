@@ -100,7 +100,7 @@ Whichever is chosen:
 
 ---
 
-## P3.2 — The agent can name a frame — `[ ]`
+## P3.2 — The agent can name a frame — `[x]`
 
 **Touches:** `domain-tools/timeline.ts` (`map_time`, `get_mapped_transcript`,
 `list_edit_boundaries` descriptors), `orchestrator.ts` (`summarizeReadResult`).
@@ -121,6 +121,25 @@ actually has:
 
 **Evidence.** A test that a cut requested at a word boundary lands on the frame
 `get_mapped_transcript` reported for that word — the round trip closes.
+
+**Shipped 2026-08-26.** Frames are added at the TOOL layer, where `ctx.project.fps` is
+available — `editor-core`'s boundary list stays fps-agnostic, and the model-facing read is
+what reports the grid.
+
+- `map_time` returns `sequenceFrame` and `fps` on both pointed shapes, and `fps` on the
+  whole map. Both pointed shapes also *gained a digest*: the one call whose entire job is
+  "use this instead of doing the arithmetic yourself" was handing its answer back as a JSON
+  preview the model had to parse.
+- `get_mapped_transcript` reports `startFrame`/`endFrame` per word, and the digest leads
+  with them (`f371–f398 (12.367–13.267s) but`).
+- `list_edit_boundaries` reports `frame` and `maxTransitionFrames`, and the digest leads
+  with the frame — an editor does not think "the cut at 0.5s", they think "the cut on
+  frame 15", and a transition's ceiling is a frame count before it is a duration.
+
+`frame-round-trip.test.ts` closes the loop through the real tools and the real patch
+authority: the frame `get_mapped_transcript` reports for a word is the frame
+`list_edit_boundaries` reports after a split aimed at it — **including when the model asks
+in raw off-grid seconds**, which is the realistic case and the one the grid exists for.
 
 ---
 

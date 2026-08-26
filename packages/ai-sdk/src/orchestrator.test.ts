@@ -1462,14 +1462,21 @@ describe('summarizeReadResult carries a verification report the run can act on',
     const boundaries = Array.from({ length: 45 }, (_, i) => ({
       trackId: 'video_main',
       at: i * 0.5,
+      frame: i * 15,
       fromClipId: `clip_${i}`,
       toClipId: `clip_${i + 1}`,
       maxTransitionSeconds: 0.25,
+      maxTransitionFrames: 8,
+      fps: 30,
     }));
     const note = summarizeReadResult('list_edit_boundaries', boundaries);
     expect(note.split('\n')[0]).toBe('45 cuts:');
     expect(note).toContain('clip_0 → clip_1');
-    expect(note).toContain('max transition 0.25s');
+    // P3.2: the frame leads. An editor does not think "the cut at 0.5s"; they think
+    // "the cut on frame 15", and a transition ceiling is a frame count before it is a
+    // duration.
+    expect(note).toContain('frame 15 (0.5s)');
+    expect(note).toContain('max transition 8 frames / 0.25s');
   });
 
   it('lists every effect id, grouped, because the ids ARE the deliverable', () => {
@@ -1561,7 +1568,7 @@ describe('summarizeReadResult carries a verification report the run can act on',
         runs: [],
         revision: 3,
       }).split('\n')[0],
-    ).toBe('1 mapped words, revision 3:');
+    ).toBe('1 mapped words, ?fps, revision 3:');
   });
 
   it('stays a readable sentence when a payload omits its optional fields', () => {
@@ -1734,12 +1741,13 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
       // of the information in it.
       runs: [{ clipId: 'c', assetId: 'a', start: 0, end: 20.2, wordCount: 81 }],
       droppedCount: 3,
+      fps: 30,
       revision: 749,
     });
     // The run bounds ride in the HEAD, because that first line becomes the run's durable
     // fact and the bounds are the only place a cue may not be broken across.
     expect(note).toContain(
-      '81 mapped words, 3 dropped by cuts in 1 speech run (0–20.2s), revision 749',
+      '81 mapped words, 3 dropped by cuts in 1 speech run (0–20.2s), 30fps, revision 749',
     );
     for (const w of words) expect(note).toContain(w.word);
   });
@@ -1749,7 +1757,7 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
       words: [{ word: 'hello', start: 0, end: 0.4 }],
       runs: [],
     });
-    expect(note).toContain('1 mapped words, revision ?');
+    expect(note).toContain('1 mapped words, ?fps, revision ?');
     expect(note).not.toContain('dropped');
   });
 
