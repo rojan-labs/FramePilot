@@ -1,4 +1,4 @@
-# Phase 3 — The cut lands on the frame it was aimed at — `[~]`
+# Phase 3 — The cut lands on the frame it was aimed at — `[x]`
 
 > **Ships:** every edit point on the timeline is a frame, the same frame in preview and in
 > export, and the agent can name the frame it wants in the vocabulary an editor uses.
@@ -143,7 +143,7 @@ in raw off-grid seconds**, which is the realistic case and the one the grid exis
 
 ---
 
-## P3.3 — The vocabulary of a real cut — `[ ]`
+## P3.3 — The vocabulary of a real cut — `[x]`
 
 **Touches:** `packages/ai-sdk/skills/*.md` (bundled playbooks), tool descriptions.
 **No new tools, no schema change.**
@@ -166,9 +166,30 @@ This is the `editing-skills-expert` agent's territory. Ground every recipe in th
 registry and the real engine — a playbook that assumes a capability the tools do not have
 is the failure mode that agent exists to prevent.
 
+**Shipped 2026-08-26.** `cut-and-transition-grammar.md` gains a *Frames, not seconds*
+section and `silence-and-filler-cutting.md` states its word-edge guard in frames. Every
+recipe names a real field of a real read:
+
+- **Cut on action** → the boundary's `frame`, moved with `professional_edit` `roll` and a
+  `frames` count (a roll changes where the cut is without changing how long either shot
+  runs, which is why it is the right primitive).
+- **Cut on the word, not through it** → `startFrame`/`endFrame` from
+  `get_mapped_transcript`; a cut strictly inside that span severs the word.
+- **J and L cuts** → `professional_edit` `j_cut`/`l_cut`, which already take a positive
+  `frames` magnitude. The skill states they need a live selection and the desktop app,
+  because they do.
+- **Handles — corrected.** The plan asks the skill to state the frames a dissolve needs
+  on both sides. **This renderer needs none**: it ramps over the incoming clip's own first
+  frames and borrows nothing from past the cut, so a dissolve never fails for want of
+  footage (`edit-boundaries.ts` module note). Writing the recipe the plan asked for would
+  have been the exact failure the `editing-skills-expert` exists to prevent — a playbook
+  assuming a capability the engine does not have. What the handles actually tell you —
+  whether the dissolve blends two shots or fades through black — is what the skill says,
+  and the real ceiling is `maxTransitionFrames`.
+
 ---
 
-## P3.4 — Preview and export agree, and it is measured — `[ ]`
+## P3.4 — Preview and export agree, and it is measured — `[x]`
 
 **Touches:** `apps/web-editor` preview seek path, `engine/python/…/render/compiler.py`,
 a new golden-media test.
@@ -183,6 +204,33 @@ An invariant nobody can currently state a number for. Make it one:
 Per `product-discipline.mdc`, a visual claim needs render-backed evidence and a long-form
 claim cannot rest on tiny fixtures. Use a real recording of a minute or more at a real
 frame rate, not a two-clip fixture.
+
+**Shipped 2026-08-26. Divergence: 0 frames — with one measured exception, recorded rather
+than papered over.**
+
+`engine/python/tests/test_render_frame_accuracy.py` exports a two-shot timeline through the
+real `export_video` pipeline and probes the exported FILE frame by frame across the cut.
+`apps/web-editor/src/editor/preview-frame-parity.test.ts` asks the editor's own picture
+selection the same question at the same frame indices. The two legs meet at
+`secondsToFrame`, because after ADR 0146 there is exactly one grid.
+
+- **At the delivery rate: 0 frames.** The cut in the file is on exactly the frame the
+  editor named, and the preview shows that same shot on that same frame.
+- **A resampling preset costs up to +1 output frame, never −1.** `pipeline.render` writes
+  `fps=preset.fps or project.fps` and **every shipped preset sets `fps=30`** — so a 24fps
+  project exported to Reels is resampled, and its frame boundaries are not boundaries of
+  the file that comes out. 24fps frame 113 is 4.708333s, a quarter of the way *into* 30fps
+  frame 141; measured, the export places the cut on the next whole output frame (142). A
+  30fps container cannot carry a 24fps boundary, so this is a container limit rather than
+  a grid failure — and the direction is the safe one: a cut a frame late shows an extra
+  frame of the outgoing shot, where a cut a frame early clips the incoming action off its
+  own first frame. Pinned by a test so that changing it is a decision.
+
+**Outstanding, and not claimed:** the sources are synthetic (`lavfi` solid colours through
+the real compiler and the real encoder). A camera original brings its own container
+timebase and B-frames. `product-discipline.mdc` forbids supporting that claim with a
+fixture, so it is not made — verifying against a camera file is real remaining work, listed
+in `plan/PLAN.md` rather than quietly folded into this checkmark.
 
 ---
 

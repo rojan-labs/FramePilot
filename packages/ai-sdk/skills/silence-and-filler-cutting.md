@@ -1,7 +1,7 @@
 ---
 name: silence-and-filler-cutting
 description: Remove hesitation, filler, and false starts while protecting performance, word boundaries, breaths, and speech continuity.
-tools: [analyze_silence, get_transcript, get_timeline_map, map_time, ripple_delete, punch_in]
+tools: [analyze_silence, get_transcript, get_mapped_transcript, get_timeline_map, map_time, ripple_delete, punch_in]
 ---
 
 # Silence and filler cutting
@@ -33,7 +33,10 @@ Remove hesitation; preserve intention.
 ## Professional heuristics
 
 - Start around 0.4–0.5s for short-form and 0.8–1.0s for long-form, then tune once from evidence.
-- Leave roughly 0.05–0.08s around kept words.
+- Leave roughly 0.05–0.08s around kept words — that is 2 frames at 30fps and 1 at 24fps,
+  so say it in frames when you name it. `get_mapped_transcript` gives every word a
+  `startFrame` and an `endFrame`; a cut that lands strictly inside that span severs the
+  word, and no audio work afterwards puts the consonant back.
 - Keep pauses after key claims and before punchlines.
 - Map source times with tools; never calculate offsets.
 - Ripple later ranges first when executing a prepared list.
@@ -48,7 +51,8 @@ Cutting every breath, using raw source times, repeated analysis, or dissolving e
 
 ## Verification checklist
 
-- No clipped consonants or incomplete thoughts.
+- No clipped consonants or incomplete thoughts — check that no cut frame falls inside a
+  word's `startFrame`–`endFrame` span, rather than listening for it after the fact.
 - Protected pauses remain.
 - No micro-clips or stale mappings remain.
 - Speech still sounds human.
