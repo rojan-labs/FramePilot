@@ -1918,15 +1918,23 @@ function registerIpcHandlers(): void {
     if (result.tracks.length === 0) {
       // Nothing matched is not a failure, but it is also NOT a success the model
       // should build on — `warning` is the arm that says "ran, nothing to do".
+      // The service has already retried this with its strongest words, so "try a
+      // broader word" would be advice the harness has taken on the model's behalf.
       return {
         status: 'warning',
-        summary: `No tracks matched "${query}". Try a broader mood word.`,
+        summary: `No tracks matched "${query}", including a retry on its strongest words. This library may not carry this mood — try a different one, or work without a bed.`,
         data: { tracks: [] },
       };
     }
+    // Name the query that actually matched. Reporting a hit for a phrase that missed
+    // teaches the model that long mood sentences work, and the next one will not.
+    const matched =
+      result.matchedQuery === undefined
+        ? `"${query}"`
+        : `"${result.matchedQuery}" (nothing matched the whole phrase "${query}")`;
     return {
       status: 'completed',
-      summary: `Found ${result.tracks.length} track${result.tracks.length === 1 ? '' : 's'} for "${query}".`,
+      summary: `Found ${result.tracks.length} track${result.tracks.length === 1 ? '' : 's'} for ${matched}.`,
       data: { tracks: result.tracks },
     };
   };

@@ -119,6 +119,53 @@ export interface MusicServiceOptions {
   readonly now?: () => number;
 }
 
+/**
+ * Words that carry no signal in a catalogue keyword search.
+ *
+ * Deliberately tiny: these are the joins a person writes in a mood sentence, not a
+ * general stop-word list. Dropping more than this starts throwing away the search.
+ */
+const MUSIC_QUERY_FILLER = new Set([
+  'a',
+  'an',
+  'and',
+  'build',
+  'for',
+  'of',
+  'style',
+  'the',
+  'track',
+  'vibe',
+  'with',
+]);
+
+/** How many words a relaxed retry keeps. Two is a mood plus a qualifier. */
+const RELAXED_QUERY_WORDS = 2;
+
+/**
+ * A shorter query worth one retry, or `null` when there is nothing to shorten.
+ *
+ * WHY this lives here rather than in the caller: the catalogue matches keywords, so a
+ * whole descriptive phrase — "dark cinematic tension build with beat drop" — returns
+ * nothing, reliably, however good the phrase is. Every caller would otherwise have to
+ * learn that separately, and one of them is a model whose only feedback was "no tracks
+ * matched, try a broader mood word" — advice it received once, mid-run, and never acted
+ * on. A run then finished a music-led brief with no audio at all.
+ *
+ * @param query - The query the caller asked for.
+ * @returns The relaxed query, or `null` when the original was already short enough.
+ */
+export function relaxedMusicQuery(query: string): string | null {
+  const words = query
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word.length > 0);
+  const strong = words.filter((word) => !MUSIC_QUERY_FILLER.has(word.toLowerCase()));
+  const kept = (strong.length > 0 ? strong : words).slice(0, RELAXED_QUERY_WORDS);
+  const relaxed = kept.join(' ');
+  return relaxed === '' || relaxed === query.trim() ? null : relaxed;
+}
+
 /** Strip provider URLs before a track can cross to the renderer. */
 function toWire(track: ProviderTrack): MusicTrackWire {
   const { previewUrl: _preview, downloadUrl: _download, ...wire } = track;
@@ -196,8 +243,26 @@ export class MusicService {
 
     try {
       const tracks = await this.provider.search({ text: query, limit }, controller.signal);
-      this.rememberSearch(key, tracks);
-      return { ok: true, tracks: tracks.map(toWire) };
+      if (tracks.length > 0) {
+        this.rememberSearch(key, tracks);
+        return { ok: true, tracks: tracks.map(toWire) };
+      }
+      // Nothing matched the whole phrase. Try the strongest words in it once before
+      // reporting an empty library — see `relaxedMusicQuery` for why this is not the
+      // caller's job.
+      const relaxed = relaxedMusicQuery(query);
+      if (relaxed === null) {
+        this.rememberSearch(key, tracks);
+        return { ok: true, tracks: [] };
+      }
+      log.action('search → retrying relaxed', { query, relaxed });
+      const second = await this.provider.search({ text: relaxed, limit }, controller.signal);
+      this.rememberSearch(key, second);
+      return {
+        ok: true,
+        tracks: second.map(toWire),
+        ...(second.length > 0 ? { matchedQuery: relaxed } : {}),
+      };
     } catch (error) {
       return { ok: false, ...toWireError(error) };
     } finally {
