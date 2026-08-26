@@ -6,9 +6,11 @@
  * compares every cut against every word and `audio_slam` compares every cut against every
  * audio edge; both are searched rather than scanned.
  *
- * This is a budget, not a benchmark: the number is generous enough not to be flaky on a
- * loaded CI box, and small enough that reintroducing the nested scan (measured at
- * multiple seconds on this fixture) fails it.
+ * There was also a cheaper mistake underneath: four of the six editorial checks read the
+ * cut list, and each one called `listEditBoundaries` for itself — four full timeline-map
+ * walks per review. It is built once now and shared.
+ *
+ * This is a budget, not a benchmark. See {@link BUDGET_MS} for the measured margin.
  */
 import { describe, expect, it } from 'vitest';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
@@ -18,7 +20,17 @@ const FPS = 30;
 /** An hour of footage: ~900 cuts and ~9,000 spoken words. */
 const CLIPS = 900;
 const WORDS = 9_000;
-const BUDGET_MS = 1_500;
+/**
+ * Measured, with the margin stated rather than guessed.
+ *
+ * On this fixture: ~185ms uninstrumented, ~805ms under v8 coverage. CI runs
+ * `turbo run test:coverage`, so the instrumented figure is the one that has to fit, and
+ * it competes with every other package's suite for the machine. 4,000ms is roughly five
+ * times the instrumented cost — loose enough not to flake under that load, and tight
+ * enough to catch what it is for: before the checks shared one boundary list and searched
+ * instead of scanned, this same fixture took **7,755ms** under coverage.
+ */
+const BUDGET_MS = 4_000;
 
 function hourLongProject(): Project {
   const clips = Array.from({ length: CLIPS }, (_, i) => ({

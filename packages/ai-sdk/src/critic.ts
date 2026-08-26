@@ -906,14 +906,21 @@ function checkWordSevered(project: Project, fps: number): CriticCheck {
       endFrame: secondsToFrame(word.end, fps),
     }))
     .sort((a, b) => a.startFrame - b.startFrame);
+  // The longest word on the timeline, which is what bounds the backward walk below: no
+  // word starting earlier than `frame - longestWord` can still be covering `frame`.
+  // Bounding by a real quantity rather than stopping at the first non-covering word is
+  // what makes the search correct when two words overlap at all — stopping early would
+  // miss a long word that a short one is sitting inside.
+  const longestWord = spans.reduce(
+    (max, span) => Math.max(max, span.endFrame - span.startFrame),
+    0,
+  );
 
   /** The word a source instant falls strictly inside, for this clip's asset. */
   const severedWordAt = (clip: Clip | undefined, sourceSeconds: number): string | undefined => {
     if (!clip) return undefined;
     const frame = secondsToFrame(sourceSeconds, fps);
-    // Binary search to the last word starting at or before `frame`, then walk back over
-    // the few that could still cover it. Words overlap only trivially, so the walk is
-    // bounded in practice; the `startFrame` guard bounds it absolutely.
+    // Binary search to the first word starting at or after `frame`…
     let low = 0;
     let high = spans.length;
     while (low < high) {
@@ -921,12 +928,15 @@ function checkWordSevered(project: Project, fps: number): CriticCheck {
       if (spans[mid]!.startFrame < frame) low = mid + 1;
       else high = mid;
     }
-    for (let i = low; i >= 0 && i < spans.length; i -= 1) {
+    // …then walk back from the word before it. `low` can be `spans.length` — every word
+    // starts before this cut, which is the ordinary case for a cut near the end — so the
+    // first index to look at is the one BEFORE the bound, clamped.
+    for (let i = Math.min(low, spans.length) - 1; i >= 0; i -= 1) {
       const span = spans[i]!;
-      if (span.startFrame >= frame) continue;
+      if (span.startFrame <= frame - longestWord) break;
       // STRICTLY inside. Landing on a word's first frame is cutting BEFORE it, and on the
       // frame its last one ends is cutting AFTER it — both are correct edits.
-      if (span.endFrame <= frame) break;
+      if (span.startFrame >= frame || span.endFrame <= frame) continue;
       if (span.assetId !== undefined && span.assetId !== clip.assetId) continue;
       return span.word;
     }

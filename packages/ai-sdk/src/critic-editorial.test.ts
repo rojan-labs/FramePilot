@@ -141,6 +141,42 @@ describe('word_severed — did I cut through a word?', () => {
     expect(found.status).toBe('pass');
   });
 
+  it('finds a severed word near the END of the transcript, not only the middle', () => {
+    // The bound the binary search has to get right: every word starts before this cut, so
+    // the lower bound is past the end of the list and the walk has to start behind it.
+    const many = Array.from({ length: 200 }, (_, i) => ({
+      word: `w${i}`,
+      start: i * 0.5,
+      end: i * 0.5 + 0.4,
+    }));
+    const cut = 99.2; // inside w198 (99.0–99.4)
+    const found = checkOf(
+      checkProject(
+        [clip('a', 0, cut), clip('b', cut, 120, { sourceStart: cut, sourceEnd: 120 })],
+        many,
+      ),
+      'word_severed',
+    );
+    expect(found.status).toBe('fail');
+    expect(found.detail).toContain('"w198"');
+  });
+
+  it('finds a long word a short one sits inside', () => {
+    // Overlapping words are rare but not impossible (a re-transcribed span, two speakers).
+    // Stopping the walk at the first word that does not cover the cut would miss the long
+    // one, so the walk is bounded by the longest word instead.
+    const overlapping = [
+      { word: 'looooong', start: 0, end: 4 },
+      { word: 'short', start: 0.2, end: 0.5 },
+    ];
+    const found = checkOf(
+      checkProject([clip('a', 0, 2), clip('b', 2, 6, { sourceStart: 2, sourceEnd: 6 })], overlapping),
+      'word_severed',
+    );
+    expect(found.status).toBe('fail');
+    expect(found.detail).toContain('"looooong"');
+  });
+
   it('is honestly skipped with no transcript rather than passing', () => {
     const found = checkOf(critique(project([clip('a', 0, 1), clip('b', 1, 3)])), 'word_severed');
     expect(found.status).toBe('skipped');
