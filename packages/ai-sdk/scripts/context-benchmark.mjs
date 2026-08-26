@@ -42,8 +42,10 @@ const {
   DEFAULT_CONTEXT_BUDGET,
   agentModeInstruction,
   assembleContext,
+  budgetTokens,
   capabilitiesFor,
   estimateTokens,
+  resolveContextBudget,
   summarizeSkillsManifest,
   toolDescriptors,
 } = sdk;
@@ -359,10 +361,15 @@ console.log(
 );
 
 // --------------------------------------------------------------- D. budget safety
-const budgetRoom =
+// The room the trimmer decides against, per model, INCLUDING the prompt cost the
+// assembler does not build (tool schemas + the agent contract). Before P1.2 this was one
+// hardcoded number for every model — `DEFAULT_CONTEXT_BUDGET`'s 183,904 — which is kept
+// in the `legacyAssumedRoom` column so the delta the fix closed stays visible.
+const legacyAssumedRoom =
   DEFAULT_CONTEXT_BUDGET.contextWindow -
   DEFAULT_CONTEXT_BUDGET.maxOutputTokens -
   DEFAULT_CONTEXT_BUDGET.headroom;
+const agentTurnFixedCost = fixed.toolSchemasPlanningStages.tokens + fixed.agentContractVision;
 const PROBES = [
   ['anthropic', 'claude-opus-4-5'],
   ['openai', 'gpt-4o'],
@@ -374,30 +381,44 @@ const PROBES = [
 ];
 console.log('## D. Budget safety — what the trimmer assumes vs what the model has\n');
 console.log(
-  `  assembleContext always trims against ${budgetRoom} tokens (DEFAULT_CONTEXT_BUDGET)\n`,
+  `  an agent turn also pays ${agentTurnFixedCost} tokens the assembler never sees ` +
+    '(tool schemas + agent contract)',
 );
-console.log('  provider/model                        | real room | delta vs assumed | risk');
+console.log(`  before P1.2 every model trimmed against ${legacyAssumedRoom} tokens\n`);
 console.log(
-  '  --------------------------------------|-----------|------------------|-----------------',
+  '  provider/model                        | real room | trimmer room | over-assumption | risk',
 );
-out.budgetSafety = { assumedRoom: budgetRoom, models: [] };
+console.log(
+  '  --------------------------------------|-----------|--------------|-----------------|----------------',
+);
+out.budgetSafety = { legacyAssumedRoom, agentTurnFixedCost, models: [] };
 for (const [p, id] of PROBES) {
   const c = capabilitiesFor(p, id);
   const realRoom = c.contextWindow - c.maxOutputTokens;
-  const delta = budgetRoom - realRoom;
-  const risk = delta > 0 ? 'trims too late' : 'trims too early';
+  const budget = resolveContextBudget(
+    { project: project({ clips: 4, words: 8 }), userPrompt: REQUEST },
+    { name: p, modelId: id },
+    agentTurnFixedCost,
+  );
+  const trimmerRoom = budgetTokens(budget);
+  // Positive means the trimmer believes it has room the model does not have — the
+  // condition P1.2 exists to make impossible. The exit criterion is ≤ 0 everywhere.
+  const overAssumption = trimmerRoom - realRoom;
+  const risk = overAssumption > 0 ? 'OVERFLOWS' : 'safe';
   out.budgetSafety.models.push({
     provider: p,
     model: id,
     contextWindow: c.contextWindow,
     maxOutputTokens: c.maxOutputTokens,
     realRoom,
-    deltaVsAssumed: delta,
+    trimmerRoom,
+    overAssumption,
+    legacyOverAssumption: legacyAssumedRoom - realRoom,
     source: c.source,
     risk,
   });
   console.log(
-    `  ${`${p}/${id}`.padEnd(37)} | ${String(realRoom).padStart(9)} | ${String(delta).padStart(16)} | ${risk}`,
+    `  ${`${p}/${id}`.padEnd(37)} | ${String(realRoom).padStart(9)} | ${String(trimmerRoom).padStart(12)} | ${String(overAssumption).padStart(15)} | ${risk}`,
   );
 }
 console.log();

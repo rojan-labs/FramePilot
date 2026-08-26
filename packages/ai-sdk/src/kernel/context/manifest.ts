@@ -330,6 +330,17 @@ function withRemainder(
   ];
 }
 
+/**
+ * What a tool set costs as prompt.
+ *
+ * One owner, because two would drift: the manifest REPORTS this figure and the context
+ * budgeter DECIDES against it (`ContextBudget.reservedPromptTokens`), and a budget that
+ * disagrees with the manifest is exactly the condition ADR 0080 was written to end.
+ */
+export function toolSchemaCost(tools: AiCompletionRequest['tools']): number {
+  return tools && tools.length > 0 ? estimateTokens(JSON.stringify(tools)) : 0;
+}
+
 export interface RequestManifestInput {
   readonly requestId: string;
   readonly provider?: ProviderName;
@@ -360,9 +371,7 @@ export interface RequestManifestInput {
  * prompt cost, and leaving it out was one reason the old indicator under-reported.
  */
 export function buildRequestManifest(input: RequestManifestInput): ContextManifest {
-  const toolSchemaTokens = input.request.tools
-    ? estimateTokens(JSON.stringify(input.request.tools))
-    : 0;
+  const toolSchemaTokens = toolSchemaCost(input.request.tools);
   const messageTokens = input.request.messages.reduce(
     (sum, message) => sum + estimateTokens(message.content),
     0,

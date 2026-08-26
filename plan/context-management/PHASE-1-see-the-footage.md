@@ -80,7 +80,7 @@ Two judgement calls the plan did not pre-decide:
 
 ---
 
-## P1.2 — The budget knows which model it is talking to — `[ ]`
+## P1.2 — The budget knows which model it is talking to — `[x]`
 
 **Closes:** F2, F3, F8. **Touches:** `orchestrator.ts:273` (`contextWindowFor`), the four
 `assembleContext` call sites (`:4480, :4661, :5139, :5208`), `context-builder.ts`.
@@ -122,6 +122,33 @@ overflow small windows and the failure is a provider error, not a trim.
 switching provider/model changes the room the trimmer uses. `withRemainder` in the
 manifest should now find little or no unaccounted remainder — that gap closing is itself
 the proof the two layers agree.
+
+**Shipped 2026-08-26.** `ContextBudget` gains `reservedPromptTokens` — the prompt cost the
+assembler does not build — and `budgetTokens` subtracts it. `resolveContextBudget(input,
+provider, reserved)` (exported from `orchestrator.ts`) resolves window and output
+reservation from `capabilitiesFor`, field by field, with an explicitly supplied budget
+still winning per field. Every route now goes through it: `chat`, `plan`, `edit`,
+`editVariations`, `autocomplete`, `generateAgentPlan`, `streamChat`, `streamPlan`,
+`streamEdit`, `streamEditVariations`, and the agent loop's `agentMessages`.
+
+Benchmark section D, over-assumption (trimmer room − real room):
+
+| model                     | before   | after   |
+| ------------------------- | -------- | ------- |
+| ollama/qwen2.5-coder      | +159,328 | −21,265 |
+| anthropic/claude-opus-4-5 | +47,904  | −21,265 |
+| google/gemini-2.5-pro     | −799,136 | −21,265 |
+
+Two judgement calls:
+
+- **The tool-schema figure has one owner.** `manifest.ts` exports `toolSchemaCost` and the
+  budgeter imports it, rather than computing the same number twice — a budget that
+  disagrees with the manifest is exactly the condition ADR 0080 was written to end.
+- **An agent run reserves the WIDEST tool set it can advertise, not the current stage's.**
+  The stage policy narrows the set mid-run (F5), and a reservation that shrank and grew
+  with it would let one turn fit under a budget the next turn exceeds. Reserving the
+  maximum keeps the room stable for the whole run — which is also what P5.3 makes
+  literally true.
 
 ---
 

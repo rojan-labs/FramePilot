@@ -167,10 +167,11 @@ import {
   type DurableMemoryStatus,
   buildRequestManifest,
   memoryStatusFrom,
+  toolSchemaCost,
   withProviderUsage,
 } from './kernel/context/manifest.js';
 import { ProviderError } from './reliability/types.js';
-import type { ContextTier, Usage } from './reliability/types.js';
+import type { ContextBudget, ContextTier, Usage } from './reliability/types.js';
 import type { AgentRunControls, AskUser, AskUserOption } from './run-controls.js';
 import { createSteeringQueue } from './run-controls.js';
 import { combineSignals } from './reliability/signals.js';
@@ -279,6 +280,46 @@ function contextWindowFor(input: ContextInput, provider?: AiProvider): number {
 function reservedOutputFor(input: ContextInput, provider?: AiProvider): number {
   if (input.budget?.maxOutputTokens !== undefined) return input.budget.maxOutputTokens;
   return capabilitiesFor(provider?.name, provider?.modelId).maxOutputTokens;
+}
+
+/**
+ * Headroom kept for the estimator's own drift. Same value the default budget has always
+ * used; named here because it now applies to every model rather than only to the one
+ * hardcoded 190K window.
+ */
+const BUDGET_HEADROOM_TOKENS = 2000;
+
+/**
+ * Resolve the budget the trimmer decides against for THIS request (context-management
+ * P1.2).
+ *
+ * Two bugs, one fix. Until this existed, no production caller ever set `budget`: every
+ * request in the app trimmed against `DEFAULT_CONTEXT_BUDGET`'s 183,904 tokens whatever
+ * model was selected — 159,328 more room than `ollama/qwen2.5-coder` has, and 799,136
+ * less than Gemini's. `contextWindowFor` already resolved the real window, but only for
+ * the manifest the UI reads, never for the trimmer that acts on it. And the assembler
+ * cannot see the tool schemas, the mode instruction or the pinned playbooks the caller
+ * attaches afterwards, which on a planning turn is the larger part of the prompt.
+ *
+ * An explicitly supplied budget still wins, in whole: a caller that constrains the prompt
+ * has said what it means, and `contextWindowFor`'s precedence rule is the same one.
+ *
+ * @param input - The request being assembled.
+ * @param provider - The provider/model actually selected.
+ * @param reservedPromptTokens - Fixed cost this route pays outside `assembleContext`.
+ */
+export function resolveContextBudget(
+  input: ContextInput,
+  provider: AiProvider | undefined,
+  reservedPromptTokens: number,
+): ContextBudget {
+  const capabilities = capabilitiesFor(provider?.name, provider?.modelId);
+  return {
+    contextWindow: input.budget?.contextWindow ?? capabilities.contextWindow,
+    maxOutputTokens: input.budget?.maxOutputTokens ?? capabilities.maxOutputTokens,
+    headroom: input.budget?.headroom ?? BUDGET_HEADROOM_TOKENS,
+    reservedPromptTokens: input.budget?.reservedPromptTokens ?? reservedPromptTokens,
+  };
 }
 
 /**
@@ -2394,13 +2435,15 @@ export class Orchestrator {
 
   /** Q&A over transcript/timeline; no mutation (PRD §7.1, §8.2). */
   public async chat(input: ContextInput): Promise<AiResponse> {
-    return this.provider.complete({ messages: buildContext(input) });
+    // No tools on this route, so nothing is attached after assembly — but the WINDOW is
+    // still the selected model's rather than a hardcoded 190K.
+    return this.provider.complete({ messages: buildContext(this.budgeted(input, 0)) });
   }
 
   /** Structured plan; no mutation, no render. */
   public async plan(input: ContextInput): Promise<AiResponse> {
     const messages = [
-      ...buildContext(input),
+      ...buildContext(this.budgeted(input, estimateTokens(PLAN_MODE_INSTRUCTION))),
       { role: 'user' as const, content: PLAN_MODE_INSTRUCTION },
     ];
     // A plan turn forbids tool calls, so advertising tool schemas is pure token waste
@@ -2411,9 +2454,10 @@ export class Orchestrator {
 
   /** Cmd+K small reviewable edit → returns a validated, diffable patch (PRD §7.2). */
   public async edit(input: ContextInput): Promise<EditResult> {
+    const editTools = toolDescriptors((t) => t.mutates);
     const response = await this.provider.complete({
-      messages: buildContext(input),
-      tools: toolDescriptors((t) => t.mutates),
+      messages: buildContext(this.budgeted(input, toolSchemaCost(editTools))),
+      tools: editTools,
     });
     const ctx = this.toolContext(input);
     const operations = (response.toolCalls ?? []).flatMap((call) => this.operationsFor(call, ctx));
@@ -2448,8 +2492,8 @@ export class Orchestrator {
     readonly variants: readonly EditResult[];
     readonly cost: { tokens: number; usd: number };
   }> {
-    const messages = buildContext(input);
     const tools = toolDescriptors((t) => t.mutates);
+    const messages = buildContext(this.budgeted(input, toolSchemaCost(tools)));
     const ctx = this.toolContext(input);
     const variants: EditResult[] = [];
     let tokens = 0;
@@ -2484,9 +2528,10 @@ export class Orchestrator {
 
   /** Next-best-edit suggestions: each tool call becomes its own small patch (PRD §7.5). */
   public async autocomplete(input: ContextInput): Promise<EditResult[]> {
+    const suggestTools = toolDescriptors((t) => t.mutates);
     const response = await this.provider.complete({
-      messages: buildContext(input),
-      tools: toolDescriptors((t) => t.mutates),
+      messages: buildContext(this.budgeted(input, toolSchemaCost(suggestTools))),
+      tools: suggestTools,
     });
     const ctx = this.toolContext(input);
     const reason = response.text || 'Suggested edit';
@@ -2590,6 +2635,34 @@ export class Orchestrator {
   }
 
   /**
+   * The same request, with the budget the trimmer will actually decide against
+   * (context-management P1.2). Every route resolves it this way, so switching model in
+   * Settings moves the room the trimmer uses and not only the number the composer shows.
+   *
+   * @param reservedPromptTokens - What this route attaches AFTER assembly: its tool
+   *   schemas, its mode instruction, its pinned playbooks. Zero is honest for a route
+   *   that attaches none of them.
+   */
+  private budgeted(input: ContextInput, reservedPromptTokens: number): ContextInput {
+    return { ...input, budget: resolveContextBudget(input, this.provider, reservedPromptTokens) };
+  }
+
+  /**
+   * The cost of the WIDEST tool set an agent run can advertise.
+   *
+   * Widest, not per-stage, on purpose: the stage policy narrows the set mid-run (F5), and
+   * a budget that shrank and grew with it would let a turn fit under a reservation the
+   * NEXT turn exceeds. Reserving the maximum means the room the trimmer works with is
+   * stable for the whole run, which is also what P5.3 makes literally true. Memoized —
+   * the set is a pure function of this orchestrator's provider and model.
+   */
+  private agentToolCostMemo: number | undefined;
+  private agentToolCost(): number {
+    this.agentToolCostMemo ??= toolSchemaCost(this.agentTools());
+    return this.agentToolCostMemo;
+  }
+
+  /**
    * Per-run memo for {@link agentStableInstruction} (E3.2,
    * plan/ORCHESTRATION-EFFICIENCY-CC-PATTERNS.md). Keyed by the run's skill ledger —
    * a per-run object, so entries can never leak across runs — and revalidated on the
@@ -2665,7 +2738,16 @@ export class Orchestrator {
      */
     frames?: readonly AiImage[],
   ): AiMessage[] {
-    const base = buildContext({ ...input, project: working });
+    const stableHead = this.agentStableInstruction(loadedSkills, plan);
+    // P1.2: the agent turn's budget subtracts what `buildContext` does not assemble — the
+    // widest tool set the run can advertise, plus this run's stable head (the agent
+    // contract, the committed plan, and every playbook pinned so far). Pinned skills are
+    // up to 6,728 tokens on their own, and they arrive mid-run, so a budget that ignored
+    // them shrank the room after the trimmer had already decided.
+    const base = buildContext({
+      ...this.budgeted(input, this.agentToolCost() + estimateTokens(stableHead)),
+      project: working,
+    });
     // E3.2 (prompt-prefix cache stability), corrected. The head (contract + plan + pinned
     // skills) is byte-identical across a run — but it used to be emitted AFTER
     // `buildContext`'s project block, which re-renders the timeline summary from the
@@ -2677,7 +2759,6 @@ export class Orchestrator {
     // prefix, flagged `cacheBoundary` so the Anthropic provider can put a breakpoint at
     // its end. Everything genuinely turn-varying — the project snapshot, the request, the
     // briefing, steering, the action log — follows it in the final message.
-    const stableHead = this.agentStableInstruction(loadedSkills, plan);
     // `buildContext` returns [system, ...history, project+request] — always at least two
     // messages, and the last is always the project block, so the split is total.
     const volatileContext = base[base.length - 1] as AiMessage;
@@ -3388,7 +3469,7 @@ export class Orchestrator {
     effectRuntime: EffectRuntime,
   ): Promise<{ message: string; steps: string[] }> {
     const messages: AiMessage[] = [
-      ...buildContext(input),
+      ...buildContext(this.budgeted(input, estimateTokens(AGENT_PLAN_DRAFT_INSTRUCTION))),
       { role: 'user', content: AGENT_PLAN_DRAFT_INSTRUCTION },
     ];
     // No tools on a plan turn: the model must not call one here, so their schemas are
@@ -4709,9 +4790,21 @@ export class Orchestrator {
   ): AsyncGenerator<AiEvent> {
     const emit = createTurnEmitter(options);
     yield emit.status('thinking');
-    const assembled = assembleContext(input);
-    yield* trimNotices(emit, assembled.trimmed);
     const tools = this.agentTools('question');
+    // The budget is resolved BEFORE assembly (P1.2), from the model actually selected and
+    // inclusive of what this route attaches afterwards: the question-scope tool schemas
+    // and the route contract. Assembling first and budgeting second is how the trimmer
+    // came to decide against a fraction of the prompt.
+    const assembled = assembleContext({
+      ...input,
+      budget: resolveContextBudget(
+        input,
+        this.provider,
+        toolSchemaCost(tools) +
+          estimateTokens(questionModeInstruction({ canSeeFrames: this.canSeeFrames() })),
+      ),
+    });
+    yield* trimNotices(emit, assembled.trimmed);
     const inScopeNames = new Set(tools.map((t) => t.name));
     // The rolling conversation this route owns: context + the route contract (what makes
     // ask_user the ONLY channel for questions — without it the model's chat prior wins
@@ -4890,7 +4983,12 @@ export class Orchestrator {
     const emit = createTurnEmitter(options);
     yield emit.status('planning');
     yield emit.reasoning(['Drafting an edit plan'], false);
-    const assembled = assembleContext(input);
+    // No tools on a plan turn (see below), so the only unassembled cost is the mode
+    // instruction — a real number, and the honest one to reserve.
+    const assembled = assembleContext({
+      ...input,
+      budget: resolveContextBudget(input, this.provider, estimateTokens(PLAN_MODE_INSTRUCTION)),
+    });
     yield* trimNotices(emit, assembled.trimmed);
     const messages = [
       ...assembled.messages,
@@ -5368,11 +5466,15 @@ export class Orchestrator {
     }
     const emit = createTurnEmitter(options);
     yield emit.status('editing');
-    const assembled = assembleContext(input);
+    const editTools = toolDescriptors((t) => t.mutates);
+    const assembled = assembleContext({
+      ...input,
+      budget: resolveContextBudget(input, this.provider, toolSchemaCost(editTools)),
+    });
     yield* trimNotices(emit, assembled.trimmed);
     const result = yield* this.streamAssistant(
       emit,
-      { messages: assembled.messages, tools: toolDescriptors((t) => t.mutates) },
+      { messages: assembled.messages, tools: editTools },
       options.signal,
       { kind: 'assistant', id: emit.assistantId, captureReasoning: true },
       undefined,
@@ -5437,7 +5539,14 @@ export class Orchestrator {
   ): AsyncGenerator<AiEvent> {
     const emit = createTurnEmitter(options);
     yield emit.status('editing');
-    const assembled = assembleContext(input);
+    const assembled = assembleContext({
+      ...input,
+      budget: resolveContextBudget(
+        input,
+        this.provider,
+        toolSchemaCost(toolDescriptors((t) => t.mutates)),
+      ),
+    });
     yield* trimNotices(emit, assembled.trimmed);
     const { variants, cost } = await this.editVariations(input, options.signal);
     if (options.signal?.aborted) {

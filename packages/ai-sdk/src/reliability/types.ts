@@ -159,6 +159,22 @@ export interface ContextBudget {
   readonly contextWindow: number;
   readonly maxOutputTokens: number;
   readonly headroom: number;
+  /**
+   * Prompt cost this request pays that `assembleContext` does not assemble, and
+   * therefore cannot see: the tool schemas, the route's mode instruction, and any
+   * pinned skill playbooks.
+   *
+   * Without it the budgeter decided against roughly a fifth of the prompt. Tool
+   * schemas alone are ~17,500 tokens on a planning turn — more than ten times the
+   * project state they were being weighed against — so a window that the assembled
+   * tiers "fit" could still overflow the moment the tools were attached. The manifest
+   * has counted this since ADR 0080 (*"a tool set is real prompt cost"*); the
+   * reporting layer was fixed and the deciding layer was not.
+   *
+   * Absent ⇒ zero, which is the old behaviour: a caller that assembles context with no
+   * tools and no mode instruction genuinely pays nothing here.
+   */
+  readonly reservedPromptTokens?: number;
 }
 
 /**

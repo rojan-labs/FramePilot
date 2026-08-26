@@ -358,9 +358,23 @@ export const DEFAULT_CONTEXT_BUDGET: ContextBudget = {
   headroom: 2000,
 };
 
-/** The room the assembled prompt may occupy = window − reserved output − headroom. */
+/**
+ * The room the assembled prompt may occupy = window − reserved output − headroom −
+ * the fixed prompt cost the assembler does not build ({@link ContextBudget.reservedPromptTokens}).
+ *
+ * The last term is the one that was missing. `assembleContext` sums the system prompt,
+ * the tiers, the history and the request — and then the caller attaches ~17,500 tokens of
+ * tool schemas and a mode instruction it never saw, so "fits the budget" was a statement
+ * about roughly a fifth of the prompt.
+ */
 export function budgetTokens(budget: ContextBudget): number {
-  return Math.max(0, budget.contextWindow - budget.maxOutputTokens - budget.headroom);
+  return Math.max(
+    0,
+    budget.contextWindow -
+      budget.maxOutputTokens -
+      budget.headroom -
+      (budget.reservedPromptTokens ?? 0),
+  );
 }
 
 /**
