@@ -105,6 +105,7 @@ _EXPECTED_FLAGS: dict[str, tuple[bool, bool]] = {
     "manage_assets": (True, True),
     "add_marker": (True, True),
     "remove_marker": (True, True),
+    "remember_preference": (True, True),
     "transcribe": (True, False),
     "render_preview": (True, False),
     "export_video": (True, False),

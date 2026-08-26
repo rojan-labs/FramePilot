@@ -72,6 +72,24 @@ export interface SetTranscriptOp {
   readonly assetId?: string | null;
 }
 
+/**
+ * Replace the project's AI memory wholesale (context-management P5.2).
+ *
+ * WHOLE-record rather than per-key, for one reason: the inverse. A key-scoped operation
+ * whose inverse had to reconstruct "the previous value of this one key, or its absence"
+ * is two shapes pretending to be one, and `aiMemory` is a free-form record where a key
+ * that was absent and a key that was empty are different things. Carrying the whole record
+ * makes the inverse the record that was there — exactly, including its absences.
+ *
+ * The record itself stays untyped here: `memory-store.ts` owns the shape and parses it
+ * defensively on read, because `aiMemory` round-trips through `project.fp.json` and is
+ * untrusted by the time it comes back.
+ */
+export interface SetAiMemoryOp {
+  readonly type: 'set_ai_memory';
+  readonly memory: Record<string, unknown>;
+}
+
 export interface AddMarkerOp {
   readonly type: 'add_marker';
   readonly id: string;
@@ -104,6 +122,7 @@ export type ProjectOperation =
   | MoveFolderOp
   | DeleteFolderOp
   | SetTranscriptOp
+  | SetAiMemoryOp
   | AddMarkerOp
   | RemoveMarkerOp
   | RestoreAssetsOp
@@ -120,6 +139,7 @@ const PROJECT_OPERATION_TYPES: ReadonlySet<string> = new Set<ProjectOperationTyp
   'move_folder',
   'delete_folder',
   'set_transcript',
+  'set_ai_memory',
   'add_marker',
   'remove_marker',
   'restore_assets',
@@ -322,6 +342,8 @@ export function applyProjectOperation(project: Project, op: ProjectOperation): P
     }
     case 'set_transcript':
       return replaceTranscript(project, op);
+    case 'set_ai_memory':
+      return { ...project, aiMemory: { ...op.memory } };
     case 'add_marker': {
       if (project.markers.some((m) => m.id === op.id)) {
         throw new ProjectOperationError('duplicate_marker', `Marker id already exists: ${op.id}`);
@@ -379,6 +401,8 @@ export function invertProjectOperation(
           assetId: null,
         },
       ];
+    case 'set_ai_memory':
+      return [{ type: 'set_ai_memory', memory: { ...(projectBefore.aiMemory ?? {}) } }];
     case 'add_marker':
       return [{ type: 'remove_marker', id: op.id }];
     case 'remove_marker': {

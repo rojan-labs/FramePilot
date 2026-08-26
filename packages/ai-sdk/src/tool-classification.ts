@@ -195,6 +195,12 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   move_track: { role: 'mutation', scope: 'timeline_dependent' },
   punch_in: { role: 'mutation', scope: 'timeline_dependent' },
   remove_marker: { role: 'mutation', scope: 'timeline_dependent' },
+  // What it records — how this editor likes their videos — genuinely outlives every cut,
+  // but `timeline_dependent` is right anyway: the scope governs when a READ's payload is
+  // evicted, and a mutation has no payload to serve from the memo. Every mutation in this
+  // table is timeline_dependent, and an exception here would weaken an invariant the
+  // parity test enforces in exchange for nothing.
+  remember_preference: { role: 'mutation', scope: 'timeline_dependent' },
   remove_track: { role: 'mutation', scope: 'timeline_dependent' },
   ripple_delete: { role: 'mutation', scope: 'timeline_dependent' },
   auto_emphasize_captions: { role: 'mutation', scope: 'timeline_dependent' },

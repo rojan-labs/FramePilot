@@ -134,6 +134,7 @@ _HANDLERS: dict[str, Callable[[Any, ToolContext], Any]] = {
     "manage_assets": handlers.manage_assets,
     "add_marker": handlers.add_marker,
     "remove_marker": handlers.remove_marker,
+    "remember_preference": handlers.remember_preference,
 }
 
 # These entries deliberately use the TypeScript host/editor-core implementation. They

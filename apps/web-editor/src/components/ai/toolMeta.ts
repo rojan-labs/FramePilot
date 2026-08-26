@@ -11,6 +11,7 @@ import {
   AudioLines,
   Ban,
   BookOpen,
+  Bookmark,
   Captions,
   Check,
   Crop,
@@ -160,6 +161,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   remove_effect: { label: 'Remove effect', Icon: Trash2 },
   add_marker: { label: 'Add marker', Icon: Flag },
   remove_marker: { label: 'Remove marker', Icon: Flag },
+  remember_preference: { label: 'Remember preference', Icon: Bookmark },
 
   // Asset bin and actions
   list_assets: { label: 'List assets', Icon: Folder },

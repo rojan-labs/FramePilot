@@ -663,6 +663,29 @@ class RemoveMarkerArgs(BaseModel):
     id: str
 
 
+class RememberPreferenceArgs(BaseModel):
+    """Record a lasting editing preference in the project's AI memory (P5.2).
+
+    The key set is CLOSED on purpose, and mirrors ``MemoryPreferenceKey`` in
+    ``memory-store.ts``. ``aiMemory`` round-trips through ``project.fp.json`` and feeds a
+    context block headed "honour these preferences"; free text there would be an
+    unbounded, model-authored prompt-injection surface that grows every turn.
+    """
+
+    model_config = _STRICT
+    key: Literal["targetAudience", "brandStyle", "captionStyle", "preferredPacing"] | None = None
+    value: str | None = Field(default=None, min_length=1, max_length=200)
+    export_platforms: list[str] | None = Field(default=None, alias="exportPlatforms", max_length=8)
+
+    @model_validator(mode="after")
+    def _pair_or_platforms(self) -> RememberPreferenceArgs:
+        if (self.key is None) != (self.value is None):
+            raise ValueError("remember_preference needs key and value together, or neither.")
+        if self.key is None and self.export_platforms is None:
+            raise ValueError("remember_preference needs a key/value pair or exportPlatforms.")
+        return self
+
+
 class AnalyzeSilenceArgs(BaseModel):
     """Analyse an asset's audio for silent ranges (plan Phase 9.2).
 
@@ -1464,6 +1487,23 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "Remove a marker/chapter by id (schema v9).",
         kind="mutate",
         input_model=RemoveMarkerArgs,
+        mutating=True,
+    ),
+    # --- Project memory (context-management P5.2) ---
+    # The "Project memory (honour these preferences)" block is injected every turn and
+    # nothing in the registry could write it; an editor stating a lasting preference was
+    # teaching nothing durable. Mirrors packages/ai-sdk/src/domain-tools/project.ts.
+    "remember_preference": _spec(
+        "remember_preference",
+        "Remember how this editor likes their videos, so the next session starts knowing "
+        'it. Use it when they state a lasting preference ("punchier cuts than that", '
+        '"always big yellow captions", "this is for founders") — NOT for a one-off '
+        "instruction about the edit in front of you, which belongs in the edit and not in "
+        "memory. Keys: preferredPacing, captionStyle, brandStyle, targetAudience, plus "
+        "exportPlatforms for where this project is published. Writing a key replaces what "
+        "was there. Reversible like any other edit, and stored in the project file.",
+        kind="mutate",
+        input_model=RememberPreferenceArgs,
         mutating=True,
     ),
     # --- Action tools (PRD §8.3) — host-executed side effects, no patch ---

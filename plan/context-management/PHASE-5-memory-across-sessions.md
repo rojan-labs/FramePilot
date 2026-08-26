@@ -77,7 +77,7 @@ Benchmark: facts re-derived on turn 2 → 0 for still-valid facts.
 
 ---
 
-## P5.2 — The editor can teach a preference — `[ ]`
+## P5.2 — The editor can teach a preference — `[x]`
 
 **Closes:** F7. **Touches:** `domain-tools/project.ts`, `tool-registry.ts`.
 **Reuses unchanged:** `memory-store.ts` (`setPreference`, `setExportPlatforms` — built),
@@ -104,6 +104,28 @@ two must not be merged.
 **Evidence.** A run where the editor says _"punchier cuts than that"_, the agent records
 `preferredPacing`, and the next run's context contains it — asserted on the assembled
 prompt, not on the tool call.
+
+**Shipped 2026-08-26.** One tool, the closed key set the plan specified, and one thing the
+plan did not anticipate: **there was no project operation that could write `aiMemory`.**
+The plan says *"writes go through the patch/commit path, not a side channel"*, and the
+patch path had no arm for memory at all — `memory-store.ts`'s setters return a new
+`Project` directly, which is a side channel by definition.
+
+So `set_ai_memory` joins `ProjectOperation`, **whole-record rather than per-key**. A
+key-scoped operation would need an inverse that distinguished "this key was absent" from
+"this key was empty", and `aiMemory` is a free-form record where those are different
+things; carrying the whole record makes the inverse *the record that was there*, exactly.
+It is mirrored in the Python registry (name, schema and handler) because the tool-parity
+tests hold both surfaces to the same contract.
+
+Asserted on the **assembled prompt**, as the plan required: after the write, the next
+turn's context carries `Project memory (honour these preferences)` with the value in it. A
+tool that returns success while the next run's context never carries the value is the same
+broken promise as an applied edit that renders as nothing.
+
+The closed key set is tested as a guard, not as a limitation: free text is refused, a
+half-supplied pair is refused rather than writing an empty preference, and both the value
+length and the platform-list length are bounded so memory cannot grow without limit.
 
 ---
 

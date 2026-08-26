@@ -46,6 +46,7 @@ from framepilot_engine.ai_tools.registry import (
     MoveTrackArgs,
     PunchInArgs,
     RangeOnTrackArgs,
+    RememberPreferenceArgs,
     RemoveMarkerArgs,
     RemoveTrackArgs,
     SetCaptionStyleArgs,
@@ -661,6 +662,21 @@ def add_marker(args: AddMarkerArgs, ctx: ToolContext) -> Operations:
 
 def remove_marker(args: RemoveMarkerArgs, ctx: ToolContext) -> Operations:
     return [{"type": "remove_marker", "id": args.id}]
+
+
+def remember_preference(args: RememberPreferenceArgs, ctx: ToolContext) -> Operations:
+    """Write one lasting editing preference into the project's AI memory (P5.2).
+
+    Whole-record, like the TS side: ``aiMemory`` is a free-form record, so a key-scoped
+    operation would need an inverse that distinguished "was absent" from "was empty".
+    Carrying the whole record makes the inverse the record that was there, exactly.
+    """
+    memory: dict[str, Any] = dict(ctx.project.ai_memory or {})
+    if args.key is not None and args.value is not None:
+        memory[args.key] = args.value
+    if args.export_platforms is not None:
+        memory["exportPlatforms"] = list(args.export_platforms)
+    return [{"type": "set_ai_memory", "memory": memory}]
 
 
 # ---------------------------------------------------------------------------

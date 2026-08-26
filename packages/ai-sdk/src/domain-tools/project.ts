@@ -18,6 +18,7 @@ import type { ProjectOperation } from '@framepilot/editor-core';
 import { toModelAssets } from '../model-view.js';
 import type { ToolContext } from '../tool-context.js';
 import type { ToolSpec } from '../tool-registry.js';
+import { readMemory, type MemoryPreferenceKey } from '../memory-store.js';
 import { projectMutateTool, readTool } from './tool-factories.js';
 import { filterString, id, seconds } from './tool-args.js';
 
@@ -278,5 +279,60 @@ export const PROJECT_TOOLS: readonly ToolSpec[] = [
     },
     z.object({ id: z.string() }).strict(),
     (a) => [{ type: 'remove_marker', id: a.id }],
+  ),
+  // --- Project memory (context-management P5.2) ---------------------------
+  //
+  // The block headed "Project memory (honour these preferences)" is injected into every
+  // turn's context, and until this tool existed nothing in the 85-tool registry could
+  // WRITE it: the only writers were `style-presets.ts` and the Settings dialog. So an
+  // editor who said "punchier than that" was teaching nothing durable — the agent could
+  // honour a preference and could never learn one.
+  projectMutateTool(
+    {
+      name: 'remember_preference',
+      description:
+        'Remember how this editor likes their videos, so the next session starts knowing ' +
+        'it. Use it when they state a lasting preference ("punchier cuts than that", ' +
+        '"always big yellow captions", "this is for founders") — NOT for a one-off ' +
+        'instruction about the edit in front of you, which belongs in the edit and not in ' +
+        'memory. Keys: preferredPacing, captionStyle, brandStyle, targetAudience, plus ' +
+        'exportPlatforms for where this project is published. Writing a key replaces what ' +
+        'was there. Reversible like any other edit, and stored in the project file.',
+      capabilities: ['memory'],
+    },
+    z
+      .object({
+        /**
+         * A CLOSED key set, not free text — and that is the guard, not a limitation.
+         *
+         * `ProjectMemory` is Zod-parsed and read defensively because `aiMemory`
+         * round-trips through `project.fp.json`, and the block it feeds is injected into
+         * every turn under "honour these preferences". A free-text memory tool would turn
+         * that block into an unbounded, model-authored prompt-injection surface that grows
+         * every turn. The typed union costs ~120 tokens of schema and closes it.
+         */
+        key: z.enum(['targetAudience', 'brandStyle', 'captionStyle', 'preferredPacing']).optional(),
+        value: z.string().trim().min(1).max(200).optional(),
+        /** Where this project is published, e.g. ["reels", "shorts"]. Replaces the list. */
+        exportPlatforms: z.array(z.string().trim().min(1).max(40)).max(8).optional(),
+      })
+      .strict()
+      .refine((a) => (a.key === undefined) === (a.value === undefined), {
+        message: 'remember_preference needs key and value together, or neither.',
+      })
+      .refine((a) => a.key !== undefined || a.exportPlatforms !== undefined, {
+        message: 'remember_preference needs a key/value pair or exportPlatforms.',
+      }),
+    (a, ctx) => {
+      // Through the typed setters' own shape, then out as ONE whole-record operation: the
+      // project file has one writer, and memory is part of the project file.
+      const memory = readMemory(ctx.project);
+      const next: Record<string, unknown> = { ...memory };
+      if (a.key !== undefined && a.value !== undefined) {
+        next[a.key satisfies MemoryPreferenceKey] = a.value;
+      }
+      if (a.exportPlatforms !== undefined) next.exportPlatforms = [...a.exportPlatforms];
+      return [{ type: 'set_ai_memory', memory: next }];
+    },
   ),
 ];

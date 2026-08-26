@@ -519,6 +519,10 @@ function projectChecks(
       if (!folderExists(op.folderId)) issue('missing_folder', `Unknown folder '${op.folderId}'.`);
       break;
     case 'set_transcript':
+    // Nothing to validate structurally: `aiMemory` is a free-form record by design, and
+    // `memory-store.ts` parses it defensively on read because it round-trips through
+    // `project.fp.json`. Validating a shape here would be a second, weaker copy of that.
+    case 'set_ai_memory':
       break;
     case 'add_marker':
       if (markers?.some((marker) => marker.id === op.id)) {
@@ -607,6 +611,7 @@ function advanceProjectState(
       break;
     case 'move_asset':
     case 'set_transcript':
+    case 'set_ai_memory':
       break;
   }
 }

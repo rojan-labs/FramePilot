@@ -256,6 +256,7 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
     case 'remove_marker':
     case 'restore_assets':
     case 'restore_folders':
+    case 'set_ai_memory':
     case 'set_effect_params':
     case 'set_track_flags':
     case 'set_track_caption_style':
