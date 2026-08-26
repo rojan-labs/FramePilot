@@ -8,6 +8,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The assistant can set type, not just place it.** Text overlays it adds can now carry a
+  size (as a share of the frame, so 18% is a headline that dominates and 8% is a caption),
+  a colour, a background, an alignment, a wrap width and a position — and all of it renders
+  exactly as the preview shows it. Previously it could only drop a default centred caption,
+  which made "large typography, important words dominant" impossible to ask for. The same
+  keys the Inspector writes are the keys it sets, so a card it makes is a card you can keep
+  editing by hand. (`packages/ai-sdk`, `engine/python`, ADR 0144)
+
 - **Semantic footage search can now run on your own machine.** FramePilot can find things by
   what they look like — "where does the whiteboard appear", "cut to the product shot" — but
   that needs a media-understanding key, and until now the only one you could enter was
@@ -98,6 +106,40 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (`packages/timeline-schema`, `apps/web-editor`, schema v20, ADR 0138)
 
 ### Fixed
+
+- **The assistant can put footage in your video again, at any point in the edit.** Ask for a
+  reel on an empty project and it would search a stock library, find eighty usable clips,
+  and deliver thirty seconds of text on a black screen. Two separate rules were closing the
+  door: once the assistant had made its first edit it was cut off from anything that reads
+  new information — and "download this clip" had been filed as reading — while the recovery
+  mode that exists to make a circling run *act* refused the one call that acts, and told it
+  the download it had never made was already done. Shopping for material is now its own kind
+  of work, open for the whole run. When a tool genuinely is unavailable for a turn, the
+  reason says so instead of claiming the result is already in hand.
+  (`packages/ai-sdk`, ADR 0143)
+
+- **Text you animate actually animates.** A zoom on a text card was accepted, applied, kept
+  in your undo history and reported as done — and the renderer threw it away, in the preview
+  and in the export. Fifteen animated cards came out as fifteen still ones. Text now carries
+  its motion. Captions, whose movement comes from the caption style instead, say so rather
+  than accepting a zoom that would do nothing. (`engine/python`, `packages/ai-sdk`, ADR 0144)
+
+- **A video with no picture in it is called what it is.** A reel made only of text over an
+  empty video track passed every check, and the length check confirmed it was exactly thirty
+  seconds — of nothing. There is now a check for whether the edit has any picture at all, the
+  length reports how much of it is picture or sound, and the visual review says "every
+  sampled moment is black, there is no picture under your overlays" once, instead of
+  reporting fifteen broken cuts that were not broken. (`packages/ai-sdk`, ADR 0144)
+
+- **Music search finds something when you describe a mood.** "Dark cinematic tension build
+  with beat drop" reliably found nothing, because the library matches keywords, not
+  sentences. FramePilot now retries with the strongest words in your phrase and tells you
+  which ones worked. (`apps/desktop/electron/media/music-service.ts`)
+
+- **Stopping a run still tells you what it did.** The edits an assistant applied before you
+  hit stop stay on your timeline — but the summary of them was suppressed, so the last thing
+  you saw was a technical warning about a timeline you had no account of. You now get the
+  receipt, saying plainly what landed and that it can be undone. (`packages/ai-sdk`)
 
 - **A project you just named is saved right away, so it is there when you come back.** Creating
   a project only put it on screen — nothing was written until you imported footage or made a

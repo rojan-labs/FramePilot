@@ -13,6 +13,56 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-26, second run gap analysis):** `[x]` **Eleven gaps found by
+tracing captured run `e30c1fe9` against the codebase are closed on
+`fix/agent-run-gap-analysis`.** The run was asked for a 30-second vertical Reel on an empty
+project. It searched a stock library eight times, found eighty usable clips, and delivered
+thirty seconds of white text on black — no footage, no audio — then reported fifteen
+"unexpected black frame" findings and was cancelled with no summary of the 38 edits it had
+already applied.
+
+1. **A run could not obtain media after its first patch landed.** `add_stock`/`add_music`
+   are registered `kind: 'analysis'`, so the stage gate withheld them in every execution
+   stage and the action-recovery turn — the one that demands an ACT — refused them for not
+   being `kind: 'mutate'`. Sourcing is now its own role, and the scoping gates read
+   `toolContract().effectClass`, which has always said `mutation`. ADR 0143.
+2. **The refusal claimed the download was redundant.** One branch served "you already have
+   this" and "not available this turn" with one sentence, and for a call the run had never
+   made the sentence was false. The reason is derived from the run's memo now.
+3. **Recalling stored evidence armed the lockout that preserves recall.** Every
+   `recall_evidence` is `fromCache` by construction, so a turn spent doing what the contract
+   asks read as a turn that learned nothing. Recalls are excluded from that question, and the
+   trigger — which had no user-visible explanation at all — now has one.
+4. **`punch_in` on a text clip applied, validated, reported, and rendered as nothing.**
+   The compiler placed text overlays with a bare `with_position("center")`. Text now carries
+   its transform; captions, whose motion is the caption style's, refuse the call instead of
+   accepting a no-op. ADR 0144.
+5. **Nothing noticed the edit had no picture in it.** A `picture_present` Critic check, a
+   duration check that says how much of the length is picture or sound, and a review that
+   states "every sampled moment is black" once rather than reporting fifteen broken cuts.
+6. **`add_text_layer` could not style anything**, and the renderer read `fontSize` in pixels
+   while the app authors `fontSizePercent`/`xPercent`/`yPercent`. Both closed: the tool takes
+   the authoring vocabulary on both runtimes and the engine resolves it.
+7. **`recordEvidence` had no caller.** Every run's `working.evidence` was `[]` while its
+   facts cited `[ev_3]`. The handle now travels with the distillation that cites it.
+8. **A descriptive music query always found nothing.** The catalogue matches keywords, not
+   sentences; one relaxed retry, and the summary names the query that actually hit.
+9. **The whole request was stored back as the run's own objective** — three copies plus the
+   recovery instruction, persisted and streamed every turn. Bounded excerpts, and recovery
+   names the act instead of restating the brief.
+10. **A cancelled run gave no account of the edits it had applied.** It does now.
+11. **A recalled stock id that this session had forgotten said "unknown item".** It names the
+    session boundary and the recovery, which the sourcing-role change makes reachable.
+
+Evidence: ai-sdk 3344, editor-core 918, desktop 469, web-editor 2595, timeline-schema 214,
+shared-types 27, mcp-server 135, ui 42, engine 2624, e2e 83 — all green; workspace typecheck
+and per-package lint clean, `ruff`/`mypy` clean. Golden corpora regenerated; the tool-surface
+deltas are the measurement of gap 1 (+827 tokens in `apply`, +775 on a recovery turn).
+
+Deliberately not addressed: a text overlay's `inAnimation`/`outAnimation` are still
+preview-only. The agent cannot set them, so it is reachable only through the Inspector; it is
+stated at the top of `render/text_overlay.py` rather than left to be discovered.
+
 **Status snapshot (2026-08-26, run gap analysis):** `[x]` **Ten gaps found by tracing a
 captured agent run (`c25cfb56`) against the codebase are closed on
 `fix/agent-run-gap-analysis`.** The run spent 3m20s and 19 metered provider searches on a
