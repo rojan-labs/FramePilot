@@ -4167,14 +4167,7 @@ export class Orchestrator {
         // card as `cancelled`, never a checkmark.
         const outcome: AgentCallOutcome = inScope
           ? await this.runAgentCall(call, turnCtx, turnNames, hostContext)
-          : {
-              ops: [],
-              note:
-                `Refused redundant "${call.name}" during action recovery — ` +
-                'its result is already in this run. Use a mutation tool or ask_user.',
-              summary: `Skipped redundant ${call.name} call`,
-              status: 'failed',
-            };
+          : withheldCallOutcome(call, evidence);
         settled = [{ call, outcome, runtimeMs: now() - started, announced: true }];
       }
 
@@ -6186,6 +6179,45 @@ export class Orchestrator {
   ): ConductorHandlers {
     return this.agentRun(input, options, agentOptions).handlers;
   }
+}
+
+/**
+ * The outcome for a call this turn does not offer.
+ *
+ * Two different things used to share one sentence, and the wrong one was said far more
+ * often. A recovery turn withholds the READING tools because the run has gathered
+ * enough — so a read it refuses really is redundant, and saying so is useful. But the
+ * same branch also caught calls the run had never made: in run e30c1fe9 the single
+ * `add_stock` — a valid remoteId the run had found itself, for a file that had never
+ * been downloaded — came back as "Skipped redundant add_stock call", and the model,
+ * told the result was already in hand, moved on and built a reel with no footage.
+ *
+ * So the reason is derived from the run's own memo rather than assumed: if the result is
+ * genuinely stored, name the handle that returns it; if it is not, say plainly that the
+ * tool is unavailable on this turn and what the turn is for. A refusal a run can act on
+ * beats a checkmark it cannot — and a false refusal is worse than either.
+ */
+function withheldCallOutcome(call: ToolCall, evidence: EvidenceStore): AgentCallOutcome {
+  const stored = evidence.lookup(callMemoKey(call));
+  if (stored) {
+    return {
+      ops: [],
+      note:
+        `Refused redundant "${call.name}" — its result is already in this run as ` +
+        `${stored.id}. Recall that handle, or make the edit it supports.`,
+      summary: `Skipped redundant ${call.name} call`,
+      status: 'failed',
+    };
+  }
+  return {
+    ops: [],
+    note:
+      `"${call.name}" is not available on this turn. This turn is for acting on what ` +
+      'the run has already gathered: make the edit, recall_evidence for a detail you ' +
+      'need, or ask_user. It becomes available again on the next turn.',
+    summary: `${call.name} is unavailable this turn`,
+    status: 'warning',
+  };
 }
 
 /** Markdown completion report closing an agent run that applied edits (U3). Exported for tests. */

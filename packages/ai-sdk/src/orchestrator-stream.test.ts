@@ -3747,6 +3747,33 @@ describe('streamAgent cached-read action recovery', () => {
     ).toBe(false);
   });
 
+  // GAP-002. The same branch served both cases with one sentence, and for a call the run
+  // had never made the sentence was false. Run e30c1fe9 was told its `add_stock` was
+  // "redundant — its result is already in this run"; nothing had been downloaded, and the
+  // model believed it and moved on without footage.
+  it('says a withheld tool is unavailable, not redundant, when it holds no such result', async () => {
+    const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
+    const provider = new ScriptedProvider([
+      { text: 'read', toolCalls: [read('r1')] },
+      { text: 'read again', toolCalls: [read('r2')] },
+      // Never called before, so the run has no stored result to be redundant with.
+      { text: 'analyse instead', toolCalls: [{ id: 'b1', name: 'detect_beats', arguments: {} }] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 6 }),
+    );
+    const refused = events.find(
+      (event) => event.type === 'tool_result' && event.toolCallId === 'b1',
+    );
+    const summary = refused?.type === 'tool_result' ? refused.summary : '';
+    expect(summary).toContain('unavailable this turn');
+    expect(summary).not.toContain('redundant');
+    // And the model is told what the turn IS for, so it has somewhere to go.
+    const note = JSON.stringify(provider.requests[3]?.messages ?? []);
+    expect(note).toMatch(/acting on what the run has already gathered/);
+  });
+
   it('host-refuses a read hallucinated outside the recovery tool surface', async () => {
     const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
     const provider = new ScriptedProvider([
