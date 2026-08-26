@@ -234,6 +234,61 @@ for (const s of SCALES) {
 }
 console.log();
 
+// B3: the same 60-minute project, asked two different questions (P2.2). Retrieval used to
+// have ONE query — "near the playhead" — and it always narrowed, so both of these produced
+// the same 11 clips and 97 words. A local request should be narrow and dense; a global one
+// wide and sparse, reaching the far end of the recording.
+console.log('## B3. One long project, two requests — does the ask change the retrieval?\n');
+const b3Project = project({ clips: 900, words: 9_000 });
+const b3Mid = (900 * 4) / 2;
+const B3_CASES = [
+  { label: 'local  ("tighten this")', prompt: 'tighten this' },
+  {
+    label: 'global ("find the best")',
+    prompt: 'find the three strongest moments across the whole recording',
+  },
+];
+console.log(
+  '  request                  | clips | words | first shown | last shown | span covered | tokens',
+);
+console.log(
+  '  -------------------------|-------|-------|-------------|------------|--------------|-------',
+);
+out.retrievalByRequest = [];
+for (const c of B3_CASES) {
+  const a = assembleContext({
+    project: b3Project,
+    userPrompt: c.prompt,
+    selection: { start: b3Mid, end: b3Mid + 30 },
+    // A budget too small for the whole project: ranking only decides what does NOT fit.
+    budget: { contextWindow: 9_000, maxOutputTokens: 4_000, headroom: 0 },
+  });
+  const body = a.messages[a.messages.length - 1].content;
+  const shown = b3Project.timeline.tracks
+    .flatMap((t) => t.clips)
+    .filter((clip) => body.includes(`${clip.id}[`));
+  const shownWords = b3Project.transcript.filter((w) => body.includes(w.word));
+  const first = shown.length > 0 ? Math.min(...shown.map((c) => c.start)) : 0;
+  const last = shown.length > 0 ? Math.max(...shown.map((c) => c.end)) : 0;
+  const projectSpan = 900 * 4;
+  const stateTokens = a.sections
+    .filter((x) => x.included && (x.tier === 'timeline' || x.tier === 'transcript'))
+    .reduce((n, x) => n + x.tokenEstimate, 0);
+  out.retrievalByRequest.push({
+    request: c.prompt,
+    clipsShown: shown.length,
+    wordsShown: shownWords.length,
+    firstShownSecond: first,
+    lastShownSecond: last,
+    spanCoverage: (last - first) / projectSpan,
+    projectStateTokens: stateTokens,
+  });
+  console.log(
+    `  ${c.label.padEnd(24)} | ${String(shown.length).padStart(5)} | ${String(shownWords.length).padStart(5)} | ${`${first.toFixed(0)}s`.padStart(11)} | ${`${last.toFixed(0)}s`.padStart(10)} | ${pct(last - first, projectSpan).padStart(12)} | ${stateTokens}`,
+  );
+}
+console.log();
+
 // ------------------------------------------------------------------ C. live agent loop
 class RecordingProvider {
   name = 'mock';
@@ -505,6 +560,69 @@ for (const probe of READ_PROBES) {
   );
 }
 console.log();
+
+// ------------------------------------------- E2. declared, recoverable omissions (P2.3)
+// Every bounded read must end with a count AND the call that returns the rest — either a
+// narrowing argument or an evidence handle. A marker that offers a re-read with no address
+// to read from is an apology, not an instruction (see `clearedWithHandle`).
+const OMISSION_PROBES = [
+  { tool: 'get_transcript', payload: transcript1500.concat(transcript1500).concat(transcript1500) },
+  { tool: 'read_edit_signals', payload: signals60 },
+  { tool: 'map_footage', payload: { chapters: [], highlights: [], reason: 'not_indexed' } },
+  { tool: 'transcribe', payload: { assetId: 'asset_1', words: transcript1500 } },
+  { tool: 'index_media', payload: { indexed: 40, total: 11, cursor: 4 } },
+  {
+    tool: 'measure_color',
+    payload: {
+      clipId: 'clip_1',
+      startFrame: 0,
+      endFrame: 300,
+      occlusionFree: true,
+      samples: [{ frame: 0, channel: 'luma', min: 0, max: 1 }],
+    },
+  },
+  { tool: 'get_selected_range', payload: null },
+  { tool: 'get_frame', payload: { timeSeconds: 2, requestedTimeSeconds: 2, clamped: false } },
+  {
+    tool: 'track_subject_automatically',
+    payload: {
+      plan: { clipId: 'c1', maskEffectId: 'm1', fps: 30, startSeconds: 0 },
+      engine: 'tracking-lite',
+      backend: 'csrt',
+      samples: [{ frame: 0 }],
+    },
+  },
+];
+// An omission is DECLARED when the digest says records were dropped; it is RECOVERABLE
+// when it also names how to get them. A digest that ends in a bare `…` is neither, and is
+// exactly what the nine fall-through reads used to hand back.
+const DECLARES_OMISSION = /\(… \d+ more|not shown|not repeated here|not printed|not\s+listed here/;
+const NAMES_RECOVERY =
+  /(narrow \w+ to|get_transcript|get_clips|recall_evidence|call index_media again|read them with|professional_color match_reference|tracked patch)/;
+console.log('## E2. Declared, recoverable omissions — the nine former fall-through reads\n');
+console.log('  tool                       | declares an omission | names how to get it back');
+console.log('  ---------------------------|----------------------|--------------------------');
+out.omissionHandles = [];
+let honest = 0;
+for (const probe of OMISSION_PROBES) {
+  const digest = summarizeReadResult(probe.tool, probe.payload);
+  const declares = DECLARES_OMISSION.test(digest);
+  const recovers = NAMES_RECOVERY.test(digest);
+  // Honest = it withheld nothing, or it said what and how to get it. And never a bare `…`.
+  const ok = (!declares || recovers) && !/…\s*$/.test(digest);
+  if (ok) honest += 1;
+  out.omissionHandles.push({
+    tool: probe.tool,
+    declaresOmission: declares,
+    namesRecovery: recovers,
+    honest: ok,
+    digestTokens: tok(digest),
+  });
+  console.log(
+    `  ${probe.tool.padEnd(26)} | ${String(declares).padStart(20)} | ${String(recovers).padStart(24)}${ok ? '' : '   <-- DISHONEST'}`,
+  );
+}
+console.log(`\n  honest digests: ${honest}/${OMISSION_PROBES.length}\n`);
 
 // ------------------------------------------------------------------------ headline
 const planningTurnAtScale = fixed.totalPlanningTurnOverhead + out.grounding[2].projectStateTokens;

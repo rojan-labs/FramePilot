@@ -17,6 +17,13 @@ import { type Skill, summarizeSkillsManifest } from './skills.js';
 import type { UserMemory } from './user-memory.js';
 import { indexFor } from './project-index.js';
 import {
+  type RetrievalQuery,
+  deriveRetrievalQuery,
+  rankedClipIds,
+  rankedDialogue,
+} from './context-retrieval.js';
+import { semanticIndexFor } from './kernel/semantic-index/semantic-index.js';
+import {
   summarizeEditorInteraction,
   type EditorInteractionContext,
 } from './editor-context/interaction-context.js';
@@ -270,14 +277,29 @@ function renderTrackClips(
   clips: readonly Clip[],
   focus?: FocusRange,
   maxClips: number = Infinity,
+  retrieval?: RetrievalQuery,
 ): string {
   const inFull = (c: Clip): string => `${c.id}[${round(c.start)}–${round(c.end)}s]`;
+  // P2.1/P2.2: ranked selection. The clips the request is about are chosen first, then the
+  // room left over is filled — evenly across the whole timeline for a global request,
+  // outward from the selection for a local one. Rendering stays in TIME order whatever the
+  // rank, because a timeline read out of order is harder to reason about than one with
+  // declared gaps in it.
+  if (retrieval) {
+    if (clips.length <= maxClips) return clips.map(inFull).join(', ');
+    const keep = rankedClipIds(clips, retrieval, maxClips);
+    const shown = clips.filter((c) => keep.has(c.id));
+    const omitted = clips.filter((c) => !keep.has(c.id));
+    if (omitted.length === 0) return shown.map(inFull).join(', ');
+    const span = clipsSpan(omitted);
+    return `${shown.map(inFull).join(', ')}, …(+${omitted.length} more clip(s) over ${round(span.start)}–${round(span.end)}s; get_clips lists them)`;
+  }
   if (!focus) {
     if (clips.length <= maxClips) return clips.map(inFull).join(', ');
     const shown = clips.slice(0, maxClips);
     const omitted = clips.slice(maxClips);
     const span = clipsSpan(omitted);
-    return `${shown.map(inFull).join(', ')}, …(+${omitted.length} more clip(s) over ${round(span.start)}–${round(span.end)}s)`;
+    return `${shown.map(inFull).join(', ')}, …(+${omitted.length} more clip(s) over ${round(span.start)}–${round(span.end)}s; get_clips lists them)`;
   }
   const focusIds = focusedClipIds(clips, focus);
   const shown = clips.filter((c) => focusIds.has(c.id));
@@ -285,7 +307,7 @@ function renderTrackClips(
   const shownStr = shown.map(inFull).join(', ');
   if (omitted.length === 0) return shownStr;
   const span = clipsSpan(omitted);
-  const more = `…(+${omitted.length} more clip(s) over ${round(span.start)}–${round(span.end)}s, outside the focus)`;
+  const more = `…(+${omitted.length} more clip(s) over ${round(span.start)}–${round(span.end)}s, outside the focus; get_clips lists them)`;
   // When any clip is omitted, at least one is always shown (focusedClipIds returns an
   // overlapping clip or a bounding neighbour whenever clips exist), so `shownStr` is
   // guaranteed non-empty here — no empty-prefix case to guard.
@@ -312,6 +334,7 @@ export function summarizeTimeline(
   assetKinds: ReadonlyMap<string, string | undefined> = new Map(),
   focus?: FocusRange,
   maxClipsPerLayer: number = Infinity,
+  retrieval?: RetrievalQuery,
 ): string {
   if (timeline.tracks.length === 0) return 'Timeline: (empty)';
   const count = timeline.tracks.length;
@@ -321,7 +344,7 @@ export function summarizeTimeline(
     const head = `- Layer ${i + 1}/${count} (${z}, ${kind}) "${track.id}"`;
     if (track.clips.length === 0) return `${head}: empty`;
     const span = clipsSpan(track.clips);
-    const clips = renderTrackClips(track.clips, focus, maxClipsPerLayer);
+    const clips = renderTrackClips(track.clips, focus, maxClipsPerLayer, retrieval);
     return `${head} (${track.clips.length} clip(s), ${round(span.start)}–${round(span.end)}s): ${clips}`;
   });
   const heading = focus
@@ -350,8 +373,10 @@ export function summarizeTranscript(
   project: Project,
   focus?: FocusRange,
   maxWords: number = MIN_TRANSCRIPT_WORDS,
+  retrieval?: RetrievalQuery,
 ): string {
   if (project.transcript.length === 0) return 'Transcript: (none)';
+  if (retrieval) return rankedTranscriptBlock(project, retrieval, maxWords);
   if (!focus) {
     const words = project.transcript.slice(0, maxWords).map((w) => w.word);
     const suffix = project.transcript.length > maxWords ? ' …(truncated)' : '';
@@ -363,6 +388,53 @@ export function summarizeTranscript(
   const label = `Transcript (focused on ${round(focus.start)}–${round(focus.end)}s):`;
   if (inWindow.length === 0) return `${label} (no dialogue in range)`;
   return `${label}\n${inWindow.map((w) => w.word).join(' ')}`;
+}
+
+/**
+ * The transcript tier as RANKED, TIMED dialogue (P2.1/P2.2/P2.3).
+ *
+ * Three changes from the head-of-list block above, each one a finding:
+ *
+ * - **It is the Semantic Timeline Index's dialogue, not the raw word list.**
+ *   `semantic-index-slice.ts` was built, tested and exported under plan K3 and had zero
+ *   production consumers; `semanticIndexFor` segments the transcript into utterances at a
+ *   0.6s gap, which is the unit a ranker can keep whole.
+ * - **Every segment carries its start time.** A model asked to cut on a line could read
+ *   the words but had no idea when they were said, so it guessed a time and the cut
+ *   landed somewhere else. This is also what Phase 3 makes frame-exact.
+ * - **The gaps are declared, with their spans.** A model that silently receives 6% of a
+ *   recording reasons as though that is the recording. Saying "40 more stretches over
+ *   12–58 min, read them with get_transcript" turns a fragment into a fragment the model
+ *   knows is one, and knows how to complete.
+ */
+function rankedTranscriptBlock(
+  project: Project,
+  retrieval: RetrievalQuery,
+  maxWords: number,
+): string {
+  const dialogue = semanticIndexFor(project).dialogue;
+  // An index with no dialogue is not a reason to show nothing: fall back to exactly the
+  // head-of-list behaviour Phase 1 shipped. A ranker may never reduce coverage.
+  if (dialogue.length === 0) return summarizeTranscript(project, undefined, maxWords);
+  const shown = rankedDialogue(dialogue, retrieval, maxWords);
+  // Rule 2, enforced: a ranker may never reduce coverage below what Phase 1 would show.
+  // One unbroken monologue is a single segment, and keeping whole records means it either
+  // fits or it does not — so when nothing fits, fall back to the word-level head view
+  // rather than hand the model an empty transcript with a note about it.
+  if (shown.length === 0) return summarizeTranscript(project, undefined, maxWords);
+  const lines = shown.map((segment) => `[${round(segment.start)}s] ${segment.text}`);
+  if (shown.length === dialogue.length) return `Transcript (whole, timed):\n${lines.join('\n')}`;
+  const kept = new Set(shown);
+  const omitted = dialogue.filter((segment) => !kept.has(segment));
+  const first = omitted[0]!;
+  const last = omitted[omitted.length - 1]!;
+  const scope =
+    retrieval.scope === 'global' ? 'sampled across the whole recording' : 'around the selection';
+  return [
+    `Transcript (${shown.length} of ${dialogue.length} spoken stretches, ${scope}, timed):`,
+    ...lines,
+    `…(+${omitted.length} more stretch(es) of dialogue between ${round(first.start)}–${round(last.end)}s not shown; read any window with get_transcript)`,
+  ].join('\n');
 }
 
 /**
@@ -563,6 +635,7 @@ export function allocateGroundingSlice(
   assetKinds: ReadonlyMap<string, string | undefined>,
   room: number,
   focus?: FocusRange,
+  retrieval?: RetrievalQuery,
 ): GroundingAllocation {
   const timeline = project.timeline;
   const maxClips = timeline.tracks.reduce((n, track) => Math.max(n, track.clips.length), 0);
@@ -573,33 +646,74 @@ export function allocateGroundingSlice(
   // Rule 2, first half: the timeline gets its guaranteed share, or everything the
   // transcript does not need — whichever is larger. A project with little or no dialogue
   // must not have half the room reserved for a tier that will not spend it.
-  const transcriptNeed = focus
+  // With retrieval wired (Phase 2) a selection is a BIAS, not a boundary — the request
+  // still gets whatever room it can use, and the ranker decides what fills it. Only the
+  // pre-Phase-2 focus path is pinned to the floor, because there the selection really did
+  // bound what could be shown.
+  const bounded = focus !== undefined && retrieval === undefined;
+  const transcriptNeed = bounded
     ? 0
-    : estimateTokens(summarizeTranscript(project, undefined, totalWords));
+    : estimateTokens(summarizeTranscript(project, undefined, totalWords, retrieval));
   const timelineRoom = Math.max(
     Math.floor(room * TIMELINE_SHARE_OF_GROUNDING_ROOM),
     room - transcriptNeed,
   );
-  const maxClipsPerLayer = focus
+  const maxClipsPerLayer = bounded
     ? MIN_CLIPS_PER_LAYER
     : largestFittingCount(MIN_CLIPS_PER_LAYER, maxClips, timelineRoom, (count) =>
-        summarizeTimeline(timeline, assetKinds, undefined, count),
+        summarizeTimeline(timeline, assetKinds, focus, count, retrieval),
       );
   // Rule 2, second half, symmetrically: the transcript gets everything the timeline did
   // not actually spend, measured on the real render rather than on its allowance.
   const spentOnTimeline = estimateTokens(
-    summarizeTimeline(timeline, assetKinds, focus, maxClipsPerLayer),
+    summarizeTimeline(timeline, assetKinds, focus, maxClipsPerLayer, retrieval),
   );
   const transcriptRoom = Math.max(0, room - spentOnTimeline);
-  const maxTranscriptWords = focus
+  const maxTranscriptWords = bounded
     ? MIN_TRANSCRIPT_WORDS
     : largestFittingCount(MIN_TRANSCRIPT_WORDS, totalWords, transcriptRoom, (count) =>
-        // The REAL renderer, so the "…(truncated)" marker is priced too. Probing with a
-        // hand-rolled approximation is how an allocation comes back a few tokens over and
-        // the budgeter drops the whole tier it was sizing.
-        summarizeTranscript(project, undefined, count),
+        // The REAL renderer, so the "…(truncated)" marker and the declared-omission tail
+        // are priced too. Probing with a hand-rolled approximation is how an allocation
+        // comes back a few tokens over and the budgeter drops the whole tier it was sizing.
+        summarizeTranscript(project, undefined, count, retrieval),
       );
   return { maxClipsPerLayer, maxTranscriptWords };
+}
+
+/**
+ * What the MODEL is told about a tier that did not fit (P2.3).
+ *
+ * A dropped tier already reaches the UI and the manifest as an omitted section with a
+ * reason (ADR 0080). The model was told nothing — so a run whose transcript tier was
+ * trimmed reasoned as though the project has no dialogue, which is not a smaller answer
+ * but a wrong one.
+ *
+ * Each line names what is missing AND the call that returns it, which is the standard
+ * `clearedWithHandle` was written to establish: a marker that offers a re-read with no
+ * address to read from is an apology, not an instruction.
+ */
+const TIER_RECOVERY: Partial<Record<ContextTier, string>> = {
+  transcript: 'the dialogue — read any window with get_transcript',
+  timeline: 'the timeline arrangement — read it with get_timeline_summary or get_clips',
+  skills: 'the skills manifest — load a playbook by name with load_skill',
+  memory: 'the project memory and session notes — this project may have preferences you cannot see',
+  history: 'earlier turns of this conversation',
+  pinned: 'the entities the user pinned',
+  selection: "the user's current selection — ask before assuming an edit is project-wide",
+};
+
+/** Render the declared-omission block, or '' when everything fit. */
+export function summarizeDroppedTiers(dropped: readonly ContextTier[]): string {
+  const lines = dropped
+    .map((tier) => TIER_RECOVERY[tier])
+    .filter((line): line is string => line !== undefined)
+    .map((line) => `- ${line}`);
+  if (lines.length === 0) return '';
+  return [
+    'NOT IN THIS PROMPT (it did not fit, so do not treat its absence as absence from the',
+    'project):',
+    ...lines,
+  ].join('\n');
 }
 
 /**
@@ -698,18 +812,32 @@ export function assembleContext(input: ContextInput): AssembledContext {
     promptBlock,
     ...history.map((m) => m.content),
   ].reduce((sum, text) => sum + estimateTokens(text), 0);
+  // P2.2: what this turn is about, read from pinned entities, the selection and the
+  // request's own words, with a declared precedence. Pure — no model call, no I/O.
+  const retrieval = deriveRetrievalQuery({
+    userPrompt,
+    ...(selection ? { selection } : {}),
+    ...(input.pinned ? { pinned: input.pinned } : {}),
+  });
   const allocation = allocateGroundingSlice(
     project,
     assetKinds,
     budget - spentElsewhere,
     selection,
+    retrieval,
   );
 
   const tiered: TieredBlock[] = [
     {
       tier: 'timeline',
       label: 'timeline summary',
-      text: summarizeTimeline(project.timeline, assetKinds, selection, allocation.maxClipsPerLayer),
+      text: summarizeTimeline(
+        project.timeline,
+        assetKinds,
+        selection,
+        allocation.maxClipsPerLayer,
+        retrieval,
+      ),
     },
   ];
   // The visual-index status line (MI6.2) sits with the timeline it describes, so the
@@ -727,7 +855,7 @@ export function assembleContext(input: ContextInput): AssembledContext {
     tiered.push({
       tier: 'transcript',
       label: 'transcript slice',
-      text: summarizeTranscript(project, selection, allocation.maxTranscriptWords),
+      text: summarizeTranscript(project, selection, allocation.maxTranscriptWords, retrieval),
     });
   }
   tiered.push(...fixed);
@@ -750,12 +878,15 @@ export function assembleContext(input: ContextInput): AssembledContext {
     if (present) dropped.add(tier);
   }
 
+  const omissionBlock = summarizeDroppedTiers([...dropped]);
   const keptTiers = tiered.filter((b) => !dropped.has(b.tier));
   const keptBlocks = keptTiers.map((b) => b.text);
   const keptHistory = dropped.has('history') ? [] : history;
-  const userContent = [...mandatoryOrdered(header, keptBlocks, mandatory), promptBlock].join(
-    '\n\n',
-  );
+  const userContent = [
+    ...mandatoryOrdered(header, keptBlocks, mandatory),
+    ...(omissionBlock === '' ? [] : [omissionBlock]),
+    promptBlock,
+  ].join('\n\n');
   // The run-stability split (P1.3). The timeline tier is the only thing here that a turn
   // can change, so everything else — including the platform line and the request — is
   // prefix a provider can cache for the whole run.
@@ -763,7 +894,11 @@ export function assembleContext(input: ContextInput): AssembledContext {
   const stableBlocks = keptTiers.filter((b) => b.tier !== 'timeline').map((b) => b.text);
   const split: ContextSplit = {
     stable: [header, ...stableBlocks, ...mandatory.filter((m) => m !== header)].join('\n\n'),
-    volatile: [...volatileBlocks, promptBlock].join('\n\n'),
+    volatile: [
+      ...volatileBlocks,
+      ...(omissionBlock === '' ? [] : [omissionBlock]),
+      promptBlock,
+    ].join('\n\n'),
   };
 
   // The per-section account (ADR 0080). Mandatory blocks are reported too, so the

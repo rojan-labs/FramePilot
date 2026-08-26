@@ -185,3 +185,78 @@ function stripFence(raw: string): string {
 
 /** The safe fallback when classification is unavailable or unparseable: treat as an edit. */
 export const FALLBACK_CLASSIFICATION: CommandClassification = { route: 'edit' };
+
+/** Whether a request is about one place on the timeline, or about the whole recording. */
+export type RequestScope = 'local' | 'global';
+
+/**
+ * Words that mean "across the whole thing". Deliberately about SCOPE, not about the
+ * operation: "find" and "best" are here because they are how an editor asks you to search
+ * material, and searching a recording you can only see 1% of is the failure this ends.
+ */
+const GLOBAL_SCOPE_WORDS: readonly RegExp[] = [
+  /\bwhole\b/i,
+  /\bentire\b/i,
+  /\bthroughout\b/i,
+  /\ball (?:of )?(?:the )?(?:clips?|footage|dialogue|recording|video)\b/i,
+  /\bevery\b/i,
+  /\banywhere\b/i,
+  /\bacross\b/i,
+  /\bbest\b/i,
+  /\bstrongest\b/i,
+  /\bhighlights?\b/i,
+  /\bfind\b/i,
+  /\bsearch\b/i,
+  /\bhooks?\b/i,
+  /\bsummar(?:y|ize|ise)\b/i,
+  /\breel\b/i,
+  /\bshort\b/i,
+  /\bmontage\b/i,
+];
+
+/** Words that point at one place. Only consulted when nothing is selected (rule 3). */
+const LOCAL_SCOPE_WORDS: readonly RegExp[] = [
+  /\bthis (?:clip|cut|shot|bit|part|moment|section|transition)\b/i,
+  /\bthat (?:clip|cut|shot|bit|part|moment|section|transition)\b/i,
+  /\bhere\b/i,
+  /\bright (?:here|there)\b/i,
+  /\bat the playhead\b/i,
+  /\bthe selection\b/i,
+  /\bselected\b/i,
+];
+
+/**
+ * Whether a request is about ONE PLACE on the timeline or about the whole recording
+ * (context-management P2.2).
+ *
+ * Retrieval used to have exactly one query — "near the playhead" — and it always
+ * NARROWED: a 30-second selection took a 60-minute project's context from 24 clips and
+ * 600 words to 11 and 97. That is correct for *"tighten this"*. It is wrong for *"find
+ * the strongest hook in this recording"*, where the selection actively hurts, and there
+ * was no path by which a request could widen the view at all.
+ *
+ * This is a deterministic, inspectable reading of the request text — NOT a model call.
+ * It lives beside {@link parseClassification} because command shape has one home, but it
+ * is pure by necessity: `assembleContext` is pure and cacheable, and a retrieval decision
+ * that required a network round trip could not sit inside it.
+ *
+ * The precedence is declared rather than emergent, and a wrong guess costs relevance,
+ * never access (the ranker may reorder within the room; it may not reduce coverage):
+ *
+ * 1. **An explicit whole-project word wins, even over a live selection.** Someone who
+ *    says "the whole recording" while a clip happens to be selected means the recording.
+ * 2. **Otherwise a selection means local.** They pointed at something.
+ * 3. **Otherwise an explicit pointing word means local** — "this", "here", "that cut".
+ * 4. **Otherwise global.** With nothing selected and nothing pointed at, the request is
+ *    about the project: "add captions" and "cut this to 45 seconds" both are.
+ *
+ * @param userPrompt - The editor's own words for this turn.
+ * @param hasSelection - Whether a timeline range is selected.
+ */
+export function requestScopeOf(userPrompt: string, hasSelection: boolean): RequestScope {
+  const text = userPrompt ?? '';
+  if (GLOBAL_SCOPE_WORDS.some((pattern) => pattern.test(text))) return 'global';
+  if (hasSelection) return 'local';
+  if (LOCAL_SCOPE_WORDS.some((pattern) => pattern.test(text))) return 'local';
+  return 'global';
+}

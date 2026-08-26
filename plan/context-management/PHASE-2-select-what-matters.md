@@ -1,4 +1,4 @@
-# Phase 2 — The model sees what matters, and knows what it is not seeing — `[ ]`
+# Phase 2 — The model sees what matters, and knows what it is not seeing — `[x]`
 
 > **Ships:** on footage too long to fit, the part of it in the prompt is the part the
 > request is about — and every omission carries a handle that gets it back in one call.
@@ -17,7 +17,7 @@ never had a caller.
 
 ---
 
-## P2.1 — Wire the retrieval that already exists — `[ ]`
+## P2.1 — Wire the retrieval that already exists — `[x]`
 
 **Closes:** F9. **Touches:** `context-builder.ts` (timeline + transcript tiers).
 **Reuses unchanged:** `packages/ai-sdk/src/kernel/semantic-index/semantic-index-slice.ts`.
@@ -49,7 +49,7 @@ that sharply at unchanged token cost — the point is _better tokens_, not more.
 
 ---
 
-## P2.2 — The request decides what gets retrieved — `[ ]`
+## P2.2 — The request decides what gets retrieved — `[x]`
 
 **Closes:** F10. **Touches:** `context-builder.ts`; reuses
 `kernel/command-classifier.ts` (which already imports `TimeRange` from the index) and
@@ -87,7 +87,7 @@ model-free — the query function is pure.
 
 ---
 
-## P2.3 — Every omission is declared and recoverable — `[ ]`
+## P2.3 — Every omission is declared and recoverable — `[x]`
 
 **Closes:** the honesty half of F4, which P1.1 opens.
 **Touches:** `orchestrator.ts` (`summarizeReadResult`, `clearedWithHandle`),
@@ -139,3 +139,56 @@ instruction; a test that a bounded tier's collapse line names both the count and
 | A ranker hides something the model needed | It cannot reduce coverage below Phase 1 (P2.1 fallback rule), and P2.3 makes every omission declared and recoverable in one call.      |
 | Query classification guesses wrong        | Precedence is declared and pure; pinned always wins; selection biases rather than bounds. A wrong guess costs relevance, never access. |
 | Two budgets disagree                      | Ranking limits _are_ Phase 1's allocation, threaded through — one number, one owner.                                                   |
+
+---
+
+## What shipped — 2026-08-26
+
+All three items. Evidence: `reports/context-benchmark-phase2.{txt,json}`.
+
+`src/context-retrieval.ts` is the whole of it: three pure functions, no framework, no
+store, no new data model. `requestScopeOf` lives in `kernel/command-classifier.ts` because
+command shape has one home — but it is a **deterministic reading of the request text, not a
+model call**, because `assembleContext` is pure and a retrieval decision that needed a
+network round trip could not sit inside it.
+
+**P2.1 — the ranker's rules, and why they make it safe.** `semantic-index-slice.ts` is
+consumed at last (via `semanticIndexFor(project).dialogue` plus the exported
+`sampleEvenly`), and is itself unmodified, as the phase required. Two rules hold:
+
+1. **Pinned is never ranked away.**
+2. **A ranker may reorder within the room; it may never reduce coverage below Phase 1.**
+   Enforced twice: where the index carries no dialogue, the tier falls back to the
+   head-of-list block, and where the ranked selection comes back empty — one unbroken
+   monologue is a single segment, so it either fits whole or not at all — it falls back
+   again rather than hand the model an empty transcript with a note about it.
+
+**P2.2 — the numbers.** Benchmark section B3, one 60-minute project asked two questions
+with the same 30-second selection, under a budget too small for the whole project:
+
+| request                                     | clips shown | span covered   |
+| ------------------------------------------- | ----------- | -------------- |
+| _"tighten this"_                            | 412         | 59.8%          |
+| _"find the three strongest moments…"_       | 420         | **100%**       |
+
+Same room, same tokens, different tokens. And section B2 (60-min, with a selection): word
+coverage **6.7% → 100%**, clip coverage **2.1% → 100%** — a selection is now a bias, so it
+no longer walls the model off from the recording it was asked about.
+
+**P2.3 — measured, not asserted.** Section E2 audits all nine formerly-fall-through reads:
+**9/9** either withhold nothing or declare what they withheld *and* name the call that
+returns it, and none ends in a bare `…`. The context tiers do the same — a bounded clip
+list names its count, its span and `get_clips`; a bounded transcript names its count, its
+span and `get_transcript`. And a **dropped tier now reaches the model**, not only the UI
+and the manifest: `summarizeDroppedTiers` renders a `NOT IN THIS PROMPT (…so do not treat
+its absence as absence from the project)` block naming each missing tier and how to reach
+it. A run whose transcript was trimmed used to reason as though the project had no
+dialogue, which is not a smaller answer but a wrong one.
+
+**One thing the phase did not anticipate.** The transcript tier now carries **times**
+(`[12.3s] the words spoken there`), taken from the index's dialogue segmentation. It was
+not in the plan, and it is the difference between a model that knows what was said and one
+that knows when — which is what Phase 3 makes frame-exact. It costs about 5 tokens per
+spoken stretch.
+
+Cacheable prefix share is unchanged from Phase 1 (91.5% steady state, ≥ 85% required).

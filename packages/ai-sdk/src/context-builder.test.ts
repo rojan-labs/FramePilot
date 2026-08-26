@@ -514,14 +514,18 @@ describe('transcript relevance window (K2.2)', () => {
     expect(summarizeTranscript(project)).toContain('word0');
   });
 
-  it('assembleContext windows the transcript when a selection is present', () => {
+  it('assembleContext biases toward the selection without walling off the rest (P2.2)', () => {
+    // Before Phase 2 a selection HARD-narrowed the transcript: a 30s selection on a
+    // 60-minute project took the model from 600 words to 97, which is right for "tighten
+    // this" and wrong for "find the strongest hook". A selection is now a bias, so the
+    // dialogue around it leads and the rest of the recording stays eligible for the room.
     const project = makeProject({ transcript: longTranscript });
     const content =
       assembleContext({ project, userPrompt: 'x', selection: { start: 50, end: 52 } }).messages.at(
         -1,
       )?.content ?? '';
     expect(content).toContain('focused on 50–52s');
-    expect(content).not.toContain('word0 ');
+    expect(content).toContain('word0');
   });
 });
 

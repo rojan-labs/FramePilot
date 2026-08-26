@@ -100,7 +100,7 @@ export const DEFAULT_SEMANTIC_SLICE_LIMITS: SemanticSliceLimits = {
 };
 
 /** Deterministically retain the first, last, and evenly distributed interior entries. */
-function sampleEvenly<T>(entries: readonly T[], rawLimit: number): readonly T[] {
+export function sampleEvenly<T>(entries: readonly T[], rawLimit: number): readonly T[] {
   const limit = Math.max(1, Math.floor(rawLimit));
   if (entries.length <= limit) return entries;
   if (limit === 1) return [entries[0]!];

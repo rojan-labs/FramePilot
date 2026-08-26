@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21002,
+      "usedTokens": 21007,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -127,7 +127,7 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1602,
+            "tokenEstimate": 1607,
             "included": true
           },
           {
@@ -155,9 +155,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21002,
+          "estimatedInputTokensBeforeSend": 21007,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170806,
+          "estimatedRemainingCapacity": 170801,
           "calculationSource": "local_estimate"
         },
         "compaction": {

@@ -71,6 +71,7 @@ export * from './memory-client.js';
 export * from './session-warmup.js';
 export * from './assemble.js';
 export * from './context-builder.js';
+export * from './context-retrieval.js';
 export * from './prompts.js';
 export * from './memory-store.js';
 export * from './user-memory.js';
