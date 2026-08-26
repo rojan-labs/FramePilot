@@ -375,6 +375,7 @@
           "estimatedInputTokensBeforeSend": 21319,
           "reservedOutputTokens": 8192,
           "estimatedRemainingCapacity": 170489,
+          "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
         "compaction": {

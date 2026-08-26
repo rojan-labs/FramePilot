@@ -94,6 +94,22 @@ export interface RequestTokenUsage {
   readonly reasoningTokens?: number;
   /** limit − (reported ?? estimated) input − reservation, floored at zero. */
   readonly estimatedRemainingCapacity: number;
+  /**
+   * Tool-schema tokens re-billed at FULL price this request because the advertised tool
+   * set changed since the previous one (context-management P5.3).
+   *
+   * The tool block is ~78% of a planning prompt and sits ABOVE the messages in the
+   * provider's cache hierarchy, so changing it invalidates everything cached beneath.
+   * The stage policy swaps the descriptor set twice in a nine-turn run — measured at
+   * 30,751 tokens re-billed — and until now that cost was invisible: the cost meter sees
+   * input tokens, not *why* they were not cached.
+   *
+   * This does not change what is advertised. It makes the price of the current policy a
+   * number, so the decision to keep or change it can be made against evidence rather
+   * than against an argument. `0` means the set was stable; absent means there was no
+   * previous request to compare against.
+   */
+  readonly toolSchemaTokensRebilled?: number;
   readonly calculationSource: TokenCalculationSource;
 }
 
@@ -199,6 +215,8 @@ export interface ManifestInput {
   readonly sections: readonly AssembledSection[];
   /** Tokens the tool schemas occupy — real prompt cost the assembler cannot see. */
   readonly toolSchemaTokens?: number;
+  /** The previous request's tool-schema cost, when there was one (see the usage field). */
+  readonly previousToolSchemaTokens?: number;
   /** The whole-request estimate, including anything not itemised in `sections`. */
   readonly estimatedInputTokens: number;
   readonly droppedTokenEstimate: number;
@@ -248,6 +266,14 @@ export function buildManifest(input: ManifestInput): ContextManifest {
         input.estimatedInputTokens,
         input.reservedOutputTokens,
       ),
+      ...(input.previousToolSchemaTokens === undefined
+        ? {}
+        : {
+            toolSchemaTokensRebilled:
+              input.previousToolSchemaTokens === (input.toolSchemaTokens ?? 0)
+                ? 0
+                : (input.toolSchemaTokens ?? 0),
+          }),
       calculationSource: 'local_estimate',
     },
     compaction: {
@@ -361,6 +387,12 @@ export interface RequestManifestInput {
     readonly droppedTokenEstimate: number;
   };
   readonly memory?: DurableMemoryStatus;
+  /**
+   * The tool-schema cost of the PREVIOUS request, when the caller tracks one. Supplying
+   * it turns "how many input tokens" into "how many of them were re-billed because the
+   * advertised tool set moved" — see {@link RequestTokenUsage.toolSchemaTokensRebilled}.
+   */
+  readonly previousToolSchemaTokens?: number;
 }
 
 /**
@@ -388,6 +420,9 @@ export function buildRequestManifest(input: RequestManifestInput): ContextManife
     reservedOutputTokens: input.reservedOutputTokens,
     sections,
     toolSchemaTokens,
+    ...(input.previousToolSchemaTokens === undefined
+      ? {}
+      : { previousToolSchemaTokens: input.previousToolSchemaTokens }),
     // Estimated from the payload, never from the section sum: a section account can
     // omit or double-count, and the payload is what the provider actually charges for.
     estimatedInputTokens: messageTokens + toolSchemaTokens,

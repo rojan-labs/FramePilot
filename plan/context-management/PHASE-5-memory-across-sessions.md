@@ -129,7 +129,7 @@ length and the platform-list length are bounded so memory cannot grow without li
 
 ---
 
-## P5.3 — One tool surface for the whole run — `[ ]`
+## P5.3 — One tool surface for the whole run — `[!]` measured, deliberately not shipped
 
 **Closes:** F5. **Touches:** `kernel/stage-policy.ts:126`, `orchestrator.ts#agentTools`.
 
@@ -151,6 +151,38 @@ What it buys is a stable prefix for the largest block in the prompt.
 
 **Evidence.** Benchmark section C: tool-set changes 2 → 0; cacheable prefix share ≥ 85% and
 stable across every turn. Golden corpus green — the event stream must not move.
+
+**Decided 2026-08-26: the finding stands, the behavioural change does not ship, and the
+cost is now a measured number rather than a documented one.** This is the outcome the item
+itself provides for — *"that trade should be checked against real run logs, not assumed. If
+the answer is no, the finding stands and the cost is a known, documented one."*
+
+Three reasons, in order of weight:
+
+1. **The guard exists because instruction was tried and lost.** `stage-policy.ts` says so
+   in its own header: the contract told the model to inspect once and commit, throughout a
+   run that spent eight turns doing reconnaissance. Replacing a structural guarantee with a
+   behavioural one, on the strength of a token count, is the move that produced the guard
+   in the first place.
+2. **The evidence to check the trade does not exist yet.** The question is *how often a
+   refused call would cost a turn*, and only real run logs answer it. The golden corpus is
+   scripted: it can prove the event stream does not move, and it cannot observe a model
+   reaching for a withheld tool.
+3. **The apparently free half is not free.** The obvious cheaper win is to stop
+   *re-opening* the set at `verify` — one swap instead of two, 17,320 of the 30,751 tokens,
+   no policy change at execution. But `get_frame` is classified `analysis`, so it is
+   exactly what `verify` re-opens; withholding it there would delete the "look at your own
+   edit before you claim it" protocol at the one turn that protocol exists for.
+
+**What did ship: the cost stopped being invisible.** `ContextManifest.usage` gains
+`toolSchemaTokensRebilled` — the whole tool block, not the delta, because a changed tool
+block is a cache miss on all of it — so the UI and the dev inspector can see *why* a turn
+was expensive, not only that it was. The diagnosis called this cost "invisible to the cost
+meter"; it is now a field.
+
+**Trigger for revisiting:** real run logs showing how often a run reaches for a withheld
+descriptor during execution. Until then the 30,751 tokens are a price knowingly paid for a
+guard that is known to work.
 
 ---
 

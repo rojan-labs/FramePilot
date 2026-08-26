@@ -592,6 +592,7 @@
           "estimatedInputTokensBeforeSend": 21305,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 850695,
+          "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -677,6 +678,7 @@
           "estimatedInputTokensBeforeSend": 21305,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
+          "toolSchemaTokensRebilled": 0,
           "calculationSource": "provider_reported",
           "providerReportedInputTokens": 100,
           "providerReportedOutputTokens": 20
@@ -1056,6 +1058,7 @@
           "estimatedInputTokensBeforeSend": 21323,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 850677,
+          "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -1150,6 +1153,7 @@
           "estimatedInputTokensBeforeSend": 21323,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
+          "toolSchemaTokensRebilled": 0,
           "calculationSource": "provider_reported",
           "providerReportedInputTokens": 100,
           "providerReportedOutputTokens": 20

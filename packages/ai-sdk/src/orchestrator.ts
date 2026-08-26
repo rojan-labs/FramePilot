@@ -4224,13 +4224,27 @@ export class Orchestrator {
    *   stable and unique per step, so two manifests can be diffed without ambiguity.
    * @param modelCall - Window, reservation, and any richer context the caller has.
    */
+  /**
+   * The tool-schema cost of the previous request this orchestrator sent (P5.3).
+   *
+   * The tool block sits ABOVE the messages in the provider's cache hierarchy, so changing
+   * it re-bills everything cached beneath at full price. The stage policy swaps the
+   * descriptor set twice in a nine-turn run and that cost was invisible — the cost meter
+   * sees input tokens, not *why* they were not cached. Comparing consecutive requests
+   * turns it into a number the manifest reports.
+   */
+  private previousToolSchemaTokens: number | undefined;
+
   private manifestFor(
     request: AiCompletionRequest,
     sink: StreamSink,
     modelCall: ModelCallContext,
   ): ContextManifest {
     const capabilities = capabilitiesFor(this.provider.name, this.provider.modelId);
+    const previous = this.previousToolSchemaTokens;
+    this.previousToolSchemaTokens = toolSchemaCost(request.tools);
     return buildRequestManifest({
+      ...(previous === undefined ? {} : { previousToolSchemaTokens: previous }),
       /* v8 ignore next -- no caller currently constructs a `{ kind: 'silent' }` sink; the union member exists for a future silent-stream caller. */
       requestId: sink.kind === 'assistant' ? sink.id : 'silent',
       provider: this.provider.name,
