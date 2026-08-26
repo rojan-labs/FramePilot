@@ -17,11 +17,18 @@
  * `validate_render` pass on an auto preview render) and reports `skipped` when no
  * render was run rather than fabricating a pass (build-order honesty, AGENTS.md).
  */
-import { CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID } from '@framepilot/editor-core';
+import {
+  CAPTION_ASSET_ID,
+  TEXT_OVERLAY_ASSET_ID,
+  buildTimelineMap,
+  listEditBoundaries,
+  mapTranscript,
+} from '@framepilot/editor-core';
 import type { Clip, Effect, Project, Timeline } from '@framepilot/timeline-schema';
 import { COVERAGE_LABEL, type CoverageTreatment } from './acceptance.js';
 import type { TargetPlatform } from './context-builder.js';
 import type { TemporalReviewReport } from './temporal-review.js';
+import { secondsToFrame } from './frame-time.js';
 import type { VisionReviewReport } from './vision-review.js';
 
 /** Outcome of a single Critic check. */
@@ -42,7 +49,15 @@ export type CheckId =
   | 'temporal_evidence'
   | 'vision_review'
   | 'missing_assets'
-  | 'export_settings';
+  | 'export_settings'
+  // Editorial checks (context-management Phase 4). Everything above answers "is the
+  // deliverable well-formed?"; these answer "is this a good cut?".
+  | 'jump_cut'
+  | 'word_severed'
+  | 'dead_air'
+  | 'transition_fit'
+  | 'audio_slam'
+  | 'shot_rhythm';
 
 /** One check's verdict + a human-readable explanation. */
 export interface CriticCheck {
@@ -104,6 +119,19 @@ export interface CritiqueOptions {
    * never pass one that did not.
    */
   readonly vision?: VisionReviewReport;
+  /**
+   * Silence the run already measured, with the evidence handle it is filed under (P4.3).
+   *
+   * The critic is another consumer of the run's context, and it used to get a thinner view
+   * than the planner did: a run that could see the whole transcript while planning saw
+   * only the timeline while reviewing, and would approve cuts it would have rejected. This
+   * is the channel for what the run LEARNED, and the handle rides along so a finding can
+   * cite the turn it came from instead of asserting a number from nowhere.
+   */
+  readonly silences?: {
+    readonly ranges: readonly { readonly start: number; readonly end: number }[];
+    readonly handle?: string;
+  };
 }
 
 /** Engine-provided sentinel asset ids that are valid without a project asset. */
@@ -690,6 +718,452 @@ function checkExportSettings(project: Project, options: CritiqueOptions): Critic
 }
 
 // ---------------------------------------------------------------------------
+// Editorial checks (context-management Phase 4)
+// ---------------------------------------------------------------------------
+//
+// Read the fourteen checks above as an editor. Every one of them answers "is the
+// deliverable well-formed?" — the right length, the right aspect, no missing media, no
+// clipping, nothing black. Not one answers "is this a good cut?"
+//
+// These do. The rules that keep them honest:
+//
+//  · **Every threshold is stated in FRAMES, with a written rationale.** "0.1 seconds"
+//    means different things at 24 and 60fps, and a number tuned until a fixture passed is
+//    not a standard. A frame grid exists to be stated in (ADR 0146).
+//  · **Every check is computable from state the run already holds.** Anything needing a
+//    render is `skipped` with a reason, exactly as `black_frames` is.
+//  · **A check ships `warn` before it ships `fail`.** `warn` informs the model; `fail`
+//    triggers the repair pass. Promoting one is a decision made after it has been seen
+//    correct on real runs, not on the day it is written.
+//  · **A check the agent cannot act on trains it to ignore the critic.** Each one either
+//    names the tool that fixes it (and joins `FIXABLE_CHECKS`) or says plainly in its own
+//    detail text that it is diagnostic.
+
+/**
+ * How much source a cut may skip before the two sides stop reading as the same shot.
+ *
+ * 60 frames — two seconds at 30fps. The rationale is the subject, not the number: over
+ * less than about two seconds of removed footage a talking head has not visibly changed
+ * pose, so the splice reads as the picture stuttering rather than as an edit. That is
+ * exactly the range a silence-removal pass produces, which is why the check exists.
+ *
+ * Stated in frames because "two seconds" is 48 frames of motion at 24fps and 120 at 60.
+ */
+const JUMP_CUT_SOURCE_FRAMES = 60;
+
+/**
+ * Source continuity within this many frames is not a cut at all.
+ *
+ * A split with nothing removed leaves the footage running on across the seam: there is a
+ * clip boundary but no visible edit, so calling it a jump cut would fire the check on
+ * every `split_clip` the agent ever makes.
+ */
+const CONTIGUOUS_SOURCE_FRAMES = 1;
+
+/**
+ * Dead air at the head or tail worth reporting, in frames.
+ *
+ * 30 frames — one second at 30fps, and the point at which an opening stops reading as a
+ * breath and starts reading as a mistake. Short-form is the north-star deliverable
+ * (`product-discipline.mdc` §1) and a second of nothing at the top of a Reel is a second
+ * of watch time spent on nothing.
+ */
+const DEAD_AIR_FRAMES = 30;
+
+/** Fewest cuts before shot rhythm means anything. Three shots have no rhythm to have. */
+const RHYTHM_MIN_SHOTS = 6;
+
+/**
+ * Below this coefficient of variation, shot lengths are machine-cut rather than paced.
+ *
+ * 0.15 means every shot is within roughly ±15% of the mean — "everything is 4.2 seconds",
+ * which is what a fixed-interval cutter produces and what an editor never does. Above it
+ * there is enough spread to be a choice. Diagnostic only: see the check's own detail.
+ */
+const RHYTHM_MIN_VARIATION = 0.15;
+
+/** Fewest boundaries before "every cut is a hard butt cut on both" means anything. */
+const SLAM_MIN_BOUNDARIES = 4;
+
+/** Frames of offset that count as a real J/L relationship rather than float noise. */
+const SLAM_OFFSET_FRAMES = 2;
+
+/** A picture clip's span in source time, for the jump-cut comparison. */
+interface SourceSpan {
+  readonly assetId: string;
+  readonly sourceStart: number;
+  readonly sourceEnd: number;
+}
+
+/** The picture clips of a track, in timeline order. */
+function pictureClipsInOrder(timeline: Timeline): readonly Clip[] {
+  return allClips(timeline)
+    .filter((clip) => !isOverlayClip(clip))
+    .sort((a, b) => a.start - b.start || a.id.localeCompare(b.id));
+}
+
+/**
+ * Is that a jump cut?
+ *
+ * Two adjacent clips from the SAME asset at near-identical source times: the same shot cut
+ * to itself, which reads as the picture stuttering rather than as an edit. It is the single
+ * most common defect in a machine-assembled cut — every silence removal produces candidates
+ * for it — and nothing in the battery looked for it.
+ */
+function checkJumpCut(project: Project, fps: number): CriticCheck {
+  const boundaries = listEditBoundaries(project.timeline, project.assets);
+  if (boundaries.length === 0) {
+    return check('jump_cut', 'No jump cuts', 'skipped', 'No cuts in the sequence to judge.');
+  }
+  const byId = new Map<string, SourceSpan>();
+  for (const clip of pictureClipsInOrder(project.timeline)) {
+    byId.set(clip.id, {
+      assetId: clip.assetId,
+      sourceStart: clip.sourceStart,
+      sourceEnd: clip.sourceEnd,
+    });
+  }
+  const window = JUMP_CUT_SOURCE_FRAMES / fps;
+  const offenders = boundaries.filter((boundary) => {
+    const from = byId.get(boundary.fromClipId);
+    const to = byId.get(boundary.toClipId);
+    if (!from || !to || from.assetId !== to.assetId) return false;
+    const skipped = Math.abs(to.sourceStart - from.sourceEnd);
+    // Contiguous source is an invisible seam, not a jump cut — see
+    // CONTIGUOUS_SOURCE_FRAMES. Past that, the incoming clip resumes near enough to where
+    // the outgoing one stopped that the framing has not changed: the same shot, spliced
+    // to itself.
+    if (skipped <= CONTIGUOUS_SOURCE_FRAMES / fps) return false;
+    return skipped <= window;
+  });
+  if (offenders.length === 0) {
+    return check(
+      'jump_cut',
+      'No jump cuts',
+      'pass',
+      `No cut joins one shot to itself (${boundaries.length} cut(s) checked).`,
+    );
+  }
+  const where = offenders
+    .slice(0, 4)
+    .map((b) => `frame ${secondsToFrame(b.at, fps)} (${round(b.at)}s)`)
+    .join(', ');
+  return check(
+    'jump_cut',
+    'No jump cuts',
+    'warn',
+    `${offenders.length} cut(s) join the same shot to itself within ${JUMP_CUT_SOURCE_FRAMES} ` +
+      `source frames — at ${where}${offenders.length > 4 ? ', …' : ''}. Cover one with a ` +
+      'cutaway (add_stock), or extend one side past the match (trim_clip) so the framing ' +
+      'has visibly changed across the cut.',
+  );
+}
+
+/**
+ * Did I cut through a word?
+ *
+ * A cut that lands strictly inside a word severs it, and no audio work afterwards puts the
+ * consonant back.
+ *
+ * Measured in **source** time, against the clips' in/out points — not against the mapped
+ * transcript, which is the obvious approach and the wrong one. `mapTranscript` has already
+ * RESOLVED every straddle by the time it answers: a word the cut ran through is either
+ * dropped or attributed to one side, so a severed word is precisely the word that no
+ * longer straddles anything. Asking the mapped view about it finds nothing, every time.
+ *
+ * A word with no `assetId` (schema ≤ v11, or a single-asset project) applies to every
+ * clip; an attributed one applies only to its own asset, so a two-camera project does not
+ * report camera A's words as cut by camera B's edges.
+ */
+function checkWordSevered(project: Project, fps: number): CriticCheck {
+  if (project.transcript.length === 0) {
+    return check(
+      'word_severed',
+      'No words cut through',
+      'skipped',
+      'This project has no transcript, so there are no word boundaries to protect.',
+    );
+  }
+  const boundaries = listEditBoundaries(project.timeline, project.assets);
+  if (boundaries.length === 0) {
+    return check(
+      'word_severed',
+      'No words cut through',
+      'skipped',
+      'No cuts in the sequence to judge.',
+    );
+  }
+  const byId = new Map(pictureClipsInOrder(project.timeline).map((clip) => [clip.id, clip]));
+  /** The word a source instant falls strictly inside, for this clip's asset. */
+  const severedWordAt = (clip: Clip | undefined, sourceSeconds: number): string | undefined => {
+    if (!clip) return undefined;
+    const frame = secondsToFrame(sourceSeconds, fps);
+    for (const word of project.transcript) {
+      if (word.assetId !== undefined && word.assetId !== clip.assetId) continue;
+      // STRICTLY inside. Landing on a word's first frame is cutting BEFORE it, and on the
+      // frame its last one ends is cutting AFTER it — both are correct edits.
+      if (frame > secondsToFrame(word.start, fps) && frame < secondsToFrame(word.end, fps)) {
+        return word.word;
+      }
+    }
+    return undefined;
+  };
+
+  const severed: { readonly frame: number; readonly word: string }[] = [];
+  for (const boundary of boundaries) {
+    const from = byId.get(boundary.fromClipId);
+    const to = byId.get(boundary.toClipId);
+    // Both edges of the cut are real edit points: the outgoing clip may end mid-word, and
+    // the incoming clip may begin mid-word, independently.
+    const word =
+      severedWordAt(from, from?.sourceEnd ?? 0) ?? severedWordAt(to, to?.sourceStart ?? 0);
+    if (word !== undefined) severed.push({ frame: secondsToFrame(boundary.at, fps), word });
+  }
+  if (severed.length === 0) {
+    return check(
+      'word_severed',
+      'No words cut through',
+      'pass',
+      `Every cut lands between words (${boundaries.length} cut(s) against ${project.transcript.length} word(s)).`,
+    );
+  }
+  const where = severed
+    .slice(0, 4)
+    .map((s) => `frame ${s.frame} ("${s.word}")`)
+    .join(', ');
+  return check(
+    'word_severed',
+    'No words cut through',
+    'fail',
+    `${severed.length} cut(s) land inside a word: ${where}${severed.length > 4 ? ', …' : ''}. ` +
+      'Move each boundary to the nearest word edge — read startFrame/endFrame from ' +
+      'get_mapped_transcript and trim_clip (or split_clip) to that frame.',
+  );
+}
+
+/**
+ * Is there dead air at the head or the tail?
+ *
+ * Measured against the DIALOGUE, not against silence detection: the mapped transcript is
+ * already on the timeline and needs no analysis pass, so this check costs nothing and can
+ * never be `skipped` for want of a render. A run that also gathered `analyze_silence`
+ * evidence gets a sharper answer through {@link CritiqueOptions.silences}.
+ */
+function checkDeadAir(project: Project, fps: number, options: CritiqueOptions): CriticCheck {
+  const mapped = mapTranscript(buildTimelineMap(project.timeline), project.transcript);
+  if (mapped.words.length === 0) {
+    return check(
+      'dead_air',
+      'No dead air at head or tail',
+      'skipped',
+      'No dialogue on the edited timeline, so there is no speech to measure silence against.',
+    );
+  }
+  const duration = contentDuration(project.timeline);
+  const first = Math.min(...mapped.words.map((w) => w.start));
+  const last = Math.max(...mapped.words.map((w) => w.end));
+  const headFrames = secondsToFrame(first, fps);
+  const tailFrames = secondsToFrame(Math.max(0, duration - last), fps);
+  const problems: string[] = [];
+  if (headFrames >= DEAD_AIR_FRAMES) {
+    problems.push(`${headFrames} frames (${round(first)}s) before the first word`);
+  }
+  if (tailFrames >= DEAD_AIR_FRAMES) {
+    problems.push(`${tailFrames} frames (${round(duration - last)}s) after the last word`);
+  }
+  const cited = options.silences?.handle ? ` (from ${options.silences.handle})` : '';
+  if (problems.length === 0) {
+    return check(
+      'dead_air',
+      'No dead air at head or tail',
+      'pass',
+      `Speech starts at frame ${headFrames} and runs to ${round(last)}s of ${round(duration)}s${cited}.`,
+    );
+  }
+  return check(
+    'dead_air',
+    'No dead air at head or tail',
+    // `warn`, not `fail`: a hold at the tail can be a deliberate button, and this check has
+    // not been watched on real runs yet. Promotion is a one-line change once it has.
+    'warn',
+    `Dead air: ${problems.join(' and ')}${cited}. The threshold is ${DEAD_AIR_FRAMES} frames — ` +
+      'a second at 30fps, past which an opening reads as a mistake rather than a breath. ' +
+      'ripple_delete the head/tail range.',
+  );
+}
+
+/**
+ * Does a transition fit the boundary it sits on?
+ *
+ * NOT the `handle_starved` check the plan specified. That check assumes a dissolve needs
+ * source frames on both sides to overlap into, and **this renderer needs none**: it ramps
+ * over the incoming clip's own first frames and borrows nothing from past the cut
+ * (`edit-boundaries.ts` module note), so a transition never fails for want of footage. A
+ * check for a condition the engine cannot produce would fire on nothing and teach the
+ * model a rule that is false here.
+ *
+ * What IS real: a boundary carries at most half its shorter shot, and a request past that
+ * is silently SHORTENED to fit rather than refused. So the model reports a half-second
+ * dissolve the timeline never had. That is worth catching, and the fix is to ask for the
+ * length that fits.
+ */
+function checkTransitionFit(project: Project, fps: number): CriticCheck {
+  const boundaries = listEditBoundaries(project.timeline, project.assets);
+  const byBoundary = new Map(boundaries.map((b) => [b.toClipId, b]));
+  const overlong: string[] = [];
+  let transitions = 0;
+  for (const clip of allClips(project.timeline)) {
+    // `effects` is required by the schema, but a critique must never become a crash — the
+    // Critic is the thing that runs when an edit already went wrong, and a hand-built or
+    // partially-migrated clip is exactly when it is most needed.
+    for (const effect of clip.effects ?? []) {
+      if (effect.type !== 'transition') continue;
+      transitions += 1;
+      const requested = Number(effect.params?.durationSeconds ?? 0);
+      const boundary = byBoundary.get(clip.id);
+      if (!boundary || !Number.isFinite(requested)) continue;
+      if (requested > boundary.maxTransitionSeconds + 1 / fps) {
+        overlong.push(
+          `frame ${secondsToFrame(boundary.at, fps)}: asked for ${secondsToFrame(requested, fps)} ` +
+            `frames, the cut carries ${secondsToFrame(boundary.maxTransitionSeconds, fps)}`,
+        );
+      }
+    }
+  }
+  if (transitions === 0) {
+    return check(
+      'transition_fit',
+      'Transitions fit their cuts',
+      'skipped',
+      'No transitions on the timeline.',
+    );
+  }
+  if (overlong.length === 0) {
+    return check(
+      'transition_fit',
+      'Transitions fit their cuts',
+      'pass',
+      `All ${transitions} transition(s) fit within half their shorter shot.`,
+    );
+  }
+  return check(
+    'transition_fit',
+    'Transitions fit their cuts',
+    'fail',
+    `${overlong.length} transition(s) are longer than their boundary can carry — ` +
+      `${overlong.slice(0, 3).join('; ')}. The engine shortens them silently, so what you ` +
+      'described to the editor is not what the timeline has. Re-issue add_transition at the ' +
+      'length list_edit_boundaries reports as maxTransitionFrames.',
+  );
+}
+
+/**
+ * Does the audio breathe across the cuts, or does it slam?
+ *
+ * Fails when EVERY picture cut is matched by an audio cut at the same instant and nothing
+ * anywhere leads or trails — the signature of an assembly with no J or L cuts in it, which
+ * is what an automated cut produces and what a human edit essentially never is.
+ *
+ * Report-only, deliberately. Its repair is `professional_edit` j_cut/l_cut, which requires
+ * a live editor selection and the desktop app; a repair pass has neither, so promoting
+ * this to `fail` would send the agent at a tool that must refuse it.
+ */
+function checkAudioSlam(project: Project, fps: number): CriticCheck {
+  const tracks = project.timeline.tracks;
+  const audioEdges = new Set<number>();
+  for (const track of tracks) {
+    if (track.type !== 'audio') continue;
+    for (const clip of track.clips) {
+      audioEdges.add(secondsToFrame(clip.start, fps));
+      audioEdges.add(secondsToFrame(clip.end, fps));
+    }
+  }
+  const boundaries = listEditBoundaries(project.timeline, project.assets);
+  if (audioEdges.size === 0 || boundaries.length < SLAM_MIN_BOUNDARIES) {
+    return check(
+      'audio_slam',
+      'Audio breathes across the cuts',
+      'skipped',
+      audioEdges.size === 0
+        ? 'No separate audio layer, so picture and sound cannot be offset from each other.'
+        : `Only ${boundaries.length} cut(s) — too few for "every cut" to mean anything.`,
+    );
+  }
+  const offset = boundaries.filter((boundary) => {
+    const frame = secondsToFrame(boundary.at, fps);
+    // An audio edge more than a couple of frames away from every picture cut IS a J or L
+    // relationship; one within a frame or two is the same cut on both.
+    return ![...audioEdges].some((edge) => Math.abs(edge - frame) <= SLAM_OFFSET_FRAMES);
+  });
+  if (offset.length > 0) {
+    return check(
+      'audio_slam',
+      'Audio breathes across the cuts',
+      'pass',
+      `${offset.length} of ${boundaries.length} cut(s) have sound and picture on different frames.`,
+    );
+  }
+  return check(
+    'audio_slam',
+    'Audio breathes across the cuts',
+    'warn',
+    `All ${boundaries.length} cuts land on the same frame for picture and sound — no J or L ` +
+      'cut anywhere. Sound that starts and stops exactly with the picture reads as an ' +
+      'assembly rather than an edit. Diagnostic only here: the fix is professional_edit ' +
+      'j_cut/l_cut, which needs a live selection in the desktop app and is not reachable ' +
+      'from a repair pass.',
+  );
+}
+
+/**
+ * Do the shot lengths have a rhythm, or is everything 4.2 seconds?
+ *
+ * **Not repairable, and the detail text says so.** Pretending it were would produce random
+ * re-trimming that satisfies a variance metric and looks worse — a check that optimises its
+ * own number is worse than no check.
+ */
+function checkShotRhythm(project: Project, fps: number): CriticCheck {
+  const durations = pictureClipsInOrder(project.timeline).map((clip) => clip.end - clip.start);
+  if (durations.length < RHYTHM_MIN_SHOTS) {
+    return check(
+      'shot_rhythm',
+      'Shot lengths have a rhythm',
+      'skipped',
+      `${durations.length} shot(s) — fewer than ${RHYTHM_MIN_SHOTS}, which is too few to have a rhythm.`,
+    );
+  }
+  const mean = durations.reduce((sum, d) => sum + d, 0) / durations.length;
+  if (mean <= 0) {
+    return check(
+      'shot_rhythm',
+      'Shot lengths have a rhythm',
+      'skipped',
+      'Shots have no measurable length.',
+    );
+  }
+  const variance = durations.reduce((sum, d) => sum + (d - mean) ** 2, 0) / durations.length;
+  const variation = Math.sqrt(variance) / mean;
+  if (variation >= RHYTHM_MIN_VARIATION) {
+    return check(
+      'shot_rhythm',
+      'Shot lengths have a rhythm',
+      'pass',
+      `${durations.length} shots vary by ${Math.round(variation * 100)}% around ` +
+        `${secondsToFrame(mean, fps)} frames.`,
+    );
+  }
+  return check(
+    'shot_rhythm',
+    'Shot lengths have a rhythm',
+    'warn',
+    `${durations.length} shots are all within ${Math.round(variation * 100)}% of ` +
+      `${secondsToFrame(mean, fps)} frames — machine-cut pacing, not chosen pacing. ` +
+      'DIAGNOSTIC ONLY: do not re-trim to change this number. Vary shot length where the ' +
+      'CONTENT asks for it, or leave it and say why.',
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 
@@ -702,6 +1176,10 @@ function checkExportSettings(project: Project, options: CritiqueOptions): Critic
  */
 export function critique(project: Project, options: CritiqueOptions = {}): CritiqueReport {
   const timeline = project.timeline;
+  // Every editorial threshold is stated in frames, so every editorial check needs the
+  // project's rate. `Project.fps` is required by the schema; the guard is for a
+  // hand-built fixture that lies about it, which must not turn a review into a crash.
+  const fps = Number.isFinite(project.fps) && project.fps > 0 ? project.fps : 30;
   const checks: CriticCheck[] = [
     checkRequestMatch(options),
     checkPicturePresent(timeline, options),
@@ -717,6 +1195,13 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
     ...(options.vision === undefined ? [] : [checkVisionReview(options)]),
     checkMissingAssets(project),
     checkExportSettings(project, options),
+    // Editorial checks (Phase 4) — "is this a good cut?", after "is it well-formed?".
+    checkJumpCut(project, fps),
+    checkWordSevered(project, fps),
+    checkDeadAir(project, fps, options),
+    checkTransitionFit(project, fps),
+    checkAudioSlam(project, fps),
+    checkShotRhythm(project, fps),
   ];
   const fails = checks.filter((c) => c.status === 'fail').length;
   const warns = checks.filter((c) => c.status === 'warn').length;

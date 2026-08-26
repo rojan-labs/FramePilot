@@ -235,13 +235,25 @@ describe('critique — shape', () => {
       'black_frames',
       'missing_assets',
       'export_settings',
+      // Editorial checks (context-management Phase 4). The battery above answers "is the
+      // deliverable well-formed?" and not one of it answers "is this a good cut?"; these
+      // six do, and they run on every review rather than behind a flag.
+      'jump_cut',
+      'word_severed',
+      'dead_air',
+      'transition_fit',
+      'audio_slam',
+      'shot_rhythm',
     ]);
   });
 
   it('ok is false only when a check fails; warnings still pass', () => {
+    // The fixture is a 10s timeline whose two transcript words end at 1s, so `dead_air`
+    // warns about the nine seconds of nothing after the last word — correctly, and as a
+    // warning rather than a failure (see the check's own note on promotion).
     const ok = critique(makeProject(), { producedChanges: true });
     expect(ok.ok).toBe(true);
-    expect(ok.summary).toBe('All checks passed.');
+    expect(ok.summary).toMatch(/warning/);
 
     const warned = critique(makeProject(), { producedChanges: false });
     expect(warned.ok).toBe(true);

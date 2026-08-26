@@ -575,7 +575,36 @@ export function compactAgentLog(
  * targets only these (R3 C3). Render-gated checks (black frames) are excluded — the
  * agent can't fix pixels without a preview render (honestly gated, not stubbed).
  */
-const FIXABLE_CHECKS = new Set<string>(['duration_target', 'request_match', 'audio_clipping']);
+/**
+ * Checks the repair pass is allowed to act on — and, by construction, the checks whose
+ * detail text names a tool that can actually fix them.
+ *
+ * A check the agent cannot act on trains it to ignore the critic, so membership here is a
+ * claim: *an existing tool addresses this, and the finding says which*. Phase 4 adds the
+ * two editorial checks where that claim is unambiguous:
+ *
+ * - `word_severed` → the boundary moves to the nearest word edge (`trim_clip` /
+ *   `split_clip`, aimed at a `startFrame` from `get_mapped_transcript`). A cut inside a
+ *   word is not a matter of taste.
+ * - `transition_fit` → re-issue `add_transition` at the length the boundary can carry. The
+ *   engine silently shortens an over-long ramp, so what the run described to the editor is
+ *   not what the timeline has; that is a factual mismatch, not a preference.
+ *
+ * The other four editorial checks are deliberately absent, each for its own reason:
+ * `jump_cut` and `dead_air` ship as `warn` until they have been observed correct on real
+ * runs (the phase's own risk rule — `warn` informs the model, `fail` triggers repair);
+ * `audio_slam`'s repair is `professional_edit` j_cut/l_cut, which needs a live editor
+ * selection a repair pass does not have; and `shot_rhythm` is diagnostic by design —
+ * "fixing" it would produce random re-trimming that satisfies a variance metric and looks
+ * worse.
+ */
+const FIXABLE_CHECKS = new Set<string>([
+  'duration_target',
+  'request_match',
+  'audio_clipping',
+  'word_severed',
+  'transition_fit',
+]);
 
 /**
  * Parse a model's plan text into a clean list of step lines (R3 C4). Strips blank
@@ -2281,6 +2310,31 @@ function earliestTouchedSecond(project: Project, region: TouchedRegion): number 
   return earliest;
 }
 
+/**
+ * The silence this run actually measured, with the handle it is filed under (P4.3).
+ *
+ * The dead-air check can always answer from the mapped transcript, so this is a sharpening
+ * rather than a dependency — but a finding that cites `ev_7` is one the editor (and the
+ * next turn) can go and read, where a bare number is one they have to take on trust. That
+ * is the same standard `clearedWithHandle` established: a marker with no address is an
+ * apology, not an instruction.
+ *
+ * Only `analyze_silence` payloads are read, and only their `ranges`. A store scan that
+ * guessed at shapes would be a second, undeclared contract with every analysis tool.
+ */
+function measuredSilences(evidence: EvidenceStore): Pick<CritiqueOptions, 'silences'> {
+  for (const entry of [...evidence.entries()].reverse()) {
+    if (entry.source !== 'analyze_silence') continue;
+    const data = (entry.data ?? {}) as Record<string, unknown>;
+    if (!Array.isArray(data.ranges)) continue;
+    const ranges = (data.ranges as Record<string, unknown>[])
+      .filter((r) => typeof r.start === 'number' && typeof r.end === 'number')
+      .map((r) => ({ start: r.start as number, end: r.end as number }));
+    return { silences: { ranges, handle: entry.id } };
+  }
+  return {};
+}
+
 export class Orchestrator {
   private readonly executor: HostToolExecutor | undefined;
   /** P7.3 dev/debug affordance — see {@link OrchestratorOptions.recordEffects}. */
@@ -2450,6 +2504,15 @@ export class Orchestrator {
     input: ContextInput,
     options: AgentOptions,
     producedChanges?: boolean,
+    /**
+     * The run's evidence store (P4.3). The critic is another consumer of the run's
+     * context, and it used to get a THINNER view than the planner did: a run that could
+     * see the whole transcript while planning saw only the timeline while reviewing, and
+     * would approve cuts it would have rejected. Optional because the standalone `review`
+     * route has no run behind it — an absent store means "nothing was gathered", which is
+     * different from "nothing was found" and is reported as such by the checks.
+     */
+    evidence?: EvidenceStore,
   ): CritiqueOptions {
     const durationTargetSeconds =
       options.durationTargetSeconds ?? explicitDurationTargetSeconds(input.userPrompt);
@@ -2465,6 +2528,7 @@ export class Orchestrator {
       ...(coverage !== undefined ? { coverage } : {}),
       ...(options.targetPlatform !== undefined ? { targetPlatform: options.targetPlatform } : {}),
       ...(options.render !== undefined ? { render: options.render } : {}),
+      ...(evidence ? measuredSilences(evidence) : {}),
     };
   }
 
@@ -3900,7 +3964,12 @@ export class Orchestrator {
       noProgressSignatures.add(signature);
     }
 
-    let report = critique(working, this.critiqueOptions(input, options, cumulativeOps.length > 0));
+    let report = critique(
+      working,
+      // P4.3: the run's evidence, so the critic reviews with what the run learned rather
+      // than with a thinner view than its own planner had.
+      this.critiqueOptions(input, options, cumulativeOps.length > 0, evidence),
+    );
 
     // R3 C3: one bounded Critic-driven repair pass if fixable findings remain.
     if ((options.autoRepair ?? true) && !report.ok) {
@@ -3926,7 +3995,7 @@ export class Orchestrator {
           // re-check after the repair (changes now applied)
           report = critique(
             working,
-            this.critiqueOptions(input, options, cumulativeOps.length > 0),
+            this.critiqueOptions(input, options, cumulativeOps.length > 0, evidence),
           );
         }
       }
@@ -6420,7 +6489,9 @@ export class Orchestrator {
         await reconcileHostVerdicts();
         let report = critique(
           working,
-          self.critiqueOptions(input, agentOptions, state.cumulativeOps.length > 0),
+          // P4.3: the run's evidence, so the critic reviews with what the run learned
+          // rather than with a thinner view than its own planner had.
+          self.critiqueOptions(input, agentOptions, state.cumulativeOps.length > 0, evidence),
         );
         const repairOps: AnyOperation[] = [];
         if ((agentOptions.autoRepair ?? true) && !report.ok) {
@@ -6470,7 +6541,7 @@ export class Orchestrator {
               runId: analysisRunId,
             });
             yield emit.notification(`Repair pass: ${repair.step.note}`);
-            report = critique(working, self.critiqueOptions(input, agentOptions, true));
+            report = critique(working, self.critiqueOptions(input, agentOptions, true, evidence));
           }
         }
         const failedChecks = report.checks

@@ -1,4 +1,4 @@
-# Phase 4 — The agent reviews its own cut the way an editor does — `[ ]`
+# Phase 4 — The agent reviews its own cut the way an editor does — `[x]`
 
 > **Ships:** the critic checks continuity and craft, not just arithmetic — and the repair
 > pass can actually fix what it finds.
@@ -44,7 +44,7 @@ stubbed. Phase 4 adds the editorial ones.
 
 ---
 
-## P4.1 — Continuity checks — `[ ]`
+## P4.1 — Continuity checks — `[x]`
 
 **Touches:** `packages/ai-sdk/src/critic.ts`.
 **Reads from:** `editor-core/src/edit-boundaries.ts` (built),
@@ -69,7 +69,7 @@ things at 24 and 60 fps.
 
 ---
 
-## P4.2 — Repair that can actually repair — `[ ]`
+## P4.2 — Repair that can actually repair — `[x]`
 
 **Touches:** `orchestrator.ts` (`FIXABLE_CHECKS`, the repair pass).
 
@@ -96,7 +96,7 @@ detail text.
 
 ---
 
-## P4.3 — The critic sees what the run saw — `[ ]`
+## P4.3 — The critic sees what the run saw — `[x]`
 
 **Touches:** `critic.ts`, `kernel/evidence-store.ts` (built), `kernel/briefing.ts` (built).
 
@@ -143,3 +143,67 @@ handle cited in the check's detail.
 | Thresholds tuned to fixtures           | Stated in frames with a written rationale in the check's detail text; reviewed as part of the check, not discovered later.                                                   |
 | Repair loops                           | The existing repair pass is already bounded (`FIXABLE_CHECKS`, blast-radius caps, the Conductor's stall guard). New checks inherit those bounds; none of them is relaxed.    |
 | Checks drift from what tools can do    | Every fixable check names its tool in P4.2's table; a check whose tool is removed becomes report-only in the same change.                                                    |
+
+---
+
+## What shipped — 2026-08-26
+
+Six editorial checks, running on every review rather than behind a flag; `critique` goes
+from 12 checks to 18. Every threshold is stated in **frames** with a written rationale in
+its own constant, every check is computable from state the run already holds, and every
+one either names the tool that fixes it or says plainly that it is diagnostic.
+
+| Check            | Ships as | Repairable via                       |
+| ---------------- | -------- | ------------------------------------ |
+| `jump_cut`       | `warn`   | not yet — see promotion rule below   |
+| `word_severed`   | `fail`   | `trim_clip` / `split_clip`           |
+| `dead_air`       | `warn`   | not yet                              |
+| `transition_fit` | `fail`   | `add_transition`                     |
+| `audio_slam`     | `warn`   | honestly gated (see below)           |
+| `shot_rhythm`    | `warn`   | never — diagnostic by design         |
+
+**Two checks ship as `fail` and join `FIXABLE_CHECKS`; four ship as `warn`.** The phase's
+own risk rule is that a check ships `warn` before it ships `fail`, and it is kept — with
+two exceptions where the finding is not a matter of taste: a cut inside a word is a defect
+whoever is looking, and a transition longer than its boundary is a factual mismatch between
+what the run told the editor and what the timeline holds. The other four wait for real-run
+observation; promotion is a one-line change.
+
+**Three corrections to what the plan specified:**
+
+- **`handle_starved` does not exist here, and was not written.** The plan's check assumes a
+  dissolve needs source frames on both sides to overlap into. **This renderer needs none** —
+  it ramps over the incoming clip's own first frames and borrows nothing from past the cut
+  (`edit-boundaries.ts` module note). A check for a condition the engine cannot produce
+  would fire on nothing and teach the model a rule that is false here. What replaces it is
+  `transition_fit`, which catches something real: a boundary carries at most half its
+  shorter shot, and an over-long request is **silently shortened** rather than refused — so
+  the run describes a half-second dissolve the timeline never had.
+- **`word_severed` cannot be computed from the mapped transcript**, which is the obvious
+  approach and the wrong one. `mapTranscript` has already RESOLVED every straddle by the
+  time it answers: a word the cut ran through is either dropped or attributed to one side,
+  so a severed word is precisely the word that no longer straddles anything. Asking the
+  mapped view finds nothing, every time. The check compares clips' **source** in/out points
+  against the source transcript instead, scoped by `TranscriptWord.assetId` so a two-camera
+  project does not report camera A's words as cut by camera B's edges.
+- **`audio_slam` is report-only, and says so in its own detail text.** Its repair is
+  `professional_edit` j_cut/l_cut, which needs a live editor selection and the desktop app;
+  a repair pass has neither, so promoting it would send the agent at a tool that must refuse
+  it. `shot_rhythm` is report-only for the reason the plan already gave, and its detail says
+  **"DIAGNOSTIC ONLY: do not re-trim to change this number."**
+
+**P4.3.** `critiqueOptions` now takes the run's `EvidenceStore` and `measuredSilences`
+reads the most recent `analyze_silence` payload out of it — only that source, and only its
+`ranges`, because a store scan that guessed at shapes would be a second undeclared contract
+with every analysis tool. `dead_air` cites the handle inline, so a finding points at
+`ev_1` rather than asserting a number from nowhere. Evidence is a **sharpening, not a
+dependency**: the check always answers from the mapped transcript, and with nothing gathered
+it must not invent a handle — asserted both ways.
+
+**Evidence.** `critic-editorial.test.ts` (22 cases) covers each check's fire, its
+non-fire, and its honest `skipped`; `critic-evidence.test.ts` runs a real two-turn agent
+run and asserts the finding cites the handle the run filed two turns earlier. One live bug
+found on the way: `checkTransitionFit` iterated `clip.effects` unguarded and turned an
+entire agent run's report into `clip.effects is not iterable` on a fixture that omitted it
+— the Critic is what runs when an edit has already gone wrong, so it is the last thing that
+may crash.
