@@ -842,7 +842,7 @@
         "verifications": [],
         "nextAction": {
           "stage": "verify",
-          "action": "Do this now: what is on the timeline?. Everything you need is in the run state above.",
+          "action": "Make the next edit the request calls for, using what this run has already gathered. Do not read anything else first.",
           "objectiveId": "objective_1"
         },
         "blockedOn": null,
@@ -957,7 +957,7 @@
         ],
         "nextAction": {
           "stage": "verify",
-          "action": "Do this now: what is on the timeline?. Everything you need is in the run state above.",
+          "action": "Make the next edit the request calls for, using what this run has already gathered. Do not read anything else first.",
           "objectiveId": "objective_1"
         },
         "blockedOn": {

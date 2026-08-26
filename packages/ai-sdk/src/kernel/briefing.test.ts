@@ -10,6 +10,7 @@ import { buildStateBriefing, distil } from './briefing.js';
 import {
   advanceStage,
   commitDecision,
+  REQUEST_ECHO_CHARS,
   initialWorkingState,
   recordDecision,
   recordFact,
@@ -164,6 +165,38 @@ describe('buildStateBriefing', () => {
     // One mention of the request in the whole briefing is one too many: the request is
     // already its own section of the prompt.
     expect(text).not.toContain(request);
+  });
+
+  // GAP-009. The same four copies, sized. A 10,000-token brief was stored whole in the
+  // objective, its decision, its objective entry and the recovery instruction — a state
+  // that is persisted and streamed to the host on every turn.
+  it('stores a long request as an excerpt, and still prints none of it', () => {
+    const request = `Make a reel about ${'the unit conversion error '.repeat(400)}`;
+    let state = initialWorkingState({ runId: 'run_1', request, projectRevision: 0 });
+    state = setObjective(state, {
+      outcome: request,
+      acceptance: [{ description: 'Runtime is 30s ± 2s' }],
+      provisional: true,
+    });
+    state = commitExecutionPlan(state, [request], 0);
+
+    // One full copy survives — the request itself, which is what it is for.
+    expect(state.objective.request).toBe(request.trim());
+    expect(state.objective.outcome.length).toBeLessThanOrEqual(REQUEST_ECHO_CHARS + 1);
+    expect(state.objectives[0]!.description.length).toBeLessThanOrEqual(REQUEST_ECHO_CHARS + 1);
+    expect(state.decisions[0]!.decision.length).toBeLessThanOrEqual(REQUEST_ECHO_CHARS + 1);
+    // Shortening must not defeat the suppression: an excerpt says exactly as little.
+    const text = buildStateBriefing(
+      recordFact(state, {
+        kind: 'project',
+        statement: 'Reading the timeline → 0 tracks',
+        scope: 'timeline_dependent',
+      }),
+    );
+    expect(text).not.toContain('WHAT DONE LOOKS LIKE');
+    expect(text).not.toContain('OBJECTIVES');
+    expect(text).not.toContain('DECIDED');
+    expect(text).not.toContain('unit conversion error');
   });
 
   it('still shows an objective and a decision that say something of their own', () => {

@@ -34,6 +34,7 @@ import {
   type NextAction,
   type RunWorkingState,
   isExecutionStage,
+  isRequestEcho,
   remainingObjectives,
 } from './working-state.js';
 
@@ -197,11 +198,16 @@ export function recoveryAction(state: RunWorkingState): NextAction | null {
   const first = pending[0];
   if (first) {
     log.debug('recovery → outstanding objective', { objectiveId: first.id });
-    return {
-      stage: first.stage,
-      action: `Do this now: ${first.description}. Everything you need is in the run state above.`,
-      objectiveId: first.id,
-    };
+    // An objective that is only the request said back is not a step, and restating it is
+    // the least useful thing this heading can do — recovery fires precisely because the
+    // run is not progressing, and "do this now: [everything you were asked for]" tells it
+    // nothing it is not already holding. Name the act instead; the request is the last
+    // thing in the model's context either way.
+    const action = isRequestEcho(first.description, state.objective.request)
+      ? 'Make the next edit the request calls for, using what this run has already ' +
+        'gathered. Do not read anything else first.'
+      : `Do this now: ${first.description}. Everything you need is in the run state above.`;
+    return { stage: first.stage, action, objectiveId: first.id };
   }
 
   // A failed operation is the next most concrete thing owed: the run tried, lost the

@@ -788,13 +788,60 @@ export function committedDecisions(state: RunWorkingState): readonly Decision[] 
   return state.decisions.filter((d) => d.status === 'committed');
 }
 
+/**
+ * How much of the request is kept when the run has to store the request as its own
+ * objective. Long enough to recognise which request this is, short enough that four
+ * copies of it are not the run's state.
+ */
+export const REQUEST_ECHO_CHARS = 180;
+
+/**
+ * The request, bounded, for the places the run stores it back as its own objective.
+ *
+ * Until a turn records a real interpretation, the objective, its single decision and its
+ * single objective entry are all seeded from the request itself — three verbatim copies,
+ * plus a fourth inside the recovery instruction, in a state that is persisted and
+ * streamed to the host on every turn. For a 10,000-token brief that was ~40 KB per turn
+ * of a run describing its own input back to itself. The briefing already refuses to print
+ * any of them (they say nothing the request has not), so nothing downstream needs the
+ * whole text — `objective.request` remains the one full copy.
+ *
+ * @param request - The editor's request.
+ * @returns The request unchanged when it is already short, otherwise a bounded excerpt.
+ */
+export function requestEcho(request: string): string {
+  const trimmed = request.trim();
+  if (trimmed.length <= REQUEST_ECHO_CHARS) return trimmed;
+  return `${trimmed.slice(0, REQUEST_ECHO_CHARS).trimEnd()}…`;
+}
+
+/**
+ * Is this text the request said back, whole or excerpted?
+ *
+ * The briefing suppresses five sections that would otherwise restate the request under
+ * headings claiming something had been decided. It matched on exact equality, which
+ * {@link requestEcho} would defeat — so the test lives here, next to the shortening, and
+ * both sides move together.
+ */
+export function isRequestEcho(text: string, request: string): boolean {
+  const trimmed = text.trim();
+  const full = request.trim();
+  return full.length > 0 && (trimmed === full || trimmed === requestEcho(full));
+}
+
 /** Commit the model's machine-readable numbered plan before any mutating turn runs. */
 export function commitExecutionPlan(
   state: RunWorkingState,
   labels: readonly string[],
   turn: number,
 ): RunWorkingState {
-  const normalized = labels.map((label) => label.trim()).filter(Boolean);
+  // A label that IS the request is stored as a bounded excerpt (see `requestEcho`): the
+  // briefing never prints it, and three verbatim copies of a long brief in a state that is
+  // persisted and streamed every turn is pure weight.
+  const normalized = labels
+    .map((label) => label.trim())
+    .filter(Boolean)
+    .map((label) => (isRequestEcho(label, state.objective.request) ? requestEcho(label) : label));
   if (normalized.length === 0) {
     return addDiagnostic(state, {
       code: 'PLAN_NOT_COMMITTED',
@@ -1062,7 +1109,9 @@ export function setObjective(
   return bump(state, {
     objective: {
       request: state.objective.request,
-      outcome: objective.outcome,
+      // A provisional outcome is the request read back, so it is stored bounded. A real
+      // interpretation a turn wrote is kept whole — that one says something new.
+      outcome: provisional ? requestEcho(objective.outcome) : objective.outcome,
       provisional,
       acceptance: objective.acceptance.map((a, i) => ({
         id: `criterion_${i + 1}`,

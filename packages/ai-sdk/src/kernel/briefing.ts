@@ -29,6 +29,8 @@ import {
   type RunWorkingState,
   type VerificationRecord,
   committedDecisions,
+  isRequestEcho,
+  requestEcho,
 } from './working-state.js';
 import { type ToolRole } from './stage-policy.js';
 
@@ -156,7 +158,10 @@ export function buildStateBriefing(state: RunWorkingState): string {
   // seam for the model to write one, tracked separately. It is the honest rendering of
   // the state that exists: the request is known, nothing else is.
   const request = state.objective.request.trim();
-  const echoesRequest = (text: string): boolean => text.trim() === request;
+  // `isRequestEcho`, not a bare equality: a seeded objective is stored as a bounded
+  // excerpt of the request (see `working-state.ts#requestEcho`), and an excerpt says
+  // exactly as little as the whole thing did.
+  const echoesRequest = (text: string): boolean => isRequestEcho(text, request);
   /**
    * Looser than {@link echoesRequest}: true when the text is the request WRAPPED in
    * something, not only when it equals it.
@@ -166,7 +171,8 @@ export function buildStateBriefing(state: RunWorkingState): string {
    * exact-match test above could never see it. Substring, because the wrapper's shape is
    * that module's business and this one should not have to know it.
    */
-  const restatesRequest = (text: string): boolean => request.length > 0 && text.includes(request);
+  const restatesRequest = (text: string): boolean =>
+    request.length > 0 && (text.includes(request) || text.includes(requestEcho(request)));
 
   if (state.objective.outcome && !echoesRequest(state.objective.outcome)) {
     const criteria = state.objective.acceptance

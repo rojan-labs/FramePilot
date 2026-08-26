@@ -9902,7 +9902,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
           "status": "valid",
         },
         "nextAction": {
-          "action": "Do this now: tighten the intro. Everything you need is in the run state above.",
+          "action": "Make the next edit the request calls for, using what this run has already gathered. Do not read anything else first.",
           "objectiveId": "objective_1",
           "stage": "verify",
         },
@@ -10021,7 +10021,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
           "status": "needs_review",
         },
         "nextAction": {
-          "action": "Do this now: tighten the intro. Everything you need is in the run state above.",
+          "action": "Make the next edit the request calls for, using what this run has already gathered. Do not read anything else first.",
           "objectiveId": "objective_1",
           "stage": "verify",
         },
