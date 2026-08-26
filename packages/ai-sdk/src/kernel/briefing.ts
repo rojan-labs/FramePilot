@@ -41,6 +41,22 @@ export interface Distillation {
   readonly kind: FactKind;
   readonly scope: FactScope;
   readonly evidenceId?: string;
+  /**
+   * The stored payload this conclusion was drawn from, ready for the working state's
+   * evidence index.
+   *
+   * Facts cite handles (`[ev_3]`), and `recordEvidence` exists to index them — but nothing
+   * ever called it, so `working.evidence` was `[]` in every snapshot of every run while
+   * facts pointed at handles it did not contain. A resumed run restored citations that
+   * resolved to nothing. Carrying the handle here is what lets the reducer record both in
+   * one place, from the same moment the payload was fresh.
+   */
+  readonly evidence?: {
+    readonly id: string;
+    readonly source: string;
+    readonly descriptor: string;
+    readonly scope: FactScope;
+  };
 }
 
 /** Map a tool's role onto the kind of knowledge it produces. */
@@ -90,11 +106,22 @@ export function distil(args: {
   // noise; omitting it lets the caller see the gap instead of a restatement.
   if (finding === '' || finding === args.descriptor.trim()) return undefined;
   const statement = `${args.descriptor} → ${finding}`.slice(0, STATEMENT_CHARS);
+  const scope = args.scope;
   return {
     statement,
     kind: kindFor(args.role, args.toolName),
-    scope: args.scope,
+    scope,
     ...(args.evidenceId ? { evidenceId: args.evidenceId } : {}),
+    ...(args.evidenceId
+      ? {
+          evidence: {
+            id: args.evidenceId,
+            source: args.toolName,
+            descriptor: args.descriptor,
+            scope,
+          },
+        }
+      : {}),
   };
 }
 

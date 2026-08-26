@@ -8320,7 +8320,15 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "status": "committed",
           },
         ],
-        "evidence": [],
+        "evidence": [
+          {
+            "descriptor": "Searching media for budget",
+            "id": "ev_1",
+            "observedAtRevision": 0,
+            "scope": "timeline_dependent",
+            "source": "search_media",
+          },
+        ],
         "execution": {
           "authorized": true,
         },
@@ -8381,7 +8389,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "analyze",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 5,
+        "version": 6,
       },
     },
     {
@@ -8414,7 +8422,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "memory": {
           "committedDecisions": 1,
-          "evidenceHandles": 0,
+          "evidenceHandles": 1,
           "facts": 1,
           "nextAction": "Continue analyze: finish the analysis the plan depends on.",
           "objectiveKnown": true,
@@ -8735,7 +8743,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "apply",
         "stageEnteredAtTurn": 2,
         "verifications": [],
-        "version": 9,
+        "version": 10,
       },
     },
     {
@@ -8940,7 +8948,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "apply",
         "stageEnteredAtTurn": 2,
         "verifications": [],
-        "version": 9,
+        "version": 10,
       },
     },
     {
@@ -9052,7 +9060,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "passed": true,
           },
         ],
-        "version": 13,
+        "version": 14,
       },
     },
     {
@@ -9358,7 +9366,15 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "status": "committed",
           },
         ],
-        "evidence": [],
+        "evidence": [
+          {
+            "descriptor": "Reading the timeline",
+            "id": "ev_1",
+            "observedAtRevision": 0,
+            "scope": "timeline_dependent",
+            "source": "get_timeline",
+          },
+        ],
         "execution": {
           "authorized": true,
         },
@@ -9419,7 +9435,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "inspect",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 4,
+        "version": 5,
       },
     },
     {
@@ -9452,7 +9468,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "memory": {
           "committedDecisions": 1,
-          "evidenceHandles": 0,
+          "evidenceHandles": 1,
           "facts": 1,
           "nextAction": "Continue inspect: read only what the objective still needs.",
           "objectiveKnown": true,
@@ -9623,7 +9639,15 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "status": "committed",
           },
         ],
-        "evidence": [],
+        "evidence": [
+          {
+            "descriptor": "Reading the timeline",
+            "id": "ev_1",
+            "observedAtRevision": 0,
+            "scope": "timeline_dependent",
+            "source": "get_timeline",
+          },
+        ],
         "execution": {
           "authorized": true,
         },
@@ -9684,7 +9708,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "inspect",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 4,
+        "version": 5,
       },
     },
     {
@@ -9717,7 +9741,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "memory": {
           "committedDecisions": 1,
-          "evidenceHandles": 0,
+          "evidenceHandles": 1,
           "facts": 1,
           "nextAction": "Continue inspect: read only what the objective still needs.",
           "objectiveKnown": true,
@@ -9843,7 +9867,15 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "status": "committed",
           },
         ],
-        "evidence": [],
+        "evidence": [
+          {
+            "descriptor": "Reading the timeline",
+            "id": "ev_1",
+            "observedAtRevision": 0,
+            "scope": "timeline_dependent",
+            "source": "get_timeline",
+          },
+        ],
         "execution": {
           "authorized": true,
         },
@@ -9908,7 +9940,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "inspect",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 5,
+        "version": 6,
       },
     },
     {
@@ -9946,7 +9978,15 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "status": "committed",
           },
         ],
-        "evidence": [],
+        "evidence": [
+          {
+            "descriptor": "Reading the timeline",
+            "id": "ev_1",
+            "observedAtRevision": 0,
+            "scope": "timeline_dependent",
+            "source": "get_timeline",
+          },
+        ],
         "execution": {
           "authorized": false,
         },
@@ -9971,7 +10011,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "integrity": {
           "diagnostics": [
             {
-              "atVersion": 6,
+              "atVersion": 7,
               "blocking": true,
               "code": "VERIFICATION_INCONCLUSIVE",
               "message": "Verification found: No traceable project mutation for the committed plan.",
@@ -10027,7 +10067,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "passed": false,
           },
         ],
-        "version": 7,
+        "version": 8,
       },
     },
     {

@@ -259,7 +259,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 5,
+        "version": 6,
         "objective": {
           "request": "tighten the intro using your pacing playbook",
           "outcome": "tighten the intro using your pacing playbook",
@@ -312,7 +312,15 @@
         "execution": {
           "authorized": true
         },
-        "evidence": [],
+        "evidence": [
+          {
+            "id": "ev_1",
+            "source": "load_skill",
+            "descriptor": "Reading the pacing playbook",
+            "scope": "revision_independent",
+            "observedAtRevision": 0
+          }
+        ],
         "objectives": [
           {
             "id": "objective_1",
@@ -413,7 +421,7 @@
           "objectiveKnown": true,
           "committedDecisions": 1,
           "facts": 1,
-          "evidenceHandles": 0,
+          "evidenceHandles": 1,
           "remainingObjectives": 1,
           "nextAction": "Continue analyze: finish the analysis the plan depends on."
         }
@@ -608,7 +616,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 9,
+        "version": 10,
         "objective": {
           "request": "tighten the intro using your pacing playbook",
           "outcome": "tighten the intro using your pacing playbook",
@@ -663,7 +671,15 @@
         "execution": {
           "authorized": true
         },
-        "evidence": [],
+        "evidence": [
+          {
+            "id": "ev_1",
+            "source": "load_skill",
+            "descriptor": "Reading the pacing playbook",
+            "scope": "revision_independent",
+            "observedAtRevision": 0
+          }
+        ],
         "objectives": [
           {
             "id": "objective_1",
@@ -779,7 +795,7 @@
           "objectiveKnown": true,
           "committedDecisions": 1,
           "facts": 1,
-          "evidenceHandles": 0,
+          "evidenceHandles": 1,
           "remainingObjectives": 1,
           "nextAction": "Continue apply: apply the committed plan."
         }
@@ -825,7 +841,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 9,
+        "version": 10,
         "objective": {
           "request": "tighten the intro using your pacing playbook",
           "outcome": "tighten the intro using your pacing playbook",
@@ -880,7 +896,15 @@
         "execution": {
           "authorized": true
         },
-        "evidence": [],
+        "evidence": [
+          {
+            "id": "ev_1",
+            "source": "load_skill",
+            "descriptor": "Reading the pacing playbook",
+            "scope": "revision_independent",
+            "observedAtRevision": 0
+          }
+        ],
         "objectives": [
           {
             "id": "objective_1",
@@ -938,7 +962,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 13,
+        "version": 14,
         "objective": {
           "request": "tighten the intro using your pacing playbook",
           "outcome": "tighten the intro using your pacing playbook",
@@ -996,7 +1020,15 @@
         "execution": {
           "authorized": true
         },
-        "evidence": [],
+        "evidence": [
+          {
+            "id": "ev_1",
+            "source": "load_skill",
+            "descriptor": "Reading the pacing playbook",
+            "scope": "revision_independent",
+            "observedAtRevision": 0
+          }
+        ],
         "objectives": [
           {
             "id": "objective_1",

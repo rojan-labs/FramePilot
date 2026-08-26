@@ -41,6 +41,15 @@ describe('distil', () => {
       kind: 'transcript',
       scope: 'revision_independent',
       evidenceId: 'ev_3',
+      // The handle travels with the conclusion so the reducer can index it. Without this
+      // the working state's `evidence` array stayed empty in every run while its facts
+      // cited handles it did not contain.
+      evidence: {
+        id: 'ev_3',
+        source: 'get_transcript',
+        descriptor: 'Reading the transcript 0:22–0:23',
+        scope: 'revision_independent',
+      },
     });
   });
 

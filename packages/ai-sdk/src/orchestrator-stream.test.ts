@@ -3697,6 +3697,26 @@ describe('streamAgent micro-compaction of old tool results (E2)', () => {
   });
 });
 
+// GAP-007. `recordEvidence` existed, was exported, and had no caller: every run's durable
+// state carried `evidence: []` while its facts cited `[ev_1]`, so a resumed run restored
+// citations that resolved to nothing and the UI's handle count was structurally zero.
+describe('streamAgent evidence index', () => {
+  it('indexes the handle a fact cites, so the citation resolves in durable state', async () => {
+    const provider = new ScriptedProvider([
+      { text: 'reading', toolCalls: [{ id: 'r1', name: 'get_timeline', arguments: {} }] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+    const states = events.filter((event) => event.type === 'run_state');
+    const working = states.at(-1)?.type === 'run_state' ? states.at(-1)!.working : undefined;
+    const handles = (working?.evidence ?? []).map((entry) => entry.id);
+    expect(handles.length).toBeGreaterThan(0);
+    for (const fact of working?.facts ?? []) {
+      for (const cited of fact.evidenceIds) expect(handles).toContain(cited);
+    }
+  });
+});
+
 describe('streamAgent cached-read action recovery', () => {
   it('withholds redundant reads on the recovery turn and lands the pending edit', async () => {
     const reads = (suffix: string) => [

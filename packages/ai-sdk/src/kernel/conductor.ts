@@ -50,6 +50,7 @@ import { acceptanceCriteria, checkableAcceptance, hasCheckableAcceptance } from 
 import { explicitDurationTargetSeconds } from '../critic.js';
 import type { Command } from './commands.js';
 import { deriveObjectiveText } from './continuation.js';
+import type { Distillation } from './briefing.js';
 import { type ToolRole, settledStageFor } from './stage-policy.js';
 import {
   MAX_NO_PROGRESS_TURNS,
@@ -62,8 +63,6 @@ import {
 } from './loop-detector.js';
 import {
   RUN_STAGES,
-  type FactKind,
-  type FactScope,
   type RunStage,
   type RunWorkingState,
   advanceStage,
@@ -72,6 +71,7 @@ import {
   initialWorkingState,
   onProjectRevisionChanged,
   parseWorkingState,
+  recordEvidence,
   recordFact,
   recordHostRefusal,
   recordOperation,
@@ -546,12 +546,7 @@ export interface TurnCallFact {
    *
    * Absent for calls that conclude nothing (a recall, a failure, a memo hit).
    */
-  readonly distilled?: {
-    readonly statement: string;
-    readonly kind: FactKind;
-    readonly scope: FactScope;
-    readonly evidenceId?: string;
-  };
+  readonly distilled?: Distillation;
 }
 
 /**
@@ -1228,18 +1223,21 @@ export function onTurnResult(
   // turn's briefing is built from, and they are deliberately recorded BEFORE any of the
   // guards below run: what the run learned must survive even a turn that is about to be
   // judged as making no progress.
-  const learned = r.callFacts.reduce(
-    (w, fact) =>
-      fact.distilled
-        ? recordFact(w, {
-            kind: fact.distilled.kind,
-            statement: fact.distilled.statement,
-            scope: fact.distilled.scope,
-            ...(fact.distilled.evidenceId ? { evidenceIds: [fact.distilled.evidenceId] } : {}),
-          })
-        : w,
-    staged,
-  );
+  const learned = r.callFacts.reduce((w, fact) => {
+    if (!fact.distilled) return w;
+    // Index the handle BEFORE the fact that cites it. `recordEvidence` had no caller at
+    // all: every run's `working.evidence` was `[]` while its facts cited `[ev_3]`, so the
+    // durable state carried references it could not resolve and a resumed run restored
+    // them broken. The payload itself still lives in the run's EvidenceStore — this is the
+    // index that says which handles exist and what each one was.
+    const indexed = fact.distilled.evidence ? recordEvidence(w, fact.distilled.evidence) : w;
+    return recordFact(indexed, {
+      kind: fact.distilled.kind,
+      statement: fact.distilled.statement,
+      scope: fact.distilled.scope,
+      ...(fact.distilled.evidenceId ? { evidenceIds: [fact.distilled.evidenceId] } : {}),
+    });
+  }, staged);
   state = learned === state.working ? state : { ...state, working: learned };
   const base = { ...state, log: [...r.log] };
 
