@@ -327,6 +327,21 @@ describe('download', () => {
     return service;
   }
 
+  // GAP-011. The searched-item table lives in this process's memory; the ids that
+  // reference it live in the run's evidence store, which outlives the process. A resumed
+  // run can hold a perfectly valid id this service has never heard of, and "unknown item"
+  // told nobody what to do about that.
+  it('explains an id it cannot resolve, and names the way back', async () => {
+    const service = await seeded(vi.fn());
+    expect(service.unresolvableReason(VIDEO_ITEM.remoteId)).toBeNull();
+
+    const forgotten = service.unresolvableReason('34707892');
+    expect(forgotten).toMatch(/not in this session's search results/);
+    expect(forgotten).toMatch(/do not survive a restart/);
+    expect(forgotten).toMatch(/Run search_stock again/);
+    expect(service.unresolvableReason('  ')).toMatch(/needs the remoteId/);
+  });
+
   it('writes the file, records the ledger, and returns provenance', async () => {
     const fetchImpl = vi.fn().mockImplementation(() => bytesResponse(body));
     const service = await seeded(fetchImpl);

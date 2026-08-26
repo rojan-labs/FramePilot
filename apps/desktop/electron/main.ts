@@ -2061,19 +2061,13 @@ function registerIpcHandlers(): void {
     },
   ): Promise<HostToolOutcome> => {
     const { remoteId, atSeconds } = args;
-    if (remoteId.trim() === '') {
-      return {
-        status: 'failed',
-        summary: 'add_stock needs the remoteId of an item from search_stock.',
-      };
+    // One owner for "can this id be acted on", so the sentence the model gets names the
+    // session boundary rather than leaving it to guess why a valid id stopped working.
+    const unresolvable = stockService.unresolvableReason(remoteId);
+    if (unresolvable !== null) {
+      return { status: 'failed', summary: unresolvable };
     }
-    const item = stockService.knownItem(remoteId);
-    if (!item) {
-      return {
-        status: 'failed',
-        summary: 'That item is not in the current results — run search_stock first.',
-      };
-    }
+    const item = stockService.knownItem(remoteId)!;
 
     const start = Math.max(0, atSeconds ?? 0);
     // A still has no duration of its own; the placement builder gives it the

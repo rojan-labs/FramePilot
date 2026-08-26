@@ -706,6 +706,32 @@ export class StockService {
     return this.knownItems.get(remoteId);
   }
 
+  /**
+   * Why an id cannot be acted on, in words the caller can act on.
+   *
+   * The searched-item table lives in this process's memory and nowhere else, while the
+   * ids that reference it live in the run's evidence store, which outlives the process.
+   * So a resumed run — or one that recalls a search from before a restart — can hold a
+   * perfectly valid remoteId that this service has never heard of. "Unknown item" told
+   * neither the model nor the editor what to do about that; naming the session boundary
+   * and the recovery does.
+   *
+   * @param remoteId - The id the caller wants to download.
+   * @returns `null` when the id is actionable, otherwise the sentence explaining why not.
+   */
+  public unresolvableReason(remoteId: string): string | null {
+    if (remoteId.trim() === '') {
+      return 'add_stock needs the remoteId of an item from search_stock.';
+    }
+    if (this.knownItems.has(remoteId)) return null;
+    return (
+      `Stock item "${remoteId}" is not in this session's search results — they are held in ` +
+      'memory and do not survive a restart, so an id recalled from an earlier session ' +
+      'cannot be downloaded. Run search_stock again and pass a remoteId from the fresh ' +
+      'results.'
+    );
+  }
+
   /** Whether the chosen rendition falls short of the project frame. */
   public variantBelowTarget(item: StockItem, targetHeight: number): boolean {
     return isVariantBelowTarget(chooseVariant(item.variants, { height: targetHeight }), {
