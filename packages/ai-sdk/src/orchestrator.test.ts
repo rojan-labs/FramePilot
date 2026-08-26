@@ -595,7 +595,9 @@ describe('agent mode', () => {
     expect(note).toMatch(/Reading the project → /);
     expect(note).toContain('asset_1');
     expect(note).toContain('video_1');
-    expect(note).toMatch(/Checking the selection → null/);
+    // P1.1: a bare `null` read as a failed call; it is the user having selected nothing,
+    // and the two lead to opposite plans.
+    expect(note).toMatch(/Checking the selection → nothing is selected/);
     // A junk key on a READ call is named rather than stripped: an unknown argument is
     // how a model asks for a scope the tool does not have, and answering the call it
     // did not make would leave it believing the scope was honored.
@@ -1181,21 +1183,15 @@ const summarizeReadResultSource = readFileSync(
  * characters of that slice. Three stalled runs came out of it (ADR 0127, ADR 0128, and
  * the caption run that could not read its own verification report).
  *
+ * Nine more were still on this list until context-management P1.1 — including
+ * `get_transcript`, which handed back about 25 words of a 1,500-word recording. They now
+ * have digests, and the only member left is a tool with no payload to digest at all.
+ *
  * So membership here is a DECISION a reader can check, not a gap. Adding a read tool now
  * fails CI until somebody either writes its digest or states here why it does not need
  * one.
  */
 const READS_SERVED_BY_JSON_PREVIEW: Readonly<Record<string, string>> = {
-  get_transcript: 'the source word list, which the model asked for verbatim',
-  get_selected_range: 'two numbers and an id',
-  get_frame: 'a frame handle; the picture itself rides as image content',
-  measure_color: 'a handful of scalar measurements, all of them named in the payload',
-  map_footage: 'a per-asset mapping already keyed by the ids the model passed in',
-  index_media: 'a progress/count acknowledgement, not a record list',
-  transcribe: 'an acknowledgement; the words arrive via get_transcript',
-  track_subject_automatically:
-    'a measurement acknowledgement; the edit itself arrives as a tracked patch and the summary names the measuring pack',
-  read_edit_signals: 'measured spans the model reads whole and acts on in the same turn',
   detect_faces: 'unavailable in this build — it returns a refusal, not a payload',
 };
 
@@ -1221,6 +1217,210 @@ describe('every read tool can be summarized (no silent previewJson fallthrough)'
       digested.has(name),
     );
     expect(contradictory).toEqual([]);
+  });
+});
+
+/**
+ * The nine reads that used to fall through to `previewJson` (context-management P1.1).
+ *
+ * Every one of these asserts the same two things the file's own docstring demands of a
+ * digest: whole records are kept (an id or a word is never cut mid-token), and the
+ * "(… N more)" tail appears WHEN AND ONLY WHEN records were actually dropped. The
+ * headline case is `get_transcript`: a run asked to find the strongest hook in a
+ * ten-minute recording was shown about 25 of its 1,500 words, so it always found the
+ * hook in the first thirty seconds.
+ */
+describe('summarizeReadResult digests the reads that used to be sliced JSON', () => {
+  const words = (n: number, from = 0): Array<{ word: string; start: number; end: number }> =>
+    Array.from({ length: n }, (_, i) => ({
+      word: `w${i}`,
+      start: from + i * 0.5,
+      end: from + i * 0.5 + 0.4,
+    }));
+
+  it('get_transcript returns every word, in source time, with no tail when nothing dropped', () => {
+    const note = summarizeReadResult('get_transcript', words(1200));
+    expect(note).toContain('1200 transcript words in SOURCE time');
+    expect(note).toContain('0–0.4s w0');
+    // The 1,200th word survives: the old preview stopped at ~25.
+    expect(note).toContain('w1199');
+    expect(note).not.toContain('more words not shown');
+  });
+
+  it('get_transcript declares the drop, and how to see the rest, past the record cap', () => {
+    const note = summarizeReadResult('get_transcript', words(2400));
+    expect(note).toContain('2400 transcript words');
+    expect(note).toContain(
+      '(… 400 more words not shown; narrow get_transcript to a start/end window)',
+    );
+  });
+
+  it('get_transcript says an empty transcript is a missing transcript, not an empty read', () => {
+    expect(summarizeReadResult('get_transcript', [])).toBe(
+      'no transcript words — this project has no transcript yet (run transcribe first)',
+    );
+  });
+
+  it('get_transcript falls back to the preview when the payload is not a word list', () => {
+    expect(summarizeReadResult('get_transcript', { error: 'nope' })).toContain('error');
+  });
+
+  it('map_footage puts the chapter count and the mapped span in the durable first line', () => {
+    const note = summarizeReadResult('map_footage', {
+      chapters: [
+        { t0: 0, t1: 60, title: 'Intro', summary: 'setup' },
+        { t0: 60, t1: 190.5, title: 'Demo' },
+      ],
+      highlights: [{ t0: 12, t1: 18, label: 'the reveal', score: 0.82 }],
+      backend: 'pegasus',
+      durationSec: 190.5,
+      summary: 'A product walkthrough',
+    });
+    expect(note.split('\n')[0]).toBe(
+      '2 chapters and 1 highlight over 190.5s of footage via pegasus',
+    );
+    expect(note).toContain('chapter 0–60s Intro — setup');
+    expect(note).toContain('chapter 60–190.5s Demo');
+    expect(note).toContain('highlight 12–18s the reveal (salience 0.82)');
+  });
+
+  it('map_footage reports the honest no-map reason instead of an empty map', () => {
+    expect(
+      summarizeReadResult('map_footage', {
+        chapters: [],
+        highlights: [],
+        reason: 'not_indexed',
+      }),
+    ).toBe('no footage map: not_indexed');
+  });
+
+  it('map_footage treats an ABSENT chapters array as a different payload shape', () => {
+    expect(summarizeReadResult('map_footage', { available: false })).toContain('available');
+  });
+
+  it('read_edit_signals keeps whole signals in time order', () => {
+    const note = summarizeReadResult('read_edit_signals', [
+      {
+        kind: 'highlight',
+        t0: 3,
+        t1: 9,
+        observation: 'highlight "the reveal", 6s long',
+        from: 'supplied',
+      },
+      { kind: 'silence', t0: 9, t1: 11.25, observation: 'silence, 2.3s long', from: 'measured' },
+    ]);
+    expect(note).toContain('2 edit signals in time order');
+    expect(note).toContain('highlight 3–9s highlight "the reveal", 6s long (supplied)');
+    expect(note).toContain('silence 9–11.25s silence, 2.3s long (measured)');
+  });
+
+  it('read_edit_signals says nothing was measurable rather than previewing an empty array', () => {
+    expect(summarizeReadResult('read_edit_signals', [])).toBe(
+      'no edit signals — nothing measurable was supplied or found in this stretch',
+    );
+  });
+
+  it('transcribe acknowledges the words and names the call that returns them', () => {
+    const note = summarizeReadResult('transcribe', { assetId: 'asset_3', words: words(842) });
+    expect(note).toContain('transcribed 842 timed words');
+    expect(note).toContain('in asset_3');
+    expect(note).toContain('read them with get_transcript');
+    // The point of the acknowledgement is NOT to bill the transcript a second time.
+    expect(note).not.toContain('w841');
+  });
+
+  it('transcribe reports no speech honestly', () => {
+    expect(summarizeReadResult('transcribe', { words: [] })).toBe(
+      'transcribed no words — this asset carries no recognizable speech',
+    );
+  });
+
+  it('get_frame says when it was shown a different moment than it asked for', () => {
+    const note = summarizeReadResult('get_frame', {
+      timeSeconds: 21.87,
+      requestedTimeSeconds: 30,
+      clamped: true,
+      width: 1920,
+      height: 1080,
+      durationSeconds: 21.87,
+    });
+    expect(note).toContain('frame at 21.87s');
+    expect(note).toContain('1920×1080');
+    expect(note).toContain('CLAMPED from the 30s you asked for');
+  });
+
+  it('get_frame stays quiet about clamping when the frame is the one requested', () => {
+    const note = summarizeReadResult('get_frame', {
+      timeSeconds: 4,
+      requestedTimeSeconds: 4,
+      clamped: false,
+      width: 1080,
+      height: 1920,
+    });
+    expect(note).toContain('frame at 4s');
+    expect(note).not.toContain('CLAMPED');
+  });
+
+  it('index_media says how far indexing got and how to continue it', () => {
+    expect(summarizeReadResult('index_media', { indexed: 40, total: 11, cursor: 4 })).toBe(
+      'indexed 40 spans across 4/11 assets; 7 assets still to go, call index_media again to continue',
+    );
+  });
+
+  it('index_media reports a finished index with no continue instruction', () => {
+    expect(summarizeReadResult('index_media', { indexed: 91, total: 3, cursor: 3 })).toBe(
+      'indexed 91 spans across 3/3 assets',
+    );
+  });
+
+  it('measure_color reports coverage and occlusion but never prints the numbers', () => {
+    const note = summarizeReadResult('measure_color', {
+      clipId: 'clip_1',
+      projectRevision: 7,
+      startFrame: 0,
+      endFrame: 300,
+      occlusionFree: true,
+      samples: [
+        { frame: 0, channel: 'luma', min: 0, max: 1, mean: 0.412 },
+        { frame: 0, channel: 'red', min: 0, max: 1, mean: 0.502 },
+      ],
+    });
+    expect(note).toContain('measured clip_1 over frames 0–300 at revision 7');
+    expect(note).toContain('2 channels (luma, red)');
+    expect(note).toContain('no other visible layer contaminated the sample');
+    expect(note).toContain('never retype the numbers');
+    // The measurement itself must not be copyable out of the log.
+    expect(note).not.toContain('0.412');
+  });
+
+  it('measure_color shouts when the sample was contaminated', () => {
+    const note = summarizeReadResult('measure_color', {
+      clipId: 'clip_1',
+      startFrame: 0,
+      endFrame: 10,
+      occlusionFree: false,
+      samples: [{ frame: 0, channel: 'luma', min: 0, max: 1 }],
+    });
+    expect(note).toContain('ANOTHER VISIBLE LAYER CONTAMINATED THE SAMPLE');
+  });
+
+  it('get_selected_range distinguishes "nothing selected" from a failed read', () => {
+    expect(summarizeReadResult('get_selected_range', null)).toContain('nothing is selected');
+    expect(summarizeReadResult('get_selected_range', { start: 3, end: 8.5 })).toBe(
+      'selection 3–8.5s (5.5s) in timeline time',
+    );
+  });
+
+  it('track_subject_automatically reports the measurement without listing per-frame geometry', () => {
+    const note = summarizeReadResult('track_subject_automatically', {
+      plan: { clipId: 'clip_2', maskEffectId: 'mask_1', fps: 30, startSeconds: 2 },
+      engine: 'tracking-lite',
+      backend: 'csrt',
+      samples: Array.from({ length: 60 }, (_, i) => ({ frame: i, x: i, y: i, w: 10, h: 10 })),
+    });
+    expect(note).toContain('tracked 60 frames of clip_2 mask mask_1 over 2–4s');
+    expect(note).toContain('tracking-lite (csrt)');
+    expect(note).toContain('are not listed here');
   });
 });
 
@@ -2159,7 +2359,10 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
   });
 
   it('other reads fall back to a generously bounded JSON preview', () => {
-    expect(summarizeReadResult('get_selected_range', null)).toBe('null');
+    // A read with no digest arm and no entry in READS_SERVED_BY_JSON_PREVIEW cannot exist
+    // (the audit above fails CI), so the floor is exercised through a payload of a shape
+    // its digest does not recognise — the honest fallback, not a silent slice.
+    expect(summarizeReadResult('get_selected_range', { unexpected: true })).toContain('unexpected');
     const words = Array.from({ length: 5 }, (_, i) => ({ word: `w${i}`, start: i, end: i + 1 }));
     expect(summarizeReadResult('get_transcript', words)).toContain('w0');
   });

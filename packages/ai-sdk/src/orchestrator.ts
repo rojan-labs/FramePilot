@@ -1172,6 +1172,24 @@ const ANALYSIS_PREVIEW_MAX = 1200;
 const READ_DIGEST_MAX_ITEMS = 300;
 
 /**
+ * The same cap for WORD-level transcript reads, which are a different scale of record.
+ *
+ * 300 is the right bound for ids: a library of 300 assets is a large library, and a run
+ * that needs the 301st can filter. A transcript is not like that. The north-star case
+ * (`.agents/rules/product-discipline.mdc` §1) is a 5–15 minute recording, which is
+ * 750–2,250 words, and the whole point of Phase 1 is that the model chooses its hook from
+ * the WHOLE recording rather than from its first 40%. Capping at 300 would have swapped a
+ * 25-word keyhole for a 300-word one.
+ *
+ * 2,000 covers the north-star case in full at roughly 20k tokens — real money, but money
+ * spent on the one thing the model cannot reason without, and only when it explicitly asks
+ * for the transcript. Past that the tail says how many words were dropped and how to read
+ * them, and the tool description already tells the model to read a long recording in
+ * windows.
+ */
+const WORD_DIGEST_MAX_ITEMS = 2000;
+
+/**
  * Visual evidence is much denser than an id listing: each packet can carry a scene
  * caption plus overlapping dialogue. Keep a useful time-ordered/ranked window, then
  * drop whole packets with an explicit tail rather than cutting JSON mid-caption.
@@ -1252,11 +1270,12 @@ function boundedRecords<T>(
   render: (item: T) => string,
   noun: string,
   narrow?: string,
+  limit: number = READ_DIGEST_MAX_ITEMS,
 ): string {
   if (items.length === 0) return `no ${noun}`;
-  const lines = items.slice(0, READ_DIGEST_MAX_ITEMS).map(render);
-  if (items.length > READ_DIGEST_MAX_ITEMS) {
-    const omitted = items.length - READ_DIGEST_MAX_ITEMS;
+  const lines = items.slice(0, limit).map(render);
+  if (items.length > limit) {
+    const omitted = items.length - limit;
     lines.push(`(… ${omitted} more ${noun} not shown${narrow ? `; ${narrow}` : ''})`);
   }
   return lines.join('\n');
@@ -1776,6 +1795,7 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
         (w) => `${round3(Number(w.start))}–${round3(Number(w.end))}s ${String(w.word)}`,
         'words',
         'narrow get_mapped_transcript to a window',
+        WORD_DIGEST_MAX_ITEMS,
       )}`;
     }
     case 'discover_caption_styles': {
@@ -1915,6 +1935,218 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
       return `${labelPart} across ${frames} frame${frames === 1 ? '' : 's'} in ${String(
         obj.clipId ?? '?',
       )}`;
+    }
+    case 'get_transcript': {
+      // The load-bearing one. `previewJson` handed back a 1200-CHARACTER slice of the raw
+      // word JSON — about 25 words of a 1,500-word recording, cut mid-record, with no count
+      // and no instruction to narrow. A run asked to find the strongest hook could only ever
+      // find it in the first thirty seconds, because that was the only material it had.
+      // Words, not JSON: SOURCE times (the tool's whole warning) and the word itself.
+      const words = (Array.isArray(value) ? value : []) as Record<string, unknown>[];
+      if (!Array.isArray(value)) return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      if (words.length === 0)
+        return 'no transcript words — this project has no transcript yet (run transcribe first)';
+      const first = Number(words[0]?.start ?? 0);
+      const last = Number(words[words.length - 1]?.end ?? 0);
+      // SOURCE is stated in the head because the source/sequence distinction is exactly what
+      // the tool description warns about, and this line becomes the run's durable fact
+      // (`briefing.ts#distil` keeps the first line) — a fact that does not say which clock
+      // it is on is a fact the next turn can misread onto the timeline.
+      return `${words.length} transcript words in SOURCE time (the original recording, not the edited timeline), ${round3(first)}–${round3(last)}s:\n${boundedRecords(
+        words,
+        (w) => `${round3(Number(w.start))}–${round3(Number(w.end))}s ${String(w.word)}`,
+        'words',
+        'narrow get_transcript to a start/end window',
+        WORD_DIGEST_MAX_ITEMS,
+      )}`;
+    }
+    case 'map_footage': {
+      // Chapters and highlights are the story shape the run plans against, and the head line
+      // becomes its durable fact — so the chapter count and the mapped span ride there.
+      const chapters = (Array.isArray(obj.chapters) ? obj.chapters : []) as Record<
+        string,
+        unknown
+      >[];
+      const highlights = (Array.isArray(obj.highlights) ? obj.highlights : []) as Record<
+        string,
+        unknown
+      >[];
+      // An ABSENT chapters array is a payload of a different shape, not an empty map — the
+      // house rule for every digest here.
+      if (!Array.isArray(obj.chapters)) return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const durationSec = typeof obj.durationSec === 'number' ? obj.durationSec : 0;
+      const backend = typeof obj.backend === 'string' ? ` via ${obj.backend}` : '';
+      const reason = typeof obj.reason === 'string' ? obj.reason.trim() : '';
+      if (chapters.length === 0 && highlights.length === 0) {
+        return reason !== ''
+          ? `no footage map: ${reason}`
+          : 'no footage map — this footage has no chapters or highlights yet';
+      }
+      const overview = typeof obj.summary === 'string' ? obj.summary.trim() : '';
+      const head =
+        `${chapters.length} chapter${chapters.length === 1 ? '' : 's'} and ` +
+        `${highlights.length} highlight${highlights.length === 1 ? '' : 's'} over ` +
+        `${round2(durationSec)}s of footage${backend}`;
+      const span = (record: Record<string, unknown>): string =>
+        `${round2(Number(record.t0))}–${round2(Number(record.t1))}s`;
+      const lines: string[] = [head];
+      if (overview !== '') lines.push(`summary: ${overview}`);
+      if (chapters.length > 0) {
+        lines.push(
+          boundedRecords(
+            chapters,
+            (c) => {
+              const title = String(c.title ?? 'untitled');
+              const detail = typeof c.summary === 'string' ? ` — ${c.summary.trim()}` : '';
+              return `chapter ${span(c)} ${title}${detail}`;
+            },
+            'chapters',
+            'pass an assetId to map one asset at a time',
+          ),
+        );
+      }
+      if (highlights.length > 0) {
+        lines.push(
+          boundedRecords(
+            highlights,
+            (h) => {
+              const score = typeof h.score === 'number' ? ` (salience ${round2(h.score)})` : '';
+              return `highlight ${span(h)} ${String(h.label ?? 'unlabelled')}${score}`;
+            },
+            'highlights',
+            'pass an assetId to map one asset at a time',
+          ),
+        );
+      }
+      return lines.join('\n');
+    }
+    case 'read_edit_signals': {
+      // Measured spans the run acts on in the same turn: 11 of 60 survived the JSON slice.
+      // Whole records, in the time order the tool promises.
+      if (!Array.isArray(value)) return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const signals = value as Record<string, unknown>[];
+      if (signals.length === 0)
+        return 'no edit signals — nothing measurable was supplied or found in this stretch';
+      return `${signals.length} edit signal${signals.length === 1 ? '' : 's'} in time order:\n${boundedRecords(
+        signals,
+        (s) =>
+          `${String(s.kind)} ${round2(Number(s.t0))}–${round2(Number(s.t1))}s ${String(
+            s.observation,
+          )} (${String(s.from)})`,
+        'signals',
+        'supply fewer signals, or narrow the ones you pass in',
+      )}`;
+    }
+    case 'transcribe': {
+      // An acknowledgement whose payload happens to carry every word. Repeating the words
+      // here would bill the whole transcript twice in one run — once as the acknowledgement
+      // and again on the get_transcript the model makes anyway — so the digest states what
+      // landed and names the call that returns it. A declared omission with an address,
+      // never a silent one.
+      if (!Array.isArray(obj.words)) return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const words = obj.words as Record<string, unknown>[];
+      if (words.length === 0)
+        return 'transcribed no words — this asset carries no recognizable speech';
+      const first = Number(words[0]?.start ?? 0);
+      const last = Number(words[words.length - 1]?.end ?? 0);
+      return (
+        `transcribed ${words.length} timed words, ${round3(first)}–${round3(last)}s of source ` +
+        `audio${typeof obj.assetId === 'string' ? ` in ${obj.assetId}` : ''}; the words are on ` +
+        'the project now — read them with get_transcript (the full list is not repeated here)'
+      );
+    }
+    case 'get_frame': {
+      // The picture rides as an image part on this turn; the digest is the FACTS about it,
+      // because that is what the text-only action log keeps once the image is gone.
+      if (typeof obj.timeSeconds !== 'number') return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const size =
+        typeof obj.width === 'number' && typeof obj.height === 'number' && obj.width > 0
+          ? ` ${obj.width}×${obj.height}`
+          : '';
+      const duration =
+        typeof obj.durationSeconds === 'number'
+          ? ` of a ${round2(obj.durationSeconds)}s timeline`
+          : '';
+      // A clamped frame is a different moment than the one asked about. Saying so is the
+      // difference between "the end looks wrong" and reasoning about the wrong frame.
+      const clamped =
+        obj.clamped === true && typeof obj.requestedTimeSeconds === 'number'
+          ? ` — CLAMPED from the ${round2(obj.requestedTimeSeconds)}s you asked for, which is outside the timeline`
+          : '';
+      return `frame at ${round2(obj.timeSeconds)}s${duration},${size} attached to this turn as an image${clamped}`;
+    }
+    case 'index_media': {
+      // A progress record, not a record list — but previewJson still cut it, and "how far
+      // did indexing get" is precisely the number that decides whether search_visual is
+      // worth calling yet.
+      if (typeof obj.total !== 'number' && typeof obj.indexed !== 'number')
+        return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const indexed = typeof obj.indexed === 'number' ? obj.indexed : 0;
+      const total = typeof obj.total === 'number' ? obj.total : 0;
+      const cursor = typeof obj.cursor === 'number' ? obj.cursor : total;
+      const reason = typeof obj.reason === 'string' && obj.reason !== '' ? ` — ${obj.reason}` : '';
+      const remaining =
+        cursor < total
+          ? `; ${total - cursor} asset${total - cursor === 1 ? '' : 's'} still to go, call index_media again to continue`
+          : '';
+      return `indexed ${indexed} span${indexed === 1 ? '' : 's'} across ${cursor}/${total} asset${total === 1 ? '' : 's'}${remaining}${reason}`;
+    }
+    case 'measure_color': {
+      // The numbers are deliberately NOT rendered. `measure_color`'s contract is that the
+      // model passes the revision-bound HANDLE to professional_color match_reference and
+      // never copies the measurements — printing a hundred percentile readings into the log
+      // is an invitation to do exactly the thing the tool description forbids, at the cost of
+      // the channel coverage that actually decides whether a match can run.
+      if (!Array.isArray(obj.samples) || typeof obj.clipId !== 'string')
+        return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const samples = obj.samples as Record<string, unknown>[];
+      const channels = [...new Set(samples.map((s) => String(s.channel)))];
+      const startFrame = typeof obj.startFrame === 'number' ? obj.startFrame : 0;
+      const endFrame = typeof obj.endFrame === 'number' ? obj.endFrame : 0;
+      const occluded =
+        obj.occlusionFree === true
+          ? 'no other visible layer contaminated the sample'
+          : 'ANOTHER VISIBLE LAYER CONTAMINATED THE SAMPLE — this reading is not a clean measurement of the shot';
+      return (
+        `measured ${String(obj.clipId)} over frames ${startFrame}–${endFrame} at revision ` +
+        `${String(obj.projectRevision ?? '?')}: ${channels.length} channel${channels.length === 1 ? '' : 's'} ` +
+        `(${channels.join(', ')}) across ${samples.length} reading${samples.length === 1 ? '' : 's'}; ${occluded}. ` +
+        'The distributions themselves are held as evidence and deliberately not printed — pass ' +
+        'this measurement handle to professional_color match_reference; never retype the numbers.'
+      );
+    }
+    case 'get_selected_range': {
+      // Two numbers — but "null" previewed as a bare `null` reads as a failed read rather
+      // than as the user having selected nothing, and the two lead to opposite plans.
+      if (value === null || value === undefined)
+        return 'nothing is selected — the user has not marked a range, so any edit is on the whole timeline unless you say otherwise';
+      if (typeof obj.start !== 'number' || typeof obj.end !== 'number')
+        return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      return `selection ${round3(obj.start)}–${round3(obj.end)}s (${round2(obj.end - obj.start)}s) in timeline time`;
+    }
+    case 'track_subject_automatically': {
+      // Per-frame geometry, one record per frame: previewJson cut it after a handful of
+      // sample rows, which is both useless and misleading. The samples are applied to the
+      // mask by the tracked patch — the model never reasons over the coordinates — so the
+      // digest reports the measurement and says plainly that the samples are not shown.
+      const samples = (Array.isArray(obj.samples) ? obj.samples : []) as Record<string, unknown>[];
+      const plan = (obj.plan ?? {}) as Record<string, unknown>;
+      if (!Array.isArray(obj.samples) || typeof plan.clipId !== 'string')
+        return previewJson(value, ANALYSIS_PREVIEW_MAX);
+      const fps = typeof plan.fps === 'number' && plan.fps > 0 ? plan.fps : 0;
+      const startSeconds = typeof plan.startSeconds === 'number' ? plan.startSeconds : 0;
+      const span =
+        fps > 0
+          ? `${round2(startSeconds)}–${round2(startSeconds + samples.length / fps)}s`
+          : `from ${round2(startSeconds)}s`;
+      const engine = typeof obj.engine === 'string' ? obj.engine : 'unknown engine';
+      const backend = typeof obj.backend === 'string' ? ` (${obj.backend})` : '';
+      return (
+        `tracked ${samples.length} frame${samples.length === 1 ? '' : 's'} of ${String(plan.clipId)} ` +
+        `mask ${String(plan.maskEffectId ?? '?')} over ${span} with ${engine}${backend}. ` +
+        'The per-frame positions are applied to the mask by the tracked patch and are not ' +
+        'listed here; you never supply or edit them yourself.'
+      );
     }
     default:
       // Reads whose payload is a handful of scalars, or prose the model asked for

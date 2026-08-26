@@ -1,0 +1,330 @@
+{
+  "generatedBy": "scripts/context-benchmark.mjs",
+  "fixedOverhead": {
+    "systemContract": 135,
+    "agentContractVision": 1775,
+    "agentContractNoVision": 1576,
+    "skillsManifest": 1587,
+    "skillCount": 21,
+    "toolSchemasPlanningStages": {
+      "tools": 84,
+      "tokens": 17490
+    },
+    "toolSchemasExecutionStages": {
+      "tools": 62,
+      "tokens": 13431
+    },
+    "totalPlanningTurnOverhead": 20987
+  },
+  "grounding": [
+    {
+      "scale": "small   (1 min)",
+      "totalClips": 19,
+      "shownClips": 16,
+      "clipCoverage": 0.8421052631578947,
+      "totalWords": 150,
+      "shownWords": 150,
+      "wordCoverage": 1,
+      "projectStateTokens": 396,
+      "trimmedTiers": []
+    },
+    {
+      "scale": "medium (10 min)",
+      "totalClips": 188,
+      "shownClips": 24,
+      "clipCoverage": 0.1276595744680851,
+      "totalWords": 1500,
+      "shownWords": 600,
+      "wordCoverage": 0.4,
+      "projectStateTokens": 1345,
+      "trimmedTiers": []
+    },
+    {
+      "scale": "large  (60 min)",
+      "totalClips": 1125,
+      "shownClips": 24,
+      "clipCoverage": 0.021333333333333333,
+      "totalWords": 9000,
+      "shownWords": 600,
+      "wordCoverage": 0.06666666666666667,
+      "projectStateTokens": 1346,
+      "trimmedTiers": []
+    },
+    {
+      "scale": "huge    (4 h)",
+      "totalClips": 4500,
+      "shownClips": 24,
+      "clipCoverage": 0.005333333333333333,
+      "totalWords": 36000,
+      "shownWords": 600,
+      "wordCoverage": 0.016666666666666666,
+      "projectStateTokens": 1348,
+      "trimmedTiers": []
+    }
+  ],
+  "groundingFocused": [
+    {
+      "scale": "small   (1 min)",
+      "totalClips": 19,
+      "shownClips": 10,
+      "clipCoverage": 0.5263157894736842,
+      "totalWords": 150,
+      "shownWords": 89,
+      "wordCoverage": 0.5933333333333334,
+      "projectStateTokens": 273
+    },
+    {
+      "scale": "medium (10 min)",
+      "totalClips": 188,
+      "shownClips": 11,
+      "clipCoverage": 0.05851063829787234,
+      "totalWords": 1500,
+      "shownWords": 96,
+      "wordCoverage": 0.064,
+      "projectStateTokens": 305
+    },
+    {
+      "scale": "large  (60 min)",
+      "totalClips": 1125,
+      "shownClips": 11,
+      "clipCoverage": 0.009777777777777778,
+      "totalWords": 9000,
+      "shownWords": 97,
+      "wordCoverage": 0.010777777777777778,
+      "projectStateTokens": 335
+    },
+    {
+      "scale": "huge    (4 h)",
+      "totalClips": 4500,
+      "shownClips": 11,
+      "clipCoverage": 0.0024444444444444444,
+      "totalWords": 36000,
+      "shownWords": 99,
+      "wordCoverage": 0.00275,
+      "projectStateTokens": 362
+    }
+  ],
+  "agentRun": {
+    "turns": [
+      {
+        "turn": 0,
+        "messages": 3,
+        "messageTokens": 4986,
+        "toolTokens": 17320,
+        "toolCount": 83,
+        "totalTokens": 22306,
+        "stablePrefixTokens": 0,
+        "cacheablePrefixTokens": 0,
+        "cacheableShare": 0
+      },
+      {
+        "turn": 1,
+        "messages": 3,
+        "messageTokens": 5081,
+        "toolTokens": 17320,
+        "toolCount": 83,
+        "totalTokens": 22401,
+        "stablePrefixTokens": 1910,
+        "cacheablePrefixTokens": 19230,
+        "cacheableShare": 0.8584438194723449
+      },
+      {
+        "turn": 2,
+        "messages": 3,
+        "messageTokens": 5442,
+        "toolTokens": 17320,
+        "toolCount": 83,
+        "totalTokens": 22762,
+        "stablePrefixTokens": 1910,
+        "cacheablePrefixTokens": 19230,
+        "cacheableShare": 0.8448291011334681
+      },
+      {
+        "turn": 3,
+        "messages": 3,
+        "messageTokens": 5472,
+        "toolTokens": 17320,
+        "toolCount": 83,
+        "totalTokens": 22792,
+        "stablePrefixTokens": 1910,
+        "cacheablePrefixTokens": 19230,
+        "cacheableShare": 0.8437170937170937
+      },
+      {
+        "turn": 4,
+        "messages": 3,
+        "messageTokens": 5470,
+        "toolTokens": 13431,
+        "toolCount": 62,
+        "totalTokens": 18901,
+        "stablePrefixTokens": 1910,
+        "cacheablePrefixTokens": 15341,
+        "cacheableShare": 0.8116501772392996
+      },
+      {
+        "turn": 5,
+        "messages": 3,
+        "messageTokens": 5485,
+        "toolTokens": 13431,
+        "toolCount": 62,
+        "totalTokens": 18916,
+        "stablePrefixTokens": 1910,
+        "cacheablePrefixTokens": 15341,
+        "cacheableShare": 0.811006555297103
+      },
+      {
+        "turn": 6,
+        "messages": 3,
+        "messageTokens": 5499,
+        "toolTokens": 13431,
+        "toolCount": 62,
+        "totalTokens": 18930,
+        "stablePrefixTokens": 1910,
+        "cacheablePrefixTokens": 15341,
+        "cacheableShare": 0.8104067617538299
+      },
+      {
+        "turn": 7,
+        "messages": 3,
+        "messageTokens": 5482,
+        "toolTokens": 13431,
+        "toolCount": 62,
+        "totalTokens": 18913,
+        "stablePrefixTokens": 1910,
+        "cacheablePrefixTokens": 15341,
+        "cacheableShare": 0.8111351980119494
+      },
+      {
+        "turn": 8,
+        "messages": 4,
+        "messageTokens": 5217,
+        "toolTokens": 17320,
+        "toolCount": 83,
+        "totalTokens": 22537,
+        "stablePrefixTokens": 1910,
+        "cacheablePrefixTokens": 19230,
+        "cacheableShare": 0.8532635222079248
+      }
+    ],
+    "toolSetChurn": {
+      "changes": 2,
+      "tokensRebilledAtFullPrice": 30751,
+      "turns": 9
+    },
+    "retention": {
+      "clearedPayloadsInFinalPrompt": 0,
+      "earlierStepsCollapsed": true,
+      "finalPromptTokens": 22537,
+      "firstTurnPromptTokens": 22306
+    }
+  },
+  "budgetSafety": {
+    "assumedRoom": 183904,
+    "models": [
+      {
+        "provider": "anthropic",
+        "model": "claude-opus-4-5",
+        "contextWindow": 200000,
+        "maxOutputTokens": 64000,
+        "realRoom": 136000,
+        "deltaVsAssumed": 47904,
+        "source": "known_model",
+        "risk": "trims too late"
+      },
+      {
+        "provider": "openai",
+        "model": "gpt-4o",
+        "contextWindow": 128000,
+        "maxOutputTokens": 16384,
+        "realRoom": 111616,
+        "deltaVsAssumed": 72288,
+        "source": "known_model",
+        "risk": "trims too late"
+      },
+      {
+        "provider": "groq",
+        "model": "llama-3.3-70b-versatile",
+        "contextWindow": 131072,
+        "maxOutputTokens": 32768,
+        "realRoom": 98304,
+        "deltaVsAssumed": 85600,
+        "source": "known_model",
+        "risk": "trims too late"
+      },
+      {
+        "provider": "ollama",
+        "model": "llama3.2",
+        "contextWindow": 131072,
+        "maxOutputTokens": 4096,
+        "realRoom": 126976,
+        "deltaVsAssumed": 56928,
+        "source": "known_model",
+        "risk": "trims too late"
+      },
+      {
+        "provider": "ollama",
+        "model": "qwen2.5-coder",
+        "contextWindow": 32768,
+        "maxOutputTokens": 8192,
+        "realRoom": 24576,
+        "deltaVsAssumed": 159328,
+        "source": "known_model",
+        "risk": "trims too late"
+      },
+      {
+        "provider": "google",
+        "model": "gemini-2.5-pro",
+        "contextWindow": 1048576,
+        "maxOutputTokens": 65536,
+        "realRoom": 983040,
+        "deltaVsAssumed": -799136,
+        "source": "known_model",
+        "risk": "trims too early"
+      },
+      {
+        "provider": "openrouter",
+        "model": "a-model-not-in-the-catalog",
+        "contextWindow": 128000,
+        "maxOutputTokens": 8192,
+        "realRoom": 119808,
+        "deltaVsAssumed": 64096,
+        "source": "provider_default",
+        "risk": "trims too late"
+      }
+    ]
+  },
+  "readDigests": [
+    {
+      "tool": "get_transcript",
+      "recordsIn": 1500,
+      "surfaced": 25,
+      "fidelity": 0.016666666666666666,
+      "digestTokens": 301,
+      "hasMoreTail": false
+    },
+    {
+      "tool": "read_edit_signals",
+      "recordsIn": 60,
+      "surfaced": 11,
+      "fidelity": 0.18333333333333332,
+      "digestTokens": 301,
+      "hasMoreTail": false
+    },
+    {
+      "tool": "list_assets",
+      "recordsIn": 40,
+      "surfaced": 40,
+      "fidelity": 1,
+      "digestTokens": 328,
+      "hasMoreTail": false
+    }
+  ],
+  "headline": {
+    "fixedOverheadTokens": 20987,
+    "projectStateTokensAt60Min": 1346,
+    "projectStateShareOfPrompt": 0.060269556262033765,
+    "clipCoverageAt60Min": 0.021333333333333333,
+    "wordCoverageAt60Min": 0.06666666666666667,
+    "unusedRoomOnOpus": 113667
+  }
+}

@@ -13,7 +13,7 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
-**Status snapshot (2026-08-26, second run gap analysis):** `[x]` **Eleven gaps found by
+**Status snapshot (2026-08-26, context-management audit + second run gap analysis):** `[x]` **Eleven gaps found by
 tracing captured run `e30c1fe9` against the codebase are closed on
 `fix/agent-run-gap-analysis`.** The run was asked for a 30-second vertical Reel on an empty
 project. It searched a stock library eight times, found eighty usable clips, and delivered
@@ -8125,6 +8125,71 @@ were reproduced against that real project, not a fixture.
       **2550 passed**, 0 failures anywhere; eslint + `tsc --noEmit` + ruff + mypy clean on
       every touched file; ai-sdk rebuilt.
       **Last updated:** 2026-08-14
+
+- [x] **CTXBENCH** Context management measured, not assumed. Sub-plan:
+      **`plan/context-management/`** — [README](context-management/README.md) (index, decision
+      record, sequencing, definition of done) and
+      [DIAGNOSIS-AND-BENCHMARK.md](context-management/DIAGNOSIS-AND-BENCHMARK.md) (findings
+      F1–F10, the benchmark, the target architecture). Harness:
+      `packages/ai-sdk/scripts/context-benchmark.mjs`; baseline:
+      `reports/context-benchmark-baseline.{txt,json}`.
+
+      Read-only, deterministic, model-free (recording provider double, fixed clock; two runs
+      produce byte-identical JSON), built on the existing `ScriptedProvider` pattern, the
+      context manifest's own estimator and the golden-corpus fixture shape rather than a
+      parallel harness. Baseline: on a 60-minute project one planning turn costs ~22,333
+      tokens, of which **1,346 (6.0%) describe the user's video** and 17,490 (78%) are tool
+      schemas; the model sees **2.1% of clips and 6.7% of dialogue** with ~113,667 tokens of
+      window unused. At the north-star 10-minute scale it is 12.8% / 40.0%. Sharpest single
+      finding: `get_transcript` returns **25 of 1,500 words**, cut mid-JSON, with no count and
+      no narrowing instruction — one of nine reads with no case in `summarizeReadResult`.
+      Also recorded: the timeline has **no frame grid** (three tolerances, nothing that
+      quantizes), so "precise edits" has no frame to be precise about. No runtime behaviour
+      changed.
+
+- [ ] **CTX-PHASES** Context-aware professional editing — five phases, none started.
+      `plan/context-management/`. One programme, not two: a professional editor's precision
+      *is* their knowledge of the footage. See the sub-plan for scope gates, reuse, deferred
+      scope and per-phase evidence; the exit criteria are rows of the benchmark against the
+      frozen baseline.
+
+- [ ] **CTX-P1** [Phase 1 — see the footage](context-management/PHASE-1-see-the-footage.md).
+      Honest read digests for the nine fall-through reads (`get_transcript` first);
+      `ContextBudget` resolved from `capabilitiesFor` and inclusive of tool-schema cost;
+      `MAX_CLIPS_PER_LAYER`/`MAX_TRANSCRIPT_WORDS` become budget-derived allocations floored
+      at today's values. Closes F1–F4, F8. Exit: 10-min word coverage 40% → ≥ 95%, clip
+      coverage 12.8% → ≥ 90%, budget over-assumption ≤ 0 on every model, cacheable prefix
+      share ≥ 85%. **Largest quality gain per line changed — ship first.**
+- [ ] **CTX-P2** [Phase 2 — select what matters](context-management/PHASE-2-select-what-matters.md).
+      Wire `semantic-index-slice.ts#getSlice` (built, tested, exported, **zero consumers**)
+      into the timeline/transcript tiers; derive the slice query from pinned → selection →
+      request scope so a global request widens instead of narrowing; every omission carries a
+      recall handle or a narrowing instruction. Closes F9, F10 and the honesty half of F4.
+      Depends on CTX-P1.
+- [!] **CTX-P3** [Phase 3 — frame-accurate edits](context-management/PHASE-3-frame-accurate-edits.md).
+      **Blocked on maintainer approval — schema change.** No frame grid exists anywhere in
+      `timeline-schema`/`editor-core`/the Python compiler; three tolerances (`TIME_EPSILON`
+      1e-6, audio automation 1e-3, `_CUT_ADJACENCY_TOLERANCE` 1e-3) absorb quantization noise
+      from a stack that never quantizes, so a cut at 12.3874s on a 30fps timeline is 0.4 of a
+      frame from any frame and preview and export may resolve it differently. Two options in
+      the phase file; **(a) quantize at the operation boundary** recommended. Needs
+      `product-scope-reviewer` + ADR + migration before implementation (`CLAUDE.md` §5).
+      P3.2 (reads report frames) and P3.3 (cut vocabulary in the skills) need none of that.
+- [ ] **CTX-P4** [Phase 4 — editorial judgement](context-management/PHASE-4-editorial-judgement.md).
+      `critic.ts` has 14 checks and not one is editorial — they answer "is the deliverable
+      well-formed", never "is this a good cut"; only 3 are in `FIXABLE_CHECKS`. Add
+      `jump_cut`, `word_severed`, `dead_air`, `audio_slam`, `shot_rhythm`, `handle_starved`,
+      each fixable by an existing tool (roll/slip/slide already exist and are AI-only) or
+      honestly report-only; route the critic through the run's evidence store so it sees what
+      the planner saw. Depends on CTX-P3 (thresholds are stated in frames) and CTX-P1.
+- [ ] **CTX-P5** [Phase 5 — memory across sessions](context-management/PHASE-5-memory-across-sessions.md).
+      Seed a new run's `RunWorkingState` from the previous run's persisted facts/evidence/
+      decisions for the same conversation + project, filtered by `FactScope` and revision;
+      add one `remember_preference` tool over `memory-store.ts`'s existing typed setters
+      (closed key set — the block says "honour these preferences" and nothing can record
+      one); stop swapping the tool descriptor set mid-run (2 swaps/run, 30,751 tokens
+      re-billed). Closes F5, F6, F7. Ships **after** CTX-P4 — memory multiplies whatever the
+      agent does.
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)
