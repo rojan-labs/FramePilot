@@ -1,4 +1,4 @@
-import type { AnyOperation } from '@framepilot/editor-core';
+import type { AnyOperation } from './patch.js';
 import { describe, expect, it } from 'vitest';
 import {
   frameToSeconds,
@@ -9,13 +9,13 @@ import {
   secondsToFrame,
   snapOptionalSeconds,
   snapSecondsToFrame,
-} from './frame-time.js';
+} from './frame-grid.js';
 
 const fps = 30;
 const frameTime = (frame: number): number => frameToSeconds(frame, fps);
 const asOperation = (value: unknown): AnyOperation => value as AnyOperation;
 
-describe('frame-time conversion', () => {
+describe('frame-grid conversion', () => {
   it('uses stable rational rates for integer, decimal and NTSC frame rates', () => {
     expect(rationalFrameRate(30)).toEqual({ numerator: 30, denominator: 1 });
     expect(rationalFrameRate(29.97)).toEqual({ numerator: 30_000, denominator: 1001 });

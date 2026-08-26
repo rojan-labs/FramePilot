@@ -396,7 +396,16 @@ def _place_video_clip(
 
 
 #: How close two clips must sit to count as one cut. A frame at 240fps is ~4ms, so this is
-#: below any real edit boundary while still absorbing float noise from time quantization.
+#: below any real edit boundary while still absorbing float noise.
+#:
+#: What it absorbs, precisely (ADR 0146). Edit points authored from now on ARE quantized —
+#: ``packages/editor-core/src/frame-grid.ts`` snaps them when the patch is committed, and
+#: ``frame_grid.py`` mirrors that rule so this side can assert it rather than invent a
+#: second one. Two things still land a hair off an exact frame boundary and both are real:
+#: a project authored BEFORE that ADR keeps its times until an edit touches them, and a
+#: frame at a rational rate (1/24, 1001/30000) has no exact binary representation, so
+#: arithmetic over it drifts by units in the last place. This tolerance covers both. It is
+#: not a substitute for the grid, and it no longer stands in for the absence of one.
 _CUT_ADJACENCY_TOLERANCE = 1e-3
 
 #: How much of a neighbour's handle a transition under-layer may borrow, as a multiple of

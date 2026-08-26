@@ -99,10 +99,14 @@ describe('TransitionsPanel', () => {
 
   it('uses the entry’s own default duration, not one global number', () => {
     // A whip pan wants 0.28s and a soft dissolve wants 1.2s; a single default
-    // would be wrong for both, and the catalog is where that judgement lives.
+    // would be wrong for both, and the catalog is where that judgement lives. What lands
+    // is the nearest whole frame to the catalog's figure — 8 frames at 30fps (ADR 0146).
     const panel = mountPanel();
     fireEvent.click(screen.getByRole('button', { name: /^Whip Pan Left\./ }));
-    expect(Number(transitionOn(panel.latest(), 'b')?.params.durationSeconds)).toBeCloseTo(0.28);
+    expect(Number(transitionOn(panel.latest(), 'b')?.params.durationSeconds)).toBeCloseTo(
+      8 / 30,
+      5,
+    );
     panel.unmount();
   });
 

@@ -1,4 +1,4 @@
-# Phase 3 — The cut lands on the frame it was aimed at — `[!]` blocked on maintainer approval
+# Phase 3 — The cut lands on the frame it was aimed at — `[~]`
 
 > **Ships:** every edit point on the timeline is a frame, the same frame in preview and in
 > export, and the agent can name the frame it wants in the vocabulary an editor uses.
@@ -12,6 +12,17 @@
 ---
 
 ## 1. The gap
+
+> **CORRECTION, 2026-08-26.** The paragraph below is wrong, and finding out how wrong is
+> most of what P3.1 turned out to be. `packages/ai-sdk/src/frame-time.ts` **was** a
+> complete frame grid — rational rates (23.976 → 24000/1001), an explicit rounding policy,
+> and a per-operation `normalizeOperationTime` that already knew which fields are edit
+> points and which are evidence — wired into `assembleEdit` before patch identity,
+> validation, preview and render could disagree. The real gap was narrower and worse: **it
+> ran only for edits the AI authored.** A UI patch reaches `applyUserPatch` and is
+> validated and committed without ever touching it, so a human trim landed at 12.3874s
+> while an AI trim landed on a frame. See ADR 0146. The rest of the section stands: the
+> three tolerances are real, and preview/export agreement was never measured.
 
 FramePilot's timeline has no frame grid.
 
@@ -48,7 +59,7 @@ _two frames before the hand lands_.
 
 ---
 
-## P3.1 — A frame grid in the schema — `[ ]` **schema change**
+## P3.1 — A frame grid in the schema — `[x]` **no schema change needed — see below**
 
 **Touches:** `packages/timeline-schema`, `packages/editor-core/src/operations.ts`,
 `operation-contract.ts`. **Requires:** ADR + migration + maintainer approval.
@@ -173,7 +184,47 @@ frame rate, not a two-clip fixture.
 - **Evidence.** P3.4's rendered before/after on a real recording; the invert property test;
   the TS↔Python quantization parity test; `pnpm verify`.
 
-## Why this phase is `[!]`
+## What shipped — P3.1, 2026-08-26
+
+**Option (a), and it needed no schema change and no migration** — because the grid already
+existed and only had to reach the other authoring path. ADR 0146 records the decision, the
+deferred (b) with its trigger, and what is deliberately not quantized.
+
+- The grid moved to `packages/editor-core/src/frame-grid.ts`, unchanged in behaviour;
+  `ai-sdk/frame-time.ts` is a re-export so no consumer moved.
+- `commitProjectPatch` quantizes the patch **first**, then inverts, applies and records the
+  quantized patch. Not inside `applyOperation`: the inverse is computed from the operation,
+  so an apply that quantized privately would invert to a different state than it applied
+  from — the phase's own highest-risk detail, avoided by construction rather than patched
+  afterwards.
+- `applyUserPatch` quantizes before validating, so the editor validates the edit it will
+  commit. Quantization is idempotent (and returns the same object when nothing moved).
+- **Rounding is named:** nearest frame, ties away from zero. Python's built-in `round` is
+  banker's rounding and would disagree, so `frame_grid.py` uses `math.floor(x + 0.5)` and a
+  test asserts that trap explicitly.
+- **The Python engine asserts the grid, never re-implements it.**
+  `engine/python/.../render/frame_grid.py` mirrors it, and
+  `tests/test_frame_grid_parity.py` reads a fixture generated from the TypeScript source on
+  every `editor-core` build — the `captionStyle.ts` ↔ `captions.py` pattern.
+
+**Evidence.** `frame-grid.property.test.ts` over 6 frame rates × 12 seeds × 8 operations:
+every applied edit point is on the grid, and undo restores the prior timeline. Two things
+the property test found that the plan did not predict:
+
+1. **Bitwise undo equality is not achievable, and asking for it was asking for the wrong
+   thing.** A frame at 24fps is 1/24s, which has no exact binary representation; `trim_clip`
+   shifts its source window by `newStart - oldStart`, and applying that delta and its
+   negation lands one unit in the last place away — ~2e-15s, nine orders of magnitude below
+   the smallest tolerance in the stack. The property is stated at `TIME_EPSILON` (1e-6),
+   which is what catches drift that ACCUMULATES. This is also why `_CUT_ADJACENCY_TOLERANCE`
+   survives the ADR rather than being deleted; its comment now says what it absorbs.
+2. **UI transition presets were not frame-aligned and now are.** A "0.25s" fade is 7.5
+   frames at 30fps and becomes 8; a 0.75s ramp is 22.5 and becomes 23. Four tests asserted
+   the un-gridded figures and were updated with the reason. A ramp that is not a whole
+   number of frames is a ramp the preview and the export can disagree about, which is the
+   entire point of the phase.
+
+## Why this phase was `[!]`
 
 `CLAUDE.md` §5 requires a pause before _"changing the timeline/project schema (requires a
 migration + doc + tests)"_ and before _"large rewrites or cross-cutting architectural

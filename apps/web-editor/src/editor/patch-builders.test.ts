@@ -1394,7 +1394,10 @@ describe('transition patch-builders (M3b)', () => {
       (c) => c.id === 'clip_body',
     )!.effects.find((e) => e.type === 'transition')!;
     expect(effect.params.kind).toBe('zoom');
-    expect(effect.params.durationSeconds).toBe(0.75);
+    // 0.75s is 22.5 frames at 30fps; the grid rounds ties away from zero, so the ramp is
+    // 23 frames (ADR 0146). The point of the assertion is that the swap KEEPS the
+    // duration, and it does — on the grid, as every edit point now is.
+    expect(effect.params.durationSeconds).toBeCloseTo(23 / 30, 6);
   });
 
   it('setTransitionDurationPatch keeps the look params across the rebuild', () => {

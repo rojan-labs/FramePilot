@@ -1,0 +1,1036 @@
+{
+  "generatedBy": "packages/editor-core/scripts/generate-frame-grid-parity.mjs",
+  "rule": "nearest frame, ties away from zero; rational frame rates",
+  "rates": [
+    {
+      "fps": 23.976,
+      "numerator": 24000,
+      "denominator": 1001,
+      "samples": [
+        {
+          "seconds": 0,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.0001,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.5,
+          "frame": 12,
+          "snapped": 0.5005
+        },
+        {
+          "seconds": 1,
+          "frame": 24,
+          "snapped": 1.001
+        },
+        {
+          "seconds": 1.5,
+          "frame": 36,
+          "snapped": 1.5015
+        },
+        {
+          "seconds": 12.3874,
+          "frame": 297,
+          "snapped": 12.387375
+        },
+        {
+          "seconds": 12.5,
+          "frame": 300,
+          "snapped": 12.5125
+        },
+        {
+          "seconds": 21.87,
+          "frame": 524,
+          "snapped": 21.855166666666666
+        },
+        {
+          "seconds": 59.999,
+          "frame": 1439,
+          "snapped": 60.01829166666667
+        },
+        {
+          "seconds": 60,
+          "frame": 1439,
+          "snapped": 60.01829166666667
+        },
+        {
+          "seconds": 61.041666666,
+          "frame": 1464,
+          "snapped": 61.061
+        },
+        {
+          "seconds": 600,
+          "frame": 14386,
+          "snapped": 600.0160833333333
+        },
+        {
+          "seconds": 3600.5,
+          "frame": 86326,
+          "snapped": 3600.5135833333334
+        },
+        {
+          "seconds": 14399.9999,
+          "frame": 345255,
+          "snapped": 14400.010625
+        }
+      ],
+      "frameRoundTrip": [
+        {
+          "frame": 0,
+          "seconds": 0
+        },
+        {
+          "frame": 1,
+          "seconds": 0.04170833333333333
+        },
+        {
+          "frame": 2,
+          "seconds": 0.08341666666666667
+        },
+        {
+          "frame": 47,
+          "seconds": 1.9602916666666668
+        },
+        {
+          "frame": 1000,
+          "seconds": 41.708333333333336
+        },
+        {
+          "frame": 100000,
+          "seconds": 4170.833333333333
+        }
+      ]
+    },
+    {
+      "fps": 24,
+      "numerator": 24,
+      "denominator": 1,
+      "samples": [
+        {
+          "seconds": 0,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.0001,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.5,
+          "frame": 12,
+          "snapped": 0.5
+        },
+        {
+          "seconds": 1,
+          "frame": 24,
+          "snapped": 1
+        },
+        {
+          "seconds": 1.5,
+          "frame": 36,
+          "snapped": 1.5
+        },
+        {
+          "seconds": 12.3874,
+          "frame": 297,
+          "snapped": 12.375
+        },
+        {
+          "seconds": 12.5,
+          "frame": 300,
+          "snapped": 12.5
+        },
+        {
+          "seconds": 21.87,
+          "frame": 525,
+          "snapped": 21.875
+        },
+        {
+          "seconds": 59.999,
+          "frame": 1440,
+          "snapped": 60
+        },
+        {
+          "seconds": 60,
+          "frame": 1440,
+          "snapped": 60
+        },
+        {
+          "seconds": 61.041666666,
+          "frame": 1465,
+          "snapped": 61.041666666666664
+        },
+        {
+          "seconds": 600,
+          "frame": 14400,
+          "snapped": 600
+        },
+        {
+          "seconds": 3600.5,
+          "frame": 86412,
+          "snapped": 3600.5
+        },
+        {
+          "seconds": 14399.9999,
+          "frame": 345600,
+          "snapped": 14400
+        }
+      ],
+      "frameRoundTrip": [
+        {
+          "frame": 0,
+          "seconds": 0
+        },
+        {
+          "frame": 1,
+          "seconds": 0.041666666666666664
+        },
+        {
+          "frame": 2,
+          "seconds": 0.08333333333333333
+        },
+        {
+          "frame": 47,
+          "seconds": 1.9583333333333333
+        },
+        {
+          "frame": 1000,
+          "seconds": 41.666666666666664
+        },
+        {
+          "frame": 100000,
+          "seconds": 4166.666666666667
+        }
+      ]
+    },
+    {
+      "fps": 25,
+      "numerator": 25,
+      "denominator": 1,
+      "samples": [
+        {
+          "seconds": 0,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.0001,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.5,
+          "frame": 13,
+          "snapped": 0.52
+        },
+        {
+          "seconds": 1,
+          "frame": 25,
+          "snapped": 1
+        },
+        {
+          "seconds": 1.5,
+          "frame": 38,
+          "snapped": 1.52
+        },
+        {
+          "seconds": 12.3874,
+          "frame": 310,
+          "snapped": 12.4
+        },
+        {
+          "seconds": 12.5,
+          "frame": 313,
+          "snapped": 12.52
+        },
+        {
+          "seconds": 21.87,
+          "frame": 547,
+          "snapped": 21.88
+        },
+        {
+          "seconds": 59.999,
+          "frame": 1500,
+          "snapped": 60
+        },
+        {
+          "seconds": 60,
+          "frame": 1500,
+          "snapped": 60
+        },
+        {
+          "seconds": 61.041666666,
+          "frame": 1526,
+          "snapped": 61.04
+        },
+        {
+          "seconds": 600,
+          "frame": 15000,
+          "snapped": 600
+        },
+        {
+          "seconds": 3600.5,
+          "frame": 90013,
+          "snapped": 3600.52
+        },
+        {
+          "seconds": 14399.9999,
+          "frame": 360000,
+          "snapped": 14400
+        }
+      ],
+      "frameRoundTrip": [
+        {
+          "frame": 0,
+          "seconds": 0
+        },
+        {
+          "frame": 1,
+          "seconds": 0.04
+        },
+        {
+          "frame": 2,
+          "seconds": 0.08
+        },
+        {
+          "frame": 47,
+          "seconds": 1.88
+        },
+        {
+          "frame": 1000,
+          "seconds": 40
+        },
+        {
+          "frame": 100000,
+          "seconds": 4000
+        }
+      ]
+    },
+    {
+      "fps": 29.97,
+      "numerator": 30000,
+      "denominator": 1001,
+      "samples": [
+        {
+          "seconds": 0,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.0001,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.5,
+          "frame": 15,
+          "snapped": 0.5005
+        },
+        {
+          "seconds": 1,
+          "frame": 30,
+          "snapped": 1.001
+        },
+        {
+          "seconds": 1.5,
+          "frame": 45,
+          "snapped": 1.5015
+        },
+        {
+          "seconds": 12.3874,
+          "frame": 371,
+          "snapped": 12.379033333333334
+        },
+        {
+          "seconds": 12.5,
+          "frame": 375,
+          "snapped": 12.5125
+        },
+        {
+          "seconds": 21.87,
+          "frame": 655,
+          "snapped": 21.855166666666666
+        },
+        {
+          "seconds": 59.999,
+          "frame": 1798,
+          "snapped": 59.99326666666666
+        },
+        {
+          "seconds": 60,
+          "frame": 1798,
+          "snapped": 59.99326666666666
+        },
+        {
+          "seconds": 61.041666666,
+          "frame": 1829,
+          "snapped": 61.027633333333334
+        },
+        {
+          "seconds": 600,
+          "frame": 17982,
+          "snapped": 599.9994
+        },
+        {
+          "seconds": 3600.5,
+          "frame": 107907,
+          "snapped": 3600.4969
+        },
+        {
+          "seconds": 14399.9999,
+          "frame": 431568,
+          "snapped": 14399.9856
+        }
+      ],
+      "frameRoundTrip": [
+        {
+          "frame": 0,
+          "seconds": 0
+        },
+        {
+          "frame": 1,
+          "seconds": 0.03336666666666667
+        },
+        {
+          "frame": 2,
+          "seconds": 0.06673333333333334
+        },
+        {
+          "frame": 47,
+          "seconds": 1.5682333333333334
+        },
+        {
+          "frame": 1000,
+          "seconds": 33.36666666666667
+        },
+        {
+          "frame": 100000,
+          "seconds": 3336.6666666666665
+        }
+      ]
+    },
+    {
+      "fps": 30,
+      "numerator": 30,
+      "denominator": 1,
+      "samples": [
+        {
+          "seconds": 0,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.0001,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.5,
+          "frame": 15,
+          "snapped": 0.5
+        },
+        {
+          "seconds": 1,
+          "frame": 30,
+          "snapped": 1
+        },
+        {
+          "seconds": 1.5,
+          "frame": 45,
+          "snapped": 1.5
+        },
+        {
+          "seconds": 12.3874,
+          "frame": 372,
+          "snapped": 12.4
+        },
+        {
+          "seconds": 12.5,
+          "frame": 375,
+          "snapped": 12.5
+        },
+        {
+          "seconds": 21.87,
+          "frame": 656,
+          "snapped": 21.866666666666667
+        },
+        {
+          "seconds": 59.999,
+          "frame": 1800,
+          "snapped": 60
+        },
+        {
+          "seconds": 60,
+          "frame": 1800,
+          "snapped": 60
+        },
+        {
+          "seconds": 61.041666666,
+          "frame": 1831,
+          "snapped": 61.03333333333333
+        },
+        {
+          "seconds": 600,
+          "frame": 18000,
+          "snapped": 600
+        },
+        {
+          "seconds": 3600.5,
+          "frame": 108015,
+          "snapped": 3600.5
+        },
+        {
+          "seconds": 14399.9999,
+          "frame": 432000,
+          "snapped": 14400
+        }
+      ],
+      "frameRoundTrip": [
+        {
+          "frame": 0,
+          "seconds": 0
+        },
+        {
+          "frame": 1,
+          "seconds": 0.03333333333333333
+        },
+        {
+          "frame": 2,
+          "seconds": 0.06666666666666667
+        },
+        {
+          "frame": 47,
+          "seconds": 1.5666666666666667
+        },
+        {
+          "frame": 1000,
+          "seconds": 33.333333333333336
+        },
+        {
+          "frame": 100000,
+          "seconds": 3333.3333333333335
+        }
+      ]
+    },
+    {
+      "fps": 47.952,
+      "numerator": 48000,
+      "denominator": 1001,
+      "samples": [
+        {
+          "seconds": 0,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.0001,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.5,
+          "frame": 24,
+          "snapped": 0.5005
+        },
+        {
+          "seconds": 1,
+          "frame": 48,
+          "snapped": 1.001
+        },
+        {
+          "seconds": 1.5,
+          "frame": 72,
+          "snapped": 1.5015
+        },
+        {
+          "seconds": 12.3874,
+          "frame": 594,
+          "snapped": 12.387375
+        },
+        {
+          "seconds": 12.5,
+          "frame": 599,
+          "snapped": 12.491645833333333
+        },
+        {
+          "seconds": 21.87,
+          "frame": 1049,
+          "snapped": 21.87602083333333
+        },
+        {
+          "seconds": 59.999,
+          "frame": 2877,
+          "snapped": 59.9974375
+        },
+        {
+          "seconds": 60,
+          "frame": 2877,
+          "snapped": 59.9974375
+        },
+        {
+          "seconds": 61.041666666,
+          "frame": 2927,
+          "snapped": 61.040145833333334
+        },
+        {
+          "seconds": 600,
+          "frame": 28771,
+          "snapped": 599.9952291666667
+        },
+        {
+          "seconds": 3600.5,
+          "frame": 172651,
+          "snapped": 3600.492729166667
+        },
+        {
+          "seconds": 14399.9999,
+          "frame": 690509,
+          "snapped": 14399.989770833334
+        }
+      ],
+      "frameRoundTrip": [
+        {
+          "frame": 0,
+          "seconds": 0
+        },
+        {
+          "frame": 1,
+          "seconds": 0.020854166666666667
+        },
+        {
+          "frame": 2,
+          "seconds": 0.04170833333333333
+        },
+        {
+          "frame": 47,
+          "seconds": 0.9801458333333334
+        },
+        {
+          "frame": 1000,
+          "seconds": 20.854166666666668
+        },
+        {
+          "frame": 100000,
+          "seconds": 2085.4166666666665
+        }
+      ]
+    },
+    {
+      "fps": 50,
+      "numerator": 50,
+      "denominator": 1,
+      "samples": [
+        {
+          "seconds": 0,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.0001,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.5,
+          "frame": 25,
+          "snapped": 0.5
+        },
+        {
+          "seconds": 1,
+          "frame": 50,
+          "snapped": 1
+        },
+        {
+          "seconds": 1.5,
+          "frame": 75,
+          "snapped": 1.5
+        },
+        {
+          "seconds": 12.3874,
+          "frame": 619,
+          "snapped": 12.38
+        },
+        {
+          "seconds": 12.5,
+          "frame": 625,
+          "snapped": 12.5
+        },
+        {
+          "seconds": 21.87,
+          "frame": 1094,
+          "snapped": 21.88
+        },
+        {
+          "seconds": 59.999,
+          "frame": 3000,
+          "snapped": 60
+        },
+        {
+          "seconds": 60,
+          "frame": 3000,
+          "snapped": 60
+        },
+        {
+          "seconds": 61.041666666,
+          "frame": 3052,
+          "snapped": 61.04
+        },
+        {
+          "seconds": 600,
+          "frame": 30000,
+          "snapped": 600
+        },
+        {
+          "seconds": 3600.5,
+          "frame": 180025,
+          "snapped": 3600.5
+        },
+        {
+          "seconds": 14399.9999,
+          "frame": 720000,
+          "snapped": 14400
+        }
+      ],
+      "frameRoundTrip": [
+        {
+          "frame": 0,
+          "seconds": 0
+        },
+        {
+          "frame": 1,
+          "seconds": 0.02
+        },
+        {
+          "frame": 2,
+          "seconds": 0.04
+        },
+        {
+          "frame": 47,
+          "seconds": 0.94
+        },
+        {
+          "frame": 1000,
+          "seconds": 20
+        },
+        {
+          "frame": 100000,
+          "seconds": 2000
+        }
+      ]
+    },
+    {
+      "fps": 59.94,
+      "numerator": 60000,
+      "denominator": 1001,
+      "samples": [
+        {
+          "seconds": 0,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.0001,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.5,
+          "frame": 30,
+          "snapped": 0.5005
+        },
+        {
+          "seconds": 1,
+          "frame": 60,
+          "snapped": 1.001
+        },
+        {
+          "seconds": 1.5,
+          "frame": 90,
+          "snapped": 1.5015
+        },
+        {
+          "seconds": 12.3874,
+          "frame": 743,
+          "snapped": 12.395716666666667
+        },
+        {
+          "seconds": 12.5,
+          "frame": 749,
+          "snapped": 12.495816666666666
+        },
+        {
+          "seconds": 21.87,
+          "frame": 1311,
+          "snapped": 21.87185
+        },
+        {
+          "seconds": 59.999,
+          "frame": 3596,
+          "snapped": 59.99326666666666
+        },
+        {
+          "seconds": 60,
+          "frame": 3596,
+          "snapped": 59.99326666666666
+        },
+        {
+          "seconds": 61.041666666,
+          "frame": 3659,
+          "snapped": 61.04431666666667
+        },
+        {
+          "seconds": 600,
+          "frame": 35964,
+          "snapped": 599.9994
+        },
+        {
+          "seconds": 3600.5,
+          "frame": 215814,
+          "snapped": 3600.4969
+        },
+        {
+          "seconds": 14399.9999,
+          "frame": 863137,
+          "snapped": 14400.002283333333
+        }
+      ],
+      "frameRoundTrip": [
+        {
+          "frame": 0,
+          "seconds": 0
+        },
+        {
+          "frame": 1,
+          "seconds": 0.016683333333333335
+        },
+        {
+          "frame": 2,
+          "seconds": 0.03336666666666667
+        },
+        {
+          "frame": 47,
+          "seconds": 0.7841166666666667
+        },
+        {
+          "frame": 1000,
+          "seconds": 16.683333333333334
+        },
+        {
+          "frame": 100000,
+          "seconds": 1668.3333333333333
+        }
+      ]
+    },
+    {
+      "fps": 60,
+      "numerator": 60,
+      "denominator": 1,
+      "samples": [
+        {
+          "seconds": 0,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.0001,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.5,
+          "frame": 30,
+          "snapped": 0.5
+        },
+        {
+          "seconds": 1,
+          "frame": 60,
+          "snapped": 1
+        },
+        {
+          "seconds": 1.5,
+          "frame": 90,
+          "snapped": 1.5
+        },
+        {
+          "seconds": 12.3874,
+          "frame": 743,
+          "snapped": 12.383333333333333
+        },
+        {
+          "seconds": 12.5,
+          "frame": 750,
+          "snapped": 12.5
+        },
+        {
+          "seconds": 21.87,
+          "frame": 1312,
+          "snapped": 21.866666666666667
+        },
+        {
+          "seconds": 59.999,
+          "frame": 3600,
+          "snapped": 60
+        },
+        {
+          "seconds": 60,
+          "frame": 3600,
+          "snapped": 60
+        },
+        {
+          "seconds": 61.041666666,
+          "frame": 3662,
+          "snapped": 61.03333333333333
+        },
+        {
+          "seconds": 600,
+          "frame": 36000,
+          "snapped": 600
+        },
+        {
+          "seconds": 3600.5,
+          "frame": 216030,
+          "snapped": 3600.5
+        },
+        {
+          "seconds": 14399.9999,
+          "frame": 864000,
+          "snapped": 14400
+        }
+      ],
+      "frameRoundTrip": [
+        {
+          "frame": 0,
+          "seconds": 0
+        },
+        {
+          "frame": 1,
+          "seconds": 0.016666666666666666
+        },
+        {
+          "frame": 2,
+          "seconds": 0.03333333333333333
+        },
+        {
+          "frame": 47,
+          "seconds": 0.7833333333333333
+        },
+        {
+          "frame": 1000,
+          "seconds": 16.666666666666668
+        },
+        {
+          "frame": 100000,
+          "seconds": 1666.6666666666667
+        }
+      ]
+    },
+    {
+      "fps": 120,
+      "numerator": 120,
+      "denominator": 1,
+      "samples": [
+        {
+          "seconds": 0,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.0001,
+          "frame": 0,
+          "snapped": 0
+        },
+        {
+          "seconds": 0.5,
+          "frame": 60,
+          "snapped": 0.5
+        },
+        {
+          "seconds": 1,
+          "frame": 120,
+          "snapped": 1
+        },
+        {
+          "seconds": 1.5,
+          "frame": 180,
+          "snapped": 1.5
+        },
+        {
+          "seconds": 12.3874,
+          "frame": 1486,
+          "snapped": 12.383333333333333
+        },
+        {
+          "seconds": 12.5,
+          "frame": 1500,
+          "snapped": 12.5
+        },
+        {
+          "seconds": 21.87,
+          "frame": 2624,
+          "snapped": 21.866666666666667
+        },
+        {
+          "seconds": 59.999,
+          "frame": 7200,
+          "snapped": 60
+        },
+        {
+          "seconds": 60,
+          "frame": 7200,
+          "snapped": 60
+        },
+        {
+          "seconds": 61.041666666,
+          "frame": 7325,
+          "snapped": 61.041666666666664
+        },
+        {
+          "seconds": 600,
+          "frame": 72000,
+          "snapped": 600
+        },
+        {
+          "seconds": 3600.5,
+          "frame": 432060,
+          "snapped": 3600.5
+        },
+        {
+          "seconds": 14399.9999,
+          "frame": 1728000,
+          "snapped": 14400
+        }
+      ],
+      "frameRoundTrip": [
+        {
+          "frame": 0,
+          "seconds": 0
+        },
+        {
+          "frame": 1,
+          "seconds": 0.008333333333333333
+        },
+        {
+          "frame": 2,
+          "seconds": 0.016666666666666666
+        },
+        {
+          "frame": 47,
+          "seconds": 0.39166666666666666
+        },
+        {
+          "frame": 1000,
+          "seconds": 8.333333333333334
+        },
+        {
+          "frame": 100000,
+          "seconds": 833.3333333333334
+        }
+      ]
+    }
+  ]
+}
