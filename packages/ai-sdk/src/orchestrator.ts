@@ -178,6 +178,7 @@ import {
   REVIEW_CONCURRENCY_ENV,
   REVIEW_STEERING_PREAMBLE,
   ReviewFindingQueue,
+  describeFindings,
   resolveReviewConcurrency,
   touchedRegionOf,
   type ReviewFinding,
@@ -4866,7 +4867,7 @@ export class Orchestrator {
               ...evidenceBase(),
               id: `${options.turnId}:review-unresolved`,
               type: 'warning',
-              text: `The perceptual review finished with ${String(remaining.length)} unresolved finding${remaining.length === 1 ? '' : 's'}. Your edits are applied and validated, but they are not perceptually clean: ${remaining.map((finding) => finding.detail).join(' ')}`,
+              text: `The perceptual review finished with ${String(remaining.length)} unresolved finding${remaining.length === 1 ? '' : 's'}. Your edits are applied and validated, but they are not perceptually clean: ${describeFindings(remaining)}`,
             };
             projector?.observe(notice);
             yield notice;

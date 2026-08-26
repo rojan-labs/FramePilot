@@ -30,6 +30,7 @@ export type CheckStatus = 'pass' | 'warn' | 'fail' | 'skipped';
 /** The fixed set of checks the Critic runs, mirroring PRD §8.6. */
 export type CheckId =
   | 'request_match'
+  | 'picture_present'
   | 'duration_target'
   | 'shot_count'
   | 'reframe_coverage'
@@ -212,6 +213,54 @@ function checkRequestMatch(options: CritiqueOptions): CriticCheck {
 }
 
 /** Is the output duration close to the stated target (e.g. a 45s Reel)? */
+/**
+ * Is there anything to look at?
+ *
+ * The check this battery did not have. Run e30c1fe9 finished a "30-second vertical Reel"
+ * as fifteen text overlays over an empty video track: no footage, no stills, nothing but
+ * type on black. Every check here passed or skipped — `duration_target` most of all,
+ * because it measures the LATEST clip end and a stack of overlays is 30 seconds long by
+ * that measure. The perceptual reviewer then reported the one real fact fifteen times, as
+ * "unexpected black frames" at fifteen edit boundaries, which reads as a defect in the
+ * cuts rather than an absence of a film.
+ *
+ * Overlay and caption clips are excluded deliberately: they sit OVER the picture, and a
+ * timeline made only of them has no picture. Warn rather than fail when the run was not
+ * asked for a visual deliverable — an audio-only or caption-only pass is a legitimate
+ * thing to ask for, and this check must not fail it.
+ */
+function checkPicturePresent(timeline: Timeline, options: CritiqueOptions): CriticCheck {
+  const picture = allClips(timeline).filter((clip) => !isOverlayClip(clip));
+  if (picture.length > 0) {
+    return check(
+      'picture_present',
+      'The edit has picture',
+      'pass',
+      `${String(picture.length)} picture clip${picture.length === 1 ? '' : 's'} on the timeline.`,
+    );
+  }
+  const overlays = allClips(timeline).length;
+  if (overlays === 0) {
+    return check(
+      'picture_present',
+      'The edit has picture',
+      'skipped',
+      'The timeline is empty, so there is nothing to judge.',
+    );
+  }
+  const detail =
+    `The timeline has ${String(overlays)} overlay/caption clip${overlays === 1 ? '' : 's'} and ` +
+    'no picture under them, so the whole thing renders as text on black. Place footage, a ' +
+    'still, or a stock clip before this is a video.';
+  // A visual target — a platform, a duration, a shot count — means someone asked for a
+  // film. Failing then is the honest verdict; without one, say it and let the run decide.
+  const wantsPicture =
+    options.targetPlatform !== undefined ||
+    options.durationTargetSeconds !== undefined ||
+    options.minShotCount !== undefined;
+  return check('picture_present', 'The edit has picture', wantsPicture ? 'fail' : 'warn', detail);
+}
+
 function checkDurationTarget(timeline: Timeline, options: CritiqueOptions): CriticCheck {
   const target = options.durationTargetSeconds;
   if (target === undefined) {
@@ -221,11 +270,25 @@ function checkDurationTarget(timeline: Timeline, options: CritiqueOptions): Crit
   const tolerance = options.durationToleranceSeconds ?? DEFAULT_DURATION_TOLERANCE;
   const delta = Math.abs(actual - target);
   if (delta <= tolerance) {
+    // Say which duration this is when the two differ. A 30-second stack of text overlays
+    // over an empty video track measures 30 seconds by the timeline's latest clip end,
+    // and reporting a bare "Timeline is 30s (target 30s)" launders "there is no picture"
+    // into a pass. `picture_present` is what actually judges that; this line stops the
+    // duration check from quietly contradicting it.
+    // NOT `contentDuration`: that falls back to the whole timeline when there is no
+    // picture or sound, which is exactly the case this caveat exists to name.
+    const content = allClips(timeline)
+      .filter((clip) => !isOverlayClip(clip))
+      .reduce((max, clip) => Math.max(max, clip.end), 0);
+    const caveat =
+      actual - content > tolerance
+        ? ` Only ${round(content)}s of that is picture or sound — the rest is overlay.`
+        : '';
     return check(
       'duration_target',
       'Duration on target',
       'pass',
-      `Timeline is ${round(actual)}s (target ${round(target)}s, within ±${round(tolerance)}s).`,
+      `Timeline is ${round(actual)}s (target ${round(target)}s, within ±${round(tolerance)}s).${caveat}`,
     );
   }
   return check(
@@ -641,6 +704,7 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
   const timeline = project.timeline;
   const checks: CriticCheck[] = [
     checkRequestMatch(options),
+    checkPicturePresent(timeline, options),
     checkDurationTarget(timeline, options),
     checkShotCount(timeline, options),
     checkReframeCoverage(project, timeline),

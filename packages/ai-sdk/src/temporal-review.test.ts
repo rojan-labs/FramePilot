@@ -507,6 +507,67 @@ describe('reviewTemporalEvidence', () => {
     expect(report.checks[0]?.issues.join(' ')).toMatch(/black.*flash/i);
   });
 
+  // GAP-005. A timeline with no picture under its overlays makes every sampled frame
+  // black, so every range fails and the run reports the same fact once per edit boundary.
+  // Run e30c1fe9 ended on fifteen such lines; the model read them as fifteen broken cuts
+  // and spent its last turn adding transitions to fix them.
+  it('names the cause once when every sampled range is black, not per boundary', () => {
+    const black = (requestId: string, at: number): TemporalEvidenceResult => ({
+      ...resultBase,
+      requestId,
+      kind: 'range',
+      samples: [
+        { frame: at, luma: 0, blackRatio: 1 },
+        { frame: at + 1, luma: 0, blackRatio: 1 },
+      ],
+    });
+    const range = (requestId: string, at: number): TemporalEvidenceRequest => ({
+      ...rangeRequest,
+      requestId,
+      startFrame: at,
+      endFrame: at + 2,
+    });
+    const report = reviewTemporalEvidence(
+      [range('edit_range_0', 0), range('edit_range_90', 90), range('edit_range_240', 240)],
+      [black('edit_range_0', 0), black('edit_range_90', 90), black('edit_range_240', 240)],
+    );
+    expect(report.ok).toBe(false);
+    for (const check of report.checks) {
+      expect(check.issues[0]).toMatch(/no picture under its overlays|Every sampled moment/);
+      expect(check.issues.join(' ')).not.toMatch(/Unexpected black/);
+    }
+  });
+
+  it('keeps precise frame numbers when only one range is black', () => {
+    const clean: TemporalEvidenceResult = {
+      ...resultBase,
+      requestId: 'edit_range_90',
+      kind: 'range',
+      samples: [
+        { frame: 90, luma: 0.4, blackRatio: 0 },
+        { frame: 91, luma: 0.42, blackRatio: 0 },
+      ],
+    };
+    const dark: TemporalEvidenceResult = {
+      ...resultBase,
+      requestId: 'edit_range_0',
+      kind: 'range',
+      samples: [
+        { frame: 0, luma: 0, blackRatio: 1 },
+        { frame: 1, luma: 0.4, blackRatio: 0 },
+      ],
+    };
+    const report = reviewTemporalEvidence(
+      [
+        { ...rangeRequest, requestId: 'edit_range_0', startFrame: 0, endFrame: 2 },
+        { ...rangeRequest, requestId: 'edit_range_90', startFrame: 90, endFrame: 92 },
+      ],
+      [dark, clean],
+    );
+    // A real flash at a real cut keeps its own numbers — that is a defect an edit can fix.
+    expect(report.checks[0]?.issues.join(' ')).toMatch(/Unexpected black frame\(s\): 0/);
+  });
+
   it('checks comparison continuity and legal scopes', () => {
     const requests = [
       {
