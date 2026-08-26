@@ -2,10 +2,10 @@
 
   system contract          135
   agent contract (vision)  1775
-  skills manifest (21)     1587
-  tool schemas, planning   17490  (84 tools)
-  tool schemas, execution  13431  (62 tools)
-  ── planning-turn total   20987
+  skills manifest (21)     1605
+  tool schemas, planning   17722  (85 tools)
+  tool schemas, execution  13663  (63 tools)
+  ── planning-turn total   21237
 
 ## B. Grounding coverage — how much of the project reaches the prompt
 
@@ -14,7 +14,7 @@
   small   (1 min)  |    19 |    19 |   100.0% |    150 |   150 |   100.0% | 407
   medium (10 min)  |   188 |   188 |   100.0% |   1500 |  1500 |   100.0% | 4116
   large  (60 min)  |  1125 |  1125 |   100.0% |   9000 |  9000 |   100.0% | 26455
-  huge    (4 h)    |  4500 |  4500 |   100.0% |  36000 | 35771 |    99.4% | 114569
+  huge    (4 h)    |  4500 |  4500 |   100.0% |  36000 | 35679 |    99.1% | 114339
 
 ## B2. Same projects WITH a 30s selection (the focus/retrieval path)
 
@@ -23,7 +23,7 @@
   small   (1 min)  |    19 |    19 |   100.0% |    150 |   150 |   100.0% | 406
   medium (10 min)  |   188 |   188 |   100.0% |   1500 |  1500 |   100.0% | 4115
   large  (60 min)  |  1125 |  1125 |   100.0% |   9000 |  9000 |   100.0% | 26455
-  huge    (4 h)    |  4500 |  4500 |   100.0% |  36000 | 35769 |    99.4% | 114563
+  huge    (4 h)    |  4500 |  4500 |   100.0% |  36000 | 35676 |    99.1% | 114331
 
 ## B3. One long project, two requests — does the ask change the retrieval?
 
@@ -36,37 +36,37 @@
 
   turn | msgs | msg tok | tool tok | TOTAL | stable prefix | cached prefix share
   -----|------|---------|----------|-------|---------------|--------------------
-     0 |    4 |   14426 |    17320 | 31746 |             0 |                0.0%
-     1 |    4 |   14521 |    17320 | 31841 |         12238 |               92.8%
-     2 |    4 |   25496 |    17320 | 42816 |         12238 |               69.0%
-     3 |    4 |   25526 |    17320 | 42846 |         12238 |               69.0%
-     4 |    4 |   14613 |    13431 | 28044 |         12238 |               91.5%
-     5 |    4 |   14622 |    13431 | 28053 |         12238 |               91.5%
-     6 |    4 |   14631 |    13431 | 28062 |         12238 |               91.5%
-     7 |    4 |   14610 |    13431 | 28041 |         12238 |               91.5%
-     8 |    5 |   14624 |    17320 | 31944 |         12238 |               92.5%
+     0 |    4 |   14445 |    17552 | 31997 |             0 |                0.0%
+     1 |    4 |   14540 |    17552 | 32092 |         12257 |               92.9%
+     2 |    4 |   25515 |    17552 | 43067 |         12257 |               69.2%
+     3 |    4 |   25545 |    17552 | 43097 |         12257 |               69.2%
+     4 |    4 |   14632 |    13663 | 28295 |         12257 |               91.6%
+     5 |    4 |   14641 |    13663 | 28304 |         12257 |               91.6%
+     6 |    4 |   14650 |    13663 | 28313 |         12257 |               91.5%
+     7 |    4 |   14629 |    13663 | 28292 |         12257 |               91.6%
+     8 |    5 |   14643 |    17552 | 32195 |         12257 |               92.6%
 
   tool-set changes during the run: 2 (stage policy swaps the descriptor set)
-  tokens re-billed at full price by those swaps: 30751
+  tokens re-billed at full price by those swaps: 31215
 
   payloads cleared in final prompt: 0
   earlier steps collapsed to a digest line: true
-  prompt growth over the run: 31746 → 31944 tokens
+  prompt growth over the run: 31997 → 32195 tokens
 
 ## D. Budget safety — what the trimmer assumes vs what the model has
 
-  an agent turn also pays 19265 tokens the assembler never sees (tool schemas + agent contract)
+  an agent turn also pays 19497 tokens the assembler never sees (tool schemas + agent contract)
   before P1.2 every model trimmed against 183904 tokens
 
   provider/model                        | real room | trimmer room | over-assumption | risk
   --------------------------------------|-----------|--------------|-----------------|----------------
-  anthropic/claude-opus-4-5             |    136000 |       114735 |          -21265 | safe
-  openai/gpt-4o                         |    111616 |        90351 |          -21265 | safe
-  groq/llama-3.3-70b-versatile          |     98304 |        77039 |          -21265 | safe
-  ollama/llama3.2                       |    126976 |       105711 |          -21265 | safe
-  ollama/qwen2.5-coder                  |     24576 |         3311 |          -21265 | safe
-  google/gemini-2.5-pro                 |    983040 |       961775 |          -21265 | safe
-  openrouter/a-model-not-in-the-catalog |    119808 |        98543 |          -21265 | safe
+  anthropic/claude-opus-4-5             |    136000 |       114503 |          -21497 | safe
+  openai/gpt-4o                         |    111616 |        90119 |          -21497 | safe
+  groq/llama-3.3-70b-versatile          |     98304 |        76807 |          -21497 | safe
+  ollama/llama3.2                       |    126976 |       105479 |          -21497 | safe
+  ollama/qwen2.5-coder                  |     24576 |         3079 |          -21497 | safe
+  google/gemini-2.5-pro                 |    983040 |       961543 |          -21497 | safe
+  openrouter/a-model-not-in-the-catalog |    119808 |        98311 |          -21497 | safe
 
 ## E. Read-digest fidelity — what a read tool hands back to the model
 
@@ -94,9 +94,9 @@
 
 ## Headline
 
-  On a 60-minute project, one planning turn costs ~47442 tokens.
-  Of that, 26455 tokens (55.8%) describe the user's video.
+  On a 60-minute project, one planning turn costs ~47692 tokens.
+  Of that, 26455 tokens (55.5%) describe the user's video.
   The model sees 100.0% of its clips and 100.0% of its dialogue,
-  with ~88558 tokens of the window left unused — and nothing left to show it.
+  with ~88308 tokens of the window left unused — and nothing left to show it.
 
-baseline written to reports/context-benchmark-phase2.json
+baseline written to reports/context-benchmark-after.json

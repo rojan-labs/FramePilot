@@ -97,7 +97,7 @@ inherited facts and never its correctness. Host wiring: `RunCoordinator.latestWo
   **says it is carried** — `CARRIED_FACT_PREFIX` — because the model must be able to tell
   a fact it can check from one it cannot.
 - **Seeding must happen AFTER the plan commit, not before.** `commitExecutionPlan`
-  *replaces* the decision list with the plan's own, so seeding earlier had the new run's
+  _replaces_ the decision list with the plan's own, so seeding earlier had the new run's
   plan silently erase what the editor settled in the last one. This is why the two-run test
   asserts the decision, not only the facts.
 - **Carried ids are re-prefixed.** Ids are unique only within a run, and
@@ -141,14 +141,14 @@ prompt, not on the tool call.
 
 **Shipped 2026-08-26.** One tool, the closed key set the plan specified, and one thing the
 plan did not anticipate: **there was no project operation that could write `aiMemory`.**
-The plan says *"writes go through the patch/commit path, not a side channel"*, and the
+The plan says _"writes go through the patch/commit path, not a side channel"_, and the
 patch path had no arm for memory at all — `memory-store.ts`'s setters return a new
 `Project` directly, which is a side channel by definition.
 
 So `set_ai_memory` joins `ProjectOperation`, **whole-record rather than per-key**. A
 key-scoped operation would need an inverse that distinguished "this key was absent" from
 "this key was empty", and `aiMemory` is a free-form record where those are different
-things; carrying the whole record makes the inverse *the record that was there*, exactly.
+things; carrying the whole record makes the inverse _the record that was there_, exactly.
 It is mirrored in the Python registry (name, schema and handler) because the tool-parity
 tests hold both surfaces to the same contract.
 
@@ -188,8 +188,8 @@ stable across every turn. Golden corpus green — the event stream must not move
 
 **Decided 2026-08-26: the finding stands, the behavioural change does not ship, and the
 cost is now a measured number rather than a documented one.** This is the outcome the item
-itself provides for — *"that trade should be checked against real run logs, not assumed. If
-the answer is no, the finding stands and the cost is a known, documented one."*
+itself provides for — _"that trade should be checked against real run logs, not assumed. If
+the answer is no, the finding stands and the cost is a known, documented one."_
 
 Three reasons, in order of weight:
 
@@ -198,19 +198,19 @@ Three reasons, in order of weight:
    run that spent eight turns doing reconnaissance. Replacing a structural guarantee with a
    behavioural one, on the strength of a token count, is the move that produced the guard
    in the first place.
-2. **The evidence to check the trade does not exist yet.** The question is *how often a
-   refused call would cost a turn*, and only real run logs answer it. The golden corpus is
+2. **The evidence to check the trade does not exist yet.** The question is _how often a
+   refused call would cost a turn_, and only real run logs answer it. The golden corpus is
    scripted: it can prove the event stream does not move, and it cannot observe a model
    reaching for a withheld tool.
 3. **The apparently free half is not free.** The obvious cheaper win is to stop
-   *re-opening* the set at `verify` — one swap instead of two, 17,320 of the 30,751 tokens,
+   _re-opening_ the set at `verify` — one swap instead of two, 17,320 of the 30,751 tokens,
    no policy change at execution. But `get_frame` is classified `analysis`, so it is
    exactly what `verify` re-opens; withholding it there would delete the "look at your own
    edit before you claim it" protocol at the one turn that protocol exists for.
 
 **What did ship: the cost stopped being invisible.** `ContextManifest.usage` gains
 `toolSchemaTokensRebilled` — the whole tool block, not the delta, because a changed tool
-block is a cache miss on all of it — so the UI and the dev inspector can see *why* a turn
+block is a cache miss on all of it — so the UI and the dev inspector can see _why_ a turn
 was expensive, not only that it was. The diagnosis called this cost "invisible to the cost
 meter"; it is now a field.
 

@@ -166,17 +166,17 @@ consumed at last (via `semanticIndexFor(project).dialogue` plus the exported
 **P2.2 — the numbers.** Benchmark section B3, one 60-minute project asked two questions
 with the same 30-second selection, under a budget too small for the whole project:
 
-| request                                     | clips shown | span covered   |
-| ------------------------------------------- | ----------- | -------------- |
-| _"tighten this"_                            | 412         | 59.8%          |
-| _"find the three strongest moments…"_       | 420         | **100%**       |
+| request                               | clips shown | span covered |
+| ------------------------------------- | ----------- | ------------ |
+| _"tighten this"_                      | 412         | 59.8%        |
+| _"find the three strongest moments…"_ | 420         | **100%**     |
 
 Same room, same tokens, different tokens. And section B2 (60-min, with a selection): word
 coverage **6.7% → 100%**, clip coverage **2.1% → 100%** — a selection is now a bias, so it
 no longer walls the model off from the recording it was asked about.
 
 **P2.3 — measured, not asserted.** Section E2 audits all nine formerly-fall-through reads:
-**9/9** either withhold nothing or declare what they withheld *and* name the call that
+**9/9** either withhold nothing or declare what they withheld _and_ name the call that
 returns it, and none ends in a bare `…`. The context tiers do the same — a bounded clip
 list names its count, its span and `get_clips`; a bounded transcript names its count, its
 span and `get_transcript`. And a **dropped tier now reaches the model**, not only the UI

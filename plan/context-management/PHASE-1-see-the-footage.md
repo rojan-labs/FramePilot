@@ -76,7 +76,7 @@ Two judgement calls the plan did not pre-decide:
   `measure_color` (the contract is that the model passes the handle and never retypes the
   numbers — printing them invites the forbidden move) and `track_subject_automatically`
   (per-frame geometry the tracked patch applies; the model never authors it). Each is a
-  *declared* omission, which is P2.3's standard arriving early rather than a silent cut.
+  _declared_ omission, which is P2.3's standard arriving early rather than a silent cut.
 
 ---
 
@@ -200,12 +200,12 @@ hands the rest back, in both directions.
 Benchmark section B, against the model's **real** resolved budget (the benchmark used to
 measure against the hardcoded 190K):
 
-| scale       | clips before | after      | words before | after      |
-| ----------- | ------------ | ---------- | ------------ | ---------- |
-| 1 min       | 84.2%        | **100%**   | 100%         | **100%**   |
-| 10 min ★    | 12.8%        | **100%**   | 40.0%        | **100%**   |
-| 60 min      | 2.1%         | **100%**   | 6.7%         | **100%**   |
-| 4 h         | 0.5%         | **100%**   | 1.7%         | **99.4%**  |
+| scale    | clips before | after    | words before | after     |
+| -------- | ------------ | -------- | ------------ | --------- |
+| 1 min    | 84.2%        | **100%** | 100%         | **100%**  |
+| 10 min ★ | 12.8%        | **100%** | 40.0%        | **100%**  |
+| 60 min   | 2.1%         | **100%** | 6.7%         | **100%**  |
+| 4 h      | 0.5%         | **100%** | 1.7%         | **99.1%** |
 
 ★ the north-star scale (D4). Both exit criteria (≥ 90% clips, ≥ 95% words) are met with
 room to spare, and the 4-hour row is the allocator honestly bounding a project that

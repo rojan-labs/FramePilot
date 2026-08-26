@@ -127,7 +127,7 @@ available — `editor-core`'s boundary list stays fps-agnostic, and the model-fa
 what reports the grid.
 
 - `map_time` returns `sequenceFrame` and `fps` on both pointed shapes, and `fps` on the
-  whole map. Both pointed shapes also *gained a digest*: the one call whose entire job is
+  whole map. Both pointed shapes also _gained a digest_: the one call whose entire job is
   "use this instead of doing the arithmetic yourself" was handing its answer back as a JSON
   preview the model had to parse.
 - `get_mapped_transcript` reports `startFrame`/`endFrame` per word, and the digest leads
@@ -166,7 +166,7 @@ This is the `editing-skills-expert` agent's territory. Ground every recipe in th
 registry and the real engine — a playbook that assumes a capability the tools do not have
 is the failure mode that agent exists to prevent.
 
-**Shipped 2026-08-26.** `cut-and-transition-grammar.md` gains a *Frames, not seconds*
+**Shipped 2026-08-26.** `cut-and-transition-grammar.md` gains a _Frames, not seconds_
 section and `silence-and-filler-cutting.md` states its word-edge guard in frames. Every
 recipe names a real field of a real read:
 
@@ -219,7 +219,7 @@ selection the same question at the same frame indices. The two legs meet at
 - **A resampling preset costs up to +1 output frame, never −1.** `pipeline.render` writes
   `fps=preset.fps or project.fps` and **every shipped preset sets `fps=30`** — so a 24fps
   project exported to Reels is resampled, and its frame boundaries are not boundaries of
-  the file that comes out. 24fps frame 113 is 4.708333s, a quarter of the way *into* 30fps
+  the file that comes out. 24fps frame 113 is 4.708333s, a quarter of the way _into_ 30fps
   frame 141; measured, the export places the cut on the next whole output frame (142). A
   30fps container cannot carry a 24fps boundary, so this is a container limit rather than
   a grid failure — and the direction is the safe one: a cut a frame late shows an extra

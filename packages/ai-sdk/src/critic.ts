@@ -894,17 +894,41 @@ function checkWordSevered(project: Project, fps: number): CriticCheck {
     );
   }
   const byId = new Map(pictureClipsInOrder(project.timeline).map((clip) => [clip.id, clip]));
+  // Word frame spans are computed ONCE and searched, not recomputed per boundary. The
+  // naive nested loop is O(boundaries x words) with a rate conversion inside it — on an
+  // hour of footage that is a thousand cuts against nine thousand words on every review,
+  // and the Critic runs at the end of every run.
+  const spans = project.transcript
+    .map((word) => ({
+      assetId: word.assetId,
+      word: word.word,
+      startFrame: secondsToFrame(word.start, fps),
+      endFrame: secondsToFrame(word.end, fps),
+    }))
+    .sort((a, b) => a.startFrame - b.startFrame);
+
   /** The word a source instant falls strictly inside, for this clip's asset. */
   const severedWordAt = (clip: Clip | undefined, sourceSeconds: number): string | undefined => {
     if (!clip) return undefined;
     const frame = secondsToFrame(sourceSeconds, fps);
-    for (const word of project.transcript) {
-      if (word.assetId !== undefined && word.assetId !== clip.assetId) continue;
+    // Binary search to the last word starting at or before `frame`, then walk back over
+    // the few that could still cover it. Words overlap only trivially, so the walk is
+    // bounded in practice; the `startFrame` guard bounds it absolutely.
+    let low = 0;
+    let high = spans.length;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      if (spans[mid]!.startFrame < frame) low = mid + 1;
+      else high = mid;
+    }
+    for (let i = low; i >= 0 && i < spans.length; i -= 1) {
+      const span = spans[i]!;
+      if (span.startFrame >= frame) continue;
       // STRICTLY inside. Landing on a word's first frame is cutting BEFORE it, and on the
       // frame its last one ends is cutting AFTER it — both are correct edits.
-      if (frame > secondsToFrame(word.start, fps) && frame < secondsToFrame(word.end, fps)) {
-        return word.word;
-      }
+      if (span.endFrame <= frame) break;
+      if (span.assetId !== undefined && span.assetId !== clip.assetId) continue;
+      return span.word;
     }
     return undefined;
   };
@@ -1092,8 +1116,13 @@ function checkAudioSlam(project: Project, fps: number): CriticCheck {
   const offset = boundaries.filter((boundary) => {
     const frame = secondsToFrame(boundary.at, fps);
     // An audio edge more than a couple of frames away from every picture cut IS a J or L
-    // relationship; one within a frame or two is the same cut on both.
-    return ![...audioEdges].some((edge) => Math.abs(edge - frame) <= SLAM_OFFSET_FRAMES);
+    // relationship; one within a frame or two is the same cut on both. Probed as a set
+    // membership over the tolerance window rather than scanned: the scan is
+    // O(cuts x audio edges), and both grow with the length of the edit.
+    for (let delta = -SLAM_OFFSET_FRAMES; delta <= SLAM_OFFSET_FRAMES; delta += 1) {
+      if (audioEdges.has(frame + delta)) return false;
+    }
+    return true;
   });
   if (offset.length > 0) {
     return check(

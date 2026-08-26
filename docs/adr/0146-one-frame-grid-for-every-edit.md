@@ -84,7 +84,7 @@ Already encoded in `normalizeOperationTime` and kept:
   different frame rate from the sequence, and this boundary is given only the
   project fps. Rewriting source timestamps against the sequence rate would be
   less precise, not more.
-- **Audio genuinely is sub-frame.** This is a *picture* edit-point grid. Audio
+- **Audio genuinely is sub-frame.** This is a _picture_ edit-point grid. Audio
   fades keep their own resolution.
 
 ### The three tolerances

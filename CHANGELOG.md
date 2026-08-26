@@ -8,6 +8,40 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The assistant reads your whole recording, not the first two minutes of it.** Asked to
+  find the strongest hook in a ten-minute take, it used to be shown about 25 of its 1,500
+  spoken words — so it always found the hook near the start, because that was the only part
+  it had ever seen. It now reads the whole transcript and sees the whole timeline: on a
+  sixty-minute project, 100% of the clips and 100% of the dialogue instead of 2% and 7%.
+  On footage genuinely too long to fit, what it reads is chosen by what you asked for —
+  "tighten this" looks around your selection, "find the best moments" ranges across the
+  entire recording — and anything left out is named, with the way to fetch it. It also
+  budgets against the model you actually picked rather than one hardcoded size, which
+  matters most on smaller local models that were previously being handed far more than they
+  could hold. (`packages/ai-sdk`, `plan/context-management/`)
+
+- **Cuts land on frames — yours as well as the assistant's.** Dragging or trimming a clip
+  used to leave the cut at an arbitrary fraction of a frame, which is why a preview and an
+  export could disagree about exactly where a cut was. Every edit now snaps to your
+  project's frame grid, and the assistant can name and aim at a frame: it reports where each
+  word starts and ends in frames, where each cut sits, and how long a transition the cut can
+  actually carry. Undo is unaffected — it restores exactly what was there. (ADR 0146,
+  `packages/editor-core`, `engine/python`)
+
+- **The assistant checks its own cut like an editor, not just like a checklist.** Its
+  self-review used to answer "is this the right length, the right shape, nothing missing" —
+  never "is this a good cut". It now also looks for jump cuts, cuts that land in the middle
+  of a word, dead air at the top or tail, transitions longer than the cut can hold, sound
+  that slams on every cut with no J or L anywhere, and shot lengths so uniform they read as
+  machine-cut. Two of those it can fix on its own; the rest it reports, and it says plainly
+  which is which rather than promising a repair it cannot make. (`packages/ai-sdk`)
+
+- **A session accumulates.** Ask a follow-up and the assistant starts from what the last run
+  found about your footage instead of re-reading it, and it can now remember how you like
+  your videos — pacing, caption style, brand style, audience, where you publish — when you
+  tell it. Preferences live in the project file and are reversible like any other edit.
+  (`packages/ai-sdk`, `apps/desktop`)
+
 - **The assistant can set type, not just place it.** Text overlays it adds can now carry a
   size (as a share of the frame, so 18% is a headline that dominates and 8% is a caption),
   a colour, a background, an alignment, a wrap width and a position — and all of it renders

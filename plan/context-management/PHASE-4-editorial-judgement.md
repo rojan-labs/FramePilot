@@ -153,14 +153,14 @@ from 12 checks to 18. Every threshold is stated in **frames** with a written rat
 its own constant, every check is computable from state the run already holds, and every
 one either names the tool that fixes it or says plainly that it is diagnostic.
 
-| Check            | Ships as | Repairable via                       |
-| ---------------- | -------- | ------------------------------------ |
-| `jump_cut`       | `warn`   | not yet — see promotion rule below   |
-| `word_severed`   | `fail`   | `trim_clip` / `split_clip`           |
-| `dead_air`       | `warn`   | not yet                              |
-| `transition_fit` | `fail`   | `add_transition`                     |
-| `audio_slam`     | `warn`   | honestly gated (see below)           |
-| `shot_rhythm`    | `warn`   | never — diagnostic by design         |
+| Check            | Ships as | Repairable via                     |
+| ---------------- | -------- | ---------------------------------- |
+| `jump_cut`       | `warn`   | not yet — see promotion rule below |
+| `word_severed`   | `fail`   | `trim_clip` / `split_clip`         |
+| `dead_air`       | `warn`   | not yet                            |
+| `transition_fit` | `fail`   | `add_transition`                   |
+| `audio_slam`     | `warn`   | honestly gated (see below)         |
+| `shot_rhythm`    | `warn`   | never — diagnostic by design       |
 
 **Two checks ship as `fail` and join `FIXABLE_CHECKS`; four ship as `warn`.** The phase's
 own risk rule is that a check ships `warn` before it ships `fail`, and it is kept — with

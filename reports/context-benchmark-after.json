@@ -4,17 +4,17 @@
     "systemContract": 135,
     "agentContractVision": 1775,
     "agentContractNoVision": 1576,
-    "skillsManifest": 1587,
+    "skillsManifest": 1605,
     "skillCount": 21,
     "toolSchemasPlanningStages": {
-      "tools": 84,
-      "tokens": 17490
+      "tools": 85,
+      "tokens": 17722
     },
     "toolSchemasExecutionStages": {
-      "tools": 62,
-      "tokens": 13431
+      "tools": 63,
+      "tokens": 13663
     },
-    "totalPlanningTurnOverhead": 20987
+    "totalPlanningTurnOverhead": 21237
   },
   "grounding": [
     {
@@ -56,9 +56,9 @@
       "shownClips": 4500,
       "clipCoverage": 1,
       "totalWords": 36000,
-      "shownWords": 35771,
-      "wordCoverage": 0.9936388888888888,
-      "projectStateTokens": 114569,
+      "shownWords": 35679,
+      "wordCoverage": 0.9910833333333333,
+      "projectStateTokens": 114339,
       "trimmedTiers": []
     }
   ],
@@ -99,9 +99,9 @@
       "shownClips": 4500,
       "clipCoverage": 1,
       "totalWords": 36000,
-      "shownWords": 35769,
-      "wordCoverage": 0.9935833333333334,
-      "projectStateTokens": 114563
+      "shownWords": 35676,
+      "wordCoverage": 0.991,
+      "projectStateTokens": 114331
     }
   ],
   "retrievalByRequest": [
@@ -129,10 +129,10 @@
       {
         "turn": 0,
         "messages": 4,
-        "messageTokens": 14426,
-        "toolTokens": 17320,
-        "toolCount": 83,
-        "totalTokens": 31746,
+        "messageTokens": 14445,
+        "toolTokens": 17552,
+        "toolCount": 84,
+        "totalTokens": 31997,
         "stablePrefixTokens": 0,
         "cacheablePrefixTokens": 0,
         "cacheableShare": 0
@@ -140,107 +140,107 @@
       {
         "turn": 1,
         "messages": 4,
-        "messageTokens": 14521,
-        "toolTokens": 17320,
-        "toolCount": 83,
-        "totalTokens": 31841,
-        "stablePrefixTokens": 12238,
-        "cacheablePrefixTokens": 29558,
-        "cacheableShare": 0.9282999905781854
+        "messageTokens": 14540,
+        "toolTokens": 17552,
+        "toolCount": 84,
+        "totalTokens": 32092,
+        "stablePrefixTokens": 12257,
+        "cacheablePrefixTokens": 29809,
+        "cacheableShare": 0.9288607752710956
       },
       {
         "turn": 2,
         "messages": 4,
-        "messageTokens": 25496,
-        "toolTokens": 17320,
-        "toolCount": 83,
-        "totalTokens": 42816,
-        "stablePrefixTokens": 12238,
-        "cacheablePrefixTokens": 29558,
-        "cacheableShare": 0.6903494020926756
+        "messageTokens": 25515,
+        "toolTokens": 17552,
+        "toolCount": 84,
+        "totalTokens": 43067,
+        "stablePrefixTokens": 12257,
+        "cacheablePrefixTokens": 29809,
+        "cacheableShare": 0.6921540854946943
       },
       {
         "turn": 3,
         "messages": 4,
-        "messageTokens": 25526,
-        "toolTokens": 17320,
-        "toolCount": 83,
-        "totalTokens": 42846,
-        "stablePrefixTokens": 12238,
-        "cacheablePrefixTokens": 29558,
-        "cacheableShare": 0.6898660318349438
+        "messageTokens": 25545,
+        "toolTokens": 17552,
+        "toolCount": 84,
+        "totalTokens": 43097,
+        "stablePrefixTokens": 12257,
+        "cacheablePrefixTokens": 29809,
+        "cacheableShare": 0.6916722741722162
       },
       {
         "turn": 4,
         "messages": 4,
-        "messageTokens": 14613,
-        "toolTokens": 13431,
-        "toolCount": 62,
-        "totalTokens": 28044,
-        "stablePrefixTokens": 12238,
-        "cacheablePrefixTokens": 25669,
-        "cacheableShare": 0.9153116531165312
+        "messageTokens": 14632,
+        "toolTokens": 13663,
+        "toolCount": 63,
+        "totalTokens": 28295,
+        "stablePrefixTokens": 12257,
+        "cacheablePrefixTokens": 25920,
+        "cacheableShare": 0.9160629086411026
       },
       {
         "turn": 5,
         "messages": 4,
-        "messageTokens": 14622,
-        "toolTokens": 13431,
-        "toolCount": 62,
-        "totalTokens": 28053,
-        "stablePrefixTokens": 12238,
-        "cacheablePrefixTokens": 25669,
-        "cacheableShare": 0.9150180016397533
+        "messageTokens": 14641,
+        "toolTokens": 13663,
+        "toolCount": 63,
+        "totalTokens": 28304,
+        "stablePrefixTokens": 12257,
+        "cacheablePrefixTokens": 25920,
+        "cacheableShare": 0.9157716223855286
       },
       {
         "turn": 6,
         "messages": 4,
-        "messageTokens": 14631,
-        "toolTokens": 13431,
-        "toolCount": 62,
-        "totalTokens": 28062,
-        "stablePrefixTokens": 12238,
-        "cacheablePrefixTokens": 25669,
-        "cacheableShare": 0.9147245385218444
+        "messageTokens": 14650,
+        "toolTokens": 13663,
+        "toolCount": 63,
+        "totalTokens": 28313,
+        "stablePrefixTokens": 12257,
+        "cacheablePrefixTokens": 25920,
+        "cacheableShare": 0.9154805213152969
       },
       {
         "turn": 7,
         "messages": 4,
-        "messageTokens": 14610,
-        "toolTokens": 13431,
-        "toolCount": 62,
-        "totalTokens": 28041,
-        "stablePrefixTokens": 12238,
-        "cacheablePrefixTokens": 25669,
-        "cacheableShare": 0.9154095788309975
+        "messageTokens": 14629,
+        "toolTokens": 13663,
+        "toolCount": 63,
+        "totalTokens": 28292,
+        "stablePrefixTokens": 12257,
+        "cacheablePrefixTokens": 25920,
+        "cacheableShare": 0.9161600452424714
       },
       {
         "turn": 8,
         "messages": 5,
-        "messageTokens": 14624,
-        "toolTokens": 17320,
-        "toolCount": 83,
-        "totalTokens": 31944,
-        "stablePrefixTokens": 12238,
-        "cacheablePrefixTokens": 29558,
-        "cacheableShare": 0.9253067868770348
+        "messageTokens": 14643,
+        "toolTokens": 17552,
+        "toolCount": 84,
+        "totalTokens": 32195,
+        "stablePrefixTokens": 12257,
+        "cacheablePrefixTokens": 29809,
+        "cacheableShare": 0.9258891132163379
       }
     ],
     "toolSetChurn": {
       "changes": 2,
-      "tokensRebilledAtFullPrice": 30751,
+      "tokensRebilledAtFullPrice": 31215,
       "turns": 9
     },
     "retention": {
       "clearedPayloadsInFinalPrompt": 0,
       "earlierStepsCollapsed": true,
-      "finalPromptTokens": 31944,
-      "firstTurnPromptTokens": 31746
+      "finalPromptTokens": 32195,
+      "firstTurnPromptTokens": 31997
     }
   },
   "budgetSafety": {
     "legacyAssumedRoom": 183904,
-    "agentTurnFixedCost": 19265,
+    "agentTurnFixedCost": 19497,
     "models": [
       {
         "provider": "anthropic",
@@ -248,8 +248,8 @@
         "contextWindow": 200000,
         "maxOutputTokens": 64000,
         "realRoom": 136000,
-        "trimmerRoom": 114735,
-        "overAssumption": -21265,
+        "trimmerRoom": 114503,
+        "overAssumption": -21497,
         "legacyOverAssumption": 47904,
         "source": "known_model",
         "risk": "safe"
@@ -260,8 +260,8 @@
         "contextWindow": 128000,
         "maxOutputTokens": 16384,
         "realRoom": 111616,
-        "trimmerRoom": 90351,
-        "overAssumption": -21265,
+        "trimmerRoom": 90119,
+        "overAssumption": -21497,
         "legacyOverAssumption": 72288,
         "source": "known_model",
         "risk": "safe"
@@ -272,8 +272,8 @@
         "contextWindow": 131072,
         "maxOutputTokens": 32768,
         "realRoom": 98304,
-        "trimmerRoom": 77039,
-        "overAssumption": -21265,
+        "trimmerRoom": 76807,
+        "overAssumption": -21497,
         "legacyOverAssumption": 85600,
         "source": "known_model",
         "risk": "safe"
@@ -284,8 +284,8 @@
         "contextWindow": 131072,
         "maxOutputTokens": 4096,
         "realRoom": 126976,
-        "trimmerRoom": 105711,
-        "overAssumption": -21265,
+        "trimmerRoom": 105479,
+        "overAssumption": -21497,
         "legacyOverAssumption": 56928,
         "source": "known_model",
         "risk": "safe"
@@ -296,8 +296,8 @@
         "contextWindow": 32768,
         "maxOutputTokens": 8192,
         "realRoom": 24576,
-        "trimmerRoom": 3311,
-        "overAssumption": -21265,
+        "trimmerRoom": 3079,
+        "overAssumption": -21497,
         "legacyOverAssumption": 159328,
         "source": "known_model",
         "risk": "safe"
@@ -308,8 +308,8 @@
         "contextWindow": 1048576,
         "maxOutputTokens": 65536,
         "realRoom": 983040,
-        "trimmerRoom": 961775,
-        "overAssumption": -21265,
+        "trimmerRoom": 961543,
+        "overAssumption": -21497,
         "legacyOverAssumption": -799136,
         "source": "known_model",
         "risk": "safe"
@@ -320,8 +320,8 @@
         "contextWindow": 128000,
         "maxOutputTokens": 8192,
         "realRoom": 119808,
-        "trimmerRoom": 98543,
-        "overAssumption": -21265,
+        "trimmerRoom": 98311,
+        "overAssumption": -21497,
         "legacyOverAssumption": 64096,
         "source": "provider_default",
         "risk": "safe"
@@ -420,12 +420,12 @@
     }
   ],
   "headline": {
-    "fixedOverheadTokens": 20987,
+    "fixedOverheadTokens": 21237,
     "projectStateTokensAt60Min": 26455,
-    "projectStateShareOfPrompt": 0.5576282618776611,
+    "projectStateShareOfPrompt": 0.5547051916463978,
     "clipCoverageAt60Min": 1,
     "wordCoverageAt60Min": 1,
-    "unusedRoomOnOpus": 88558,
+    "unusedRoomOnOpus": 88308,
     "moreProjectLeftToShowAt60Min": false
   }
 }

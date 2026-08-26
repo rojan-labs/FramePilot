@@ -1,8 +1,14 @@
-# Context-aware professional editing — `[ ]` five phases, none started
+# Context-aware professional editing — `[x]` five phases, all closed
 
-> **Sub-plan index.** Created 2026-08-26. Owner: maintainer.
-> Parent entry: `plan/PLAN.md` → **CTXBENCH** (diagnosis, done) and **CTX1–CTX7** (the work).
+> **Sub-plan index.** Created 2026-08-26; closed out 2026-08-26.
+> Parent entry: `plan/PLAN.md` → **CTXBENCH** (diagnosis) and **CTX-P1…CTX-P5** (the work).
 > **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
+>
+> **Status: all five phases shipped.** Before/after evidence:
+> `reports/context-benchmark-baseline.{txt,json}` → `reports/context-benchmark-after.{txt,json}`.
+> One item is deliberately **not** shipped and says so with its reasoning — P5.3's
+> behavioural half (see §4). One decision reversed a claim this plan made about the
+> codebase: a frame grid already existed, and only ran for AI-authored edits (ADR 0146).
 
 FramePilot's agent does not cut like a professional editor. This plan says why, in
 measured terms, and what to build.
@@ -182,21 +188,37 @@ Per `.agents/rules/product-discipline.mdc` §3. Each phase file repeats this for
 Numbers are benchmark rows. `before` is
 `reports/context-benchmark-baseline.json` (2026-08-26).
 
-| Phase | Metric                                  | Before                      | After                                  |
-| ----- | --------------------------------------- | --------------------------- | -------------------------------------- |
-| 1     | `get_transcript` fidelity               | 1.7%, undeclared            | 100% or declared omission              |
-| 1     | Word coverage, 10-min project           | 40.0%                       | ≥ 95%                                  |
-| 1     | Clip coverage, 10-min project           | 12.8%                       | ≥ 90%                                  |
-| 1     | Budget over-assumption, worst model     | +159,328                    | ≤ 0 for every model                    |
-| 1     | Unused capacity, 60-min, Opus           | 113,667                     | < 30,000                               |
-| 2     | Word coverage, 60-min project           | 6.7%                        | ≥ 60%, ranked                          |
-| 2     | Omissions carrying a recall handle      | 0 of 9 fall-through reads   | all                                    |
-| 3     | Cut points off the frame grid           | unmeasured (no grid exists) | 0                                      |
-| 3     | Preview/export cut-point divergence     | unmeasured                  | 0 frames                               |
-| 4     | Critic checks covering continuity       | 0 of 14                     | ≥ 5, each repairable or honestly gated |
-| 5     | Facts re-derived on turn 2 of a session | all                         | 0 for still-valid facts                |
-| 5     | Tool-set changes per run                | 2 (30,751 tokens re-billed) | 0                                      |
-| all   | Cacheable prefix share, steady state    | 81–86%                      | ≥ 85% — **must not regress**           |
+| Phase | Metric                                  | Before                      | Target                                 | **Measured**                                |
+| ----- | --------------------------------------- | --------------------------- | -------------------------------------- | ------------------------------------------- |
+| 1     | `get_transcript` fidelity               | 1.7%, undeclared            | 100% or declared omission              | **100%**                                    |
+| 1     | Word coverage, 10-min project           | 40.0%                       | ≥ 95%                                  | **100%**                                    |
+| 1     | Clip coverage, 10-min project           | 12.8%                       | ≥ 90%                                  | **100%**                                    |
+| 1     | Budget over-assumption, worst model     | +159,328                    | ≤ 0 for every model                    | **−21,497 everywhere**                      |
+| 1     | Unused capacity, 60-min, Opus           | 113,667                     | < 30,000                               | **88,308 — target retired, see below**      |
+| 2     | Word coverage, 60-min project           | 6.7%                        | ≥ 60%, ranked                          | **100%**                                    |
+| 2     | Omissions carrying a recall handle      | 0 of 9 fall-through reads   | all                                    | **9 of 9**                                  |
+| 3     | Cut points off the frame grid           | unmeasured (no grid exists) | 0                                      | **0** (property test, 6 rates × 12 seeds)   |
+| 3     | Preview/export cut-point divergence     | unmeasured                  | 0 frames                               | **0 at the delivery rate**; +1 if resampled |
+| 4     | Critic checks covering continuity       | 0 of 14                     | ≥ 5, each repairable or honestly gated | **6 of 18**, 2 fixable, 4 gated             |
+| 5     | Facts re-derived on turn 2 of a session | all                         | 0 for still-valid facts                | **0**                                       |
+| 5     | Tool-set changes per run                | 2 (30,751 tokens re-billed) | 0                                      | **2 — not shipped, now measured**           |
+| all   | Cacheable prefix share, steady state    | 81–86%                      | ≥ 85% — **must not regress**           | **91.6%**                                   |
+
+Two rows did not land as written, and both are findings rather than shortfalls:
+
+- **Unused capacity at 60 minutes (88,308, target < 30,000).** The target assumed unused
+  room means unshown project. At 60 minutes the model now sees 100% of the clips and 100%
+  of the dialogue: the rest of the window is genuinely spare, and padding the prompt to
+  consume it would be a worse edit for more money. The benchmark now prints whether
+  anything is left to show beside the figure, so it cannot be read as waste again.
+- **Tool-set changes (still 2).** P5.3's behavioural half is deliberately not shipped —
+  see that phase file. The cost is now reported per request as
+  `ContextManifest.usage.toolSchemaTokensRebilled` instead of being invisible, and the
+  trigger for revisiting is recorded.
+
+Everything else met or beat its target. Note that the fixed per-turn overhead grew
+slightly (21,005 → 21,237 tokens) — one new tool (`remember_preference`) and the frame
+vocabulary added to two skills. That is the price of Phases 3 and 5 and it is 1.1%.
 
 Plus, for every phase: `pnpm verify` clean, golden-corpus fixtures green or reviewed, and
 the phase's own tests meaningful on behaviour and error paths (`AGENTS.md` §4).

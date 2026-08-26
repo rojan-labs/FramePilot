@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 from fractions import Fraction
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -30,12 +31,13 @@ from framepilot_engine.render.frame_grid import (
 FIXTURE = Path(__file__).parent / "fixtures" / "frame_grid_parity.json"
 
 
-def _fixture() -> dict:
+def _fixture() -> dict[str, Any]:
     if not FIXTURE.exists():  # pragma: no cover - build artefact must exist in CI
         pytest.fail(
             "frame_grid_parity.json is missing. Run `pnpm --filter @framepilot/editor-core build`."
         )
-    return json.loads(FIXTURE.read_text())
+    loaded: dict[str, Any] = json.loads(FIXTURE.read_text())
+    return loaded
 
 
 def test_rational_rates_match_typescript() -> None:

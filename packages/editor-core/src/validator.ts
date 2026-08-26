@@ -519,6 +519,7 @@ function projectChecks(
       if (!folderExists(op.folderId)) issue('missing_folder', `Unknown folder '${op.folderId}'.`);
       break;
     case 'set_transcript':
+      break;
     // Nothing to validate structurally: `aiMemory` is a free-form record by design, and
     // `memory-store.ts` parses it defensively on read because it round-trips through
     // `project.fp.json`. Validating a shape here would be a second, weaker copy of that.
