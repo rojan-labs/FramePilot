@@ -10,7 +10,7 @@
  * The resolver-backed `professional_motion` lives in `professional-motion.ts`.
  */
 import { z } from 'zod/v4';
-import { punchInKeyframes, type Easing } from '@framepilot/editor-core';
+import { CAPTION_ASSET_ID, punchInKeyframes, type Easing } from '@framepilot/editor-core';
 import type { Keyframe, Timeline } from '@framepilot/timeline-schema';
 import type { ToolSpec } from '../tool-registry.js';
 import { mutateTool } from './tool-factories.js';
@@ -26,6 +26,32 @@ const clipDurationById = (timeline: Timeline, clipId: string): number | undefine
   }
   return undefined;
 };
+
+/**
+ * Refuse a keyframe on a caption clip, and say where the motion actually lives.
+ *
+ * Text overlays animate: the compiler applies a clip's transform to them (see
+ * `render/compiler.py::_compile_text_clip`). Captions do not — their movement comes from
+ * the caption template's own per-word animation, and a transform keyframe on one lands in
+ * the timeline, validates, and renders as nothing. That silent no-op is what this refuses:
+ * an edit reported as applied that no viewer will ever see is worse than a rejection the
+ * model can act on.
+ */
+function refuseCaptionKeyframes(timeline: Timeline, clipId: string): void {
+  for (const track of timeline.tracks) {
+    const clip = track.clips.find((c) => c.id === clipId);
+    if (!clip) continue;
+    if (clip.assetId === CAPTION_ASSET_ID) {
+      throw new Error(
+        `"${clipId}" is a caption clip, and captions do not read transform keyframes — ` +
+          'their motion comes from the caption style. Use set_track_caption_style (or ' +
+          'set_caption_style for one cue) to change how the words animate. Text overlays ' +
+          'added with add_text_layer do accept a punch-in.',
+      );
+    }
+    return;
+  }
+}
 const keyframeSchema = z.object({
   time: seconds,
   property: z.string(),
@@ -42,7 +68,8 @@ export const MOTION_TOOLS: readonly ToolSpec[] = [
         "seconds from the clip's start. For a simple zoom, prefer punch_in.",
     },
     z.object({ clipId: z.string(), keyframes: z.array(keyframeSchema).min(1) }).strict(),
-    (a) => {
+    (a, ctx) => {
+      refuseCaptionKeyframes(ctx.project.timeline, a.clipId);
       const keyframes: Keyframe[] = a.keyframes.map((k) => ({
         id: id('kf', a.clipId, k.property, k.time),
         time: k.time,
@@ -71,6 +98,7 @@ export const MOTION_TOOLS: readonly ToolSpec[] = [
       })
       .strict(),
     (a, ctx) => {
+      refuseCaptionKeyframes(ctx.project.timeline, a.clipId);
       const startTime = a.startTime ?? 0;
       const clipDuration = clipDurationById(ctx.project.timeline, a.clipId);
       const fallbackEnd = startTime + DEFAULT_PUNCH_IN_SECONDS;

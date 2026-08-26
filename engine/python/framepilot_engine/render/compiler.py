@@ -300,6 +300,15 @@ def _compile_image_clip(
 
 
 def _compile_text_clip(image_clip_cls: Any, clip: Clip, target: tuple[int, int]) -> Any | None:
+    """Rasterize a text overlay and place it, honouring the clip's own transform.
+
+    The transform is why this goes through :func:`_place_video_clip` rather than a bare
+    ``with_position("center")``. ``punch_in`` and ``add_keyframes`` accept a text clip,
+    validate, apply, and report an edit — and the compiler used to drop the keyframes on
+    the floor, so a run could add fifteen animated text cards, be told fifteen times that
+    it had, and render fifteen static ones. An operation that lands in the timeline and
+    renders as nothing is the "never fake success" invariant broken from the far end.
+    """
     text_effect = next((e for e in clip.effects if e.type == "text"), None)
     text = str(text_effect.params.get("text", "")) if text_effect is not None else ""
     if not text.strip():
@@ -307,12 +316,8 @@ def _compile_text_clip(image_clip_cls: Any, clip: Clip, target: tuple[int, int])
     style_params = text_effect.params if text_effect is not None else {}
     font_size, color = text_overlay_style(style_params, target[1])
     image = render_text_overlay_image(text, target[0], target[1], font_size=font_size, color=color)
-    return (
-        image_clip_cls(image, transparent=True)
-        .with_start(clip.start)
-        .with_duration(clip.end - clip.start)
-        .with_position("center")
-    )
+    layer = image_clip_cls(image, transparent=True).with_duration(clip.end - clip.start)
+    return _place_video_clip(layer, clip, target, None, fit_to_frame=False).with_start(clip.start)
 
 
 def _place_video_clip(
@@ -320,13 +325,24 @@ def _place_video_clip(
     clip: Clip,
     target: tuple[int, int],
     transition: transitions.Transition | None,
+    *,
+    fit_to_frame: bool = True,
 ) -> VideoClip:
+    """Scale, animate and position one picture layer inside the target frame.
+
+    :param fit_to_frame: ``True`` for source media, which is scaled to fill the frame
+        before any authored transform. ``False`` for a layer already rasterized at its
+        finished size — a text overlay is drawn tight to its own glyphs, and fitting that
+        to the frame would blow one word up to full width. Such a layer keeps a base scale
+        of 1 and is animated around the frame centre.
+    """
     target_w, target_h = target
     clip_w, clip_h = source.size
-    base_scale: float = float(min(target_w / clip_w, target_h / clip_h))
+    base_scale: float = float(min(target_w / clip_w, target_h / clip_h)) if fit_to_frame else 1.0
     geo_transition = transition is not None and transitions.affects_geometry(transition)
     if not has_rendered_transform(clip) and not geo_transition:
-        return source.resized(base_scale).with_position("center")
+        placed = source if base_scale == 1.0 else source.resized(base_scale)
+        return placed.with_position("center")
 
     def effective_scale(t: float) -> float:
         scale = evaluate_clip_transform(clip, t).scale

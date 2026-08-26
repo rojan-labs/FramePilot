@@ -1715,6 +1715,64 @@ def test_compile_burns_in_text_overlay(
         text_comp.close()
 
 
+@pytest.mark.usefixtures("require_ffprobe")
+def test_text_overlay_honours_its_own_keyframes(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    """A scale animation on a text clip actually moves in the render.
+
+    Regression (GAP-004): ``punch_in`` and ``add_keyframes`` accept a text clip, the patch
+    validates, applies, survives undo, and reports an edit — and the compiler placed the
+    overlay with a bare ``with_position("center")``, dropping every keyframe. A captured
+    run added fifteen text cards, punched in on all fifteen, told the editor each card had
+    its own scale behaviour, and rendered fifteen static ones.
+
+    The check is the bright-pixel count around the frame centre: the same word drawn at
+    twice its size covers strictly more of the frame, so a shrinking punch-in must show
+    more bright pixels early than late. Counting pixels rather than comparing one sample
+    keeps this independent of glyph shape and font version.
+    """
+    src = media_factory("bg.mp4", seconds=2.0, with_audio=False, color="0x00008B", size="320x240")
+    (tmp_project_dir / "bg.mp4").write_bytes(src.read_bytes())
+
+    def project_with(animated: bool) -> Project:
+        text_clip = _clip("t1", "ov", 0, 2, "__text__")
+        text_clip["effects"] = [
+            {"id": "t1__text", "type": "text", "params": {"text": "HELLO"}, "keyframes": []}
+        ]
+        if animated:
+            text_clip["keyframes"] = [
+                {"id": "k1", "time": 0.0, "property": "scale", "value": 2.0, "easing": "linear"},
+                {"id": "k2", "time": 2.0, "property": "scale", "value": 1.0, "easing": "linear"},
+            ]
+        return _project(
+            [
+                {"id": "ov", "type": "overlay", "clips": [text_clip]},
+                {"id": "v", "type": "video", "clips": [_clip("c1", "v", 0, 2, "a1")]},
+            ],
+            assets=[{"id": "a1", "path": "bg.mp4", "kind": "video"}],
+        )
+
+    def bright_pixels(comp: Any, at: float) -> int:
+        frame = np.asarray(comp.get_frame(at), dtype=np.int64)
+        # White glyphs on a dark-blue background: "bright" is unambiguous.
+        return int((frame.max(axis=2) > 200).sum())
+
+    animated = project_with(True)
+    static = project_with(False)
+    animated_comp = compile_timeline(animated, _index(animated, tmp_project_dir), REELS)
+    static_comp = compile_timeline(static, _index(static, tmp_project_dir), REELS)
+    try:
+        early = bright_pixels(animated_comp, 0.1)
+        late = bright_pixels(animated_comp, 1.9)
+        assert early > late, f"punch-in did not shrink the text ({early=}, {late=})"
+        # And an un-keyframed overlay still renders at its natural size, unchanged.
+        assert bright_pixels(static_comp, 0.1) == bright_pixels(static_comp, 1.9)
+    finally:
+        animated_comp.close()
+        static_comp.close()
+
+
 def test_unsupported_track_types_renders_text_unconditionally() -> None:
     """A ``text``-kind clip is never reported as deferred (it always burns in)."""
     project = _project(
