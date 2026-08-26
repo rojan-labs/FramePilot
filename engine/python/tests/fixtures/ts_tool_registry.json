@@ -370,11 +370,45 @@
           "trackId"
         ],
         "properties": {
+          "align": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "center",
+              "left",
+              "right"
+            ]
+          },
+          "background": {
+            "type": [
+              "string"
+            ]
+          },
+          "boxWidthPercent": {
+            "type": [
+              "number"
+            ],
+            "maximum": 100,
+            "exclusiveMinimum": 0
+          },
+          "color": {
+            "type": [
+              "string"
+            ]
+          },
           "end": {
             "type": [
               "number"
             ],
             "minimum": 0
+          },
+          "sizePercent": {
+            "type": [
+              "number"
+            ],
+            "maximum": 100,
+            "exclusiveMinimum": 0
           },
           "start": {
             "type": [
@@ -391,6 +425,20 @@
             "type": [
               "string"
             ]
+          },
+          "xPercent": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "yPercent": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 100
           }
         }
       }

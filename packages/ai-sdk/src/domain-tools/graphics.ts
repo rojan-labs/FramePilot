@@ -26,6 +26,7 @@ import {
   searchTransitions,
 } from '@framepilot/timeline-schema/transition-catalog';
 import { transitionParamsForKind } from '@framepilot/timeline-schema/transition-params';
+import { type Operation, textEffectId, textOverlayClipId } from '@framepilot/editor-core';
 import { verifyTransitions } from '../verify.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
@@ -193,12 +194,65 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       description:
         'Add a text overlay clip on a track over a timeline range (start/end seconds). ' +
         'Clips on one track can never overlap — stack simultaneous text elements on ' +
-        'separate tracks with a free range.',
+        'separate tracks with a free range. Style it here: sizePercent is the glyph ' +
+        'height as a percentage of the frame (8 is a caption, 18+ is a headline that ' +
+        'dominates the frame), xPercent/yPercent place the box centre (50/50 is the ' +
+        'middle, y 15 is a title card near the top), and color/background/align/' +
+        'boxWidthPercent do what they say. Everything renders exactly as the preview ' +
+        'shows it. For motion, follow this with punch_in on the clip it creates.',
     },
-    z.object({ trackId: z.string(), text: z.string(), start: seconds, end: seconds }).strict(),
-    (a) => [
-      { type: 'add_text_overlay', trackId: a.trackId, text: a.text, start: a.start, end: a.end },
-    ],
+    z
+      .object({
+        trackId: z.string(),
+        text: z.string(),
+        start: seconds,
+        end: seconds,
+        /** Percentage of FRAME HEIGHT, matching what the editor's Inspector writes. */
+        sizePercent: numeric(z.number().positive().max(100)).optional(),
+        color: z.string().optional(),
+        background: z.string().optional(),
+        align: z.enum(['left', 'center', 'right']).optional(),
+        boxWidthPercent: numeric(z.number().positive().max(100)).optional(),
+        xPercent: numeric(z.number().min(0).max(100)).optional(),
+        yPercent: numeric(z.number().min(0).max(100)).optional(),
+      })
+      .strict(),
+    (a) => {
+      const clipId = textOverlayClipId(a.trackId, a.start);
+      const ops: Operation[] = [
+        {
+          type: 'add_text_overlay',
+          trackId: a.trackId,
+          text: a.text,
+          start: a.start,
+          end: a.end,
+          clipId,
+        },
+      ];
+      // The style rides a second op on the same patch rather than widening the
+      // `add_text_overlay` operation: the params bag is where every other consumer of a
+      // text overlay already reads its styling from (the Inspector writes it, the preview
+      // reads it, and the renderer resolves it), and one shared vocabulary is worth more
+      // than a shorter call. Undo still removes both in one step — they are one patch.
+      const params: Record<string, unknown> = {
+        ...(a.sizePercent === undefined ? {} : { fontSizePercent: a.sizePercent }),
+        ...(a.color === undefined ? {} : { color: a.color }),
+        ...(a.background === undefined ? {} : { background: a.background }),
+        ...(a.align === undefined ? {} : { align: a.align }),
+        ...(a.boxWidthPercent === undefined ? {} : { boxWidthPercent: a.boxWidthPercent }),
+        ...(a.xPercent === undefined ? {} : { xPercent: a.xPercent }),
+        ...(a.yPercent === undefined ? {} : { yPercent: a.yPercent }),
+      };
+      if (Object.keys(params).length > 0) {
+        ops.push({
+          type: 'set_effect_params',
+          clipId,
+          effectId: textEffectId(clipId),
+          params,
+        });
+      }
+      return ops;
+    },
   ),
   mutateTool(
     {

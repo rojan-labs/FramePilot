@@ -636,6 +636,45 @@ def test_add_text_layer_maps_to_overlay_op(ctx: ToolContext, project: Project) -
     _assert_patch_ok(result, project)
 
 
+def test_add_text_layer_carries_style_into_the_effect_params(
+    ctx: ToolContext, project: Project
+) -> None:
+    """GAP-006: the agent can make one word visually dominant.
+
+    ``add_text_layer`` used to take four fields and produce a default centred caption, so
+    a brief asking for "large typography, important words dominant" had no way through.
+    The style rides a second op on the same patch, into the params bag the Inspector
+    writes and ``render/text_overlay.py`` resolves — one vocabulary, three consumers.
+    """
+    result = run_tool(
+        "add_text_layer",
+        {
+            "trackId": "ov",
+            "text": "$327,000,000",
+            "start": 0.0,
+            "end": 2.0,
+            "sizePercent": 18,
+            "color": "#ff2d55",
+            "yPercent": 30,
+            "align": "center",
+        },
+        ctx,
+    )
+    assert result.operations is not None
+    assert [op["type"] for op in result.operations] == ["add_text_overlay", "set_effect_params"]
+    style = result.operations[1]
+    assert style["clipId"] == result.operations[0]["clipId"]
+    assert style["params"] == {
+        "fontSizePercent": 18,
+        "color": "#ff2d55",
+        "align": "center",
+        "yPercent": 30,
+    }
+    # The style must target the effect the first op creates on that clip, not a guess.
+    assert style["effectId"] == f"{style['clipId']}__text"
+    _assert_patch_ok(result, project)
+
+
 def test_add_caption_layer(ctx: ToolContext, project: Project) -> None:
     result = run_tool("add_caption_layer", {"trackId": "cap", "start": 0.0, "end": 2.0}, ctx)
     _assert_patch_ok(result, project)

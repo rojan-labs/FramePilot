@@ -1716,6 +1716,58 @@ def test_compile_burns_in_text_overlay(
 
 
 @pytest.mark.usefixtures("require_ffprobe")
+def test_text_overlay_honours_authored_style_and_position(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    """Size and position from the authored params reach the render.
+
+    Regression (GAP-006): the Inspector and the preview speak ``fontSizePercent`` and
+    ``xPercent``/``yPercent``; the compiler read ``fontSize`` in pixels and centred every
+    overlay unconditionally. So a positioned, resized overlay previewed one way and
+    exported another, and an agent had no way to make one word visually dominant — which
+    is most of what short-form typography is.
+
+    Deterministic without measuring glyphs: a bigger ``fontSizePercent`` lights up strictly
+    more bright pixels, and an overlay pushed to the top of the frame puts its bright
+    pixels in the top third rather than the middle.
+    """
+    src = media_factory("bg.mp4", seconds=1.0, with_audio=False, color="0x00008B", size="320x240")
+    (tmp_project_dir / "bg.mp4").write_bytes(src.read_bytes())
+
+    def project_with(params: dict[str, Any]) -> Project:
+        text_clip = _clip("t1", "ov", 0, 1, "__text__")
+        text_clip["effects"] = [
+            {"id": "t1__text", "type": "text", "params": {"text": "HI", **params}, "keyframes": []}
+        ]
+        return _project(
+            [
+                {"id": "ov", "type": "overlay", "clips": [text_clip]},
+                {"id": "v", "type": "video", "clips": [_clip("c1", "v", 0, 1, "a1")]},
+            ],
+            assets=[{"id": "a1", "path": "bg.mp4", "kind": "video"}],
+        )
+
+    def frame_of(params: dict[str, Any]) -> Any:
+        project = project_with(params)
+        comp = compile_timeline(project, _index(project, tmp_project_dir), REELS)
+        try:
+            return np.asarray(comp.get_frame(0.5), dtype=np.int64)
+        finally:
+            comp.close()
+
+    small = frame_of({"fontSizePercent": 4})
+    large = frame_of({"fontSizePercent": 12})
+    bright = lambda frame: int((frame.max(axis=2) > 200).sum())  # noqa: E731
+    assert bright(large) > bright(small), "fontSizePercent did not change the rendered size"
+
+    top = frame_of({"fontSizePercent": 8, "yPercent": 15})
+    height = top.shape[0]
+    top_third = int((top[: height // 3].max(axis=2) > 200).sum())
+    middle_third = int((top[height // 3 : 2 * height // 3].max(axis=2) > 200).sum())
+    assert top_third > middle_third, "yPercent did not move the overlay"
+
+
+@pytest.mark.usefixtures("require_ffprobe")
 def test_text_overlay_honours_its_own_keyframes(
     tmp_project_dir: Path, media_factory: Callable[..., Path]
 ) -> None:
@@ -2280,9 +2332,7 @@ class TestDecodeBudget:
                 },
             }
         )
-        index = index_assets(
-            [asset.model_dump() for asset in project.assets], base_dir=tmp_path
-        )
+        index = index_assets([asset.model_dump() for asset in project.assets], base_dir=tmp_path)
         preset = REELS.model_copy(update={"width": 160, "height": 120})
         composition = compile_timeline(project, index, preset, max_decode_dimension=160)
         try:

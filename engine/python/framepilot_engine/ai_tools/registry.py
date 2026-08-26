@@ -144,11 +144,26 @@ class AddTrackArgs(BaseModel):
 
 
 class AddTextLayerArgs(BaseModel):
+    """Text overlay plus its styling.
+
+    The style keys mirror the web editor's ``TextOverlayParams`` exactly, because they end
+    up in the same ``Effect.params`` bag that the Inspector writes and the renderer reads
+    (see ``render/text_overlay.py``). Motion is deliberately not here: the agent animates a
+    text card with ``punch_in``, which the compiler renders.
+    """
+
     model_config = _STRICT
     track_id: str = Field(alias="trackId")
     text: str
     start: float = Field(ge=0.0)
     end: float = Field(ge=0.0)
+    size_percent: float | None = Field(default=None, alias="sizePercent", gt=0.0, le=100.0)
+    color: str | None = None
+    background: str | None = None
+    align: Literal["left", "center", "right"] | None = None
+    box_width_percent: float | None = Field(default=None, alias="boxWidthPercent", gt=0.0, le=100.0)
+    x_percent: float | None = Field(default=None, alias="xPercent", ge=0.0, le=100.0)
+    y_percent: float | None = Field(default=None, alias="yPercent", ge=0.0, le=100.0)
 
 
 class AddCaptionLayerArgs(BaseModel):
@@ -1181,7 +1196,12 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "add_text_layer",
         "Add a text overlay clip on a track over a timeline range (start/end seconds). "
         "Clips on one track can never overlap — stack simultaneous text elements on "
-        "separate tracks with a free range.",
+        "separate tracks with a free range. Style it here: sizePercent is the glyph "
+        "height as a percentage of the frame (8 is a caption, 18+ is a headline that "
+        "dominates the frame), xPercent/yPercent place the box centre (50/50 is the "
+        "middle, y 15 is a title card near the top), and color/background/align/"
+        "boxWidthPercent do what they say. Everything renders exactly as the preview "
+        "shows it. For motion, follow this with punch_in on the clip it creates.",
         kind="mutate",
         input_model=AddTextLayerArgs,
         mutating=True,

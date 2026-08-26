@@ -32,6 +32,49 @@ describe('strict tool intent boundary', () => {
     ).toThrow(ToolInvocationError);
   });
 
+  // GAP-006. `add_text_layer` took four fields and produced a default centred caption, so
+  // a brief asking for "large typography, important words visually dominant" had no way
+  // through — the run that tried reached for punch_in instead, on clips the renderer then
+  // ignored. Both runtimes emit the same two ops in the same order.
+  it('carries text styling into the effect params, on the clip it just created', () => {
+    const ops = operationsForCall(
+      {
+        id: 't',
+        name: 'add_text_layer',
+        arguments: {
+          trackId: 'txt_main',
+          text: '$327,000,000',
+          start: 0,
+          end: 2,
+          sizePercent: 18,
+          color: '#ff2d55',
+          yPercent: 30,
+        },
+      },
+      { project: { timeline: { tracks: [] } } as unknown as Project },
+    );
+    expect(ops.map((op) => op.type)).toEqual(['add_text_overlay', 'set_effect_params']);
+    const [created, styled] = ops as [
+      { clipId: string },
+      { clipId: string; effectId: string; params: Record<string, unknown> },
+    ];
+    expect(styled.clipId).toBe(created.clipId);
+    expect(styled.effectId).toBe(`${created.clipId}__text`);
+    expect(styled.params).toEqual({ fontSizePercent: 18, color: '#ff2d55', yPercent: 30 });
+  });
+
+  it('adds no styling op when no styling was asked for', () => {
+    const ops = operationsForCall(
+      {
+        id: 't',
+        name: 'add_text_layer',
+        arguments: { trackId: 'txt_main', text: 'GONE.', start: 0, end: 2 },
+      },
+      { project: { timeline: { tracks: [] } } as unknown as Project },
+    );
+    expect(ops.map((op) => op.type)).toEqual(['add_text_overlay']);
+  });
+
   // GAP-004. A transform keyframe on a caption clip validates, applies, survives undo,
   // reports an edit — and renders as nothing, because caption motion comes from the
   // caption style. Text overlays DO read the transform now, so only captions refuse.
