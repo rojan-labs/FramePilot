@@ -1,0 +1,79 @@
+## A. Fixed per-turn overhead (agent mode, before any project state)
+
+  system contract          135
+  agent contract (vision)  1775
+  skills manifest (21)     1587
+  tool schemas, planning   17490  (84 tools)
+  tool schemas, execution  13431  (62 tools)
+  ── planning-turn total   20987
+
+## B. Grounding coverage — how much of the project reaches the prompt
+
+  scale            | clips | shown | coverage | words  | shown | coverage | state tokens
+  -----------------|-------|-------|----------|--------|-------|----------|-------------
+  small   (1 min)  |    19 |    19 |   100.0% |    150 |   150 |   100.0% | 402
+  medium (10 min)  |   188 |   188 |   100.0% |   1500 |  1500 |   100.0% | 4111
+  large  (60 min)  |  1125 |  1125 |   100.0% |   9000 |  9000 |   100.0% | 26450
+  huge    (4 h)    |  4500 |  4500 |   100.0% |  36000 | 35771 |    99.4% | 114569
+
+## B2. Same projects WITH a 30s selection (the focus/retrieval path)
+
+  scale            | clips | shown | coverage | words  | shown | coverage | state tokens
+  -----------------|-------|-------|----------|--------|-------|----------|-------------
+  small   (1 min)  |    19 |    10 |    52.6% |    150 |    89 |    59.3% | 273
+  medium (10 min)  |   188 |    11 |     5.9% |   1500 |    96 |     6.4% | 305
+  large  (60 min)  |  1125 |    11 |     1.0% |   9000 |    97 |     1.1% | 335
+  huge    (4 h)    |  4500 |    11 |     0.2% |  36000 |    99 |     0.3% | 362
+
+## C. Live agent run — per-turn prompt composition (300 clips / 4000 words)
+
+  turn | msgs | msg tok | tool tok | TOTAL | stable prefix | cached prefix share
+  -----|------|---------|----------|-------|---------------|--------------------
+     0 |    4 |   14421 |    17320 | 31741 |             0 |                0.0%
+     1 |    4 |   14516 |    17320 | 31836 |         12233 |               92.8%
+     2 |    4 |   25491 |    17320 | 42811 |         12233 |               69.0%
+     3 |    4 |   25521 |    17320 | 42841 |         12233 |               69.0%
+     4 |    4 |   14608 |    13431 | 28039 |         12233 |               91.5%
+     5 |    4 |   14617 |    13431 | 28048 |         12233 |               91.5%
+     6 |    4 |   14626 |    13431 | 28057 |         12233 |               91.5%
+     7 |    4 |   14605 |    13431 | 28036 |         12233 |               91.5%
+     8 |    5 |   14619 |    17320 | 31939 |         12233 |               92.5%
+
+  tool-set changes during the run: 2 (stage policy swaps the descriptor set)
+  tokens re-billed at full price by those swaps: 30751
+
+  payloads cleared in final prompt: 0
+  earlier steps collapsed to a digest line: true
+  prompt growth over the run: 31741 → 31939 tokens
+
+## D. Budget safety — what the trimmer assumes vs what the model has
+
+  an agent turn also pays 19265 tokens the assembler never sees (tool schemas + agent contract)
+  before P1.2 every model trimmed against 183904 tokens
+
+  provider/model                        | real room | trimmer room | over-assumption | risk
+  --------------------------------------|-----------|--------------|-----------------|----------------
+  anthropic/claude-opus-4-5             |    136000 |       114735 |          -21265 | safe
+  openai/gpt-4o                         |    111616 |        90351 |          -21265 | safe
+  groq/llama-3.3-70b-versatile          |     98304 |        77039 |          -21265 | safe
+  ollama/llama3.2                       |    126976 |       105711 |          -21265 | safe
+  ollama/qwen2.5-coder                  |     24576 |         3311 |          -21265 | safe
+  google/gemini-2.5-pro                 |    983040 |       961775 |          -21265 | safe
+  openrouter/a-model-not-in-the-catalog |    119808 |        98543 |          -21265 | safe
+
+## E. Read-digest fidelity — what a read tool hands back to the model
+
+  tool               | records in | surfaced | fidelity | digest tokens | has "N more" tail
+  -------------------|------------|----------|----------|---------------|------------------
+  get_transcript     |       1500 |     1500 |   100.0% |          8085 | false
+  read_edit_signals  |         60 |       60 |   100.0% |          1080 | false
+  list_assets        |         40 |       40 |   100.0% |           328 | false
+
+## Headline
+
+  On a 60-minute project, one planning turn costs ~47437 tokens.
+  Of that, 26450 tokens (55.8%) describe the user's video.
+  The model sees 100.0% of its clips and 100.0% of its dialogue,
+  with ~88563 tokens of the window left unused — and nothing left to show it.
+
+baseline written to reports/context-benchmark-phase1.json

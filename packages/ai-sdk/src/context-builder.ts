@@ -123,17 +123,48 @@ export interface ContextInput {
   readonly footageMap?: string;
 }
 
-/** How many transcript words to include before truncating (keeps prompts bounded). */
-const MAX_TRANSCRIPT_WORDS = 600;
+/**
+ * The FLOOR for an unfocused transcript slice — never the cap.
+ *
+ * It was the cap, as a compile-time constant, and the result was a project view flat in
+ * project size: 600 words whether the recording was ten minutes (40% of it) or four hours
+ * (1.7%). {@link allocateGroundingSlice} now grows the slice into whatever room the budget
+ * leaves, and this is what it may never fall below — so a 32K-window model behaves exactly
+ * as it did before, and the change can only ever add coverage.
+ */
+export const MIN_TRANSCRIPT_WORDS = 600;
 
 /**
- * K2.2 slice bounds. `MAX_CLIPS_PER_LAYER` caps an unfocused layer's clip listing so a
- * 10k-clip timeline still renders a bounded slice; `TRANSCRIPT_FOCUS_PAD` is the
- * lead-in/out (seconds) included around a focus range when slicing the transcript, so a
- * word straddling the edge of the selection is not lost.
+ * K2.2 slice bounds. `MIN_CLIPS_PER_LAYER` is the FLOOR for an unfocused layer's clip
+ * listing (it was the cap — see {@link MIN_TRANSCRIPT_WORDS}); `TRANSCRIPT_FOCUS_PAD` is
+ * the lead-in/out (seconds) included around a focus range when slicing the transcript, so
+ * a word straddling the edge of the selection is not lost.
  */
-export const MAX_CLIPS_PER_LAYER = 12;
+export const MIN_CLIPS_PER_LAYER = 12;
 const TRANSCRIPT_FOCUS_PAD = 2;
+
+/**
+ * How the room left over after everything else is split between the two grounding tiers.
+ *
+ * Evenly, on purpose. The failure mode this guards against is one tier starving the
+ * other: a transcript that consumed the whole allowance would leave the model unable to
+ * NAME a clip it wants to trim, and a timeline listing that consumed it would leave the
+ * model cutting dialogue it never read. Whichever tier does not need its half gives the
+ * remainder back to the other (see {@link allocateGroundingSlice}), so the split costs
+ * nothing when only one of them is large.
+ */
+const TIMELINE_SHARE_OF_GROUNDING_ROOM = 0.5;
+
+/**
+ * How many times {@link largestFittingCount} may halve its search interval.
+ *
+ * The search is over a count, not a size, and its oracle is the real renderer — so the
+ * answer is exact rather than estimated from a per-item token guess that drifts with clip
+ * id length and time formatting. 14 iterations resolve any count up to 16,384, which is
+ * past the 4,500-clip and 36,000-word scales the benchmark probes; beyond that the search
+ * simply returns a slightly conservative count, which is the safe direction.
+ */
+const FIT_SEARCH_ITERATIONS = 14;
 
 /** Most-recent prior turns threaded into context (keeps the prompt bounded). */
 export const MAX_HISTORY_MESSAGES = 8;
@@ -302,20 +333,28 @@ export function summarizeTimeline(
 /**
  * Transcript as plain text.
  *
- * Without `focus`: the head of the transcript, truncated to {@link MAX_TRANSCRIPT_WORDS}
- * to keep the prompt bounded.
+ * Without `focus`: the head of the transcript, truncated to `maxWords` — an allocation
+ * derived from the room the budget leaves ({@link allocateGroundingSlice}), floored at
+ * {@link MIN_TRANSCRIPT_WORDS}, not a compile-time cap.
  *
  * With `focus` (K2.2): a **relevance slice** — the words spoken within the focus range
  * (± {@link TRANSCRIPT_FOCUS_PAD} seconds of lead-in/out), not the transcript head.
- * This turns "ship the first 600 words" into "ship what is actually being talked about
+ * This turns "ship the first N words" into "ship what is actually being talked about
  * around the edit," and stays bounded even for one long unbroken monologue (word-level,
  * so it narrows regardless of utterance segmentation).
+ *
+ * @param maxWords - Unfocused word allowance. Defaults to the floor so a direct caller
+ *   (tests, host code) gets the historical behaviour rather than an unbounded dump.
  */
-export function summarizeTranscript(project: Project, focus?: FocusRange): string {
+export function summarizeTranscript(
+  project: Project,
+  focus?: FocusRange,
+  maxWords: number = MIN_TRANSCRIPT_WORDS,
+): string {
   if (project.transcript.length === 0) return 'Transcript: (none)';
   if (!focus) {
-    const words = project.transcript.slice(0, MAX_TRANSCRIPT_WORDS).map((w) => w.word);
-    const suffix = project.transcript.length > MAX_TRANSCRIPT_WORDS ? ' …(truncated)' : '';
+    const words = project.transcript.slice(0, maxWords).map((w) => w.word);
+    const suffix = project.transcript.length > maxWords ? ' …(truncated)' : '';
     return `Transcript:\n${words.join(' ')}${suffix}`;
   }
   const from = focus.start - TRANSCRIPT_FOCUS_PAD;
@@ -431,6 +470,136 @@ export interface AssembledContext {
   readonly sections: readonly AssembledSection[];
   /** Tokens removed by tier-dropping this request; zero when nothing was trimmed. */
   readonly droppedTokenEstimate: number;
+  /**
+   * The same user content, split where it stops being stable for the run (P1.3).
+   *
+   * Only the TIMELINE summary changes between turns of one run: it is rendered from the
+   * mutating working copy, so every applied patch rewrites it. The transcript, the
+   * footage map, the visual status, the selection, the memory tiers and the skills
+   * manifest are all fixed for the run's duration.
+   *
+   * That distinction is worth money. A provider caches a byte-identical PREFIX, so
+   * anything stable that sits after something volatile is re-billed at full price every
+   * turn. Growing the grounding slice (P1.3) put ~9,000 more tokens into the prompt, and
+   * with the whole block in the volatile tail the cacheable share fell from 85% to 45%
+   * — the phase's own risk table says that must not happen. The agent loop reads this
+   * split and puts `stable` above its cache boundary.
+   *
+   * `messages` is UNCHANGED and still carries the whole block in its historical order:
+   * every non-agent route keeps exactly the prompt it had.
+   */
+  readonly split: ContextSplit;
+}
+
+/** The run-stable and per-turn halves of the assembled user content (P1.3). */
+export interface ContextSplit {
+  /** Fixed for the run: header, transcript, memory, skills, everything but the timeline. */
+  readonly stable: string;
+  /** Re-rendered every turn from the working copy: the timeline tier and the request. */
+  readonly volatile: string;
+}
+
+/**
+ * The largest count in `[floor, total]` whose rendering fits `room` tokens.
+ *
+ * Binary search with the REAL renderer as its oracle, not a per-item token estimate: a
+ * clip line's cost depends on the id length and the time formatting, and a transcript
+ * word's on the word, so an estimate drifts by tier and by project. The common case —
+ * the whole thing fits — is answered by the first probe and never enters the search.
+ *
+ * Returns `floor` when even the floor does not fit. That is deliberate: the floor is
+ * today's behaviour, this change may only ever ADD coverage, and a request that cannot
+ * afford the floor is exactly the case `DROP_ORDER` already handles. Pure.
+ */
+function largestFittingCount(
+  floor: number,
+  total: number,
+  room: number,
+  render: (count: number) => string,
+): number {
+  if (total <= floor) return total;
+  if (estimateTokens(render(total)) <= room) return total;
+  let low = floor;
+  let high = total;
+  for (let i = 0; i < FIT_SEARCH_ITERATIONS && high - low > 1; i += 1) {
+    const mid = Math.floor((low + high) / 2);
+    if (estimateTokens(render(mid)) <= room) low = mid;
+    else high = mid;
+  }
+  return low;
+}
+
+/** What the two grounding tiers may spend, as record counts rather than tokens. */
+export interface GroundingAllocation {
+  readonly maxClipsPerLayer: number;
+  readonly maxTranscriptWords: number;
+}
+
+/**
+ * Turn the room left after everything else into per-tier record allowances (P1.3).
+ *
+ * `MAX_CLIPS_PER_LAYER = 12` and `MAX_TRANSCRIPT_WORDS = 600` were compile-time
+ * constants that consulted neither the budget, the model, nor the capacity the manifest
+ * computes — so the project view was FLAT IN PROJECT SIZE, about 1,350 tokens whether the
+ * video ran ten minutes or four hours. On Opus at sixty minutes that meant showing the
+ * model 2.1% of its cuts while ~114,000 tokens of its window sat unused.
+ *
+ * Three rules make this safe to ship without a per-model regression matrix:
+ *
+ * 1. **Floored at the old constants.** Coverage can only go up. A 32K-window model
+ *    behaves exactly as it did.
+ * 2. **Neither tier starves the other.** Each gets a share of the room; whichever needs
+ *    less hands the remainder back, so the split costs nothing when only one is large.
+ * 3. **The search is exact, not estimated** — see {@link largestFittingCount}.
+ *
+ * A focused request is not allocated at all: `focus` selects by relevance, and the
+ * timeline path already renders the focus neighbourhood in full regardless of any cap.
+ *
+ * @param room - Tokens left for the two grounding tiers after everything else is paid.
+ * @returns The per-tier allowances, floored at the historical constants.
+ */
+export function allocateGroundingSlice(
+  project: Project,
+  assetKinds: ReadonlyMap<string, string | undefined>,
+  room: number,
+  focus?: FocusRange,
+): GroundingAllocation {
+  const timeline = project.timeline;
+  const maxClips = timeline.tracks.reduce((n, track) => Math.max(n, track.clips.length), 0);
+  const totalWords = project.transcript.length;
+  if (room <= 0) {
+    return { maxClipsPerLayer: MIN_CLIPS_PER_LAYER, maxTranscriptWords: MIN_TRANSCRIPT_WORDS };
+  }
+  // Rule 2, first half: the timeline gets its guaranteed share, or everything the
+  // transcript does not need — whichever is larger. A project with little or no dialogue
+  // must not have half the room reserved for a tier that will not spend it.
+  const transcriptNeed = focus
+    ? 0
+    : estimateTokens(summarizeTranscript(project, undefined, totalWords));
+  const timelineRoom = Math.max(
+    Math.floor(room * TIMELINE_SHARE_OF_GROUNDING_ROOM),
+    room - transcriptNeed,
+  );
+  const maxClipsPerLayer = focus
+    ? MIN_CLIPS_PER_LAYER
+    : largestFittingCount(MIN_CLIPS_PER_LAYER, maxClips, timelineRoom, (count) =>
+        summarizeTimeline(timeline, assetKinds, undefined, count),
+      );
+  // Rule 2, second half, symmetrically: the transcript gets everything the timeline did
+  // not actually spend, measured on the real render rather than on its allowance.
+  const spentOnTimeline = estimateTokens(
+    summarizeTimeline(timeline, assetKinds, focus, maxClipsPerLayer),
+  );
+  const transcriptRoom = Math.max(0, room - spentOnTimeline);
+  const maxTranscriptWords = focus
+    ? MIN_TRANSCRIPT_WORDS
+    : largestFittingCount(MIN_TRANSCRIPT_WORDS, totalWords, transcriptRoom, (count) =>
+        // The REAL renderer, so the "…(truncated)" marker is priced too. Probing with a
+        // hand-rolled approximation is how an allocation comes back a few tokens over and
+        // the budgeter drops the whole tier it was sizing.
+        summarizeTranscript(project, undefined, count),
+      );
+  return { maxClipsPerLayer, maxTranscriptWords };
 }
 
 /**
@@ -460,58 +629,36 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // transcript tiers are index-slice RETRIEVALS (K2.2), not whole-document dumps:
   // - timeline: when a selection exists it is scoped to it (B3, clips near the
   //   selection in full, the rest collapsed); otherwise each layer's listing is bounded
-  //   to MAX_CLIPS_PER_LAYER so the slice never grows unboundedly with the timeline.
+  //   to the allocation below so the slice never grows unboundedly with the timeline.
   // - transcript: when a selection exists it is a relevance window (the dialogue around
   //   the selection) drawn from the semantic index, not the transcript head.
-  const tiered: TieredBlock[] = [
-    {
-      tier: 'timeline',
-      label: 'timeline summary',
-      text: summarizeTimeline(project.timeline, assetKinds, selection, MAX_CLIPS_PER_LAYER),
-    },
-  ];
-  // The visual-index status line (MI6.2) sits with the timeline it describes, so the
-  // model reads "what it can see" right next to "what is on the timeline".
-  if (input.visualStatus && input.visualStatus.trim() !== '') {
-    tiered.push({
-      tier: 'timeline',
-      label: 'visual index status',
-      text: input.visualStatus.trim(),
-    });
-  }
-  // The footage map (FI3.3) sits right after the visual status: it is the time-ordered
-  // structural digest of what is IN the footage, the map the model consults before
-  // planning cuts/zooms/reframes on long or unfamiliar material.
-  if (input.footageMap && input.footageMap.trim() !== '') {
-    tiered.push({ tier: 'timeline', label: 'footage map', text: input.footageMap.trim() });
-  }
-  if (project.transcript.length > 0) {
-    tiered.push({
-      tier: 'transcript',
-      label: 'transcript slice',
-      text: summarizeTranscript(project, selection),
-    });
-  }
+  //
+  // The FIXED blocks are built first, because the two grounding tiers are allocated out
+  // of what is left after them (P1.3): their sizes are a budget decision, not a
+  // compile-time constant, and the budget is only knowable once everything else is
+  // priced. They are spliced back into their display positions below, so the assembled
+  // message text is byte-identical to what this order has always produced.
+  const fixed: TieredBlock[] = [];
   if (selection) {
-    tiered.push({
+    fixed.push({
       tier: 'selection',
       label: 'selected range',
       text: `Selected range: ${round(selection.start)}–${round(selection.end)}s`,
     });
   }
   if (input.interaction) {
-    tiered.push({
+    fixed.push({
       tier: 'selection',
       label: 'editor interaction state',
       text: summarizeEditorInteraction(input.interaction),
     });
   }
   if (input.pinned && input.pinned.length > 0) {
-    tiered.push({ tier: 'pinned', label: 'pinned context', text: summarizePinned(input.pinned) });
+    fixed.push({ tier: 'pinned', label: 'pinned context', text: summarizePinned(input.pinned) });
   }
   const memory = summarizeScopedMemory(readMemory(project), input.userMemory);
   if (memory)
-    tiered.push({
+    fixed.push({
       tier: 'memory',
       label: 'project memory',
       text: `Project memory (honour these preferences):\n${memory}`,
@@ -520,7 +667,7 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // under the same `memory` tier — they are one concern to the budgeter, and both
   // yield together when the request's own material needs the room.
   if (input.sessionContext && input.sessionContext.trim() !== '') {
-    tiered.push({
+    fixed.push({
       tier: 'memory',
       label: 'session context',
       text: `What we have learned on this project so far:\n${input.sessionContext.trim()}`,
@@ -528,7 +675,7 @@ export function assembleContext(input: ContextInput): AssembledContext {
   }
   if (input.skills && input.skills.length > 0) {
     const manifest = summarizeSkillsManifest(input.skills);
-    if (manifest) tiered.push({ tier: 'skills', label: 'skills manifest', text: manifest });
+    if (manifest) fixed.push({ tier: 'skills', label: 'skills manifest', text: manifest });
   }
 
   const history = boundedHistory(input.history);
@@ -536,6 +683,54 @@ export function assembleContext(input: ContextInput): AssembledContext {
 
   // Cost of the current selection of tiers + mandatory + prompt + system + history.
   const promptBlock = `User request:\n${userPrompt}`;
+
+  // The two grounding tiers grow into whatever the rest of the prompt leaves (P1.3).
+  // Everything above is already priced; the visual status and footage map are counted
+  // here too, because they ride the timeline tier and are not the assembler's to size.
+  const visualStatus = input.visualStatus?.trim() ?? '';
+  const footageMap = input.footageMap?.trim() ?? '';
+  const spentElsewhere = [
+    SYSTEM_PROMPT,
+    ...mandatory,
+    ...fixed.map((b) => b.text),
+    visualStatus,
+    footageMap,
+    promptBlock,
+    ...history.map((m) => m.content),
+  ].reduce((sum, text) => sum + estimateTokens(text), 0);
+  const allocation = allocateGroundingSlice(
+    project,
+    assetKinds,
+    budget - spentElsewhere,
+    selection,
+  );
+
+  const tiered: TieredBlock[] = [
+    {
+      tier: 'timeline',
+      label: 'timeline summary',
+      text: summarizeTimeline(project.timeline, assetKinds, selection, allocation.maxClipsPerLayer),
+    },
+  ];
+  // The visual-index status line (MI6.2) sits with the timeline it describes, so the
+  // model reads "what it can see" right next to "what is on the timeline".
+  if (visualStatus !== '') {
+    tiered.push({ tier: 'timeline', label: 'visual index status', text: visualStatus });
+  }
+  // The footage map (FI3.3) sits right after the visual status: it is the time-ordered
+  // structural digest of what is IN the footage, the map the model consults before
+  // planning cuts/zooms/reframes on long or unfamiliar material.
+  if (footageMap !== '') {
+    tiered.push({ tier: 'timeline', label: 'footage map', text: footageMap });
+  }
+  if (project.transcript.length > 0) {
+    tiered.push({
+      tier: 'transcript',
+      label: 'transcript slice',
+      text: summarizeTranscript(project, selection, allocation.maxTranscriptWords),
+    });
+  }
+  tiered.push(...fixed);
   const cost = (): number => {
     const kept = tiered.filter((b) => !dropped.has(b.tier));
     const historyCost = dropped.has('history')
@@ -555,11 +750,21 @@ export function assembleContext(input: ContextInput): AssembledContext {
     if (present) dropped.add(tier);
   }
 
-  const keptBlocks = tiered.filter((b) => !dropped.has(b.tier)).map((b) => b.text);
+  const keptTiers = tiered.filter((b) => !dropped.has(b.tier));
+  const keptBlocks = keptTiers.map((b) => b.text);
   const keptHistory = dropped.has('history') ? [] : history;
   const userContent = [...mandatoryOrdered(header, keptBlocks, mandatory), promptBlock].join(
     '\n\n',
   );
+  // The run-stability split (P1.3). The timeline tier is the only thing here that a turn
+  // can change, so everything else — including the platform line and the request — is
+  // prefix a provider can cache for the whole run.
+  const volatileBlocks = keptTiers.filter((b) => b.tier === 'timeline').map((b) => b.text);
+  const stableBlocks = keptTiers.filter((b) => b.tier !== 'timeline').map((b) => b.text);
+  const split: ContextSplit = {
+    stable: [header, ...stableBlocks, ...mandatory.filter((m) => m !== header)].join('\n\n'),
+    volatile: [...volatileBlocks, promptBlock].join('\n\n'),
+  };
 
   // The per-section account (ADR 0080). Mandatory blocks are reported too, so the
   // manifest adds up to the whole user message rather than only its droppable part.
@@ -628,6 +833,7 @@ export function assembleContext(input: ContextInput): AssembledContext {
     trimmed: [...dropped],
     sections,
     droppedTokenEstimate,
+    split,
   };
 }
 

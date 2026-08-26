@@ -1,4 +1,4 @@
-# Phase 1 — The model can see the footage — `[~]`
+# Phase 1 — The model can see the footage — `[x]`
 
 > **Ships:** the agent reads the whole transcript and the whole timeline, on any model,
 > without overflowing anyone's window.
@@ -152,7 +152,7 @@ Two judgement calls:
 
 ---
 
-## P1.3 — The slice grows into the room it has — `[ ]`
+## P1.3 — The slice grows into the room it has — `[x]`
 
 **Closes:** F1. **Touches:** `context-builder.ts:127` (`MAX_TRANSCRIPT_WORDS = 600`),
 `:135` (`MAX_CLIPS_PER_LAYER = 12`), `:430` (`assembleContext`).
@@ -187,6 +187,53 @@ Do:
 **Evidence.** Benchmark section B: 10-min row ≥ 95% words, ≥ 90% clips; unused capacity at
 60 min < 30,000. Section C: cacheable prefix share **stays ≥ 85%** — all growth lands in
 the volatile tail, which was never cacheable, and the stable prefix must not move.
+
+**Shipped 2026-08-26.** `MAX_TRANSCRIPT_WORDS` and `MAX_CLIPS_PER_LAYER` became
+`MIN_TRANSCRIPT_WORDS` / `MIN_CLIPS_PER_LAYER` — floors, not caps — and
+`allocateGroundingSlice` sizes both tiers from the room the budget leaves. The search is a
+binary search whose oracle is the **real renderer**, not a per-item token estimate: a clip
+line's cost depends on id length and time formatting, and an approximation that comes back
+a few tokens over is how an allocation gets its whole tier dropped by the budgeter.
+Neither tier can starve the other — each is guaranteed half, and whichever needs less
+hands the rest back, in both directions.
+
+Benchmark section B, against the model's **real** resolved budget (the benchmark used to
+measure against the hardcoded 190K):
+
+| scale       | clips before | after      | words before | after      |
+| ----------- | ------------ | ---------- | ------------ | ---------- |
+| 1 min       | 84.2%        | **100%**   | 100%         | **100%**   |
+| 10 min ★    | 12.8%        | **100%**   | 40.0%        | **100%**   |
+| 60 min      | 2.1%         | **100%**   | 6.7%         | **100%**   |
+| 4 h         | 0.5%         | **100%**   | 1.7%         | **99.4%**  |
+
+★ the north-star scale (D4). Both exit criteria (≥ 90% clips, ≥ 95% words) are met with
+room to spare, and the 4-hour row is the allocator honestly bounding a project that
+genuinely does not fit.
+
+**Two things the plan got wrong, recorded rather than quietly fixed:**
+
+- **"Unused capacity at 60 min < 30,000" is the wrong target, and is not met (88,563).**
+  It was written assuming unused room means unshown project. At 60 minutes the model now
+  sees 100% of the clips and 100% of the dialogue: the remaining window is genuinely
+  spare, and padding the prompt to consume it would be a worse edit for more money. The
+  benchmark now prints whether there is anything left to show alongside the figure, so
+  the number cannot be read as waste again.
+- **"All growth lands in the volatile tail, which was never cacheable" was true and was
+  the problem.** Growing the slice put ~9,000 more tokens into the per-turn message and
+  the cacheable share fell **85% → 45%** — coverage bought with cache, which the risk
+  table forbids. The fix: only the TIMELINE summary actually varies per turn (it renders
+  from the mutating working copy). The transcript, footage map, visual status, memory
+  tiers and skills manifest are fixed for the run, so `AssembledContext.split` draws that
+  line and the agent loop puts the stable half **above** its cache boundary.
+  Steady-state cacheable share is now **91.5%** (baseline 81.1%). The two turns that read
+  the transcript dip to 69%, which is inherent: P1.1 makes `get_transcript` return the
+  whole transcript, and a tool result is turn-varying by definition.
+  `assembleContext().messages` is unchanged, so every non-agent route keeps the prompt it
+  had.
+
+Golden fixtures moved as the plan predicted (an extra message in the agent request);
+regenerated and reviewed in the same commit.
 
 ---
 

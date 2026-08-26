@@ -2744,10 +2744,11 @@ export class Orchestrator {
     // contract, the committed plan, and every playbook pinned so far). Pinned skills are
     // up to 6,728 tokens on their own, and they arrive mid-run, so a budget that ignored
     // them shrank the room after the trimmer had already decided.
-    const base = buildContext({
+    const assembled = assembleContext({
       ...this.budgeted(input, this.agentToolCost() + estimateTokens(stableHead)),
       project: working,
     });
+    const base = assembled.messages;
     // E3.2 (prompt-prefix cache stability), corrected. The head (contract + plan + pinned
     // skills) is byte-identical across a run — but it used to be emitted AFTER
     // `buildContext`'s project block, which re-renders the timeline summary from the
@@ -2759,10 +2760,20 @@ export class Orchestrator {
     // prefix, flagged `cacheBoundary` so the Anthropic provider can put a breakpoint at
     // its end. Everything genuinely turn-varying — the project snapshot, the request, the
     // briefing, steering, the action log — follows it in the final message.
-    // `buildContext` returns [system, ...history, project+request] — always at least two
-    // messages, and the last is always the project block, so the split is total.
-    const volatileContext = base[base.length - 1] as AiMessage;
+    // `assembleContext` returns [system, ...history, project+request] — always at least
+    // two messages, and the last is always the project block, so the split is total.
     const stablePrefix = base.slice(0, -1);
+    // P1.3, second half. Growing the grounding slice put ~9,000 more tokens into the
+    // prompt, and with the whole project block in this turn-varying message the cacheable
+    // prefix share fell from 85% to 45% — coverage bought with cache, which is not a
+    // trade the phase is allowed to make.
+    //
+    // Only the TIMELINE summary actually varies per turn: it is rendered from the
+    // mutating working copy. The transcript, the footage map, the memory tiers and the
+    // skills manifest are fixed for the run, so they belong ABOVE the cache boundary with
+    // the stable head rather than below it. `AssembledContext.split` draws that line;
+    // `messages` is unchanged, so every non-agent route keeps the prompt it had.
+    const { stable: stableContext, volatile: volatileContext } = assembled.split;
     // Bound the fed-back log so a long run's prompt stays bounded (R2 B4); fold in mid-run
     // steering (P11.4) — a queued message the editor typed while this run was already in
     // flight, applied at THIS turn boundary (never mid-step — the message was popped from
@@ -2777,13 +2788,14 @@ export class Orchestrator {
     const briefing = taskMemory ? buildStateBriefing(taskMemory) : '';
     const turnMessage: AiMessage = {
       role: 'user',
-      content: `${volatileContext.content}${briefing}${steeringBlock}${recoveryBlock}\n\n${history}${framesBlock(frames)}`,
+      content: `${volatileContext}${briefing}${steeringBlock}${recoveryBlock}\n\n${history}${framesBlock(frames)}`,
       // Deliberately on the LAST message: it is the only one that varies per turn, so an
       // image attached here can never invalidate the cached prefix above it.
       ...(frames && frames.length > 0 ? { images: frames } : {}),
     };
     return [
       ...stablePrefix,
+      { role: 'user', content: stableContext },
       { role: 'user', content: stableHead, cacheBoundary: true },
       turnMessage,
     ];

@@ -137,6 +137,20 @@ const SCALES = [
 ];
 const REQUEST = 'Cut this down to a 45 second reel of the best moments.';
 
+/**
+ * The budget a REAL agent turn assembles under, on the default model — the model's own
+ * window minus its output reservation minus the tool schemas and agent contract the
+ * assembler never sees (P1.2). Before P1.2 every row below was measured against one
+ * hardcoded 190K; measuring against the real number is the point of the fix.
+ */
+const BENCH_PROVIDER = { name: 'anthropic', modelId: 'claude-opus-4-5' };
+const benchBudget = (p) =>
+  resolveContextBudget(
+    { project: p, userPrompt: REQUEST },
+    BENCH_PROVIDER,
+    fixed.toolSchemasPlanningStages.tokens + fixed.agentContractVision,
+  );
+
 console.log('## B. Grounding coverage — how much of the project reaches the prompt\n');
 console.log(
   '  scale            | clips | shown | coverage | words  | shown | coverage | state tokens',
@@ -147,7 +161,7 @@ console.log(
 out.grounding = [];
 for (const s of SCALES) {
   const p = project({ clips: s.clips, words: s.words });
-  const a = assembleContext({ project: p, userPrompt: REQUEST });
+  const a = assembleContext({ project: p, userPrompt: REQUEST, budget: benchBudget(p) });
   const body = a.messages[a.messages.length - 1].content;
   const totalClips = p.timeline.tracks.reduce((n, t) => n + t.clips.length, 0);
   const shownClips = p.timeline.tracks.reduce(
@@ -192,6 +206,7 @@ for (const s of SCALES) {
     project: p,
     userPrompt: REQUEST,
     selection: { start: mid, end: mid + 30 },
+    budget: benchBudget(p),
   });
   const body = a.messages[a.messages.length - 1].content;
   const totalClips = p.timeline.tracks.reduce((n, t) => n + t.clips.length, 0);
@@ -493,13 +508,20 @@ console.log();
 
 // ------------------------------------------------------------------------ headline
 const planningTurnAtScale = fixed.totalPlanningTurnOverhead + out.grounding[2].projectStateTokens;
+const opus = capabilitiesFor('anthropic', 'claude-opus-4-5');
 out.headline = {
   fixedOverheadTokens: fixed.totalPlanningTurnOverhead,
   projectStateTokensAt60Min: out.grounding[2].projectStateTokens,
   projectStateShareOfPrompt: out.grounding[2].projectStateTokens / planningTurnAtScale,
   clipCoverageAt60Min: out.grounding[2].clipCoverage,
   wordCoverageAt60Min: out.grounding[2].wordCoverage,
-  unusedRoomOnOpus: 200_000 - 64_000 - planningTurnAtScale,
+  unusedRoomOnOpus: opus.contextWindow - opus.maxOutputTokens - planningTurnAtScale,
+  // Unused room only means "wasted" while there is more of the project to show. Once
+  // coverage is 100% the remainder is genuinely spare, and padding the prompt to consume
+  // it would be a worse edit for more money.
+  moreProjectLeftToShowAt60Min:
+    out.grounding[2].shownClips < out.grounding[2].totalClips ||
+    out.grounding[2].shownWords < out.grounding[2].totalWords,
 };
 console.log('## Headline\n');
 console.log(`  On a 60-minute project, one planning turn costs ~${planningTurnAtScale} tokens.`);
@@ -509,7 +531,10 @@ console.log(
 console.log(
   `  The model sees ${pct(out.grounding[2].shownClips, out.grounding[2].totalClips)} of its clips and ${pct(out.grounding[2].shownWords, out.grounding[2].totalWords)} of its dialogue,`,
 );
-console.log(`  with ~${out.headline.unusedRoomOnOpus} tokens of the window left unused.\n`);
+console.log(
+  `  with ~${out.headline.unusedRoomOnOpus} tokens of the window left unused` +
+    `${out.headline.moreProjectLeftToShowAt60Min ? ' AND more of the project still unshown.' : ' — and nothing left to show it.'}\n`,
+);
 
 const jsonFlag = process.argv.indexOf('--json');
 if (jsonFlag !== -1 && process.argv[jsonFlag + 1]) {
