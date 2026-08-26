@@ -6,6 +6,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- **Captions derive far faster on long footage.** Mapping a transcript onto an edited
+  timeline tested every word against every clip, so the cost grew with the two multiplied
+  together — on an hour of footage with nine hundred cuts that was sixteen million
+  comparisons, paid every time captions were derived or an edit was reviewed. It is a
+  search now: the same result, ~80× less work. (`packages/editor-core`)
+
 ### Added
 
 - **The assistant reads your whole recording, not the first two minutes of it.** Asked to
