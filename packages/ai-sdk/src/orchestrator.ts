@@ -6108,7 +6108,12 @@ export class Orchestrator {
         // emitted once at the terminal boundary, mirroring `streamRecipe`/
         // the single terminal `emit.usage(...)` contract every route shares.
         yield emit.usage({ tokens: usageTokens, usd: usageUsd, modelCalls });
-        if (!effect.cancelled && !effect.failed && effect.ops.length > 0) {
+        // A cancelled run still gets a receipt when it applied something. Stopping a run
+        // does not un-apply its edits — run e30c1fe9 left 38 operations in the project and
+        // said nothing about any of them, because this gate treated "cancelled" as "there
+        // is nothing to report". The last word the editor got was a perceptual warning
+        // about frames, over a timeline they had no summary of.
+        if (!effect.failed && effect.ops.length > 0) {
           yield emit.assistant(
             emit.assistantId,
             agentCompletionReport({
@@ -6118,6 +6123,7 @@ export class Orchestrator {
               rejectedOpCount: effect.rejectedOpCount,
               rejectionReasons: effect.rejectionReasons,
               contentEvidence: sawContentEvidence,
+              ...(effect.cancelled ? { cancelled: true } : {}),
               ...(offGridNote ? { offGrid: offGridNote } : {}),
               ...(asksForFile ? { deliverableFileRequested: true } : {}),
             }),
@@ -6244,6 +6250,11 @@ export function agentCompletionReport(args: {
    * the report says where to get it instead of leaving the editor to notice the absence.
    */
   deliverableFileRequested?: boolean;
+  /**
+   * True when the editor stopped the run. The edits still landed and still need
+   * accounting for; only the claim that the work is finished changes.
+   */
+  cancelled?: boolean;
 }): string {
   const maxLines = 10;
   // Collapse lines that render identically. Eight successive restyles of one caption track
@@ -6262,7 +6273,9 @@ export function agentCompletionReport(args: {
     .map(([line, count]) => `- ${line}${count > 1 ? ` (×${count})` : ''}`);
   const more = distinct.length - maxLines;
   if (more > 0) lines.push(`- …and ${more} more`);
-  const head = `**Applied ${args.ops.length} edit${args.ops.length === 1 ? '' : 's'}** in ${args.steps} step${args.steps === 1 ? '' : 's'} — review the proposed change below.`;
+  const head = args.cancelled
+    ? `**Applied ${args.ops.length} edit${args.ops.length === 1 ? '' : 's'}** in ${args.steps} step${args.steps === 1 ? '' : 's'} before you stopped the run — they are on your timeline and can be undone.`
+    : `**Applied ${args.ops.length} edit${args.ops.length === 1 ? '' : 's'}** in ${args.steps} step${args.steps === 1 ? '' : 's'} — review the proposed change below.`;
   const skipped =
     args.rejectedOpCount > 0
       ? `\n\n**Skipped:** ${args.rejectedOpCount} proposed change${args.rejectedOpCount === 1 ? '' : 's'} did not validate (${args.rejectionReasons.join('; ')}).`

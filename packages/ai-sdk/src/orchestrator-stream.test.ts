@@ -1682,6 +1682,30 @@ describe('streamAgent', () => {
     );
   });
 
+  // GAP-010. Stopping a run does not un-apply its edits. Run e30c1fe9 left 38 operations
+  // in the project and said nothing about any of them: the report was gated on the run
+  // not being cancelled, so the last word the editor got was a perceptual warning about
+  // frame numbers over a timeline they had no summary of.
+  it('still accounts for the edits a cancelled run applied', () => {
+    const ops = [
+      { type: 'add_text_overlay', trackId: 'txt_main', text: 'GONE.', start: 0, end: 2 },
+    ] as unknown as AnyOperation[];
+    const report = agentCompletionReport({
+      ops,
+      steps: 2,
+      rejectedOpCount: 0,
+      rejectionReasons: [],
+      cancelled: true,
+      deliverableFileRequested: true,
+    });
+    expect(report).toMatch(/before you stopped the run/);
+    expect(report).toMatch(/can be undone/);
+    // It must not claim the work is finished…
+    expect(report).not.toMatch(/review the proposed change below/);
+    // …and the things the panel cannot do are still said, because they are still true.
+    expect(report).toMatch(/use the Export dialog/);
+  });
+
   it('collapses edits that read identically instead of repeating the line', () => {
     // The captured caption run closed with eight rows of "Set track caption style:" — the
     // same sentence eight times, over a dangling colon. Eight restyles of one track are ONE
