@@ -1757,7 +1757,9 @@ def test_text_overlay_honours_authored_style_and_position(
 
     small = frame_of({"fontSizePercent": 4})
     large = frame_of({"fontSizePercent": 12})
-    bright = lambda frame: int((frame.max(axis=2) > 200).sum())  # noqa: E731
+    def bright(frame: Any) -> int:
+        return int((frame.max(axis=2) > 200).sum())
+
     assert bright(large) > bright(small), "fontSizePercent did not change the rendered size"
 
     top = frame_of({"fontSizePercent": 8, "yPercent": 15})
