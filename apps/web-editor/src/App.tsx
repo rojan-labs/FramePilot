@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Patch } from '@framepilot/editor-core';
 import { createLogger, type CapabilityPackProjectResolutionWire } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
-import { ensureBaseTracks, newProject } from './editor/project.js';
+import { ensureBaseTracks, newProject, uniqueProjectId } from './editor/project.js';
 import {
   getBridge,
   onProjectChanged,
@@ -218,7 +218,9 @@ export function App(): JSX.Element {
     }
     if (suppressAutosave.current) {
       suppressAutosave.current = false;
-      setSaveState('saved');
+      // Never mask a save that is still running — a brand-new project is being
+      // written to disk at exactly this point in its lifecycle.
+      setSaveState((state) => (state === 'saving' ? state : 'saved'));
       return;
     }
     if (suppressFullAutosaveOnce.current) {
@@ -246,17 +248,59 @@ export function App(): JSX.Element {
     return unsubscribe;
   }, []);
 
-  const createNew = useCallback((name: string) => {
-    suppressAutosave.current = true;
-    setProject(newProject(name));
-    setNewCount((n) => n + 1);
-    setPath('');
-    projectRevisionRef.current = 0;
-    setProjectRevision(0);
-    setCapabilityPacks(null);
-    setCapabilityGateDismissed(false);
-    log.action('project created', { name });
+  /**
+   * First save of a brand-new project.
+   *
+   * It cannot go through {@link persist}: that reads the project and path from
+   * state this render has not committed yet, so the freshly created project is
+   * passed down explicitly instead.
+   */
+  const persistCreated = useCallback(async (created: Project): Promise<void> => {
+    setSaveState('saving');
+    setSaveError(null);
+    const outcome = await persistProject('', created, { expectedRevision: 0 });
+    if (!outcome.ok) {
+      setSaveState('error');
+      setSaveError(outcome.error);
+      log.warn('persisting the new project failed', outcome.error);
+      return;
+    }
+    setPath(outcome.path);
+    if (outcome.revision !== undefined) {
+      projectRevisionRef.current = outcome.revision;
+      setProjectRevision(outcome.revision);
+    }
+    setSaveState('saved');
+    setSaveError(null);
+    log.action('new project persisted', { projectId: created.id, path: outcome.path });
   }, []);
+
+  /**
+   * Create a project and persist it right away.
+   *
+   * WHY save immediately: autosave only runs on a *change*, so a project that
+   * was named but not yet edited existed nowhere on disk (desktop) or in
+   * localStorage (browser) — and therefore in no recent-projects list. It only
+   * appeared after the first import or timeline edit, which read as the name
+   * never having been saved.
+   */
+  const createNew = useCallback(
+    (name: string) => {
+      const created = newProject(name, { id: uniqueProjectId(name) });
+      // The immediate save below stands in for the debounced autosave.
+      suppressAutosave.current = true;
+      setProject(created);
+      setNewCount((n) => n + 1);
+      setPath('');
+      projectRevisionRef.current = 0;
+      setProjectRevision(0);
+      setCapabilityPacks(null);
+      setCapabilityGateDismissed(false);
+      log.action('project created', { name, projectId: created.id });
+      void persistCreated(created);
+    },
+    [persistCreated],
+  );
 
   const commitAuthoritativeProject = useCallback((next: Project, revision: number) => {
     setProject(ensureBaseTracks(next));

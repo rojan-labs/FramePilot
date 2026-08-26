@@ -12,6 +12,7 @@ import type { ExternalProjectChange, ExportProgressMessage } from './editor/brid
 import { App } from './App.js';
 import type { RendererBridge } from './editor/bridge.js';
 import { demoProject } from './editor/demo.js';
+import { listBrowserProjectSummaries, loadBrowserProject } from './editor/persistence.js';
 
 const STORAGE_PREFIX = 'framepilot:project:';
 const LAST_ID_KEY = 'framepilot:last-project-id';
@@ -181,9 +182,16 @@ describe('App shell', () => {
     );
   });
 
-  it('reloads live when the project file is changed externally (e.g. an MCP agent)', () => {
+  it('reloads live when the project file is changed externally (e.g. an MCP agent)', async () => {
     let push: ((change: ExternalProjectChange) => void) | null = null;
+    // Creation saves immediately, which is also how this test learns the id the
+    // external change has to carry to count as the *same* project.
+    let createdId: string | null = null;
     installBridge({
+      saveProjectDefault: vi.fn(async (project: unknown) => {
+        createdId = (project as { id: string }).id;
+        return { ok: true as const, path: '/projects/p.fp.json' };
+      }),
       onProjectChanged: vi.fn((listener) => {
         // The bridge already validates; the App receives a typed Project.
         push = listener as unknown as (change: ExternalProjectChange) => void;
@@ -193,6 +201,7 @@ describe('App shell', () => {
     render(<App />);
     // Navigate to editor (push callback is already wired on mount).
     navigateToEditor('Current Project');
+    await waitFor(() => expect(createdId).not.toBeNull());
     expect(screen.getByLabelText('project name').textContent).toBe('Current Project');
     fireEvent.click(screen.getByRole('tab', { name: 'Captions' }));
     expect(screen.getByRole('tab', { name: 'Captions' }).getAttribute('aria-selected')).toBe(
@@ -202,7 +211,7 @@ describe('App shell', () => {
     const external = {
       // Same open project: an agent step must reconcile it in place, not remount
       // the workspace and throw away the editor's active panel/stream state.
-      id: 'project_current_project',
+      id: createdId!,
       name: 'Reorganized by AI',
       version: 1,
       fps: 30,
@@ -238,11 +247,53 @@ describe('App shell', () => {
     expect(screen.getByLabelText('save state').title).toContain('disk full');
   });
 
-  it('shows the save-state chip (Saved for a freshly created project)', () => {
+  it('shows the save-state chip (Saved once a freshly created project is written)', async () => {
     installBridge();
     render(<App />);
     navigateToEditor();
-    expect(screen.getByLabelText('save state').getAttribute('data-state')).toBe('saved');
+    await waitFor(() =>
+      expect(screen.getByLabelText('save state').getAttribute('data-state')).toBe('saved'),
+    );
+  });
+
+  it('persists a brand-new project immediately, so it appears in recents unedited', async () => {
+    const bridge = installBridge();
+    render(<App />);
+    navigateToEditor('Untouched Project');
+
+    // No import, no timeline edit: creating the project is enough to save it.
+    await waitFor(() => expect(bridge.saveProjectDefault).toHaveBeenCalledTimes(1));
+    const [saved] = (bridge.saveProjectDefault as unknown as { mock: { calls: unknown[][] } }).mock
+      .calls[0] as [{ name: string; id: string }];
+    expect(saved.name).toBe('Untouched Project');
+    expect(saved.id).toContain('project_untouched_project');
+  });
+
+  it('writes a brand-new project to localStorage in browser mode', async () => {
+    render(<App />);
+    navigateToEditor('Browser Project');
+
+    await waitFor(() => expect(listBrowserProjectSummaries().length).toBe(1));
+    const [summary] = listBrowserProjectSummaries();
+    expect(summary!.name).toBe('Browser Project');
+    expect(loadBrowserProject(summary!.id)?.name).toBe('Browser Project');
+  });
+
+  it('gives two projects created with the same name separate storage', async () => {
+    render(<App />);
+    navigateToEditor('Same Name');
+    await waitFor(() => expect(listBrowserProjectSummaries().length).toBe(1));
+
+    openFileMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'New project' }));
+    const dialog = screen.getByRole('dialog', { name: 'New project' });
+    fireEvent.change(within(dialog).getByPlaceholderText('My project'), {
+      target: { value: 'Same Name' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+
+    // The second project must not overwrite the first one's file/blob.
+    await waitFor(() => expect(listBrowserProjectSummaries().length).toBe(2));
   });
 
   it('File → Home returns to the Recent Projects screen (H20)', async () => {

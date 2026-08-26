@@ -2385,6 +2385,16 @@ workspace typecheck/lint clean, dist rebuilt.
   source. A desktop import path (engine `inspect-media` + on-disk paths) is a Phase 8
   follow-up. See ADR 0013.
   ```
+- [x] Creating a project persists it immediately (discovered, 2026-08-26)
+  ```
+  — Autosave only ran on a *change*, so a named-but-unedited project was never written
+  and appeared in no recents list until the first import or timeline edit. `App.tsx`
+  now saves the project as part of creating it (`persistCreated` → `saveProjectDefault`
+  / localStorage), interactive creation takes a unique id (`uniqueProjectId`) so two
+  projects sharing a name no longer share a file, and the desktop save path refreshes
+  the recents entry so a rename shows up there. Covered by App tests, project.test.ts
+  and an e2e that returns Home right after creating.
+  ```
 - [x] Professional NLE layout (discovered, 2026-06-22; **revamped 2026-07-01**)
   ```
   — `components/Editor.tsx` composes a Premiere/Resolve/Cursor-style workspace: a top

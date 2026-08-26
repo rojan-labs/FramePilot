@@ -1239,6 +1239,13 @@ function registerIpcHandlers(): void {
           };
         }
         indexProjectBrain(project.id, guard.path);
+        // Keep the launch screen's recents label in step with a renamed project.
+        // Skipped when this project is already the most recent entry under the
+        // same name, so a routine autosave does not rewrite the recents file.
+        const [mostRecent] = await recentFiles.list();
+        if (mostRecent?.path !== guard.path || mostRecent.name !== project.name) {
+          await recentFiles.add({ path: guard.path, name: project.name, openedAt: Date.now() });
+        }
         await reconcileCapabilityPacks(project);
         return { ok: true, path: guard.path, revision: committed.revision };
       } catch (error) {

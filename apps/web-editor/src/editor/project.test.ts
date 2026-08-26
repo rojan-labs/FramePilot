@@ -9,6 +9,7 @@ import {
   newProject,
   newProjectFromVideo,
   removeAsset,
+  uniqueProjectId,
 } from './project.js';
 
 describe('newProject', () => {
@@ -28,10 +29,35 @@ describe('newProject', () => {
     expect(newProject('   ').id).toBe('project_untitled');
   });
 
+  it('honors an explicit id so same-named projects never share storage', () => {
+    const project = newProject('Wedding', { id: 'project_wedding_abc123' });
+    expect(project.id).toBe('project_wedding_abc123');
+    expect(safeParseProject(project).success).toBe(true);
+  });
+
   it('honors fps and resolution overrides', () => {
     const project = newProject('Wide', { fps: 24, resolution: { width: 1920, height: 1080 } });
     expect(project.fps).toBe(24);
     expect(project.resolution).toEqual({ width: 1920, height: 1080 });
+  });
+});
+
+describe('uniqueProjectId', () => {
+  it('keeps the readable slug and appends a unique suffix', () => {
+    const id = uniqueProjectId('My Wedding!', 1_700_000_000_000, () => 0.5);
+    expect(id.startsWith('project_my_wedding_')).toBe(true);
+    expect(id.length).toBeGreaterThan('project_my_wedding_'.length);
+  });
+
+  it('differs for two projects created with the same name', () => {
+    const first = uniqueProjectId('Same', 1_700_000_000_000, () => 0.1);
+    const second = uniqueProjectId('Same', 1_700_000_000_000, () => 0.9);
+    expect(first).not.toBe(second);
+  });
+
+  it('stays a file-name-safe slug even for a hostile name', () => {
+    const id = uniqueProjectId('../../etc/passwd', 1_700_000_000_000, () => 0.5);
+    expect(id).toMatch(/^project_[a-z0-9_]+$/);
   });
 });
 

@@ -38,6 +38,20 @@ test.describe('project load + transport', () => {
     await expect(clipCount(page)).toHaveCount(0);
   });
 
+  test('a newly created project appears in Recent projects before any edit', async ({ page }) => {
+    // Straight from the launch screen: name a project and go back Home without
+    // importing media or touching the timeline. Creation alone must persist it.
+    await page.goto('/');
+    await page.getByRole('button', { name: 'New Project' }).click();
+    await page.getByRole('textbox', { name: 'Project name' }).fill('Recents Check');
+    await page.getByRole('button', { name: 'Create' }).click();
+    await expect(page.getByLabel('project name', { exact: true })).toHaveText('Recents Check');
+
+    await page.getByRole('button', { name: 'File' }).click();
+    await page.getByRole('menuitem', { name: 'Home' }).click();
+    await expect(page.getByRole('button', { name: /Recents Check/ })).toBeVisible();
+  });
+
   test('Space / K / L drive the program-monitor play state', async ({ page }) => {
     await openEditor(page);
     const transport = page.getByRole('button', { name: /^(play|pause)$/ });

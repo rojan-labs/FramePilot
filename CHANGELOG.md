@@ -99,6 +99,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A project you just named is saved right away, so it is there when you come back.** Creating
+  a project only put it on screen — nothing was written until you imported footage or made a
+  timeline edit, because saving was triggered by *changes*. Name a project, look away, and it
+  was in no Recent projects list and in no folder: it looked like the name had never been
+  taken. Creating a project now writes it immediately, and its name stays in step with the
+  recents list when you rename it later. Two projects sharing a name no longer share a file
+  either — a second "Wedding" used to quietly overwrite the first one.
+  (`apps/web-editor/src/App.tsx`, `apps/web-editor/src/editor/project.ts`,
+  `apps/desktop/electron/main.ts`)
+
 - **The assistant can no longer tell you it made an edit that never reached your project.**
   When FramePilot's desktop app writes an agent edit, it re-checks it against the project you
   actually have open, and can refuse it — you switched projects mid-run, the timeline moved
