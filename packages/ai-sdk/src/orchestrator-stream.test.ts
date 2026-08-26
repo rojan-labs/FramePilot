@@ -3747,6 +3747,47 @@ describe('streamAgent cached-read action recovery', () => {
     ).toBe(false);
   });
 
+  // GAP-003. `recall_evidence` returns stored data, so it is `fromCache` by construction.
+  // That made a turn spent recalling — the exact behaviour the contract asks for, and the
+  // one tool a recovery turn deliberately preserves — the trigger for entering recovery.
+  // Run e30c1fe9 recalled the stock ids it needed and the next turn withheld the tool
+  // that could use them.
+  it('does not treat a turn spent recalling as a turn that learned nothing', async () => {
+    const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
+    const provider = new ScriptedProvider([
+      { text: 'reading', toolCalls: [read('r1')] },
+      // Recall only. Nothing here is a fresh read, and nothing here should punish the run.
+      {
+        text: 'recalling what I have',
+        toolCalls: [{ id: 'rc1', name: 'recall_evidence', arguments: { evidenceId: 'ev_1' } }],
+      },
+      { text: 'done', toolCalls: [] },
+    ]);
+    await drain(new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 6 }));
+    // The turn AFTER the recall still carries the full surface — no recovery lockout.
+    const afterRecall = provider.requests[2]!;
+    const names = afterRecall.tools?.map((tool) => tool.name) ?? [];
+    expect(names).toContain('get_timeline');
+    expect(afterRecall.messages.at(-1)!.content).not.toContain('ACTION RECOVERY');
+  });
+
+  // GAP-003. The cache trigger had no sentence: the surface changed, a card went red for
+  // a reason the harness had chosen, and nothing said so.
+  it('explains the switch when a turn re-read what the run already had', async () => {
+    const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
+    const provider = new ScriptedProvider([
+      { text: 'read', toolCalls: [read('r1')] },
+      { text: 'read again', toolCalls: [read('r2')] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 6 }),
+    );
+    expect(
+      events.some((event) => event.type === 'notification' && event.text.includes('nothing new')),
+    ).toBe(true);
+  });
+
   // GAP-002. The same branch served both cases with one sentence, and for a call the run
   // had never made the sentence was false. Run e30c1fe9 was told its `add_stock` was
   // "redundant — its result is already in this run"; nothing had been downloaded, and the

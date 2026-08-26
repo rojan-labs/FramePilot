@@ -512,6 +512,14 @@
       }
     },
     {
+      "id": "turn_golden:notice:8",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "notification",
+      "text": "That last look turned up nothing new — working from what has already been gathered."
+    },
+    {
       "id": "turn_golden:run-state",
       "conversationId": "conv_golden",
       "ts": 1000,
@@ -599,7 +607,7 @@
       }
     },
     {
-      "id": "turn_golden:status:8",
+      "id": "turn_golden:status:9",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -694,7 +702,7 @@
       "done": true
     },
     {
-      "id": "turn_golden:status:9",
+      "id": "turn_golden:status:10",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -723,7 +731,7 @@
       "title": "Reading the timeline"
     },
     {
-      "id": "turn_golden:result:10",
+      "id": "turn_golden:result:11",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -823,7 +831,7 @@
       }
     },
     {
-      "id": "turn_golden:notice:11",
+      "id": "turn_golden:notice:12",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -942,7 +950,7 @@
       }
     },
     {
-      "id": "turn_golden:usage:12",
+      "id": "turn_golden:usage:13",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -952,7 +960,7 @@
       "modelCalls": 3
     },
     {
-      "id": "turn_golden:status:13",
+      "id": "turn_golden:status:14",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",

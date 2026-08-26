@@ -1456,9 +1456,22 @@ export function onTurnResult(
   // budget. Any attempt — even one the validator rejected — proves the run has left
   // reconnaissance and refunds the whole budget.
   const researchStreak = attemptedEdit ? 0 : state.researchStreak + 1;
+  // Recalls are excluded from this question, and the exclusion is load-bearing.
+  //
+  // `recall_evidence` returns stored data, so it is `fromCache` by construction — which
+  // meant a turn that did exactly what the contract asks (recall rather than re-read)
+  // read as "this turn learned nothing" and armed the recovery lockout. In run e30c1fe9
+  // that fired four times: the model recalled the stock candidates it needed the ids of,
+  // and the next turn withheld the tool that could act on them. The tools the recovery
+  // turn preserves must not be the trigger for entering it.
+  //
+  // A turn of ONLY recalls therefore leaves this false. A run that recalls and nothing
+  // else forever is still caught — by the no-progress and stall guards, which is where
+  // "provably going nowhere" belongs.
+  const gathering = r.callFacts.filter((fact) => fact.role !== 'recall');
   const allFromCache =
-    r.callFacts.length > 0 &&
-    r.callFacts.every(
+    gathering.length > 0 &&
+    gathering.every(
       (fact) => fact.fromCache && (fact.status === 'completed' || fact.status === 'warning'),
     );
   // A turn that proposed operations and lost them to the validator is recorded too: the
@@ -1565,6 +1578,15 @@ export function onTurnResult(
       events.push(
         em.notification(
           'Gathered enough to work from — switching from reviewing the footage to making the edit.',
+        ),
+      );
+    } else if (allFromCache) {
+      // The third trigger had no sentence at all. A run switched to a restricted surface,
+      // a tool card went red for a reason the harness had chosen, and the editor watching
+      // was shown nothing that connected the two.
+      events.push(
+        em.notification(
+          'That last look turned up nothing new — working from what has already been gathered.',
         ),
       );
     }

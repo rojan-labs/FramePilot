@@ -9594,6 +9594,14 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
+      "id": "turn_1:notice:8",
+      "text": "That last look turned up nothing new — working from what has already been gathered.",
+      "ts": 1000,
+      "turnId": "turn_1",
+      "type": "notification",
+    },
+    {
+      "conversationId": "conv_1",
       "id": "turn_1:run-state",
       "ts": 1000,
       "turnId": "turn_1",
@@ -9681,7 +9689,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
-      "id": "turn_1:status:8",
+      "id": "turn_1:status:9",
       "status": "generating",
       "ts": 1000,
       "turnId": "turn_1",
@@ -9776,7 +9784,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
-      "id": "turn_1:status:9",
+      "id": "turn_1:status:10",
       "status": "reading",
       "ts": 1000,
       "turnId": "turn_1",
@@ -9805,7 +9813,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
-      "id": "turn_1:result:10",
+      "id": "turn_1:result:11",
       "summary": "Skipped redundant get_timeline call",
       "toolCallId": "r",
       "ts": 1000,
@@ -9905,7 +9913,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
-      "id": "turn_1:notice:11",
+      "id": "turn_1:notice:12",
       "text": "No edits were applied — this run reviewed the footage but never made a change, so your timeline is exactly as you left it. Try again, or ask for a smaller, more specific edit to start from.",
       "ts": 1000,
       "turnId": "turn_1",
@@ -10024,7 +10032,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
-      "id": "turn_1:usage:12",
+      "id": "turn_1:usage:13",
       "modelCalls": 3,
       "tokens": 0,
       "ts": 1000,
@@ -10034,7 +10042,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
-      "id": "turn_1:status:13",
+      "id": "turn_1:status:14",
       "status": "failed",
       "ts": 1000,
       "turnId": "turn_1",
