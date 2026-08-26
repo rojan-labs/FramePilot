@@ -195,6 +195,7 @@ import {
 } from './tool-dispatch.js';
 import { type HostToolExecutor, type HostToolOutcome } from './tool-executor.js';
 import { withToolInputContract } from './tool-input-contract.js';
+import { toolContract } from './tool-contract.js';
 import { concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
 import { recordToolRun } from './run-log.js';
 import { IMPLICIT_ONLY_TOOL_NAMES, QUESTION_ROUTE_PERMISSIONS, selectTools } from './tool-scope.js';
@@ -2339,7 +2340,16 @@ export class Orchestrator {
       // and built forty-six clips on asset durations it inferred from clip-id suffixes
       // because the media bin it had read twice was no longer reachable.
       if (scope === 'action-recovery') {
-        return tool.kind === 'mutate' || tool.kind === 'ask' || tool.name === 'recall_evidence';
+        // `effectClass`, not `kind`. The registry kind of `add_stock`/`add_music` is
+        // `analysis` — they are reached through a search — but each one downloads a file
+        // and places a clip through a reversible patch, which `tool-contract.ts` has
+        // always declared. Filtering on `kind` here refused the one call that could put
+        // picture into an empty project, and told the model it was "redundant": run
+        // `e30c1fe9` asked for exactly one clip it had already found, was refused, and
+        // built a reel with no footage in it. A recovery turn demands an ACTION; these
+        // are actions.
+        const effect = toolContract(tool).effectClass;
+        return effect === 'mutation' || tool.kind === 'ask' || tool.name === 'recall_evidence';
       }
       if (questionScope !== undefined && !questionScope.has(tool.name)) return false;
       return stage === undefined || stageAllowsRole(stage, toolRole(tool.name, tool.mutates));

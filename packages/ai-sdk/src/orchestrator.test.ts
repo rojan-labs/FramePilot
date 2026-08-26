@@ -24,6 +24,7 @@ import type { AiCompletionRequest, AiProvider, AiResponse, ToolCall } from './pr
 import { type ContextInput, estimateTokens } from './context-builder.js';
 import { TOOL_REGISTRY, getTool } from './tool-registry.js';
 import { classifyTool } from './tool-classification.js';
+import { toolContract } from './tool-contract.js';
 import { distil } from './kernel/briefing.js';
 import { makeProject } from './__fixtures__/project.js';
 import { DIMINISHING_RETURNS_TURNS, STALL_CONFIRM_TURNS } from './kernel/conductor.js';
@@ -2287,12 +2288,27 @@ describe('route-scoped tool surface (E5)', () => {
     // recall tool, and placed forty-six clips on asset durations it had inferred from
     // clip-id suffixes because the media bin it had read twice was unreachable.
     expect(names).toContain('recall_evidence');
+    // A download IS the action this turn demands. These two read as analysis by registry
+    // kind and were filtered out on that basis, so a run that had already found its
+    // footage was refused the only call that could fetch it — and told the call was
+    // redundant. This assertion is why the filter reads `effectClass` now.
+    expect(names).toContain('add_stock');
+    expect(names).toContain('add_music');
+    // Sourcing that only GATHERS stays out: the turn exists because the run has looked
+    // enough.
+    expect(names).not.toContain('search_stock');
+    expect(names).not.toContain('search_music');
     expect(names).not.toContain('get_timeline');
     expect(names).not.toContain('list_assets');
     expect(names).not.toContain('detect_beats');
     for (const name of names) {
       if (name === 'recall_evidence') continue;
-      expect(['mutate', 'ask']).toContain(getTool(name)!.kind);
+      const tool = getTool(name)!;
+      // The contract, not the registry kind — that is the whole correction.
+      expect(
+        toolContract(tool).effectClass === 'mutation' || tool.kind === 'ask',
+        `${name} is neither a mutation nor an ask`,
+      ).toBe(true);
     }
   });
 

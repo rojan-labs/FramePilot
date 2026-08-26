@@ -67,12 +67,17 @@ export function stageAdvanceFor(
       // Any tool call at all means the run has read the request and started work.
       return roles.length > 0 ? 'inspect' : null;
     case 'inspect':
-      // Content work has begun; the arrangement is understood well enough.
-      return roles.some((r) => r === 'analysis' || r === 'guidance') ? 'analyze' : null;
+      // Content work has begun; the arrangement is understood well enough. Sourcing
+      // counts: a run searching a stock library has plainly stopped reading the project.
+      return roles.some((r) => r === 'analysis' || r === 'guidance' || r === 'sourcing')
+        ? 'analyze'
+        : null;
     case 'analyze':
       // Reaching for a mutation is the moment analysis ends and a plan is being committed
-      // to — whether or not the validator let that particular edit through.
-      return roles.includes('mutation') ? 'plan' : null;
+      // to — whether or not the validator let that particular edit through. `applied`
+      // closes it too: a sourcing call that landed a clip is a commitment by any reading,
+      // and it carries no `mutation` role of its own.
+      return roles.includes('mutation') || applied ? 'plan' : null;
     case 'plan':
       // A patch that actually landed is unambiguous proof the run is executing.
       return applied ? 'apply' : null;
@@ -122,6 +127,16 @@ export function stageAllowsRole(stage: RunStage, role: ToolRole): boolean {
   if (!isExecutionStage(stage)) return true;
   return role !== 'analysis' && role !== 'guidance';
 }
+
+/*
+ * `sourcing` is deliberately absent from the closed set above, and that is the whole
+ * point of the role existing. The rule this function encodes is "the evidence for the
+ * plan is already stored, so recall it instead of gathering again" — true of a transcript
+ * or a beat grid, false of a stock library, which holds material the project does not own
+ * and `recall_evidence` cannot conjure. Withholding it here is what left run `e30c1fe9`
+ * unable to put a single frame of picture into a 30-second reel after its first patch
+ * landed. See `tool-classification.ts` for the rest of that account.
+ */
 
 /*
  * `planningExhausted(researchStreak, budget)` used to live here. It was a byte-for-byte

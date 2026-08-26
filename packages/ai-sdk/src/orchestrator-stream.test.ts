@@ -2825,6 +2825,49 @@ describe('streamAgent host tool execution (Phase T)', () => {
       expect(fedBack).not.toMatch(/Placed at/);
     });
 
+    // GAP-001. The run that produced the empty reel: an empty project, eight stock
+    // searches, a spine of empty tracks committed first — and from that patch onward the
+    // stage gate withheld every sourcing descriptor, because `add_stock`'s registry kind
+    // is `analysis`. The model could see 80 usable clips in its own evidence and had no
+    // call left that could download one. The whole 30 seconds shipped as text on black.
+    it('can still download after an edit has landed and the run is executing', async () => {
+      const trackCall = {
+        id: 't1',
+        name: 'add_track',
+        arguments: { type: 'video' as const, id: 'v_main' },
+      };
+      const laterStock = {
+        id: 's9',
+        name: 'add_stock',
+        arguments: { remoteId: 'px_1', kind: 'video' as const },
+      };
+      const provider = new ScriptedProvider([
+        { text: 'laying the spine', toolCalls: [trackCall] },
+        { text: 'now the footage', toolCalls: [laterStock] },
+        { text: 'done', toolCalls: [] },
+      ]);
+      const events = await drain(
+        new Orchestrator(provider, {
+          executor: hostRun({ asset: stockAsset }),
+        }).streamAgent(input, opts()),
+      );
+      // The second turn is the one under test: it runs after a patch has been applied,
+      // so the run is in an execution stage.
+      const stockTerminal = events.filter((e) => e.type === 'tool_call' && e.id === 's9').at(-1);
+      expect(stockTerminal).toMatchObject({ status: 'completed' });
+      const diffs = events.filter((e) => e.type === 'diff');
+      const laterOps =
+        diffs.at(-1)?.type === 'diff'
+          ? (
+              diffs.at(-1) as { edit: { patch: { operations: AnyOperation[] } } }
+            ).edit.patch.operations.map((op) => op.type)
+          : [];
+      expect(laterOps).toContain('add_asset');
+      // And the descriptor was really advertised — not merely accepted when called.
+      const secondTurnTools = (provider.requests[1]?.tools ?? []).map((t) => t.name);
+      expect(secondTurnTools).toContain('add_stock');
+    });
+
     // The rule that made gathering impossible must not apply to gathering.
     it('accepts a bin download at a moment where a placement would be refused', async () => {
       const binCall = {

@@ -48,7 +48,9 @@ function kindFor(role: ToolRole, toolName: string): FactKind {
   if (role === 'inspection') return toolName.includes('asset') ? 'asset' : 'project';
   if (toolName === 'get_transcript') return 'transcript';
   if (toolName === 'analyze_silence' || toolName === 'get_audio_levels') return 'audio';
-  if (role === 'analysis') return 'footage';
+  // Sourcing reads like analysis to the briefing: what a stock search found, and what a
+  // download brought in, are both facts about the material the run can cut with.
+  if (role === 'analysis' || role === 'sourcing') return 'footage';
   return 'derived';
 }
 
