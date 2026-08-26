@@ -512,6 +512,16 @@ function projectRuntimeEffect(snapshot: RunSnapshot, event: RunEventEnvelope): R
  * desktop run. The execution runtime records its outcomes through this boundary
  * in the next foundation phase.
  */
+/**
+ * How many recent runs {@link RunCoordinator.latestWorkingStateFor} will look at.
+ *
+ * Small on purpose. The lookup sits at the head of every agent turn, and its value decays
+ * fast with age: the twentieth-newest run for a project is not "the previous run" in any
+ * sense the editor would recognise. Scanning further would trade a real latency cost at
+ * the start of every request for an answer nobody wanted.
+ */
+const CARRY_FORWARD_SCAN_LIMIT = 20;
+
 export class RunCoordinator {
   private readonly lanes = new Map<string, Promise<void>>();
   private readonly subscribers = new Map<string, Set<Subscriber>>();
@@ -740,6 +750,59 @@ export class RunCoordinator {
     return reconciled;
   }
 
+  /**
+   * The causal ledger the most recent FINISHED run for this conversation and project
+   * ended with (context-management P5.1).
+   *
+   * Answers "what did the last run learn?" so a follow-up request does not re-read the
+   * transcript and re-map the footage it already paid for. The SDK decides what may
+   * actually cross the boundary — `carryForwardWorkingState` carries only
+   * `revision_independent` facts and committed decisions — so this is deliberately a dumb
+   * read: find the newest matching run, hand over its ledger verbatim.
+   *
+   * Reads SNAPSHOTS only, never the WAL. A full load parses a run's entire event log —
+   * tens of MB each — and every one of those bytes would be read at the head of every
+   * turn, to answer a question the few-KB snapshot already holds.
+   *
+   * Bounded by {@link CARRY_FORWARD_SCAN_LIMIT}: an editor with a thousand runs must not
+   * pay a thousand file reads before their next request starts. Newest-first, so the
+   * bound only ever costs the answer when the match is genuinely old — which is exactly
+   * when it has stopped being "the previous run".
+   */
+  public async latestWorkingStateFor(
+    conversationId: string,
+    projectId: string,
+  ): Promise<JsonValue | undefined> {
+    if (conversationId === '' || projectId === '') return undefined;
+    const runIds = await this.store.listRunIdsByRecency();
+    let newest: RunSnapshot | undefined;
+    for (const runId of runIds.slice(0, CARRY_FORWARD_SCAN_LIMIT)) {
+      let snapshot: RunSnapshot | null;
+      try {
+        snapshot = await this.store.peekSnapshot(runId);
+      } catch {
+        // A corrupt or quarantined run costs this lookup nothing: keep scanning. The
+        // whole read is best-effort context enrichment.
+        continue;
+      }
+      if (snapshot === null || snapshot.projectId !== projectId) continue;
+      // Only a FINISHED run. An in-flight one is either this very request or a
+      // concurrent run whose conclusions are not conclusions yet.
+      if (!TERMINAL_STATUSES.has(snapshot.status)) continue;
+      if (snapshot.workingState === undefined) continue;
+      const working = parseWorkingState(snapshot.workingState);
+      if (working === null || working.identity.conversationId !== conversationId) continue;
+      // Picked by the snapshot's own `updatedAt` rather than by taking the first hit.
+      // `listRunIdsByRecency` is OPTIONAL on the store interface and degrades to
+      // `listRunIds`, whose order is the filesystem's — so trusting position would
+      // silently return the OLDEST run on any store that does not implement it. The scan
+      // bound still depends on the ordering (it caps which runs are looked at); the
+      // choice among them does not.
+      if (newest === undefined || snapshot.updatedAt > newest.updatedAt) newest = snapshot;
+    }
+    return newest?.workingState;
+  }
+
   /** Persist one compatibility-stream event before any renderer observes it. */
   public recordStreamEvent(input: RecordStreamEventInput): Promise<RunEventEnvelope> {
     return this.withRunLane(input.runId, async () => {
@@ -951,8 +1014,10 @@ export class RunCoordinator {
       if (existingDecision?.state === desiredState) {
         const priorDecisionEvent = [...stored.events].reverse().find((candidate) => {
           const priorCommand = commandFromEvent(candidate);
-          return priorCommand?.kind === command.kind &&
-            priorCommand.payload.patchId === command.payload.patchId;
+          return (
+            priorCommand?.kind === command.kind &&
+            priorCommand.payload.patchId === command.payload.patchId
+          );
         });
         if (priorDecisionEvent !== undefined) {
           return { command, event: priorDecisionEvent, snapshot: currentSnapshot };

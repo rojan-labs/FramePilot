@@ -405,3 +405,161 @@ describe('RunCoordinator.reconcileInterruptedRuns', () => {
     });
   });
 });
+
+/**
+ * The previous run's ledger, for the next run to inherit (context-management P5.1).
+ *
+ * Run memory used to die at the run boundary: turn 1 could spend six turns reading the
+ * transcript and mapping the footage, and turn 2 started knowing none of it. The SDK
+ * decides what may actually cross (`carryForwardWorkingState` keeps only
+ * `revision_independent` facts and committed decisions); this lookup's only job is to
+ * find the right run and hand its ledger over.
+ */
+describe('RunCoordinator.latestWorkingStateFor', () => {
+  /** Finish a run and give it a ledger, exactly as a live run's `run_state` events do. */
+  async function finishedRun(
+    coordinator: RunCoordinator,
+    gateway: RunGateway,
+    args: { readonly projectId: string; readonly conversationId: string; readonly fact: string },
+  ): Promise<string> {
+    const started = await gateway.start({
+      projectId: args.projectId,
+      projectRevision: 0,
+      userPrompt: 'find the best moments',
+      mode: 'agent',
+    });
+    const runId = started.snapshot.runId;
+    await coordinator.recordStreamEvent({
+      runId,
+      projectId: args.projectId,
+      event: {
+        type: 'run_state',
+        working: workingState(runId, args.projectId, args.conversationId, args.fact),
+      },
+    });
+    await coordinator.complete({
+      runId,
+      projectId: args.projectId,
+      status: 'completed',
+      outcome: { kind: 'completed_no_changes', changed: false, warnings: [] },
+    });
+    return runId;
+  }
+
+  it('returns the ledger of the newest finished run for this conversation and project', async () => {
+    const { coordinator, gateway } = newCoordinator();
+    await finishedRun(coordinator, gateway, {
+      projectId: 'proj',
+      conversationId: 'conv',
+      fact: 'asset_1 runs 8:42.',
+    });
+    await finishedRun(coordinator, gateway, {
+      projectId: 'proj',
+      conversationId: 'conv',
+      fact: 'the strongest claim is at 4:12.',
+    });
+    const found = await coordinator.latestWorkingStateFor('conv', 'proj');
+    expect(JSON.stringify(found)).toContain('the strongest claim is at 4:12.');
+  });
+
+  it('does not cross a project or a conversation boundary', async () => {
+    // A ledger from somewhere else is not stale, it is about something else.
+    const { coordinator, gateway } = newCoordinator();
+    await finishedRun(coordinator, gateway, {
+      projectId: 'proj',
+      conversationId: 'conv',
+      fact: 'asset_1 runs 8:42.',
+    });
+    expect(await coordinator.latestWorkingStateFor('conv', 'other_project')).toBeUndefined();
+    expect(await coordinator.latestWorkingStateFor('other_conv', 'proj')).toBeUndefined();
+  });
+
+  it('ignores a run that has not finished', async () => {
+    // An in-flight run is either this very request or a concurrent one whose conclusions
+    // are not conclusions yet.
+    const { coordinator, gateway } = newCoordinator();
+    const started = await gateway.start({
+      projectId: 'proj',
+      projectRevision: 0,
+      userPrompt: 'find the best moments',
+      mode: 'agent',
+    });
+    await coordinator.recordStreamEvent({
+      runId: started.snapshot.runId,
+      projectId: 'proj',
+      event: {
+        type: 'run_state',
+        working: workingState(started.snapshot.runId, 'proj', 'conv', 'in flight.'),
+      },
+    });
+    expect(await coordinator.latestWorkingStateFor('conv', 'proj')).toBeUndefined();
+  });
+
+  it('answers from SNAPSHOTS, never by replaying a run’s event log', async () => {
+    // A full load parses a run's entire WAL — tens of MB each — and this lookup sits at
+    // the head of every agent turn. The few-KB snapshot already holds the answer.
+    const { coordinator, gateway, io } = newCoordinator();
+    await finishedRun(coordinator, gateway, {
+      projectId: 'proj',
+      conversationId: 'conv',
+      fact: 'asset_1 runs 8:42.',
+    });
+    const walReadsBefore = io.walReads;
+    await coordinator.latestWorkingStateFor('conv', 'proj');
+    expect(io.walReads).toBe(walReadsBefore);
+  });
+
+  it('returns nothing rather than throwing when there is no history at all', async () => {
+    const { coordinator } = newCoordinator();
+    expect(await coordinator.latestWorkingStateFor('conv', 'proj')).toBeUndefined();
+    expect(await coordinator.latestWorkingStateFor('', '')).toBeUndefined();
+  });
+});
+
+/** A minimal but VALID causal ledger — `parseWorkingState` must accept it. */
+function workingState(
+  runId: string,
+  projectId: string,
+  conversationId: string,
+  statement: string,
+): Record<string, unknown> {
+  return {
+    schemaVersion: 2,
+    runId,
+    identity: { conversationId, projectId, attemptId: runId },
+    version: 1,
+    objective: { request: 'find the best moments', outcome: '', acceptance: [], provisional: true },
+    stage: 'interpret',
+    completedStages: [],
+    stageEnteredAtTurn: 0,
+    facts: [
+      {
+        id: 'fact_1',
+        kind: 'asset',
+        statement,
+        evidenceIds: [],
+        scope: 'revision_independent',
+        observedAtRevision: 0,
+        stage: 'inspect',
+      },
+    ],
+    decisions: [],
+    plan: {
+      status: 'none',
+      id: null,
+      committedAtTurn: null,
+      basedOnProjectRevision: null,
+      decisionIds: [],
+    },
+    execution: { authorized: false },
+    evidence: [],
+    objectives: [],
+    operations: [],
+    verifications: [],
+    nextAction: null,
+    blockedOn: null,
+    integrity: { status: 'valid', diagnostics: [] },
+    baseProjectRevision: 0,
+    currentProjectRevision: 0,
+  };
+}

@@ -68,6 +68,7 @@ import {
   advanceStage,
   addDiagnostic,
   commitExecutionPlan,
+  carryForwardWorkingState,
   initialWorkingState,
   onProjectRevisionChanged,
   parseWorkingState,
@@ -934,6 +935,12 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
     attemptId: command.stream.turnId,
     projectRevision: command.input.project.timeline.revision ?? 0,
   });
+  // P5.1: a new run starts where the last one finished. Only what is still true crosses
+  // the boundary — `revision_independent` facts and committed decisions — and only when
+  // the conversation and project both match; `carryForwardWorkingState` owns those rules.
+  // Skipped while resuming, because a crash checkpoint already carries this run's own
+  // ledger and seeding it a second time would duplicate its facts.
+
   // What the run is actually being asked to do. A message that only says "continue"
   // names no work of its own, so it resolves to the request underneath it: seeding the
   // objective from the literal nudge made "contine" the run's outcome, its acceptance
@@ -966,9 +973,17 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
   // When the creator disables the visible detailed-planning turn, commit a minimal
   // objective-backed authorization record from the persisted request itself. It is
   // machine-readable and durable before the first tool turn, never inferred from prose.
-  const freshWorking = planning
-    ? interpreted
-    : commitExecutionPlan(interpreted, [objectiveText], 0);
+  const planned = planning ? interpreted : commitExecutionPlan(interpreted, [objectiveText], 0);
+  // P5.1: a new run starts where the last one finished. Applied AFTER the plan commit on
+  // purpose — `commitExecutionPlan` REPLACES the decision list with the plan's own, so
+  // seeding earlier would have the new run's plan silently erase what the editor settled
+  // in the last one. Only what is still true crosses (`revision_independent` facts and
+  // committed decisions), and only when the conversation and project both match;
+  // `carryForwardWorkingState` owns those rules. Skipped while resuming, because a crash
+  // checkpoint already carries this run's own ledger.
+  const freshWorking = resuming
+    ? planned
+    : carryForwardWorkingState(parseWorkingState(ao.carriedForward), planned);
   const started: ConductorState = {
     phase: resuming ? 'resuming' : planning ? 'planning' : 'executing',
     turnRef: command.stream,

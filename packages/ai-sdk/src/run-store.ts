@@ -95,11 +95,7 @@ export const DEFAULT_RUN_RETENTION: RunRetentionPolicy = {
 export interface RunStoreIO {
   readSnapshot(runId: string): Promise<string | null>;
   readWal(runId: string): Promise<string | null>;
-  readWalPage?(
-    runId: string,
-    afterSequence: number,
-    limit: number,
-  ): Promise<readonly string[]>;
+  readWalPage?(runId: string, afterSequence: number, limit: number): Promise<readonly string[]>;
   listRunIdsByRecency?(): Promise<readonly string[]>;
   deleteRun?(runId: string): Promise<void>;
   pruneQuarantine?(maxAgeMs: number): Promise<number>;
@@ -321,6 +317,17 @@ export class RunStore {
 
   public listRunIds(): Promise<readonly string[]> {
     return this.io.listRunIds();
+  }
+
+  /**
+   * Run ids newest-first, when the backing store can order them; otherwise unordered.
+   *
+   * Exposed for the same reason `prune` uses it internally: "the previous run" is a
+   * recency question, and answering it by loading every run in arbitrary order would
+   * read the entire history to find the newest entry.
+   */
+  public listRunIdsByRecency(): Promise<readonly string[]> {
+    return this.io.listRunIdsByRecency?.() ?? this.io.listRunIds();
   }
 
   public async prune(
@@ -554,7 +561,8 @@ export class RunStore {
   ): void {
     let expected = state.throughSequence + 1;
     for (const event of events) {
-      if (event.runId !== runId) throw new Error(`WAL page contains event for run "${event.runId}".`);
+      if (event.runId !== runId)
+        throw new Error(`WAL page contains event for run "${event.runId}".`);
       if (event.sequence !== expected) {
         throw new Error(`WAL page expected sequence ${expected}, found ${event.sequence}.`);
       }

@@ -1,4 +1,4 @@
-# Phase 5 — The agent does not re-learn the footage, or the editor's taste — `[ ]`
+# Phase 5 — The agent does not re-learn the footage, or the editor's taste — `[x]`
 
 > **Ships:** turn 2 of a session starts knowing what turn 1 found; the editor can teach a
 > preference and have it stick; the tool surface stops churning mid-run.
@@ -46,7 +46,7 @@ meter.
 
 ---
 
-## P5.1 — A new run starts where the last one finished — `[ ]`
+## P5.1 — A new run starts where the last one finished — `[x]`
 
 **Closes:** F6. **Touches:** `kernel/conductor.ts:928`,
 `apps/desktop/electron/ai/run-coordinator-base.ts`.
@@ -74,6 +74,40 @@ objective; inheriting the old one is how a run ends up executing the previous tu
 **Evidence.** A two-run test: run 1 reads the transcript and files facts; run 2 issues a
 follow-up and **does not** call `get_transcript` again — the fact is in its briefing.
 Benchmark: facts re-derived on turn 2 → 0 for still-valid facts.
+
+**Shipped 2026-08-26.** `carryForwardWorkingState(previous, fresh)` is the whole rule, in
+one pure function: `revision_independent` facts and **committed** decisions cross; the
+objective, plan, stage, nextAction, blockers, verifications and operations do not; and
+nothing crosses at all unless the conversation **and** the project both match — a ledger
+from elsewhere is not stale, it is about something else.
+
+`AgentOptions.carriedForward` carries the previous ledger in as raw persisted data,
+validated by `parseWorkingState`, so a host that hands over rubbish costs the run its
+inherited facts and never its correctness. Host wiring: `RunCoordinator.latestWorkingStateFor`
+→ `AiStreamHub`'s `carriedForwardFor` → `agentOptions`.
+
+**Four things the plan did not anticipate, each decided rather than papered over:**
+
+- **Evidence handles cannot be carried, so they are not.** The plan asks for handles that
+  "still resolve". They cannot: a handle is an address into the previous run's
+  `EvidenceStore`, which is in-memory and per-run, so the payload is gone. Carrying an
+  address that cannot be dereferenced is precisely the broken promise `clearedWithHandle`
+  was written to end, and persisting the payloads would mean a new store, which this phase
+  forbids. So the `evidenceIds` are stripped from carried facts too, and a carried fact
+  **says it is carried** — `CARRIED_FACT_PREFIX` — because the model must be able to tell
+  a fact it can check from one it cannot.
+- **Seeding must happen AFTER the plan commit, not before.** `commitExecutionPlan`
+  *replaces* the decision list with the plan's own, so seeding earlier had the new run's
+  plan silently erase what the editor settled in the last one. This is why the two-run test
+  asserts the decision, not only the facts.
+- **Carried ids are re-prefixed.** Ids are unique only within a run, and
+  `commitExecutionPlan` mints `decision_1…n` — a carried `decision_1` would collide.
+- **The host lookup picks by `updatedAt`, not by position.** `listRunIdsByRecency` is
+  optional on the store interface and degrades to `listRunIds`, whose order is the
+  filesystem's; trusting position would have silently returned the OLDEST run on any store
+  without it. It also reads **snapshots only** — a full load parses a run's entire WAL,
+  tens of MB, at the head of every turn — and is bounded to 20 runs, because the
+  twentieth-newest run is not "the previous run" in any sense an editor would recognise.
 
 ---
 

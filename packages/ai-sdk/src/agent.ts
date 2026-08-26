@@ -120,6 +120,22 @@ export interface AgentOptions {
     readonly working?: unknown;
   };
   /**
+   * The PREVIOUS run's persisted causal ledger, for the same conversation and project
+   * (context-management P5.1).
+   *
+   * Distinct from {@link AgentOptions.resume}, which is a within-run crash checkpoint that
+   * rebuilds a project from the ops it already applied. This is the other boundary: a new
+   * request, in the same session, that should not have to re-learn the footage. The host
+   * supplies the last run's `RunSnapshot.workingState`; the Conductor filters it through
+   * `carryForwardWorkingState`, which carries only `revision_independent` facts and
+   * committed decisions and drops everything that belonged to the run that made it.
+   *
+   * `unknown` on purpose: it comes off disk and is validated by `parseWorkingState`, which
+   * returns `null` rather than throwing for anything it cannot understand. A host that
+   * hands over rubbish costs the run its inherited facts, never its correctness.
+   */
+  readonly carriedForward?: unknown;
+  /**
    * Per-run analysis budget overrides (plan B5.4): caps on frames extracted, ffmpeg
    * seconds, and transcription minutes the run may spend on host analysis. A partial
    * override merges over {@link DEFAULT_ANALYSIS_CAPS}; omit to use the defaults.

@@ -2188,6 +2188,21 @@ function registerIpcHandlers(): void {
     (_event, id: unknown): Promise<ConversationSaveResult> => conversations.delete(id),
   );
 
+  /**
+   * Late binding for the durable run coordinator (context-management P5.1).
+   *
+   * The AI stream hub is constructed here and the run store several hundred lines below,
+   * where the durable orchestration protocol is set up — and the hub needs to ASK the
+   * store what the previous run learned. Reordering the two would move the durable-run
+   * setup above the IPC surface that depends on nothing of it, for one lookup. A holder
+   * assigned once at startup keeps both where they belong, and reads as `undefined` for
+   * the window before assignment, which is honest: there is no previous run to inherit
+   * from before the store exists.
+   */
+  const previousRunLedger: {
+    read?: (conversationId: string, projectId: string) => Promise<unknown>;
+  } = {};
+
   // Streaming AI sidebar (Phase 11 M3, ADR 0033). Fetch runs here (no sandbox); the
   // hub mints an unguessable requestId, scopes events + aborts to the owning sender,
   // re-validates the request, bounds the run with a timeout, and aborts on a destroyed
@@ -2227,6 +2242,13 @@ function registerIpcHandlers(): void {
       baseUrl: engineBaseUrl,
       fetchFn: electronFetch,
     }),
+    // And what the last RUN learned (P5.1). `sessionContextFor` above is the NARRATIVE
+    // tier — the corrections and decisions a human recorded. This is the typed ledger,
+    // which is where what the run DISCOVERED about the footage lives, and nothing carried
+    // it across the run boundary before: turn 1 could spend six turns reading the
+    // transcript and turn 2 started knowing none of it.
+    carriedForwardFor: (conversationId, projectId) =>
+      previousRunLedger.read?.(conversationId, projectId) ?? Promise.resolve(undefined),
     // The other half of that memory: something has to WRITE what the editor tells a run,
     // or the digest above has nothing new to report. Fire-and-forget, like the review
     // decisions recorded on Accept/Reject.
@@ -2593,6 +2615,9 @@ function registerIpcHandlers(): void {
     new FileRunStoreIO(path.join(app.getPath('userData'), 'orchestration')),
   );
   const runGatewayCoordinator = new RunCoordinator(runStore);
+  // The store exists now, so the AI hub's previous-run lookup can be served (P5.1).
+  previousRunLedger.read = (conversationId, projectId) =>
+    runGatewayCoordinator.latestWorkingStateFor(conversationId, projectId);
   const runGateway = new RunGateway(runGatewayCoordinator);
   const runIpcHub = new RunIpcHub(runGateway, IpcChannels.runEvent);
   // Close out any run left "in progress" by a previous session that crashed, was

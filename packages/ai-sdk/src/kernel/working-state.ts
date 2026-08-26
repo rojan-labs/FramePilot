@@ -1143,3 +1143,124 @@ export function isDelivered(state: RunWorkingState): boolean {
   const outstanding = state.objectives.some((o) => o.status === 'pending');
   return applied && !outstanding;
 }
+
+// ---------------------------------------------------------------------------
+// Carrying knowledge across the run boundary (context-management P5.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * How a fact carried from an earlier run is marked in the briefing.
+ *
+ * The model must be able to tell a fact THIS run established from one it inherited: the
+ * first has evidence it can recall, the second does not (see {@link carryForwardWorkingState}).
+ * Presenting them identically would be the more comfortable choice and the wrong one.
+ */
+export const CARRIED_FACT_PREFIX = '(from an earlier session) ';
+
+/**
+ * Seed a fresh run's ledger with what the PREVIOUS run for the same conversation and
+ * project established, and nothing else.
+ *
+ * ## Why this exists
+ *
+ * Run memory used to die at the run boundary. `historyFromEvents` keeps only the user and
+ * assistant TEXT of prior turns, and `initialWorkingState` builds an empty ledger for
+ * every command — so turn 1 ("find the best moments in this recording") could spend six
+ * turns reading the transcript, mapping the footage and distilling forty facts, and turn 2
+ * ("now tighten the middle") would start knowing the prose of what was said and nothing
+ * about what was found. The only restore path was `agentOptions.resume`, which is a
+ * within-run crash checkpoint, never a previous run's state.
+ *
+ * ## What is carried, and what is deliberately not
+ *
+ * Carried:
+ *
+ * - **`revision_independent` facts.** A fact about the SOURCE FOOTAGE ("asset_3 is 8:42,
+ *   speech from 0:04") outlives any number of cuts. A fact about the TIMELINE ARRANGEMENT
+ *   ("46 clips, sequence duration 21.87s") does not, and `FactScope` is exactly the field
+ *   that tells them apart — it exists so this distinction can be made.
+ * - **Committed decisions** made with the editor ("vertical, 9:16, no music"). These are
+ *   the answers that die with the run today and get re-asked next turn.
+ *
+ * Not carried, each for its own reason:
+ *
+ * - **`nextAction`, `stage`, `objective`, the plan, blockers, verifications, operations.**
+ *   They belong to the run that made them. A new request gets a new objective; inheriting
+ *   the old one is how a run ends up executing the previous turn's plan.
+ * - **Evidence handles — and the `evidenceIds` on carried facts with them.** The handles
+ *   are addresses into the previous run's `EvidenceStore`, which is in-memory and per-run:
+ *   the payloads are gone. Carrying an address that cannot be dereferenced is precisely the
+ *   broken promise `clearedWithHandle` was written to end — an offer to re-read with
+ *   nowhere to read from. Persisting the payloads would mean a new store, which this phase
+ *   forbids. So a carried fact arrives uncited and SAYS SO, via
+ *   {@link CARRIED_FACT_PREFIX}.
+ * - **Anything at all, when the identity does not match.** Same conversation AND same
+ *   project, or nothing is carried. A ledger from another project is not stale, it is
+ *   wrong.
+ *
+ * Pure: `previous` and `fresh` are never mutated.
+ *
+ * @param previous - The prior run's parsed ledger, or `null` when there is none.
+ * @param fresh - The new run's ledger from {@link initialWorkingState}.
+ * @returns `fresh`, seeded — or `fresh` unchanged when there is nothing safe to carry.
+ */
+export function carryForwardWorkingState(
+  previous: RunWorkingState | null,
+  fresh: RunWorkingState,
+): RunWorkingState {
+  if (!previous) return fresh;
+  // Identity first: a ledger from a different conversation or project is not stale, it is
+  // about something else. `null` on either side is unknown, which is not a match.
+  const sameConversation =
+    previous.identity.conversationId !== null &&
+    previous.identity.conversationId === fresh.identity.conversationId;
+  const sameProject =
+    previous.identity.projectId !== null &&
+    previous.identity.projectId === fresh.identity.projectId;
+  if (!sameConversation || !sameProject) return fresh;
+
+  // Ids are re-prefixed because they are only unique WITHIN a run: `commitExecutionPlan`
+  // mints `decision_1…n` for the new run's own plan, and a carried `decision_1` would
+  // collide with it. The prefix also makes an inherited record identifiable in a dump.
+  const carriedId = (id: string): string => (id.startsWith('carried_') ? id : `carried_${id}`);
+  const facts = previous.facts
+    .filter((fact) => fact.scope === 'revision_independent')
+    .map((fact) => ({
+      ...fact,
+      id: carriedId(fact.id),
+      // Uncited on purpose, and marked. See the docstring: the handles do not resolve.
+      evidenceIds: [],
+      statement: fact.statement.startsWith(CARRIED_FACT_PREFIX)
+        ? fact.statement
+        : `${CARRIED_FACT_PREFIX}${fact.statement}`,
+      // Re-stamped to the new run's baseline: the fact is true of the source material, so
+      // it is true at this revision, and leaving the old number would make the briefing
+      // read as though it were observed here.
+      observedAtRevision: fresh.baseProjectRevision,
+      stage: fresh.stage,
+    }));
+
+  const decisions = previous.decisions
+    .filter((decision) => decision.status === 'committed')
+    .map((decision) => ({
+      ...decision,
+      id: carriedId(decision.id),
+      evidenceIds: [],
+      stage: fresh.stage,
+    }));
+
+  if (facts.length === 0 && decisions.length === 0) return fresh;
+  const known = new Set(fresh.decisions.map((decision) => decision.decision));
+  return {
+    ...fresh,
+    facts: [...facts, ...fresh.facts],
+    // Carried decisions come FIRST and this run's own plan decisions LAST, so what the
+    // run was actually asked to do reads as the live commitment and the inherited answers
+    // read as background. A decision this run has already committed in the same words is
+    // not repeated.
+    decisions: [
+      ...decisions.filter((decision) => !known.has(decision.decision)),
+      ...fresh.decisions,
+    ],
+  };
+}
