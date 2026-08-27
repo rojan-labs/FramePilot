@@ -8581,12 +8581,46 @@ a.export-credits-license {
    to flush/borderless assistant text, that shape alone is what you scroll to when you
    want "where did I ask for this"; it doesn't need a colored edge to say so too. */
 .ai-bubble--user {
+  position: relative;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   color: var(--text-primary);
   border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-3);
   width: 100%;
+}
+/* Copy affordance: an icon fading in on hover/focus (same chrome-recedes contract as
+   `.ai-row-actions` on tool rows), plus the right-click menu wired in EventNode.tsx. */
+.ai-bubble--user-actions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 1px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.ai-bubble--user:hover .ai-bubble--user-actions,
+.ai-bubble--user:focus-within .ai-bubble--user-actions {
+  opacity: 1;
+}
+/* Long prompts (a pasted multi-section brief) clamp to a few lines so one turn
+   doesn't dominate the whole thread; the card itself is the expand/collapse target. */
+.ai-bubble--user[data-collapsible='true'] {
+  cursor: pointer;
+}
+.ai-bubble--user[data-collapsible='true'][data-expanded='false'] .ai-bubble--user-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ai-bubble--user-hint {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: 11px;
+  color: var(--text-secondary);
 }
 /* Assistant text is flush/borderless (Cursor) — no bubble background. */
 .ai-bubble--assistant {
