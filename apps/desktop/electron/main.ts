@@ -187,6 +187,7 @@ import { StockService, isStockKind } from './media/stock-service.js';
 import { StockQuotaStore } from './media/stock-quota.js';
 import { musicErrorMessage, stockErrorMessage } from '@framepilot/ai-sdk';
 import { createStockHost } from './ai/stock-host.js';
+import { agentSearchFailureSummary } from './ai/search-failure-summary.js';
 import { LocalTelemetry, telemetryEnabledFromEnv } from './telemetry/telemetry.js';
 import { resolveUpdateChannel } from './updater/channel.js';
 import { createAutoUpdaterProvider, type AutoUpdaterLike } from './updater/auto-updater.js';
@@ -1901,16 +1902,29 @@ function registerIpcHandlers(): void {
   const hostMusicSearch = async (
     query: string,
     limit: number | undefined,
+    signal?: AbortSignal,
   ): Promise<HostToolOutcome> => {
     if (query.trim() === '') {
       return { status: 'failed', summary: 'search_music needs something to search for.' };
     }
-    const result = await musicService.search(query, limit);
+    // `supersedePrevious: false` — the agent's parallel searches are independent
+    // questions, not revisions of one. See `music-service.ts#MusicSearchOptions`.
+    const result = await musicService.search(query, limit, {
+      supersedePrevious: false,
+      ...(signal ? { signal } : {}),
+    });
     if (!result.ok) {
       // The provider's own reason, verbatim. "Something went wrong" would leave
       // the model unable to tell a rate limit from an outage, and it would
       // retry the one case where retrying is exactly wrong.
-      return { status: 'failed', summary: musicErrorMessage(result.error, result.detail) };
+      return {
+        status: 'failed',
+        summary: agentSearchFailureSummary(
+          'search_music',
+          musicErrorMessage(result.error, result.detail),
+          result.error,
+        ),
+      };
     }
     if (result.tracks.length === 0) {
       // Nothing matched is not a failure, but it is also NOT a success the model
@@ -1995,26 +2009,41 @@ function registerIpcHandlers(): void {
    * `search_stock` for the agent — the same main-process service the Stock panel
    * uses, so the agent and the human see one catalogue and one cache.
    */
-  const hostStockSearch = async (args: {
-    readonly query: string;
-    readonly kind: 'photo' | 'video';
-    readonly limit?: number;
-    readonly orientation?: 'landscape' | 'portrait' | 'square';
-  }): Promise<HostToolOutcome> => {
+  const hostStockSearch = async (
+    args: {
+      readonly query: string;
+      readonly kind: 'photo' | 'video';
+      readonly limit?: number;
+      readonly orientation?: 'landscape' | 'portrait' | 'square';
+    },
+    signal?: AbortSignal,
+  ): Promise<HostToolOutcome> => {
     if (args.query.trim() === '') {
       return { status: 'failed', summary: 'search_stock needs something to search for.' };
     }
-    const result = await stockService.search({
-      text: args.query,
-      kind: args.kind,
-      ...(args.limit === undefined ? {} : { limit: args.limit }),
-      ...(args.orientation === undefined ? {} : { orientation: args.orientation }),
-    });
+    // `supersedePrevious: false` — the agent fires up to four of these at once and means
+    // every one of them. See `stock-service.ts#search` for the run that proved it.
+    const result = await stockService.search(
+      {
+        text: args.query,
+        kind: args.kind,
+        ...(args.limit === undefined ? {} : { limit: args.limit }),
+        ...(args.orientation === undefined ? {} : { orientation: args.orientation }),
+      },
+      { supersedePrevious: false, ...(signal ? { signal } : {}) },
+    );
     if (!result.ok) {
       // The provider's own reason, verbatim — including the hourly-vs-monthly
       // distinction, so the model reports the right remedy instead of telling
       // the user to wait a month for a limit that clears in an hour.
-      return { status: 'failed', summary: stockErrorMessage(result.error, result.detail) };
+      return {
+        status: 'failed',
+        summary: agentSearchFailureSummary(
+          'search_stock',
+          stockErrorMessage(result.error, result.detail),
+          result.error,
+        ),
+      };
     }
     if (result.items.length === 0) {
       // Nothing matched is not a failure, but it is also NOT a success the model

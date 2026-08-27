@@ -148,12 +148,49 @@ const VERTICAL_PLATFORMS: ReadonlySet<TargetPlatform> = new Set(['reels', 'tikto
 const round = (n: number): string => (Math.round(n * 1000) / 1000).toString();
 
 /**
+ * A figure that is explicitly PER-UNIT is a pacing spec, never a deliverable length.
+ *
+ * "0.3–0.6s per clip" is the shape every montage brief uses to describe cutting rhythm,
+ * and reading it as the length of the finished video is not a near miss — it is off by
+ * two orders of magnitude. Matched immediately after the number's unit.
+ */
+const PER_UNIT_QUALIFIER = /^\s*(?:\/|per\b|each\b|a |an )\s*(?:clip|shot|cut|frame|image|photo)/;
+
+/**
+ * Is the number that starts at `index` the far end of a RANGE ("0.3–0.6s")?
+ *
+ * A range states a spread the editor may work within; it does not name a target. Checked
+ * by looking backwards for a dash of any flavour — ASCII hyphen, en dash, em dash — with
+ * a number before it.
+ */
+function endsARange(text: string, index: number): boolean {
+  return /\d\s*[-–—]\s*$/.test(text.slice(0, index));
+}
+
+/**
  * Read an explicit deliverable length from ordinary creator language.
  *
  * Deliberately conservative: a bare timestamp such as "cut at 30 seconds" is not a
  * duration target. A match must connect the number to a deliverable word (video,
  * montage, reel, short, timeline), an explicit length phrase ("make it … long"), or
  * the whole-output qualifiers "full"/"complete"/"entire".
+ *
+ * It was not conservative ENOUGH, and the gap failed a real run. The anchor list contains
+ * verbs — `build`, `create`, `produce` — because that is how people ask ("build me a
+ * 30-second reel"). But `build` is also a PACING PHASE, and a montage brief that wrote
+ *
+ *     ### BUILD
+ *     Approximately:
+ *     **0.3–0.6s per clip**
+ *
+ * matched the heading, skipped lazily past `0.3–`, and returned **0.6** as the length of a
+ * fifty-clip montage. Run `f014f3ac` was then told "Timeline is 203.068s but the target is
+ * 0.6s (off by 202.468s)" and reported itself failed for hitting a number nobody asked
+ * for. Two structural guards close it, both of which read what the text actually says
+ * rather than adding another anchor word: a per-unit figure is pacing
+ * ({@link PER_UNIT_QUALIFIER}), and the far end of a range is not a target
+ * ({@link endsARange}). Both generalise past this brief — every montage request describes
+ * its rhythm this way.
  */
 export function explicitDurationTargetSeconds(prompt: string): number | undefined {
   const normalized = prompt.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -163,15 +200,34 @@ export function explicitDurationTargetSeconds(prompt: string): number | undefine
     return /^m(?:in(?:ute)?s?)?$/.test(unit) ? amount * 60 : amount;
   };
   const units = '(s|sec|secs|second|seconds|m|min|mins|minute|minutes)';
-  const leading = new RegExp(
-    `\\b(?:full|complete|entire|video|montage|reel|short|timeline|make it|create|build|produce|export)\\b.{0,40}?\\b(\\d+(?:\\.\\d+)?)\\s*${units}\\b`,
-  ).exec(normalized);
-  if (leading?.[1] && leading[2]) return unitValue(leading[1], leading[2]);
-  const trailing = new RegExp(
-    `\\b(\\d+(?:\\.\\d+)?)\\s*[- ]?${units}\\b.{0,28}?\\b(?:video|montage|reel|short|timeline|long)\\b`,
-  ).exec(normalized);
-  if (trailing?.[1] && trailing[2]) return unitValue(trailing[1], trailing[2]);
-  return undefined;
+  // A candidate survives only if it is neither the far end of a range nor qualified
+  // per-clip. Scanning rather than taking the first hit: the brief that broke this had a
+  // dozen pacing figures before any real length, and stopping at the first match would
+  // still read one of them.
+  const firstDeliverableLength = (pattern: RegExp): number | undefined => {
+    for (const match of normalized.matchAll(pattern)) {
+      const [, value, unit] = match;
+      if (value === undefined || unit === undefined) continue;
+      const numberAt = match.index + match[0].lastIndexOf(value);
+      if (endsARange(normalized, numberAt)) continue;
+      if (PER_UNIT_QUALIFIER.test(normalized.slice(match.index + match[0].length))) continue;
+      return unitValue(value, unit);
+    }
+    return undefined;
+  };
+  const leading = firstDeliverableLength(
+    new RegExp(
+      `\\b(?:full|complete|entire|video|montage|reel|short|timeline|make it|create|build|produce|export)\\b.{0,40}?\\b(\\d+(?:\\.\\d+)?)\\s*${units}\\b`,
+      'g',
+    ),
+  );
+  if (leading !== undefined) return leading;
+  return firstDeliverableLength(
+    new RegExp(
+      `\\b(\\d+(?:\\.\\d+)?)\\s*[- ]?${units}\\b.{0,28}?\\b(?:video|montage|reel|short|timeline|long)\\b`,
+      'g',
+    ),
+  );
 }
 
 const allClips = (timeline: Timeline): readonly Clip[] =>
@@ -191,6 +247,34 @@ const captionClips = (timeline: Timeline): readonly Clip[] =>
 /** Every text-overlay or caption clip, by clip kind (not by layer type). */
 const overlayOrCaptionClips = (timeline: Timeline): readonly Clip[] =>
   allClips(timeline).filter(isOverlayClip);
+
+/**
+ * Every clip that puts something ON THE SCREEN.
+ *
+ * Overlays and captions are excluded because they sit over the picture rather than being
+ * it. **Audio is excluded because it is not picture** — which sounds too obvious to state
+ * until you see what its absence did.
+ *
+ * Three checks derived "picture" as "not an overlay", which silently counted the music
+ * bed. In run `f014f3ac` a fifty-clip montage request ended with exactly one clip on the
+ * timeline — the track it had just downloaded — and `picture_present`, the check written
+ * for precisely this failure (ADR 0144), reported **pass: 1 picture clip on the
+ * timeline**. The one check that exists to say "there is no film here" was satisfied by a
+ * sound file. `treatment_coverage` then told the run its audio clip was missing its
+ * reframe ("own reframe: 0 of 1 clips"), which is not a sentence about anything.
+ *
+ * An asset the project does not list is treated as picture: a missing asset is
+ * `checkMissingAssets`'s finding to report, and guessing "audio" here would hide a broken
+ * reference behind a skipped check.
+ */
+function pictureClips(project: Project): readonly Clip[] {
+  const audioAssetIds = new Set(
+    project.assets.filter((asset) => asset.kind === 'audio').map((asset) => asset.id),
+  );
+  return allClips(project.timeline).filter(
+    (clip) => !isOverlayClip(clip) && !audioAssetIds.has(clip.assetId),
+  );
+}
 
 /** End time of the latest clip on the timeline (0 for an empty timeline). */
 export function timelineDuration(timeline: Timeline): number {
@@ -257,8 +341,9 @@ function checkRequestMatch(options: CritiqueOptions): CriticCheck {
  * asked for a visual deliverable — an audio-only or caption-only pass is a legitimate
  * thing to ask for, and this check must not fail it.
  */
-function checkPicturePresent(timeline: Timeline, options: CritiqueOptions): CriticCheck {
-  const picture = allClips(timeline).filter((clip) => !isOverlayClip(clip));
+function checkPicturePresent(project: Project, options: CritiqueOptions): CriticCheck {
+  const timeline = project.timeline;
+  const picture = pictureClips(project);
   if (picture.length > 0) {
     return check(
       'picture_present',
@@ -380,7 +465,7 @@ function clipCarries(clip: Clip, treatment: CoverageTreatment): boolean {
  * satisfied. "All checks passed" over a cut that had been polished for two seconds and
  * abandoned. Coverage is the question those counts cannot ask.
  */
-function checkTreatmentCoverage(timeline: Timeline, options: CritiqueOptions): CriticCheck {
+function checkTreatmentCoverage(project: Project, options: CritiqueOptions): CriticCheck {
   const wanted = options.coverage ?? [];
   if (wanted.length === 0) {
     return check(
@@ -390,7 +475,7 @@ function checkTreatmentCoverage(timeline: Timeline, options: CritiqueOptions): C
       'The request asked for nothing of every clip.',
     );
   }
-  const picture = allClips(timeline).filter((clip) => !isOverlayClip(clip));
+  const picture = pictureClips(project);
   if (picture.length === 0) {
     return check('treatment_coverage', 'Per-clip work is complete', 'skipped', 'No picture clips.');
   }
@@ -436,8 +521,8 @@ function checkTreatmentCoverage(timeline: Timeline, options: CritiqueOptions): C
  * sequence with no crops at all cannot be judged the same way — it may be a same-aspect edit
  * that needs none — so a portrait frame with nothing reframed is a warning, not a failure.
  */
-function checkReframeCoverage(project: Project, timeline: Timeline): CriticCheck {
-  const picture = allClips(timeline).filter((clip) => !isOverlayClip(clip));
+function checkReframeCoverage(project: Project): CriticCheck {
+  const picture = pictureClips(project);
   if (picture.length === 0) {
     return check('reframe_coverage', 'Reframing is consistent', 'skipped', 'No picture clips.');
   }
@@ -1221,11 +1306,11 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
   const fps = Number.isFinite(project.fps) && project.fps > 0 ? project.fps : 30;
   const checks: CriticCheck[] = [
     checkRequestMatch(options),
-    checkPicturePresent(timeline, options),
+    checkPicturePresent(project, options),
     checkDurationTarget(timeline, options),
     checkShotCount(timeline, options),
-    checkReframeCoverage(project, timeline),
-    checkTreatmentCoverage(timeline, options),
+    checkReframeCoverage(project),
+    checkTreatmentCoverage(project, options),
     checkCaptionAlignment(timeline),
     checkSafeArea(timeline),
     checkAudioClipping(options),

@@ -13,7 +13,104 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
-**Status snapshot (2026-08-27, context-management programme complete):** `[x]` **All five
+**Status snapshot (2026-08-27, montage run gap analysis, round 4):** `[x]` **Two more
+defects from run `2131d2c5`.** The recall credit from round 3 worked — the run reached 34
+model calls instead of dying at 4 — and it still downloaded nothing, at 546,932 tokens and
+$1.95.
+
+1. **A recall cost ten times what the read cost.** `recall_evidence` renders the STORED
+   payload, and the store held the provider's whole record: `variants` (six renditions),
+   `licenseUrl`, `sourceUrl`, `creatorUrl`, `attribution`. ~900 tokens for three clips, of
+   which the model can act on none — `add_stock` takes a `remoteId` and the host picks the
+   rendition. The `search_stock` digest already says "provider URLs never reach it at all";
+   `evidencePayload` now makes that true of the stored copy too, so recall returns what the
+   search returned.
+2. **The one playbook explaining stock sourcing was never loaded.** The run took
+   `footage-intelligence` and `beat-synced-editing`; `search_stock`/`add_stock` are covered
+   only in `broll-and-layering`, whose description spoke solely of b-roll over narration.
+   It now names stock sourcing, so a montage built entirely from searched footage can find
+   it. (Round 3's wording fix inside that file was therefore never consulted by this run.)
+
+**Previous snapshot (2026-08-27, montage run gap analysis, round 3):** `[x]` **The recall
+trap is closed.** Run `09529490` is the same brief again: every one of its fifteen stock
+searches SUCCEEDED (round 2's fixes confirmed live, queries now visible on each card), it
+had the beat grid at 162 BPM and ~600 candidates — and it still applied nothing.
+
+The agent log keeps payloads for only the two freshest entries
+(`AGENT_LOG_PAYLOAD_FRESH`), and a stock `remoteId` exists nowhere else, so a run holding
+twenty-one search handles could see the ids of at most eighty of its candidates. The
+contract's own answer is `recall_evidence` — and every recall is `fromCache` by
+construction, so each of those turns scored as learning nothing. The run said what it was
+doing ("I'll recall the search results to get remoteIds"), recalled eighteen times, and was
+killed by `STALL_CONFIRM_TURNS` for obeying its instructions.
+
+A recall of a handle the run has not opened before is now progress; a repeat of one is not
+— the novelty key already distinguishes them by `evidenceId`, so the "recalling forever"
+guard is untouched. The `broll-and-layering` skill's "gather first, place second" was also
+read as "run every search before downloading anything" and now says plainly to download
+from a search while its results are still in front of you.
+
+**Previous snapshot (2026-08-27, montage run gap analysis, round 2):** `[x]` **Five further
+defects traced from captured run `f014f3ac` are closed.** That run is `f1d5285e` re-run
+after the fixes below: the guards no longer ended it early (28 model calls, 71 tool calls,
+reached `apply`), and it still delivered no montage — for reasons that were never in the
+agent kernel.
+
+1. **The panel's search cancelled the agent's searches.** `StockService.search` was
+   single-flight, latest-wins — right for a person typing, fatal for an agent that fires
+   four deliberate queries at once. The fourth of every batch returned forty clips; the
+   first three came back `cancelled` in ~120ms. Fifteen of twenty-one stock searches died
+   that way. Superseding is the caller's declaration now. ADR 0148.
+2. **Those failures reached the model as nothing at all.** `cancelled` renders as the empty
+   string by design (a user's own Stop should not be narrated back), which became a red
+   cross with no reason and a blank action-log line. The agent boundary now guarantees a
+   sentence for the whole class.
+3. **`picture_present` passed on a timeline with no picture.** "Picture" was derived as
+   "not an overlay", so the music bed counted and the check written for exactly this
+   failure (ADR 0144) reported "pass: 1 picture clip". All three picture checks exclude
+   audio-backed clips now.
+4. **The duration target was invented from a pacing table.** `### BUILD` +
+   `**0.3–0.6s per clip**` produced a 0.6-second target for a fifty-clip montage, and the
+   self-check failed the run by 202.468 seconds. A range's far end and a per-unit figure
+   are both refused now.
+5. **Every catalogue search looked identical.** `search_stock`/`search_music` were never
+   entered in the descriptor tables, so four searches showed four identical rows — and the
+   evidence handles carried the same label, so the run spent 30 of 71 tool calls opening
+   its own results to find out what they held.
+
+**Previous snapshot (2026-08-27, montage run gap analysis):** `[x]` **Five defects traced
+from captured run `f1d5285e` are closed.** The run was asked for a 50-clip beat-synced
+nature montage on an empty project. It searched for music four times, was told it was
+going in circles, was switched to a recovery surface that had no way to find footage, and
+terminated after four turns and forty-five seconds having applied **no edit at all**.
+
+1. **Every catalogue search in a run shared one novelty key.** `search_music`,
+   `search_stock`, `search_media`, `search_visual` and `find_similar` are
+   `kind: 'analysis'` and take no `assetId`, so `callNoveltyKey` collapsed all of them to
+   `name:*`. The second search of any run — however different its query, however many new
+   clips it returned — was scored "learned nothing new". That drove `stallStreak` to
+   `STALL_CONFIRM_TURNS` in four turns and ended the run. An unasseted analysis is now
+   keyed by the arguments that carry its question. A request needing 80–120 stock searches
+   could not previously clear its own second turn. ADR 0147.
+2. **A failed call banked its key against the retry that worked.** The first
+   `search_music` was rejected by the provider; `mergeSeenKeys` recorded the key anyway, so
+   every later search inherited "already seen". Only calls that actually answered are
+   recorded now.
+3. **The loop detector judged the model's prose and nothing else.** `'find the'` is an
+   `analyze` marker, so three productive searches described consistently read as one intent
+   repeated three times. The intent window now holds turns that learned nothing; a turn
+   that discovers something empties it. The failure the detector was built for — one
+   purpose, four wordings, nothing learned — still trips it.
+4. **The recovery turn withheld the only tool that could have obeyed it.** ADR 0143 let
+   `add_stock` survive that turn but not `search_stock`, which is a complete surface only
+   for a run that has already searched. On an empty project there was no legal move at all.
+   The whole `sourcing` role survives recovery now. ADR 0147 amends ADR 0143.
+5. **The editor's request was re-billed uncached on every turn.** `assembleContext`'s own
+   comment called the request cacheable prefix while the code put it in the volatile half.
+   A 2,672-token brief was paid for on all four model calls. It sits above the cache
+   boundary now.
+
+**Previous snapshot (2026-08-27, context-management programme complete):** `[x]` **All five
 phases of `plan/context-management/` are closed** — see **CTX-PHASES** below and
 `reports/context-benchmark-after.{txt,json}`. On a 60-minute project the model went from
 seeing 2.1% of its clips and 6.7% of its dialogue to **100% of both**, at a cacheable
@@ -7847,10 +7944,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                                Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                                a pre-existing local edit commenting out temperature forwarding, untouched here);
-                                engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                                **Last updated:** 2026-08-14
+                                          Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                                          a pre-existing local edit commenting out temperature forwarding, untouched here);
+                                          engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                                          **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 

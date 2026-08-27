@@ -174,6 +174,42 @@ function isDiskFull(error: unknown): boolean {
   return (error as { code?: string } | null)?.code === 'ENOSPC';
 }
 
+/**
+ * How a caller relates to the searches around it. Main-process only — deliberately NOT on
+ * the IPC `StockSearchRequest`, because this is about the caller's own concurrency, not
+ * about what to search for.
+ */
+export interface StockSearchOptions {
+  /**
+   * Does this search REPLACE the one this caller issued a moment ago?
+   *
+   * True (the default) for the Stock panel, where each keystroke revises one question and
+   * only the last answer is wanted. False for the agent, whose searches are independent
+   * questions asked in parallel — see the note in `search` for the run this cost.
+   */
+  readonly supersedePrevious?: boolean;
+  /** The caller's own lifetime, if it has one (an agent run's Stop). */
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * Abort `controller` when `signal` does, and hand back the unsubscribe.
+ *
+ * Returns a no-op when there is no signal, so the caller's `finally` needs no branch. An
+ * already-aborted signal aborts immediately rather than waiting for an event that has
+ * been and gone.
+ */
+function linkAbort(signal: AbortSignal | undefined, controller: AbortController): () => void {
+  if (!signal) return () => undefined;
+  if (signal.aborted) {
+    controller.abort();
+    return () => undefined;
+  }
+  const onAbort = (): void => controller.abort();
+  signal.addEventListener('abort', onAbort, { once: true });
+  return () => signal.removeEventListener('abort', onAbort);
+}
+
 export class StockService {
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => number;
@@ -215,7 +251,10 @@ export class StockService {
   // Search
   // -------------------------------------------------------------------------
 
-  public async search(request: StockSearchRequest): Promise<StockSearchResult> {
+  public async search(
+    request: StockSearchRequest,
+    options: StockSearchOptions = {},
+  ): Promise<StockSearchResult> {
     const page = Math.max(1, Math.trunc(request.page ?? 1));
     const limit = Math.max(1, Math.trunc(request.limit ?? STOCK_SEARCH_DEFAULT_LIMIT));
     const key = cacheKey({ ...request, page, limit });
@@ -235,11 +274,32 @@ export class StockService {
       };
     }
 
-    // A superseded search is cancelled, not merely ignored — an abandoned
-    // request still counts against the hourly limit.
-    this.inFlightSearch?.abort();
     const controller = new AbortController();
-    this.inFlightSearch = controller;
+    // A superseded search is cancelled, not merely ignored — an abandoned request still
+    // counts against the hourly limit. That is the panel's contract: a person typing
+    // "waterfall" issues six searches and means the last one.
+    //
+    // It is the wrong contract for the agent, and applying it to both callers cost a run.
+    // The agent batches concurrency-safe calls four at a time (`DEFAULT_MAX_TOOL_CONCURRENCY`),
+    // so four DELIBERATE, different searches arrive together — and each one aborted the
+    // one before it. In run `f014f3ac` fifteen of twenty-one stock searches died that way:
+    // the fourth query of every batch returned forty clips in ~1.8s while the first three
+    // came back `cancelled` in ~120ms. Worse, `cancelled` renders as the empty string by
+    // design (a user's own Stop should not be narrated back at them), so the model was
+    // handed three failures with no reason and simply asked again. The run never got past
+    // gathering footage.
+    //
+    // So superseding is now the CALLER's declaration, defaulting to the panel behaviour so
+    // the IPC path is untouched. Only a superseding search registers itself, which also
+    // means a person browsing the Stock panel mid-run cannot cancel the agent's fetch, or
+    // the agent theirs.
+    if (options.supersedePrevious !== false) {
+      this.inFlightSearch?.abort();
+      this.inFlightSearch = controller;
+    }
+    // A caller that owns a lifetime (the agent run's Stop) links it here rather than
+    // through the superseding slot, which is about replacement, not cancellation.
+    const unlink = linkAbort(options.signal, controller);
 
     try {
       const result = await this.provider().search(
@@ -271,6 +331,7 @@ export class StockService {
       }
       return { ok: false, ...toWireError(error) };
     } finally {
+      unlink();
       if (this.inFlightSearch === controller) this.inFlightSearch = null;
     }
   }

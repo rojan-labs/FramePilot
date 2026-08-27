@@ -232,9 +232,39 @@ export function turnLearnedSomethingNew(
   seenCallKeys: readonly string[],
 ): boolean {
   const seen = new Set(seenCallKeys);
-  return facts.some(
-    (f) => !seen.has(f.key) && !f.fromCache && (f.status === 'completed' || f.status === 'warning'),
-  );
+  return facts.some((f) => !seen.has(f.key) && callAnswered(f));
+}
+
+/**
+ * Did this call return an answer the run did not have to work for again? True for a call
+ * that settled successfully and was not served from the run memo. Shared by
+ * {@link turnLearnedSomethingNew} (may this turn be credited?) and `mergeSeenKeys` (may
+ * this key be banked?) so the two can never disagree about what counts as an answer.
+ *
+ * **A recall is exempt from the memo test, and only from that test.** `recall_evidence` is
+ * `fromCache` BY CONSTRUCTION — serving stored data is the entire tool, not a sign that
+ * the run asked twice. Reading that flag as redundancy meant a first-ever recall of a
+ * handle, which puts material in front of the model that was not there a moment ago, was
+ * scored as learning nothing.
+ *
+ * That is not a theoretical unfairness. The agent log keeps payloads for only the two
+ * freshest entries (`AGENT_LOG_PAYLOAD_FRESH`), and a `remoteId` exists nowhere else — so
+ * a run that searched a stock catalogue twenty-one times could see the ids of at most
+ * eighty of its eight hundred candidates, and the harness's own instruction is to recall
+ * rather than re-read. Run `09529490` did exactly that, said so out loud ("I'll recall the
+ * search results to get remoteIds, then gather the best clips"), and was killed by
+ * `STALL_CONFIRM_TURNS` for obeying the contract.
+ *
+ * The guard this exemption might be thought to weaken is untouched, because the novelty
+ * KEY does that work instead: a recall keys on its `evidenceId`, so opening ev_1 then ev_2
+ * then ev_3 is three genuinely different answers, while recalling ev_1 three times is
+ * already seen after the first and still increments the stall streak. A run that recalls
+ * the same thing forever remains provably stuck; a run working through its own material
+ * no longer looks identical to one.
+ */
+function callAnswered(fact: TurnCallFact): boolean {
+  if (fact.status !== 'completed' && fact.status !== 'warning') return false;
+  return fact.role === 'recall' || !fact.fromCache;
 }
 
 // ---------------------------------------------------------------------------
@@ -1516,11 +1546,6 @@ export function onTurnResult(
         projectRevisionAfter: state.working.currentProjectRevision,
       })
     : state.working;
-  // Semantic loop detection (ADR 0075 §3.5). Tracks what turns were FOR: a run that
-  // re-announces the same purpose three times while advancing nothing is circling, however
-  // freshly it words itself each time.
-  const intent = normalizeIntent(r.rationale ?? '');
-  const recentIntents = [...state.recentIntents, intent].slice(-SEMANTIC_LOOP_TURNS);
   // The STAGE, not "anything at all changed". This was `staged !== state.working`, an
   // object comparison against a `state.working` that the fact fold above had already
   // replaced — so it read true on any turn that recorded a fact, and a re-orienting run
@@ -1530,20 +1555,45 @@ export function onTurnResult(
   // duplicate conclusions, which `recordFact` deduplicates into a no-op — an accident
   // that ended the moment a read's fact carried its actual finding.
   const stageAdvanced = stageBefore !== state.working.stage;
-  const looping = isSemanticLoop(recentIntents, {
-    stageAdvanced,
-    decisionCommitted: false,
-  });
+  const learnedSomethingNew = turnLearnedSomethingNew(r.callFacts, state.seenCallKeys);
   // Meaningful progress is a stricter question than the stall guard's: reasoning text,
   // restated summaries and memo hits are a run describing itself, not progressing.
   const progressedMeaningfully = madeMeaningfulProgress({
-    learnedSomethingNew: turnLearnedSomethingNew(r.callFacts, state.seenCallKeys),
+    learnedSomethingNew,
     attemptedEdit,
     appliedEdit: false,
     recordedVerification: false,
     advancedStage: stageAdvanced,
     committedDecision: false,
     satisfiedObjective: false,
+  });
+  // Semantic loop detection (ADR 0075 §3.5). Tracks what turns were FOR: a run that
+  // re-announces the same purpose three times while advancing nothing is circling, however
+  // freshly it words itself each time.
+  //
+  // The window holds turns that LEARNED NOTHING — a turn with a first-seen, successful,
+  // uncached call empties it rather than extending it. Without that the detector was
+  // judging the model's prose and nothing else, and the prose of a working run repeats by
+  // nature: `'find the'` is an `analyze` marker, so "find the right music" / "find the
+  // right track" / "find the right music first" read as three turns of one intent even
+  // though each search returned a different catalogue. Run `f1d5285e` was declared to be
+  // going in circles for describing three productive turns consistently. Clear writing is
+  // not a loop.
+  //
+  // `learnedSomethingNew` specifically, NOT `progressedMeaningfully`. The broader test
+  // would make this detector unreachable: a turn that progresses in any other sense
+  // resets `noProgressStreak`, and a turn that does not hits MAX_NO_PROGRESS_TURNS on its
+  // second occurrence — before a three-turn window could ever fill. What is left for this
+  // guard is precisely the run that keeps moving its stage (or re-proposing rejected
+  // edits) under one unchanging purpose while discovering nothing, which is the failure
+  // it was built for and which this still catches.
+  const intent = normalizeIntent(r.rationale ?? '');
+  const recentIntents = learnedSomethingNew
+    ? []
+    : [...state.recentIntents, intent].slice(-SEMANTIC_LOOP_TURNS);
+  const looping = isSemanticLoop(recentIntents, {
+    stageAdvanced,
+    decisionCommitted: false,
   });
   const noProgressStreak = progressedMeaningfully ? 0 : state.noProgressStreak + 1;
   const recovering = looping || noProgressStreak >= MAX_NO_PROGRESS_TURNS;
@@ -1639,9 +1689,22 @@ export function onTurnResult(
   return advance({ ...guarded, noProgress: [...state.noProgress, r.signature] }, em, events);
 }
 
-/** Append this turn's novelty keys to the run's seen set, de-duplicated. Pure. */
+/**
+ * Append this turn's novelty keys to the run's seen set, de-duplicated. Pure.
+ *
+ * Only calls that ACTUALLY ANSWERED are recorded — {@link callAnswered}, the same test
+ * {@link turnLearnedSomethingNew} applies before it asks whether the key is new. A key is a claim that the run
+ * already holds this call's answer, and a call that failed holds nothing: recording it
+ * meant the retry that finally succeeded was scored as a repeat. That is not
+ * hypothetical — in run `f1d5285e` the first `search_music` was rejected by the
+ * provider, its key was banked anyway, and every later search inherited the verdict
+ * "already seen"; the run stalled out four turns later having applied no edit.
+ *
+ * Nothing about the spin guard weakens: a call that keeps failing is never novel on its
+ * own status, so a run retrying one forever still increments the stall streak every turn.
+ */
 function mergeSeenKeys(seen: readonly string[], facts: readonly TurnCallFact[]): readonly string[] {
-  return [...new Set([...seen, ...facts.map((f) => f.key)])];
+  return [...new Set([...seen, ...facts.filter(callAnswered).map((f) => f.key)])];
 }
 
 /** Fold the verify self-check (+ repair): surface its findings, fold repair ops, finalize. */

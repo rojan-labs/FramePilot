@@ -45,6 +45,48 @@ describe('explicitDurationTargetSeconds', () => {
     expect(explicitDurationTargetSeconds('Cut at 30 seconds and add a transition')).toBeUndefined();
     expect(explicitDurationTargetSeconds('Move this clip to 12s')).toBeUndefined();
   });
+
+  it('regression: a montage brief\u2019s pacing spec is not the deliverable length', () => {
+    // Run `f014f3ac`. `build` is in the anchor list because people say "build me a
+    // 30-second reel" — but it is also a PACING PHASE heading, and the lazy gap then
+    // skipped past `0.3\u2013` to take `0.6` as the length of a fifty-clip montage. The run
+    // was told "Timeline is 203.068s but the target is 0.6s" and reported itself failed.
+    const brief = [
+      '# PACING',
+      'Suggested progression:',
+      '### INTRO',
+      'Approximately:',
+      '**0.5\u20131.0s per clip**',
+      '### BUILD',
+      'Approximately:',
+      '**0.3\u20130.6s per clip**',
+      '### PEAK',
+      'Approximately:',
+      '**0.1\u20130.35s per clip**',
+    ].join('\n\n');
+    expect(explicitDurationTargetSeconds(brief)).toBeUndefined();
+  });
+
+  it('reads neither the far end of a range nor a per-clip figure', () => {
+    // The two structural guards, stated on their own so a future anchor-list edit cannot
+    // quietly remove either.
+    expect(
+      explicitDurationTargetSeconds('Build a montage at 0.3\u20130.6s per clip'),
+    ).toBeUndefined();
+    expect(explicitDurationTargetSeconds('Create a video with 2 seconds per shot')).toBeUndefined();
+    expect(explicitDurationTargetSeconds('Make it 4s each cut')).toBeUndefined();
+    expect(explicitDurationTargetSeconds('Build a reel, 1\u20132 minutes')).toBeUndefined();
+  });
+
+  it('still finds a real length stated after the pacing talk', () => {
+    // The guards skip candidates; they must not stop the scan. A brief that describes its
+    // rhythm and THEN names a deliverable length still gets a target.
+    expect(
+      explicitDurationTargetSeconds(
+        'Cut at roughly 0.3\u20130.6s per clip. Export a 45 second reel.',
+      ),
+    ).toBe(45);
+  });
 });
 
 describe('shot count', () => {
@@ -300,6 +342,52 @@ describe('picture_present', () => {
   it('passes an ordinary cut and skips an empty timeline', () => {
     expect(idOf(critique(makeProject()), 'picture_present')).toMatchObject({ status: 'pass' });
     expect(idOf(critique(withTracks([])), 'picture_present')).toMatchObject({ status: 'skipped' });
+  });
+
+  it('regression: a music bed alone is not picture', () => {
+    // Run `f014f3ac`. A fifty-clip montage request ended with one clip on the timeline —
+    // the track it had just downloaded — and this check, written for exactly that failure,
+    // reported "pass: 1 picture clip". "Picture" was derived as "not an overlay", so a
+    // sound file satisfied the one check that exists to say there is no film here.
+    const musicOnly = withTracks(
+      [
+        { id: 'v_main', type: 'video', clips: [] },
+        {
+          id: 'a_music',
+          type: 'audio',
+          clips: [clip({ id: 'bed', assetId: 'music_1', trackId: 'a_music', start: 0, end: 203 })],
+        },
+      ],
+      {
+        assets: [
+          { id: 'music_1', path: 'media/bed.mp3', kind: 'audio' },
+        ] as unknown as Project['assets'],
+      },
+    );
+    const report = critique(musicOnly, { durationTargetSeconds: 30 });
+    expect(idOf(report, 'picture_present')).toMatchObject({ status: 'fail' });
+    expect(report.ok).toBe(false);
+  });
+
+  it('regression: the per-clip checks do not ask an audio clip for a reframe', () => {
+    // The same wrong predicate told the run "own reframe: 0 of 1 clips" about its music.
+    const musicOnly = withTracks(
+      [
+        {
+          id: 'a_music',
+          type: 'audio',
+          clips: [clip({ id: 'bed', assetId: 'music_1', trackId: 'a_music', start: 0, end: 203 })],
+        },
+      ],
+      {
+        assets: [
+          { id: 'music_1', path: 'media/bed.mp3', kind: 'audio' },
+        ] as unknown as Project['assets'],
+      },
+    );
+    const report = critique(musicOnly, { coverage: ['crop'] });
+    expect(idOf(report, 'treatment_coverage')).toMatchObject({ status: 'skipped' });
+    expect(idOf(report, 'reframe_coverage')).toMatchObject({ status: 'skipped' });
   });
 });
 
