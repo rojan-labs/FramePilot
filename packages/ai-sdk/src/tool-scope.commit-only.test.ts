@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { Orchestrator } from './orchestrator.js';
 import { MockProvider } from './providers/mock.js';
 import { isCatalogueSearch } from './tool-classification.js';
+import { shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
 import type { RunStage } from './kernel/working-state.js';
 
 const orchestrator = (): Orchestrator => new Orchestrator(new MockProvider());
@@ -63,5 +64,35 @@ describe('commit-only withholds the catalogue searches and nothing else', () => 
 
   it('is stable within a scope — a set that churns per turn breaks the cached prefix', () => {
     expect(names('commit-only')).toEqual(names('commit-only'));
+  });
+});
+
+describe("the captured run's own state, replayed (02)", () => {
+  /**
+   * Run `e36235cc` at 11:24:06: nineteen catalogue searches banked, twelve stock clips on
+   * disk, a 121-beat grid detected — and both picture tracks empty. What it did next was
+   * four `describe_footage` calls, nine recalls, and four more searches.
+   */
+  const AT_11_24_06 = { bankedSearches: 19, placementsApplied: 0 };
+
+  it('cannot search again from the state the run was actually in', () => {
+    expect(shouldWithholdCatalogueSearch(AT_11_24_06)).toBe(true);
+  });
+
+  it('can still reach everything it needed to finish the montage', () => {
+    const reachable = names('commit-only', 'apply');
+    // The ids are only in the recalled payloads; the clips are only placeable by add_clip.
+    for (const tool of ['recall_evidence', 'add_clip', 'list_assets', 'get_timeline']) {
+      expect(reachable).toContain(tool);
+    }
+  });
+
+  it('is released the moment one clip lands', () => {
+    expect(shouldWithholdCatalogueSearch({ ...AT_11_24_06, placementsApplied: 1 })).toBe(false);
+  });
+
+  it('would not have engaged at the start of the run, on an empty project', () => {
+    // 11:02:51: nothing banked, nothing placed. Withholding here is the ADR 0143 deadlock.
+    expect(shouldWithholdCatalogueSearch({ bankedSearches: 0, placementsApplied: 0 })).toBe(false);
   });
 });

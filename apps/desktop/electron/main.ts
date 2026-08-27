@@ -1939,10 +1939,15 @@ function registerIpcHandlers(): void {
     }
     // Name the query that actually matched. Reporting a hit for a phrase that missed
     // teaches the model that long mood sentences work, and the next one will not.
+    // The narrowed form says the RULE, not the failed phrase back. Repeating a six-word
+    // query verbatim is noise the model already holds, and stating what happened the same
+    // way every time lets the run's fact store fold ten occurrences into one line instead
+    // of ten. The captured run spent ten searches and ~76k tokens re-learning this.
     const matched =
       result.matchedQuery === undefined
         ? `"${query}"`
-        : `"${result.matchedQuery}" (nothing matched the whole phrase "${query}")`;
+        : `"${result.matchedQuery}" — this library matches short phrases, so only the ` +
+          `opening words of a longer query are used. Search two or three words.`;
     return {
       status: 'completed',
       summary: `Found ${result.tracks.length} track${result.tracks.length === 1 ? '' : 's'} for ${matched}.`,
