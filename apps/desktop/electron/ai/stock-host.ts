@@ -136,9 +136,15 @@ export function createStockHost(
     // it must never add to `add_stock` latency, which is the whole point of acquiring these
     // concurrently in the first place.
     enrol?.({ projectId: project.id, assetId });
+    // `deduped` says whether this cost bandwidth or was already on disk. It was dropped
+    // here, so nothing could tell a re-download from a free cache hit — which is exactly
+    // the number that says whether warming a turn's downloads (ADR 0150) is working.
+    const summary = asset.deduped
+      ? `Already downloaded — reused "${asset.relativePath}".`
+      : `Downloaded "${asset.relativePath}".`;
     return {
       status: 'completed',
-      summary: `Downloaded "${asset.relativePath}".`,
+      summary,
       data: {
         asset: {
           id: assetId,

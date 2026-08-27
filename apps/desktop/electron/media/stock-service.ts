@@ -29,7 +29,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@framepilot/shared-types';
 import { resolveWithin } from '@framepilot/shared-types/safety';
@@ -194,6 +194,33 @@ export interface StockSearchOptions {
 }
 
 /**
+ * Transport failures worth one more attempt, and nothing else.
+ *
+ * Read from the captured run's own failure ladder: timeout → `ERR_QUIC_PROTOCOL_ERROR` →
+ * `ERR_NAME_NOT_RESOLVED` → `ERR_INTERNET_DISCONNECTED`, the last of them failing in 74ms
+ * without reaching the network. Those are Chromium session state, not Pexels refusing —
+ * six of eighteen downloads died that way, clustered at the tail of a long serial chain.
+ *
+ * `too_large`, `unauthorized`, `not_found` and `cancelled` are deliberately absent: they
+ * are answers, and replaying them wastes the user's quota to be told the same thing twice.
+ */
+const RETRYABLE_DOWNLOAD_ERRORS: ReadonlySet<string> = new Set([
+  'download_failed',
+  'timeout',
+  'rate_limited',
+]);
+
+/** Is this failure the transport wobbling rather than the provider answering? */
+function isRetryableDownloadFailure(error: unknown, aborted: boolean): boolean {
+  // A user's own cancel aborts the same controller a stall does. Never replay one.
+  if (aborted && !(error instanceof StockProviderError)) return false;
+  if (error instanceof StockProviderError) return RETRYABLE_DOWNLOAD_ERRORS.has(error.code);
+  // A raw network error (`net::ERR_*`) never reached the classifier — that is the QUIC and
+  // DNS family, which is exactly what this retry exists for.
+  return error instanceof Error && error.name !== 'AbortError';
+}
+
+/**
  * Abort `controller` when `signal` does, and hand back the unsubscribe.
  *
  * Returns a no-op when there is no signal, so the caller's `finally` needs no branch. An
@@ -249,6 +276,13 @@ export class StockService {
    * download later — the exact cost this concurrency exists to remove.
    */
   private ledgerWrites: Promise<unknown> = Promise.resolve();
+  /**
+   * Projects already swept for crash-left `.tmp` fragments this session.
+   *
+   * Swept lazily on a project's first download rather than at startup: it needs no new IPC,
+   * it cannot delay app launch, and a project that never downloads has nothing to sweep.
+   */
+  private readonly swept = new Set<string>();
   private inFlightSearch: AbortController | null = null;
   /** Built per call, because the key can change without restarting the app. */
   private cachedProvider: { key: string; provider: StockProvider } | null = null;
@@ -494,6 +528,51 @@ export class StockService {
     await write;
   }
 
+  /**
+   * Remove `.tmp` files a previous session left behind in a project's media directory.
+   *
+   * A download writes to `<file>.<pid>.<uuid>.tmp` and renames on success; a failure
+   * unlinks it. A CRASH does neither, so the fragment survives — invisible to the media
+   * bin (it is not in the ledger) and to `fp-media://`, but occupying disk forever. Nothing
+   * ever swept them, and a run that downloads eighteen clips has eighteen chances to leave
+   * one.
+   *
+   * Best-effort by construction: a fragment that cannot be read or removed is skipped
+   * rather than failing the caller. Losing a sweep costs disk; failing a project open over
+   * one would cost the session.
+   *
+   * @param projectId - The project whose media directory to sweep.
+   * @returns How many fragments were removed.
+   */
+  public async sweepPartialDownloads(projectId: string): Promise<number> {
+    const relativeDir = mediaRelativeDir(projectId);
+    let absoluteDir: string;
+    try {
+      absoluteDir = resolveWithin(this.options.projectsRoot, relativeDir);
+    } catch {
+      return 0;
+    }
+    let entries: string[];
+    try {
+      entries = await readdir(absoluteDir);
+    } catch {
+      // No media directory yet — nothing downloaded, nothing to sweep.
+      return 0;
+    }
+    let removed = 0;
+    for (const entry of entries) {
+      if (!entry.endsWith('.tmp')) continue;
+      try {
+        await unlink(path.join(absoluteDir, entry));
+        removed += 1;
+      } catch {
+        // A fragment held open by another window, or already gone. Skip it.
+      }
+    }
+    if (removed > 0) log.action('swept partial downloads', { projectId, removed });
+    return removed;
+  }
+
   public cancelDownload(operationId: string): void {
     this.downloads.get(operationId)?.abort();
   }
@@ -533,6 +612,13 @@ export class StockService {
     const relativeDir = mediaRelativeDir(request.projectId);
     const absoluteDir = resolveWithin(this.options.projectsRoot, relativeDir);
     await mkdir(absoluteDir, { recursive: true });
+    // First download into this project: clear any fragment a crashed session left behind.
+    // Awaited, not fire-and-forget — sweeping WHILE this download writes its own `.tmp`
+    // could delete the file being streamed.
+    if (!this.swept.has(request.projectId)) {
+      this.swept.add(request.projectId);
+      await this.sweepPartialDownloads(request.projectId);
+    }
 
     const ledgerPath = path.join(absoluteDir, 'sources.json');
     const ledger = await readLedger(ledgerPath);
@@ -578,7 +664,7 @@ export class StockService {
         height: variant.height,
         operationId: request.operationId,
       });
-      const bytes = await this.streamToTemp(variant, tempPath, request, controller);
+      const bytes = await this.streamWithOneRetry(variant, tempPath, request, controller);
       await rename(tempPath, absolutePath);
       await this.appendLedgerSerially(ledgerPath, {
         fileName,
@@ -641,6 +727,37 @@ export class StockService {
       height: request.targetHeight ?? 1080,
       ...(request.targetFps !== undefined ? { fps: request.targetFps } : {}),
     });
+  }
+
+  /**
+   * {@link streamToTemp} with one retry for a transport failure.
+   *
+   * One, and only for the transport: a second attempt at a provider ANSWER is a second bill
+   * for the same information. The temp file from the failed attempt is removed first, so
+   * the retry cannot append to a partial body — which would rename a corrupt file into the
+   * bin and pass every length check.
+   */
+  private async streamWithOneRetry(
+    variant: StockVariant,
+    tempPath: string,
+    request: StockDownloadRequest,
+    controller: AbortController,
+  ): Promise<number> {
+    try {
+      return await this.streamToTemp(variant, tempPath, request, controller);
+    } catch (error) {
+      if (!isRetryableDownloadFailure(error, controller.signal.aborted)) throw error;
+      await unlink(tempPath).catch(() => undefined);
+      log.warn('download → retrying once after a transport failure', {
+        remoteId: request.remoteId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      // A FRESH controller: the first attempt's was aborted by the stall or deadline timer,
+      // and reusing it would abort the retry before its first read.
+      const retryController = new AbortController();
+      this.downloads.set(request.operationId, retryController);
+      return await this.streamToTemp(variant, tempPath, request, retryController);
+    }
   }
 
   /** Stream the body to a temp file, emitting progress and failing on a stall. */

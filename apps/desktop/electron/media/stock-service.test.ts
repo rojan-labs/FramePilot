@@ -6,7 +6,14 @@
  * cached hit spends nothing, a cancelled download leaves nothing on disk, and a
  * 429 reaches the quota store so Settings does not keep showing a healthy bar.
  */
-import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -868,5 +875,72 @@ describe('concurrent acquisition is safe (03)', () => {
         .map((entry) => entry.remoteId)
         .sort(),
     ).toEqual(['1001', '1002', '1003']);
+  });
+});
+
+describe('transport failures, retried once (03)', () => {
+  const body = new Uint8Array(2048).fill(9);
+
+  async function seededOne(fetchImpl: unknown) {
+    const service = makeService({ provider: stubProvider(page([VIDEO_ITEM])), fetchImpl });
+    await service.search({ text: 'q', kind: 'video' });
+    return service;
+  }
+  const req = { projectId: PROJECT_ID, remoteId: VIDEO_ITEM.remoteId, operationId: 'op' };
+
+  it('retries a network error once and succeeds', () => {
+    // The captured run's ladder -- timeout, QUIC, DNS, no-internet -- is Chromium session
+    // state clustered at the tail of a long serial chain, not Pexels refusing.
+    const fetchImpl = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('net::ERR_QUIC_PROTOCOL_ERROR'))
+      .mockImplementation(() => bytesResponse(body));
+    return seededOne(fetchImpl)
+      .then((service) => service.download(req))
+      .then((result) => {
+        expect(result.ok).toBe(true);
+        expect(fetchImpl).toHaveBeenCalledTimes(2);
+      });
+  });
+
+  it('retries at most once', async () => {
+    const fetchImpl = vi.fn().mockRejectedValue(new Error('net::ERR_NAME_NOT_RESOLVED'));
+    const service = await seededOne(fetchImpl);
+    const result = await service.download(req);
+    expect(result.ok).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('never replays a provider ANSWER', async () => {
+    // A second attempt at "unauthorized" or "too large" is a second bill for the same
+    // information.
+    const fetchImpl = vi.fn().mockImplementation(() => bytesResponse(body, { status: 401 }));
+    const service = await seededOne(fetchImpl);
+    const result = await service.download(req);
+    expect(result.ok).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('crash-left download fragments are swept (03)', () => {
+  it('removes .tmp files a previous session left behind, and only those', async () => {
+    // A crash neither renames nor unlinks the fragment, so it survives -- invisible to the
+    // media bin and to fp-media://, occupying disk forever. Nothing ever swept them.
+    const service = makeService({ provider: stubProvider(page([VIDEO_ITEM])) });
+    const dir = mediaDir();
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'clip.mp4.1234.abcd.tmp'), 'partial');
+    writeFileSync(join(dir, 'clip.mp4'), 'real');
+    writeFileSync(join(dir, 'sources.json'), '{"entries":[]}');
+
+    expect(await service.sweepPartialDownloads(PROJECT_ID)).toBe(1);
+    expect(existsSync(join(dir, 'clip.mp4.1234.abcd.tmp'))).toBe(false);
+    expect(existsSync(join(dir, 'clip.mp4'))).toBe(true);
+    expect(existsSync(join(dir, 'sources.json'))).toBe(true);
+  });
+
+  it('is a no-op for a project that has downloaded nothing', async () => {
+    const service = makeService({ provider: stubProvider(page([VIDEO_ITEM])) });
+    expect(await service.sweepPartialDownloads('proj_never_used')).toBe(0);
   });
 });
