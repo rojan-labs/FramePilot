@@ -7,6 +7,7 @@
  */
 import type { AiEvent, RunStatus } from './events.js';
 import type { CapturedTurn } from './kernel/cost/baseline-capture.js';
+import { summarizeRunContext, type RunContextLedger } from './kernel/context/run-ledger.js';
 import type { AgentOutcomeEvalScenario, AgentOutcomeEvalTier } from './professional-agent-evals.js';
 
 /**
@@ -93,6 +94,16 @@ export interface AgentRunQualityMetrics {
   readonly renderEvidence: EvidenceOutcome;
   /** 0..1. Absent unless an editor/human sample was actually scored. */
   readonly humanEditorialScore?: number;
+  /**
+   * What the whole run spent assembling context (05).
+   *
+   * Every figure in it was already recorded per request and never summed, which is how a
+   * run that assembled 1,223,811 tokens across 52 calls — 60.2% of them tool definitions,
+   * 115,967 re-billed across nine tool-set changes — read as fifty-two healthy requests
+   * using a third of their window. `modelCallCount` above counts the calls; this says what
+   * they cost and where it went.
+   */
+  readonly context: RunContextLedger;
 }
 
 export interface CaptureAgentRunQualityInput {
@@ -250,6 +261,14 @@ export function captureAgentRunQuality(input: CaptureAgentRunQualityInput): Agen
       sum + nonNegativeInteger(`capturedTurns[${String(index)}].outputTokens`, turn.outputTokens),
     0,
   );
+  // Assembled from the manifests the turn emitter already attaches to `context_usage`.
+  // `summarizeRunContext` collapses the duplicate each request emits (one before the send,
+  // one after), so this counts calls, not events.
+  const contextLedger = summarizeRunContext(
+    input.events.flatMap((event) =>
+      event.type === 'context_usage' && event.manifest ? [event.manifest] : [],
+    ),
+  );
   const runOutcome = latestTerminalStatus(input.events);
   const reviewFindingIds = new Set(
     input.events.filter((event) => event.type === 'review_finding').map((event) => event.id),
@@ -307,6 +326,7 @@ export function captureAgentRunQuality(input: CaptureAgentRunQualityInput): Agen
     routeMode: input.routeMode,
     models: distinctModels(turns),
     modelCallCount: turns.length,
+    context: contextLedger,
     toolSchemasExposedPerTurn: [...(input.toolSchemasExposedPerTurn ?? [])].map((value, index) =>
       nonNegativeInteger(`toolSchemasExposedPerTurn[${String(index)}]`, value),
     ),

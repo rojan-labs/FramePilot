@@ -497,8 +497,60 @@ export const clearedWithHandle = (handle: string): string =>
 /** A trailing evidence citation on a log note (`… → payload [ev_3]`). */
 const NOTE_EVIDENCE_HANDLE = /\s\[(ev_\d+)\]$/;
 
-/** Estimated log size (tokens) above which the payload-clearing tier engages (E2.2). */
+/**
+ * Estimated log size (tokens) above which the payload-clearing tier engages (E2.2).
+ *
+ * The FLOOR, not the budget. Kept as the value a caller gets when it can measure nothing —
+ * a small-window model, the repair pass, the legacy loop — so those paths behave exactly as
+ * they did. When remaining capacity IS known, {@link findingsBudgetTokens} spends a share
+ * of it instead.
+ *
+ * The number was set in isolation and is indefensible next to what shares the message with
+ * it. In captured run `e36235cc` the tool definitions were 16,962 tokens of a 21,942-token
+ * request, against 128,000 of window at 33% peak use — so the model was handed ~17x more
+ * context about tools it COULD call than about what it had already found. A stock
+ * `remoteId` exists nowhere but a search payload, payloads survive
+ * {@link AGENT_LOG_PAYLOAD_FRESH} turns, and placing a clip needs one — so the run recalled
+ * 62 times, each recall its own model call. The recall loop was mandated by this constant,
+ * not chosen by the model.
+ */
 export const AGENT_LOG_CLEAR_THRESHOLD_TOKENS = 1000;
+
+/**
+ * Share of measured remaining capacity the agent log may occupy before payloads are cleared.
+ *
+ * Deliberately a fraction of what is left AFTER the trimmer has reserved the tool set, the
+ * stable head and the grounding slice — not a fraction of the window — so growing any of
+ * those shrinks the log rather than overflowing the request.
+ */
+const FINDINGS_CAPACITY_SHARE = 0.35;
+
+/**
+ * Ceiling on the findings budget regardless of capacity.
+ *
+ * A 1M-token window should not put a megabyte of stale search payloads in front of the
+ * model; past a point more candidates stop being more useful and start burying the request.
+ */
+const FINDINGS_BUDGET_CEILING_TOKENS = 24_000;
+
+/**
+ * How many tokens of tool-result payload this turn may carry.
+ *
+ * @param remainingCapacityTokens - Room left after the assembler's reservations, or
+ *   `undefined` when the caller cannot measure it (then the floor applies unchanged).
+ * @returns A budget at least {@link AGENT_LOG_CLEAR_THRESHOLD_TOKENS} and at most
+ *   {@link FINDINGS_BUDGET_CEILING_TOKENS}.
+ */
+export function findingsBudgetTokens(remainingCapacityTokens: number | undefined): number {
+  if (remainingCapacityTokens === undefined || !Number.isFinite(remainingCapacityTokens)) {
+    return AGENT_LOG_CLEAR_THRESHOLD_TOKENS;
+  }
+  const share = Math.floor(Math.max(0, remainingCapacityTokens) * FINDINGS_CAPACITY_SHARE);
+  return Math.min(
+    FINDINGS_BUDGET_CEILING_TOKENS,
+    Math.max(AGENT_LOG_CLEAR_THRESHOLD_TOKENS, share),
+  );
+}
 
 /** The most recent log entries whose payloads are never cleared (E2.2's "last N turns"). */
 export const AGENT_LOG_PAYLOAD_FRESH = 2;
@@ -555,9 +607,10 @@ export function clearNotePayloads(entry: string): string {
 export function compactAgentLog(
   log: readonly string[],
   recent: number = AGENT_LOG_RECENT,
+  budgetTokens: number = AGENT_LOG_CLEAR_THRESHOLD_TOKENS,
 ): string[] {
   const cleared =
-    estimateTokens(log.join('\n')) > AGENT_LOG_CLEAR_THRESHOLD_TOKENS
+    estimateTokens(log.join('\n')) > budgetTokens
       ? log.map((entry, i) =>
           i < log.length - AGENT_LOG_PAYLOAD_FRESH ? clearNotePayloads(entry) : entry,
         )
@@ -3022,7 +3075,31 @@ export class Orchestrator {
     // steering (P11.4) — a queued message the editor typed while this run was already in
     // flight, applied at THIS turn boundary (never mid-step — the message was popped from
     // the queue right before this call, in `runTurn`'s handler).
-    const history = agentActionsBlock(compactAgentLog(log));
+    // The findings budget scales with what this request actually left free (05). A fixed
+    // 1,000 tokens next to a 16,962-token tool block, in a request using 17% of its window,
+    // is what forced the captured run to re-fetch its own search results 62 times.
+    //
+    // Measured the same way the manifest measures it — window − output − headroom − what is
+    // already assembled — so the log can only grow into room that genuinely exists. A model
+    // with a small window therefore keeps today's behaviour by arithmetic rather than by a
+    // special case.
+    const budget = resolveContextBudget(
+      input,
+      this.provider,
+      this.agentToolCost() + estimateTokens(stableHead),
+    );
+    const assembledTokens = assembled.sections
+      .filter((section) => section.included)
+      .reduce((sum, section) => sum + section.tokenEstimate, 0);
+    const remainingCapacity =
+      budget.contextWindow -
+      budget.maxOutputTokens -
+      budget.headroom -
+      (budget.reservedPromptTokens ?? 0) -
+      assembledTokens;
+    const history = agentActionsBlock(
+      compactAgentLog(log, AGENT_LOG_RECENT, findingsBudgetTokens(remainingCapacity)),
+    );
     const steeringBlock = agentSteeringBlock(steeringMessage);
     const recoveryBlock = agentActionRecoveryBlock(actionRecovery);
     // The structured briefing (ADR 0075 §3.3) is the run's MEMORY; the action log that

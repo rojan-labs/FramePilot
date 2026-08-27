@@ -12,7 +12,12 @@
 import { describe, expect, it } from 'vitest';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import { assembleContext, budgetTokens, type ContextInput } from './context-builder.js';
-import { resolveContextBudget } from './orchestrator.js';
+import {
+  AGENT_LOG_CLEAR_THRESHOLD_TOKENS,
+  compactAgentLog,
+  findingsBudgetTokens,
+  resolveContextBudget,
+} from './orchestrator.js';
 import type { AiProvider } from './providers/types.js';
 import { makeProject } from './__fixtures__/project.js';
 
@@ -146,5 +151,66 @@ describe('assembleContext under a reservation', () => {
     const withZero = assembleContext({ ...base, budget: { ...budget, reservedPromptTokens: 0 } });
     expect(withZero.messages).toEqual(without.messages);
     expect(withZero.trimmed).toEqual(without.trimmed);
+  });
+});
+
+describe('findingsBudgetTokens (05 — the findings budget scales with real capacity)', () => {
+  it('falls back to the floor when capacity cannot be measured', () => {
+    // The repair pass and the legacy loop measure nothing; they must behave as before.
+    expect(findingsBudgetTokens(undefined)).toBe(AGENT_LOG_CLEAR_THRESHOLD_TOKENS);
+    expect(findingsBudgetTokens(Number.NaN)).toBe(AGENT_LOG_CLEAR_THRESHOLD_TOKENS);
+    expect(findingsBudgetTokens(Number.POSITIVE_INFINITY)).toBe(AGENT_LOG_CLEAR_THRESHOLD_TOKENS);
+  });
+
+  it('never drops below the floor, however little room is left', () => {
+    // A model with a small window keeps today's clearing behaviour by arithmetic.
+    expect(findingsBudgetTokens(0)).toBe(AGENT_LOG_CLEAR_THRESHOLD_TOKENS);
+    expect(findingsBudgetTokens(-50_000)).toBe(AGENT_LOG_CLEAR_THRESHOLD_TOKENS);
+    expect(findingsBudgetTokens(1_000)).toBe(AGENT_LOG_CLEAR_THRESHOLD_TOKENS);
+  });
+
+  it('spends a share of measured capacity once there is real room', () => {
+    // The captured run reported ~97,000 tokens of remaining capacity on every single call
+    // while clearing its search payloads at 1,000. That is the whole defect.
+    const budget = findingsBudgetTokens(97_000);
+    expect(budget).toBeGreaterThan(AGENT_LOG_CLEAR_THRESHOLD_TOKENS * 10);
+    expect(budget).toBeLessThanOrEqual(24_000);
+  });
+
+  it('is capped, so a huge window cannot bury the request in stale payloads', () => {
+    expect(findingsBudgetTokens(1_000_000)).toBe(24_000);
+  });
+
+  it('grows monotonically with capacity', () => {
+    const points = [0, 5_000, 20_000, 60_000, 97_000, 500_000].map(findingsBudgetTokens);
+    expect(points).toEqual([...points].sort((a, b) => a - b));
+  });
+});
+
+describe('compactAgentLog honours the budget it is given', () => {
+  const bulky = (n: number): string[] =>
+    Array.from(
+      { length: n },
+      (_, i) => `Searching stock for q${String(i)} → ${'x'.repeat(400)} [ev_${String(i)}]`,
+    );
+
+  it('clears payloads when the log exceeds the budget', () => {
+    const out = compactAgentLog(bulky(20), 20, AGENT_LOG_CLEAR_THRESHOLD_TOKENS).join('\n');
+    expect(out).toContain('old result cleared');
+  });
+
+  it('keeps every payload when the budget accommodates them', () => {
+    // The behaviour change: the same log that used to be gutted at 1,000 tokens now rides
+    // whole, so the run holds the remoteIds it needs instead of recalling for them.
+    const log = bulky(20);
+    const out = compactAgentLog(log, 20, findingsBudgetTokens(97_000));
+    expect(out).toEqual(log);
+    expect(out.join('\n')).not.toContain('old result cleared');
+  });
+
+  it('still applies the rolling window independently of the payload budget', () => {
+    const out = compactAgentLog(bulky(20), 6, findingsBudgetTokens(97_000));
+    expect(out).toHaveLength(7);
+    expect(out[0]).toContain('earlier steps summarized');
   });
 });
