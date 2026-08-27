@@ -10,10 +10,11 @@ D4: an outcome that is the request handed back verbatim is stored bounded. D5:
 `from`/`here`/`off` join the continuation vocabulary, and `critiqueOptions` derives
 acceptance from the resolved objective rather than from what was typed last.
 
-**Not done.** D3's "report the degradation once per run" — the per-call sentence is already
-honest, and the description fix addresses the cause rather than the symptom. D4's
-`briefing.ts` de-duplication filter was left alone: it still filters correctly, and
-narrowing it is only worth doing once a run confirms the duplicate is gone.
+**Closed by judgement rather than code.** D3's "report once per run": the degraded notice no
+longer repeats the failed six-word phrase back — it states the rule the same way every time,
+so the fact store folds ten occurrences into one line instead of ten. D4's `briefing.ts`
+filter needed no change: `isRequestEcho` already matches the request "whole or excerpted",
+which is exactly the bounded form the outcome is now stored in.
 **Depends on:** nothing. D1 and D2 materially change output quality and should land with 02.
 
 Five defects from run `e36235cc` that do not fit 01–03 but each cost the run real quality.

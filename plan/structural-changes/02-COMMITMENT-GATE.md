@@ -11,8 +11,17 @@ entirely of harness refusals no longer increments `noProgressStreak`.
 `NOVELTY_ONLY_TURN_BUDGET` caps unbounded novelty-only progress without touching round 3's
 credit.
 
-**Not done.** The replay fixture rebuilt from run `e36235cc`'s state at 11:24:06 (test 10)
-— the scope is unit-tested across every stage instead. A live re-run supersedes it.
+The replay test (test 10) asserts the latch against the run's own state at 11:24:06:
+nineteen banked searches, twelve clips on disk, both picture tracks empty. From there it
+cannot search and can still reach `recall_evidence`, `add_clip` and the inspection tools.
+
+**One thing changed shape.** `NOVELTY_ONLY_TURN_BUDGET` was built, then removed: it
+duplicated `RESEARCH_BUDGET_TURNS` and silently pre-empted both it and the
+diminishing-returns guard, so three conductor tests began asserting a stop for a reason that
+was no longer true. The real defect was that budget's **refund** — it read `turnOpCount > 0`,
+and stocking the bin produces ops, so thirteen "Added asset" operations refunded the
+eight-turn budget all run. `turnPlacementCount` now drives it, drawing the same line the
+latch draws. See ADR 0149 and commit `3dcd231`.
 **Depends on:** 01 (until the gate can fail, this is unmeasurable).
 **Blast radius:** `packages/ai-sdk/src/orchestrator.ts` (`agentTools`, `executeToolCalls`),
 `packages/ai-sdk/src/kernel/conductor.ts` (stall accounting), one new ADR amending 0147.

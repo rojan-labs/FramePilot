@@ -80,25 +80,40 @@ Three further consequences follow, and none of them is optional:
   a run. `ask_user` is deliberately not offered — no `askUser` host is wired, so naming it
   would advertise an escape that does not exist.
 
-## Novelty alone is progress only for a bounded stretch
+## The bound on gathering already existed, and its refund was wrong
 
 ADR 0147's round-3 companion made a first-time recall count as progress, correctly: runs
 were being killed for obeying an instruction to recall rather than re-read. The side effect
 is that gathering became able to satisfy `madeMeaningfulProgress` indefinitely — novelty is
 keyed per evidence handle, so a run can walk a hundred distinct handles and never once fail
 the progress test. `e36235cc` did exactly that.
+**A cap on novelty-only turns was the obvious answer and it was the wrong one.** It was
+tried, and it duplicated `RESEARCH_BUDGET_TURNS`, which already bounds precisely this —
+"this turn gathered without attempting an edit, so it spends research budget" — and is
+tuned, tested, and reached through `actionRecoveryPending`. A second cap at a lower number
+silently pre-empted both it and the diminishing-returns guard, and three conductor tests
+immediately began asserting that a run stopped for a reason that was no longer the true
+one. Five interacting run-stoppers is already the count at which one stops being reachable;
+a sixth is not a fix.
 
-`NOVELTY_ONLY_TURN_BUDGET` (3) caps consecutive turns whose _only_ claim to progress is
-novelty. It is not a ban: any stronger signal — an attempted edit, a stage advance, a
-committed decision — resets it and never reaches the cap. What must not survive is
-unbounded headway-free gathering. Callers that do not track the streak are unbounded
-exactly as before, so the change is additive.
+The real defect was in that budget's **refund**. It read `turnOpCount > 0`, and stocking
+the media bin produces operations — so the captured run's thirteen "Added asset"
+operations, spread across the run, refunded the whole eight-turn budget again and again.
+The guard built to force research→execute could not fire on a run that spent thirty minutes
+researching, because downloading counted as executing.
+
+`turnPlacementCount` now drives the refund. A turn that only puts material in the bin has
+not left reconnaissance; it has restocked it. This is deliberately the **same line** the
+commit-only latch draws — one rule about what counts as editing, applied in two places,
+rather than two rules that can drift. A caller that does not report placements keeps the
+old behaviour, so the change is additive.
 
 ## Consequences
 
-**Good.** A run cannot spend a whole session gathering. The refusal is specific, names the
+**Good.** A run cannot spend a whole session gathering, and the guard that says so can
+finally fire. The refusal is specific, names the
 banked candidates, and points at the tool that spends them. Stage narrowing is enforced for
-the first time. The progress test can no longer be satisfied forever by reading.
+the first time. No new run-stopper was added — the existing one was repaired.
 
 **Costs.** One more scope on `agentTools`, and a latch whose conditions must be read
 together to understand any one of them. The withholding is narrow enough that a

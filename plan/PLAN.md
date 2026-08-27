@@ -13,19 +13,26 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
-**Status snapshot (2026-08-27, montage run gap analysis, round 5):** `[x]` **Five defects
-closed; one measurement outstanding.** Implementation: `e952b77` (01), `52aaff2` (02),
-`1646ee5` (03), `de57046` (04), `fc58de5` (05). ADRs **0149** (a run holding unspent
-candidates may not fetch more, narrowing 0147), **0150** (acquire in parallel, commit in
-series), **0151** (the findings budget scales with the window).
+**Status snapshot (2026-08-27, montage run gap analysis, round 5):** `[x]` **All five closed
+in code; the re-run is what settles them.** See `plan/structural-changes/` for the per-plan
+account. ADRs **0149** (a run holding unspent candidates may not fetch more, narrowing
+0147), **0150** (acquire in parallel, commit in series), **0151** (the findings budget
+scales with the window).
 
 **Nothing below has been measured against a live run** — every figure is read from the
-captured transcript, and the targets are projections. The round-5 re-run settles them.
-**One question outranks the re-run itself:** whether the live OpenRouter path honours the
-cache breakpoint. `cacheBoundary` appears nowhere in the OpenAI-compatible adapter
-(`splitAnthropicMessages` is Anthropic-specific), so either automatic prefix caching covers
-it or 736,595 tokens were billed at full price. It cannot be settled from the code; the run
-ledger added in `fc58de5` reports the answer on the next live run.
+captured transcript, and the targets are projections. The round-5 re-run settles three at
+once: whether the timeline reaches 50 clips, whether ≈960s of serial downloading became
+≈250s, and what the cached share actually is. Read a flat download-failure rate as the QUIC
+hypothesis being wrong rather than as noise.
+
+**The cache question was closed by acting, not measuring.** `cacheBoundary` appeared nowhere
+in the OpenAI-compatible adapter, so the marker the agent loop places was dropped on the path
+the captured run used. It is carried everywhere now: a gateway that understands it uses it,
+one that does not ignores an unknown key on a content part, and automatic prefix caching is
+unaffected because it keys on the byte prefix. Underneath it was a reporting bug that would
+have invalidated any earlier measurement anyway — `withProviderUsage` read
+`cachedInputTokens` while every caller passes `cacheReadInputTokens`, so the field was
+`undefined` on every manifest ever built.
 
 **The harness was no longer the blocker; the gate was off and the strategy was unforced.** Run `e36235cc` is the
 same brief again. Rounds 1-4 worked: it reached `apply`, held a 121-beat grid and 12
@@ -56,7 +63,7 @@ Full forensics and the end-to-end plan: **`plan/structural-changes/`**.
    text. Round 3's first-time-recall credit was right and has the side effect that gathering
    now satisfies the progress test without bound. **Note two inversions:** recalls are cheap
    in latency (0ms each) but cost **~289,370 tokens, 37% of all tool output** -- the largest
-   line item in the run; and refusing a *recall* would re-open the round-3 trap, because a
+   line item in the run; and refusing a _recall_ would re-open the round-3 trap, because a
    stock `remoteId` exists nowhere else. The correct target is the next **search** when
    unconsumed results are already banked. Requires an ADR amending 0147.
    → `02-COMMITMENT-GATE.md`
@@ -79,7 +86,7 @@ Full forensics and the end-to-end plan: **`plan/structural-changes/`**.
    `AGENT_LOG_PAYLOAD_FRESH = 2` becomes `[old result cleared -- recall ev_N]`. **The model
    holds ~17x more context about tools it could call than about what it has found**, and a
    stock `remoteId` lives only in a payload that survives two turns -- so the 62 recalls are
-   *mandated*, not chosen. Round 3 stopped the harness killing runs that recall; it did not
+   _mandated_, not chosen. Round 3 stopped the harness killing runs that recall; it did not
    change the reason they must. Multiplier: 144 tool calls over 51 turns, **mean 2.82**, with
    63% of turns making one or two calls, each paying a full ~23,500-token rebuild.
    **Take one measurement first:** whether the live OpenRouter path honours the cache
@@ -8018,10 +8025,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                                          Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                                          a pre-existing local edit commenting out temperature forwarding, untouched here);
-                                          engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                                          **Last updated:** 2026-08-14
+                                            Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                                            a pre-existing local edit commenting out temperature forwarding, untouched here);
+                                            engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                                            **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 

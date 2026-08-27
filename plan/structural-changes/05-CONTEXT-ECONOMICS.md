@@ -1,6 +1,6 @@
 # 05 — Context economics: 52 rebuilds, 60% spent on tool definitions
 
-**Status:** `[~]` in progress — 2026-08-27, commit `fc58de5`; **ADR 0151**
+**Status:** `[x]` done — 2026-08-27, commit `fc58de5`; **ADR 0151**
 
 **What shipped.** `findingsBudgetTokens` derives the budget from measured remaining
 capacity, floored at the old 1,000 and capped so a huge window cannot bury the request; a
@@ -12,14 +12,34 @@ exactly: _52 model calls · 1,223,811 tokens assembled · tool definitions 60% o
 115,967 re-billed across 9 tool-set change(s) · cache not reported by this provider · peak
 window use 33%_.
 
-**Still open — and it outranks everything else here.** Change 2 step 1: whether the
-OpenRouter path honours the cache breakpoint. `cacheBoundary` appears nowhere in the
-OpenAI-compatible adapter (`splitAnthropicMessages` is Anthropic-specific), so the answer is
-either "automatic prefix caching covers it" or "736,595 tokens were billed at full price".
-**It cannot be settled from the code and needs one live request.** The ledger now reports
-cached share, so the measurement is a single run away. Changes 2 steps 2–3 (narrowing the
-per-stage set, shortening descriptions) are deferred behind that measurement, as the plan
-requires.
+**Change 2 step 1, closed by acting rather than measuring** (`85a2441`). `cacheBoundary`
+appeared nowhere in the OpenAI-compatible adapter, so the marker the agent loop carefully
+places was dropped on the path the captured run actually used. It is now carried there too:
+a gateway that understands it uses it (OpenRouter passes `cache_control` through to
+Anthropic models), one that does not ignores an unknown key on a content part, and
+providers doing automatic prefix caching are unaffected because their caching keys on the
+byte prefix, which this does not move. Sending it costs nothing when it is not understood
+and saves the largest line item in the product when it is.
+
+**And the reason nobody could have measured it before.** `withProviderUsage` read
+`cachedInputTokens`; every caller passes a provider `Usage`, which spells it
+`cacheReadInputTokens`. Nothing produced the name being read, so the field was `undefined`
+on **every manifest ever built** — the captured run's "cache not reported by this provider"
+says nothing about what the provider did. Both spellings are accepted now.
+
+**Change 4, shipped** (`819d461`): sections carry `cacheSide`, the tool block is marked
+`cached_prefix` whenever a breakpoint exists, and the ledger aggregates
+`cacheablePrefixTokens` alongside `cachedInputShare` — a wide gap between the two is the
+signature of a breakpoint placed and not honoured. An assembled tier account claims no
+side rather than guessing at one.
+
+**Change 3, shipped** (`819d461`): the contract asks for independent calls in one turn.
+Measured cost of that paragraph plus the two descriptor edits: **+183 tokens per request**
+(21,285 → 21,468), recorded in the re-frozen goldens.
+
+**Deferred, and it should stay deferred.** Change 2 steps 2–3 — narrowing the per-stage set
+further and shortening tool descriptions. Both trade capability or clarity for tokens, and
+neither is worth doing until a live run says what the cached share actually is now.
 **Depends on:** nothing measurable-blocking, but lands best with 02 (fewer round trips is
 the same lever as fewer gathering turns).
 **Blast radius:** `packages/ai-sdk/src/orchestrator.ts` (agent log constants, message

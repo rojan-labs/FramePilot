@@ -1,24 +1,29 @@
 # Structural changes — montage run gap analysis, round 5
 
 **Created:** 2026-08-27 · **Source evidence:** `run.md` (conversation `0049aed5`, runs
-`e36235cc` + `4aa31c96`) · **Status:** `[x]` 01–04 done, `[~]` 05 in progress
+`e36235cc` + `4aa31c96`) · **Status:** `[x]` all five closed
 
-| Doc                       | Status | Commit    | ADR  |
-| ------------------------- | ------ | --------- | ---- |
-| `01-ACCEPTANCE-GATE`      | `[x]`  | `e952b77` | —    |
-| `02-COMMITMENT-GATE`      | `[x]`  | `52aaff2` | 0149 |
-| `03-PARALLEL-ACQUISITION` | `[x]`  | `1646ee5` | 0150 |
-| `04-SUPPORTING-DEFECTS`   | `[x]`  | `de57046` | —    |
-| `05-CONTEXT-ECONOMICS`    | `[~]`  | `fc58de5` | 0151 |
+| Doc                       | Status | Commits                         | ADR  |
+| ------------------------- | ------ | ------------------------------- | ---- |
+| `01-ACCEPTANCE-GATE`      | `[x]`  | `e952b77`                       | —    |
+| `02-COMMITMENT-GATE`      | `[x]`  | `52aaff2`, `3dcd231`, `adcd1e2` | 0149 |
+| `03-PARALLEL-ACQUISITION` | `[x]`  | `1646ee5`, `e23fee0`            | 0150 |
+| `04-SUPPORTING-DEFECTS`   | `[x]`  | `de57046`, `adcd1e2`            | —    |
+| `05-CONTEXT-ECONOMICS`    | `[x]`  | `fc58de5`, `85a2441`, `819d461` | 0151 |
 
-**The one thing left, and it outranks the rest.** `05` Change 2 step 1: whether the live
-OpenRouter path honours the cache breakpoint. `cacheBoundary` appears nowhere in the
-OpenAI-compatible adapter, so either automatic prefix caching covers it or 736,595 tokens
-were billed at full price. It cannot be settled from the code — it needs one live request,
-and the run ledger now reports the answer.
+**The one measurement that is still owed.** Everything here is closed in code and none of it
+has been run against live media or a live provider. The round-5 re-run settles three
+figures at once: whether the timeline reaches 50 clips, whether ≈960s of serial downloading
+became ≈250s, and what the cached share actually is now that the breakpoint is sent on every
+path. Read a flat download-failure rate as the QUIC hypothesis being wrong, not as noise.
 
-**Nothing here has been measured against a live run.** Every target below is a projection
-from the captured transcript. The round-5 re-run is what settles them.
+**Two things changed shape while being built, and both are worth knowing.**
+`NOVELTY_ONLY_TURN_BUDGET` was built and then removed — it duplicated
+`RESEARCH_BUDGET_TURNS` and pre-empted it, and the real defect turned out to be that
+budget's refund counting a bin download as an edit. And the cache question was closed by
+sending the breakpoint everywhere rather than by measuring first: it costs nothing where it
+is not understood, and the reporting bug underneath it (`cacheReadInputTokens` vs
+`cachedInputTokens`) meant no measurement taken before now could have been trusted anyway.
 
 ---
 

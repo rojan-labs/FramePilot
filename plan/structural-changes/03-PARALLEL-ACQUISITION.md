@@ -9,12 +9,15 @@ in-flight map keyed `provider|remoteId|variantId`, serialized `appendLedger`, a
 `randomUUID` `operationId`, and `STOCK_DOWNLOAD_MAX_MS` (180s) bounding total wall clock
 alongside the 30s stall timer.
 
-**Not done, and deliberately.** The targeted QUIC retry and the `.tmp` startup sweep are
-not built — both are justified by a hypothesis (that the degradation ladder is Chromium
-session state) that step 11 exists to falsify, and building the remedy before the
-measurement is the wrong order. **Step 11 itself — the live re-run against the captured 18
-`remoteId`s — has not been run.** The ≈960s → ≈250s claim is a projection, not a
-measurement.
+**Also shipped** (`e23fee0`): one retry for a transport failure only — `download_failed`,
+`timeout`, `rate_limited`, or a raw `net::ERR_*`; never `too_large`/`unauthorized`/
+`cancelled`, which are answers. A `.tmp` sweep on a project's first download, for fragments
+a crashed session left behind. And `deduped` surfaced, so a re-download can be told from a
+free cache hit.
+
+**Not done. Step 11 — the live re-run against the captured 18 `remoteId`s — has not been
+run.** The ≈960s → ≈250s figure and the failure-rate improvement are projections, not
+measurements. A flat failure rate should be read as the QUIC hypothesis being wrong.
 **Depends on:** 01 (measurement). Independent of 02 — can land in parallel.
 **Blast radius:** `packages/ai-sdk/src/tool-contract.ts`,
 `packages/ai-sdk/src/orchestrator.ts` (`executeToolCalls`),
