@@ -2642,6 +2642,9 @@ export class Orchestrator {
     const { minShotCount, coverage } = checkableAcceptance(input.userPrompt, durationTargetSeconds);
     return {
       userPrompt: input.userPrompt,
+      // The verbatim request, so `checkShotCount` can tell "no count was asked for" apart
+      // from "a count was asked for and the reader missed it" (see `acceptance.ts`).
+      request: input.userPrompt,
       ...(producedChanges !== undefined ? { producedChanges } : {}),
       ...(durationTargetSeconds !== undefined ? { durationTargetSeconds } : {}),
       ...(minShotCount !== undefined ? { minShotCount } : {}),

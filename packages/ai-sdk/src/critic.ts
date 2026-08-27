@@ -25,7 +25,11 @@ import {
   mapTranscript,
 } from '@framepilot/editor-core';
 import type { Clip, Effect, Project, Timeline } from '@framepilot/timeline-schema';
-import { COVERAGE_LABEL, type CoverageTreatment } from './acceptance.js';
+import {
+  COVERAGE_LABEL,
+  mentionsUnreadableShotCount,
+  type CoverageTreatment,
+} from './acceptance.js';
 import type { TargetPlatform } from './context-builder.js';
 import type { TemporalReviewReport } from './temporal-review.js';
 import { secondsToFrame } from './frame-time.js';
@@ -102,6 +106,14 @@ export interface CritiqueOptions {
    * number. Read deterministically from the prompt by `acceptance.ts`.
    */
   readonly minShotCount?: number;
+  /**
+   * The editor's request, verbatim, when the caller has it.
+   *
+   * Used only to tell "the brief asked for no shot count" apart from "the brief asked for one
+   * and the reader could not see it" — a distinction that was invisible in the run record and
+   * hid a reader bug through four rounds of gap analysis.
+   */
+  readonly request?: string;
   /**
    * Treatments the request demanded of EVERY clip ("every clip reframed", "grade across
    * clips"), read deterministically from the prompt by `acceptance.ts`.
@@ -420,12 +432,29 @@ function checkDurationTarget(timeline: Timeline, options: CritiqueOptions): Crit
  * check could be derived from it. Counted as picture clips — text/caption overlays are not
  * shots — because that is what an editor means by a shot count.
  */
-function checkShotCount(timeline: Timeline, options: CritiqueOptions): CriticCheck {
+function checkShotCount(project: Project, options: CritiqueOptions): CriticCheck {
   const target = options.minShotCount;
   if (target === undefined) {
+    // A brief long enough to be a spec that names a number beside a clip noun, and still
+    // yields no floor, is a READER failure worth surfacing — `skipped` alone is
+    // indistinguishable from a brief that asked for nothing. Warn, never fail: `critique`
+    // counts only `fail` toward `ok`, so a false alarm here cannot block a run that did the
+    // work. See `acceptance.ts#mentionsUnreadableShotCount`.
+    if (options.request !== undefined && mentionsUnreadableShotCount(options.request)) {
+      return check(
+        'shot_count',
+        'Shot count on target',
+        'warn',
+        'The request mentions a clip count, but it could not be read as a requirement, so ' +
+          'no shot-count check ran. Restate it as "at least N clips" to have it checked.',
+      );
+    }
     return check('shot_count', 'Shot count on target', 'skipped', 'No shot count was asked for.');
   }
-  const shots = allClips(timeline).filter((clip) => !isOverlayClip(clip)).length;
+  // Picture only. Counting `allClips` minus overlays let the music bed count as a shot —
+  // the same derivation that made `picture_present` report "pass: 1 picture clip" on a
+  // fifty-clip montage request whose timeline held nothing but its soundtrack.
+  const shots = pictureClips(project).length;
   if (shots >= target) {
     return check(
       'shot_count',
@@ -1308,7 +1337,7 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
     checkRequestMatch(options),
     checkPicturePresent(project, options),
     checkDurationTarget(timeline, options),
-    checkShotCount(timeline, options),
+    checkShotCount(project, options),
     checkReframeCoverage(project),
     checkTreatmentCoverage(project, options),
     checkCaptionAlignment(timeline),

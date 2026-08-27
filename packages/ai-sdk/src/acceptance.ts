@@ -95,34 +95,164 @@ const MAX_MEANINGFUL_SHOT_COUNT = 200;
  */
 const SHOT_NOUNS = 'clips?|shots?|moments?|cuts?|scenes?|segments?|angles?';
 
+/** Time units that make a number a duration rather than a count. */
+const TIME_UNITS = 's|sec|secs|second|seconds|m|min|mins|minutes';
+
+/**
+ * A number is a REQUIREMENT rather than an aspiration when the brief marks it as a floor —
+ * `50+`, `at least 50`, `minimum 50`, `no fewer than 50`.
+ *
+ * This is the discriminator that keeps the floor honest on a long spec. The captured brief
+ * states its requirement five times with a marker ("50+ visually distinct clips", "at least
+ * 50 separate video clips", "Minimum clips: 50", "50+ clips minimum", "At least 50 genuinely
+ * distinct clips") and ALSO says "Prefer 60-80" and "Target approximately 80-120 candidate
+ * clips". Taking the largest number would make the acceptance floor 120 and fail a cut of 80
+ * that did everything asked. Marked floors win; unmarked ones are only consulted when the
+ * brief states no floor at all.
+ */
+const FLOOR_MARKER = /\b(?:at least|no fewer than|minimum|min|at minimum)\b[^.\n]{0,24}$/;
+
+/**
+ * Words that make a number a size of the SEARCH POOL, not of the deliverable.
+ *
+ * "Target approximately 80-120 candidate clips, then select the strongest 50+" asks for a
+ * wide search and a narrow cut. Counting the pool as the floor would demand the whole pool
+ * end up on the timeline.
+ */
+const POOL_WORDS = /\b(?:candidates?|pool|library|options?)\b/;
+
+/**
+ * The near end of a range is the floor: "60-80 clips" promises 60, never 80.
+ *
+ * The same rule round 2 established for durations, where a pacing table's `0.3-0.6s per clip`
+ * produced a 0.6-second target for a fifty-clip montage.
+ */
+const RANGE_TAIL = /^\s*(?:-|–|—|to)\s*\d+/;
+
+/**
+ * `20+ moments`, `at least 20 different best moments`, `use 20 clips`.
+ *
+ * `(?<![\d.])` is what stops the fractional tail of a decimal reading as a count: a beat-map
+ * table row `| 2 | 0.50s | 15 |` otherwise offers `50` to every pattern here, because `.` is a
+ * non-word character and `\b` matches between it and the digit.
+ */
+const SHOT_COUNT_NUMBER_FIRST = new RegExp(
+  `(?<![\\d.])(\\d+)(\\s*\\+)?\\s*(?:(?:-|–|—|to)\\s*\\d+\\s*)?(?:[a-z-]+\\s+){0,3}(?:${SHOT_NOUNS})\\b`,
+  'g',
+);
+
+/**
+ * `minimum clips: 50`, `clip count 50` — how a written SPEC states the same requirement.
+ *
+ * Only counted when a requirement word is present, so ordinary prose that happens to put a
+ * number after a clip noun ("cuts 30 frames later") cannot be mistaken for a floor.
+ */
+const SHOT_COUNT_NOUN_FIRST = new RegExp(
+  `\\b(?:min|minimum|at least|no fewer than|count|total|target)\\b[^.\\n]{0,20}?` +
+    `(?:${SHOT_NOUNS})\\b[^.\\n]{0,12}?(?<![\\d.])(\\d+)`,
+  'g',
+);
+
+/**
+ * Is THIS occurrence of a number really a duration ("30 second cuts")?
+ *
+ * Asked of the matched span's own neighbourhood, never of the whole document. The guard used
+ * to test the entire normalized prompt, so a match at index 218 was invalidated by unrelated
+ * text thousands of characters away: a captured brief stated `50+ visually distinct clips` in
+ * its opening requirement and `0.50s` in a beat-map EXAMPLE table, and the table won. That
+ * silently removed the only checkable condition in a 9,885-character brief, which left
+ * `checkShotCount` reporting `skipped` and let a one-clip timeline report `completed`.
+ */
+function readsAsDuration(normalized: string, index: number, digits: string): boolean {
+  return new RegExp(`^${digits}\\s*(?:${TIME_UNITS})\\b`).test(
+    normalized.slice(index, index + digits.length + 12),
+  );
+}
+
+/** One stated count, with whether the brief marked it as a floor. */
+interface StatedCount {
+  readonly value: number;
+  readonly isFloor: boolean;
+}
+
+/** Every plausible shot count in the prompt, each tagged as a marked floor or an aspiration. */
+function statedShotCounts(normalized: string): StatedCount[] {
+  const found: StatedCount[] = [];
+  const collect = (pattern: RegExp, floorByConstruction: boolean): void => {
+    // Fresh `lastIndex` per call: these are module-level `g` regexes, and a leftover offset
+    // from a previous prompt would silently skip the head of this one.
+    pattern.lastIndex = 0;
+    for (const match of normalized.matchAll(pattern)) {
+      const digits = match[1];
+      if (digits === undefined) continue;
+      const at = match.index + match[0].indexOf(digits);
+      // The pattern captures digits only, so this is always a number; the range check is what
+      // rejects both the implausible values and the absurd ones (a 400-digit string reads as
+      // Infinity, which fails the upper bound).
+      const value = Number(digits);
+      if (value < MIN_MEANINGFUL_SHOT_COUNT || value > MAX_MEANINGFUL_SHOT_COUNT) continue;
+      if (readsAsDuration(normalized, at, digits)) continue;
+      if (POOL_WORDS.test(match[0])) continue;
+      const plus = match[2] !== undefined;
+      const isFloor =
+        floorByConstruction ||
+        plus ||
+        FLOOR_MARKER.test(normalized.slice(Math.max(0, at - 40), at));
+      // A range's far end is never a floor, and the near end is already what was captured.
+      if (!floorByConstruction && RANGE_TAIL.test(normalized.slice(at + digits.length))) {
+        found.push({ value, isFloor: false });
+        continue;
+      }
+      found.push({ value, isFloor });
+    }
+  };
+  collect(SHOT_COUNT_NUMBER_FIRST, false);
+  collect(SHOT_COUNT_NOUN_FIRST, true);
+  return found;
+}
+
 /**
  * Read a minimum shot count from ordinary creator language.
  *
  * Requires the number to sit next to a shot noun, so "30 second video" and "1080p" cannot be
- * mistaken for one. Both orders are accepted ("20+ moments", "at least 20 of the best shots"),
- * and a bare "a few clips" is deliberately not a number.
+ * mistaken for one. Both orders are accepted ("20+ moments", "at least 20 of the best shots",
+ * "minimum clips: 50"), and a bare "a few clips" is deliberately not a number.
+ *
+ * EVERY stated count is read rather than the first, because a long brief states its
+ * requirement repeatedly and first-match-wins made which one counted an accident of ordering
+ * — a brief opening with a throwaway "a few 3-shot sequences" would have set the target to 3.
+ * Marked floors ("50+", "at least 50") win over aspirations ("prefer 60-80"), and the largest
+ * marked floor is the one the cut has to clear. When nothing is marked, the SMALLEST stated
+ * count is used: a wrong criterion fails runs that did the work, so an unmarked number is
+ * read as the least it could mean.
  */
 export function explicitMinShotCount(prompt: string): number | undefined {
   const normalized = prompt.trim().toLowerCase().replace(/\s+/g, ' ');
   if (!normalized) return undefined;
-  // `20+ moments`, `at least 20 different best moments`, `use 20 clips`
-  const pattern = new RegExp(`\\b(\\d+)\\s*\\+?\\s*(?:[a-z-]+\\s+){0,3}(?:${SHOT_NOUNS})\\b`);
-  const match = pattern.exec(normalized);
-  if (!match?.[1]) return undefined;
-  // The pattern captures digits only, so this is always a number; the range check below is
-  // what rejects both the implausible values and the absurd ones (a 400-digit string reads as
-  // Infinity, which fails the upper bound).
-  const count = Number(match[1]);
-  if (count < MIN_MEANINGFUL_SHOT_COUNT || count > MAX_MEANINGFUL_SHOT_COUNT) return undefined;
-  // A number that is really a duration ("30 second cuts") is not a shot count.
-  if (
-    new RegExp(`\\b${match[1]}\\s*(?:s|sec|secs|second|seconds|m|min|mins|minutes)\\b`).test(
-      normalized,
-    )
-  ) {
-    return undefined;
-  }
-  return count;
+  const counts = statedShotCounts(normalized);
+  if (counts.length === 0) return undefined;
+  const floors = counts.filter((c) => c.isFloor).map((c) => c.value);
+  if (floors.length > 0) return Math.max(...floors);
+  return Math.min(...counts.map((c) => c.value));
+}
+
+/**
+ * A number sits next to a shot noun somewhere, but no floor could be read from it.
+ *
+ * The self-diagnosing half of the bug above: `checkShotCount` reporting `skipped — no shot
+ * count was asked for` is indistinguishable, in the run record, from a brief that genuinely
+ * stated none. On the captured run that line was the only trace of the failure and nothing
+ * surfaced it. A brief long enough to be a spec, mentioning a number beside a clip noun and
+ * still yielding nothing, is worth saying out loud — as a WARNING, which never blocks a run.
+ */
+const SPEC_LENGTH_CHARS = 1500;
+
+/** Does this request mention a clip count that {@link explicitMinShotCount} could not read? */
+export function mentionsUnreadableShotCount(prompt: string): boolean {
+  if (prompt.length < SPEC_LENGTH_CHARS) return false;
+  if (explicitMinShotCount(prompt) !== undefined) return false;
+  SHOT_COUNT_NUMBER_FIRST.lastIndex = 0;
+  return SHOT_COUNT_NUMBER_FIRST.test(prompt.trim().toLowerCase().replace(/\s+/g, ' '));
 }
 
 /**
