@@ -14,7 +14,7 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 powerful if the editing engine is structured, testable, and deterministic.
 
 **Status snapshot (2026-08-27, montage run gap analysis, round 5):** `[x]` **Five defects
-closed; one measurement outstanding.** Implementation: `e952b77` (01), `92ee038` (02),
+closed; one measurement outstanding.** Implementation: `e952b77` (01), `52aaff2` (02),
 `1646ee5` (03), `de57046` (04), `fc58de5` (05). ADRs **0149** (a run holding unspent
 candidates may not fetch more, narrowing 0147), **0150** (acquire in parallel, commit in
 series), **0151** (the findings budget scales with the window).

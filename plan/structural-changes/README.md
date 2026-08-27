@@ -6,7 +6,7 @@
 | Doc                       | Status | Commit    | ADR  |
 | ------------------------- | ------ | --------- | ---- |
 | `01-ACCEPTANCE-GATE`      | `[x]`  | `e952b77` | —    |
-| `02-COMMITMENT-GATE`      | `[x]`  | `92ee038` | 0149 |
+| `02-COMMITMENT-GATE`      | `[x]`  | `52aaff2` | 0149 |
 | `03-PARALLEL-ACQUISITION` | `[x]`  | `1646ee5` | 0150 |
 | `04-SUPPORTING-DEFECTS`   | `[x]`  | `de57046` | —    |
 | `05-CONTEXT-ECONOMICS`    | `[~]`  | `fc58de5` | 0151 |

@@ -1,6 +1,6 @@
 # 02 — Make a run that has committed nothing stop gathering
 
-**Status:** `[x]` done — 2026-08-27, commit `92ee038`; **ADR 0149**
+**Status:** `[x]` done — 2026-08-27, commit `52aaff2`; **ADR 0149**
 
 **What shipped.** A `commit-only` scope on `agentTools`, entered only when a search has
 banked results and no `add_clip` has succeeded, released by the first placement.
