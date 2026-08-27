@@ -13,7 +13,68 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
-**Status snapshot (2026-08-27, montage run gap analysis, round 4):** `[x]` **Two more
+**Status snapshot (2026-08-27, montage run gap analysis, round 5):** `[~]` **The harness is
+no longer the blocker; the gate is off and the strategy is unforced.** Run `e36235cc` is the
+same brief again. Rounds 1-4 worked: it reached `apply`, held a 121-beat grid and 12
+downloaded clips, made 143 tool calls -- and delivered a timeline with **one clip on it**
+(the music bed), then reported **`completed`**. 30 minutes, 367,398 billed tokens (1,223,811
+assembled across 52 model calls), $1.4288.
+Full forensics and the end-to-end plan: **`plan/structural-changes/`**.
+
+1. **One regex disabled the entire quality gate.** `acceptance.ts:explicitMinShotCount`
+   reads `50` from `50+ visually distinct clips`, then discards it: the guard meant to reject
+   "30 second cuts" also matches `0.50s` in the brief's own beat-map **example table** (`.`
+   is a non-word character, so `\b` matches inside `0.50s`). With no `minShotCount`,
+   `critic.ts:checkShotCount` reports `skipped`, `r.ok` stays true, and `conductor.ts:1783`
+   folds a 1-clip timeline to `complete`. The gate was built, wired and correct -- a false
+   positive switched it off. This is the same family as round 2's pacing-table duration bug,
+   now biting the shot count. **Fix this first: nothing else is measurable until a 1-clip run
+   stops reporting success.** → `01-ACCEPTANCE-GATE.md`
+2. **Sequential downloads consumed half the run.** All 18 `add_stock` calls ran strictly
+   serially (verified by timestamp: each starts as the previous ends) -- ~960s, 16 of 30
+   minutes, 6/18 failing. `search_stock` is already parallel; `add_stock` is excluded by one
+   `tool-contract.ts` row that conflates a network fetch with a timeline patch. Failures
+   cluster at the tail of each chain and degrade in character (timeout → QUIC →
+   `ERR_NAME_NOT_RESOLVED` → `ERR_INTERNET_DISCONNECTED` in 74ms), so this is Chromium
+   session state, not Pexels. → `03-PARALLEL-ACQUISITION.md`
+3. **The model gathers instead of committing, and the recovery turn cannot stop it.**
+   62 `recall_evidence` calls. `loop-detector.ts:216`'s "Do not read anything else first"
+   fired and was ignored -- it is advisory text against a model already ignoring advisory
+   text. Round 3's first-time-recall credit was right and has the side effect that gathering
+   now satisfies the progress test without bound. **Note two inversions:** recalls are cheap
+   in latency (0ms each) but cost **~289,370 tokens, 37% of all tool output** -- the largest
+   line item in the run; and refusing a *recall* would re-open the round-3 trap, because a
+   stock `remoteId` exists nowhere else. The correct target is the next **search** when
+   unconsumed results are already banked. Requires an ADR amending 0147.
+   → `02-COMMITMENT-GATE.md`
+4. **Five supporting defects.** `describe_footage` returned `not_indexed` for all 11 calls
+   (agent-downloaded stock is never enrolled -- `stock-host.ts:97-131` has no hook, unlike
+   the human import path), so a montage judged on visual variety was assembled blind; every
+   search asked for `orientation: "landscape"` on a 9:16 brief; music queries silently
+   degrade to their first two words (10 searches, 76k tokens, and a 70 BPM track for a
+   "super-fast-paced" montage); the 9,885-char brief is serialized twice in every run-state
+   block; and `continue from here` discarded the 50-clip requirement outright.
+   → `04-SUPPORTING-DEFECTS.md`
+
+5. **Context is rebuilt 52 times and 60% of it is a tool catalogue.** All 105 context
+   manifests parsed: **52 model calls, 1,223,811 estimated input tokens**, of which
+   `tool_schemas` alone is **736,595 (60.2%)**. Context per call never grows and never
+   compacts (`compaction.occurred` false in all 105; window 128k, peak use 33%) -- which is
+   why the per-call figure looks healthy and the run does not. Against 16,962 tokens of tool
+   definitions in one message, the findings budget is
+   `AGENT_LOG_CLEAR_THRESHOLD_TOKENS = 1000`: past ~two tool calls, every payload older than
+   `AGENT_LOG_PAYLOAD_FRESH = 2` becomes `[old result cleared -- recall ev_N]`. **The model
+   holds ~17x more context about tools it could call than about what it has found**, and a
+   stock `remoteId` lives only in a payload that survives two turns -- so the 62 recalls are
+   *mandated*, not chosen. Round 3 stopped the harness killing runs that recall; it did not
+   change the reason they must. Multiplier: 144 tool calls over 51 turns, **mean 2.82**, with
+   63% of turns making one or two calls, each paying a full ~23,500-token rebuild.
+   **Take one measurement first:** whether the live OpenRouter path honours the cache
+   breakpoint (`splitAnthropicMessages` is Anthropic-specific). If it does not, those 736,595
+   tokens were billed at full price and that outranks every other item in this snapshot.
+   → `05-CONTEXT-ECONOMICS.md`
+
+**Previous snapshot (2026-08-27, montage run gap analysis, round 4):** `[x]` **Two more
 defects from run `2131d2c5`.** The recall credit from round 3 worked — the run reached 34
 model calls instead of dying at 4 — and it still downloaded nothing, at 546,932 tokens and
 $1.95.
