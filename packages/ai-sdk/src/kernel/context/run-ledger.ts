@@ -64,6 +64,16 @@ export interface RunContextLedger {
   readonly peakWindowUtilisation: number;
   /** Requests where the assembler had to drop a tier to fit. */
   readonly compactedRequests: number;
+  /**
+   * Tokens that sat inside the cache breakpoint's prefix, and those re-billed after it.
+   *
+   * The share a provider COULD serve from cache, as against what is per-turn by
+   * construction. Distinct from {@link cachedInputShare}, which is what a provider says it
+   * actually did: a wide gap between the two is the signature of a breakpoint that is
+   * being placed and not honoured. Zero on requests that place no breakpoint.
+   */
+  readonly cacheablePrefixTokens: number;
+  readonly perTurnTokens: number;
   /** Every section type, largest spend first. */
   readonly byType: readonly LedgerLine[];
 }
@@ -107,6 +117,8 @@ export function summarizeRunContext(manifests: readonly ContextManifest[]): RunC
   let toolSchemaChanges = 0;
   let peakWindowUtilisation = 0;
   let compactedRequests = 0;
+  let cacheablePrefixTokens = 0;
+  let perTurnTokens = 0;
   const byType = new Map<string, { tokens: number; requests: number }>();
 
   for (const manifest of requests) {
@@ -136,6 +148,8 @@ export function summarizeRunContext(manifests: readonly ContextManifest[]): RunC
     const countedTypes = new Set<string>();
     for (const section of manifest.sections) {
       if (!section.included) continue;
+      if (section.cacheSide === 'cached_prefix') cacheablePrefixTokens += section.tokenEstimate;
+      if (section.cacheSide === 'per_turn') perTurnTokens += section.tokenEstimate;
       const line = byType.get(section.type) ?? { tokens: 0, requests: 0 };
       line.tokens += section.tokenEstimate;
       if (!countedTypes.has(section.type)) {
@@ -166,6 +180,8 @@ export function summarizeRunContext(manifests: readonly ContextManifest[]): RunC
     toolSchemaChanges,
     peakWindowUtilisation,
     compactedRequests,
+    cacheablePrefixTokens,
+    perTurnTokens,
     byType: [...byType.entries()]
       .map(([type, line]) => ({
         type,
@@ -196,6 +212,10 @@ export function describeRunContext(ledger: RunContextLedger): string {
       `${ledger.toolSchemaTokensRebilled.toLocaleString('en-US')} re-billed across ` +
         `${String(ledger.toolSchemaChanges)} tool-set change(s)`,
     );
+  }
+  if (ledger.cacheablePrefixTokens > 0) {
+    const cacheable = ledger.cacheablePrefixTokens / ledger.estimatedInputTokens;
+    parts.push(`${pct(cacheable)} of it inside a cache breakpoint`);
   }
   if (ledger.cachedInputShare !== undefined) {
     parts.push(`${pct(ledger.cachedInputShare)} served from cache`);

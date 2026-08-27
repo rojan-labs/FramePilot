@@ -187,3 +187,72 @@ describe('describeRunContext', () => {
     expect(line).toContain('12,263 re-billed across 1 tool-set change(s)');
   });
 });
+
+describe('the cacheable split (05 Change 4)', () => {
+  const sided = (
+    requestId: string,
+    rows: readonly [type: string, tokens: number, side?: 'cached_prefix' | 'per_turn'][],
+  ): ContextManifest =>
+    ({
+      requestId,
+      provider: 'openrouter',
+      model: 'openrouter/auto-beta',
+      sections: rows.map(([type, tokenEstimate, cacheSide], index) => ({
+        id: `s${String(index)}`,
+        type,
+        label: type,
+        tokenEstimate,
+        included: true,
+        ...(cacheSide ? { cacheSide } : {}),
+      })),
+      usage: {
+        modelContextLimit: 128_000,
+        limitAssumed: true,
+        estimatedInputTokensBeforeSend: rows.reduce((sum, [, tokens]) => sum + tokens, 0),
+        reservedOutputTokens: 8_192,
+        estimatedRemainingCapacity: 96_000,
+        calculationSource: 'local_estimate',
+      },
+      compaction: { occurred: false, removedTokenEstimate: 0, removedSections: [] },
+    }) as ContextManifest;
+
+  it('separates what a breakpoint covers from what is re-billed every turn', () => {
+    const ledger = summarizeRunContext([
+      sided('r1', [
+        ['tool_schemas', 16_962, 'cached_prefix'],
+        ['conversation', 3_000, 'cached_prefix'],
+        ['latest_user_message', 2_000, 'per_turn'],
+      ]),
+    ]);
+    expect(ledger.cacheablePrefixTokens).toBe(19_962);
+    expect(ledger.perTurnTokens).toBe(2_000);
+    expect(describeRunContext(ledger)).toContain('91% of it inside a cache breakpoint');
+  });
+
+  it('claims nothing for requests that place no breakpoint', () => {
+    const ledger = summarizeRunContext([sided('r1', [['tool_schemas', 16_962]])]);
+    expect(ledger.cacheablePrefixTokens).toBe(0);
+    expect(ledger.perTurnTokens).toBe(0);
+    expect(describeRunContext(ledger)).not.toContain('cache breakpoint');
+  });
+
+  it('reports both figures, so a placed-but-ignored breakpoint is visible', () => {
+    // A wide gap between "inside a breakpoint" and "served from cache" is the signature of
+    // a marker the provider is not honouring — which is exactly the question the captured
+    // run could not answer about its own OpenRouter path.
+    const line = describeRunContext(
+      summarizeRunContext([
+        {
+          ...sided('r1', [['tool_schemas', 10_000, 'cached_prefix']]),
+          usage: {
+            ...sided('r1', [['tool_schemas', 10_000, 'cached_prefix']]).usage,
+            providerReportedInputTokens: 10_000,
+            cachedInputTokens: 0,
+          },
+        } as ContextManifest,
+      ]),
+    );
+    expect(line).toContain('100% of it inside a cache breakpoint');
+    expect(line).toContain('0% served from cache');
+  });
+});

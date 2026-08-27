@@ -76,6 +76,21 @@ export interface ContextSection {
   readonly sourceReference?: string;
   /** The project revision this content describes, when it is revision-dependent. */
   readonly revision?: number;
+  /**
+   * Which side of the request's cache breakpoint this section landed on.
+   *
+   * `cached_prefix` is re-sent byte-identically and can be served from the provider's
+   * prompt cache; `per_turn` is re-billed at full price every call by construction.
+   * Absent when the caller does not place a breakpoint (every non-agent route).
+   *
+   * Reported because the split was the one thing the manifest could not show. The agent
+   * loop draws the line carefully — `context-builder.ts`'s `ContextSplit`, then
+   * `cacheBoundary` on the message — and a reader of the manifest could see 105 requests
+   * of 19k–42k tokens without being able to tell which part of any of them was paid for
+   * twice. See {@link RequestTokenUsage.toolSchemaTokensRebilled} for the same principle
+   * applied to the tool block.
+   */
+  readonly cacheSide?: 'cached_prefix' | 'per_turn';
 }
 
 /** How a token figure was arrived at. Never conflated in the UI. */
@@ -221,6 +236,20 @@ export interface ManifestInput {
   readonly estimatedInputTokens: number;
   readonly droppedTokenEstimate: number;
   readonly memory?: DurableMemoryStatus;
+  /**
+   * Index of the message carrying this request's cache breakpoint, when one was placed.
+   *
+   * Sections at or above it are the cached prefix; everything after is re-billed per turn.
+   * Absent ⇒ no breakpoint, and no section claims a side.
+   */
+  readonly cacheBoundaryIndex?: number;
+  /**
+   * True when `sections` is an ASSEMBLED tier account rather than one section per message.
+   *
+   * Those tiers were folded into fewer messages than there are sections, so an index into
+   * one is not an index into the other and no section may claim a cache side from it.
+   */
+  readonly assembledSections?: boolean;
 }
 
 /**
@@ -232,6 +261,7 @@ export interface ManifestInput {
  * @returns A complete manifest with `calculationSource: 'local_estimate'`.
  */
 export function buildManifest(input: ManifestInput): ContextManifest {
+  const boundaryIndex = input.cacheBoundaryIndex ?? -1;
   const sections: ContextSection[] = input.sections.map((section, index) => ({
     id: `s${index + 1}`,
     type: sectionTypeFor(section),
@@ -239,6 +269,15 @@ export function buildManifest(input: ManifestInput): ContextManifest {
     tokenEstimate: section.tokenEstimate,
     included: section.included,
     ...(section.included ? {} : { omittedReason: TRIMMED_TO_FIT }),
+    // Sections map to messages in order on the payload-derived path, so the boundary index
+    // lands on the right one. An ASSEMBLED account does not map 1:1 (its tiers were folded
+    // into fewer messages), so it claims no side rather than guessing at one.
+    ...(input.assembledSections === true
+      ? {}
+      : (() => {
+          const side = cacheSideFor(index, boundaryIndex);
+          return side === undefined ? {} : { cacheSide: side };
+        })()),
   }));
   if (input.toolSchemaTokens && input.toolSchemaTokens > 0) {
     sections.push({
@@ -247,6 +286,10 @@ export function buildManifest(input: ManifestInput): ContextManifest {
       label: 'tool definitions',
       tokenEstimate: input.toolSchemaTokens,
       included: true,
+      // Tools precede the messages in every provider's cache ordering, so a breakpoint
+      // anywhere in the messages caches them. This is the section that most needs saying:
+      // it was 60.2% of captured run `e36235cc`'s entire input.
+      ...(boundaryIndex < 0 ? {} : { cacheSide: 'cached_prefix' as const }),
     });
   }
 
@@ -304,6 +347,26 @@ export function buildManifest(input: ManifestInput): ContextManifest {
  * contract, each prior turn, and the final message. Coarser than the assembler's account,
  * and honest about being so, but every figure is real.
  */
+/**
+ * Which side of the cache breakpoint a message lands on.
+ *
+ * A breakpoint caches everything BEFORE it inclusive, so the boundary message and every
+ * message above it are the cached prefix and everything after it is re-billed per turn.
+ * `boundaryIndex < 0` means the caller placed no breakpoint, and nothing is claimed.
+ */
+function cacheSideFor(index: number, boundaryIndex: number): ContextSection['cacheSide'] {
+  if (boundaryIndex < 0) return undefined;
+  return index <= boundaryIndex ? 'cached_prefix' : 'per_turn';
+}
+
+/** The last message the caller flagged as the cache breakpoint, or `-1` for none. */
+export function cacheBoundaryIndex(messages: readonly AiMessage[]): number {
+  return messages.reduce(
+    (last, message, index) => (message.cacheBoundary === true ? index : last),
+    -1,
+  );
+}
+
 function sectionsFromMessages(messages: readonly AiMessage[]): AssembledSection[] {
   const lastIndex = messages.length - 1;
   return messages
@@ -408,6 +471,7 @@ export function buildRequestManifest(input: RequestManifestInput): ContextManife
     (sum, message) => sum + estimateTokens(message.content),
     0,
   );
+  const boundaryIndex = cacheBoundaryIndex(input.request.messages);
   const sections = input.assembled
     ? withRemainder(input.assembled.sections, messageTokens)
     : sectionsFromMessages(input.request.messages);
@@ -428,6 +492,8 @@ export function buildRequestManifest(input: RequestManifestInput): ContextManife
     estimatedInputTokens: messageTokens + toolSchemaTokens,
     droppedTokenEstimate: input.assembled?.droppedTokenEstimate ?? 0,
     ...(input.memory ? { memory: input.memory } : {}),
+    ...(boundaryIndex < 0 ? {} : { cacheBoundaryIndex: boundaryIndex }),
+    ...(input.assembled ? { assembledSections: true } : {}),
   });
 }
 

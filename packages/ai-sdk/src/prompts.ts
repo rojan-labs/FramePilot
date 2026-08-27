@@ -232,6 +232,15 @@ const AGENT_CONTRACT_HEAD = [
   '  or ask the editor.',
   'Never repeat a rejected call unchanged. If the single corrected retry also fails,',
   'stop that approach: use a different valid edit, ask the editor, or report the blocker.',
+  // Round trips, not tokens, are what a long run actually costs. Captured run `e36235cc`
+  // made 144 tool calls over 51 turns — a mean of 2.82, with 63 percent of turns making one
+  // or two — and every one of those turns paid a full context rebuild plus an inference.
+  // Independent calls have no reason to be spread across turns, and downloads in particular
+  // now overlap when they arrive together (ADR 0150).
+  'Put every INDEPENDENT call you already know you need in ONE turn: several searches, the',
+  'reads that describe different assets, and every download you have chosen. They run',
+  "together. Only a call whose arguments depend on another call's RESULT has to wait for a",
+  'later turn — asking for one thing at a time makes a run slower without making it safer.',
   'Inspect only to close a named evidence gap, then decide and execute. Every read is filed',
   'under a handle shown beside it in your action log ([ev_3]); to see more of a result',
   'you already have, call recall_evidence with that handle instead of reading again.',
