@@ -1484,6 +1484,59 @@ describe('research budget (R1) — the forced research→execute transition', ()
     expect(step.effects[0]).not.toHaveProperty('actionRecovery');
   });
 
+  /** A turn that only stocked the media bin: it produced ops, but changed no cut. */
+  const binTurn = (i: number): AgentTurnResult =>
+    turn({
+      stepIndex: i,
+      signature: `bin-${i}`,
+      callFacts: [{ key: `add_stock:${i}`, status: 'completed', fromCache: false }],
+      turnOpCount: 3,
+      turnPlacementCount: 0,
+    });
+
+  /** A turn that put a clip on the timeline. */
+  const cutTurn = (i: number): AgentTurnResult =>
+    turn({
+      stepIndex: i,
+      signature: `cut-${i}`,
+      callFacts: [{ key: `add_clip:${i}`, status: 'completed', fromCache: false }],
+      turnOpCount: 2,
+      turnPlacementCount: 2,
+    });
+
+  it('a bin-only turn spends budget instead of refunding it', () => {
+    // The captured run's thirteen "Added asset" operations refunded the whole eight-turn
+    // budget again and again, so the guard built to force research→execute could not fire
+    // on a run that spent thirty minutes researching. Downloading is not editing.
+    const step = fold(started(), [binTurn(1), binTurn(2), binTurn(3)]);
+    expect(step.state.researchStreak).toBe(3);
+  });
+
+  it('a turn that changes the cut refunds the whole budget', () => {
+    const step = fold(started(), [binTurn(1), binTurn(2), cutTurn(3)]);
+    expect(step.state.researchStreak).toBe(0);
+  });
+
+  it('a run that only ever shops still reaches the budget', () => {
+    const step = fold(
+      started(),
+      Array.from({ length: RESEARCH_BUDGET_TURNS }, (_, i) => binTurn(i + 1)),
+    );
+    expect(step.state.researchStreak).toBe(RESEARCH_BUDGET_TURNS);
+    expect(step.effects[0]).toMatchObject({ kind: 'run_turn', actionRecovery: true });
+  });
+
+  it('a caller that does not report placements keeps the old behaviour', () => {
+    // Additive: the legacy loop and every fixture are unchanged.
+    const legacy = turn({
+      stepIndex: 1,
+      signature: 'legacy',
+      callFacts: [{ key: 'x', status: 'completed', fromCache: false }],
+      turnOpCount: 3,
+    });
+    expect(fold(started(), [legacy]).state.researchStreak).toBe(0);
+  });
+
   it('a REJECTED edit attempt also refunds it — attempting proves recon is over', () => {
     const attempted = turn({ stepIndex: 3, signature: 'tried', turnOpCount: 2, note: 'rejected' });
     const step = fold(started(), [reconTurn(1), reconTurn(2), attempted]);

@@ -9,7 +9,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_NO_PROGRESS_TURNS,
-  NOVELTY_ONLY_TURN_BUDGET,
   SEMANTIC_LOOP_TURNS,
   catalogueSearchRefusal,
   isSemanticLoop,
@@ -238,7 +237,7 @@ describe('shouldWithholdCatalogueSearch (02 — the commit-only latch)', () => {
   });
 });
 
-describe('madeMeaningfulProgress caps novelty-only turns (02)', () => {
+describe('novelty alone stays progress here — the bound lives elsewhere', () => {
   const base = {
     learnedSomethingNew: false,
     attemptedEdit: false,
@@ -249,41 +248,24 @@ describe('madeMeaningfulProgress caps novelty-only turns (02)', () => {
     satisfiedObjective: false,
   };
 
-  it('counts novelty alone while the budget lasts', () => {
-    for (let streak = 0; streak < NOVELTY_ONLY_TURN_BUDGET; streak += 1) {
-      expect(
-        madeMeaningfulProgress({ ...base, learnedSomethingNew: true, noveltyOnlyStreak: streak }),
-      ).toBe(true);
-    }
-  });
-
-  it('stops counting novelty alone once the budget is spent', () => {
-    // 62 recalls deep with one clip on the timeline is not progress.
-    expect(
-      madeMeaningfulProgress({
-        ...base,
-        learnedSomethingNew: true,
-        noveltyOnlyStreak: NOVELTY_ONLY_TURN_BUDGET,
-      }),
-    ).toBe(false);
-  });
-
-  it('is unbounded for a caller that does not track the streak', () => {
-    // Additive: every existing caller and fixture keeps the behaviour it had.
+  it('credits a turn that learned something, however many came before it', () => {
+    // An earlier pass capped this, and the cap silently pre-empted RESEARCH_BUDGET_TURNS
+    // and the diminishing-returns guard — so runs stopped for a reason that was no longer
+    // the true one. The bound on gathering belongs to the research budget, which is tuned
+    // and tested; this test exists to keep a second one from growing back here.
     expect(madeMeaningfulProgress({ ...base, learnedSomethingNew: true })).toBe(true);
   });
 
-  it('a stronger signal still counts however long the streak', () => {
-    const spent = { ...base, noveltyOnlyStreak: 99 };
-    expect(madeMeaningfulProgress({ ...spent, attemptedEdit: true })).toBe(true);
-    expect(madeMeaningfulProgress({ ...spent, appliedEdit: true })).toBe(true);
-    expect(madeMeaningfulProgress({ ...spent, advancedStage: true })).toBe(true);
-    expect(madeMeaningfulProgress({ ...spent, committedDecision: true })).toBe(true);
-    expect(madeMeaningfulProgress({ ...spent, recordedVerification: true })).toBe(true);
-    expect(madeMeaningfulProgress({ ...spent, satisfiedObjective: true })).toBe(true);
+  it('credits every stronger signal on its own', () => {
+    expect(madeMeaningfulProgress({ ...base, attemptedEdit: true })).toBe(true);
+    expect(madeMeaningfulProgress({ ...base, appliedEdit: true })).toBe(true);
+    expect(madeMeaningfulProgress({ ...base, advancedStage: true })).toBe(true);
+    expect(madeMeaningfulProgress({ ...base, committedDecision: true })).toBe(true);
+    expect(madeMeaningfulProgress({ ...base, recordedVerification: true })).toBe(true);
+    expect(madeMeaningfulProgress({ ...base, satisfiedObjective: true })).toBe(true);
   });
 
-  it('a turn that learned nothing is still no progress, budget or not', () => {
-    expect(madeMeaningfulProgress({ ...base, noveltyOnlyStreak: 0 })).toBe(false);
+  it('credits nothing to a turn that did nothing', () => {
+    expect(madeMeaningfulProgress(base)).toBe(false);
   });
 });

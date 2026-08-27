@@ -163,14 +163,20 @@ export function isSemanticLoop(
 }
 
 /**
- * Consecutive turns that may count novelty alone as progress before it stops counting.
+ * Why there is no novelty cap here.
  *
- * Three: two turns of gathering is a normal opening (find the material, look at it), and a
- * third is a fair allowance for a run whose first two searches were unlucky. The fourth
- * consecutive turn that discovered something and did nothing with it is the pattern this
- * exists to interrupt.
+ * An earlier pass at this capped consecutive novelty-only turns, on the reasoning that
+ * round 3's first-time-recall credit let gathering satisfy this test forever. The reasoning
+ * was right and the lever was wrong: `RESEARCH_BUDGET_TURNS` in `conductor.ts` already
+ * bounds exactly that — "this turn gathered without attempting an edit, so it spends
+ * research budget" — and it is tuned, tested, and reached through `actionRecoveryPending`.
+ * A second cap at a lower number silently pre-empted it, and with it the diminishing-returns
+ * guard, so runs stopped for a reason that was no longer the true one.
+ *
+ * The real gap was in that budget's REFUND, not in its absence: it refunded on
+ * `turnOpCount > 0`, and stocking the media bin produces ops. See
+ * `conductor.ts#researchStreak`.
  */
-export const NOVELTY_ONLY_TURN_BUDGET = 3;
 
 /** What a turn is credited with, for the progress test. */
 export interface TurnProgress {
@@ -181,13 +187,6 @@ export interface TurnProgress {
   readonly advancedStage: boolean;
   readonly committedDecision: boolean;
   readonly satisfiedObjective: boolean;
-  /**
-   * Consecutive prior turns whose only claim to progress was novelty.
-   *
-   * Absent ⇒ unbounded, which is exactly the behaviour every existing caller and fixture
-   * had, so the cap is additive rather than a silent change to paths that do not track it.
-   */
-  readonly noveltyOnlyStreak?: number;
 }
 
 /**
@@ -199,29 +198,15 @@ export interface TurnProgress {
  * while the timeline stayed untouched.
  */
 export function madeMeaningfulProgress(p: TurnProgress): boolean {
-  if (
+  return (
+    p.learnedSomethingNew ||
     p.attemptedEdit ||
     p.appliedEdit ||
     p.recordedVerification ||
     p.advancedStage ||
     p.committedDecision ||
     p.satisfiedObjective
-  ) {
-    return true;
-  }
-  // Novelty ALONE is progress only for a bounded stretch (02).
-  //
-  // Round 3 made a first-time recall count as learning, correctly — a run was being killed
-  // for obeying an instruction to recall rather than re-read. The side effect is that
-  // gathering became able to satisfy this test forever: novelty is per evidence HANDLE, so
-  // a run can walk a hundred distinct handles and never once fail the progress check. Run
-  // `e36235cc` did exactly that, 62 recalls deep, with one clip on the timeline.
-  //
-  // The cap is not a ban. A run that is genuinely making headway trips one of the stronger
-  // signals above and never reaches this line. What must not survive is UNBOUNDED
-  // headway-free gathering.
-  if (!p.learnedSomethingNew) return false;
-  return (p.noveltyOnlyStreak ?? 0) < NOVELTY_ONLY_TURN_BUDGET;
+  );
 }
 
 /**

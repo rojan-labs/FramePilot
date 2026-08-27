@@ -398,13 +398,6 @@ export interface ConductorState {
    * forever without ever moving the task, which is exactly what happened.
    */
   readonly noProgressStreak: number;
-  /**
-   * Consecutive turns whose only claim to progress was novelty (02).
-   *
-   * Reset by any stronger signal — an attempted edit, a stage advance, a committed
-   * decision — so a run doing real work never accumulates one.
-   */
-  readonly noveltyOnlyStreak: number;
   /** Monotonic per-run event sequence, threaded so ids never collide across folds. */
   readonly seq: number;
 }
@@ -436,7 +429,6 @@ export function initialConductorState(turnRef: TurnRef): ConductorState {
     working: initialWorkingState({ runId: turnRef.turnId, request: '' }),
     recentIntents: [],
     noProgressStreak: 0,
-    noveltyOnlyStreak: 0,
     cancelled: false,
     integrityFailed: false,
     log: [],
@@ -616,6 +608,15 @@ export interface AgentTurnResult {
    * kills it. The run is not failing to progress; it is being told to do something else.
    */
   readonly withheldCallCount?: number;
+  /**
+   * Operations this turn proposed that change the CUT rather than only the media bin.
+   *
+   * The research budget's refund reads this rather than {@link turnOpCount}: adding an
+   * asset produces ops, so a run could restock its bin every few turns and refund the
+   * budget built to force it to edit. Absent ⇒ fall back to `turnOpCount`, which is the
+   * behaviour every existing caller and fixture had.
+   */
+  readonly turnPlacementCount?: number;
   /** Operations the turn proposed, before validation (drives the per-turn cap). */
   readonly turnOpCount: number;
   /** Ops proposed by the turn's calls but refused by the per-call validator. */
@@ -1056,7 +1057,6 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
     working: restored ?? freshWorking,
     recentIntents: [],
     noProgressStreak: 0,
-    noveltyOnlyStreak: 0,
     seq: em.seq(),
   };
   const firstEffect: ConductorEffect = resuming
@@ -1463,7 +1463,6 @@ export function onTurnResult(
       // An applied edit is meaningful progress by definition, so both new streaks clear
       // with the old ones.
       noProgressStreak: 0,
-      noveltyOnlyStreak: 0,
       recentIntents: [],
       recentOutputDeltas: [],
       actionRecoveryPending: false,
@@ -1519,7 +1518,19 @@ export function onTurnResult(
   // R1: this turn gathered information without attempting an edit, so it spends research
   // budget. Any attempt — even one the validator rejected — proves the run has left
   // reconnaissance and refunds the whole budget.
-  const researchStreak = attemptedEdit ? 0 : state.researchStreak + 1;
+  //
+  // "Attempt" means an attempt AT THE CUT. It used to mean `turnOpCount > 0`, and stocking
+  // the media bin produces ops — so in captured run `e36235cc` thirteen "Added asset"
+  // operations, spread across the run, refunded the whole eight-turn budget again and
+  // again. The guard built to force research→execute could not fire on a run that spent 30
+  // minutes researching, because downloading counted as executing. A turn that only puts
+  // material in the bin has not left reconnaissance; it has restocked it.
+  //
+  // `turnPlacementCount` is absent for callers that do not report it, which keeps the old
+  // behaviour for the legacy loop and every fixture rather than silently tightening them.
+  const changedTheCut =
+    r.turnPlacementCount === undefined ? attemptedEdit : r.turnPlacementCount > 0;
+  const researchStreak = changedTheCut ? 0 : state.researchStreak + 1;
   // Recalls are excluded from this question, and the exclusion is load-bearing.
   //
   // `recall_evidence` returns stored data, so it is `fromCache` by construction — which
@@ -1579,9 +1590,6 @@ export function onTurnResult(
   const learnedSomethingNew = turnLearnedSomethingNew(r.callFacts, state.seenCallKeys);
   // Meaningful progress is a stricter question than the stall guard's: reasoning text,
   // restated summaries and memo hits are a run describing itself, not progressing.
-  const strongerSignal = attemptedEdit || stageAdvanced;
-  const noveltyOnlyStreak =
-    strongerSignal || !learnedSomethingNew ? 0 : state.noveltyOnlyStreak + 1;
   const progressedMeaningfully = madeMeaningfulProgress({
     learnedSomethingNew,
     attemptedEdit,
@@ -1590,9 +1598,6 @@ export function onTurnResult(
     advancedStage: stageAdvanced,
     committedDecision: false,
     satisfiedObjective: false,
-    // The streak BEFORE this turn: the budget asks how many turns have already been spent
-    // discovering and not acting, so counting this one would spend the allowance a turn early.
-    noveltyOnlyStreak: state.noveltyOnlyStreak,
   });
   // Semantic loop detection (ADR 0075 §3.5). Tracks what turns were FOR: a run that
   // re-announces the same purpose three times while advancing nothing is circling, however
@@ -1650,7 +1655,6 @@ export function onTurnResult(
     working: recovered ? setNextAction(workingAfterTurn, recovered) : workingAfterTurn,
     recentIntents,
     noProgressStreak,
-    noveltyOnlyStreak,
     rejectedOpCount,
     rejectionReasons,
     attemptedAnyEdit: state.attemptedAnyEdit || attemptedEdit,

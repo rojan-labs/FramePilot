@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21285,
+      "usedTokens": 21468,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -121,43 +121,48 @@
             "type": "system",
             "label": "system contract",
             "tokenEstimate": 135,
-            "included": true
+            "included": true,
+            "cacheSide": "cached_prefix"
           },
           {
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
             "tokenEstimate": 1662,
-            "included": true
+            "included": true,
+            "cacheSide": "cached_prefix"
           },
           {
             "id": "s3",
             "type": "conversation",
             "label": "user turn 2",
-            "tokenEstimate": 1775,
-            "included": true
+            "tokenEstimate": 1862,
+            "included": true,
+            "cacheSide": "cached_prefix"
           },
           {
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
             "tokenEstimate": 161,
-            "included": true
+            "included": true,
+            "cacheSide": "per_turn"
           },
           {
             "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17552,
-            "included": true
+            "tokenEstimate": 17648,
+            "included": true,
+            "cacheSide": "cached_prefix"
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21285,
+          "estimatedInputTokensBeforeSend": 21468,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170523,
+          "estimatedRemainingCapacity": 170340,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -325,7 +330,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21347,
+      "usedTokens": 21530,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -338,43 +343,48 @@
             "type": "system",
             "label": "system contract",
             "tokenEstimate": 135,
-            "included": true
+            "included": true,
+            "cacheSide": "cached_prefix"
           },
           {
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
             "tokenEstimate": 1662,
-            "included": true
+            "included": true,
+            "cacheSide": "cached_prefix"
           },
           {
             "id": "s3",
             "type": "conversation",
             "label": "user turn 2",
-            "tokenEstimate": 1775,
-            "included": true
+            "tokenEstimate": 1862,
+            "included": true,
+            "cacheSide": "cached_prefix"
           },
           {
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
             "tokenEstimate": 223,
-            "included": true
+            "included": true,
+            "cacheSide": "per_turn"
           },
           {
             "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17552,
-            "included": true
+            "tokenEstimate": 17648,
+            "included": true,
+            "cacheSide": "cached_prefix"
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21347,
+          "estimatedInputTokensBeforeSend": 21530,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170461,
+          "estimatedRemainingCapacity": 170278,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },

@@ -6311,6 +6311,7 @@ export class Orchestrator {
       anyToolCancelled: false,
       anyToolFailed: false,
       turnOpCount: 0,
+      turnPlacementCount: 0,
       rejectedOpCount: 0,
       rejectionNotes: [],
       applied: false,
@@ -6784,6 +6785,7 @@ export class Orchestrator {
             anyToolCancelled: true,
             anyToolFailed,
             turnOpCount: turnOps.length,
+            turnPlacementCount: placementCount(turnOps),
           });
         }
 
@@ -6793,6 +6795,7 @@ export class Orchestrator {
             ...common,
             anyToolFailed,
             turnOpCount: turnOps.length,
+            turnPlacementCount: placementCount(turnOps),
           });
         }
 
@@ -6855,6 +6858,7 @@ export class Orchestrator {
           ...common,
           anyToolFailed,
           turnOpCount: turnOps.length,
+          turnPlacementCount: placementCount(turnOps),
           applied: applied.applied,
           appliedOps: applied.applied ? [...turnOps] : [],
           describedActions,
