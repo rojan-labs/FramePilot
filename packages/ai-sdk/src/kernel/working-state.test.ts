@@ -981,9 +981,9 @@ describe('objective, next action, blockers', () => {
       acceptance: [],
       provisional: true,
     });
-    expect(
-      setObjective(seeded, { outcome: 'contine', acceptance: [], provisional: true }),
-    ).toBe(seeded);
+    expect(setObjective(seeded, { outcome: 'contine', acceptance: [], provisional: true })).toBe(
+      seeded,
+    );
   });
 
   it('carries the next action and the blocker that reopens a closed read', () => {
@@ -999,5 +999,31 @@ describe('objective, next action, blockers', () => {
     });
     expect(blocked.blockedOn?.missing).toBe('transcript for 4:31–4:58');
     expect(setBlocker(blocked, null).blockedOn).toBeNull();
+  });
+});
+
+describe('D4 — the brief is not stored twice', () => {
+  it('bounds an outcome that is the request handed straight back', () => {
+    // A turn can hand the request back VERBATIM as its interpretation, and with
+    // `provisional: false` that stored a second whole copy: captured run `e36235cc` carried
+    // its 9,885-character brief twice in every one of 57 run-state serializations.
+    const brief = `Build a 50-clip montage. ${'Every cut lands on a beat. '.repeat(60)}`;
+    const seeded = initialWorkingState({ request: brief, projectRevision: 0 });
+    const state = setObjective(seeded, { outcome: brief, acceptance: [], provisional: false });
+    expect(state.objective.outcome.length).toBeLessThan(brief.length);
+    expect(state.objective.request).toBe(brief.trim());
+  });
+
+  it('keeps a real interpretation whole — that one says something new', () => {
+    const brief = `Build a 50-clip montage. ${'Every cut lands on a beat. '.repeat(60)}`;
+    const interpretation =
+      'Source 60 nature clips, detect the beat grid, and cut every clip to an onset.';
+    const seeded = initialWorkingState({ request: brief, projectRevision: 0 });
+    const state = setObjective(seeded, {
+      outcome: interpretation,
+      acceptance: [],
+      provisional: false,
+    });
+    expect(state.objective.outcome).toBe(interpretation);
   });
 });

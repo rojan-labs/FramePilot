@@ -49,10 +49,18 @@ const FILLER_WORDS: ReadonlySet<string> = new Set([
   'along',
   'and',
   'do',
+  // "continue from here" is the phrase the editor of captured run `e36235cc` typed twice.
+  // Without these it tokenized to [continue, from, here], `from` fell outside the
+  // vocabulary, and a three-word nudge was recorded as a brand-new request — which threw
+  // away the 50-clip brief it was nudging, criteria and all, and left verification with
+  // nothing to check.
+  'from',
   'going',
+  'here',
   'it',
   'just',
   'now',
+  'off',
   'ok',
   'okay',
   'on',
@@ -114,7 +122,9 @@ function isContinuationWord(token: string): boolean {
   return CONTINUATION_WORDS.some(
     (word) =>
       word === token ||
-      (token.length >= MIN_FUZZY_LENGTH && word.length >= MIN_FUZZY_LENGTH && withinDistance(token, word, 1)),
+      (token.length >= MIN_FUZZY_LENGTH &&
+        word.length >= MIN_FUZZY_LENGTH &&
+        withinDistance(token, word, 1)),
   );
 }
 
@@ -147,10 +157,7 @@ export function isBareContinuation(text: string): boolean {
  * resolvable referent is still the only thing the editor said, and recording it beats
  * recording an empty objective, which the stage guards treat as a broken run.
  */
-export function deriveObjectiveText(
-  userPrompt: string,
-  history?: readonly AiMessage[],
-): string {
+export function deriveObjectiveText(userPrompt: string, history?: readonly AiMessage[]): string {
   const prompt = userPrompt.trim();
   if (!isBareContinuation(prompt)) return prompt;
   for (let i = (history?.length ?? 0) - 1; i >= 0; i -= 1) {

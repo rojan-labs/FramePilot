@@ -525,6 +525,59 @@ function packetT0(packet: unknown): number {
  * empty result (nothing on screen matched, or the footage is not indexed yet). Packets
  * are handed back verbatim — the model reads captions/spans and cites them.
  */
+/**
+ * Turn the engine's bare machine reason into a sentence the model can act on.
+ *
+ * The engine answers `reason: "not_indexed"` and nothing else, so the model read
+ * `"describe_footage": not_indexed` — a token with no instruction in it. Captured run
+ * `e36235cc` called `describe_footage` eleven times across two turns, got that token every
+ * time, learned nothing from it either time, and went on to assemble a montage judged on
+ * visual variety without ever knowing what was in a single clip.
+ *
+ * The rule these sentences follow: say what happened, say whether waiting helps, and name
+ * what to do INSTEAD. A no-op that does not close itself off invites the same call again.
+ */
+const VISUAL_REASON_GUIDANCE: Readonly<Record<string, string>> = {
+  not_indexed:
+    'this clip has not been indexed, so there is nothing to describe yet. Indexing runs in ' +
+    'the background and may not finish during this run — do not call this again for the ' +
+    'same clip. Use what the search result already told you about it (its title and the ' +
+    'query that found it), or look at a moment directly with get_frame.',
+  pegasus_unavailable:
+    'the understanding backend is not available for this project, so no clip can be ' +
+    'described in this run. Select on the search text and titles you already have, and say ' +
+    'plainly that you could not inspect the footage.',
+};
+
+/** Expand a machine reason into guidance; anything unrecognized is passed through. */
+export function visualReasonGuidance(reason: string): string {
+  return VISUAL_REASON_GUIDANCE[reason.trim()] ?? reason;
+}
+
+/**
+ * The orientation a project's own frame implies, or `undefined` when it has no resolution.
+ *
+ * D2. Every `search_stock` call in captured run `e36235cc` asked for `landscape`, against a
+ * brief whose MASTER SPECIFICATION opened `**Format:** 9:16 vertical` — and the run's own
+ * recorded acceptance criterion was "Every picture clip carries its own reframe". It knew,
+ * and still sourced the wrong shape for all sixty candidates.
+ *
+ * Read from the PROJECT, never from the prose. `acceptance.ts`'s header is explicit that
+ * inventing readers for what a brief says is how you fail runs that did the work; a
+ * project with no resolution set keeps the provider's default rather than a guess.
+ */
+export function projectOrientation(
+  project: Project,
+): 'landscape' | 'portrait' | 'square' | undefined {
+  const width = project.resolution?.width;
+  const height = project.resolution?.height;
+  if (typeof width !== 'number' || typeof height !== 'number' || width <= 0 || height <= 0) {
+    return undefined;
+  }
+  if (width === height) return 'square';
+  return width > height ? 'landscape' : 'portrait';
+}
+
 export function unwrapVisualSearch(toolName: string, data: unknown): HostToolOutcome {
   const record = (data ?? {}) as Record<string, unknown>;
   if (record.available !== true) {
@@ -539,7 +592,7 @@ export function unwrapVisualSearch(toolName: string, data: unknown): HostToolOut
     // no reason is simply an empty search — index the footage or widen the query.
     const reason =
       typeof record.reason === 'string'
-        ? record.reason
+        ? visualReasonGuidance(record.reason)
         : 'no visual evidence — this footage may not be indexed yet (indexing runs ' +
           'automatically in the background). Look at a moment with get_frame, widen the ' +
           'query, or say plainly that content search found nothing.';
@@ -1153,12 +1206,15 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
         const kind = call.arguments?.kind === 'photo' ? 'photo' : 'video';
         const limit = typeof call.arguments?.limit === 'number' ? call.arguments.limit : undefined;
         const rawOrientation = call.arguments?.orientation;
+        // An explicit choice is honoured: reframing a landscape plate into a vertical cut
+        // is a real technique and the model may mean it. What changes is the DEFAULT —
+        // absent, it now follows the project's own shape instead of the provider's.
         const orientation =
           rawOrientation === 'landscape' ||
           rawOrientation === 'portrait' ||
           rawOrientation === 'square'
             ? rawOrientation
-            : undefined;
+            : projectOrientation(ctx.project);
         log.action('run → host stock search', { tool: call.name, kind });
         return await options.hostStockSearch(
           {

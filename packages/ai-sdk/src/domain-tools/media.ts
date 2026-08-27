@@ -238,6 +238,9 @@ export const MEDIA_TOOLS: readonly ToolSpec[] = [
       description:
         'Search for background music to lay under the edit — say the mood or ' +
         'instrument you want ("calm piano", "driving synth"), not a song title. ' +
+        'Two or three words: the library matches a PHRASE, so a long mood sentence ' +
+        'silently narrows to its opening words and the rest is discarded — the result ' +
+        'says which query actually matched, and re-running a longer one will not help. ' +
         'Returns candidate tracks { remoteId, title, durationSeconds, license, ' +
         'attributionRequired, creator }; play nothing, download nothing, spend nothing. ' +
         'Pass a remoteId to add_music to actually use one. Every result is cleared for ' +
@@ -261,7 +264,9 @@ export const MEDIA_TOOLS: readonly ToolSpec[] = [
         'on a screen recording or a product demo, a punch-in or a reframe of their own ' +
         'frame is almost always the better cut. Returns candidates { remoteId, kind, ' +
         'title, durationSeconds, width, height, creator }; downloads nothing and spends ' +
-        'nothing. Pass a remoteId to add_stock to use one. Does not edit the timeline.',
+        'nothing. Pass a remoteId to add_stock to use one. Leave `orientation` off and it ' +
+        "follows the project's own frame — set it only to reframe deliberately, never to " +
+        'source landscape plates for a vertical cut. Does not edit the timeline.',
       // Executes in the Electron main process (the provider network and the API
       // key live there), so the standalone MCP server neither advertises nor
       // accepts it — same gate as `search_music`.

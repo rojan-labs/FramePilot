@@ -42,6 +42,24 @@ export interface StockHostIO {
   download(request: StockDownloadRequest): Promise<StockDownloadResult>;
 }
 
+/**
+ * Enrol a freshly downloaded asset into the visual index, in the background.
+ *
+ * D1. `describe_footage` returned `{"packets":[],"reason":"not_indexed"}` for every one of
+ * the eleven calls captured run `e36235cc` made against its own downloads, because nothing
+ * enrolled them: the only automatic enrolment is `autoIndexImportedAssets`, on the HUMAN
+ * import path in the renderer. So a montage judged on visual variety, motion matching and
+ * intensity-to-beat pairing was assembled blind.
+ *
+ * Optional, and never awaited by the download: enrolment is an optimization, it needs a
+ * configured key, and a run that cannot index must still be able to place footage. Its own
+ * failures are swallowed by the honest-degrade client, exactly as the import path's are.
+ */
+export type EnrolStockAsset = (input: {
+  readonly projectId: string;
+  readonly assetId: string;
+}) => void;
+
 /** The `add_stock` arguments as the sidecar executor forwards them. */
 export interface StockHostArgs {
   readonly remoteId: string;
@@ -58,6 +76,7 @@ export interface StockHostArgs {
  */
 export function createStockHost(
   io: StockHostIO,
+  enrol?: EnrolStockAsset,
 ): (project: Project, args: StockHostArgs) => Promise<HostToolOutcome> {
   return async (project, args) => {
     const { remoteId, atSeconds } = args;
@@ -109,15 +128,20 @@ export function createStockHost(
       return { status: 'failed', summary: stockErrorMessage(result.error, result.detail) };
     }
     const { asset } = result;
+    const assetId = `stock_${asset.source.provider}_${asset.source.remoteId}`.replace(
+      /[^a-zA-Z0-9_]/g,
+      '_',
+    );
+    // Fire-and-forget, on the COMMIT side of the download (D1). Deliberately not awaited:
+    // it must never add to `add_stock` latency, which is the whole point of acquiring these
+    // concurrently in the first place.
+    enrol?.({ projectId: project.id, assetId });
     return {
       status: 'completed',
       summary: `Downloaded "${asset.relativePath}".`,
       data: {
         asset: {
-          id: `stock_${asset.source.provider}_${asset.source.remoteId}`.replace(
-            /[^a-zA-Z0-9_]/g,
-            '_',
-          ),
+          id: assetId,
           path: asset.relativePath,
           kind: asset.kind,
           ...(asset.durationSeconds === undefined

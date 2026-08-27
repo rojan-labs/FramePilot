@@ -101,6 +101,7 @@ import { type AnalysisBudget, createAnalysisBudget } from './kernel/cost/analysi
 import { estimateUsd } from './kernel/cost/cost-meter.js';
 import { stageAllowsRole, toolRole } from './kernel/stage-policy.js';
 import { isCatalogueSearch } from './tool-classification.js';
+import { deriveObjectiveText } from './kernel/continuation.js';
 import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
 import { buildStateBriefing, distil } from './kernel/briefing.js';
 import { createNarrationFilter } from './kernel/narration.js';
@@ -2715,17 +2716,24 @@ export class Orchestrator {
      */
     evidence?: EvidenceStore,
   ): CritiqueOptions {
+    // What the run is actually being asked for, not what was typed last. "continue from
+    // here" carries no duration, no shot count and no coverage — deriving acceptance from
+    // it discarded the 50-clip brief it was nudging, so a continuation's self-check had
+    // nothing left to settle. `deriveObjectiveText` already owns this resolution for the
+    // run's objective; the Critic reads the same answer so criterion and check cannot be
+    // about two different requests.
+    const objectiveText = deriveObjectiveText(input.userPrompt, input.history);
     const durationTargetSeconds =
-      options.durationTargetSeconds ?? explicitDurationTargetSeconds(input.userPrompt);
+      options.durationTargetSeconds ?? explicitDurationTargetSeconds(objectiveText);
     // The conditions the request stated in checkable terms (see `acceptance.ts`). The same
     // reading is recorded on the run's objective, so the criterion the ledger reports against
     // and the check that settles it can never be two different things.
-    const { minShotCount, coverage } = checkableAcceptance(input.userPrompt, durationTargetSeconds);
+    const { minShotCount, coverage } = checkableAcceptance(objectiveText, durationTargetSeconds);
     return {
       userPrompt: input.userPrompt,
-      // The verbatim request, so `checkShotCount` can tell "no count was asked for" apart
+      // The resolved request, so `checkShotCount` can tell "no count was asked for" apart
       // from "a count was asked for and the reader missed it" (see `acceptance.ts`).
-      request: input.userPrompt,
+      request: objectiveText,
       ...(producedChanges !== undefined ? { producedChanges } : {}),
       ...(durationTargetSeconds !== undefined ? { durationTargetSeconds } : {}),
       ...(minShotCount !== undefined ? { minShotCount } : {}),

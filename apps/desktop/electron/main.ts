@@ -2074,7 +2074,39 @@ function registerIpcHandlers(): void {
    * `atSeconds` means — lives in `ai/stock-host.ts` where it can be tested
    * against the orchestrator's matching rule.
    */
-  const hostAddStock = createStockHost(stockService);
+  /**
+   * Enrol agent-downloaded stock into the visual index (D1).
+   *
+   * `describe_footage` answered `not_indexed` for every clip captured run `e36235cc`
+   * downloaded, because the only automatic enrolment is `autoIndexImportedAssets` on the
+   * renderer's HUMAN import path — the agent's acquisition path had no hook at all. So a
+   * montage judged on visual variety was assembled blind.
+   *
+   * Fire-and-forget and never awaited by the download: enrolment is an optimization, it
+   * needs a configured key, and a run that cannot index must still be able to place
+   * footage. The same contract `autoIndexImportedAssets` has.
+   */
+  const enrolStockAsset = ({
+    projectId,
+    assetId,
+  }: {
+    readonly projectId: string;
+    readonly assetId: string;
+  }): void => {
+    const credentials = visualIndexCredentials();
+    if (!credentials.twelveLabsKey && !credentials.nvidiaKeys) return;
+    void runVisualIndexLoop({
+      client: new VisualIndexClient({ baseUrl: engineBaseUrl, fetchFn: electronFetch }),
+      request: { projectId, assetIds: [assetId], ...credentials },
+    }).catch((error: unknown) => {
+      aiLog.debug('stock asset enrolment failed', {
+        assetId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  };
+
+  const hostAddStock = createStockHost(stockService, enrolStockAsset);
 
   const sidecarToolExecutor = createSidecarExecutor({
     baseUrl: engineBaseUrl,

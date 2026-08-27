@@ -14,9 +14,9 @@ import {
   footageMapBody,
   frameBody,
   interpretIndexLoop,
+  projectOrientation,
   searchBody,
   summarizeAnalysis,
-  withEmptyAnalysisReading,
   unifiedAnalysisBody,
   unwrapDescribeFootage,
   unwrapFootageMap,
@@ -25,7 +25,9 @@ import {
   unwrapSessionContext,
   unwrapUnifiedAnalysis,
   unwrapVisualSearch,
+  visualReasonGuidance,
   visualSearchBody,
+  withEmptyAnalysisReading,
 } from './sidecar-executor.js';
 import type { VisualIndexLoopResult } from './visual-index-client.js';
 import { outcomeFromExecutorError } from './tool-executor.js';
@@ -1688,5 +1690,61 @@ describe('outcomeFromExecutorError', () => {
       summary: '"detect_scenes" failed: boom',
       data: 'boom',
     });
+  });
+});
+
+describe('D2 — sourcing follows the project frame', () => {
+  it('reads the orientation a project implies', () => {
+    // Every search_stock call in the captured run asked for `landscape`, against a brief
+    // whose MASTER SPECIFICATION opened "Format: 9:16 vertical".
+    expect(projectOrientation(makeProject({ resolution: { width: 1080, height: 1920 } }))).toBe(
+      'portrait',
+    );
+    expect(projectOrientation(makeProject({ resolution: { width: 1920, height: 1080 } }))).toBe(
+      'landscape',
+    );
+    expect(projectOrientation(makeProject({ resolution: { width: 1080, height: 1080 } }))).toBe(
+      'square',
+    );
+  });
+
+  it('guesses nothing when the project has no frame', () => {
+    // A project with no resolution keeps the provider's default. Inventing one from the
+    // prose is how you fail runs that did the work.
+    const frameless = { ...makeProject(), resolution: undefined } as never;
+    expect(projectOrientation(frameless)).toBeUndefined();
+    const degenerate = { ...makeProject(), resolution: { width: 0, height: 0 } } as never;
+    expect(projectOrientation(degenerate)).toBeUndefined();
+  });
+});
+
+describe('D1 — a machine reason the model can act on', () => {
+  it('expands not_indexed into an instruction that closes the loop', () => {
+    // The engine answered the bare token `not_indexed`, so the model read
+    // '"describe_footage": not_indexed' — no instruction in it. The captured run called
+    // describe_footage eleven times across two turns and learned nothing either time.
+    const guidance = visualReasonGuidance('not_indexed');
+    expect(guidance).toContain('do not call this again');
+    expect(guidance).toContain('get_frame');
+    expect(guidance).not.toBe('not_indexed');
+  });
+
+  it('expands pegasus_unavailable', () => {
+    expect(visualReasonGuidance('pegasus_unavailable')).toContain('could not inspect');
+  });
+
+  it('passes an unrecognized reason through untouched', () => {
+    expect(visualReasonGuidance('quota_exhausted')).toBe('quota_exhausted');
+  });
+
+  it('reaches the model through the warning outcome', () => {
+    const outcome = unwrapVisualSearch('describe_footage', {
+      available: true,
+      packets: [],
+      backend: 'twelvelabs',
+      reason: 'not_indexed',
+    });
+    expect(outcome.status).toBe('warning');
+    expect(outcome.summary).toContain('do not call this again');
   });
 });
