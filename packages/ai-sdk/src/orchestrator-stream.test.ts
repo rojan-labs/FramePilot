@@ -3648,6 +3648,34 @@ describe('streamAgent prompt-prefix stability (E3)', () => {
     expect(headMessageOf(turn3!.messages)).toEqual(head2);
   });
 
+  it("regression: the editor's request is billed once per run, not once per turn", async () => {
+    // `assembleContext`'s own comment said the request was cacheable prefix; the code put
+    // it in the volatile half, below the boundary. A run carrying a long brief therefore
+    // re-sent the whole thing uncached on every model call — run `f1d5285e` paid for a
+    // 2,672-token spec on all four of its turns, which is the "why is my prompt on every
+    // request" the context manifest kept showing and nothing explained.
+    const brief = 'Build a 50-clip beat-synced nature montage in 9:16 at 30fps.';
+    const provider = new ScriptedProvider([
+      { text: 'edit', toolCalls: [deleteRange('a', 0, 3)] },
+      { text: 'read', toolCalls: [{ id: 'r1', name: 'get_timeline', arguments: {} }] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    await drain(new Orchestrator(provider).streamAgent({ ...input, userPrompt: brief }, opts()));
+    const [turn1, turn2] = provider.requests;
+    // The request rides above the cache boundary…
+    const cached = (m: readonly AiMessage[]): string =>
+      m
+        .slice(0, -1)
+        .map((x) => x.content)
+        .join('\n');
+    expect(cached(turn1!.messages)).toContain(brief);
+    // …and stays out of the tail that is re-billed every turn.
+    expect(turn1!.messages.at(-1)!.content).not.toContain(brief);
+    // An applied edit between the turns must not have moved it back down.
+    expect(turn2!.messages.at(-1)!.content).not.toContain(brief);
+    expect(cached(turn2!.messages)).toContain(brief);
+  });
+
   it('keeps the mutating project snapshot out of the cached head', async () => {
     // The regression that made the head worthless: an applied patch re-renders the
     // timeline summary, and that block used to sit BEFORE the head in the prompt.

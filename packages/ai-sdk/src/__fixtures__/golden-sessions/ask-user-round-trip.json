@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21257,
+      "usedTokens": 21285,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -127,7 +127,7 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1626,
+            "tokenEstimate": 1662,
             "included": true
           },
           {
@@ -141,7 +141,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 169,
+            "tokenEstimate": 161,
             "included": true
           },
           {
@@ -155,9 +155,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21257,
+          "estimatedInputTokensBeforeSend": 21285,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170551,
+          "estimatedRemainingCapacity": 170523,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -325,7 +325,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21319,
+      "usedTokens": 21347,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -344,7 +344,7 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1626,
+            "tokenEstimate": 1662,
             "included": true
           },
           {
@@ -358,7 +358,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 231,
+            "tokenEstimate": 223,
             "included": true
           },
           {
@@ -372,9 +372,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21319,
+          "estimatedInputTokensBeforeSend": 21347,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170489,
+          "estimatedRemainingCapacity": 170461,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },

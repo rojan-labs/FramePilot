@@ -565,9 +565,12 @@ export interface AssembledContext {
 
 /** The run-stable and per-turn halves of the assembled user content (P1.3). */
 export interface ContextSplit {
-  /** Fixed for the run: header, transcript, memory, skills, everything but the timeline. */
+  /**
+   * Fixed for the run: header, transcript, memory, skills, the request — everything but
+   * the timeline.
+   */
   readonly stable: string;
-  /** Re-rendered every turn from the working copy: the timeline tier and the request. */
+  /** Re-rendered every turn from the working copy: the timeline tier and any omissions. */
   readonly volatile: string;
 }
 
@@ -890,15 +893,25 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // The run-stability split (P1.3). The timeline tier is the only thing here that a turn
   // can change, so everything else — including the platform line and the request — is
   // prefix a provider can cache for the whole run.
+  //
+  // `promptBlock` belongs in `stable`, and used to be in `volatile` against the sentence
+  // directly above. The editor's request does not change between turns of a run, so
+  // sitting below the agent loop's cache boundary bought nothing and cost the whole
+  // request at full price on every turn. It is not a rounding error on a long brief: a
+  // captured run (`f1d5285e`) carried a 2,672-token spec and re-billed it uncached on
+  // every model call of the run, which is precisely the "why is my prompt on every
+  // request" the manifest kept showing and nothing explained.
+  //
+  // The omission block rides with the timeline instead, because it is the one thing here
+  // that genuinely re-renders: which tiers had to be dropped is a function of the budget
+  // this turn, and the timeline growing is what moves it.
   const volatileBlocks = keptTiers.filter((b) => b.tier === 'timeline').map((b) => b.text);
   const stableBlocks = keptTiers.filter((b) => b.tier !== 'timeline').map((b) => b.text);
   const split: ContextSplit = {
-    stable: [header, ...stableBlocks, ...mandatory.filter((m) => m !== header)].join('\n\n'),
-    volatile: [
-      ...volatileBlocks,
-      ...(omissionBlock === '' ? [] : [omissionBlock]),
-      promptBlock,
-    ].join('\n\n'),
+    stable: [header, ...stableBlocks, ...mandatory.filter((m) => m !== header), promptBlock].join(
+      '\n\n',
+    ),
+    volatile: [...volatileBlocks, ...(omissionBlock === '' ? [] : [omissionBlock])].join('\n\n'),
   };
 
   // The per-section account (ADR 0080). Mandatory blocks are reported too, so the

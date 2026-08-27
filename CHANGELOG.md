@@ -6,6 +6,66 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **Reopening a search result is no longer more expensive than the search was.** A stored
+  result kept the provider's entire record — licence links, profile URLs, and six
+  download-size descriptors per clip — so reopening three clips cost about 900 words of
+  text the assistant cannot use for anything. It keeps what a shot is chosen and placed by
+  and drops the rest. A captured run burned 547,000 words of context on this and still
+  downloaded nothing. (`packages/ai-sdk`)
+- **The stock-footage playbook can be found by a request that needs it.** Its description
+  talked only about b-roll over narration, so an assistant asked for a montage built
+  entirely from stock never opened the one page that explains how to download a clip.
+  (`packages/ai-sdk`)
+- **A run that reads back its own notes is no longer treated as stuck.** Only the two most
+  recent tool results keep their full text, and a stock clip's download id exists nowhere
+  else — so an assistant working through twenty searches has to reopen them one at a time,
+  which is exactly what it is told to do. Every one of those steps was scored as making no
+  progress, and the run was stopped for following its own instructions. Reopening a result
+  it has not looked at before now counts; reopening the same one repeatedly still does not.
+  (`packages/ai-sdk`)
+- **The assistant downloads footage as it finds it, instead of trying to choose everything
+  first.** Its guidance said "gather first, place second", which it read as "run every
+  search before downloading anything" — and by then the ids it needed had scrolled away.
+  (`packages/ai-sdk`)
+- **Footage searches no longer cancel each other.** When the assistant looked for several
+  different shots at once — which is how it gathers material for a montage — each search
+  silently killed the one before it, so only the last of every batch survived. Three
+  quarters of the searches in a captured run died this way, with no reason shown, and the
+  assistant simply asked again. It now runs its searches side by side, and the Stock and
+  Sounds panels behave exactly as they did. (`apps/desktop`)
+- **A search that fails now says why.** Some failures came back completely blank — a red
+  cross on the card and nothing else — which left the assistant no option but to repeat
+  itself. Every failed search reports a reason now. (`apps/desktop`)
+- **"This edit has picture" no longer passes on an edit with no picture in it.** A
+  timeline holding only a music track counted the music as a visual clip, so the one check
+  meant to catch a video with nothing to look at reported everything was fine. The same
+  mistake asked the music track for a reframe. (`packages/ai-sdk`)
+- **A pacing note is no longer mistaken for the length of your video.** A brief saying
+  "0.3–0.6s per clip" was read as "the finished video is 0.6 seconds", and the assistant
+  then reported itself failed for delivering three minutes. (`packages/ai-sdk`)
+- **Every search now shows what it searched for.** Four stock searches all displayed as
+  "Search stock" with no query, so you could not tell them apart — and neither could the
+  assistant, which spent 30 of its 71 steps re-opening its own results to find out what
+  was in them. (`packages/ai-sdk`)
+- **The assistant no longer gives up part-way through a big build.** Asked for something
+  that needs a lot of searching — "a fifty-clip beat-synced nature montage", say — it would
+  search once, search again, be told it was going in circles, and stop without touching
+  your timeline. Every search after the first was being counted as if it had found nothing,
+  so a request that genuinely needs eighty searches ran out of rope on its second one.
+  Searches now count for what they actually turn up, a search the provider rejects no
+  longer poisons the retry, and the assistant is no longer accused of repeating itself for
+  describing real work in plain words. (`packages/ai-sdk`)
+- **A run that is told to stop looking and start editing can still fetch footage.** When
+  the assistant was switched into "make the edit now" mode on an empty project, the stock
+  and music searches were taken away — so it could place a clip only if it had already
+  found one, and had no way to find one. It kept the shopping tools now. (`packages/ai-sdk`)
+- **Long instructions are paid for once, not once per step.** A detailed brief was being
+  re-sent to the model on every step of the run instead of riding in the cached part of the
+  prompt. A ~2,700-word spec was billed four times over on a four-step run.
+  (`packages/ai-sdk`)
+
 ### Changed
 
 - **Captions derive far faster on long footage.** Mapping a transcript onto an edited

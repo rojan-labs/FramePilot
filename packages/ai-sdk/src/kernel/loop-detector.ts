@@ -45,6 +45,13 @@ const log = createLogger('ai-sdk:kernel:loop-detector');
  * that mean the run is circling. Three rather than two: two turns of orientation is a
  * normal opening (get the shape, then get the detail), and cutting a legitimately
  * thorough run short is worse than one extra turn of it.
+ *
+ * "Consecutive" means consecutive STUCK turns. The conductor empties the window on any
+ * turn that LEARNED SOMETHING NEW, so this counts turns that both repeated a purpose and
+ * discovered nothing — never turns that merely described real work in consistent words.
+ * See the window's construction in `conductor.ts#onTurnResult` for the run that proved
+ * the difference matters, and for why the test there is novelty specifically rather than
+ * progress in the broader sense.
  */
 export const SEMANTIC_LOOP_TURNS = 3;
 
@@ -139,7 +146,9 @@ export function normalizeIntent(text: string): TurnIntent {
  *
  * The two conjuncts matter. Repeating an intent while advancing is just a long stage
  * (three turns of cutting are three turns of cutting); repeating it while standing still
- * is the failure.
+ * is the failure. A third guard sits outside this function: the caller only ever puts a
+ * turn that discovered nothing into `recentIntents`, so a full window is already three
+ * turns of standing still before either conjunct is consulted.
  */
 export function isSemanticLoop(
   recentIntents: readonly TurnIntent[],

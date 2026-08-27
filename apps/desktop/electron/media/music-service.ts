@@ -195,6 +195,37 @@ function isDiskFull(error: unknown): boolean {
   return (error as { code?: string } | null)?.code === 'ENOSPC';
 }
 
+/**
+ * How a caller relates to the searches around it. Main-process only, and the exact
+ * counterpart of `stock-service.ts#StockSearchOptions` — the two services have the same
+ * shape because they had the same bug.
+ */
+export interface MusicSearchOptions {
+  /**
+   * Does this search REPLACE the one this caller issued a moment ago? True (the default)
+   * for the Sounds panel; false for the agent, whose parallel searches are independent
+   * questions rather than revisions of one.
+   */
+  readonly supersedePrevious?: boolean;
+  /** The caller's own lifetime, if it has one (an agent run's Stop). */
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * Abort `controller` when `signal` does, and hand back the unsubscribe. A no-op when
+ * there is no signal; an already-aborted signal aborts immediately.
+ */
+function linkAbort(signal: AbortSignal | undefined, controller: AbortController): () => void {
+  if (!signal) return () => undefined;
+  if (signal.aborted) {
+    controller.abort();
+    return () => undefined;
+  }
+  const onAbort = (): void => controller.abort();
+  signal.addEventListener('abort', onAbort, { once: true });
+  return () => signal.removeEventListener('abort', onAbort);
+}
+
 export class MusicService {
   private readonly provider: MusicProvider;
   private readonly fetchImpl: typeof fetch;
@@ -226,7 +257,11 @@ export class MusicService {
   // Search
   // -------------------------------------------------------------------------
 
-  public async search(query: string, limit = DEFAULT_SEARCH_LIMIT): Promise<MusicSearchResult> {
+  public async search(
+    query: string,
+    limit = DEFAULT_SEARCH_LIMIT,
+    options: MusicSearchOptions = {},
+  ): Promise<MusicSearchResult> {
     const key = cacheKey(query, limit);
     const cached = this.searchCache.get(key);
     if (cached && cached.expiresAt > this.now()) {
@@ -235,11 +270,22 @@ export class MusicService {
       return { ok: true, tracks: cached.tracks.map(toWire) };
     }
 
-    // A superseded search is cancelled, not merely ignored — an abandoned
-    // request still counts against the provider's rate limit.
-    this.inFlightSearch?.abort();
     const controller = new AbortController();
-    this.inFlightSearch = controller;
+    // A superseded search is cancelled, not merely ignored — an abandoned request still
+    // counts against the provider's rate limit. That is the Sounds panel's contract: a
+    // person typing revises one question and means the last version of it.
+    //
+    // The agent's searches are not revisions of each other. It batches concurrency-safe
+    // calls four at a time, so four independent queries arrive together and each aborted
+    // its predecessor — and `cancelled` renders as the empty string by design, so the
+    // model was handed failures with no reason and asked the same thing again. See the
+    // fuller note in `stock-service.ts#search`, where the same bug cost run `f014f3ac`
+    // fifteen of its twenty-one footage searches.
+    if (options.supersedePrevious !== false) {
+      this.inFlightSearch?.abort();
+      this.inFlightSearch = controller;
+    }
+    const unlink = linkAbort(options.signal, controller);
 
     try {
       const tracks = await this.provider.search({ text: query, limit }, controller.signal);
@@ -266,6 +312,7 @@ export class MusicService {
     } catch (error) {
       return { ok: false, ...toWireError(error) };
     } finally {
+      unlink();
       if (this.inFlightSearch === controller) this.inFlightSearch = null;
     }
   }

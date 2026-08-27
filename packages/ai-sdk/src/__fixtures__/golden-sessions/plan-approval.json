@@ -213,7 +213,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21368,
+      "usedTokens": 21396,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -232,7 +232,7 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1626,
+            "tokenEstimate": 1662,
             "included": true
           },
           {
@@ -246,7 +246,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 258,
+            "tokenEstimate": 250,
             "included": true
           },
           {
@@ -260,9 +260,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21368,
+          "estimatedInputTokensBeforeSend": 21396,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170440,
+          "estimatedRemainingCapacity": 170412,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -626,7 +626,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21406,
+      "usedTokens": 21433,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -645,7 +645,7 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1626,
+            "tokenEstimate": 1662,
             "included": true
           },
           {
@@ -659,7 +659,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 296,
+            "tokenEstimate": 287,
             "included": true
           },
           {
@@ -673,9 +673,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21406,
+          "estimatedInputTokensBeforeSend": 21433,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170402,
+          "estimatedRemainingCapacity": 170375,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -863,7 +863,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 15879,
+      "usedTokens": 16316,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -882,7 +882,7 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1626,
+            "tokenEstimate": 1662,
             "included": true
           },
           {
@@ -896,24 +896,24 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 467,
+            "tokenEstimate": 459,
             "included": true
           },
           {
             "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 11854,
+            "tokenEstimate": 12263,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 15879,
+          "estimatedInputTokensBeforeSend": 16316,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 175929,
-          "toolSchemaTokensRebilled": 11854,
+          "estimatedRemainingCapacity": 175492,
+          "toolSchemaTokensRebilled": 12263,
           "calculationSource": "local_estimate"
         },
         "compaction": {

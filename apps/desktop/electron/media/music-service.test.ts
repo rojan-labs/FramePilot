@@ -221,6 +221,55 @@ describe('MusicService', () => {
       expect(firstSignal?.aborted).toBe(true);
     });
 
+    it('regression: parallel agent searches do not cancel each other', async () => {
+      // The agent batches concurrency-safe calls four at a time, so four DELIBERATE
+      // queries arrive together. Under the panel's supersede rule each aborted the one
+      // before it, and `cancelled` renders as the empty string — so the model was handed
+      // failures with no reason and asked the same thing again. Run `f014f3ac` lost
+      // fifteen of twenty-one footage searches to exactly this.
+      const stub = stubProvider([track()]);
+      const service = make({ provider: stub.provider });
+      const signals: (AbortSignal | undefined)[] = [];
+      const searches = ['a', 'b', 'c', 'd'].map((query) => {
+        const pending = service.search(query, undefined, { supersedePrevious: false });
+        signals.push(stub.lastSignal());
+        return pending;
+      });
+      const results = await Promise.all(searches);
+
+      expect(signals.some((signal) => signal?.aborted === true)).toBe(false);
+      expect(results.every((result) => result.ok)).toBe(true);
+    });
+
+    it("the panel's supersede behaviour is untouched by default", async () => {
+      // The default must stay the panel's: a person typing revises one question.
+      const stub = stubProvider([track()]);
+      const service = make({ provider: stub.provider });
+      const first = service.search('a');
+      const firstSignal = stub.lastSignal();
+      await service.search('b');
+      await first;
+
+      expect(firstSignal?.aborted).toBe(true);
+    });
+
+    it("a caller's own signal still cancels its search", async () => {
+      // Not superseding must not mean uncancellable: an agent run's Stop reaches the
+      // provider through the caller's signal rather than through the supersede slot.
+      const stub = stubProvider([track()]);
+      const service = make({ provider: stub.provider });
+      const controller = new AbortController();
+      const pending = service.search('a', undefined, {
+        supersedePrevious: false,
+        signal: controller.signal,
+      });
+      const signal = stub.lastSignal();
+      controller.abort();
+      await pending;
+
+      expect(signal?.aborted).toBe(true);
+    });
+
     it('reports a provider failure with its specific code, not a generic error', async () => {
       const { provider } = stubProvider(() => {
         throw new MusicProviderError('rate_limited', 'retry after 30');
