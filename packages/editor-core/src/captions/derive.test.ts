@@ -13,8 +13,18 @@
  *   - later edits (reorder, trim, speed) move the captions with the footage.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { ProjectSchema, type Project, type Timeline, type TranscriptWord } from '@framepilot/timeline-schema';
-import { buildTimelineMap, mapSourceTime, mapSequenceTime, retainedSourceRanges } from '../timeline-map.js';
+import {
+  ProjectSchema,
+  type Project,
+  type Timeline,
+  type TranscriptWord,
+} from '@framepilot/timeline-schema';
+import {
+  buildTimelineMap,
+  mapSourceTime,
+  mapSequenceTime,
+  retainedSourceRanges,
+} from '../timeline-map.js';
 import * as segmentModule from './segment.js';
 import { captionSegmentConfig, type CaptionSegmentConfig } from './segment.js';
 import { deriveCaptionCues, mapTranscript } from './derive.js';
@@ -468,7 +478,22 @@ describe('mapTranscript', () => {
     // construction). Forcing the very first `Map.get` to miss exercises exactly
     // that guard without weakening the invariant itself.
     const oneClip = buildTimelineMap(rippledTimeline([[0, 5]]));
-    const getSpy = vi.spyOn(Map.prototype, 'get').mockReturnValueOnce(undefined);
+    // Scoped to a CLIP-id lookup rather than "the first Map.get anywhere": `mapTranscript`
+    // now indexes spans by asset before it maps a word, so a blanket first-call mock would
+    // break that lookup instead of the one this test is about, and the word would simply
+    // be dropped.
+    const realGet = Map.prototype.get;
+    let missed = false;
+    const getSpy = vi.spyOn(Map.prototype, 'get').mockImplementation(function (
+      this: Map<unknown, unknown>,
+      key: unknown,
+    ) {
+      if (!missed && key !== ASSET) {
+        missed = true;
+        return undefined;
+      }
+      return realGet.call(this, key) as unknown;
+    });
     try {
       const result = mapTranscript(oneClip, [{ word: 'hi', start: 1, end: 1.4, assetId: ASSET }]);
       expect(result.runs).toHaveLength(1);
@@ -493,7 +518,12 @@ describe('mapTranscript', () => {
     const spy = vi.spyOn(segmentModule, 'segmentCaptions').mockReturnValue([
       { text: 'a b', words: runWords, start: 0, end: 0.9 },
       // A second, bogus cue: nothing is left of the run to back it.
-      { text: 'overflow', words: [{ word: 'overflow', start: 0.9, end: 1.2 }], start: 0.9, end: 1.2 },
+      {
+        text: 'overflow',
+        words: [{ word: 'overflow', start: 0.9, end: 1.2 }],
+        start: 0.9,
+        end: 1.2,
+      },
     ]);
     try {
       const cues = deriveCaptionCues(map, runWords, config());
@@ -813,8 +843,8 @@ describe('persistence', () => {
       project.transcript,
       config(),
     );
-    const stored = project.timeline
-      .tracks.find((t) => t.type === 'caption')!
+    const stored = project.timeline.tracks
+      .find((t) => t.type === 'caption')!
       .clips.map((c) => [c.captionCue!.text, +c.start.toFixed(6), +c.end.toFixed(6)]);
     expect(again.map((c) => [c.text, +c.start.toFixed(6), +c.end.toFixed(6)])).toEqual(stored);
   });
@@ -824,6 +854,8 @@ describe('persistence', () => {
     // generated: it belongs to the asset and has to stay reusable across edits.
     const project = reloaded();
     expect(project.transcript[0]!.start).toBe(0);
-    expect(project.transcript.at(-1)!.start).toBeGreaterThan(buildTimelineMap(project.timeline).duration);
+    expect(project.transcript.at(-1)!.start).toBeGreaterThan(
+      buildTimelineMap(project.timeline).duration,
+    );
   });
 });

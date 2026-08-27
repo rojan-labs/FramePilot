@@ -17,7 +17,14 @@
  */
 import { z } from 'zod';
 import type { Asset, Project } from '@framepilot/timeline-schema';
-import { type AnyOperation, buildAddStockOps } from '@framepilot/editor-core';
+import {
+  type AnyOperation,
+  DEFAULT_STOCK_STILL_SECONDS,
+  buildAddStockOps,
+  buildStockBinOps,
+  firstFreePictureStart,
+  stockPlacementConflictReason,
+} from '@framepilot/editor-core';
 
 /**
  * The host's `add_stock` payload.
@@ -58,10 +65,36 @@ export const StockAssetPayloadSchema = z.object({
 });
 export type StockAssetPayload = z.infer<typeof StockAssetPayloadSchema>;
 
-/** What {@link stockOpsFromPayload} decided, or why it could not decide. */
+/**
+ * What {@link stockOpsFromPayload} decided, or why it could not decide.
+ *
+ * `start` is absent for a BIN-ONLY download — the clip is in the media bin and nowhere on
+ * the timeline, so there is no position to report and the note must not invent one.
+ */
 export type StockPlacementOutcome =
-  | { readonly ok: true; readonly operations: readonly AnyOperation[]; readonly start: number }
-  | { readonly ok: false; readonly reason: string };
+  | { readonly ok: true; readonly operations: readonly AnyOperation[]; readonly start?: number }
+  | {
+      readonly ok: false;
+      /** The refusal as a sentence, already naming {@link StockPlacementRefusal.suggestedStart}. */
+      readonly reason: string;
+      /** The same refusal as data, for a caller that must act rather than read. */
+      readonly refusal: StockPlacementRefusal;
+    };
+
+/**
+ * A refused placement, in a shape the orchestrator can act on instead of parse.
+ *
+ * The sentence in `reason` is built from exactly these numbers, so a caller that
+ * shows the text and a caller that reads the fields cannot describe the refusal
+ * differently.
+ */
+export interface StockPlacementRefusal {
+  readonly kind: 'picture_occupied';
+  /** The span that was asked for and refused, in timeline seconds. */
+  readonly requested: { readonly start: number; readonly end: number };
+  /** The earliest start at or after `requested.start` where this clip does fit. */
+  readonly suggestedStart: number;
+}
 
 /**
  * The operations that place a downloaded stock asset, or the sentence explaining
@@ -81,19 +114,46 @@ export function stockOpsFromPayload(
   payload: StockAssetPayload,
 ): StockPlacementOutcome {
   const { asset, atSeconds } = payload;
-  const placement = buildAddStockOps(
-    project.timeline,
-    project.assets,
-    asset as Asset,
-    atSeconds ?? 0,
-  );
+  // NO POSITION MEANS THE BIN, not "the top of the sequence".
+  //
+  // `atSeconds ?? 0` used to make every download an immediate placement at 0s, so there was
+  // no way to gather candidates before assembling a cut — and `buildAddStockOps` refuses a
+  // span that already holds picture, which meant the SECOND download of a comparison always
+  // failed on the first one. A captured run said twice that it was "locking the media into
+  // the bin first so the cut has something to sit on", found no tool that did that, and
+  // reached for `add_asset` with a path it invented.
+  //
+  // Gathering is now what the absent argument means. Placement is unchanged when a position
+  // is given, and `add_clip` places from the bin afterwards like any other asset.
+  if (atSeconds === undefined) {
+    return { ok: true, operations: buildStockBinOps(asset as Asset) };
+  }
+  const placement = buildAddStockOps(project.timeline, project.assets, asset as Asset, atSeconds);
   if (placement === null) {
-    const start = Math.max(0, atSeconds ?? 0);
+    const start = atSeconds < 0 ? 0 : atSeconds;
+    const durationSeconds = asset.durationSeconds ?? DEFAULT_STOCK_STILL_SECONDS;
+    // Worded ONCE, in editor-core, so this refusal and the Stock panel's cannot
+    // name different next steps for the same timeline. Lowercased because the
+    // orchestrator embeds it as `Rejected "add_stock" — <reason>`.
+    const sentence = stockPlacementConflictReason(
+      project.timeline,
+      project.assets,
+      start,
+      durationSeconds,
+    )!;
     return {
       ok: false,
-      reason:
-        `there is already picture on the timeline at ${start.toFixed(1)}s. Stock cannot sit ` +
-        'on top of existing footage yet — pick an empty stretch and try again.',
+      reason: sentence.charAt(0).toLowerCase() + sentence.slice(1),
+      refusal: {
+        kind: 'picture_occupied',
+        requested: { start, end: start + durationSeconds },
+        suggestedStart: firstFreePictureStart(
+          project.timeline,
+          project.assets,
+          durationSeconds,
+          start,
+        ),
+      },
     };
   }
   return { ok: true, operations: placement.operations, start: placement.start };

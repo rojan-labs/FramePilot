@@ -104,11 +104,7 @@ function trackShell(timeline: Timeline): Map<string, string> {
   return shells;
 }
 
-function addClipRange(
-  ranges: Map<string, TouchedTimeRange>,
-  trackId: string,
-  clip: Clip,
-): void {
+function addClipRange(ranges: Map<string, TouchedTimeRange>, trackId: string, clip: Clip): void {
   const range = { trackId, start: clip.start, end: clip.end } satisfies TouchedTimeRange;
   ranges.set(`${trackId}\u0000${String(clip.start)}\u0000${String(clip.end)}`, range);
 }
@@ -284,7 +280,6 @@ export const MAX_STEERINGS_PER_CLASS = 1;
 export const REVIEW_STEERING_PREAMBLE =
   'Perceptual review of the edits you already applied found the following.';
 
-
 /**
  * The DEFECT CLASS a finding belongs to: its wording with every number removed.
  *
@@ -304,6 +299,34 @@ function findingClass(finding: ReviewFinding): string {
       .replace(/\s+/g, ' ')
       .trim()
   );
+}
+
+/**
+ * One line per DEFECT for a person to read, not one per measurement.
+ *
+ * The unresolved-review warning used to join every finding's detail end to end. On a
+ * timeline with no picture that produced fifteen sentences describing the same fact at
+ * fifteen frame numbers — a wall of numbers that reads as fifteen problems and names none
+ * of them. Findings already have a notion of sameness (see {@link findingClass}, which the
+ * steering cap has always used); this reuses it so the text the editor gets is the text
+ * the harness already believes.
+ *
+ * @param findings - The findings to describe, in report order.
+ * @returns One sentence per distinct defect class, with a count when a class repeats.
+ */
+export function describeFindings(findings: readonly ReviewFinding[]): string {
+  const byClass = new Map<string, { detail: string; count: number }>();
+  for (const finding of findings) {
+    const key = findingClass(finding);
+    const seen = byClass.get(key);
+    if (seen) seen.count += 1;
+    else byClass.set(key, { detail: finding.detail, count: 1 });
+  }
+  return [...byClass.values()]
+    .map(({ detail, count }) =>
+      count > 1 ? `${detail} (reported at ${String(count)} places)` : detail,
+    )
+    .join(' ');
 }
 
 interface QueuedReview {

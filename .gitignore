@@ -33,6 +33,9 @@ reports/coverage/*
 reports/test/*
 reports/render/*
 reports/e2e/*
+# Playwright writes failure screenshots/traces here; only the run pointer is tracked.
+reports/e2e-results/*
+!reports/e2e-results/.last-run.json
 !reports/**/.gitkeep
 !reports/**/README.md
 

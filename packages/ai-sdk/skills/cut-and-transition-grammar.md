@@ -1,7 +1,7 @@
 ---
 name: cut-and-transition-grammar
 description: Choose motivated cuts and a restrained transition vocabulary, place effects only on real eligible boundaries, and verify committed transition state.
-tools: [get_timeline, list_edit_boundaries, discover_transitions, add_transition, split_clip, trim_clip, verify_transitions]
+tools: [get_timeline, list_edit_boundaries, get_mapped_transcript, map_time, discover_transitions, add_transition, split_clip, trim_clip, professional_edit, verify_transitions]
 ---
 
 # Cut and transition grammar
@@ -30,6 +30,33 @@ Mostly straight cuts, a small consistent transition vocabulary, motivated durati
 
 The cut is the default. A non-cut must communicate time, place, energy, memory, or chapter change.
 
+## Frames, not seconds
+
+Every edit point on this timeline is a frame. `list_edit_boundaries` gives each cut its
+`frame` and its ceiling as `maxTransitionFrames`; `get_mapped_transcript` gives each word a
+`startFrame`/`endFrame`; `map_time` answers in `sequenceFrame`. Say which frame you mean
+and aim at it — a request in raw seconds is snapped to the nearest frame for you, so a
+"cut at 12.3874s" is a cut you did not choose the frame of.
+
+- **Cut on action.** The boundary sits on the frame the movement completes, not near it.
+  Read the boundary's `frame`, decide how many frames early or late it is, and move it with
+  `professional_edit` `roll` and that many `frames` — a roll changes where the cut is
+  without changing how long either shot runs, which is the whole reason to use it instead
+  of two trims.
+- **Cut on the word, not through it.** A word occupies `startFrame` through `endFrame`.
+  Land a cut on a word's `startFrame` (before it) or on the following word's `startFrame`
+  (after it); a cut anywhere strictly inside that span severs the word, and no amount of
+  audio work afterwards puts the consonant back.
+- **Handles, honestly.** `outgoingHandle` and `incomingHandle` are informational HERE.
+  This renderer ramps over the incoming clip's own first frames and borrows nothing from
+  past the cut, so a dissolve never fails for want of footage — what the handles tell you
+  is whether it will blend two shots or fade through black. The real ceiling is
+  `maxTransitionFrames`: half the shorter shot. Check it before you promise a look.
+- **J and L cuts** are `professional_edit` with `command: "j_cut"` (sound arrives before
+  picture) or `"l_cut"` (sound runs on past it) and a positive `frames` magnitude. State
+  the count: "audio leads by 8 frames", not "let the audio run on". They need a live
+  selection and the desktop app; without one the call is refused rather than half-done.
+
 ## Professional heuristics
 
 - First improve a rough cut point by a few frames or cut on action.
@@ -52,6 +79,9 @@ Using narrative beats as if they were cut boundaries, mixing many transition typ
 ## Verification checklist
 
 - Run `verify_transitions`.
+- Every cut you moved is on the frame you named — re-read `list_edit_boundaries` and
+  compare `frame`, not seconds.
+- No cut lands strictly inside a word's `startFrame`–`endFrame` span.
 - Each effect sits on adjacent clips on the same track.
 - The duration the timeline committed is the one you name to the editor — on short shots it is often shorter than the one you asked for.
 - Duration and energy fit the scene.

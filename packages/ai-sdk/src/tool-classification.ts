@@ -49,6 +49,13 @@ export type ToolRole =
   | 'recall'
   /** Changes the project. */
   | 'mutation'
+  /**
+   * Brings NEW material in from outside the project — a stock library, a music
+   * catalogue. Neither reconnaissance nor an ordinary edit: it is how a run that owns
+   * no footage gets any, so an executing run must keep it (see
+   * `kernel/stage-policy.ts#stageAllowsRole`).
+   */
+  | 'sourcing'
   /** Anything else — asking the user, rendering, exporting. Stage-neutral. */
   | 'other';
 
@@ -111,16 +118,25 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   // caching matters more here than anywhere else in this group: the free tier
   // allows 20 searches a minute, and a re-query the run did not need is one the
   // user cannot spend on a query they did.
-  search_music: { role: 'analysis', scope: 'revision_independent' },
+  // The four sourcing tools. `role: 'sourcing'`, not `'analysis'`, and the difference
+  // is not cosmetic: `stageAllowsRole` withholds every analysis descriptor once a run is
+  // executing, so classifying these as analysis meant a run that applied ONE patch could
+  // never obtain media again. A captured run (`e30c1fe9`) opened an empty project, found
+  // 80 usable clips, laid a spine of empty tracks, and from that moment had no tool that
+  // could download any of them — it shipped 30 seconds of white text on black. Shopping
+  // for material is not reconnaissance about the project, and the "you already gathered
+  // this, recall it" rule that closes the other reads cannot apply to a catalogue the run
+  // may never have queried for this beat.
+  search_music: { role: 'sourcing', scope: 'revision_independent' },
   // `add_music` DOWNLOADS and PLACES. Replaying a memoized "already added" past a
   // later undo would report a bed the timeline does not have, so it ages with the
   // arrangement like any other edit-producing call.
-  add_music: { role: 'analysis', scope: 'timeline_dependent' },
-  search_stock: { role: 'analysis', scope: 'revision_independent' },
+  add_music: { role: 'sourcing', scope: 'timeline_dependent' },
+  search_stock: { role: 'sourcing', scope: 'revision_independent' },
   // `add_stock` DOWNLOADS and PLACES, and its refusal depends on what already
   // occupies the timeline — a memoized "already added" replayed past an undo
   // would report a cutaway the project does not have.
-  add_stock: { role: 'analysis', scope: 'timeline_dependent' },
+  add_stock: { role: 'sourcing', scope: 'timeline_dependent' },
   // A rendered frame is a picture of the ARRANGEMENT, not of the source media: it is the
   // one member of this group that any applied patch invalidates. Caching a frame past an
   // edit would show the model the timeline it had before its own change — the precise
@@ -179,6 +195,12 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   move_track: { role: 'mutation', scope: 'timeline_dependent' },
   punch_in: { role: 'mutation', scope: 'timeline_dependent' },
   remove_marker: { role: 'mutation', scope: 'timeline_dependent' },
+  // What it records — how this editor likes their videos — genuinely outlives every cut,
+  // but `timeline_dependent` is right anyway: the scope governs when a READ's payload is
+  // evicted, and a mutation has no payload to serve from the memo. Every mutation in this
+  // table is timeline_dependent, and an exception here would weaken an invariant the
+  // parity test enforces in exchange for nothing.
+  remember_preference: { role: 'mutation', scope: 'timeline_dependent' },
   remove_track: { role: 'mutation', scope: 'timeline_dependent' },
   ripple_delete: { role: 'mutation', scope: 'timeline_dependent' },
   auto_emphasize_captions: { role: 'mutation', scope: 'timeline_dependent' },

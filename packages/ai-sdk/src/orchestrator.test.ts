@@ -12,6 +12,7 @@ import {
   AGENT_LOG_CLEAR_THRESHOLD_TOKENS,
   AGENT_LOG_PAYLOAD_FRESH,
   CLEARED_RESULT_MARKER,
+  clearedWithHandle,
   clearNotePayloads,
   compactAgentLog,
   parseAgentPlan,
@@ -23,6 +24,7 @@ import type { AiCompletionRequest, AiProvider, AiResponse, ToolCall } from './pr
 import { type ContextInput, estimateTokens } from './context-builder.js';
 import { TOOL_REGISTRY, getTool } from './tool-registry.js';
 import { classifyTool } from './tool-classification.js';
+import { toolContract } from './tool-contract.js';
 import { distil } from './kernel/briefing.js';
 import { makeProject } from './__fixtures__/project.js';
 import { DIMINISHING_RETURNS_TURNS, STALL_CONFIRM_TURNS } from './kernel/conductor.js';
@@ -221,7 +223,7 @@ describe('agent mode', () => {
     expect(run.steps.filter((s) => s.applied)).toHaveLength(1);
     expect(run.steps.some((s) => /already in place/.test(s.note))).toBe(true);
     expect(run.log.length).toBeGreaterThan(0);
-    expect(run.critique.checks.length).toBe(11);
+    expect(run.critique.checks.length).toBe(18);
   });
 
   it('interleaves asset management and timeline editing in one project-scoped run', async () => {
@@ -339,6 +341,47 @@ describe('agent mode', () => {
     expect(run.steps[0]?.note).toMatch(/silences/);
   });
 
+  // GAP-003, end to end. A stock search is the one read a run genuinely cannot repeat for
+  // free: the provider is metered and its ordering is not stable. Before this, the host
+  // path stored no evidence at all (only `measure_color` did), so the candidates were
+  // unreachable the moment compaction cleared them — and the captured run fabricated an
+  // asset path rather than re-query. The handle is what makes the recovery real.
+  it('stores a metered provider search so its candidates survive out of context', async () => {
+    const provider = new ScriptedProvider([
+      {
+        text: 'searching',
+        toolCalls: [call('search_stock', { query: 'mars orbiter', kind: 'video' })],
+      },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const executor = {
+      run: async () => ({
+        status: 'completed' as const,
+        summary: 'Found 2 clips for "mars orbiter"',
+        data: {
+          items: Array.from({ length: 10 }, (_, i) => ({
+            remoteId: String(8474616 + i),
+            title: `Mars orbiter approach ${i}`,
+            durationSeconds: 8,
+            width: 1080,
+            height: 1920,
+            creator: 'RDNE Stock project',
+          })),
+        },
+      }),
+    };
+    const run = await new Orchestrator(provider, { executor }).agent(input, { maxSteps: 3 });
+    const note = run.steps[0]?.note ?? '';
+    // The candidates ride this turn's note...
+    expect(note).toMatch(/8474616/);
+    // ...and the handle is what gets them back on a later turn, once the payload is gone.
+    const handle = /\[(ev_\d+)\]$/.exec(note)?.[1];
+    expect(handle).toBeDefined();
+    expect(clearNotePayloads(note)).toBe(
+      `${note.slice(0, note.indexOf(' → '))} → ${clearedWithHandle(handle!)}`,
+    );
+  });
+
   it('converges and stops when the model re-analyzes the same asset without editing (arg-varying spin)', async () => {
     // Replaces the old "edit nudge": there is no prompt forcing function anymore. Instead
     // the run converges deterministically. detect_beats on the SAME asset with a different
@@ -419,7 +462,10 @@ describe('agent mode', () => {
       run: async () => ({ status: 'completed' as const, summary: 'weird', data: () => 0 }),
     };
     const run = await new Orchestrator(provider, { executor }).agent(input, { maxSteps: 3 });
-    expect(run.steps[0]?.note).toBe('weird → null');
+    // The trailing handle is the store citation every host-tool result now carries, so the
+    // payload stays recoverable once compaction clears it. The point of this case is the
+    // bounded `null` preview, not the absence of a handle.
+    expect(run.steps[0]?.note).toBe('weird → null [ev_1]');
   });
 
   it('surfaces an executor failure as a failed call, never a success', async () => {
@@ -549,7 +595,9 @@ describe('agent mode', () => {
     expect(note).toMatch(/Reading the project → /);
     expect(note).toContain('asset_1');
     expect(note).toContain('video_1');
-    expect(note).toMatch(/Checking the selection → null/);
+    // P1.1: a bare `null` read as a failed call; it is the user having selected nothing,
+    // and the two lead to opposite plans.
+    expect(note).toMatch(/Checking the selection → nothing is selected/);
     // A junk key on a READ call is named rather than stripped: an unknown argument is
     // how a model asks for a scope the tool does not have, and answering the call it
     // did not make would leave it believing the scope was honored.
@@ -980,6 +1028,27 @@ describe('micro-compaction of old tool results (E2)', () => {
         `Step 7: Searched media for "intro" → ${CLEARED_RESULT_MARKER}`,
       );
     });
+
+    // The captured regression. A stock search's candidates (`remoteId`s the run needs to
+    // place anything) were cleared behind "re-read if needed" — but re-reading a METERED
+    // provider is not free, its ordering is not stable, and the run had no handle to recall.
+    // It invented an asset path instead. The payload still goes; the address must not.
+    it('keeps the evidence handle when it clears a payload that has one', () => {
+      const candidates = Array.from(
+        { length: 10 },
+        (_, i) => `${8474600 + i} · Video ${8474600 + i} · 0:08 · 1080×1920 · by RDNE`,
+      ).join('\n');
+      const entry = `Step 3: Search stock → 10 results:\n${candidates} [ev_4]`;
+      const cleared = clearNotePayloads(entry);
+      expect(cleared).toBe(`Step 3: Search stock → ${clearedWithHandle('ev_4')}`);
+      expect(cleared).toContain('recall_evidence("ev_4")');
+      expect(cleared).not.toContain('8474600');
+    });
+
+    it('falls back to the plain marker when no handle was cited', () => {
+      expect(clearNotePayloads(readEntry)).toContain(CLEARED_RESULT_MARKER);
+      expect(clearNotePayloads(readEntry)).not.toContain('recall_evidence');
+    });
   });
 
   describe('compactAgentLog clearing tier (E2.2)', () => {
@@ -1099,7 +1168,10 @@ describe('callNoveltyKey (reconnaissance vs the analysis spin)', () => {
  * actually has rather than a hand-kept copy of them that could drift from it. Same
  * technique as the tool-parity fixture guard: rebuild the claim from the live source.
  */
-const summarizeReadResultSource = readFileSync(new URL('./orchestrator.ts', import.meta.url), 'utf8');
+const summarizeReadResultSource = readFileSync(
+  new URL('./orchestrator.ts', import.meta.url),
+  'utf8',
+);
 
 /**
  * Reads that are honestly served by the bounded JSON preview, each with the reason.
@@ -1111,21 +1183,15 @@ const summarizeReadResultSource = readFileSync(new URL('./orchestrator.ts', impo
  * characters of that slice. Three stalled runs came out of it (ADR 0127, ADR 0128, and
  * the caption run that could not read its own verification report).
  *
+ * Nine more were still on this list until context-management P1.1 — including
+ * `get_transcript`, which handed back about 25 words of a 1,500-word recording. They now
+ * have digests, and the only member left is a tool with no payload to digest at all.
+ *
  * So membership here is a DECISION a reader can check, not a gap. Adding a read tool now
  * fails CI until somebody either writes its digest or states here why it does not need
  * one.
  */
 const READS_SERVED_BY_JSON_PREVIEW: Readonly<Record<string, string>> = {
-  get_transcript: 'the source word list, which the model asked for verbatim',
-  get_selected_range: 'two numbers and an id',
-  get_frame: 'a frame handle; the picture itself rides as image content',
-  measure_color: 'a handful of scalar measurements, all of them named in the payload',
-  map_footage: 'a per-asset mapping already keyed by the ids the model passed in',
-  index_media: 'a progress/count acknowledgement, not a record list',
-  transcribe: 'an acknowledgement; the words arrive via get_transcript',
-  track_subject_automatically:
-    'a measurement acknowledgement; the edit itself arrives as a tracked patch and the summary names the measuring pack',
-  read_edit_signals: 'measured spans the model reads whole and acts on in the same turn',
   detect_faces: 'unavailable in this build — it returns a refusal, not a payload',
 };
 
@@ -1151,6 +1217,210 @@ describe('every read tool can be summarized (no silent previewJson fallthrough)'
       digested.has(name),
     );
     expect(contradictory).toEqual([]);
+  });
+});
+
+/**
+ * The nine reads that used to fall through to `previewJson` (context-management P1.1).
+ *
+ * Every one of these asserts the same two things the file's own docstring demands of a
+ * digest: whole records are kept (an id or a word is never cut mid-token), and the
+ * "(… N more)" tail appears WHEN AND ONLY WHEN records were actually dropped. The
+ * headline case is `get_transcript`: a run asked to find the strongest hook in a
+ * ten-minute recording was shown about 25 of its 1,500 words, so it always found the
+ * hook in the first thirty seconds.
+ */
+describe('summarizeReadResult digests the reads that used to be sliced JSON', () => {
+  const words = (n: number, from = 0): Array<{ word: string; start: number; end: number }> =>
+    Array.from({ length: n }, (_, i) => ({
+      word: `w${i}`,
+      start: from + i * 0.5,
+      end: from + i * 0.5 + 0.4,
+    }));
+
+  it('get_transcript returns every word, in source time, with no tail when nothing dropped', () => {
+    const note = summarizeReadResult('get_transcript', words(1200));
+    expect(note).toContain('1200 transcript words in SOURCE time');
+    expect(note).toContain('0–0.4s w0');
+    // The 1,200th word survives: the old preview stopped at ~25.
+    expect(note).toContain('w1199');
+    expect(note).not.toContain('more words not shown');
+  });
+
+  it('get_transcript declares the drop, and how to see the rest, past the record cap', () => {
+    const note = summarizeReadResult('get_transcript', words(2400));
+    expect(note).toContain('2400 transcript words');
+    expect(note).toContain(
+      '(… 400 more words not shown; narrow get_transcript to a start/end window)',
+    );
+  });
+
+  it('get_transcript says an empty transcript is a missing transcript, not an empty read', () => {
+    expect(summarizeReadResult('get_transcript', [])).toBe(
+      'no transcript words — this project has no transcript yet (run transcribe first)',
+    );
+  });
+
+  it('get_transcript falls back to the preview when the payload is not a word list', () => {
+    expect(summarizeReadResult('get_transcript', { error: 'nope' })).toContain('error');
+  });
+
+  it('map_footage puts the chapter count and the mapped span in the durable first line', () => {
+    const note = summarizeReadResult('map_footage', {
+      chapters: [
+        { t0: 0, t1: 60, title: 'Intro', summary: 'setup' },
+        { t0: 60, t1: 190.5, title: 'Demo' },
+      ],
+      highlights: [{ t0: 12, t1: 18, label: 'the reveal', score: 0.82 }],
+      backend: 'pegasus',
+      durationSec: 190.5,
+      summary: 'A product walkthrough',
+    });
+    expect(note.split('\n')[0]).toBe(
+      '2 chapters and 1 highlight over 190.5s of footage via pegasus',
+    );
+    expect(note).toContain('chapter 0–60s Intro — setup');
+    expect(note).toContain('chapter 60–190.5s Demo');
+    expect(note).toContain('highlight 12–18s the reveal (salience 0.82)');
+  });
+
+  it('map_footage reports the honest no-map reason instead of an empty map', () => {
+    expect(
+      summarizeReadResult('map_footage', {
+        chapters: [],
+        highlights: [],
+        reason: 'not_indexed',
+      }),
+    ).toBe('no footage map: not_indexed');
+  });
+
+  it('map_footage treats an ABSENT chapters array as a different payload shape', () => {
+    expect(summarizeReadResult('map_footage', { available: false })).toContain('available');
+  });
+
+  it('read_edit_signals keeps whole signals in time order', () => {
+    const note = summarizeReadResult('read_edit_signals', [
+      {
+        kind: 'highlight',
+        t0: 3,
+        t1: 9,
+        observation: 'highlight "the reveal", 6s long',
+        from: 'supplied',
+      },
+      { kind: 'silence', t0: 9, t1: 11.25, observation: 'silence, 2.3s long', from: 'measured' },
+    ]);
+    expect(note).toContain('2 edit signals in time order');
+    expect(note).toContain('highlight 3–9s highlight "the reveal", 6s long (supplied)');
+    expect(note).toContain('silence 9–11.25s silence, 2.3s long (measured)');
+  });
+
+  it('read_edit_signals says nothing was measurable rather than previewing an empty array', () => {
+    expect(summarizeReadResult('read_edit_signals', [])).toBe(
+      'no edit signals — nothing measurable was supplied or found in this stretch',
+    );
+  });
+
+  it('transcribe acknowledges the words and names the call that returns them', () => {
+    const note = summarizeReadResult('transcribe', { assetId: 'asset_3', words: words(842) });
+    expect(note).toContain('transcribed 842 timed words');
+    expect(note).toContain('in asset_3');
+    expect(note).toContain('read them with get_transcript');
+    // The point of the acknowledgement is NOT to bill the transcript a second time.
+    expect(note).not.toContain('w841');
+  });
+
+  it('transcribe reports no speech honestly', () => {
+    expect(summarizeReadResult('transcribe', { words: [] })).toBe(
+      'transcribed no words — this asset carries no recognizable speech',
+    );
+  });
+
+  it('get_frame says when it was shown a different moment than it asked for', () => {
+    const note = summarizeReadResult('get_frame', {
+      timeSeconds: 21.87,
+      requestedTimeSeconds: 30,
+      clamped: true,
+      width: 1920,
+      height: 1080,
+      durationSeconds: 21.87,
+    });
+    expect(note).toContain('frame at 21.87s');
+    expect(note).toContain('1920×1080');
+    expect(note).toContain('CLAMPED from the 30s you asked for');
+  });
+
+  it('get_frame stays quiet about clamping when the frame is the one requested', () => {
+    const note = summarizeReadResult('get_frame', {
+      timeSeconds: 4,
+      requestedTimeSeconds: 4,
+      clamped: false,
+      width: 1080,
+      height: 1920,
+    });
+    expect(note).toContain('frame at 4s');
+    expect(note).not.toContain('CLAMPED');
+  });
+
+  it('index_media says how far indexing got and how to continue it', () => {
+    expect(summarizeReadResult('index_media', { indexed: 40, total: 11, cursor: 4 })).toBe(
+      'indexed 40 spans across 4/11 assets; 7 assets still to go, call index_media again to continue',
+    );
+  });
+
+  it('index_media reports a finished index with no continue instruction', () => {
+    expect(summarizeReadResult('index_media', { indexed: 91, total: 3, cursor: 3 })).toBe(
+      'indexed 91 spans across 3/3 assets',
+    );
+  });
+
+  it('measure_color reports coverage and occlusion but never prints the numbers', () => {
+    const note = summarizeReadResult('measure_color', {
+      clipId: 'clip_1',
+      projectRevision: 7,
+      startFrame: 0,
+      endFrame: 300,
+      occlusionFree: true,
+      samples: [
+        { frame: 0, channel: 'luma', min: 0, max: 1, mean: 0.412 },
+        { frame: 0, channel: 'red', min: 0, max: 1, mean: 0.502 },
+      ],
+    });
+    expect(note).toContain('measured clip_1 over frames 0–300 at revision 7');
+    expect(note).toContain('2 channels (luma, red)');
+    expect(note).toContain('no other visible layer contaminated the sample');
+    expect(note).toContain('never retype the numbers');
+    // The measurement itself must not be copyable out of the log.
+    expect(note).not.toContain('0.412');
+  });
+
+  it('measure_color shouts when the sample was contaminated', () => {
+    const note = summarizeReadResult('measure_color', {
+      clipId: 'clip_1',
+      startFrame: 0,
+      endFrame: 10,
+      occlusionFree: false,
+      samples: [{ frame: 0, channel: 'luma', min: 0, max: 1 }],
+    });
+    expect(note).toContain('ANOTHER VISIBLE LAYER CONTAMINATED THE SAMPLE');
+  });
+
+  it('get_selected_range distinguishes "nothing selected" from a failed read', () => {
+    expect(summarizeReadResult('get_selected_range', null)).toContain('nothing is selected');
+    expect(summarizeReadResult('get_selected_range', { start: 3, end: 8.5 })).toBe(
+      'selection 3–8.5s (5.5s) in timeline time',
+    );
+  });
+
+  it('track_subject_automatically reports the measurement without listing per-frame geometry', () => {
+    const note = summarizeReadResult('track_subject_automatically', {
+      plan: { clipId: 'clip_2', maskEffectId: 'mask_1', fps: 30, startSeconds: 2 },
+      engine: 'tracking-lite',
+      backend: 'csrt',
+      samples: Array.from({ length: 60 }, (_, i) => ({ frame: i, x: i, y: i, w: 10, h: 10 })),
+    });
+    expect(note).toContain('tracked 60 frames of clip_2 mask mask_1 over 2–4s');
+    expect(note).toContain('tracking-lite (csrt)');
+    expect(note).toContain('are not listed here');
   });
 });
 
@@ -1192,14 +1462,21 @@ describe('summarizeReadResult carries a verification report the run can act on',
     const boundaries = Array.from({ length: 45 }, (_, i) => ({
       trackId: 'video_main',
       at: i * 0.5,
+      frame: i * 15,
       fromClipId: `clip_${i}`,
       toClipId: `clip_${i + 1}`,
       maxTransitionSeconds: 0.25,
+      maxTransitionFrames: 8,
+      fps: 30,
     }));
     const note = summarizeReadResult('list_edit_boundaries', boundaries);
     expect(note.split('\n')[0]).toBe('45 cuts:');
     expect(note).toContain('clip_0 → clip_1');
-    expect(note).toContain('max transition 0.25s');
+    // P3.2: the frame leads. An editor does not think "the cut at 0.5s"; they think
+    // "the cut on frame 15", and a transition ceiling is a frame count before it is a
+    // duration.
+    expect(note).toContain('frame 15 (0.5s)');
+    expect(note).toContain('max transition 8 frames / 0.25s');
   });
 
   it('lists every effect id, grouped, because the ids ARE the deliverable', () => {
@@ -1242,7 +1519,11 @@ describe('summarizeReadResult carries a verification report the run can act on',
       'no silent gaps found in the audio',
     );
     expect(
-      summarizeReadResult('analyze_silence', { assetId: 'a1', ranges: [], reason: 'no audio track' }),
+      summarizeReadResult('analyze_silence', {
+        assetId: 'a1',
+        ranges: [],
+        reason: 'no audio track',
+      }),
     ).toBe('no silence detected — no audio track');
     expect(summarizeReadResult('detect_scenes', { assetId: 'a1', cuts: [] })).toBe(
       'no scene cuts detected in a1',
@@ -1287,7 +1568,7 @@ describe('summarizeReadResult carries a verification report the run can act on',
         runs: [],
         revision: 3,
       }).split('\n')[0],
-    ).toBe('1 mapped words, revision 3:');
+    ).toBe('1 mapped words, ?fps, revision 3:');
   });
 
   it('stays a readable sentence when a payload omits its optional fields', () => {
@@ -1308,9 +1589,7 @@ describe('summarizeReadResult carries a verification report the run can act on',
         { trackId: 'v', at: 1, fromClipId: 'a', toClipId: 'b', maxTransitionSeconds: 0.2 },
       ]).split('\n')[0],
     ).toBe('1 cut:');
-    expect(summarizeReadResult('detect_scenes', { cuts: [] })).toBe(
-      'no scene cuts detected in ?',
-    );
+    expect(summarizeReadResult('detect_scenes', { cuts: [] })).toBe('no scene cuts detected in ?');
     expect(summarizeReadResult('detect_scenes', { cuts: [{ time: 2 }] }).split('\n')[0]).toBe(
       '1 scene cut in ?:',
     );
@@ -1329,7 +1608,7 @@ describe('summarizeReadResult carries a verification report the run can act on',
 });
 
 describe('summarizeReadResult (agent must never invent ids)', () => {
-  it('get_timeline: carries a caption track\'s committed STYLE, not just its clip count', () => {
+  it("get_timeline: carries a caption track's committed STYLE, not just its clip count", () => {
     // The failure this closes: asked to "use a different caption style", a run read the
     // timeline — whose payload holds `templateId: headline` and the accent already applied
     // — but the digest rendered only ids and clip counts. The distilled fact was "5
@@ -1357,7 +1636,7 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
     expect(head).toContain('accent=keywords (3 keywords)');
   });
 
-  it("get_timeline: the DISTILLED FACT carries the style, not just the digest", () => {
+  it('get_timeline: the DISTILLED FACT carries the style, not just the digest', () => {
     // End to end through the surface that actually matters. A digest nobody distils is a
     // digest the next turn never sees.
     const note = summarizeReadResult('get_timeline', {
@@ -1438,7 +1717,12 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
 
   it('discover_caption_styles: reports an empty match instead of an empty list', () => {
     expect(
-      summarizeReadResult('discover_caption_styles', { matched: 0, returned: 0, fonts: [], templates: [] }),
+      summarizeReadResult('discover_caption_styles', {
+        matched: 0,
+        returned: 0,
+        fonts: [],
+        templates: [],
+      }),
     ).toContain('no caption templates match');
   });
 
@@ -1457,12 +1741,13 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
       // of the information in it.
       runs: [{ clipId: 'c', assetId: 'a', start: 0, end: 20.2, wordCount: 81 }],
       droppedCount: 3,
+      fps: 30,
       revision: 749,
     });
     // The run bounds ride in the HEAD, because that first line becomes the run's durable
     // fact and the bounds are the only place a cue may not be broken across.
     expect(note).toContain(
-      '81 mapped words, 3 dropped by cuts in 1 speech run (0–20.2s), revision 749',
+      '81 mapped words, 3 dropped by cuts in 1 speech run (0–20.2s), 30fps, revision 749',
     );
     for (const w of words) expect(note).toContain(w.word);
   });
@@ -1472,7 +1757,7 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
       words: [{ word: 'hello', start: 0, end: 0.4 }],
       runs: [],
     });
-    expect(note).toContain('1 mapped words, revision ?');
+    expect(note).toContain('1 mapped words, ?fps, revision ?');
     expect(note).not.toContain('dropped');
   });
 
@@ -1507,7 +1792,13 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
       trackCount: 2,
       clipCount: 87,
       tracks: [
-        { id: 'layer_caption_4', type: 'caption', clipCount: 40, firstClipStart: 0.09, lastClipEnd: 19.75 },
+        {
+          id: 'layer_caption_4',
+          type: 'caption',
+          clipCount: 40,
+          firstClipStart: 0.09,
+          lastClipEnd: 19.75,
+        },
         { id: 'audio_music', type: 'audio', clipCount: 0, firstClipStart: null, lastClipEnd: null },
       ],
       markerCount: 1,
@@ -2076,7 +2367,10 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
   });
 
   it('other reads fall back to a generously bounded JSON preview', () => {
-    expect(summarizeReadResult('get_selected_range', null)).toBe('null');
+    // A read with no digest arm and no entry in READS_SERVED_BY_JSON_PREVIEW cannot exist
+    // (the audit above fails CI), so the floor is exercised through a payload of a shape
+    // its digest does not recognise — the honest fallback, not a silent slice.
+    expect(summarizeReadResult('get_selected_range', { unexpected: true })).toContain('unexpected');
     const words = Array.from({ length: 5 }, (_, i) => ({ word: `w${i}`, start: i, end: i + 1 }));
     expect(summarizeReadResult('get_transcript', words)).toContain('w0');
   });
@@ -2085,7 +2379,7 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
 describe('review mode', () => {
   it('returns a deterministic critic report + readable text', async () => {
     const review = await new Orchestrator(new MockProvider()).review(input);
-    expect(review.report.checks.length).toBe(11);
+    expect(review.report.checks.length).toBe(18);
     expect(review.text).toContain(review.report.summary);
     expect(review.text).toMatch(/\[(PASS|WARN|FAIL|SKIPPED)\]/);
   });
@@ -2205,12 +2499,27 @@ describe('route-scoped tool surface (E5)', () => {
     // recall tool, and placed forty-six clips on asset durations it had inferred from
     // clip-id suffixes because the media bin it had read twice was unreachable.
     expect(names).toContain('recall_evidence');
+    // A download IS the action this turn demands. These two read as analysis by registry
+    // kind and were filtered out on that basis, so a run that had already found its
+    // footage was refused the only call that could fetch it — and told the call was
+    // redundant. This assertion is why the filter reads `effectClass` now.
+    expect(names).toContain('add_stock');
+    expect(names).toContain('add_music');
+    // Sourcing that only GATHERS stays out: the turn exists because the run has looked
+    // enough.
+    expect(names).not.toContain('search_stock');
+    expect(names).not.toContain('search_music');
     expect(names).not.toContain('get_timeline');
     expect(names).not.toContain('list_assets');
     expect(names).not.toContain('detect_beats');
     for (const name of names) {
       if (name === 'recall_evidence') continue;
-      expect(['mutate', 'ask']).toContain(getTool(name)!.kind);
+      const tool = getTool(name)!;
+      // The contract, not the registry kind — that is the whole correction.
+      expect(
+        toolContract(tool).effectClass === 'mutation' || tool.kind === 'ask',
+        `${name} is neither a mutation nor an ask`,
+      ).toBe(true);
     }
   });
 

@@ -10,6 +10,7 @@ import { Orchestrator, agentCompletionReport, type StreamOptions } from './orche
 import type { AnyOperation } from '@framepilot/editor-core';
 import { MockProvider } from './providers/mock.js';
 import { reduceEvents, type AiEvent } from './events.js';
+import { InMemoryPatchCommitLedger } from './kernel/commit-ledger.js';
 import { createAskUserGate, createPlanApprovalGate, createSteeringQueue } from './run-controls.js';
 import { DIMINISHING_RETURNS_TURNS, PLAN_APPROVAL_STEP_THRESHOLD } from './kernel/conductor.js';
 
@@ -1681,6 +1682,30 @@ describe('streamAgent', () => {
     );
   });
 
+  // GAP-010. Stopping a run does not un-apply its edits. Run e30c1fe9 left 38 operations
+  // in the project and said nothing about any of them: the report was gated on the run
+  // not being cancelled, so the last word the editor got was a perceptual warning about
+  // frame numbers over a timeline they had no summary of.
+  it('still accounts for the edits a cancelled run applied', () => {
+    const ops = [
+      { type: 'add_text_overlay', trackId: 'txt_main', text: 'GONE.', start: 0, end: 2 },
+    ] as unknown as AnyOperation[];
+    const report = agentCompletionReport({
+      ops,
+      steps: 2,
+      rejectedOpCount: 0,
+      rejectionReasons: [],
+      cancelled: true,
+      deliverableFileRequested: true,
+    });
+    expect(report).toMatch(/before you stopped the run/);
+    expect(report).toMatch(/can be undone/);
+    // It must not claim the work is finished…
+    expect(report).not.toMatch(/review the proposed change below/);
+    // …and the things the panel cannot do are still said, because they are still true.
+    expect(report).toMatch(/use the Export dialog/);
+  });
+
   it('collapses edits that read identically instead of repeating the line', () => {
     // The captured caption run closed with eight rows of "Set track caption style:" — the
     // same sentence eight times, over a dangling colon. Eight restyles of one track are ONE
@@ -2793,6 +2818,210 @@ describe('streamAgent host tool execution (Phase T)', () => {
       expect(fedBack).toMatch(/Placed at 12\.0s/);
     });
 
+    // GAP-005. Gathering candidates had no tool: `atSeconds ?? 0` made every download an
+    // immediate placement at the head of the sequence, so the SECOND clip of a comparison
+    // always hit the first one's occupancy refusal. A captured run said twice it was
+    // "locking the media into the bin first", found nothing that did that, and reached for
+    // `add_asset` with a path it invented.
+    it('downloads into the bin alone when no position is given', async () => {
+      const binCall = {
+        id: 's2',
+        name: 'add_stock',
+        arguments: { remoteId: 'px_1', kind: 'video' },
+      };
+      const provider = new ScriptedProvider([
+        { text: 'gathering', toolCalls: [binCall] },
+        { text: 'done', toolCalls: [] },
+      ]);
+      const events = await drain(
+        new Orchestrator(provider, {
+          executor: hostRun({ asset: stockAsset }),
+        }).streamAgent(input, opts()),
+      );
+      const diff = events.find((e) => e.type === 'diff');
+      const ops =
+        diff?.type === 'diff' ? diff.edit.patch.operations.map((op: AnyOperation) => op.type) : [];
+      expect(ops).toEqual(['add_asset']);
+      // The note must not name a timeline position the model cannot see — it narrates from
+      // this text, and an invented "Placed at 0.0s" is exactly the claim ADR 0083 forbids.
+      const fedBack = JSON.stringify(provider.requests[1]?.messages ?? []);
+      expect(fedBack).toMatch(/media bin, not on the timeline yet/);
+      expect(fedBack).not.toMatch(/Placed at/);
+    });
+
+    // GAP-001. The run that produced the empty reel: an empty project, eight stock
+    // searches, a spine of empty tracks committed first — and from that patch onward the
+    // stage gate withheld every sourcing descriptor, because `add_stock`'s registry kind
+    // is `analysis`. The model could see 80 usable clips in its own evidence and had no
+    // call left that could download one. The whole 30 seconds shipped as text on black.
+    it('can still download after an edit has landed and the run is executing', async () => {
+      const trackCall = {
+        id: 't1',
+        name: 'add_track',
+        arguments: { type: 'video' as const, id: 'v_main' },
+      };
+      const laterStock = {
+        id: 's9',
+        name: 'add_stock',
+        arguments: { remoteId: 'px_1', kind: 'video' as const },
+      };
+      const provider = new ScriptedProvider([
+        { text: 'laying the spine', toolCalls: [trackCall] },
+        { text: 'now the footage', toolCalls: [laterStock] },
+        { text: 'done', toolCalls: [] },
+      ]);
+      const events = await drain(
+        new Orchestrator(provider, {
+          executor: hostRun({ asset: stockAsset }),
+        }).streamAgent(input, opts()),
+      );
+      // The second turn is the one under test: it runs after a patch has been applied,
+      // so the run is in an execution stage.
+      const stockTerminal = events.filter((e) => e.type === 'tool_call' && e.id === 's9').at(-1);
+      expect(stockTerminal).toMatchObject({ status: 'completed' });
+      const diffs = events.filter((e) => e.type === 'diff');
+      const laterOps =
+        diffs.at(-1)?.type === 'diff'
+          ? (
+              diffs.at(-1) as { edit: { patch: { operations: AnyOperation[] } } }
+            ).edit.patch.operations.map((op) => op.type)
+          : [];
+      expect(laterOps).toContain('add_asset');
+      // And the descriptor was really advertised — not merely accepted when called.
+      const secondTurnTools = (provider.requests[1]?.tools ?? []).map((t) => t.name);
+      expect(secondTurnTools).toContain('add_stock');
+    });
+
+    // The rule that made gathering impossible must not apply to gathering.
+    it('accepts a bin download at a moment where a placement would be refused', async () => {
+      const binCall = {
+        id: 's3',
+        name: 'add_stock',
+        arguments: { remoteId: 'px_1', kind: 'video' },
+      };
+      const occupied = {
+        ...stockCall,
+        id: 's4',
+        arguments: { ...stockCall.arguments, atSeconds: 2 },
+      };
+      const provider = new ScriptedProvider([
+        { text: 'placing at an occupied moment', toolCalls: [occupied] },
+        { text: 'gathering instead', toolCalls: [binCall] },
+        { text: 'done', toolCalls: [] },
+      ]);
+      // The host echoes back the position it was asked for (see StockAssetPayloadSchema), so
+      // the fixture must too — the two calls differ in exactly that field.
+      const echoing = {
+        run: async (toolCall: {
+          arguments: Record<string, unknown>;
+        }): Promise<HostToolOutcome> => ({
+          status: 'completed' as const,
+          summary: 'Downloaded "media/stock/px_1.mp4".',
+          data: {
+            asset: stockAsset,
+            ...(toolCall.arguments.atSeconds === undefined
+              ? {}
+              : { atSeconds: toolCall.arguments.atSeconds }),
+          },
+        }),
+      };
+      const events = await drain(
+        new Orchestrator(provider, { executor: echoing }).streamAgent(input, opts()),
+      );
+      const calls = events.filter((e) => e.type === 'tool_call');
+      expect(calls.filter((e) => e.type === 'tool_call' && e.id === 's4').at(-1)).toMatchObject({
+        status: 'failed',
+      });
+      expect(calls.filter((e) => e.type === 'tool_call' && e.id === 's3').at(-1)).toMatchObject({
+        status: 'completed',
+      });
+    });
+
+    // THE run.md sequence. One placement lands at the head, then four more clips
+    // arrive with no position — the shape a reel actually gets built in. Every
+    // one of those four failed instantly in the captured run, because the
+    // desktop host read an absent position as `0` and refused them all against
+    // the clip that had just landed (see `apps/desktop/electron/ai/stock-host.ts`).
+    it('gathers four more clips after a placement has landed at the head', async () => {
+      const place = {
+        id: 'p1',
+        name: 'add_stock',
+        arguments: { remoteId: 'px_1', kind: 'video' as const, atSeconds: 12 },
+      };
+      const gathers = ['8475065', '854232', '7087631', '5377991'].map((remoteId, index) => ({
+        id: `g${index}`,
+        name: 'add_stock',
+        arguments: { remoteId, kind: 'video' as const },
+      }));
+      const provider = new ScriptedProvider([
+        { text: 'placing the opener', toolCalls: [place] },
+        { text: 'gathering the rest of the bank', toolCalls: gathers },
+        { text: 'done', toolCalls: [] },
+      ]);
+      // Each download is a distinct asset, and the host echoes a position only
+      // when it was given one — the contract `stock-host.ts` now honours.
+      const executor = {
+        run: async (toolCall: { arguments: Record<string, unknown> }): Promise<HostToolOutcome> => {
+          const remoteId = String(toolCall.arguments.remoteId);
+          return {
+            status: 'completed' as const,
+            summary: `Downloaded "media/stock/${remoteId}.mp4".`,
+            data: {
+              asset: {
+                ...stockAsset,
+                id: `stock_pexels_${remoteId}`,
+                path: `media/stock/${remoteId}.mp4`,
+                source: { ...stockAsset.source, remoteId },
+              },
+              ...(toolCall.arguments.atSeconds === undefined
+                ? {}
+                : { atSeconds: toolCall.arguments.atSeconds }),
+            },
+          };
+        },
+      };
+      const events = await drain(
+        new Orchestrator(provider, { executor }).streamAgent(input, opts()),
+      );
+
+      // Not one instant refusal among them.
+      for (const gather of gathers) {
+        expect(
+          events.filter((e) => e.type === 'tool_call' && e.id === gather.id).at(-1),
+        ).toMatchObject({ status: 'completed' });
+      }
+      expect(events.filter((e) => e.type === 'tool_call' && e.id === 'p1').at(-1)).toMatchObject({
+        status: 'completed',
+      });
+
+      // Each gather sees the state its predecessors produced: five distinct
+      // assets in the bin, and only the placed one on the timeline.
+      const added = events
+        .filter((e) => e.type === 'diff')
+        .flatMap((e) => (e.type === 'diff' ? (e.edit.patch.operations as AnyOperation[]) : []));
+      const assetIds = added
+        .filter((op) => op.type === 'add_asset')
+        .map((op) => (op as { asset: { id: string } }).asset.id);
+      expect(new Set(assetIds).size).toBe(5);
+      expect(added.filter((op) => op.type === 'add_clip')).toHaveLength(1);
+    });
+
+    // A refusal the model cannot act on is how the captured run stalled: it was
+    // told what was wrong and never where to go instead.
+    it('tells the model where the clip does fit when it refuses a placement', async () => {
+      const events = await drain(
+        new Orchestrator(stockProvider(), {
+          executor: hostRun({ asset: stockAsset, atSeconds: 2 }),
+        }).streamAgent(input, opts()),
+      );
+      const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 's1');
+      const summary = result?.type === 'tool_result' ? result.summary : '';
+      expect(summary).toMatch(/already picture on the timeline/);
+      // A number it can pass straight back as `atSeconds`.
+      expect(summary).toMatch(/starts at \d+\.\ds/);
+      expect(summary).not.toMatch(/pick an empty stretch/);
+    });
+
     it('fails closed when the host returns no usable asset — never "added" on an unchanged timeline', async () => {
       const events = await drain(
         new Orchestrator(stockProvider(), { executor: hostRun(undefined) }).streamAgent(
@@ -3443,6 +3672,93 @@ describe('streamAgent prompt-prefix stability (E3)', () => {
  * cleared in place in the fed-back action log (the call-history prefixes survive), a
  * repeat call is still served from the run memo, and the run converges normally.
  */
+/**
+ * GAP-002 — the host's verdict, told back to the run that proposed the patch.
+ *
+ * The orchestrator recorded an operation as `succeeded` on the strength of its own
+ * validation against its own working copy. On desktop that is not the last word, and when
+ * the host refused a patch it stamped the verdict onto the outgoing event for the UI and
+ * told the run nothing. A captured run's ledger read `succeeded`, `projectRevisionAfter: 1`
+ * against a project still at revision 0 with an empty media bin.
+ */
+describe('streamAgent host commit verdict', () => {
+  const trim = {
+    id: 'e1',
+    name: 'trim_clip',
+    arguments: { clipId: 'clip_a', start: 1, end: 4 },
+  };
+  const editProvider = () =>
+    new ScriptedProvider([
+      { text: 'trimming', toolCalls: [trim] },
+      { text: 'done', toolCalls: [] },
+    ]);
+
+  it('records a refused edit as a failure carrying the host’s reason, not a success', async () => {
+    const ledger = new InMemoryPatchCommitLedger();
+    const provider = editProvider();
+    // Stand in for the host: refuse whatever patch is proposed, at the moment `beforePublish`
+    // would — while the run's generator is suspended on the diff it just yielded.
+    const events: AiEvent[] = [];
+    for await (const event of new Orchestrator(provider).streamAgent(input, opts(), {
+      commitLedger: ledger,
+      maxSteps: 3,
+    })) {
+      if (event.type === 'diff') {
+        ledger.record(event.edit.patch.patchId, {
+          state: 'stale',
+          reason: 'this project is not open in FramePilot',
+        });
+      }
+      events.push(event);
+    }
+    // The run must tell the EDITOR the work was lost, and name the host's cause. Before this
+    // the same run reported an applied edit against a project that never received one.
+    // The reason has to reach the editor AND the model, or neither can act on it.
+    // The reason has to reach the editor AND the model, or neither can act on it.
+    expect(JSON.stringify(events)).toMatch(/this project is not open in FramePilot/);
+    // The run's own working state must agree: the operation is FAILED, carrying the reason,
+    // and the project revision it thinks it produced never moved. In the captured run this
+    // read `succeeded` / `projectRevisionAfter: 1` against a project still at revision 0.
+    const finalState = events.filter((e) => e.type === 'run_state').at(-1);
+    const working = finalState?.type === 'run_state' ? finalState.working : undefined;
+    expect(working?.operations.every((op) => op.status !== 'succeeded')).toBe(true);
+    expect(working?.currentProjectRevision).toBe(0);
+    // The one thing the old behaviour got exactly backwards: an edit the project never
+    // received must never be listed as work already done.
+    const fedBack = JSON.stringify(provider.requests.at(-1)?.messages ?? []);
+    expect(fedBack).not.toMatch(/ALREADY APPLIED[\s\S]*Trimmed/);
+  });
+
+  it('leaves a committed edit exactly as it was — approval is not a new code path', async () => {
+    const ledger = new InMemoryPatchCommitLedger();
+    const provider = editProvider();
+    const events: AiEvent[] = [];
+    for await (const event of new Orchestrator(provider).streamAgent(input, opts(), {
+      commitLedger: ledger,
+      maxSteps: 3,
+    })) {
+      if (event.type === 'diff') {
+        ledger.record(event.edit.patch.patchId, { state: 'committed', revision: 2 });
+      }
+      events.push(event);
+    }
+    expect(events.some((e) => e.type === 'diff')).toBe(true);
+    const fedBack = JSON.stringify(provider.requests.at(-1)?.messages ?? []);
+    expect(fedBack).not.toMatch(/Rejected —/);
+  });
+
+  // Every surface without a host arbiter (the browser build, MCP, these tests) passes no
+  // ledger, and local validation stays the last word because it is the only word.
+  it('is unchanged when no host is listening', async () => {
+    const provider = editProvider();
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 3 }),
+    );
+    expect(events.some((e) => e.type === 'diff')).toBe(true);
+    expect(JSON.stringify(provider.requests.at(-1)?.messages ?? [])).not.toMatch(/Rejected —/);
+  });
+});
+
 describe('streamAgent micro-compaction of old tool results (E2)', () => {
   it('clears old payloads from the fed-back log, keeps memo-served repeats, and converges', async () => {
     const silence = (id: string, assetId: string) => ({
@@ -3476,13 +3792,37 @@ describe('streamAgent micro-compaction of old tool results (E2)', () => {
     // By turn 5 the log crossed the threshold: old entries carry the cleared marker,
     // their "what was called" prefixes intact, while the freshest keep real payloads.
     const turn5Log = provider.requests[4]!.messages.at(-1)!.content;
-    expect(turn5Log).toContain('[old result cleared — re-read if needed]');
+    // The cleared entries name the handle their payload is still held under, rather than the
+    // bare "re-read if needed" they used to carry. Every host-tool result is stored now (it
+    // used to be `measure_color` alone), so the marker is an address the model can follow in
+    // one call instead of an invitation to re-run engine or metered-provider work.
+    expect(turn5Log).toMatch(/\[old result cleared — call recall_evidence\("ev_\d+"\)/);
     expect(turn5Log).toContain('Found silences');
     // The repeat call was answered from the run memo — no fresh engine work claimed
     // (its cleared predecessor did not break memoization), and the reducer then
     // recognizes the confirmed stall and ends the run on its own.
     const repeat = events.find((e) => e.type === 'tool_result' && e.toolCallId === 'a5');
     expect(repeat?.type === 'tool_result' ? repeat.summary : '').toContain('(cached)');
+  });
+});
+
+// GAP-007. `recordEvidence` existed, was exported, and had no caller: every run's durable
+// state carried `evidence: []` while its facts cited `[ev_1]`, so a resumed run restored
+// citations that resolved to nothing and the UI's handle count was structurally zero.
+describe('streamAgent evidence index', () => {
+  it('indexes the handle a fact cites, so the citation resolves in durable state', async () => {
+    const provider = new ScriptedProvider([
+      { text: 'reading', toolCalls: [{ id: 'r1', name: 'get_timeline', arguments: {} }] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+    const states = events.filter((event) => event.type === 'run_state');
+    const working = states.at(-1)?.type === 'run_state' ? states.at(-1)!.working : undefined;
+    const handles = (working?.evidence ?? []).map((entry) => entry.id);
+    expect(handles.length).toBeGreaterThan(0);
+    for (const fact of working?.facts ?? []) {
+      for (const cited of fact.evidenceIds) expect(handles).toContain(cited);
+    }
   });
 });
 
@@ -3534,6 +3874,74 @@ describe('streamAgent cached-read action recovery', () => {
         (event) => event.type === 'notification' && event.text.includes('stopped making progress'),
       ),
     ).toBe(false);
+  });
+
+  // GAP-003. `recall_evidence` returns stored data, so it is `fromCache` by construction.
+  // That made a turn spent recalling — the exact behaviour the contract asks for, and the
+  // one tool a recovery turn deliberately preserves — the trigger for entering recovery.
+  // Run e30c1fe9 recalled the stock ids it needed and the next turn withheld the tool
+  // that could use them.
+  it('does not treat a turn spent recalling as a turn that learned nothing', async () => {
+    const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
+    const provider = new ScriptedProvider([
+      { text: 'reading', toolCalls: [read('r1')] },
+      // Recall only. Nothing here is a fresh read, and nothing here should punish the run.
+      {
+        text: 'recalling what I have',
+        toolCalls: [{ id: 'rc1', name: 'recall_evidence', arguments: { evidenceId: 'ev_1' } }],
+      },
+      { text: 'done', toolCalls: [] },
+    ]);
+    await drain(new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 6 }));
+    // The turn AFTER the recall still carries the full surface — no recovery lockout.
+    const afterRecall = provider.requests[2]!;
+    const names = afterRecall.tools?.map((tool) => tool.name) ?? [];
+    expect(names).toContain('get_timeline');
+    expect(afterRecall.messages.at(-1)!.content).not.toContain('ACTION RECOVERY');
+  });
+
+  // GAP-003. The cache trigger had no sentence: the surface changed, a card went red for
+  // a reason the harness had chosen, and nothing said so.
+  it('explains the switch when a turn re-read what the run already had', async () => {
+    const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
+    const provider = new ScriptedProvider([
+      { text: 'read', toolCalls: [read('r1')] },
+      { text: 'read again', toolCalls: [read('r2')] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 6 }),
+    );
+    expect(
+      events.some((event) => event.type === 'notification' && event.text.includes('nothing new')),
+    ).toBe(true);
+  });
+
+  // GAP-002. The same branch served both cases with one sentence, and for a call the run
+  // had never made the sentence was false. Run e30c1fe9 was told its `add_stock` was
+  // "redundant — its result is already in this run"; nothing had been downloaded, and the
+  // model believed it and moved on without footage.
+  it('says a withheld tool is unavailable, not redundant, when it holds no such result', async () => {
+    const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
+    const provider = new ScriptedProvider([
+      { text: 'read', toolCalls: [read('r1')] },
+      { text: 'read again', toolCalls: [read('r2')] },
+      // Never called before, so the run has no stored result to be redundant with.
+      { text: 'analyse instead', toolCalls: [{ id: 'b1', name: 'detect_beats', arguments: {} }] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 6 }),
+    );
+    const refused = events.find(
+      (event) => event.type === 'tool_result' && event.toolCallId === 'b1',
+    );
+    const summary = refused?.type === 'tool_result' ? refused.summary : '';
+    expect(summary).toContain('unavailable this turn');
+    expect(summary).not.toContain('redundant');
+    // And the model is told what the turn IS for, so it has somewhere to go.
+    const note = JSON.stringify(provider.requests[3]?.messages ?? []);
+    expect(note).toMatch(/acting on what the run has already gathered/);
   });
 
   it('host-refuses a read hallucinated outside the recovery tool surface', async () => {

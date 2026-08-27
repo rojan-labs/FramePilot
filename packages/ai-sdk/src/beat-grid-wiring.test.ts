@@ -121,15 +121,15 @@ class MontageProvider implements AiProvider {
             ? [{ id: 'read1', name: 'get_timeline', arguments: {} as Record<string, unknown> }]
             : []),
           ...this.cuts.map((cut, i) => ({
-          id: `c${String(i)}`,
-          name: 'add_clip',
-          arguments: {
-            trackId: 'video_2',
-            assetId: 'asset_1',
-            start: cut.start,
-            end: cut.end,
-            sourceStart: cut.start,
-          },
+            id: `c${String(i)}`,
+            name: 'add_clip',
+            arguments: {
+              trackId: 'video_2',
+              assetId: 'asset_1',
+              start: cut.start,
+              end: cut.end,
+              sourceStart: cut.start,
+            },
           })),
         ],
       };
@@ -235,7 +235,7 @@ describe('beat-grid enforcement in a real agent run', () => {
     expect(boundaries.some((time) => offGridBy(time) > 0.08)).toBe(false);
   });
 
-  it('shows the editor the rejection reason, not the turn\'s read output', async () => {
+  it("shows the editor the rejection reason, not the turn's read output", async () => {
     // The captured run's completion report read: "**Skipped:** 8 proposed changes did not
     // validate (Recalling what it found → {"assets":[…]}; Reframed clip …; rejected by the
     // beat grid: …)". The reason was in there, after a media-bin dump, and read tools were

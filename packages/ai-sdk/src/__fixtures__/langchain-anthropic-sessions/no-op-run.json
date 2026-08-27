@@ -34,7 +34,7 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "is there anything to tighten?"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
@@ -57,7 +57,9 @@
           "id": "plan_turn_parity_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -106,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 20734,
+      "usedTokens": 21261,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -125,30 +127,37 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1775,
+            "tokenEstimate": 1626,
             "included": true
           },
           {
             "id": "s3",
-            "type": "latest_user_message",
-            "label": "user request",
+            "type": "conversation",
+            "label": "user turn 2",
             "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s4",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 173,
+            "included": true
+          },
+          {
+            "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17049,
+            "tokenEstimate": 17552,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 20734,
+          "estimatedInputTokensBeforeSend": 21261,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 851266,
+          "estimatedRemainingCapacity": 850739,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -211,28 +220,35 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1775,
+            "tokenEstimate": 1626,
             "included": true
           },
           {
             "id": "s3",
-            "type": "latest_user_message",
-            "label": "user request",
+            "type": "conversation",
+            "label": "user turn 2",
             "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s4",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 173,
+            "included": true
+          },
+          {
+            "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17049,
+            "tokenEstimate": 17552,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 20734,
+          "estimatedInputTokensBeforeSend": 21261,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -286,7 +302,7 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "is there anything to tighten?"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
@@ -309,7 +325,9 @@
           "id": "plan_turn_parity_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -365,7 +383,7 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "is there anything to tighten?"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
@@ -388,7 +406,9 @@
           "id": "plan_turn_parity_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": false

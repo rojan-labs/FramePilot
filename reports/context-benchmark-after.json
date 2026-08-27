@@ -1,0 +1,431 @@
+{
+  "generatedBy": "scripts/context-benchmark.mjs",
+  "fixedOverhead": {
+    "systemContract": 135,
+    "agentContractVision": 1775,
+    "agentContractNoVision": 1576,
+    "skillsManifest": 1605,
+    "skillCount": 21,
+    "toolSchemasPlanningStages": {
+      "tools": 85,
+      "tokens": 17722
+    },
+    "toolSchemasExecutionStages": {
+      "tools": 63,
+      "tokens": 13663
+    },
+    "totalPlanningTurnOverhead": 21237
+  },
+  "grounding": [
+    {
+      "scale": "small   (1 min)",
+      "totalClips": 19,
+      "shownClips": 19,
+      "clipCoverage": 1,
+      "totalWords": 150,
+      "shownWords": 150,
+      "wordCoverage": 1,
+      "projectStateTokens": 407,
+      "trimmedTiers": []
+    },
+    {
+      "scale": "medium (10 min)",
+      "totalClips": 188,
+      "shownClips": 188,
+      "clipCoverage": 1,
+      "totalWords": 1500,
+      "shownWords": 1500,
+      "wordCoverage": 1,
+      "projectStateTokens": 4116,
+      "trimmedTiers": []
+    },
+    {
+      "scale": "large  (60 min)",
+      "totalClips": 1125,
+      "shownClips": 1125,
+      "clipCoverage": 1,
+      "totalWords": 9000,
+      "shownWords": 9000,
+      "wordCoverage": 1,
+      "projectStateTokens": 26455,
+      "trimmedTiers": []
+    },
+    {
+      "scale": "huge    (4 h)",
+      "totalClips": 4500,
+      "shownClips": 4500,
+      "clipCoverage": 1,
+      "totalWords": 36000,
+      "shownWords": 35679,
+      "wordCoverage": 0.9910833333333333,
+      "projectStateTokens": 114339,
+      "trimmedTiers": []
+    }
+  ],
+  "groundingFocused": [
+    {
+      "scale": "small   (1 min)",
+      "totalClips": 19,
+      "shownClips": 19,
+      "clipCoverage": 1,
+      "totalWords": 150,
+      "shownWords": 150,
+      "wordCoverage": 1,
+      "projectStateTokens": 406
+    },
+    {
+      "scale": "medium (10 min)",
+      "totalClips": 188,
+      "shownClips": 188,
+      "clipCoverage": 1,
+      "totalWords": 1500,
+      "shownWords": 1500,
+      "wordCoverage": 1,
+      "projectStateTokens": 4115
+    },
+    {
+      "scale": "large  (60 min)",
+      "totalClips": 1125,
+      "shownClips": 1125,
+      "clipCoverage": 1,
+      "totalWords": 9000,
+      "shownWords": 9000,
+      "wordCoverage": 1,
+      "projectStateTokens": 26455
+    },
+    {
+      "scale": "huge    (4 h)",
+      "totalClips": 4500,
+      "shownClips": 4500,
+      "clipCoverage": 1,
+      "totalWords": 36000,
+      "shownWords": 35676,
+      "wordCoverage": 0.991,
+      "projectStateTokens": 114331
+    }
+  ],
+  "retrievalByRequest": [
+    {
+      "request": "tighten this",
+      "clipsShown": 412,
+      "wordsShown": 1198,
+      "firstShownSecond": 76,
+      "lastShownSecond": 2228,
+      "spanCoverage": 0.5977777777777777,
+      "projectStateTokens": 4841
+    },
+    {
+      "request": "find the three strongest moments across the whole recording",
+      "clipsShown": 420,
+      "wordsShown": 1195,
+      "firstShownSecond": 0,
+      "lastShownSecond": 3600,
+      "spanCoverage": 1,
+      "projectStateTokens": 4828
+    }
+  ],
+  "agentRun": {
+    "turns": [
+      {
+        "turn": 0,
+        "messages": 4,
+        "messageTokens": 14445,
+        "toolTokens": 17552,
+        "toolCount": 84,
+        "totalTokens": 31997,
+        "stablePrefixTokens": 0,
+        "cacheablePrefixTokens": 0,
+        "cacheableShare": 0
+      },
+      {
+        "turn": 1,
+        "messages": 4,
+        "messageTokens": 14540,
+        "toolTokens": 17552,
+        "toolCount": 84,
+        "totalTokens": 32092,
+        "stablePrefixTokens": 12257,
+        "cacheablePrefixTokens": 29809,
+        "cacheableShare": 0.9288607752710956
+      },
+      {
+        "turn": 2,
+        "messages": 4,
+        "messageTokens": 25515,
+        "toolTokens": 17552,
+        "toolCount": 84,
+        "totalTokens": 43067,
+        "stablePrefixTokens": 12257,
+        "cacheablePrefixTokens": 29809,
+        "cacheableShare": 0.6921540854946943
+      },
+      {
+        "turn": 3,
+        "messages": 4,
+        "messageTokens": 25545,
+        "toolTokens": 17552,
+        "toolCount": 84,
+        "totalTokens": 43097,
+        "stablePrefixTokens": 12257,
+        "cacheablePrefixTokens": 29809,
+        "cacheableShare": 0.6916722741722162
+      },
+      {
+        "turn": 4,
+        "messages": 4,
+        "messageTokens": 14632,
+        "toolTokens": 13663,
+        "toolCount": 63,
+        "totalTokens": 28295,
+        "stablePrefixTokens": 12257,
+        "cacheablePrefixTokens": 25920,
+        "cacheableShare": 0.9160629086411026
+      },
+      {
+        "turn": 5,
+        "messages": 4,
+        "messageTokens": 14641,
+        "toolTokens": 13663,
+        "toolCount": 63,
+        "totalTokens": 28304,
+        "stablePrefixTokens": 12257,
+        "cacheablePrefixTokens": 25920,
+        "cacheableShare": 0.9157716223855286
+      },
+      {
+        "turn": 6,
+        "messages": 4,
+        "messageTokens": 14650,
+        "toolTokens": 13663,
+        "toolCount": 63,
+        "totalTokens": 28313,
+        "stablePrefixTokens": 12257,
+        "cacheablePrefixTokens": 25920,
+        "cacheableShare": 0.9154805213152969
+      },
+      {
+        "turn": 7,
+        "messages": 4,
+        "messageTokens": 14629,
+        "toolTokens": 13663,
+        "toolCount": 63,
+        "totalTokens": 28292,
+        "stablePrefixTokens": 12257,
+        "cacheablePrefixTokens": 25920,
+        "cacheableShare": 0.9161600452424714
+      },
+      {
+        "turn": 8,
+        "messages": 5,
+        "messageTokens": 14643,
+        "toolTokens": 17552,
+        "toolCount": 84,
+        "totalTokens": 32195,
+        "stablePrefixTokens": 12257,
+        "cacheablePrefixTokens": 29809,
+        "cacheableShare": 0.9258891132163379
+      }
+    ],
+    "toolSetChurn": {
+      "changes": 2,
+      "tokensRebilledAtFullPrice": 31215,
+      "turns": 9
+    },
+    "retention": {
+      "clearedPayloadsInFinalPrompt": 0,
+      "earlierStepsCollapsed": true,
+      "finalPromptTokens": 32195,
+      "firstTurnPromptTokens": 31997
+    }
+  },
+  "budgetSafety": {
+    "legacyAssumedRoom": 183904,
+    "agentTurnFixedCost": 19497,
+    "models": [
+      {
+        "provider": "anthropic",
+        "model": "claude-opus-4-5",
+        "contextWindow": 200000,
+        "maxOutputTokens": 64000,
+        "realRoom": 136000,
+        "trimmerRoom": 114503,
+        "overAssumption": -21497,
+        "legacyOverAssumption": 47904,
+        "source": "known_model",
+        "risk": "safe"
+      },
+      {
+        "provider": "openai",
+        "model": "gpt-4o",
+        "contextWindow": 128000,
+        "maxOutputTokens": 16384,
+        "realRoom": 111616,
+        "trimmerRoom": 90119,
+        "overAssumption": -21497,
+        "legacyOverAssumption": 72288,
+        "source": "known_model",
+        "risk": "safe"
+      },
+      {
+        "provider": "groq",
+        "model": "llama-3.3-70b-versatile",
+        "contextWindow": 131072,
+        "maxOutputTokens": 32768,
+        "realRoom": 98304,
+        "trimmerRoom": 76807,
+        "overAssumption": -21497,
+        "legacyOverAssumption": 85600,
+        "source": "known_model",
+        "risk": "safe"
+      },
+      {
+        "provider": "ollama",
+        "model": "llama3.2",
+        "contextWindow": 131072,
+        "maxOutputTokens": 4096,
+        "realRoom": 126976,
+        "trimmerRoom": 105479,
+        "overAssumption": -21497,
+        "legacyOverAssumption": 56928,
+        "source": "known_model",
+        "risk": "safe"
+      },
+      {
+        "provider": "ollama",
+        "model": "qwen2.5-coder",
+        "contextWindow": 32768,
+        "maxOutputTokens": 8192,
+        "realRoom": 24576,
+        "trimmerRoom": 3079,
+        "overAssumption": -21497,
+        "legacyOverAssumption": 159328,
+        "source": "known_model",
+        "risk": "safe"
+      },
+      {
+        "provider": "google",
+        "model": "gemini-2.5-pro",
+        "contextWindow": 1048576,
+        "maxOutputTokens": 65536,
+        "realRoom": 983040,
+        "trimmerRoom": 961543,
+        "overAssumption": -21497,
+        "legacyOverAssumption": -799136,
+        "source": "known_model",
+        "risk": "safe"
+      },
+      {
+        "provider": "openrouter",
+        "model": "a-model-not-in-the-catalog",
+        "contextWindow": 128000,
+        "maxOutputTokens": 8192,
+        "realRoom": 119808,
+        "trimmerRoom": 98311,
+        "overAssumption": -21497,
+        "legacyOverAssumption": 64096,
+        "source": "provider_default",
+        "risk": "safe"
+      }
+    ]
+  },
+  "readDigests": [
+    {
+      "tool": "get_transcript",
+      "recordsIn": 1500,
+      "surfaced": 1500,
+      "fidelity": 1,
+      "digestTokens": 8085,
+      "hasMoreTail": false
+    },
+    {
+      "tool": "read_edit_signals",
+      "recordsIn": 60,
+      "surfaced": 60,
+      "fidelity": 1,
+      "digestTokens": 1080,
+      "hasMoreTail": false
+    },
+    {
+      "tool": "list_assets",
+      "recordsIn": 40,
+      "surfaced": 40,
+      "fidelity": 1,
+      "digestTokens": 328,
+      "hasMoreTail": false
+    }
+  ],
+  "omissionHandles": [
+    {
+      "tool": "get_transcript",
+      "declaresOmission": true,
+      "namesRecovery": true,
+      "honest": true,
+      "digestTokens": 10639
+    },
+    {
+      "tool": "read_edit_signals",
+      "declaresOmission": false,
+      "namesRecovery": false,
+      "honest": true,
+      "digestTokens": 1080
+    },
+    {
+      "tool": "map_footage",
+      "declaresOmission": false,
+      "namesRecovery": false,
+      "honest": true,
+      "digestTokens": 7
+    },
+    {
+      "tool": "transcribe",
+      "declaresOmission": true,
+      "namesRecovery": true,
+      "honest": true,
+      "digestTokens": 43
+    },
+    {
+      "tool": "index_media",
+      "declaresOmission": false,
+      "namesRecovery": true,
+      "honest": true,
+      "digestTokens": 24
+    },
+    {
+      "tool": "measure_color",
+      "declaresOmission": true,
+      "namesRecovery": true,
+      "honest": true,
+      "digestTokens": 77
+    },
+    {
+      "tool": "get_selected_range",
+      "declaresOmission": false,
+      "namesRecovery": false,
+      "honest": true,
+      "digestTokens": 29
+    },
+    {
+      "tool": "get_frame",
+      "declaresOmission": false,
+      "namesRecovery": false,
+      "honest": true,
+      "digestTokens": 12
+    },
+    {
+      "tool": "track_subject_automatically",
+      "declaresOmission": true,
+      "namesRecovery": true,
+      "honest": true,
+      "digestTokens": 51
+    }
+  ],
+  "headline": {
+    "fixedOverheadTokens": 21237,
+    "projectStateTokensAt60Min": 26455,
+    "projectStateShareOfPrompt": 0.5547051916463978,
+    "clipCoverageAt60Min": 1,
+    "wordCoverageAt60Min": 1,
+    "unusedRoomOnOpus": 88308,
+    "moreProjectLeftToShowAt60Min": false
+  }
+}

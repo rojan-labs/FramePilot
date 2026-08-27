@@ -9,6 +9,7 @@
  * validator-rejection accounting, the no-progress guard, `timeline_action` emission,
  * and verify(+repair)→finalize. Event-id seq is seeded from each result's `endSeq`.
  */
+import { JUDGEMENT_CRITERION } from '../acceptance.js';
 import { describe, expect, it } from 'vitest';
 import type { AnyOperation } from '@framepilot/editor-core';
 import type { ContextInput } from '../context-builder.js';
@@ -170,8 +171,9 @@ describe('onCommand', () => {
     const descriptions = working.objective.acceptance.map((entry) => entry.description);
     expect(descriptions.some((text) => text.includes('30s'))).toBe(true);
     expect(descriptions.some((text) => text.includes('20 distinct shots'))).toBe(true);
-    // The request itself is still a criterion — it is the part no check settles.
-    expect(descriptions.at(-1)).toBe('make a 30 second reel from at least 20 different best moments');
+    // The unmeasurable half of the ask is still a criterion — as a pointer to the request,
+    // not a copy of it (the run already persists it verbatim as `objective.request`).
+    expect(descriptions.at(-1)).toBe(JUDGEMENT_CRITERION);
     // A reading with something checkable in it is not a placeholder.
     expect(working.objective.provisional).toBe(false);
   });
@@ -197,7 +199,9 @@ describe('onCommand', () => {
     const { working } = onCommand(idle, nudged).state;
     const goal = 'use a different caption style and emphasize the captions';
     expect(working.objective.outcome).toBe(goal);
-    expect(working.objective.acceptance[0]!.description).toBe(goal);
+    // Nothing here is checkable, so the judgement criterion is the only one — and it points
+    // at the objective rather than copying it.
+    expect(working.objective.acceptance.map((c) => c.description)).toEqual([JUDGEMENT_CRITERION]);
     // The decision and the objective verification reports against must name the real work.
     expect(working.decisions[0]!.decision).toBe(goal);
     expect(working.objectives[0]!.description).toBe(goal);
@@ -1028,6 +1032,46 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
     const s = started({ phase: 'verifying', cumulativeOps: ops(1), appliedTurns: 1 });
     const { events } = onEffectResult(s, verify());
     expect(events.some((e) => e.type === 'warning')).toBe(false);
+  });
+
+  // GAP-006. `assessEditCompletion` was written to stop a run reporting incomplete planned
+  // work as success, and then wired only into `autonomous-edit-runtime.ts`, which no
+  // production code ever called — a green suite for a rail that was not installed. This is
+  // the rail, on the path that actually runs.
+  it('says so when the plan the editor was shown was not finished', () => {
+    const s = started({
+      phase: 'verifying',
+      cumulativeOps: ops(1),
+      appliedTurns: 1,
+      ledgerLength: 3,
+      planSteps: [
+        { id: 'step-1', label: 'Trim the intro', status: 'completed' },
+        { id: 'step-2', label: 'Add captions', status: 'pending' },
+        { id: 'step-3', label: 'Colour match', status: 'failed' },
+      ],
+    });
+    const warn = onEffectResult(s, verify()).events.find((e) => e.type === 'warning');
+    expect((warn as { text: string }).text).toContain('Not everything in the plan was done');
+    expect((warn as { text: string }).text).toContain('1 of 3');
+    expect((warn as { text: string }).text).toContain('1 planned task(s) failed');
+  });
+
+  it('stays quiet when every planned step finished', () => {
+    const s = started({
+      phase: 'verifying',
+      cumulativeOps: ops(1),
+      appliedTurns: 1,
+      ledgerLength: 1,
+      planSteps: [{ id: 'step-1', label: 'Trim the intro', status: 'completed' }],
+    });
+    expect(onEffectResult(s, verify()).events.some((e) => e.type === 'warning')).toBe(false);
+  });
+
+  // An unplanned run carries internal step rows for status tracking but never showed the
+  // editor a checklist, so there is no promise to report against.
+  it('never reports unfinished plan work for a run that drafted no plan', () => {
+    const s = started({ phase: 'verifying', cumulativeOps: ops(1), appliedTurns: 1 });
+    expect(onEffectResult(s, verify()).events.some((e) => e.type === 'warning')).toBe(false);
   });
 
   it('uses the singular form when exactly one proposed change was rejected', () => {

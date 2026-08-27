@@ -29,6 +29,8 @@ import {
   type RunWorkingState,
   type VerificationRecord,
   committedDecisions,
+  isRequestEcho,
+  requestEcho,
 } from './working-state.js';
 import { type ToolRole } from './stage-policy.js';
 
@@ -41,6 +43,22 @@ export interface Distillation {
   readonly kind: FactKind;
   readonly scope: FactScope;
   readonly evidenceId?: string;
+  /**
+   * The stored payload this conclusion was drawn from, ready for the working state's
+   * evidence index.
+   *
+   * Facts cite handles (`[ev_3]`), and `recordEvidence` exists to index them — but nothing
+   * ever called it, so `working.evidence` was `[]` in every snapshot of every run while
+   * facts pointed at handles it did not contain. A resumed run restored citations that
+   * resolved to nothing. Carrying the handle here is what lets the reducer record both in
+   * one place, from the same moment the payload was fresh.
+   */
+  readonly evidence?: {
+    readonly id: string;
+    readonly source: string;
+    readonly descriptor: string;
+    readonly scope: FactScope;
+  };
 }
 
 /** Map a tool's role onto the kind of knowledge it produces. */
@@ -48,7 +66,9 @@ function kindFor(role: ToolRole, toolName: string): FactKind {
   if (role === 'inspection') return toolName.includes('asset') ? 'asset' : 'project';
   if (toolName === 'get_transcript') return 'transcript';
   if (toolName === 'analyze_silence' || toolName === 'get_audio_levels') return 'audio';
-  if (role === 'analysis') return 'footage';
+  // Sourcing reads like analysis to the briefing: what a stock search found, and what a
+  // download brought in, are both facts about the material the run can cut with.
+  if (role === 'analysis' || role === 'sourcing') return 'footage';
   return 'derived';
 }
 
@@ -88,11 +108,22 @@ export function distil(args: {
   // noise; omitting it lets the caller see the gap instead of a restatement.
   if (finding === '' || finding === args.descriptor.trim()) return undefined;
   const statement = `${args.descriptor} → ${finding}`.slice(0, STATEMENT_CHARS);
+  const scope = args.scope;
   return {
     statement,
     kind: kindFor(args.role, args.toolName),
-    scope: args.scope,
+    scope,
     ...(args.evidenceId ? { evidenceId: args.evidenceId } : {}),
+    ...(args.evidenceId
+      ? {
+          evidence: {
+            id: args.evidenceId,
+            source: args.toolName,
+            descriptor: args.descriptor,
+            scope,
+          },
+        }
+      : {}),
   };
 }
 
@@ -126,7 +157,22 @@ export function buildStateBriefing(state: RunWorkingState): string {
   // Suppressing the echoes is not a substitute for a real interpretation — that needs a
   // seam for the model to write one, tracked separately. It is the honest rendering of
   // the state that exists: the request is known, nothing else is.
-  const echoesRequest = (text: string): boolean => text.trim() === state.objective.request.trim();
+  const request = state.objective.request.trim();
+  // `isRequestEcho`, not a bare equality: a seeded objective is stored as a bounded
+  // excerpt of the request (see `working-state.ts#requestEcho`), and an excerpt says
+  // exactly as little as the whole thing did.
+  const echoesRequest = (text: string): boolean => isRequestEcho(text, request);
+  /**
+   * Looser than {@link echoesRequest}: true when the text is the request WRAPPED in
+   * something, not only when it equals it.
+   *
+   * `recoveryAction` composes its instruction as `Do this now: ${objective}. Everything you
+   * need is in the run state above.`, and an objective is seeded from `userPrompt` — so the
+   * exact-match test above could never see it. Substring, because the wrapper's shape is
+   * that module's business and this one should not have to know it.
+   */
+  const restatesRequest = (text: string): boolean =>
+    request.length > 0 && (text.includes(request) || text.includes(requestEcho(request)));
 
   if (state.objective.outcome && !echoesRequest(state.objective.outcome)) {
     const criteria = state.objective.acceptance
@@ -218,11 +264,26 @@ export function buildStateBriefing(state: RunWorkingState): string {
   }
 
   if (state.nextAction) {
-    sections.push(
-      `DO THIS NOW\n${state.nextAction.action}${
-        state.nextAction.toolHint ? ` (use ${state.nextAction.toolHint})` : ''
-      }`,
-    );
+    // The fifth echo, and the one this filter was missing.
+    //
+    // `recoveryAction` builds its instruction from the first outstanding objective, and an
+    // objective is seeded from `userPrompt` — so a run whose objective was never re-read
+    // rendered "DO THIS NOW" as the editor's entire request, verbatim, appended to the same
+    // request the model is already holding. In a captured run that brief was ~7,000 tokens,
+    // re-sent every turn, under a heading whose whole job is to name ONE concrete step
+    // ("deliberately deterministic and prose-free", `kernel/loop-detector.ts`).
+    //
+    // Worse than the tokens: recovery fires precisely when the loop detector has decided the
+    // run is not progressing, and telling a stalled run to "do this now: [everything]" is
+    // the least useful thing that heading can say. Suppressed like the four sections above —
+    // the request is already the last thing in the prompt.
+    if (!restatesRequest(state.nextAction.action)) {
+      sections.push(
+        `DO THIS NOW\n${state.nextAction.action}${
+          state.nextAction.toolHint ? ` (use ${state.nextAction.toolHint})` : ''
+        }`,
+      );
+    }
   }
 
   // Nothing established yet — say nothing rather than print empty headings.

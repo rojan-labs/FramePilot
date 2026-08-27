@@ -34,7 +34,7 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "tighten the intro and the outro"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
@@ -57,7 +57,9 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -106,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 20734,
+      "usedTokens": 21261,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -125,30 +127,37 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1775,
+            "tokenEstimate": 1626,
             "included": true
           },
           {
             "id": "s3",
-            "type": "latest_user_message",
-            "label": "user request",
+            "type": "conversation",
+            "label": "user turn 2",
             "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s4",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 173,
+            "included": true
+          },
+          {
+            "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17049,
+            "tokenEstimate": 17552,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 20734,
+          "estimatedInputTokensBeforeSend": 21261,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 171074,
+          "estimatedRemainingCapacity": 170547,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -317,7 +326,9 @@
             ],
             "revision": 1
           },
-          "summary": ["[video_1] ~ clip clip_a (0–6s → 2–6s)"]
+          "summary": [
+            "[video_1] ~ clip clip_a (0–6s → 2–6s)"
+          ]
         },
         "text": "Agent step"
       },
@@ -363,12 +374,14 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "tighten the intro and the outro"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
         "stage": "inspect",
-        "completedStages": ["interpret"],
+        "completedStages": [
+          "interpret"
+        ],
         "stageEnteredAtTurn": 1,
         "facts": [],
         "decisions": [
@@ -386,7 +399,9 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -412,6 +427,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":2}:0",
             "projectRevisionBefore": 0,
             "projectRevisionAfter": 1,
+            "patchId": "patch_bce93a18",
             "objectiveId": "objective_1"
           }
         ],
@@ -449,7 +465,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 20778,
+      "usedTokens": 21305,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -468,30 +484,38 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1775,
+            "tokenEstimate": 1626,
             "included": true
           },
           {
             "id": "s3",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 1819,
+            "type": "conversation",
+            "label": "user turn 2",
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s4",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 217,
+            "included": true
+          },
+          {
+            "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17049,
+            "tokenEstimate": 17552,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 20778,
+          "estimatedInputTokensBeforeSend": 21305,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 171030,
+          "estimatedRemainingCapacity": 170503,
+          "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -723,12 +747,14 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "tighten the intro and the outro"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
         "stage": "inspect",
-        "completedStages": ["interpret"],
+        "completedStages": [
+          "interpret"
+        ],
         "stageEnteredAtTurn": 1,
         "facts": [],
         "decisions": [
@@ -746,7 +772,9 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -772,6 +800,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":2}:0",
             "projectRevisionBefore": 0,
             "projectRevisionAfter": 1,
+            "patchId": "patch_bce93a18",
             "objectiveId": "objective_1"
           },
           {
@@ -785,6 +814,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":8,\"end\":9}:0",
             "projectRevisionBefore": 1,
             "projectRevisionAfter": 2,
+            "patchId": "patch_76c10f5b",
             "objectiveId": "objective_1"
           }
         ],
@@ -822,7 +852,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 20796,
+      "usedTokens": 21323,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -841,30 +871,38 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1775,
+            "tokenEstimate": 1626,
             "included": true
           },
           {
             "id": "s3",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 1837,
+            "type": "conversation",
+            "label": "user turn 2",
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s4",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 235,
+            "included": true
+          },
+          {
+            "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17049,
+            "tokenEstimate": 17552,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 20796,
+          "estimatedInputTokensBeforeSend": 21323,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 171012,
+          "estimatedRemainingCapacity": 170485,
+          "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -933,12 +971,14 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "tighten the intro and the outro"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
         "stage": "inspect",
-        "completedStages": ["interpret"],
+        "completedStages": [
+          "interpret"
+        ],
         "stageEnteredAtTurn": 1,
         "facts": [],
         "decisions": [
@@ -956,7 +996,9 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -982,6 +1024,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":2}:0",
             "projectRevisionBefore": 0,
             "projectRevisionAfter": 1,
+            "patchId": "patch_bce93a18",
             "objectiveId": "objective_1"
           },
           {
@@ -995,6 +1038,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":8,\"end\":9}:0",
             "projectRevisionBefore": 1,
             "projectRevisionAfter": 2,
+            "patchId": "patch_76c10f5b",
             "objectiveId": "objective_1"
           }
         ],
@@ -1039,7 +1083,7 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "tighten the intro and the outro"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
@@ -1070,7 +1114,9 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -1096,6 +1142,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":2}:0",
             "projectRevisionBefore": 0,
             "projectRevisionAfter": 1,
+            "patchId": "patch_bce93a18",
             "objectiveId": "objective_1"
           },
           {
@@ -1109,6 +1156,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":8,\"end\":9}:0",
             "projectRevisionBefore": 1,
             "projectRevisionAfter": 2,
+            "patchId": "patch_76c10f5b",
             "objectiveId": "objective_1"
           }
         ],

@@ -23,6 +23,7 @@ import {
   mapSourceTime,
   mapTranscript,
 } from '@framepilot/editor-core';
+import { secondsToFrame } from '../frame-time.js';
 import { readEditSignals } from '../proposers/edit-signals.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
@@ -198,7 +199,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         'should be chosen from, never the move itself. Pass the signals you have already ' +
         'gathered (map_footage chapters/highlights, analyze_silence ranges, detect_scenes ' +
         'cuts); returns them in TIME order as [{ kind: highlight|chapter|silence|emphasis|' +
-        'scene_change, t0, t1, observation, from }] in timeline seconds, with each chapter\'s ' +
+        "scene_change, t0, t1, observation, from }] in timeline seconds, with each chapter's " +
         'shape (length, highlights inside, words spoken) and each silence long enough to ' +
         'notice. Transcript emphasis is measured from the project for you. `from` says ' +
         'whether a signal was supplied by you or measured here — a chapter you did not read ' +
@@ -285,19 +286,34 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       .strict(),
     (a, ctx) => {
       const map = buildTimelineMap(ctx.project.timeline);
+      const fps = ctx.project.fps;
+      // P3.2: the answer carries the FRAME, not only the second. `map_time` exists so the
+      // model does not do this arithmetic itself — "it accounts for trims, speed, and
+      // reuse" — and a frame number is the natural completion of that promise now that a
+      // frame is a real thing on this timeline (ADR 0146). Only SEQUENCE frames are
+      // reported: a source asset may run at its own rate, which this tool is not given.
       if (a.sequenceTime !== undefined) {
-        return { at: mapSequenceTime(map, a.sequenceTime), revision: map.revision };
+        return {
+          at: mapSequenceTime(map, a.sequenceTime),
+          sequenceFrame: secondsToFrame(a.sequenceTime, fps),
+          fps,
+          revision: map.revision,
+        };
       }
       // No timestamp asked about ⇒ hand back the whole mapping rather than
       // erroring: every read tool must answer usefully with no arguments, and
       // the map is the right answer to "tell me about the timing".
-      if (a.sourceTime === undefined) return map;
+      if (a.sourceTime === undefined) return { ...map, fps };
       const assetId = a.assetId ?? ctx.project.assets[0]?.id;
       if (assetId === undefined) {
         throw new Error('map_time needs an assetId — this project has no assets.');
       }
       return {
-        hits: mapSourceTime(map, assetId, a.sourceTime),
+        hits: mapSourceTime(map, assetId, a.sourceTime).map((hit) => ({
+          ...hit,
+          sequenceFrame: secondsToFrame(hit.sequenceTime, fps),
+        })),
+        fps,
         revision: map.revision,
       };
     },
@@ -345,7 +361,22 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
             return mid >= run.start - 1e-6 && mid <= run.end + 1e-6;
           }).length,
         }));
-      return { words, runs, droppedCount: mapped.droppedCount, revision: mapped.revision };
+      // P3.2: word-accurate captioning is frame-accurate captioning or it is neither. The
+      // frame span is what a trim can actually be aimed at — "cut before she says but"
+      // means a frame, and the model should not be deriving it from a float.
+      const fps = ctx.project.fps;
+      const timedWords = words.map((w) => ({
+        ...w,
+        startFrame: secondsToFrame(w.start, fps),
+        endFrame: secondsToFrame(w.end, fps),
+      }));
+      return {
+        words: timedWords,
+        runs,
+        droppedCount: mapped.droppedCount,
+        fps,
+        revision: mapped.revision,
+      };
     },
   ),
   readTool(
@@ -359,7 +390,19 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         'transition has nothing to happen at.',
     },
     noArgs,
-    (_args, ctx) => listEditBoundaries(ctx.project.timeline, ctx.project.assets),
+    (_args, ctx) => {
+      // P3.2: a boundary HAS a frame. This module's whole reason for existing is that a
+      // cut is a boundary rather than an effect on a clip; a boundary an editor can name
+      // is one they can name in frames, and a transition's ceiling is a frame count
+      // before it is a duration.
+      const fps = ctx.project.fps;
+      return listEditBoundaries(ctx.project.timeline, ctx.project.assets).map((boundary) => ({
+        ...boundary,
+        frame: secondsToFrame(boundary.at, fps),
+        maxTransitionFrames: secondsToFrame(boundary.maxTransitionSeconds, fps),
+        fps,
+      }));
+    },
   ),
   readTool(
     {

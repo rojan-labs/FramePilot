@@ -31,6 +31,7 @@ import {
   fromPersistedHistory,
   gotoProject,
   PatchError,
+  quantizePatch,
   redoProject,
   undoProject,
   validatePatch,
@@ -232,9 +233,15 @@ export function replaceAuthoritativeProject(state: EditorState, project: Project
  */
 export function applyUserPatch(
   state: EditorState,
-  patch: Patch,
+  rawPatch: Patch,
   now: number = Date.now(),
 ): EditorState {
+  // ADR 0146: snap to the project's frame grid BEFORE validating, so the editor validates
+  // the edit it is actually going to commit. `commitProjectPatch` quantizes again and the
+  // operation is idempotent, so the second pass changes nothing — but validating an
+  // unquantized patch and committing a quantized one is exactly the kind of divergence
+  // that makes a preview and an export disagree.
+  const patch = quantizePatch(rawPatch, toProject(state).fps);
   const result = validatePatch(state.timeline, patch, {
     assetIds: state.assetIds,
     folders: state.folders,

@@ -10,7 +10,9 @@
  * un-validated project ever enters the editor).
  *
  * Ids are derived deterministically from the project/asset names (no clock, no
- * RNG) so creation is replayable and unit-testable.
+ * RNG) so creation is replayable and unit-testable. Interactive creation needs a
+ * *unique* id as well, so it passes one in — see {@link uniqueProjectId}, the one
+ * place in this module allowed a clock, and only through injected parameters.
  */
 import {
   type Asset,
@@ -41,6 +43,12 @@ export const BASE_TRACKS: readonly { readonly id: string; readonly type: Track['
 export interface NewProjectOptions {
   readonly fps?: number;
   readonly resolution?: Resolution;
+  /**
+   * Explicit project id. Defaults to the deterministic name slug; interactive
+   * creation passes {@link uniqueProjectId} so two projects that happen to share
+   * a name never share a file. See that function for why.
+   */
+  readonly id?: string;
 }
 
 /** A video file being imported into a fresh project. */
@@ -59,15 +67,40 @@ const slug = (value: string): string =>
     .replace(/^_+|_+$/g, '') || 'untitled';
 
 /**
+ * A collision-free id for a newly created project.
+ *
+ * WHY: the project id decides the desktop autosave file name, the media folder
+ * and the browser storage key. Two projects named "Wedding" would otherwise
+ * share all three, so creating the second one would overwrite the first the
+ * moment it is saved. The slug is kept so files stay recognisable on disk; the
+ * suffix is what makes the id unique. Clock and RNG are injected so this stays
+ * replayable in tests, keeping the rest of this module clock-free.
+ *
+ * @param name - Display name of the project being created.
+ * @param now - Epoch milliseconds (injected for tests).
+ * @param random - `Math.random`-compatible source (injected for tests).
+ */
+export function uniqueProjectId(
+  name: string,
+  now: number = Date.now(),
+  random: () => number = Math.random,
+): string {
+  const entropy = Math.floor(random() * 36 ** 4)
+    .toString(36)
+    .padStart(4, '0');
+  return `project_${slug(name)}_${now.toString(36)}${entropy}`;
+}
+
+/**
  * Build an empty, schema-valid project.
  *
- * @param name - Display name; also seeds the deterministic project id.
+ * @param name - Display name; also seeds the project id when `options.id` is absent.
  * @throws ZodError if the constructed object somehow fails validation (a guard
  *   against future schema drift — the literal below is expected to be valid).
  */
 export function newProject(name: string, options: NewProjectOptions = {}): Project {
   return parseProject({
-    id: `project_${slug(name)}`,
+    id: options.id ?? `project_${slug(name)}`,
     name,
     version: 1,
     fps: options.fps ?? DEFAULT_FPS,

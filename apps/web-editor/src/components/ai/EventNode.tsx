@@ -1326,8 +1326,18 @@ function DiffCard({
           <span className="ai-decision-pill" data-decision="failed">
             <AlertTriangle size={ICON_SIZE.sm} aria-hidden="true" /> Couldn’t apply
           </span>
+          {/*
+            The HOST's own reason, verbatim, whenever it sent one. It used to be discarded
+            in favour of the fallback below, and that single sentence covered two unrelated
+            causes: a revision conflict (where "ask again" is the right remedy) and a project
+            FramePilot no longer has open (where the timeline did not change, and asking
+            again fails identically forever). A captured run hit the second, the user retried
+            on this advice, got the same result, and gave up. The remedy differs per cause,
+            so the cause has to survive the trip to the screen.
+          */}
           <span className="ai-decision-note">
-            The timeline changed since this was worked out — ask again for a fresh edit.
+            {node.commit?.reason ??
+              'The timeline changed since this was worked out — ask again for a fresh edit.'}
           </span>
         </p>
       )}

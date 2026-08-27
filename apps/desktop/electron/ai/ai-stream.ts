@@ -41,6 +41,7 @@ import {
   createAskUserGate,
 } from '@framepilot/ai-sdk';
 import { parseProject } from '@framepilot/timeline-schema';
+import type { PatchCommitLedger } from '@framepilot/ai-sdk';
 import { createLogger } from '@framepilot/shared-types';
 import type {
   AiProviderName,
@@ -502,6 +503,31 @@ async function readOptionalContext(
   }
 }
 
+/**
+ * Read the previous run's ledger, never failing the run over it (P5.1).
+ *
+ * Same contract as {@link readOptionalContext} and for the same reason: this is context
+ * enrichment. A store that is slow, missing or corrupt costs this run the facts it could
+ * have inherited and nothing else — `parseWorkingState` on the other side returns `null`
+ * for anything it cannot understand rather than throwing.
+ */
+async function readCarriedForward(
+  reader: ((conversationId: string, projectId: string) => Promise<unknown>) | undefined,
+  conversationId: string | undefined,
+  projectId: string | undefined,
+): Promise<unknown> {
+  if (!reader || !conversationId || !projectId) return undefined;
+  try {
+    return await reader(conversationId, projectId);
+  } catch (error) {
+    log.debug('previous-run ledger unavailable for this run', {
+      projectId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return undefined;
+  }
+}
+
 /** Dispatch to the orchestrator stream for `mode`. */
 function streamFor(
   orchestrator: Orchestrator,
@@ -525,9 +551,7 @@ function streamFor(
         ...(controls.temporalEvidence === undefined
           ? {}
           : { temporalEvidence: controls.temporalEvidence }),
-        ...(controls.visionReview === undefined
-          ? {}
-          : { visionReview: controls.visionReview }),
+        ...(controls.visionReview === undefined ? {} : { visionReview: controls.visionReview }),
       });
     case 'chat':
       // E5.5: chat/question turns can `ask_user` — thread the run's controls (the IPC
@@ -578,6 +602,18 @@ export async function runAiStream(
   footageMapFor?: (projectId: string) => Promise<string | undefined>,
   /** Reads this project's session-memory digest (see `HubOptions.sessionContextFor`). */
   sessionContextFor?: (projectId: string) => Promise<string | undefined>,
+  /**
+   * Where the caller's commit decisions are recorded for the run to read back
+   * (see {@link AiStreamRunHooks.commitLedger}). Live, so it is passed here rather than
+   * marshalled through the request.
+   */
+  commitLedger?: PatchCommitLedger,
+  /**
+   * Reads the ledger the PREVIOUS run for this conversation and project finished with
+   * (see `HubOptions.carriedForwardFor`, context-management P5.1). Best-effort: a miss
+   * costs the run its inherited facts, never its correctness.
+   */
+  carriedForwardFor?: (conversationId: string, projectId: string) => Promise<unknown>,
 ): Promise<void> {
   const project = parseProject(request.project);
   if (request.interaction) assertEditorInteractionReferences(project, request.interaction);
@@ -602,10 +638,15 @@ export async function runAiStream(
   // captured session the editor chose "full-bleed vertical crop" in answer to the model's
   // own question, and the very next run re-cut the montage with no crop at all, because
   // the answer died with the run that asked.
-  const [visualStatus, footageMap, sessionContext] = await Promise.all([
+  // The fourth is what the last RUN found — the distilled facts about the footage and the
+  // decisions the editor settled (P5.1). `sessionContext` above is the narrative tier and
+  // covers human decisions recorded via Accept/Reject; this is the typed ledger, and it
+  // covers what the run DISCOVERED, which nothing carried before.
+  const [visualStatus, footageMap, sessionContext, carriedForward] = await Promise.all([
     readOptionalContext(readVisualStatus, project.id, 'visual status'),
     readOptionalContext(footageMapFor, project.id, 'footage map'),
     readOptionalContext(sessionContextFor, project.id, 'session context'),
+    readCarriedForward(carriedForwardFor, request.conversationId, project.id),
   ]);
   const input: ContextInput = {
     project,
@@ -637,14 +678,21 @@ export async function runAiStream(
     runId: request.durableRunId ?? request.turnId,
     signal,
   };
-  const agentOptions: AgentOptions = request.agentOptions
-    ? {
-        ...request.agentOptions,
-        ...(request.agentOptions.targetPlatform !== undefined
-          ? { targetPlatform: request.agentOptions.targetPlatform as TargetPlatform }
-          : {}),
-      }
-    : {};
+  const agentOptions: AgentOptions = {
+    ...(request.agentOptions
+      ? {
+          ...request.agentOptions,
+          ...(request.agentOptions.targetPlatform !== undefined
+            ? { targetPlatform: request.agentOptions.targetPlatform as TargetPlatform }
+            : {}),
+        }
+      : {}),
+    // Not serialisable and never part of the parsed request: the ledger is a live channel
+    // back from this process's commit decisions to the run that proposed them
+    // (`kernel/commit-ledger.ts`), threaded by the caller that owns those decisions.
+    ...(commitLedger ? { commitLedger } : {}),
+    ...(carriedForward === undefined ? {} : { carriedForward }),
+  };
   log.action('runAiStream start', {
     mode: request.mode,
     provider: request.provider ?? '(active)',
@@ -736,6 +784,12 @@ interface HubOptions {
    */
   readonly sessionContextFor?: (projectId: string) => Promise<string | undefined>;
   /**
+   * Reads the causal ledger the previous run for this conversation + project finished
+   * with, so a new request does not re-learn the footage (P5.1). Returns the raw
+   * persisted value; the SDK validates it.
+   */
+  readonly carriedForwardFor?: (conversationId: string, projectId: string) => Promise<unknown>;
+  /**
    * Appends a durable note to a project's decisions tier — what the editor told a run, so
    * the next run does not have to ask again (and does not proceed on a guess instead).
    * Fire-and-forget: recording must never delay or fail the run it came from.
@@ -776,6 +830,15 @@ export interface AiStreamSettlement {
 export interface AiStreamRunHooks {
   readonly controls?: AgentRunControls;
   readonly durableRunId?: string;
+  /**
+   * Where {@link beforePublish} records what it did with each proposed patch, and the run
+   * reads it back (`@framepilot/ai-sdk` `kernel/commit-ledger.ts`).
+   *
+   * Passing one is a promise to rule on EVERY diff exactly once — the run waits on each
+   * verdict, so a diff published without one stalls it. Omit it entirely on a surface that
+   * does not arbitrate commits, and local validation stays the last word as before.
+   */
+  readonly commitLedger?: PatchCommitLedger;
   readonly effectObserver?: EffectRuntimeObserver;
   /** Canonical editor-run stages, kept separate from renderer presentation events. */
   readonly onLifecycleEvent?: (event: EditorRunStageEvent) => void;
@@ -942,6 +1005,8 @@ export class AiStreamHub {
           this.options.visualStatusFor,
           this.options.footageMapFor,
           this.options.sessionContextFor,
+          hooks.commitLedger,
+          this.options.carriedForwardFor,
         );
         if (timedOut) {
           settlement = {

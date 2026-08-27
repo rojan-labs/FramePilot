@@ -1,0 +1,102 @@
+## A. Fixed per-turn overhead (agent mode, before any project state)
+
+  system contract          135
+  agent contract (vision)  1775
+  skills manifest (21)     1605
+  tool schemas, planning   17722  (85 tools)
+  tool schemas, execution  13663  (63 tools)
+  ── planning-turn total   21237
+
+## B. Grounding coverage — how much of the project reaches the prompt
+
+  scale            | clips | shown | coverage | words  | shown | coverage | state tokens
+  -----------------|-------|-------|----------|--------|-------|----------|-------------
+  small   (1 min)  |    19 |    19 |   100.0% |    150 |   150 |   100.0% | 407
+  medium (10 min)  |   188 |   188 |   100.0% |   1500 |  1500 |   100.0% | 4116
+  large  (60 min)  |  1125 |  1125 |   100.0% |   9000 |  9000 |   100.0% | 26455
+  huge    (4 h)    |  4500 |  4500 |   100.0% |  36000 | 35679 |    99.1% | 114339
+
+## B2. Same projects WITH a 30s selection (the focus/retrieval path)
+
+  scale            | clips | shown | coverage | words  | shown | coverage | state tokens
+  -----------------|-------|-------|----------|--------|-------|----------|-------------
+  small   (1 min)  |    19 |    19 |   100.0% |    150 |   150 |   100.0% | 406
+  medium (10 min)  |   188 |   188 |   100.0% |   1500 |  1500 |   100.0% | 4115
+  large  (60 min)  |  1125 |  1125 |   100.0% |   9000 |  9000 |   100.0% | 26455
+  huge    (4 h)    |  4500 |  4500 |   100.0% |  36000 | 35676 |    99.1% | 114331
+
+## B3. One long project, two requests — does the ask change the retrieval?
+
+  request                  | clips | words | first shown | last shown | span covered | tokens
+  -------------------------|-------|-------|-------------|------------|--------------|-------
+  local  ("tighten this")  |   412 |  1198 |         76s |      2228s |        59.8% | 4841
+  global ("find the best") |   420 |  1195 |          0s |      3600s |       100.0% | 4828
+
+## C. Live agent run — per-turn prompt composition (300 clips / 4000 words)
+
+  turn | msgs | msg tok | tool tok | TOTAL | stable prefix | cached prefix share
+  -----|------|---------|----------|-------|---------------|--------------------
+     0 |    4 |   14445 |    17552 | 31997 |             0 |                0.0%
+     1 |    4 |   14540 |    17552 | 32092 |         12257 |               92.9%
+     2 |    4 |   25515 |    17552 | 43067 |         12257 |               69.2%
+     3 |    4 |   25545 |    17552 | 43097 |         12257 |               69.2%
+     4 |    4 |   14632 |    13663 | 28295 |         12257 |               91.6%
+     5 |    4 |   14641 |    13663 | 28304 |         12257 |               91.6%
+     6 |    4 |   14650 |    13663 | 28313 |         12257 |               91.5%
+     7 |    4 |   14629 |    13663 | 28292 |         12257 |               91.6%
+     8 |    5 |   14643 |    17552 | 32195 |         12257 |               92.6%
+
+  tool-set changes during the run: 2 (stage policy swaps the descriptor set)
+  tokens re-billed at full price by those swaps: 31215
+
+  payloads cleared in final prompt: 0
+  earlier steps collapsed to a digest line: true
+  prompt growth over the run: 31997 → 32195 tokens
+
+## D. Budget safety — what the trimmer assumes vs what the model has
+
+  an agent turn also pays 19497 tokens the assembler never sees (tool schemas + agent contract)
+  before P1.2 every model trimmed against 183904 tokens
+
+  provider/model                        | real room | trimmer room | over-assumption | risk
+  --------------------------------------|-----------|--------------|-----------------|----------------
+  anthropic/claude-opus-4-5             |    136000 |       114503 |          -21497 | safe
+  openai/gpt-4o                         |    111616 |        90119 |          -21497 | safe
+  groq/llama-3.3-70b-versatile          |     98304 |        76807 |          -21497 | safe
+  ollama/llama3.2                       |    126976 |       105479 |          -21497 | safe
+  ollama/qwen2.5-coder                  |     24576 |         3079 |          -21497 | safe
+  google/gemini-2.5-pro                 |    983040 |       961543 |          -21497 | safe
+  openrouter/a-model-not-in-the-catalog |    119808 |        98311 |          -21497 | safe
+
+## E. Read-digest fidelity — what a read tool hands back to the model
+
+  tool               | records in | surfaced | fidelity | digest tokens | has "N more" tail
+  -------------------|------------|----------|----------|---------------|------------------
+  get_transcript     |       1500 |     1500 |   100.0% |          8085 | false
+  read_edit_signals  |         60 |       60 |   100.0% |          1080 | false
+  list_assets        |         40 |       40 |   100.0% |           328 | false
+
+## E2. Declared, recoverable omissions — the nine former fall-through reads
+
+  tool                       | declares an omission | names how to get it back
+  ---------------------------|----------------------|--------------------------
+  get_transcript             |                 true |                     true
+  read_edit_signals          |                false |                    false
+  map_footage                |                false |                    false
+  transcribe                 |                 true |                     true
+  index_media                |                false |                     true
+  measure_color              |                 true |                     true
+  get_selected_range         |                false |                    false
+  get_frame                  |                false |                    false
+  track_subject_automatically |                 true |                     true
+
+  honest digests: 9/9
+
+## Headline
+
+  On a 60-minute project, one planning turn costs ~47692 tokens.
+  Of that, 26455 tokens (55.5%) describe the user's video.
+  The model sees 100.0% of its clips and 100.0% of its dialogue,
+  with ~88308 tokens of the window left unused — and nothing left to show it.
+
+baseline written to reports/context-benchmark-after.json

@@ -60,16 +60,7 @@ const ScopeEvidenceRequestSchema = RequestBaseSchema.extend({
   ...frameRangeFields,
   channels: z
     .array(
-      z.enum([
-        'luma',
-        'red',
-        'green',
-        'blue',
-        'saturation',
-        'skin_red',
-        'skin_green',
-        'skin_blue',
-      ]),
+      z.enum(['luma', 'red', 'green', 'blue', 'saturation', 'skin_red', 'skin_green', 'skin_blue']),
     )
     .min(1),
   legalMin: finite,
@@ -409,7 +400,8 @@ function issuesFor(request: TemporalEvidenceRequest, result: TemporalEvidenceRes
       expected < request.endFrame;
       expected += request.sampleEveryFrames
     ) {
-      if (!returnedFrames.has(expected)) contractIssues.push(`Range sample ${expected} is missing.`);
+      if (!returnedFrames.has(expected))
+        contractIssues.push(`Range sample ${expected} is missing.`);
     }
     for (const sample of result.samples) {
       if (sample.frame < request.startFrame || sample.frame >= request.endFrame) {
@@ -438,7 +430,8 @@ function issuesFor(request: TemporalEvidenceRequest, result: TemporalEvidenceRes
       if (sample.frame < request.startFrame || sample.frame >= request.endFrame) {
         contractIssues.push(`Motion sample ${sample.frame} is outside the requested window.`);
       }
-      if (frames.has(sample.frame)) contractIssues.push(`Motion frame ${sample.frame} is duplicated.`);
+      if (frames.has(sample.frame))
+        contractIssues.push(`Motion frame ${sample.frame} is duplicated.`);
       frames.add(sample.frame);
     }
     if (
@@ -589,9 +582,56 @@ export function reviewTemporalEvidence(
   return {
     ok: checks.every((check) => check.status === 'pass'),
     projectRevision,
-    checks,
+    checks: diagnoseWholeProgrammeBlack(requests, checks),
     evidenceRequestIds: requests.map((request) => request.requestId),
   };
+}
+
+/** The sentence every black range gets when the whole programme is black. */
+const NO_PICTURE_DETAIL =
+  'Every sampled moment of this programme is black. That is not a defect in the cuts — it ' +
+  'is what a timeline with no picture under its overlays looks like. Put footage, a still ' +
+  'or a stock clip on a video track.';
+
+/**
+ * Replace fifteen restatements of one fact with one fact.
+ *
+ * When a timeline carries only text overlays, EVERY sampled frame is black, so every
+ * black-frame check fails and the run reports "Unexpected black frame(s): 0, 1, 2." once
+ * per edit boundary. Run e30c1fe9 ended on fifteen such lines, which read as fifteen
+ * broken cuts and sent the model looking for transitions to fix. The per-range reading is
+ * right and the conclusion drawn from it is wrong: the defect is not at the boundaries,
+ * it is that there is no film.
+ *
+ * Only fires when EVERY black-frame range failed. One black range among clean ones is a
+ * real flash at a real cut and keeps its own precise frame numbers.
+ */
+function diagnoseWholeProgrammeBlack(
+  requests: readonly TemporalEvidenceRequest[],
+  checks: readonly TemporalReviewCheck[],
+): TemporalReviewCheck[] {
+  const blackRequested = new Set(
+    requests
+      .filter((request) => request.kind === 'range' && request.checks.includes('black_frames'))
+      .map((request) => request.requestId),
+  );
+  if (blackRequested.size < 2) return [...checks];
+  const judged = checks.filter((check) => blackRequested.has(check.requestId));
+  const everyRangeBlack =
+    judged.length === blackRequested.size &&
+    judged.every((check) => check.issues.some((issue) => issue.startsWith('Unexpected black')));
+  if (!everyRangeBlack) return [...checks];
+  return checks.map((check) =>
+    blackRequested.has(check.requestId)
+      ? {
+          ...check,
+          issues: [
+            NO_PICTURE_DETAIL,
+            ...check.issues.filter((issue) => !issue.startsWith('Unexpected black')),
+          ],
+        }
+      : check,
+  );
 }
 
 export interface TemporalReviewPlanInput {

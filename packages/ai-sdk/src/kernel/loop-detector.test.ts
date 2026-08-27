@@ -148,6 +148,19 @@ describe('recoveryAction — an action, never a plan', () => {
     expect(action.stage).toBe('apply');
   });
 
+  // GAP-009. Recovery fires because the run is not progressing, and the objective it is
+  // handed is usually the request said back. "Do this now: [everything you were asked
+  // for]" is the least useful thing this heading can say, and in a captured run it was
+  // 10,000 tokens of it, in a state persisted and streamed on every turn.
+  it('names the act, not the request, when the objective is only the request', () => {
+    const request = 'cut to 60s';
+    const state = recordObjective(base(), { description: request, stage: 'apply' });
+    const action = recoveryAction(state)!;
+    expect(action.action).not.toContain(request);
+    expect(action.action).toMatch(/Make the next edit the request calls for/);
+    expect(action.objectiveId).toBe('objective_1');
+  });
+
   it('names an unresolved failure when nothing is enumerated', () => {
     const state = recordOperation(base(), {
       intent: 'ripple_delete 2:10–3:40',

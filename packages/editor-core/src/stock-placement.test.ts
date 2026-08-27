@@ -11,6 +11,7 @@ import type { Asset, Timeline } from '@framepilot/timeline-schema';
 import {
   DEFAULT_STOCK_STILL_SECONDS,
   buildAddStockOps,
+  buildStockBinOps,
   stockPlacementConflictReason,
 } from './stock-placement.js';
 
@@ -104,6 +105,23 @@ describe('buildAddStockOps', () => {
   });
 });
 
+describe('buildStockBinOps', () => {
+  // `add_stock` used to be download-AND-place with no other mode, so gathering candidates
+  // was impossible: the second download of a comparison always hit the occupancy refusal
+  // raised by the first. A captured run said twice it was "locking the media into the bin
+  // first", found no tool for it, and invented an asset path.
+  it('registers the asset and touches the timeline not at all', () => {
+    expect(buildStockBinOps(stockVideo)).toEqual([{ type: 'add_asset', asset: stockVideo }]);
+  });
+
+  it('never conflicts, so several candidates can be gathered before any order is chosen', () => {
+    const tl = timeline([{ id: 'video_1', type: 'video', clips: [clip('cam', 0, 10)] }]);
+    // The same moment that refuses a placement accepts any number of bin arrivals.
+    expect(buildAddStockOps(tl, [existingVideo], stockVideo, 2)).toBeNull();
+    expect(buildStockBinOps(stockVideo)).toHaveLength(1);
+  });
+});
+
 describe('stockPlacementConflictReason', () => {
   it('agrees with the builder, so a button and a tool cannot disagree', () => {
     const tl = timeline([{ id: 'video_1', type: 'video', clips: [clip('cam', 0, 10)] }]);
@@ -119,6 +137,8 @@ describe('stockPlacementConflictReason', () => {
     const reason = stockPlacementConflictReason(tl, [existingVideo], 2, 6)!;
     expect(reason).toContain('2.0s');
     expect(reason).toContain('8.0s');
-    expect(reason).toMatch(/empty stretch/);
+    // The refusal has to end somewhere actionable. 10s is the end of the clip
+    // in the way, and nothing follows it.
+    expect(reason).toMatch(/starts at 10.0s/);
   });
 });

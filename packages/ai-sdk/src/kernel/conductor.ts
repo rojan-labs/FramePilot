@@ -46,14 +46,11 @@ import {
   type TurnRef,
   createTurnEmitter,
 } from '../events.js';
-import {
-  acceptanceCriteria,
-  checkableAcceptance,
-  hasCheckableAcceptance,
-} from '../acceptance.js';
+import { acceptanceCriteria, checkableAcceptance, hasCheckableAcceptance } from '../acceptance.js';
 import { explicitDurationTargetSeconds } from '../critic.js';
 import type { Command } from './commands.js';
 import { deriveObjectiveText } from './continuation.js';
+import type { Distillation } from './briefing.js';
 import { type ToolRole, settledStageFor } from './stage-policy.js';
 import {
   MAX_NO_PROGRESS_TURNS,
@@ -66,23 +63,26 @@ import {
 } from './loop-detector.js';
 import {
   RUN_STAGES,
-  type FactKind,
-  type FactScope,
   type RunStage,
   type RunWorkingState,
   advanceStage,
   addDiagnostic,
   commitExecutionPlan,
+  carryForwardWorkingState,
   initialWorkingState,
   onProjectRevisionChanged,
   parseWorkingState,
+  recordEvidence,
   recordFact,
+  recordHostRefusal,
   recordOperation,
   recordVerification,
   setObjective,
   setExecutionAuthorization,
   setNextAction,
 } from './working-state.js';
+import type { HostPatchRefusal } from './commit-ledger.js';
+import { assessEditCompletion } from '../completion-gate.js';
 
 // Hard resource rails — blast-radius and cost bounds, NOT behavioral tuning. They exist
 // so a runaway or malfunctioning run hits a ceiling; they are deliberately generous
@@ -547,12 +547,7 @@ export interface TurnCallFact {
    *
    * Absent for calls that conclude nothing (a recall, a failure, a memo hit).
    */
-  readonly distilled?: {
-    readonly statement: string;
-    readonly kind: FactKind;
-    readonly scope: FactScope;
-    readonly evidenceId?: string;
-  };
+  readonly distilled?: Distillation;
 }
 
 /**
@@ -590,6 +585,19 @@ export interface AgentTurnResult {
    * run re-attempting emphasis that was already on the timeline, twenty-four times.
    */
   readonly satisfied?: boolean;
+  /** The patch this turn produced, so a later host refusal can correct its ledger row. */
+  readonly patchId?: string;
+  /**
+   * Patches an earlier turn proposed that the HOST then refused to write
+   * (`kernel/commit-ledger.ts`).
+   *
+   * Arrive a turn late by construction: the host rules on a diff after it is published, and
+   * the graph's event queue is a fire-and-forget push, so the verdict is not available when
+   * the turn that produced the patch ends. Folding them here is what stops the ledger
+   * claiming `succeeded` for an edit the authoritative project never received — the state a
+   * captured run was in when it reported a revision that did not exist.
+   */
+  readonly hostRefusals?: readonly HostPatchRefusal[];
   /** The validated operations that applied (empty when `applied` is false). */
   readonly appliedOps: readonly AnyOperation[];
   /** Pre-described applied ops for the reducer's `timeline_action` cards. */
@@ -786,6 +794,51 @@ function finalize(state: ConductorState, em: Emitter, events: AiEvent[]): Conduc
   // "reviewed the footage but never made a change" notice would be both redundant and
   // literally false in that case (no turn ever ran), so it is skipped whenever this fold
   // already explained itself.
+  // The deterministic completion gate (`completion-gate.ts`), on the SHIPPING path.
+  //
+  // It was written to stop a run reporting a no-op, a cosmetic-only result, or incomplete
+  // planned work as success — and then wired only into `autonomous-edit-runtime.ts`, which no
+  // production code ever called. Its tests passed against fake adapters while agent mode, the
+  // path that actually runs, used none of it: a green suite for a rail that was not installed.
+  //
+  // The no-op halves (`no_applied_edit`, `no_meaningful_change`) are covered below by the
+  // empty-run notices, and duration by the Critic's `duration_target`. What nothing covered is
+  // PLANNED WORK LEFT UNDONE: a run that drafted a checklist, ran three of seven steps and
+  // finished reported "Applied N edits" with no mention of the four the editor was shown and
+  // never got.
+  //
+  // Gated on `ledgerLength > 0` — the editor was actually shown a checklist. An unplanned run
+  // keeps step rows internally for status tracking (see the `ledgerLength > 0` guard the plan
+  // event uses) and made no promise to report against. Gated on ops too, because a run that
+  // changed NOTHING gets the empty-run notice below, which is both truer and more actionable
+  // than a step tally.
+  if (!state.cancelled && state.ledgerLength > 0 && state.cumulativeOps.length > 0) {
+    const assessment = assessEditCompletion(
+      { intentKind: 'mutation', requireTimelineChange: false },
+      {
+        appliedOperationCount: state.cumulativeOps.length,
+        plannedTaskCount: state.planSteps.length,
+        completedTaskCount: state.planSteps.filter((step) => step.status === 'completed').length,
+        failedTaskCount: state.planSteps.filter((step) => step.status === 'failed').length,
+        rendered: false,
+        renderVerified: false,
+        visualEvidenceCount: 0,
+      },
+    );
+    // Only the plan-completeness findings: the rest are either covered elsewhere on this path
+    // or about a render this panel cannot run, and reporting those would be noise the editor
+    // has no action for.
+    const unfinished = assessment.failures.filter(
+      (failure) => failure.code === 'planned_work_incomplete' || failure.code === 'task_failed',
+    );
+    if (unfinished.length > 0) {
+      events.push(
+        em.warning(
+          `Not everything in the plan was done — ${unfinished.map((f) => f.message).join(' ')}`,
+        ),
+      );
+    }
+  }
   const alreadyExplained = events.some((e) => e.type === 'warning');
   if (!state.cancelled && state.cumulativeOps.length === 0) {
     if (state.rejectedOpCount > 0) {
@@ -882,6 +935,12 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
     attemptId: command.stream.turnId,
     projectRevision: command.input.project.timeline.revision ?? 0,
   });
+  // P5.1: a new run starts where the last one finished. Only what is still true crosses
+  // the boundary — `revision_independent` facts and committed decisions — and only when
+  // the conversation and project both match; `carryForwardWorkingState` owns those rules.
+  // Skipped while resuming, because a crash checkpoint already carries this run's own
+  // ledger and seeding it a second time would duplicate its facts.
+
   // What the run is actually being asked to do. A message that only says "continue"
   // names no work of its own, so it resolves to the request underneath it: seeding the
   // objective from the literal nudge made "contine" the run's outcome, its acceptance
@@ -905,7 +964,7 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
     command.input.userPrompt,
     explicitDurationTargetSeconds(command.input.userPrompt),
   );
-  const criteria = acceptanceCriteria(objectiveText, checkable);
+  const criteria = acceptanceCriteria(checkable);
   const interpreted = setObjective(created, {
     outcome: objectiveText,
     acceptance: criteria.map((description) => ({ description })),
@@ -914,9 +973,17 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
   // When the creator disables the visible detailed-planning turn, commit a minimal
   // objective-backed authorization record from the persisted request itself. It is
   // machine-readable and durable before the first tool turn, never inferred from prose.
-  const freshWorking = planning
-    ? interpreted
-    : commitExecutionPlan(interpreted, [objectiveText], 0);
+  const planned = planning ? interpreted : commitExecutionPlan(interpreted, [objectiveText], 0);
+  // P5.1: a new run starts where the last one finished. Applied AFTER the plan commit on
+  // purpose — `commitExecutionPlan` REPLACES the decision list with the plan's own, so
+  // seeding earlier would have the new run's plan silently erase what the editor settled
+  // in the last one. Only what is still true crosses (`revision_independent` facts and
+  // committed decisions), and only when the conversation and project both match;
+  // `carryForwardWorkingState` owns those rules. Skipped while resuming, because a crash
+  // checkpoint already carries this run's own ledger.
+  const freshWorking = resuming
+    ? planned
+    : carryForwardWorkingState(parseWorkingState(ao.carriedForward), planned);
   const started: ConductorState = {
     phase: resuming ? 'resuming' : planning ? 'planning' : 'executing',
     turnRef: command.stream,
@@ -1119,6 +1186,33 @@ export function onTurnResult(
   em: Emitter,
 ): ConductorStep {
   const events: AiEvent[] = [];
+  // FIRST, before any other read of the ledger.
+  //
+  // The host's verdicts arrive a turn late by construction (see
+  // `AgentTurnResult.hostRefusals`): it rules on a diff after publishing it, and the graph's
+  // event queue is a fire-and-forget push, so no verdict exists when the turn that produced
+  // the patch ends. Each one corrects a row previously recorded as `succeeded` and winds the
+  // project revision back to what still exists.
+  //
+  // At the top because `onTurnResult` returns from several places — the applied path folds
+  // and returns long before the rejection path is reached — and a correction applied on only
+  // one of them would leave the ledger claiming success exactly where an edit did land
+  // locally and was then refused, which is the whole case.
+  if (r.hostRefusals && r.hostRefusals.length > 0) {
+    state = {
+      ...state,
+      working: r.hostRefusals.reduce(
+        (acc, refusal) => recordHostRefusal(acc, refusal.patchId, refusal.reason),
+        state.working,
+      ),
+      // The refused ops never reached the project, so they must not go on counting toward
+      // the run's completion report or its "what landed" account.
+      cumulativeOps: [],
+    };
+    for (const refusal of r.hostRefusals) {
+      events.push(em.warning(`Couldn’t apply “${refusal.intent}” — ${refusal.reason}`));
+    }
+  }
   // Task stage first (ADR 0075 §3.2): derived from what the turn DID — the roles of the
   // tools it ran and whether a patch landed — never from what its prose claimed. A turn
   // that re-announces "let me understand the project" while calling nothing new moves
@@ -1144,18 +1238,21 @@ export function onTurnResult(
   // turn's briefing is built from, and they are deliberately recorded BEFORE any of the
   // guards below run: what the run learned must survive even a turn that is about to be
   // judged as making no progress.
-  const learned = r.callFacts.reduce(
-    (w, fact) =>
-      fact.distilled
-        ? recordFact(w, {
-            kind: fact.distilled.kind,
-            statement: fact.distilled.statement,
-            scope: fact.distilled.scope,
-            ...(fact.distilled.evidenceId ? { evidenceIds: [fact.distilled.evidenceId] } : {}),
-          })
-        : w,
-    staged,
-  );
+  const learned = r.callFacts.reduce((w, fact) => {
+    if (!fact.distilled) return w;
+    // Index the handle BEFORE the fact that cites it. `recordEvidence` had no caller at
+    // all: every run's `working.evidence` was `[]` while its facts cited `[ev_3]`, so the
+    // durable state carried references it could not resolve and a resumed run restored
+    // them broken. The payload itself still lives in the run's EvidenceStore — this is the
+    // index that says which handles exist and what each one was.
+    const indexed = fact.distilled.evidence ? recordEvidence(w, fact.distilled.evidence) : w;
+    return recordFact(indexed, {
+      kind: fact.distilled.kind,
+      statement: fact.distilled.statement,
+      scope: fact.distilled.scope,
+      ...(fact.distilled.evidenceId ? { evidenceIds: [fact.distilled.evidenceId] } : {}),
+    });
+  }, staged);
   state = learned === state.working ? state : { ...state, working: learned };
   const base = { ...state, log: [...r.log] };
 
@@ -1293,6 +1390,10 @@ export function onTurnResult(
           idempotencyKey: `${state.working.runId}:${planId}:${decisionId}:${r.signature}:${index}`,
           projectRevisionBefore: revisionBefore,
           projectRevisionAfter: revisionAfter,
+          // The patch these rows came from, so a LATER host refusal can find and correct
+          // them (`working-state.ts#recordHostRefusal`). Without it the ledger has no way
+          // back from "succeeded" to the truth, which is the state a captured run ended in.
+          ...(r.patchId === undefined ? {} : { patchId: r.patchId }),
           ...(objectiveId ? { objectiveId } : {}),
         }),
       advancedWorking,
@@ -1368,9 +1469,22 @@ export function onTurnResult(
   // budget. Any attempt — even one the validator rejected — proves the run has left
   // reconnaissance and refunds the whole budget.
   const researchStreak = attemptedEdit ? 0 : state.researchStreak + 1;
+  // Recalls are excluded from this question, and the exclusion is load-bearing.
+  //
+  // `recall_evidence` returns stored data, so it is `fromCache` by construction — which
+  // meant a turn that did exactly what the contract asks (recall rather than re-read)
+  // read as "this turn learned nothing" and armed the recovery lockout. In run e30c1fe9
+  // that fired four times: the model recalled the stock candidates it needed the ids of,
+  // and the next turn withheld the tool that could act on them. The tools the recovery
+  // turn preserves must not be the trigger for entering it.
+  //
+  // A turn of ONLY recalls therefore leaves this false. A run that recalls and nothing
+  // else forever is still caught — by the no-progress and stall guards, which is where
+  // "provably going nowhere" belongs.
+  const gathering = r.callFacts.filter((fact) => fact.role !== 'recall');
   const allFromCache =
-    r.callFacts.length > 0 &&
-    r.callFacts.every(
+    gathering.length > 0 &&
+    gathering.every(
       (fact) => fact.fromCache && (fact.status === 'completed' || fact.status === 'warning'),
     );
   // A turn that proposed operations and lost them to the validator is recorded too: the
@@ -1385,6 +1499,7 @@ export function onTurnResult(
     ? recordOperation(state.working, {
         intent: r.signature,
         status: r.satisfied === true ? 'succeeded' : 'failed',
+        ...(r.patchId === undefined ? {} : { patchId: r.patchId }),
         ...(r.satisfied === true ? {} : { failureReason: r.rejection ?? r.note }),
         planId: state.working.plan.id!,
         decisionId:
@@ -1476,6 +1591,15 @@ export function onTurnResult(
       events.push(
         em.notification(
           'Gathered enough to work from — switching from reviewing the footage to making the edit.',
+        ),
+      );
+    } else if (allFromCache) {
+      // The third trigger had no sentence at all. A run switched to a restricted surface,
+      // a tool card went red for a reason the harness had chosen, and the editor watching
+      // was shown nothing that connected the two.
+      events.push(
+        em.notification(
+          'That last look turned up nothing new — working from what has already been gathered.',
         ),
       );
     }

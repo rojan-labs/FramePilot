@@ -57,7 +57,26 @@ export interface CheckableAcceptance {
    * Recording it is what lets the run say so.
    */
   readonly deliverableFile?: boolean;
+  /**
+   * Deliverables the request named that this product has no tool for at all — see
+   * {@link unmeetableDeliverables}. Recorded so the run states the gap rather than
+   * silently shipping without them.
+   */
+  readonly unmeetable?: readonly UnmeetableDeliverable[];
 }
+
+/** A deliverable no registered tool can produce. */
+export type UnmeetableDeliverable = 'voiceover' | 'soundEffects';
+
+/** What each unmeetable deliverable reads as in a criterion an editor will see. */
+export const UNMEETABLE_LABEL: Record<UnmeetableDeliverable, string> = {
+  voiceover:
+    'Spoken narration cannot be produced here — FramePilot has no text-to-speech. Record ' +
+    'or import a voice track and it can be cut, timed, and captioned like any other audio.',
+  soundEffects:
+    'Sound effects cannot be sourced here — the stock libraries cover music and picture, ' +
+    'not SFX. Import the effects you want and they can be placed on the timeline.',
+};
 
 /**
  * The lowest shot count worth treating as a target.
@@ -164,6 +183,54 @@ export function asksForRenderedFile(prompt: string): boolean {
   return DELIVERABLE_FILE.test(prompt.toLowerCase());
 }
 
+/** The narration nouns editors use, in both spellings. */
+const VOICEOVER_NOUN = 'voice[- ]?over|narration|narrator|tts|text[- ]to[- ]speech|ai voice';
+
+/**
+ * Spoken narration the agent would have to GENERATE.
+ *
+ * Deliberately narrow, in two forms that both mean "one that does not exist yet":
+ * an explicit verb ("add a voiceover", "write the narration"), or an INDEFINITE article
+ * ("a reel with a voiceover"). "Cut on the voiceover" and "duck the music under the
+ * narration" name audio the project already has, and the agent handles both — flagging
+ * those would be a false alarm on ordinary work, which is worse than a missed disclosure.
+ */
+const GENERATED_VOICEOVER = new RegExp(
+  `\\b(?:add|generate|create|make|write|record|produce|need|want)\\b[^.\n]{0,40}\\b(?:${VOICEOVER_NOUN})\\b` +
+    `|\\bwith (?:a|an|some)\\b[^.\n]{0,20}\\b(?:${VOICEOVER_NOUN})\\b` +
+    // A scene template's own FIELD — "**Voiceover:** …", "- Voiceover or dialogue". This is
+    // how the captured brief asked, per scene, and neither form above could see it: there is
+    // no verb and no article, just a heading the writer expects the agent to fill in.
+    `|(?:^|\n)[\\s*_#>-]*(?:${VOICEOVER_NOUN})\\b[^\n]{0,20}:`,
+);
+
+/** Sound effects to be SOURCED — whooshes, impacts, risers, stingers. */
+const SOURCED_SOUND_EFFECTS =
+  /\b(sound\s?effects?|sfx|foley|whoosh(?:es)?|riser[s]?|stinger[s]?|bass hit[s]?|swoosh(?:es)?)\b/;
+
+/**
+ * Deliverables this product genuinely cannot produce, so a run can say so instead of
+ * quietly omitting them.
+ *
+ * The precedent is {@link CheckableAcceptance.deliverableFile}, which exists for exactly
+ * this reason and covered exactly one case. A captured brief also asked, per scene, for
+ * voiceover and for sound effects — naming a sound-effects search tool it believed it had.
+ * Neither exists in the tool registry: there is no text-to-speech tool and no SFX catalogue
+ * (`search_music` is music, `search_stock` is picture). The run searched for neither,
+ * mentioned neither, and would have delivered a silent, effect-less cut against a brief
+ * whose every scene specified both.
+ *
+ * Recording the gap is disclosure, not capability. Whether to BUILD narration or SFX
+ * sourcing is a separate product decision; being honest about their absence is not.
+ */
+export function unmeetableDeliverables(prompt: string): UnmeetableDeliverable[] {
+  const normalized = prompt.toLowerCase();
+  const missing: UnmeetableDeliverable[] = [];
+  if (GENERATED_VOICEOVER.test(normalized)) missing.push('voiceover');
+  if (SOURCED_SOUND_EFFECTS.test(normalized)) missing.push('soundEffects');
+  return missing;
+}
+
 /**
  * The checkable conditions in a request, if any.
  *
@@ -177,25 +244,39 @@ export function checkableAcceptance(
 ): CheckableAcceptance {
   const minShotCount = explicitMinShotCount(prompt);
   const coverage = explicitCoverage(prompt);
+  const unmeetable = unmeetableDeliverables(prompt);
   return {
     ...(durationSeconds === undefined ? {} : { durationSeconds }),
     ...(minShotCount === undefined ? {} : { minShotCount }),
     ...(coverage.length === 0 ? {} : { coverage }),
     ...(asksForRenderedFile(prompt) ? { deliverableFile: true } : {}),
+    ...(unmeetable.length === 0 ? {} : { unmeetable }),
   };
 }
 
 /**
- * The acceptance criteria to record on the run's objective: one line per checkable condition,
- * then the request itself for everything judgement owns.
+ * The criterion standing in for everything the request asks that no check can settle.
  *
- * The request stays LAST and always: it is the part no check settles, and dropping it would
- * narrow the run's memory of what was asked to whatever happened to be measurable.
+ * It used to be the request PASTED IN — `criteria.push(prompt)`. The intent was right (the
+ * unmeasurable half of the ask must not be forgotten) and the mechanism was a copy: the run
+ * already persists the request verbatim as `objective.request`, one field away, and the
+ * copy then rode along into `decisions`, `objectives`, `nextAction` and every telemetry row
+ * that carries the working state. In a captured run that was a ~7,000-token brief stored
+ * five times over, and `briefing.ts` has to filter four of those copies back out as noise
+ * before it can render anything.
+ *
+ * A pointer keeps the meaning and drops the duplication. Nothing is lost: every reader of
+ * the criteria holds the objective it belongs to.
  */
-export function acceptanceCriteria(
-  prompt: string,
-  acceptance: CheckableAcceptance,
-): readonly string[] {
+export const JUDGEMENT_CRITERION =
+  'Everything else the request asks for — taste, pacing, structure — which no automatic ' +
+  'check settles. Judge it against the request itself.';
+
+/**
+ * The acceptance criteria to record on the run's objective: one line per checkable condition,
+ * then {@link JUDGEMENT_CRITERION} for everything judgement owns.
+ */
+export function acceptanceCriteria(acceptance: CheckableAcceptance): readonly string[] {
   const criteria: string[] = [];
   if (acceptance.durationSeconds !== undefined) {
     criteria.push(`The finished sequence runs about ${String(acceptance.durationSeconds)}s.`);
@@ -209,7 +290,13 @@ export function acceptanceCriteria(
   if (acceptance.deliverableFile === true) {
     criteria.push('A rendered file is delivered (the Export dialog, not this panel).');
   }
-  criteria.push(prompt);
+  // Stated as a criterion so the run has to answer for it. A deliverable the product cannot
+  // make is not a reason to say nothing — it is the one thing the editor most needs told,
+  // because they will otherwise discover it by watching a silent cut.
+  for (const deliverable of acceptance.unmeetable ?? []) {
+    criteria.push(UNMEETABLE_LABEL[deliverable]);
+  }
+  criteria.push(JUDGEMENT_CRITERION);
   return criteria;
 }
 
@@ -227,6 +314,7 @@ export function hasCheckableAcceptance(acceptance: CheckableAcceptance): boolean
     acceptance.durationSeconds !== undefined ||
     acceptance.minShotCount !== undefined ||
     (acceptance.coverage?.length ?? 0) > 0 ||
-    acceptance.deliverableFile === true
+    acceptance.deliverableFile === true ||
+    (acceptance.unmeetable?.length ?? 0) > 0
   );
 }

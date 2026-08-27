@@ -13,6 +13,7 @@
  * this module only defines the data it returns.
  */
 import type { AnyOperation, Patch } from '@framepilot/editor-core';
+import type { PatchCommitLedger } from './kernel/commit-ledger.js';
 import type { EditResult } from './assemble.js';
 import type { CritiqueReport, RenderValidationInput } from './critic.js';
 import type { TargetPlatform } from './context-builder.js';
@@ -119,6 +120,22 @@ export interface AgentOptions {
     readonly working?: unknown;
   };
   /**
+   * The PREVIOUS run's persisted causal ledger, for the same conversation and project
+   * (context-management P5.1).
+   *
+   * Distinct from {@link AgentOptions.resume}, which is a within-run crash checkpoint that
+   * rebuilds a project from the ops it already applied. This is the other boundary: a new
+   * request, in the same session, that should not have to re-learn the footage. The host
+   * supplies the last run's `RunSnapshot.workingState`; the Conductor filters it through
+   * `carryForwardWorkingState`, which carries only `revision_independent` facts and
+   * committed decisions and drops everything that belonged to the run that made it.
+   *
+   * `unknown` on purpose: it comes off disk and is validated by `parseWorkingState`, which
+   * returns `null` rather than throwing for anything it cannot understand. A host that
+   * hands over rubbish costs the run its inherited facts, never its correctness.
+   */
+  readonly carriedForward?: unknown;
+  /**
    * Per-run analysis budget overrides (plan B5.4): caps on frames extracted, ffmpeg
    * seconds, and transcription minutes the run may spend on host analysis. A partial
    * override merges over {@link DEFAULT_ANALYSIS_CAPS}; omit to use the defaults.
@@ -138,6 +155,21 @@ export interface AgentOptions {
     readonly turns?: number;
     readonly minOutputTokens?: number;
   };
+  /**
+   * Where the HOST records what it actually did with each proposed patch
+   * (`kernel/commit-ledger.ts`).
+   *
+   * Local validation is the last word only where there is nothing else to consult. On
+   * desktop the host re-checks every patch against the authoritative project and can refuse
+   * it — wrong project open, revision moved, media not on disk — and it used to stamp that
+   * verdict onto the outgoing event for the UI and tell the run nothing. A captured run
+   * therefore recorded `succeeded` for two edits the project never received, and its own
+   * briefing then listed them under "ALREADY APPLIED — do not repeat".
+   *
+   * Optional, and deliberately non-serialisable: a surface with no host arbiter (the browser
+   * build, MCP, the tests) passes none and behaves exactly as before.
+   */
+  readonly commitLedger?: PatchCommitLedger;
 }
 
 /** The result of a standalone review/critic pass (PRD §8.6). */

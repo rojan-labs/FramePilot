@@ -758,6 +758,20 @@ const deriveClipId = (prefix: string, ...parts: (string | number)[]): string =>
   `${prefix}__${parts.map((p) => (typeof p === 'number' ? Math.round(p * 1000) : p)).join('_')}`;
 
 /**
+ * The id `add_text_overlay` will give a text clip it creates on `trackId` at `start`.
+ *
+ * Exported so a caller that wants to style the overlay it just added can address the
+ * clip — and its `text` effect — without re-deriving the rule and drifting from it.
+ * `add_text_layer` uses this to follow the overlay with a `set_effect_params` in the same
+ * patch, which is how the agent authors size, colour and position.
+ */
+export const textOverlayClipId = (trackId: string, start: number): string =>
+  deriveClipId('text', trackId, start);
+
+/** The id of the `text` effect on a text overlay clip. */
+export const textEffectId = (clipId: string): string => `${clipId}__text`;
+
+/**
  * The id `split_clip` will give the right-hand piece when it splits `clipId` at
  * `at`.
  *
@@ -1287,7 +1301,7 @@ function applyAddTextOverlay(timeline: Timeline, op: AddTextOverlayOp): Timeline
     end: op.end,
     sourceStart: 0,
     sourceEnd: op.end - op.start,
-    effects: [{ id: `${id}__text`, type: 'text', params: { text: op.text }, keyframes: [] }],
+    effects: [{ id: textEffectId(id), type: 'text', params: { text: op.text }, keyframes: [] }],
     keyframes: [],
   };
   return insertClip(timeline, op.trackId, clip);

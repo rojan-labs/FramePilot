@@ -39,11 +39,7 @@ import {
   type OpenDialogOptions,
 } from 'electron';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
-import {
-  DEFAULT_STOCK_STILL_SECONDS,
-  type Patch,
-  stockPlacementConflictReason,
-} from '@framepilot/editor-core';
+import type { Patch } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
 import {
   readProjectFile,
@@ -148,6 +144,9 @@ import { RecentFilesStore, type RecentFilesIO } from './projects/recent-files.js
 import { ConversationStore, type ConversationStoreIO } from './ai/conversation-store.js';
 import { AiStreamHub, parseAiStreamRequest, prepareAiEventForTransport } from './ai/ai-stream.js';
 import { shouldAutoCommitAiDiff } from './ai/patch-settlement.js';
+import { decideCommitTarget } from './ai/commit-target.js';
+import { describeUnresolvableAssets, unresolvableAddedAssets } from './ai/asset-paths.js';
+import { InMemoryPatchCommitLedger } from '@framepilot/ai-sdk';
 import { RunStore, FileRunStoreIO } from './ai/run-store.js';
 import { RunCoordinator, RunGateway } from './ai/run-coordinator.js';
 import { RunIpcHub } from './ai/run-ipc.js';
@@ -187,6 +186,7 @@ import { StockService, isStockKind } from './media/stock-service.js';
 
 import { StockQuotaStore } from './media/stock-quota.js';
 import { musicErrorMessage, stockErrorMessage } from '@framepilot/ai-sdk';
+import { createStockHost } from './ai/stock-host.js';
 import { LocalTelemetry, telemetryEnabledFromEnv } from './telemetry/telemetry.js';
 import { resolveUpdateChannel } from './updater/channel.js';
 import { createAutoUpdaterProvider, type AutoUpdaterLike } from './updater/auto-updater.js';
@@ -1236,6 +1236,13 @@ function registerIpcHandlers(): void {
           };
         }
         indexProjectBrain(project.id, guard.path);
+        // Keep the launch screen's recents label in step with a renamed project.
+        // Skipped when this project is already the most recent entry under the
+        // same name, so a routine autosave does not rewrite the recents file.
+        const [mostRecent] = await recentFiles.list();
+        if (mostRecent?.path !== guard.path || mostRecent.name !== project.name) {
+          await recentFiles.add({ path: guard.path, name: project.name, openedAt: Date.now() });
+        }
         await reconcileCapabilityPacks(project);
         return { ok: true, path: guard.path, revision: committed.revision };
       } catch (error) {
@@ -1908,15 +1915,23 @@ function registerIpcHandlers(): void {
     if (result.tracks.length === 0) {
       // Nothing matched is not a failure, but it is also NOT a success the model
       // should build on — `warning` is the arm that says "ran, nothing to do".
+      // The service has already retried this with its strongest words, so "try a
+      // broader word" would be advice the harness has taken on the model's behalf.
       return {
         status: 'warning',
-        summary: `No tracks matched "${query}". Try a broader mood word.`,
+        summary: `No tracks matched "${query}", including a retry on its strongest words. This library may not carry this mood — try a different one, or work without a bed.`,
         data: { tracks: [] },
       };
     }
+    // Name the query that actually matched. Reporting a hit for a phrase that missed
+    // teaches the model that long mood sentences work, and the next one will not.
+    const matched =
+      result.matchedQuery === undefined
+        ? `"${query}"`
+        : `"${result.matchedQuery}" (nothing matched the whole phrase "${query}")`;
     return {
       status: 'completed',
-      summary: `Found ${result.tracks.length} track${result.tracks.length === 1 ? '' : 's'} for "${query}".`,
+      summary: `Found ${result.tracks.length} track${result.tracks.length === 1 ? '' : 's'} for ${matched}.`,
       data: { tracks: result.tracks },
     };
   };
@@ -2026,90 +2041,11 @@ function registerIpcHandlers(): void {
   };
 
   /**
-   * `add_stock` for the agent — download and materialize; the ORCHESTRATOR turns
-   * the returned asset into operations. This function deliberately produces no
-   * timeline change of its own (AGENTS.md invariant 5).
-   *
-   * The placement refusal is checked HERE, before spending a download, because
-   * the answer does not depend on the bytes: if the span already holds picture
-   * media, the clip cannot be placed however good it turns out to be.
+   * `add_stock` for the agent. The decision it carries — what an absent
+   * `atSeconds` means — lives in `ai/stock-host.ts` where it can be tested
+   * against the orchestrator's matching rule.
    */
-  const hostAddStock = async (
-    project: Project,
-    args: {
-      readonly remoteId: string;
-      readonly kind: 'photo' | 'video';
-      readonly atSeconds?: number;
-    },
-  ): Promise<HostToolOutcome> => {
-    const { remoteId, atSeconds } = args;
-    if (remoteId.trim() === '') {
-      return {
-        status: 'failed',
-        summary: 'add_stock needs the remoteId of an item from search_stock.',
-      };
-    }
-    const item = stockService.knownItem(remoteId);
-    if (!item) {
-      return {
-        status: 'failed',
-        summary: 'That item is not in the current results — run search_stock first.',
-      };
-    }
-
-    const start = Math.max(0, atSeconds ?? 0);
-    // A still has no duration of its own; the placement builder gives it the
-    // same default length a dragged-in image gets, and the occupancy check has
-    // to use the same number or the two would disagree about what fits.
-    const durationSeconds = item.durationSeconds ?? DEFAULT_STOCK_STILL_SECONDS;
-    // Stated, not silently worked around. Stacking would preview differently from
-    // how it renders, and reporting success on a stacked clip would be a completed
-    // edit that lies. The sentence comes from `editor-core` so this pre-download
-    // refusal and the orchestrator's post-download one cannot word it differently.
-    const conflict = stockPlacementConflictReason(
-      project.timeline,
-      project.assets,
-      start,
-      durationSeconds,
-    );
-    if (conflict !== null) {
-      return { status: 'failed', summary: conflict };
-    }
-
-    const result = await stockService.download({
-      projectId: project.id,
-      remoteId,
-      targetHeight: project.resolution?.height ?? 1080,
-      ...(project.fps ? { targetFps: project.fps } : {}),
-      operationId: `agent_${remoteId}_${Date.now()}`,
-    });
-    if (!result.ok) {
-      return { status: 'failed', summary: stockErrorMessage(result.error, result.detail) };
-    }
-    const { asset } = result;
-    return {
-      status: 'completed',
-      summary: `Downloaded "${asset.relativePath}".`,
-      data: {
-        asset: {
-          id: `stock_${asset.source.provider}_${asset.source.remoteId}`.replace(
-            /[^a-zA-Z0-9_]/g,
-            '_',
-          ),
-          path: asset.relativePath,
-          kind: asset.kind,
-          ...(asset.durationSeconds === undefined
-            ? {}
-            : { durationSeconds: asset.durationSeconds }),
-          ...(asset.media ? { media: asset.media } : {}),
-          source: asset.source,
-        },
-        // Echoed back so the ORCHESTRATOR owns the placement decision; this
-        // function still produces no timeline change of its own.
-        atSeconds: start,
-      },
-    };
-  };
+  const hostAddStock = createStockHost(stockService);
 
   const sidecarToolExecutor = createSidecarExecutor({
     baseUrl: engineBaseUrl,
@@ -2252,6 +2188,21 @@ function registerIpcHandlers(): void {
     (_event, id: unknown): Promise<ConversationSaveResult> => conversations.delete(id),
   );
 
+  /**
+   * Late binding for the durable run coordinator (context-management P5.1).
+   *
+   * The AI stream hub is constructed here and the run store several hundred lines below,
+   * where the durable orchestration protocol is set up — and the hub needs to ASK the
+   * store what the previous run learned. Reordering the two would move the durable-run
+   * setup above the IPC surface that depends on nothing of it, for one lookup. A holder
+   * assigned once at startup keeps both where they belong, and reads as `undefined` for
+   * the window before assignment, which is honest: there is no previous run to inherit
+   * from before the store exists.
+   */
+  const previousRunLedger: {
+    read?: (conversationId: string, projectId: string) => Promise<unknown>;
+  } = {};
+
   // Streaming AI sidebar (Phase 11 M3, ADR 0033). Fetch runs here (no sandbox); the
   // hub mints an unguessable requestId, scopes events + aborts to the owning sender,
   // re-validates the request, bounds the run with a timeout, and aborts on a destroyed
@@ -2291,6 +2242,13 @@ function registerIpcHandlers(): void {
       baseUrl: engineBaseUrl,
       fetchFn: electronFetch,
     }),
+    // And what the last RUN learned (P5.1). `sessionContextFor` above is the NARRATIVE
+    // tier — the corrections and decisions a human recorded. This is the typed ledger,
+    // which is where what the run DISCOVERED about the footage lives, and nothing carried
+    // it across the run boundary before: turn 1 could spend six turns reading the
+    // transcript and turn 2 started knowing none of it.
+    carriedForwardFor: (conversationId, projectId) =>
+      previousRunLedger.read?.(conversationId, projectId) ?? Promise.resolve(undefined),
     // The other half of that memory: something has to WRITE what the editor tells a run,
     // or the digest above has nothing new to report. Fire-and-forget, like the review
     // decisions recorded on Accept/Reject.
@@ -2362,6 +2320,35 @@ function registerIpcHandlers(): void {
     if (durableSnapshot === null) {
       throw new Error('The durable AI run could not be restored.');
     }
+    // PRE-FLIGHT, not a per-patch check. Under `auto_commit` the host writes every edit
+    // itself, so "is this the project the GUI has open?" decides whether ANY edit this run
+    // proposes can land. Asking only at commit time (below, where the same rule guards the
+    // mid-run race) let a doomed run spend model tokens and METERED stock/music quota for
+    // minutes before its first patch was rejected. Refuse here instead — before a single
+    // provider request is made — and say which project the app is actually on.
+    // Resolved once for the run: both the pre-flight below and the per-patch asset check in
+    // `beforePublish` need the sandbox root, and it cannot change under a running run.
+    const projectsRoot = await ensureProjectsDir();
+    if (shouldAutoCommitAiDiff(durableSnapshot.patchPolicy, undefined)) {
+      const target = decideCommitTarget(await activeProject.current(), project.id);
+      if (!target.ok) {
+        aiLog.warn('AI run refused — project is not the authoritative one', {
+          runId: durableRunId,
+          projectId: project.id,
+          code: target.code,
+        });
+        throw new Error(target.reason);
+      }
+    }
+    // The run's own record of what the HOST did with each patch it proposed
+    // (`@framepilot/ai-sdk` `kernel/commit-ledger.ts`). Before this, the verdict below was
+    // stamped onto the outgoing event for the UI and the run was told nothing — so its
+    // ledger recorded `succeeded` for edits this process had just refused to write.
+    //
+    // The contract is "rule on EVERY patch exactly once": the run WAITS on each verdict, so
+    // a diff that leaves here without one would hang it. Every branch of the diff arm below
+    // records, `deferred` included.
+    const commitLedger = new InMemoryPatchCommitLedger();
     let autoExpectedRevision = currentRevision;
     let autoCommitted = false;
     let lifecycleWriteError: unknown;
@@ -2374,6 +2361,7 @@ function registerIpcHandlers(): void {
     );
     return aiStreamHub.start(event.sender, hydratedRequest, {
       durableRunId,
+      commitLedger,
       controls: durableControls.controls,
       effectObserver: createDurableEffectObserver(durableRunId, project.id),
       onLifecycleEvent: (stageEvent) => {
@@ -2404,14 +2392,15 @@ function registerIpcHandlers(): void {
           // committed result and reports findings; it does not decide whether the edit may be
           // written, which is what used to hold every edit behind a multi-minute render.
           if (shouldAutoCommitAiDiff(durableSnapshot.patchPolicy, transportEvent.verification)) {
-            const active = await activeProject.current();
-            if (!active || active.projectId !== project.id) {
+            // The MID-RUN race: the pre-flight above proved the project was open when the
+            // run started; the user can still switch away while it works. Same rule, same
+            // module, so the two readings cannot drift.
+            const target = decideCommitTarget(await activeProject.current(), project.id);
+            if (!target.ok) {
+              commitLedger.record(patch.patchId, { state: 'stale', reason: target.reason });
               const staleEvent = {
                 ...transportEvent,
-                commit: {
-                  state: 'stale' as const,
-                  reason: 'The project is no longer the active authoritative project.',
-                },
+                commit: { state: 'stale' as const, reason: target.reason },
               };
               await runGatewayCoordinator.recordPatchLifecycle({
                 runId: durableRunId,
@@ -2428,21 +2417,58 @@ function registerIpcHandlers(): void {
               aiStreamHub.failDurable(durableRunId);
               return { event: staleEvent, durableSequence: durableEvent.sequence };
             }
+            // The existence proof the pure tool layer cannot give (PRD §18.2 — a tool
+            // touches no filesystem). `add_asset`'s schema rejects the shapes a guessing
+            // model produces, but `stock/pexels/8474616.mp4` is a well-formed relative
+            // media path and was still a fabrication: a captured run proposed exactly that,
+            // the patch validated, and the bin would have gained a reference to nothing.
+            // Every real producer (`add_stock`, `add_music`, the user's import) has already
+            // written its file by the time the patch arrives, so this refuses guesses
+            // without ever refusing real work.
+            const unresolvable = unresolvableAddedAssets(patch, target.path, projectsRoot, {
+              exists: existsSync,
+            });
+            if (unresolvable.length > 0) {
+              const reason = describeUnresolvableAssets(unresolvable);
+              commitLedger.record(patch.patchId, { state: 'stale', reason });
+              aiLog.warn('AI patch refused — references media that is not on disk', {
+                runId: durableRunId,
+                patchId: patch.patchId,
+                assets: unresolvable.map((problem) => problem.assetPath),
+              });
+              await runGatewayCoordinator.recordPatchLifecycle({
+                runId: durableRunId,
+                projectId: project.id,
+                patchId: patch.patchId,
+                state: 'stale',
+                reason,
+              });
+              const refusedEvent = {
+                ...transportEvent,
+                commit: { state: 'stale' as const, reason },
+              };
+              const durableEvent = await runGatewayCoordinator.recordStreamEvent({
+                runId: durableRunId,
+                projectId: project.id,
+                event: JsonValueSchema.parse(refusedEvent),
+              });
+              return { event: refusedEvent, durableSequence: durableEvent.sequence };
+            }
             const committed = await projectCommands.commitPatch(
               project.id,
               autoExpectedRevision,
               patch,
               async (nextProject) => {
-                projectWatcher.markSelfWrite(active.path, nextProject);
-                await writeProjectFile(active.path, nextProject);
-                await projectWatcher.watch(active.path);
+                projectWatcher.markSelfWrite(target.path, nextProject);
+                await writeProjectFile(target.path, nextProject);
+                await projectWatcher.watch(target.path);
                 await recovery.snapshot({
-                  path: active.path,
+                  path: target.path,
                   project: nextProject,
                   savedAt: Date.now(),
                 });
                 await activeProject.record({
-                  path: active.path,
+                  path: target.path,
                   projectId: nextProject.id,
                   updatedAt: Date.now(),
                 });
@@ -2454,6 +2480,7 @@ function registerIpcHandlers(): void {
                 committed.code === 'revision_conflict'
                   ? 'The project changed and this edit overlaps newer work. Replan from the current revision.'
                   : 'The proposed edit failed authoritative validation.';
+              commitLedger.record(patch.patchId, { state: 'stale', reason });
               await runGatewayCoordinator.recordPatchLifecycle({
                 runId: durableRunId,
                 projectId: project.id,
@@ -2482,6 +2509,10 @@ function registerIpcHandlers(): void {
               aiStreamHub.failDurable(durableRunId);
               return { event: staleEvent, durableSequence: durableEvent.sequence };
             }
+            commitLedger.record(patch.patchId, {
+              state: 'committed',
+              revision: committed.revision,
+            });
             autoExpectedRevision = committed.revision;
             autoCommitted = true;
             await runGatewayCoordinator.recordPatchLifecycle({
@@ -2491,9 +2522,9 @@ function registerIpcHandlers(): void {
               state: committed.rebased ? 'rebased' : 'committed',
               projectRevision: committed.revision,
             });
-            indexProjectBrain(committed.project.id, active.path);
+            indexProjectBrain(committed.project.id, target.path);
             event.sender.send(IpcChannels.projectChanged, {
-              path: active.path,
+              path: target.path,
               project: committed.project,
               revision: committed.revision,
             } satisfies ProjectChangedEvent);
@@ -2511,6 +2542,16 @@ function registerIpcHandlers(): void {
               event: JsonValueSchema.parse(committedEvent),
             });
             return { event: committedEvent, durableSequence: durableEvent.sequence };
+          }
+        }
+        // EVERY diff leaves here with a verdict. The run waits on one (see the ledger's
+        // `settled`), so a patch this arm declined to decide — a `review`-policy run, where
+        // the renderer applies — must say `deferred` rather than nothing at all. Silence
+        // would not read as approval; it would read as "not yet", forever.
+        if (transportEvent.type === 'diff') {
+          const patchId = transportEvent.edit.patch.patchId;
+          if (commitLedger.outcomeFor(patchId) === undefined) {
+            commitLedger.record(patchId, { state: 'deferred' });
           }
         }
         const durableEvent = await runGatewayCoordinator.recordStreamEvent({
@@ -2574,6 +2615,9 @@ function registerIpcHandlers(): void {
     new FileRunStoreIO(path.join(app.getPath('userData'), 'orchestration')),
   );
   const runGatewayCoordinator = new RunCoordinator(runStore);
+  // The store exists now, so the AI hub's previous-run lookup can be served (P5.1).
+  previousRunLedger.read = (conversationId, projectId) =>
+    runGatewayCoordinator.latestWorkingStateFor(conversationId, projectId);
   const runGateway = new RunGateway(runGatewayCoordinator);
   const runIpcHub = new RunIpcHub(runGateway, IpcChannels.runEvent);
   // Close out any run left "in progress" by a previous session that crashed, was

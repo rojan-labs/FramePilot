@@ -788,13 +788,60 @@ export function committedDecisions(state: RunWorkingState): readonly Decision[] 
   return state.decisions.filter((d) => d.status === 'committed');
 }
 
+/**
+ * How much of the request is kept when the run has to store the request as its own
+ * objective. Long enough to recognise which request this is, short enough that four
+ * copies of it are not the run's state.
+ */
+export const REQUEST_ECHO_CHARS = 180;
+
+/**
+ * The request, bounded, for the places the run stores it back as its own objective.
+ *
+ * Until a turn records a real interpretation, the objective, its single decision and its
+ * single objective entry are all seeded from the request itself — three verbatim copies,
+ * plus a fourth inside the recovery instruction, in a state that is persisted and
+ * streamed to the host on every turn. For a 10,000-token brief that was ~40 KB per turn
+ * of a run describing its own input back to itself. The briefing already refuses to print
+ * any of them (they say nothing the request has not), so nothing downstream needs the
+ * whole text — `objective.request` remains the one full copy.
+ *
+ * @param request - The editor's request.
+ * @returns The request unchanged when it is already short, otherwise a bounded excerpt.
+ */
+export function requestEcho(request: string): string {
+  const trimmed = request.trim();
+  if (trimmed.length <= REQUEST_ECHO_CHARS) return trimmed;
+  return `${trimmed.slice(0, REQUEST_ECHO_CHARS).trimEnd()}…`;
+}
+
+/**
+ * Is this text the request said back, whole or excerpted?
+ *
+ * The briefing suppresses five sections that would otherwise restate the request under
+ * headings claiming something had been decided. It matched on exact equality, which
+ * {@link requestEcho} would defeat — so the test lives here, next to the shortening, and
+ * both sides move together.
+ */
+export function isRequestEcho(text: string, request: string): boolean {
+  const trimmed = text.trim();
+  const full = request.trim();
+  return full.length > 0 && (trimmed === full || trimmed === requestEcho(full));
+}
+
 /** Commit the model's machine-readable numbered plan before any mutating turn runs. */
 export function commitExecutionPlan(
   state: RunWorkingState,
   labels: readonly string[],
   turn: number,
 ): RunWorkingState {
-  const normalized = labels.map((label) => label.trim()).filter(Boolean);
+  // A label that IS the request is stored as a bounded excerpt (see `requestEcho`): the
+  // briefing never prints it, and three verbatim copies of a long brief in a state that is
+  // persisted and streamed every turn is pure weight.
+  const normalized = labels
+    .map((label) => label.trim())
+    .filter(Boolean)
+    .map((label) => (isRequestEcho(label, state.objective.request) ? requestEcho(label) : label));
   if (normalized.length === 0) {
     return addDiagnostic(state, {
       code: 'PLAN_NOT_COMMITTED',
@@ -918,6 +965,54 @@ export function recordOperation(
 }
 
 /**
+ * Correct a `succeeded` operation the HOST then refused to write.
+ *
+ * The ledger records success on local validation alone (`conductor.ts#foldTurn`), which on
+ * desktop is not the last word: the host re-checks every patch against the authoritative
+ * project and can refuse it. A captured run's ledger read `status: 'succeeded'`,
+ * `projectRevisionAfter: 1` for two edits against a project still at revision 0 with an
+ * empty bin — and the briefing then listed them under "ALREADY APPLIED — do not repeat",
+ * so the run would never retry the one thing it still owed.
+ *
+ * Corrects IN PLACE rather than appending a second row: `recordOperation` keys updates on
+ * `idempotencyKey`, and the key carries the outcome, so re-recording the same work as failed
+ * would leave the false success standing beside its own correction. The project revision is
+ * wound back to what the operation started from, because that is the revision that still
+ * exists.
+ *
+ * @param state - The run's working state.
+ * @param patchId - The refused patch, matched against the operations' recorded `patchId`.
+ * @param reason - The host's own words for the refusal; carried into `failureReason` so the
+ *   briefing's "FAILED — fix the cause" section has a cause behind it.
+ * @returns The corrected state, or `state` unchanged when no operation matches.
+ */
+export function recordHostRefusal(
+  state: RunWorkingState,
+  patchId: string,
+  reason: string,
+): RunWorkingState {
+  const refused = state.operations.filter((op) => op.patchId === patchId);
+  if (refused.length === 0) return state;
+  const operations = state.operations.map((op) =>
+    op.patchId === patchId
+      ? {
+          ...op,
+          status: 'failed' as const,
+          failureReason: reason,
+          projectRevisionAfter: op.projectRevisionBefore,
+        }
+      : op,
+  );
+  // The earliest revision any refused operation started from: nothing the host rejected ever
+  // advanced the project, so the run must not go on believing it did.
+  const rewound = Math.min(...refused.map((op) => op.projectRevisionBefore));
+  return bump(state, {
+    operations,
+    currentProjectRevision: Math.min(state.currentProjectRevision, rewound),
+  });
+}
+
+/**
  * Record a verification and, when it passes, discharge the objective it was checking.
  * This is the ONLY path that satisfies an objective (§3.8) — reading, mapping, planning
  * and asserting cannot, which is what makes the completion report trustworthy.
@@ -1014,7 +1109,9 @@ export function setObjective(
   return bump(state, {
     objective: {
       request: state.objective.request,
-      outcome: objective.outcome,
+      // A provisional outcome is the request read back, so it is stored bounded. A real
+      // interpretation a turn wrote is kept whole — that one says something new.
+      outcome: provisional ? requestEcho(objective.outcome) : objective.outcome,
       provisional,
       acceptance: objective.acceptance.map((a, i) => ({
         id: `criterion_${i + 1}`,
@@ -1045,4 +1142,125 @@ export function isDelivered(state: RunWorkingState): boolean {
   const applied = state.operations.some((o) => o.status === 'succeeded');
   const outstanding = state.objectives.some((o) => o.status === 'pending');
   return applied && !outstanding;
+}
+
+// ---------------------------------------------------------------------------
+// Carrying knowledge across the run boundary (context-management P5.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * How a fact carried from an earlier run is marked in the briefing.
+ *
+ * The model must be able to tell a fact THIS run established from one it inherited: the
+ * first has evidence it can recall, the second does not (see {@link carryForwardWorkingState}).
+ * Presenting them identically would be the more comfortable choice and the wrong one.
+ */
+export const CARRIED_FACT_PREFIX = '(from an earlier session) ';
+
+/**
+ * Seed a fresh run's ledger with what the PREVIOUS run for the same conversation and
+ * project established, and nothing else.
+ *
+ * ## Why this exists
+ *
+ * Run memory used to die at the run boundary. `historyFromEvents` keeps only the user and
+ * assistant TEXT of prior turns, and `initialWorkingState` builds an empty ledger for
+ * every command — so turn 1 ("find the best moments in this recording") could spend six
+ * turns reading the transcript, mapping the footage and distilling forty facts, and turn 2
+ * ("now tighten the middle") would start knowing the prose of what was said and nothing
+ * about what was found. The only restore path was `agentOptions.resume`, which is a
+ * within-run crash checkpoint, never a previous run's state.
+ *
+ * ## What is carried, and what is deliberately not
+ *
+ * Carried:
+ *
+ * - **`revision_independent` facts.** A fact about the SOURCE FOOTAGE ("asset_3 is 8:42,
+ *   speech from 0:04") outlives any number of cuts. A fact about the TIMELINE ARRANGEMENT
+ *   ("46 clips, sequence duration 21.87s") does not, and `FactScope` is exactly the field
+ *   that tells them apart — it exists so this distinction can be made.
+ * - **Committed decisions** made with the editor ("vertical, 9:16, no music"). These are
+ *   the answers that die with the run today and get re-asked next turn.
+ *
+ * Not carried, each for its own reason:
+ *
+ * - **`nextAction`, `stage`, `objective`, the plan, blockers, verifications, operations.**
+ *   They belong to the run that made them. A new request gets a new objective; inheriting
+ *   the old one is how a run ends up executing the previous turn's plan.
+ * - **Evidence handles — and the `evidenceIds` on carried facts with them.** The handles
+ *   are addresses into the previous run's `EvidenceStore`, which is in-memory and per-run:
+ *   the payloads are gone. Carrying an address that cannot be dereferenced is precisely the
+ *   broken promise `clearedWithHandle` was written to end — an offer to re-read with
+ *   nowhere to read from. Persisting the payloads would mean a new store, which this phase
+ *   forbids. So a carried fact arrives uncited and SAYS SO, via
+ *   {@link CARRIED_FACT_PREFIX}.
+ * - **Anything at all, when the identity does not match.** Same conversation AND same
+ *   project, or nothing is carried. A ledger from another project is not stale, it is
+ *   wrong.
+ *
+ * Pure: `previous` and `fresh` are never mutated.
+ *
+ * @param previous - The prior run's parsed ledger, or `null` when there is none.
+ * @param fresh - The new run's ledger from {@link initialWorkingState}.
+ * @returns `fresh`, seeded — or `fresh` unchanged when there is nothing safe to carry.
+ */
+export function carryForwardWorkingState(
+  previous: RunWorkingState | null,
+  fresh: RunWorkingState,
+): RunWorkingState {
+  if (!previous) return fresh;
+  // Identity first: a ledger from a different conversation or project is not stale, it is
+  // about something else. `null` on either side is unknown, which is not a match.
+  const sameConversation =
+    previous.identity.conversationId !== null &&
+    previous.identity.conversationId === fresh.identity.conversationId;
+  const sameProject =
+    previous.identity.projectId !== null &&
+    previous.identity.projectId === fresh.identity.projectId;
+  if (!sameConversation || !sameProject) return fresh;
+
+  // Ids are re-prefixed because they are only unique WITHIN a run: `commitExecutionPlan`
+  // mints `decision_1…n` for the new run's own plan, and a carried `decision_1` would
+  // collide with it. The prefix also makes an inherited record identifiable in a dump.
+  const carriedId = (id: string): string => (id.startsWith('carried_') ? id : `carried_${id}`);
+  const facts = previous.facts
+    .filter((fact) => fact.scope === 'revision_independent')
+    .map((fact) => ({
+      ...fact,
+      id: carriedId(fact.id),
+      // Uncited on purpose, and marked. See the docstring: the handles do not resolve.
+      evidenceIds: [],
+      statement: fact.statement.startsWith(CARRIED_FACT_PREFIX)
+        ? fact.statement
+        : `${CARRIED_FACT_PREFIX}${fact.statement}`,
+      // Re-stamped to the new run's baseline: the fact is true of the source material, so
+      // it is true at this revision, and leaving the old number would make the briefing
+      // read as though it were observed here.
+      observedAtRevision: fresh.baseProjectRevision,
+      stage: fresh.stage,
+    }));
+
+  const decisions = previous.decisions
+    .filter((decision) => decision.status === 'committed')
+    .map((decision) => ({
+      ...decision,
+      id: carriedId(decision.id),
+      evidenceIds: [],
+      stage: fresh.stage,
+    }));
+
+  if (facts.length === 0 && decisions.length === 0) return fresh;
+  const known = new Set(fresh.decisions.map((decision) => decision.decision));
+  return {
+    ...fresh,
+    facts: [...facts, ...fresh.facts],
+    // Carried decisions come FIRST and this run's own plan decisions LAST, so what the
+    // run was actually asked to do reads as the live commitment and the inherited answers
+    // read as background. A decision this run has already committed in the same words is
+    // not repeated.
+    decisions: [
+      ...decisions.filter((decision) => !known.has(decision.decision)),
+      ...fresh.decisions,
+    ],
+  };
 }

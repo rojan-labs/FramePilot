@@ -46,6 +46,7 @@ from framepilot_engine.ai_tools.registry import (
     MoveTrackArgs,
     PunchInArgs,
     RangeOnTrackArgs,
+    RememberPreferenceArgs,
     RemoveMarkerArgs,
     RemoveTrackArgs,
     SetCaptionStyleArgs,
@@ -64,6 +65,7 @@ from framepilot_engine.effects.keyframes import punch_in_keyframes
 from framepilot_engine.render.caption_templates import get_caption_template, load_catalog
 from framepilot_engine.render.captions import _font_manifest
 from framepilot_engine.timeline.models import Asset, CaptionStyle, Project, Track, TrackType
+from framepilot_engine.timeline.operations import text_effect_id, text_overlay_clip_id
 
 _log = logging.getLogger(__name__)
 
@@ -306,16 +308,45 @@ def move_track(args: MoveTrackArgs, ctx: ToolContext) -> Operations:
 
 
 def add_text_layer(args: AddTextLayerArgs, ctx: ToolContext) -> Operations:
-    # The ``add_text_layer`` tool maps to the engine ``add_text_overlay`` op.
-    return [
+    # The ``add_text_layer`` tool maps to the engine ``add_text_overlay`` op, plus a
+    # ``set_effect_params`` carrying the styling — the same two ops the TS tool builds, in
+    # the same order, so an MCP client and Agent mode produce identical patches. The style
+    # lives in the effect's params bag because that is where the Inspector writes it, the
+    # preview reads it and the renderer resolves it; one vocabulary, three consumers.
+    clip_id = text_overlay_clip_id(args.track_id, args.start)
+    ops: Operations = [
         {
             "type": "add_text_overlay",
             "trackId": args.track_id,
             "text": args.text,
             "start": args.start,
             "end": args.end,
+            "clipId": clip_id,
         }
     ]
+    params = {
+        key: value
+        for key, value in (
+            ("fontSizePercent", args.size_percent),
+            ("color", args.color),
+            ("background", args.background),
+            ("align", args.align),
+            ("boxWidthPercent", args.box_width_percent),
+            ("xPercent", args.x_percent),
+            ("yPercent", args.y_percent),
+        )
+        if value is not None
+    }
+    if params:
+        ops.append(
+            {
+                "type": "set_effect_params",
+                "clipId": clip_id,
+                "effectId": text_effect_id(clip_id),
+                "params": params,
+            }
+        )
+    return ops
 
 
 def add_caption_layer(args: AddCaptionLayerArgs, ctx: ToolContext) -> Operations:
@@ -631,6 +662,21 @@ def add_marker(args: AddMarkerArgs, ctx: ToolContext) -> Operations:
 
 def remove_marker(args: RemoveMarkerArgs, ctx: ToolContext) -> Operations:
     return [{"type": "remove_marker", "id": args.id}]
+
+
+def remember_preference(args: RememberPreferenceArgs, ctx: ToolContext) -> Operations:
+    """Write one lasting editing preference into the project's AI memory (P5.2).
+
+    Whole-record, like the TS side: ``aiMemory`` is a free-form record, so a key-scoped
+    operation would need an inverse that distinguished "was absent" from "was empty".
+    Carrying the whole record makes the inverse the record that was there, exactly.
+    """
+    memory: dict[str, Any] = dict(ctx.project.ai_memory or {})
+    if args.key is not None and args.value is not None:
+        memory[args.key] = args.value
+    if args.export_platforms is not None:
+        memory["exportPlatforms"] = list(args.export_platforms)
+    return [{"type": "set_ai_memory", "memory": memory}]
 
 
 # ---------------------------------------------------------------------------

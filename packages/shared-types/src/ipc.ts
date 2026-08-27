@@ -1042,18 +1042,18 @@ export interface MaskSampleWire {
 
 /** The measurement payload shape matches the requested capability. */
 export type PackMeasurementWire =
-  | ({ readonly kind: 'tracking'; readonly samples: readonly TrackingSampleWire[] })
-  | ({ readonly kind: 'detect'; readonly detections: readonly DetectionWire[] })
-  | ({ readonly kind: 'segment'; readonly masks: readonly MaskSampleWire[] });
+  | { readonly kind: 'tracking'; readonly samples: readonly TrackingSampleWire[] }
+  | { readonly kind: 'detect'; readonly detections: readonly DetectionWire[] }
+  | { readonly kind: 'segment'; readonly masks: readonly MaskSampleWire[] };
 
 export type TrackingRunResultWire =
   | ({
-        readonly ok: true;
-        /** Exact pack identity that measured this result, for edit provenance. */
-        readonly engine: string;
-        readonly backend: string;
-        readonly projectRevision: number;
-      } & PackMeasurementWire)
+      readonly ok: true;
+      /** Exact pack identity that measured this result, for edit provenance. */
+      readonly engine: string;
+      readonly backend: string;
+      readonly projectRevision: number;
+    } & PackMeasurementWire)
   /** No healthy pack is installed. The user is offered the exact signed install. */
   | {
       readonly ok: false;
@@ -1215,7 +1215,18 @@ export type MusicErrorCodeWire =
   | 'derive_failed';
 
 export type MusicSearchResult =
-  | { readonly ok: true; readonly tracks: readonly MusicTrackWire[] }
+  | {
+      readonly ok: true;
+      readonly tracks: readonly MusicTrackWire[];
+      /**
+       * The query that actually returned these tracks, when it is not the one that was
+       * asked for. The catalogue matches keywords, so a whole mood sentence ("dark
+       * cinematic tension build with beat drop") reliably returns nothing; the service
+       * retries with the strongest words and says which ones worked, rather than
+       * reporting a hit for a phrase that missed.
+       */
+      readonly matchedQuery?: string;
+    }
   | { readonly ok: false; readonly error: MusicErrorCodeWire; readonly detail?: string };
 
 /**

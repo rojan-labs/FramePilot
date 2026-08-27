@@ -155,8 +155,10 @@ describe('TimelineView on-cut transitions (M3b)', () => {
     });
     const block = container.querySelector('.clip-transition-pill') as HTMLElement;
     // A whip pan wants 0.28s; the old default of 0.5s would be twice the length
-    // the transition was designed at.
-    expect(block.getAttribute('aria-label')).toContain('0.28s');
+    // the transition was designed at. It renders as 0.27s because a transition is a whole
+    // number of FRAMES (ADR 0146) — 0.28s is 8.4 frames at 30fps, and a ramp that is not a
+    // frame count is a ramp the preview and the export can disagree about.
+    expect(block.getAttribute('aria-label')).toContain('0.27s');
   });
 
   it('dropping a transition kind onto the cut adds it', () => {
@@ -239,7 +241,9 @@ describe("the block's actions menu", () => {
     const container = openMenu();
     fireEvent.click(screen.getByRole('menuitemradio', { name: /Fast/ }));
     const block = container.querySelector('.clip-transition-pill') as HTMLElement;
-    expect(block.getAttribute('aria-label')).toBe('Fade transition, 0.25s');
+    // 0.25s is 7.5 frames at 30fps, so the grid takes it to 8 (ADR 0146: nearest frame,
+    // ties away from zero).
+    expect(block.getAttribute('aria-label')).toBe('Fade transition, 0.27s');
   });
 
   it('removes the transition', () => {

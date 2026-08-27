@@ -10,6 +10,15 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    // Node build scripts (plain ESM, not TS) run under node, so declare its globals —
+    // `no-undef` otherwise flags `console`/`process` (TS files get these from the
+    // type-checker instead). Mirrors packages/ai-sdk.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: { process: 'readonly', console: 'readonly' },
+    },
+  },
+  {
     rules: {
       // A leading underscore marks an intentionally unused binding (placeholder
       // params on stubs, event-handler args, destructured rest). Standard

@@ -5,7 +5,10 @@ requests, and how to read the context meter when the number moves.
 
 See also: [ADR 0075](../adr/0075-durable-run-working-state.md) (durable run memory),
 [ADR 0078](../adr/0078-context-visibility-and-provider-continuity.md) (context visibility),
-[ADR 0080](../adr/0080-context-manifest-and-memory-separation.md) (the manifest).
+[ADR 0080](../adr/0080-context-manifest-and-memory-separation.md) (the manifest),
+[ADR 0146](../adr/0146-one-frame-grid-for-every-edit.md) (the frame grid), and
+`plan/context-management/` (the programme that connected all of this, with its
+before/after measurements in `reports/context-benchmark-*.txt`).
 
 ---
 
@@ -14,15 +17,15 @@ See also: [ADR 0075](../adr/0075-durable-run-working-state.md) (durable run memo
 The single most common misreading is treating all of these as one number. They have
 different lifetimes and different owners.
 
-| Concept | Lives in | Lifetime |
-| --- | --- | --- |
-| Conversation history | The append-only `AiEvent` log | The conversation |
-| Current request prompt | The `AiCompletionRequest` sent to the provider | One call |
-| Provider context capacity | `providers/model-capabilities.ts` | The selected model |
-| Durable run memory | `kernel/working-state.ts` (ADR 0075) | One editing run |
-| Project memory | The project file (`memory-store.ts`, the sidecar brain) | The project |
-| Tool-result storage | `kernel/evidence-store.ts`, referenced by handle | The run |
-| Remaining capacity | Derived: limit − input − reserved output | One call |
+| Concept                   | Lives in                                                | Lifetime           |
+| ------------------------- | ------------------------------------------------------- | ------------------ |
+| Conversation history      | The append-only `AiEvent` log                           | The conversation   |
+| Current request prompt    | The `AiCompletionRequest` sent to the provider          | One call           |
+| Provider context capacity | `providers/model-capabilities.ts`                       | The selected model |
+| Durable run memory        | `kernel/working-state.ts` (ADR 0075)                    | One editing run    |
+| Project memory            | The project file (`memory-store.ts`, the sidecar brain) | The project        |
+| Tool-result storage       | `kernel/evidence-store.ts`, referenced by handle        | The run            |
+| Remaining capacity        | Derived: limit − input − reserved output                | One call           |
 
 **Only the second and the last change per request.** When the meter moves, the durable
 run memory, the project memory and the evidence store are untouched.
@@ -69,16 +72,52 @@ removed, grew or shrank, and what that adds up to.
 Two things drive whether the next turn continues or starts over.
 
 **The state briefing** (`kernel/briefing.ts`) is the run's memory of itself, rendered for
-the model: what done looks like, the current stage, what is established (*do not gather
-again*), what was decided (*keep unless the stated trigger fires*), what was applied
-(*do not repeat*), what failed (*do not retry unchanged*), and the one next action. It is
+the model: what done looks like, the current stage, what is established (_do not gather
+again_), what was decided (_keep unless the stated trigger fires_), what was applied
+(_do not repeat_), what failed (_do not retry unchanged_), and the one next action. It is
 built from distilled conclusions, not payloads — a read produces a one-line fact plus an
 evidence handle, so the briefing stays flat in project duration.
 
 **The assembled context** (`context-builder.ts`) is the project material for this request:
 timeline slice, transcript slice, footage map, selection, pinned entities, project memory,
 skills manifest. Tiers are dropped lowest-priority-first to fit the budget, and the drop
-is reported rather than silent.
+is reported rather than silent — **to the model as well as to the UI**, as a
+`NOT IN THIS PROMPT` block naming each missing tier and the call that returns it. A model
+that does not know the transcript was dropped reasons as though the project has no
+dialogue, which is not a smaller answer but a wrong one.
+
+### How big the slice is
+
+The timeline and transcript slices are **allocated from the room the budget leaves**, not
+capped by a constant (`allocateGroundingSlice`). The old constants — 12 clips per layer,
+600 words — are now floors, so coverage can only ever go up, and a small-window model
+behaves exactly as it did. Each tier is guaranteed half the remaining room and hands back
+whatever it does not need, in both directions, so a project with no dialogue does not
+reserve half the prompt for a transcript tier that will not spend it.
+
+The budget itself comes from the model actually selected (`resolveContextBudget`), minus
+the prompt cost the assembler cannot see: tool schemas (~17,500 tokens on a planning turn),
+the mode instruction, and any pinned skill playbooks. Both halves matter — before this,
+every request trimmed against one hardcoded 190,000-token window, which was 159,000 tokens
+more room than a small local model has.
+
+### Which part of the slice
+
+On footage too long to fit, `context-retrieval.ts` decides _which_ part, with a declared
+precedence: **pinned entities** (never ranked away) → **the selection as a bias, not a
+boundary** → **the request's own scope**. A global request ("find the strongest moments")
+fills its room evenly across the whole timeline; a local one ("tighten this") fills outward
+from the selection. A selection no longer walls the model off from the recording it was
+asked about, and the ranker may reorder within the room but may never show less than the
+budget alone would have.
+
+### Prompt-cache stability
+
+`AssembledContext.split` divides the assembled user content where it stops being stable for
+the run. **Only the timeline summary varies per turn** — it renders from the mutating
+working copy. The transcript, footage map, visual status, memory tiers and skills manifest
+are fixed for the run's duration, so the agent loop puts them ABOVE its cache boundary.
+Anything stable that sits after something volatile is re-billed at full price every turn.
 
 ### Revision awareness
 
@@ -89,17 +128,45 @@ stops a run re-deriving its whole reconnaissance each time an edit lands.
 
 ---
 
+## What crosses the run boundary
+
+A new run for the same conversation and project is seeded from the previous run's ledger
+(`carryForwardWorkingState`), so a follow-up does not re-learn the footage.
+
+**Carried:** `revision_independent` facts and **committed** decisions.
+**Not carried:** the objective, plan, stage, next action, blockers, verifications and
+operations — they belong to the run that made them, and inheriting them is how a run ends
+up executing the previous turn's plan.
+**Not carried, and worth knowing why:** evidence handles. A handle addresses the previous
+run's `EvidenceStore`, which is in-memory and per-run, so the payload is gone; carrying an
+address that cannot be dereferenced is the failure `clearedWithHandle` exists to prevent.
+Carried facts therefore arrive uncited and say so, prefixed `(from an earlier session)`.
+
+Nothing crosses unless the conversation **and** the project both match. On desktop the
+host supplies the previous ledger via `RunCoordinator.latestWorkingStateFor`; the browser
+build has no run store, so nothing is inherited there — an honest gap, like proxies.
+
+## What the editor can teach
+
+`remember_preference` writes `preferredPacing`, `captionStyle`, `brandStyle`,
+`targetAudience` and `exportPlatforms` into the project's AI memory, which is injected into
+every turn under "Project memory (honour these preferences)". The key set is **closed on
+purpose**: `aiMemory` round-trips through `project.fp.json` and feeds that block, so a
+free-text memory tool would make it an unbounded, model-authored prompt-injection surface
+that grows every turn. Writes go through the patch path (`set_ai_memory`) and are
+reversible like any other edit.
+
 ## Pre-request invariants
 
 Before each agent turn, `kernel/context/invariants.ts` checks that the request still knows
 what it is doing:
 
-| Invariant | Required when | Recovery |
-| --- | --- | --- |
-| `objective` | Past the `interpret` stage | The creator's raw request stands in |
-| `next_action` | Past `interpret`, before `complete` | Derived from the stage and outstanding objectives |
-| `project_revision` | Always | Clamped back to the run's base |
-| `committed_work` | Executing (`apply`/`enhance`/`repair`) | **None** — reported as a warning |
+| Invariant          | Required when                          | Recovery                                          |
+| ------------------ | -------------------------------------- | ------------------------------------------------- |
+| `objective`        | Past the `interpret` stage             | The creator's raw request stands in               |
+| `next_action`      | Past `interpret`, before `complete`    | Derived from the stage and outstanding objectives |
+| `project_revision` | Always                                 | Clamped back to the run's base                    |
+| `committed_work`   | Executing (`apply`/`enhance`/`repair`) | **None** — reported as a warning                  |
 
 Recovery is deterministic: no model call, no guess. `committed_work` is deliberately not
 recoverable — inventing a plan would have the run execute against something nobody chose.

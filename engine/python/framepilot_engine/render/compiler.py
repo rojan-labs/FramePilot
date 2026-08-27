@@ -116,7 +116,7 @@ from framepilot_engine.render.masks import (
 )
 from framepilot_engine.render.presets import ExportPreset
 from framepilot_engine.render.resources import close_clip_tree
-from framepilot_engine.render.text_overlay import render_text_overlay_image, text_overlay_style
+from framepilot_engine.render.text_overlay import render_text_overlay_image, text_overlay_layout
 from framepilot_engine.safety import PathTraversalError, resolve_within
 from framepilot_engine.timeline.models import (
     Clip,
@@ -300,19 +300,36 @@ def _compile_image_clip(
 
 
 def _compile_text_clip(image_clip_cls: Any, clip: Clip, target: tuple[int, int]) -> Any | None:
+    """Rasterize a text overlay and place it, honouring the clip's own transform.
+
+    The transform is why this goes through :func:`_place_video_clip` rather than a bare
+    ``with_position("center")``. ``punch_in`` and ``add_keyframes`` accept a text clip,
+    validate, apply, and report an edit — and the compiler used to drop the keyframes on
+    the floor, so a run could add fifteen animated text cards, be told fifteen times that
+    it had, and render fifteen static ones. An operation that lands in the timeline and
+    renders as nothing is the "never fake success" invariant broken from the far end.
+    """
     text_effect = next((e for e in clip.effects if e.type == "text"), None)
     text = str(text_effect.params.get("text", "")) if text_effect is not None else ""
     if not text.strip():
         return None
     style_params = text_effect.params if text_effect is not None else {}
-    font_size, color = text_overlay_style(style_params, target[1])
-    image = render_text_overlay_image(text, target[0], target[1], font_size=font_size, color=color)
-    return (
-        image_clip_cls(image, transparent=True)
-        .with_start(clip.start)
-        .with_duration(clip.end - clip.start)
-        .with_position("center")
+    layout = text_overlay_layout(style_params, target[0], target[1])
+    image = render_text_overlay_image(
+        text,
+        target[0],
+        target[1],
+        font_size=layout.font_size,
+        color=layout.color,
+        max_width=layout.box_width,
+        align=layout.align,
+        background=layout.background,
     )
+    layer = image_clip_cls(image, transparent=True).with_duration(clip.end - clip.start)
+    placed = _place_video_clip(
+        layer, clip, target, None, fit_to_frame=False, centre=(layout.centre_x, layout.centre_y)
+    )
+    return placed.with_start(clip.start)
 
 
 def _place_video_clip(
@@ -320,13 +337,34 @@ def _place_video_clip(
     clip: Clip,
     target: tuple[int, int],
     transition: transitions.Transition | None,
+    *,
+    fit_to_frame: bool = True,
+    centre: tuple[float, float] | None = None,
 ) -> VideoClip:
+    """Scale, animate and position one picture layer inside the target frame.
+
+    :param fit_to_frame: ``True`` for source media, which is scaled to fill the frame
+        before any authored transform. ``False`` for a layer already rasterized at its
+        finished size — a text overlay is drawn tight to its own glyphs, and fitting that
+        to the frame would blow one word up to full width. Such a layer keeps a base scale
+        of 1 and is animated around the frame centre.
+    :param centre: Where the layer's centre sits in the frame, in pixels. Defaults to the
+        frame centre. A text overlay authors this as ``xPercent``/``yPercent``, and the
+        preview has honored it since the Inspector could set it — the render did not, so
+        every overlay exported dead centre whatever the editor had positioned.
+    """
     target_w, target_h = target
     clip_w, clip_h = source.size
-    base_scale: float = float(min(target_w / clip_w, target_h / clip_h))
+    base_scale: float = float(min(target_w / clip_w, target_h / clip_h)) if fit_to_frame else 1.0
+    centre_x, centre_y = centre if centre is not None else (target_w / 2, target_h / 2)
     geo_transition = transition is not None and transitions.affects_geometry(transition)
     if not has_rendered_transform(clip) and not geo_transition:
-        return source.resized(base_scale).with_position("center")
+        placed = source if base_scale == 1.0 else source.resized(base_scale)
+        if centre is None:
+            return placed.with_position("center")
+        width = clip_w * base_scale
+        height = clip_h * base_scale
+        return placed.with_position((centre_x - width / 2, centre_y - height / 2))
 
     def effective_scale(t: float) -> float:
         scale = evaluate_clip_transform(clip, t).scale
@@ -347,8 +385,8 @@ def _place_video_clip(
             if transition is not None and geo_transition
             else (0.0, 0.0)
         )
-        pos_x = (target_w - width) / 2 + transform.x + dx
-        pos_y = (target_h - height) / 2 + transform.y + dy
+        pos_x = centre_x - width / 2 + transform.x + dx
+        pos_y = centre_y - height / 2 + transform.y + dy
         return (pos_x, pos_y)
 
     placed = source.resized(scale_at)
@@ -358,7 +396,16 @@ def _place_video_clip(
 
 
 #: How close two clips must sit to count as one cut. A frame at 240fps is ~4ms, so this is
-#: below any real edit boundary while still absorbing float noise from time quantization.
+#: below any real edit boundary while still absorbing float noise.
+#:
+#: What it absorbs, precisely (ADR 0146). Edit points authored from now on ARE quantized —
+#: ``packages/editor-core/src/frame-grid.ts`` snaps them when the patch is committed, and
+#: ``frame_grid.py`` mirrors that rule so this side can assert it rather than invent a
+#: second one. Two things still land a hair off an exact frame boundary and both are real:
+#: a project authored BEFORE that ADR keeps its times until an edit touches them, and a
+#: frame at a rational rate (1/24, 1001/30000) has no exact binary representation, so
+#: arithmetic over it drifts by units in the last place. This tolerance covers both. It is
+#: not a substitute for the grid, and it no longer stands in for the absence of one.
 _CUT_ADJACENCY_TOLERANCE = 1e-3
 
 #: How much of a neighbour's handle a transition under-layer may borrow, as a multiple of

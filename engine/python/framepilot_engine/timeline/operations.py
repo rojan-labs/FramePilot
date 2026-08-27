@@ -552,6 +552,21 @@ def _derive_clip_id(prefix: str, *parts: str | float) -> str:
     return f"{prefix}__{'_'.join(rendered)}"
 
 
+def text_overlay_clip_id(track_id: str, start: float) -> str:
+    """The id ``add_text_overlay`` gives a text clip it creates on ``track_id``.
+
+    Mirrors ``textOverlayClipId`` in ``packages/editor-core/src/operations.ts``. Exported
+    so a caller that wants to style the overlay it just added can address the clip — and
+    its ``text`` effect — without re-deriving the rule and drifting from it.
+    """
+    return _derive_clip_id("text", track_id, start)
+
+
+def text_effect_id(clip_id: str) -> str:
+    """The id of the ``text`` effect on a text overlay clip."""
+    return f"{clip_id}__text"
+
+
 def _assert_positive_range(start: float, end: float, label: str) -> None:
     if end - start <= _EPSILON:
         raise OperationError(
@@ -792,7 +807,7 @@ def _apply_add_clip(timeline: Timeline, op: AddClip) -> Timeline:
 
 def _apply_add_text_overlay(timeline: Timeline, op: AddTextOverlay) -> Timeline:
     _assert_positive_range(op.start, op.end, "add_text_overlay")
-    clip_id = op.clip_id or _derive_clip_id("text", op.track_id, op.start)
+    clip_id = op.clip_id or text_overlay_clip_id(op.track_id, op.start)
     clip = Clip(
         id=clip_id,
         asset_id=TEXT_OVERLAY_ASSET_ID,
@@ -801,7 +816,7 @@ def _apply_add_text_overlay(timeline: Timeline, op: AddTextOverlay) -> Timeline:
         end=op.end,
         source_start=0.0,
         source_end=op.end - op.start,
-        effects=[Effect(id=f"{clip_id}__text", type="text", params={"text": op.text})],
+        effects=[Effect(id=text_effect_id(clip_id), type="text", params={"text": op.text})],
     )
     return _insert_clip(timeline, op.track_id, clip)
 

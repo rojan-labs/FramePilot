@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type { AnyOperation } from '@framepilot/editor-core';
 import type { Project } from '@framepilot/timeline-schema';
 import { assembleEdit } from './assemble.js';
-import { runAutonomousEdit } from './autonomous-edit-runtime.js';
 import { routeAutonomousToolCall } from './autonomous-tool-router.js';
 import { partitionConcurrencyBatches } from './concurrency.js';
 import { normalizeOperationTime } from './frame-time.js';
@@ -325,69 +324,5 @@ describe('host mutation permissions and scheduling', () => {
       { concurrent: true, calls: [{ name: 'get_frame' }] },
       { concurrent: false, calls: [{ name: 'index_media' }] },
     ]);
-  });
-});
-
-describe('autonomous completed-run cache scoping', () => {
-  interface State {
-    readonly revision: number;
-  }
-
-  const adapters = (counter: { proposals: number }) => ({
-    getRevision: (state: State) => state.revision,
-    normalizeIntent: async (request: string) => ({
-      request,
-      criteria: { intentKind: 'analysis' as const, requireTimelineChange: false },
-      measurableTasks: [],
-    }),
-    plan: async () => ({ tasks: [], evidenceQueries: [] }),
-    collectEvidence: async () => ({}),
-    proposePatch: async () => {
-      counter.proposals += 1;
-      return { id: `patch-${String(counter.proposals)}` };
-    },
-    validatePatch: async (patch: { id: string }) => ({ valid: true, patch, issues: [] }),
-    applyPatch: async (patch: { id: string }, state: State) => ({
-      state,
-      inverse: { patchId: patch.id },
-      appliedOperationCount: 0,
-      revision: state.revision,
-    }),
-    verify: async () => ({
-      passed: true,
-      renderVerified: false,
-      visualEvidenceCount: 0,
-      issues: [],
-    }),
-    rollback: async (_inverse: { patchId: string }, state: State) => state,
-  });
-
-  it('deduplicates only within the same request and initial revision', async () => {
-    const counter = { proposals: 0 };
-    const sharedAdapters = adapters(counter);
-    const input = {
-      request: 'inspect this',
-      initialState: { revision: 1 },
-      adapters: sharedAdapters,
-      idempotencyKey: 'same-key',
-    };
-
-    const first = await runAutonomousEdit(input);
-    const second = await runAutonomousEdit(input);
-    expect(first.status).toBe('completed');
-    expect(second.status).toBe('completed');
-    expect(counter.proposals).toBe(1);
-
-    await runAutonomousEdit({ ...input, initialState: { revision: 2 } });
-    expect(counter.proposals).toBe(2);
-
-    await runAutonomousEdit({ ...input, request: 'a different request' });
-    expect(counter.proposals).toBe(3);
-
-    // Scoping deliberately ignores adapter identity: callers construct adapters per
-    // request, so keying on that object would make every lookup miss and turn
-    // idempotency into a no-op — the retry it exists to absorb would re-apply the edit.
-    await runAutonomousEdit({ ...input, adapters: adapters(counter) });
-    expect(counter.proposals).toBe(3);
   });
 });

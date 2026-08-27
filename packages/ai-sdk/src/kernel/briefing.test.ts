@@ -10,6 +10,7 @@ import { buildStateBriefing, distil } from './briefing.js';
 import {
   advanceStage,
   commitDecision,
+  REQUEST_ECHO_CHARS,
   initialWorkingState,
   recordDecision,
   recordFact,
@@ -41,10 +42,19 @@ describe('distil', () => {
       kind: 'transcript',
       scope: 'revision_independent',
       evidenceId: 'ev_3',
+      // The handle travels with the conclusion so the reducer can index it. Without this
+      // the working state's `evidence` array stayed empty in every run while its facts
+      // cited handles it did not contain.
+      evidence: {
+        id: 'ev_3',
+        source: 'get_transcript',
+        descriptor: 'Reading the transcript 0:22–0:23',
+        scope: 'revision_independent',
+      },
     });
   });
 
-  it('records the digest\'s conclusion, not the rest of its records', () => {
+  it("records the digest's conclusion, not the rest of its records", () => {
     // A read digest is a head line plus its records. The head line is the conclusion; the
     // records belong in the evidence store, and flattening them into a 180-character fact
     // would put four of forty-six clips in the briefing and call it what the run knows.
@@ -68,9 +78,7 @@ describe('distil', () => {
     // montage run re-derived the project's shape on six consecutive turns, re-read the
     // media bin, and spent 391 seconds in one thinking block. An absent fact at least
     // shows the gap.
-    expect(
-      distil({ ...settled, summary: 'Reading the transcript 0:22–0:23' }),
-    ).toBeUndefined();
+    expect(distil({ ...settled, summary: 'Reading the transcript 0:22–0:23' })).toBeUndefined();
     expect(distil({ ...settled, summary: '   ' })).toBeUndefined();
   });
 
@@ -134,7 +142,7 @@ describe('buildStateBriefing', () => {
     expect(text).toContain('do not restart');
   });
 
-  it('does not print the editor\'s request back under four different headings', () => {
+  it("does not print the editor's request back under four different headings", () => {
     // The conductor seeds objective, acceptance, the committed plan's decision and the
     // run's objective ALL from the raw prompt before any turn runs. Rendered naively, the
     // briefing said the same sentence five times — and "DECIDED" listing the request tells
@@ -157,6 +165,38 @@ describe('buildStateBriefing', () => {
     // One mention of the request in the whole briefing is one too many: the request is
     // already its own section of the prompt.
     expect(text).not.toContain(request);
+  });
+
+  // GAP-009. The same four copies, sized. A 10,000-token brief was stored whole in the
+  // objective, its decision, its objective entry and the recovery instruction — a state
+  // that is persisted and streamed to the host on every turn.
+  it('stores a long request as an excerpt, and still prints none of it', () => {
+    const request = `Make a reel about ${'the unit conversion error '.repeat(400)}`;
+    let state = initialWorkingState({ runId: 'run_1', request, projectRevision: 0 });
+    state = setObjective(state, {
+      outcome: request,
+      acceptance: [{ description: 'Runtime is 30s ± 2s' }],
+      provisional: true,
+    });
+    state = commitExecutionPlan(state, [request], 0);
+
+    // One full copy survives — the request itself, which is what it is for.
+    expect(state.objective.request).toBe(request.trim());
+    expect(state.objective.outcome.length).toBeLessThanOrEqual(REQUEST_ECHO_CHARS + 1);
+    expect(state.objectives[0]!.description.length).toBeLessThanOrEqual(REQUEST_ECHO_CHARS + 1);
+    expect(state.decisions[0]!.decision.length).toBeLessThanOrEqual(REQUEST_ECHO_CHARS + 1);
+    // Shortening must not defeat the suppression: an excerpt says exactly as little.
+    const text = buildStateBriefing(
+      recordFact(state, {
+        kind: 'project',
+        statement: 'Reading the timeline → 0 tracks',
+        scope: 'timeline_dependent',
+      }),
+    );
+    expect(text).not.toContain('WHAT DONE LOOKS LIKE');
+    expect(text).not.toContain('OBJECTIVES');
+    expect(text).not.toContain('DECIDED');
+    expect(text).not.toContain('unit conversion error');
   });
 
   it('still shows an objective and a decision that say something of their own', () => {
@@ -285,6 +325,26 @@ describe('buildStateBriefing', () => {
     expect(text).toContain('missing: a caption track');
     expect(text).toContain('DO THIS NOW');
     expect(text).toContain('Apply the three ripple deletes (use ripple_delete)');
+  });
+
+  // The fifth echo, and the one the filter missed. `recoveryAction` composes its instruction
+  // out of the first outstanding objective, and an objective is seeded from `userPrompt` — so
+  // "DO THIS NOW" rendered the editor's entire request back at a model already holding it. A
+  // captured run paid ~7,000 tokens a turn for that, under the one heading whose job is to
+  // name a single concrete step, and it fired exactly when the run had stopped progressing.
+  it('suppresses a next action that is only the request restated', () => {
+    const request = 'make me a 30 second vertical reel about the Mars Climate Orbiter';
+    let state = setObjective(initialWorkingState({ runId: 'run_2', request, projectRevision: 0 }), {
+      outcome: request,
+      acceptance: [],
+    });
+    state = setNextAction(state, {
+      stage: 'apply',
+      action: `Do this now: ${request}. Everything you need is in the run state above.`,
+    });
+    const text = buildStateBriefing(state);
+    expect(text).not.toContain('DO THIS NOW');
+    expect(text).not.toContain('Mars Climate Orbiter');
   });
 
   it('omits the hint and the missing clause when neither was recorded', () => {

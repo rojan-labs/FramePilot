@@ -144,11 +144,26 @@ class AddTrackArgs(BaseModel):
 
 
 class AddTextLayerArgs(BaseModel):
+    """Text overlay plus its styling.
+
+    The style keys mirror the web editor's ``TextOverlayParams`` exactly, because they end
+    up in the same ``Effect.params`` bag that the Inspector writes and the renderer reads
+    (see ``render/text_overlay.py``). Motion is deliberately not here: the agent animates a
+    text card with ``punch_in``, which the compiler renders.
+    """
+
     model_config = _STRICT
     track_id: str = Field(alias="trackId")
     text: str
     start: float = Field(ge=0.0)
     end: float = Field(ge=0.0)
+    size_percent: float | None = Field(default=None, alias="sizePercent", gt=0.0, le=100.0)
+    color: str | None = None
+    background: str | None = None
+    align: Literal["left", "center", "right"] | None = None
+    box_width_percent: float | None = Field(default=None, alias="boxWidthPercent", gt=0.0, le=100.0)
+    x_percent: float | None = Field(default=None, alias="xPercent", ge=0.0, le=100.0)
+    y_percent: float | None = Field(default=None, alias="yPercent", ge=0.0, le=100.0)
 
 
 class AddCaptionLayerArgs(BaseModel):
@@ -302,8 +317,55 @@ class TrackObjectArgs(BaseModel):
     engine: FilterStr = None
 
 
+#: A URL or provider URI (``stock://…``, ``https://…``) — never a media file in a project.
+_PROVIDER_URI = re.compile(r"^[a-z][a-z0-9+.-]*://", re.IGNORECASE)
+#: A media path names a FILE, so it ends in an extension.
+_HAS_EXTENSION = re.compile(r"\.[a-z0-9]{2,5}$", re.IGNORECASE)
+
+
+def validate_model_authored_media_path(value: str) -> str:
+    """Reject the media-path shapes a model produces when it is guessing a filename.
+
+    Shared by ``AddAssetArgs`` here and the ``_AddAssetArgs`` contract override, because two
+    Pydantic models validating the same field two different ways is how a boundary drifts.
+    Mirrors ``modelAuthoredMediaPath`` in ``packages/ai-sdk/src/domain-tools/project.ts``.
+
+    Shape only: neither this layer nor its TS twin may touch the filesystem (PRD §18.2), so
+    the proof that a file EXISTS belongs to the host, which owns the projects root. Traversal
+    containment lives there too, with the layers that RESOLVE paths — a string test for ".."
+    cannot see through ``a/b/../../../etc``, a symlink, or an absolute path, and a check that
+    looks like containment without being it is worse than none.
+
+    :param value: The path the model supplied.
+    :returns: The trimmed path.
+    :raises ValueError: If the path is empty, a URL/provider URI, or names no file extension.
+    """
+    path = value.strip()
+    if not path:
+        raise ValueError("An asset path cannot be empty.")
+    if _PROVIDER_URI.match(path):
+        raise ValueError(
+            "That is a URL or provider URI, not a media file in this project. Stock media "
+            "has no path until it is downloaded — pass the remoteId from search_stock to "
+            "add_stock (or search_music to add_music)."
+        )
+    if not _HAS_EXTENSION.search(path):
+        raise ValueError(
+            'An asset path must name a media FILE with its extension (e.g. "interview.mp4").'
+        )
+    return path
+
+
 class AddAssetArgs(BaseModel):
-    """Add a media asset to the project bin (schema v3, ADR 0026)."""
+    """Add a media asset to the project bin (schema v3, ADR 0026).
+
+    ``path`` used to be a bare ``str`` on both sides of the parity boundary, and nothing
+    downstream examined it either. A captured agent run proposed ``stock://pexels/20349219``,
+    the patch validated, and the bin would have gained a reference to a file that cannot
+    exist. Mirrors ``modelAuthoredMediaPath`` in ``packages/ai-sdk/src/domain-tools/project.ts``:
+    shape only, because neither layer may touch the filesystem — the host owns the existence
+    proof.
+    """
 
     model_config = _STRICT
     path: str
@@ -311,6 +373,8 @@ class AddAssetArgs(BaseModel):
     duration_seconds: float | None = Field(default=None, alias="durationSeconds", ge=0.0)
     folder_id: FilterStr = Field(default=None, alias="folderId")
     id: FilterStr = None
+
+    _path_shape = field_validator("path")(validate_model_authored_media_path)
 
 
 class FolderPlanArg(BaseModel):
@@ -597,6 +661,29 @@ class RemoveMarkerArgs(BaseModel):
 
     model_config = _STRICT
     id: str
+
+
+class RememberPreferenceArgs(BaseModel):
+    """Record a lasting editing preference in the project's AI memory (P5.2).
+
+    The key set is CLOSED on purpose, and mirrors ``MemoryPreferenceKey`` in
+    ``memory-store.ts``. ``aiMemory`` round-trips through ``project.fp.json`` and feeds a
+    context block headed "honour these preferences"; free text there would be an
+    unbounded, model-authored prompt-injection surface that grows every turn.
+    """
+
+    model_config = _STRICT
+    key: Literal["targetAudience", "brandStyle", "captionStyle", "preferredPacing"] | None = None
+    value: str | None = Field(default=None, min_length=1, max_length=200)
+    export_platforms: list[str] | None = Field(default=None, alias="exportPlatforms", max_length=8)
+
+    @model_validator(mode="after")
+    def _pair_or_platforms(self) -> RememberPreferenceArgs:
+        if (self.key is None) != (self.value is None):
+            raise ValueError("remember_preference needs key and value together, or neither.")
+        if self.key is None and self.export_platforms is None:
+            raise ValueError("remember_preference needs a key/value pair or exportPlatforms.")
+        return self
 
 
 class AnalyzeSilenceArgs(BaseModel):
@@ -1132,7 +1219,12 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "add_text_layer",
         "Add a text overlay clip on a track over a timeline range (start/end seconds). "
         "Clips on one track can never overlap — stack simultaneous text elements on "
-        "separate tracks with a free range.",
+        "separate tracks with a free range. Style it here: sizePercent is the glyph "
+        "height as a percentage of the frame (8 is a caption, 18+ is a headline that "
+        "dominates the frame), xPercent/yPercent place the box centre (50/50 is the "
+        "middle, y 15 is a title card near the top), and color/background/align/"
+        "boxWidthPercent do what they say. Everything renders exactly as the preview "
+        "shows it. For motion, follow this with punch_in on the clip it creates.",
         kind="mutate",
         input_model=AddTextLayerArgs,
         mutating=True,
@@ -1362,7 +1454,10 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     # --- Project (media-bin) mutating tools — assets & folders (schema v3) ---
     "add_asset": _spec(
         "add_asset",
-        "Add a media asset to the project bin (e.g. AI-generated media).",
+        "Register a media file that ALREADY EXISTS on disk into the bin. Downloads and "
+        "creates nothing: stock goes through add_stock and music through add_music, "
+        "which fetch the file and supply its real path. A path you were not handed is "
+        "refused. Does not place it on the timeline — use add_clip for that.",
         kind="mutate",
         input_model=AddAssetArgs,
         mutating=True,
@@ -1392,6 +1487,23 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "Remove a marker/chapter by id (schema v9).",
         kind="mutate",
         input_model=RemoveMarkerArgs,
+        mutating=True,
+    ),
+    # --- Project memory (context-management P5.2) ---
+    # The "Project memory (honour these preferences)" block is injected every turn and
+    # nothing in the registry could write it; an editor stating a lasting preference was
+    # teaching nothing durable. Mirrors packages/ai-sdk/src/domain-tools/project.ts.
+    "remember_preference": _spec(
+        "remember_preference",
+        "Remember how this editor likes their videos, so the next session starts knowing "
+        'it. Use it when they state a lasting preference ("punchier cuts than that", '
+        '"always big yellow captions", "this is for founders") — NOT for a one-off '
+        "instruction about the edit in front of you, which belongs in the edit and not in "
+        "memory. Keys: preferredPacing, captionStyle, brandStyle, targetAudience, plus "
+        "exportPlatforms for where this project is published. Writing a key replaces what "
+        "was there. Reversible like any other edit, and stored in the project file.",
+        kind="mutate",
+        input_model=RememberPreferenceArgs,
         mutating=True,
     ),
     # --- Action tools (PRD §8.3) — host-executed side effects, no patch ---

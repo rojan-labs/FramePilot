@@ -201,7 +201,10 @@ describe('get_frame through a question run', () => {
       -1,
     )!.content;
     expect(replayNote).toContain('(cached)');
-    expect(replayNote).toContain('timeSeconds');
+    // P1.1 gave get_frame a digest, so the facts read as prose rather than as a JSON
+    // preview — the claim that matters is still that the note describes the attached frame.
+    expect(replayNote).toContain('frame at 2s');
+    expect(replayNote).toContain('attached to this turn as an image');
     expect(replayNote).not.toContain('already rendered earlier in this run');
   });
 

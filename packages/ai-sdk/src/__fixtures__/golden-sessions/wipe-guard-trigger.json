@@ -34,7 +34,7 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "make the opening punchier"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
@@ -57,7 +57,9 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -106,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 20733,
+      "usedTokens": 21260,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -125,30 +127,37 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1775,
+            "tokenEstimate": 1626,
             "included": true
           },
           {
             "id": "s3",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 1774,
+            "type": "conversation",
+            "label": "user turn 2",
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s4",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 172,
+            "included": true
+          },
+          {
+            "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17049,
+            "tokenEstimate": 17552,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 20733,
+          "estimatedInputTokensBeforeSend": 21260,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 171075,
+          "estimatedRemainingCapacity": 170548,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -240,12 +249,14 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "make the opening punchier"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
         "stage": "inspect",
-        "completedStages": ["interpret"],
+        "completedStages": [
+          "interpret"
+        ],
         "stageEnteredAtTurn": 1,
         "facts": [],
         "decisions": [
@@ -263,7 +274,9 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -312,7 +325,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 20826,
+      "usedTokens": 21353,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -331,30 +344,38 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1775,
+            "tokenEstimate": 1626,
             "included": true
           },
           {
             "id": "s3",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 1867,
+            "type": "conversation",
+            "label": "user turn 2",
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s4",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 265,
+            "included": true
+          },
+          {
+            "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17049,
+            "tokenEstimate": 17552,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 20826,
+          "estimatedInputTokensBeforeSend": 21353,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170982,
+          "estimatedRemainingCapacity": 170455,
+          "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -423,12 +444,14 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "make the opening punchier"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
         "stage": "inspect",
-        "completedStages": ["interpret"],
+        "completedStages": [
+          "interpret"
+        ],
         "stageEnteredAtTurn": 1,
         "facts": [],
         "decisions": [
@@ -446,7 +469,9 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -502,12 +527,14 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "make the opening punchier"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
         "stage": "inspect",
-        "completedStages": ["interpret"],
+        "completedStages": [
+          "interpret"
+        ],
         "stageEnteredAtTurn": 1,
         "facts": [],
         "decisions": [
@@ -525,7 +552,9 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": false

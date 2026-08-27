@@ -6,7 +6,57 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- **Captions derive far faster on long footage.** Mapping a transcript onto an edited
+  timeline tested every word against every clip, so the cost grew with the two multiplied
+  together — on an hour of footage with nine hundred cuts that was sixteen million
+  comparisons, paid every time captions were derived or an edit was reviewed. It is a
+  search now: the same result, ~80× less work. (`packages/editor-core`)
+
 ### Added
+
+- **The assistant reads your whole recording, not the first two minutes of it.** Asked to
+  find the strongest hook in a ten-minute take, it used to be shown about 25 of its 1,500
+  spoken words — so it always found the hook near the start, because that was the only part
+  it had ever seen. It now reads the whole transcript and sees the whole timeline: on a
+  sixty-minute project, 100% of the clips and 100% of the dialogue instead of 2% and 7%.
+  On footage genuinely too long to fit, what it reads is chosen by what you asked for —
+  "tighten this" looks around your selection, "find the best moments" ranges across the
+  entire recording — and anything left out is named, with the way to fetch it. It also
+  budgets against the model you actually picked rather than one hardcoded size, which
+  matters most on smaller local models that were previously being handed far more than they
+  could hold. (`packages/ai-sdk`, `plan/context-management/`)
+
+- **Cuts land on frames — yours as well as the assistant's.** Dragging or trimming a clip
+  used to leave the cut at an arbitrary fraction of a frame, which is why a preview and an
+  export could disagree about exactly where a cut was. Every edit now snaps to your
+  project's frame grid, and the assistant can name and aim at a frame: it reports where each
+  word starts and ends in frames, where each cut sits, and how long a transition the cut can
+  actually carry. Undo is unaffected — it restores exactly what was there. (ADR 0146,
+  `packages/editor-core`, `engine/python`)
+
+- **The assistant checks its own cut like an editor, not just like a checklist.** Its
+  self-review used to answer "is this the right length, the right shape, nothing missing" —
+  never "is this a good cut". It now also looks for jump cuts, cuts that land in the middle
+  of a word, dead air at the top or tail, transitions longer than the cut can hold, sound
+  that slams on every cut with no J or L anywhere, and shot lengths so uniform they read as
+  machine-cut. Two of those it can fix on its own; the rest it reports, and it says plainly
+  which is which rather than promising a repair it cannot make. (`packages/ai-sdk`)
+
+- **A session accumulates.** Ask a follow-up and the assistant starts from what the last run
+  found about your footage instead of re-reading it, and it can now remember how you like
+  your videos — pacing, caption style, brand style, audience, where you publish — when you
+  tell it. Preferences live in the project file and are reversible like any other edit.
+  (`packages/ai-sdk`, `apps/desktop`)
+
+- **The assistant can set type, not just place it.** Text overlays it adds can now carry a
+  size (as a share of the frame, so 18% is a headline that dominates and 8% is a caption),
+  a colour, a background, an alignment, a wrap width and a position — and all of it renders
+  exactly as the preview shows it. Previously it could only drop a default centred caption,
+  which made "large typography, important words dominant" impossible to ask for. The same
+  keys the Inspector writes are the keys it sets, so a card it makes is a card you can keep
+  editing by hand. (`packages/ai-sdk`, `engine/python`, ADR 0144)
 
 - **Semantic footage search can now run on your own machine.** FramePilot can find things by
   what they look like — "where does the whiteboard appear", "cut to the product shot" — but
@@ -98,6 +148,109 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (`packages/timeline-schema`, `apps/web-editor`, schema v20, ADR 0138)
 
 ### Fixed
+
+- **The assistant can gather several stock clips again instead of failing on all but the
+  first.** Asked to build a reel, it would download one clip, then be turned away from every
+  clip after it with "there is already picture on the timeline" — four instant refusals in a
+  row, against footage it had just added itself. Collecting candidates into your media bin
+  before deciding their order is supposed to be free of any timeline check, because nothing
+  is being placed yet; on the desktop app that check was running anyway, against a position
+  nobody had asked for. It no longer is, so a reel can be built from a bank of clips the way
+  it was meant to be.
+
+- **"Pick an empty stretch" now says which stretch.** When stock media genuinely can't go
+  where you asked — it still can't sit on top of existing footage, because the preview shows
+  one picture layer at a time while the export layers them — the message names the first
+  moment long enough to hold the clip. The Stock panel says where to move the playhead to,
+  and the assistant gets a timecode it can use directly rather than guessing again at the
+  spot it was just refused. (ADR 0145)
+
+- **The assistant can put footage in your video again, at any point in the edit.** Ask for a
+  reel on an empty project and it would search a stock library, find eighty usable clips,
+  and deliver thirty seconds of text on a black screen. Two separate rules were closing the
+  door: once the assistant had made its first edit it was cut off from anything that reads
+  new information — and "download this clip" had been filed as reading — while the recovery
+  mode that exists to make a circling run *act* refused the one call that acts, and told it
+  the download it had never made was already done. Shopping for material is now its own kind
+  of work, open for the whole run. When a tool genuinely is unavailable for a turn, the
+  reason says so instead of claiming the result is already in hand.
+  (`packages/ai-sdk`, ADR 0143)
+
+- **Text you animate actually animates.** A zoom on a text card was accepted, applied, kept
+  in your undo history and reported as done — and the renderer threw it away, in the preview
+  and in the export. Fifteen animated cards came out as fifteen still ones. Text now carries
+  its motion. Captions, whose movement comes from the caption style instead, say so rather
+  than accepting a zoom that would do nothing. (`engine/python`, `packages/ai-sdk`, ADR 0144)
+
+- **A video with no picture in it is called what it is.** A reel made only of text over an
+  empty video track passed every check, and the length check confirmed it was exactly thirty
+  seconds — of nothing. There is now a check for whether the edit has any picture at all, the
+  length reports how much of it is picture or sound, and the visual review says "every
+  sampled moment is black, there is no picture under your overlays" once, instead of
+  reporting fifteen broken cuts that were not broken. (`packages/ai-sdk`, ADR 0144)
+
+- **Music search finds something when you describe a mood.** "Dark cinematic tension build
+  with beat drop" reliably found nothing, because the library matches keywords, not
+  sentences. FramePilot now retries with the strongest words in your phrase and tells you
+  which ones worked. (`apps/desktop/electron/media/music-service.ts`)
+
+- **Stopping a run still tells you what it did.** The edits an assistant applied before you
+  hit stop stay on your timeline — but the summary of them was suppressed, so the last thing
+  you saw was a technical warning about a timeline you had no account of. You now get the
+  receipt, saying plainly what landed and that it can be undone. (`packages/ai-sdk`)
+
+- **A project you just named is saved right away, so it is there when you come back.** Creating
+  a project only put it on screen — nothing was written until you imported footage or made a
+  timeline edit, because saving was triggered by *changes*. Name a project, look away, and it
+  was in no Recent projects list and in no folder: it looked like the name had never been
+  taken. Creating a project now writes it immediately, and its name stays in step with the
+  recents list when you rename it later. Two projects sharing a name no longer share a file
+  either — a second "Wedding" used to quietly overwrite the first one.
+  (`apps/web-editor/src/App.tsx`, `apps/web-editor/src/editor/project.ts`,
+  `apps/desktop/electron/main.ts`)
+
+- **The assistant can no longer tell you it made an edit that never reached your project.**
+  When FramePilot's desktop app writes an agent edit, it re-checks it against the project you
+  actually have open, and can refuse it — you switched projects mid-run, the timeline moved
+  under it, or the edit points at media that is not on your disk. That refusal used to be
+  something only the card on screen knew about: the run itself carried on believing the edit
+  had landed, listed it among the work it had already done, and never went back for it. Now
+  the run is told, undoes the work it thought it had, tells you what happened **in the host's
+  own words instead of one all-purpose sentence**, and the "Couldn't apply" note names the
+  real reason — so "reopen that project" no longer looks like "try again", which could not
+  have worked. (`packages/ai-sdk`, `apps/desktop`, `apps/web-editor`)
+
+- **A run against a project you do not have open is refused up front, not after it has spent
+  your stock-library quota.** The check that decides whether an edit can be written used to
+  happen only when the first edit arrived — minutes and a dozen metered searches later. It now
+  runs before the assistant makes a single request, and says which project the app is on.
+  (`apps/desktop/electron/ai/commit-target.ts`)
+
+- **The assistant stops inventing filenames for stock clips.** Search results were dropped
+  from its short-term memory after a couple of turns, with an offer to "re-read if needed" it
+  could not take up — a stock search is a paid request to an outside library, not something
+  free to repeat. Left holding no real reference, it guessed a filename and put a broken clip
+  in your bin, with a green checkmark next to it. Results are now kept for the whole run and
+  the assistant is told exactly how to get them back, a made-up path is refused outright with
+  a pointer to the right tool, and the desktop app checks the file is really there before
+  writing anything. (`packages/ai-sdk`, `apps/desktop`)
+
+- **Gathering stock clips before you commit to an order.** `add_stock` always dropped a clip
+  straight onto the timeline, so the second clip of any comparison collided with the first and
+  was refused — there was no way to pull three candidates in and then decide. Ask for one
+  without a position and it now simply lands in your media bin. (`packages/editor-core`,
+  `packages/ai-sdk`)
+
+- **A run that leaves part of its plan undone says so.** If FramePilot showed you a seven-step
+  plan and finished four of them, the summary said "Applied N edits" and nothing about the
+  three you were promised. It now names what was left. (`packages/ai-sdk`)
+
+- **FramePilot says what it cannot do, instead of quietly leaving it out.** Ask for a reel with
+  a voiceover and whoosh transitions and you would have got a silent, effect-less cut with no
+  mention of either — there is no text-to-speech here, and the stock libraries cover music and
+  footage but not sound effects. The assistant now tells you which parts it cannot produce, and
+  what to do instead (record or import the track and it will cut, time, and caption it like any
+  other audio). (`packages/ai-sdk/src/acceptance.ts`)
 
 - **The assistant's questions — and the answers you gave them — are readable now.** When
   FramePilot asks you something mid-run, the choices used to be three paragraphs of prose with

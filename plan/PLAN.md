@@ -13,6 +13,144 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-27, context-management programme complete):** `[x]` **All five
+phases of `plan/context-management/` are closed** — see **CTX-PHASES** below and
+`reports/context-benchmark-after.{txt,json}`. On a 60-minute project the model went from
+seeing 2.1% of its clips and 6.7% of its dialogue to **100% of both**, at a cacheable
+prefix share that went **up** (81% → 91.6%). Cuts land on frames for manual edits as well
+as AI ones (ADR 0146), preview/export divergence is measured at **0 frames**, the Critic
+has six editorial checks it did not have, and a follow-up request inherits what the last
+run learned. Two targets were consciously not met and say why: the 60-minute "unused
+capacity" target is retired (coverage is 100%, so the spare window is spare, not waste),
+and P5.3's behavioural half is held back pending real run logs, with its cost now measured
+rather than invisible.
+
+**Previous snapshot (2026-08-26, context-management audit + second run gap analysis):** `[x]` **Eleven gaps found by
+tracing captured run `e30c1fe9` against the codebase are closed on
+`fix/agent-run-gap-analysis`.** The run was asked for a 30-second vertical Reel on an empty
+project. It searched a stock library eight times, found eighty usable clips, and delivered
+thirty seconds of white text on black — no footage, no audio — then reported fifteen
+"unexpected black frame" findings and was cancelled with no summary of the 38 edits it had
+already applied.
+
+1. **A run could not obtain media after its first patch landed.** `add_stock`/`add_music`
+   are registered `kind: 'analysis'`, so the stage gate withheld them in every execution
+   stage and the action-recovery turn — the one that demands an ACT — refused them for not
+   being `kind: 'mutate'`. Sourcing is now its own role, and the scoping gates read
+   `toolContract().effectClass`, which has always said `mutation`. ADR 0143.
+2. **The refusal claimed the download was redundant.** One branch served "you already have
+   this" and "not available this turn" with one sentence, and for a call the run had never
+   made the sentence was false. The reason is derived from the run's memo now.
+3. **Recalling stored evidence armed the lockout that preserves recall.** Every
+   `recall_evidence` is `fromCache` by construction, so a turn spent doing what the contract
+   asks read as a turn that learned nothing. Recalls are excluded from that question, and the
+   trigger — which had no user-visible explanation at all — now has one.
+4. **`punch_in` on a text clip applied, validated, reported, and rendered as nothing.**
+   The compiler placed text overlays with a bare `with_position("center")`. Text now carries
+   its transform; captions, whose motion is the caption style's, refuse the call instead of
+   accepting a no-op. ADR 0144.
+5. **Nothing noticed the edit had no picture in it.** A `picture_present` Critic check, a
+   duration check that says how much of the length is picture or sound, and a review that
+   states "every sampled moment is black" once rather than reporting fifteen broken cuts.
+6. **`add_text_layer` could not style anything**, and the renderer read `fontSize` in pixels
+   while the app authors `fontSizePercent`/`xPercent`/`yPercent`. Both closed: the tool takes
+   the authoring vocabulary on both runtimes and the engine resolves it.
+7. **`recordEvidence` had no caller.** Every run's `working.evidence` was `[]` while its
+   facts cited `[ev_3]`. The handle now travels with the distillation that cites it.
+8. **A descriptive music query always found nothing.** The catalogue matches keywords, not
+   sentences; one relaxed retry, and the summary names the query that actually hit.
+9. **The whole request was stored back as the run's own objective** — three copies plus the
+   recovery instruction, persisted and streamed every turn. Bounded excerpts, and recovery
+   names the act instead of restating the brief.
+10. **A cancelled run gave no account of the edits it had applied.** It does now.
+11. **A recalled stock id that this session had forgotten said "unknown item".** It names the
+    session boundary and the recovery, which the sourcing-role change makes reachable.
+
+Evidence: ai-sdk 3344, editor-core 918, desktop 469, web-editor 2595, timeline-schema 214,
+shared-types 27, mcp-server 135, ui 42, engine 2624, e2e 83 — all green; workspace typecheck
+and per-package lint clean, `ruff`/`mypy` clean. Golden corpora regenerated; the tool-surface
+deltas are the measurement of gap 1 (+827 tokens in `apply`, +775 on a recovery turn).
+
+Deliberately not addressed: a text overlay's `inAnimation`/`outAnimation` are still
+preview-only. The agent cannot set them, so it is reachable only through the Inspector; it is
+stated at the top of `render/text_overlay.py` rather than left to be discovered.
+
+**Status snapshot (2026-08-26, run gap analysis):** `[x]` **Ten gaps found by tracing a
+captured agent run (`c25cfb56`) against the codebase are closed on
+`fix/agent-run-gap-analysis`.** The run spent 3m20s and 19 metered provider searches on a
+project it could never write to, proposed two edits with fabricated media paths, had both
+refused, recorded both as `succeeded`, and was cancelled by the user.
+
+1. **A run started against a project the app did not have open.** The active-project check
+   lived only in the commit path, so it fired minutes and a dozen billable searches after it
+   could have. Now a pre-flight in `aiStreamStart`, reading the same
+   `decideCommitTarget` as the mid-run race guard so the two cannot drift.
+2. **The host's refusal never reached the run** — it was stamped on the outgoing event for
+   the UI alone, so the ledger read `succeeded`/`projectRevisionAfter: 1` against a project at
+   revision 0, and the briefing then filed the lost work under "ALREADY APPLIED — do not
+   repeat". `kernel/commit-ledger.ts` (ADR 0142); the run now _waits_ for each verdict rather
+   than sampling for one, because the graph's event queue gives no ordering to sample against.
+3. **Cleared tool payloads were unrecoverable.** `compactAgentLog` cleared results behind
+   "re-read if needed" while only `measure_color` was ever stored — so a stock search's
+   `remoteId`s were gone, and re-reading meant another metered request. Every host-tool
+   payload is stored now, and the marker names the handle to recall it with. **This is the
+   mechanism behind the fabricated paths**, reproduced identically in both attempts.
+4. **`add_asset` accepted any string as a media path** and the validator checked only id and
+   folder, so `stock://pexels/20349219` reported `valid: true`. Shape guard at the tool
+   boundary (both languages, one shared validator), existence proof at the host.
+5. **`add_stock` could not fill the bin.** Download and placement were one act, so the second
+   candidate of any comparison collided with the first — the run said twice it was "locking
+   the media into the bin first" and no tool did that. An absent position now means the bin.
+6. **The completion gate was never installed.** `assessEditCompletion` had one caller,
+   `autonomous-edit-runtime.ts`, which no production code ever ran — a green suite for a rail
+   that was not there. Folded into the conductor's finalize (plan-completeness only); the
+   parallel runtime deleted; the wiring itself now guarded by a test.
+7. **The whole prompt was stored five times and replayed once.** `nextAction` was the one
+   echo the briefing's filter missed, so "DO THIS NOW" re-sent a ~7,000-token brief every turn
+   — under the heading whose job is to name one step, fired exactly when the run had stalled.
+8. **"Couldn't apply" showed one hardcoded line for two unrelated causes**, sending the user
+   into a retry that could not succeed. The host's `commit.reason` now reaches the screen.
+9. **Voiceover and sound effects were silently undeliverable.** No TTS tool, no SFX
+   catalogue, and the brief asked for both per scene. Extends the existing `deliverableFile`
+   disclosure rather than inventing a second mechanism.
+10. **The main-process commit path had no tests.** Gaps 1, 2 and 8 all lived there.
+    `decideCommitTarget` and `unresolvableAddedAssets` are extracted and covered.
+
+11. **The bin-gather mode never reached the desktop app.** Gap 5 above landed in
+    `editor-core`, the orchestrator and the tool description, but not in `main.ts`, where
+    `atSeconds ?? 0` still turned "no position" into "position 0". So it ran the ADR 0140
+    occupancy gate against a span nobody asked for, and echoed `atSeconds: 0` back — which
+    made the orchestrator's `undefined` branch unreachable on the priority surface. Captured
+    run `8e717596` shows the result: one `add_stock` succeeded in 4.4s, the next four failed
+    in under 70ms each against the clip it had just placed. Extracted to
+    `apps/desktop/electron/ai/stock-host.ts` behind an injected `StockHostIO` and tested
+    against the orchestrator's matching rule. ADR 0145.
+12. **A refusal named the problem and never the remedy.** "Pick an empty stretch" is
+    actionable for someone who can scrub the timeline and useless to an agent that cannot.
+    `firstFreePictureStart` joins `picturePlacementConflict` in `picture-occupancy.ts`,
+    computed from the same merged spans so a suggestion can never name a moment the predicate
+    then refuses; the agent refusal, the host's pre-download refusal and the Stock panel's
+    disabled **Add** all name it, and the orchestrator also returns it as data
+    (`StockPlacementRefusal`). ADR 0145.
+
+Evidence: ai-sdk 3346, editor-core 925, desktop 477, web-editor 2595, mcp-server 135, engine
+2624 — all green; workspace typecheck and per-package lint clean. Three golden corpora
+regenerated; every delta inspected and attributable (+77 tokens/turn of tool descriptors, the
+acceptance criterion changing from a copy of the request to a pointer, operations gaining
+`patchId`, facts gaining the evidence citations they always should have carried, and the
+`plan-approval` scenario now reporting the planned step it silently left undone).
+
+Not addressed, and deliberately: whether to BUILD narration or SFX sourcing is a product
+decision, not a gap — item 9 is disclosure only.
+
+Not addressed, and deliberately: stock still does not STACK. Run `8e717596`'s operator
+expected the AI insert to auto-layer the way the manual drag-and-drop path does (ADR 0032,
+`placeAssetPatch`), and that divergence is real — but it is the one ADR 0140 chose on
+purpose, because the preview flattens picture layers into one chain while the export
+composites them. The Stock panel's one-click **Add** does not auto-layer either, so the AI
+and UI stock paths agree today. Lifting the constraint is `SUC-P1`, a compositing project,
+and remains a maintainer decision rather than a bug fix.
+
 **Status snapshot (2026-08-25, the question surface):** `[x]` **`ask_user` is answerable and
 its answers are readable; a run that ends without settling a step no longer leaves it
 spinning.** Reported from a real desktop run.
@@ -2333,6 +2471,16 @@ workspace typecheck/lint clean, dist rebuilt.
   patch, then drops the bin entry, so deleting media never strands a clip on a missing
   source. A desktop import path (engine `inspect-media` + on-disk paths) is a Phase 8
   follow-up. See ADR 0013.
+  ```
+- [x] Creating a project persists it immediately (discovered, 2026-08-26)
+  ```
+  — Autosave only ran on a *change*, so a named-but-unedited project was never written
+  and appeared in no recents list until the first import or timeline edit. `App.tsx`
+  now saves the project as part of creating it (`persistCreated` → `saveProjectDefault`
+  / localStorage), interactive creation takes a unique id (`uniqueProjectId`) so two
+  projects sharing a name no longer share a file, and the desktop save path refreshes
+  the recents entry so a rename shows up there. Covered by App tests, project.test.ts
+  and an e2e that returns Home right after creating.
   ```
 - [x] Professional NLE layout (discovered, 2026-06-22; **revamped 2026-07-01**)
   ```
@@ -7699,10 +7847,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                          Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                          a pre-existing local edit commenting out temperature forwarding, untouched here);
-                          engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                          **Last updated:** 2026-08-14
+                                Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                                a pre-existing local edit commenting out temperature forwarding, untouched here);
+                                engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                                **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 
@@ -7989,6 +8137,117 @@ were reproduced against that real project, not a fixture.
       **2550 passed**, 0 failures anywhere; eslint + `tsc --noEmit` + ruff + mypy clean on
       every touched file; ai-sdk rebuilt.
       **Last updated:** 2026-08-14
+
+- [x] **CTXBENCH** Context management measured, not assumed. Sub-plan:
+      **`plan/context-management/`** — [README](context-management/README.md) (index, decision
+      record, sequencing, definition of done) and
+      [DIAGNOSIS-AND-BENCHMARK.md](context-management/DIAGNOSIS-AND-BENCHMARK.md) (findings
+      F1–F10, the benchmark, the target architecture). Harness:
+      `packages/ai-sdk/scripts/context-benchmark.mjs`; baseline:
+      `reports/context-benchmark-baseline.{txt,json}`.
+
+      Read-only, deterministic, model-free (recording provider double, fixed clock; two runs
+      produce byte-identical JSON), built on the existing `ScriptedProvider` pattern, the
+      context manifest's own estimator and the golden-corpus fixture shape rather than a
+      parallel harness. Baseline: on a 60-minute project one planning turn costs ~22,333
+      tokens, of which **1,346 (6.0%) describe the user's video** and 17,490 (78%) are tool
+      schemas; the model sees **2.1% of clips and 6.7% of dialogue** with ~113,667 tokens of
+      window unused. At the north-star 10-minute scale it is 12.8% / 40.0%. Sharpest single
+      finding: `get_transcript` returns **25 of 1,500 words**, cut mid-JSON, with no count and
+      no narrowing instruction — one of nine reads with no case in `summarizeReadResult`.
+      Also recorded: the timeline has **no frame grid** (three tolerances, nothing that
+      quantizes), so "precise edits" has no frame to be precise about. No runtime behaviour
+      changed.
+
+- [x] **CTX-PHASES** Context-aware professional editing — five phases, all closed
+      (2026-08-26). `plan/context-management/`. One programme, not two: a professional
+      editor's precision _is_ their knowledge of the footage. Before/after:
+      `reports/context-benchmark-baseline.{txt,json}` →
+      `reports/context-benchmark-after.{txt,json}`.
+
+      **Headline.** On a 60-minute project the model saw 2.1% of its clips and 6.7% of its
+      dialogue; it now sees **100% of both**. `get_transcript` returned 25 of 1,500 words;
+      it now returns all of them. Every model trimmed against one hardcoded 190K window;
+      every model now trims against its own, minus the ~19,500 tokens of tool schemas and
+      agent contract the assembler never sees. Cuts land on frames — for MANUAL edits as
+      well as AI ones — and preview/export cut-point divergence is **0 frames** at the
+      delivery rate. The Critic gained six editorial checks (18 total, was 12), two of them
+      repairable. And a follow-up request inherits what the last run learned instead of
+      re-reading the footage. Cacheable prefix share went **up**, 81% → 91.6%.
+
+      **Two things did not land as written, both recorded rather than quietly dropped:**
+      the "unused capacity < 30,000" target is retired (at 60 minutes coverage is 100%, so
+      the remaining window is genuinely spare, not waste), and P5.3's behavioural half is
+      deliberately not shipped — the guard it would remove exists because instruction was
+      already tried and lost, and the evidence to check the trade needs real run logs. Its
+      cost is now measured per request instead of invisible.
+
+- [x] **CTX-P1** [Phase 1 — see the footage](context-management/PHASE-1-see-the-footage.md).
+      Honest read digests for the nine fall-through reads (`get_transcript` first);
+      `ContextBudget` resolved from `capabilitiesFor` and inclusive of tool-schema cost;
+      `MAX_CLIPS_PER_LAYER`/`MAX_TRANSCRIPT_WORDS` become budget-derived allocations floored
+      at today's values. Closes F1–F4, F8. Exit: 10-min word coverage 40% → ≥ 95%, clip
+      coverage 12.8% → ≥ 90%, budget over-assumption ≤ 0 on every model, cacheable prefix
+      share ≥ 85%. **Shipped:** 10-min word AND clip coverage 100%; over-assumption −21,497
+      on every probed model; cacheable share 91.6%. `get_transcript` 1.7% → 100%. Growing
+      the slice broke the prompt cache (85% → 45%), so `AssembledContext.split` now puts
+      the run-stable half of the context above the agent loop's cache boundary — only the
+      timeline summary actually varies per turn.
+- [x] **CTX-P2** [Phase 2 — select what matters](context-management/PHASE-2-select-what-matters.md).
+      Wire `semantic-index-slice.ts#getSlice` (built, tested, exported, **zero consumers**)
+      into the timeline/transcript tiers; derive the slice query from pinned → selection →
+      request scope so a global request widens instead of narrowing; every omission carries a
+      recall handle or a narrowing instruction. Closes F9, F10 and the honesty half of F4.
+      **Shipped:** `context-retrieval.ts` — three pure functions, no framework. 60-min word
+      coverage with a selection 6.7% → 100%; on a budget too small for the project,
+      "tighten this" covers 59.8% of the span and "find the strongest moments" covers 100%.
+      All 9 formerly-fall-through reads are honest (declared omission + the call that
+      returns it), and a DROPPED tier now reaches the model, not just the UI.
+- [x] **CTX-P3** [Phase 3 — frame-accurate edits](context-management/PHASE-3-frame-accurate-edits.md).
+      **The plan's premise was wrong, and correcting it was most of the work (ADR 0146).** A
+      complete frame grid already existed in `packages/ai-sdk/src/frame-time.ts` — rational
+      rates, an explicit rounding policy, a per-operation normalizer — wired into
+      `assembleEdit`. It ran for AI-authored edits ONLY: a UI patch reached `applyUserPatch`
+      and was validated and committed without ever touching it, so a human trim landed at
+      12.3874s while an AI trim landed on a frame. The grid moved to `editor-core` and
+      `commitProjectPatch` applies it to every patch from either author. **No schema change,
+      no migration** — option (a), with (b) and its trigger recorded in the ADR. Quantizing
+      goes at the PATCH, not inside `applyOperation`, because the inverse is computed from
+      the operation and a privately-quantizing apply would drift undo by a fraction of a
+      frame per edit. Reads report frames (`map_time`, `get_mapped_transcript`,
+      `list_edit_boundaries`); the cut skills state their craft rules in frames; and
+      preview/export divergence is measured at **0 frames** at the delivery rate, with a
+      pinned +1-frame limit when an export preset resamples (every preset forces 30fps).
+      Outstanding and not claimed: verification against a camera original.
+- [x] **CTX-P4** [Phase 4 — editorial judgement](context-management/PHASE-4-editorial-judgement.md).
+      `critic.ts` has 14 checks and not one is editorial — they answer "is the deliverable
+      well-formed", never "is this a good cut"; only 3 are in `FIXABLE_CHECKS`. Add
+      `jump_cut`, `word_severed`, `dead_air`, `audio_slam`, `shot_rhythm`, `handle_starved`,
+      each fixable by an existing tool (roll/slip/slide already exist and are AI-only) or
+      honestly report-only; route the critic through the run's evidence store so it sees what
+      the planner saw. **Shipped:** 6 checks (`jump_cut`, `word_severed`, `dead_air`,
+      `transition_fit`, `audio_slam`, `shot_rhythm`), every threshold stated in frames with
+      a rationale. `word_severed` + `transition_fit` are `fail` and repairable; the rest ship
+      `warn` per the phase's own promotion rule. Two plan corrections: `handle_starved`
+      cannot fire here (this renderer borrows no source frames across a cut) and was
+      replaced by `transition_fit`; `word_severed` cannot be computed from the mapped
+      transcript, which has already resolved every straddle, so it compares source in/out
+      points instead.
+- [x] **CTX-P5** [Phase 5 — memory across sessions](context-management/PHASE-5-memory-across-sessions.md).
+      Seed a new run's `RunWorkingState` from the previous run's persisted facts/evidence/
+      decisions for the same conversation + project, filtered by `FactScope` and revision;
+      add one `remember_preference` tool over `memory-store.ts`'s existing typed setters
+      (closed key set — the block says "honour these preferences" and nothing can record
+      one); stop swapping the tool descriptor set mid-run (2 swaps/run, 30,751 tokens
+      re-billed). Closes F5, F6, F7. **Shipped: P5.1 and P5.2. P5.3 measured, not shipped.**
+      Carry-forward is one pure function plus host wiring (`RunCoordinator.latestWorkingStateFor`
+      → `AiStreamHub` → `agentOptions.carriedForward`). Evidence handles are deliberately NOT
+      carried — they address the previous run's in-memory store, so a carried handle is an
+      address that cannot be dereferenced — and a carried fact says it is carried.
+      `remember_preference` needed a new project operation (`set_ai_memory`) because the
+      patch path had no arm for memory at all. P5.3's behavioural half is held back with its
+      reasoning and trigger recorded; the cost it would save is now reported as
+      `ContextManifest.usage.toolSchemaTokensRebilled`.
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)

@@ -154,6 +154,39 @@ describe('MusicService', () => {
       expect(first?.license).toBe('by');
     });
 
+    // GAP-008. Openverse matches keywords, so a whole mood sentence returns nothing —
+    // reliably, however good the sentence is. A captured run asked for "dark cinematic
+    // tension build with beat drop", got nothing, was told to "try a broader mood word",
+    // and finished a music-led brief with no audio at all.
+    it('retries a phrase that missed with its strongest words, and says which matched', async () => {
+      const queries: string[] = [];
+      const provider: MusicProvider = {
+        name: 'openverse',
+        search: async (query) => {
+          queries.push(query.text);
+          return query.text === 'dark cinematic' ? [track()] : [];
+        },
+      };
+      const result = await make({ provider }).search('dark cinematic tension build with beat drop');
+      expect(result.ok && result.tracks).toHaveLength(1);
+      expect(queries).toEqual(['dark cinematic tension build with beat drop', 'dark cinematic']);
+      // The caller must not be told its phrase worked. That is what teaches the next
+      // query to be just as long.
+      expect(result.ok && result.matchedQuery).toBe('dark cinematic');
+    });
+
+    it('spends exactly one extra request, and none when the query is already short', async () => {
+      const empty = stubProvider([]);
+      const missed = await make({ provider: empty.provider }).search('cinematic tension rising');
+      expect(missed.ok && missed.tracks).toEqual([]);
+      expect(empty.calls).toBe(2);
+      // Nothing to shorten: no second request, and no phantom `matchedQuery`.
+      const short = stubProvider([]);
+      const already = await make({ provider: short.provider }).search('piano');
+      expect(short.calls).toBe(1);
+      expect(already.ok && already.matchedQuery).toBeUndefined();
+    });
+
     it('serves a repeat search from cache without spending a provider request', async () => {
       // Openverse allows 20 requests/minute anonymously. Without this, a user
       // typing gets a 429 that looks like the feature is broken.

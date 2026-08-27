@@ -183,9 +183,24 @@ describe('EditorSession — asset & folder (project-scoped) tools', () => {
     expect(project?.assets.find((a) => a.id === 'asset_1')?.folderId).toBe('folder_video');
   });
 
+  // The tool schema's own guard, one layer earlier: a provider URI or a name that is not a
+  // file never becomes an operation at all, so the sandbox check below is never reached with
+  // one. Different rule, different owner, different code.
+  it('rejects an add_asset path the model invented before it becomes an operation', async () => {
+    const { session } = await openSession();
+    for (const path of ['stock://pexels/20349219', 'clip']) {
+      expect(() => session.runTool('add_asset', { path })).toThrow(
+        expect.objectContaining({ code: 'invalid_args' }),
+      );
+    }
+  });
+
   it('rejects an add_asset path that escapes the projects sandbox', async () => {
     const { session } = await openSession();
-    expect(() => session.runTool('add_asset', { path: '../../etc/passwd' })).toThrow(
+    // A path that is a perfectly well-formed media filename and still escapes: exactly the
+    // case only a RESOLVING check can catch. (`../../etc/passwd` no longer reaches here — the
+    // tool schema refuses it earlier as `invalid_args`, since it names no media file.)
+    expect(() => session.runTool('add_asset', { path: '../../outside/evil.mp4' })).toThrow(
       expect.objectContaining({ code: 'unsafe_path' }),
     );
   });

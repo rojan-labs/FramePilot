@@ -4,6 +4,7 @@ import type { Timeline } from '@framepilot/timeline-schema';
 import {
   DEFAULT_MAX_REVIEW_CONCURRENCY,
   ReviewFindingQueue,
+  describeFindings,
   resolveReviewConcurrency,
   regionsOverlap,
   selectLiveFindings,
@@ -82,9 +83,7 @@ describe('touchedRegion', () => {
   });
 
   it('ignores a clip that did not change', () => {
-    const unchanged = [
-      { id: 'track_v1', clips: [{ id: 'clip_a' }, { id: 'clip_b' }] },
-    ] as const;
+    const unchanged = [{ id: 'track_v1', clips: [{ id: 'clip_a' }, { id: 'clip_b' }] }] as const;
     const result = touchedRegion(diffOf(unchanged, unchanged));
     expect(result.clipIds.size).toBe(0);
     expect(result.trackIds.size).toBe(0);
@@ -92,18 +91,12 @@ describe('touchedRegion', () => {
 
   it('reports added and removed clips', () => {
     const added = touchedRegion(
-      diffOf(
-        [{ id: 'track_v1', clips: [] }],
-        [{ id: 'track_v1', clips: [{ id: 'clip_new' }] }],
-      ),
+      diffOf([{ id: 'track_v1', clips: [] }], [{ id: 'track_v1', clips: [{ id: 'clip_new' }] }]),
     );
     expect([...added.clipIds]).toEqual(['clip_new']);
 
     const removed = touchedRegion(
-      diffOf(
-        [{ id: 'track_v1', clips: [{ id: 'clip_gone' }] }],
-        [{ id: 'track_v1', clips: [] }],
-      ),
+      diffOf([{ id: 'track_v1', clips: [{ id: 'clip_gone' }] }], [{ id: 'track_v1', clips: [] }]),
     );
     expect([...removed.clipIds]).toEqual(['clip_gone']);
   });
@@ -140,10 +133,13 @@ describe('touchedRegion', () => {
 
   it('reports an added track', () => {
     const result = touchedRegion(
-      diffOf([{ id: 'track_v1', clips: [] }], [
-        { id: 'track_v1', clips: [] },
-        { id: 'track_v2', clips: [] },
-      ]),
+      diffOf(
+        [{ id: 'track_v1', clips: [] }],
+        [
+          { id: 'track_v1', clips: [] },
+          { id: 'track_v2', clips: [] },
+        ],
+      ),
     );
     expect([...result.trackIds]).toEqual(['track_v2']);
   });
@@ -230,7 +226,10 @@ describe('selectLiveFindings', () => {
         clipIds: new Set<string>(),
       },
     });
-    const live = selectLiveFindings([unattributed], new Map([[1, region(['track_v1'], ['clip_a'])]]));
+    const live = selectLiveFindings(
+      [unattributed],
+      new Map([[1, region(['track_v1'], ['clip_a'])]]),
+    );
     expect(live).toHaveLength(1);
   });
 });
@@ -533,5 +532,29 @@ describe('ReviewFindingQueue', () => {
       expect(other.steer).toHaveLength(1);
       expect(other.exhausted).toEqual([]);
     });
+  });
+});
+
+describe('describeFindings', () => {
+  // GAP-005. The unresolved-review warning joined every detail end to end: fifteen
+  // sentences describing one fact at fifteen frame numbers, which reads as fifteen
+  // problems and names none of them.
+  it('reports one line per defect, with a count when the same defect repeats', () => {
+    const text = describeFindings([
+      finding({ id: 'f1', detail: 'Unexpected black frame(s): 0, 1, 2.' }),
+      finding({ id: 'f2', detail: 'Unexpected black frame(s): 90, 91.' }),
+      finding({ id: 'f3', detail: 'Unexpected black frame(s): 300.' }),
+      finding({ id: 'f4', detail: 'Audio peak 0.4 dBFS exceeds -1 dBFS.' }),
+    ]);
+    expect(text).toContain('Unexpected black frame(s): 0, 1, 2. (reported at 3 places)');
+    expect(text).toContain('Audio peak 0.4 dBFS exceeds -1 dBFS.');
+    // One line per cause, not one per measurement.
+    expect(text.match(/Unexpected black/g)).toHaveLength(1);
+  });
+
+  it('leaves a single finding exactly as it was written', () => {
+    const one = finding({ id: 'f1', detail: 'Unexpected black frame(s): 90.' });
+    expect(describeFindings([one])).toBe('Unexpected black frame(s): 90.');
+    expect(describeFindings([])).toBe('');
   });
 });

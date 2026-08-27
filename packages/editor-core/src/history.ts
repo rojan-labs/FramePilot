@@ -8,6 +8,7 @@
  * undo step without paying that flattening cost on every live commit.
  */
 import type { Project, Timeline } from '@framepilot/timeline-schema';
+import { quantizePatch } from './frame-grid.js';
 import {
   applyPatch,
   applyProjectPatch,
@@ -91,10 +92,17 @@ interface ProjectHistoryStep {
 export function commitProjectPatch(
   project: Project,
   history: EditHistory,
-  patch: Patch,
+  rawPatch: Patch,
   committedAt?: number,
   groupId?: string,
 ): ProjectHistoryStep {
+  // ADR 0146: the frame grid, applied ONCE, here — before the patch is inverted, applied
+  // or recorded, so all three see the same numbers. Not inside `applyOperation`: the
+  // inverse is computed from the operation, so an apply that quantized privately would
+  // invert to a different state than it applied from, and undo would drift a fraction of
+  // a frame per edit. This is also the line that makes a manual trim land on the same
+  // frame an AI trim does — the grid used to run only at the AI patch boundary.
+  const patch = quantizePatch(rawPatch, project.fps);
   const inverse = invertProjectPatch(project, patch);
   const next = applyProjectPatch(project, patch);
   const entries = history.entries.slice(0, history.cursor);

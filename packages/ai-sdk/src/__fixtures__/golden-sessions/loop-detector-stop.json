@@ -34,7 +34,7 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "what is on the timeline?"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
@@ -57,7 +57,9 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -106,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 20733,
+      "usedTokens": 21259,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -125,30 +127,37 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1775,
+            "tokenEstimate": 1626,
             "included": true
           },
           {
             "id": "s3",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 1774,
+            "type": "conversation",
+            "label": "user turn 2",
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s4",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 171,
+            "included": true
+          },
+          {
+            "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17049,
+            "tokenEstimate": 17552,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 20733,
+          "estimatedInputTokensBeforeSend": 21259,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 171075,
+          "estimatedRemainingCapacity": 170549,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -266,7 +275,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 4,
+        "version": 5,
         "objective": {
           "request": "what is on the timeline?",
           "outcome": "what is on the timeline?",
@@ -274,19 +283,23 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "what is on the timeline?"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
         "stage": "inspect",
-        "completedStages": ["interpret"],
+        "completedStages": [
+          "interpret"
+        ],
         "stageEnteredAtTurn": 1,
         "facts": [
           {
             "id": "fact_1",
             "kind": "project",
             "statement": "Reading the timeline → 2 tracks, 2 clips: video_1(2), audio_1(0)",
-            "evidenceIds": ["ev_1"],
+            "evidenceIds": [
+              "ev_1"
+            ],
             "scope": "timeline_dependent",
             "observedAtRevision": 0,
             "stage": "inspect"
@@ -307,12 +320,22 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
         },
-        "evidence": [],
+        "evidence": [
+          {
+            "id": "ev_1",
+            "source": "get_timeline",
+            "descriptor": "Reading the timeline",
+            "scope": "timeline_dependent",
+            "observedAtRevision": 0
+          }
+        ],
         "objectives": [
           {
             "id": "objective_1",
@@ -356,7 +379,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 20825,
+      "usedTokens": 21352,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -375,30 +398,38 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1775,
+            "tokenEstimate": 1626,
             "included": true
           },
           {
             "id": "s3",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 1866,
+            "type": "conversation",
+            "label": "user turn 2",
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s4",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 264,
+            "included": true
+          },
+          {
+            "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17049,
+            "tokenEstimate": 17552,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 20825,
+          "estimatedInputTokensBeforeSend": 21352,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170983,
+          "estimatedRemainingCapacity": 170456,
+          "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -413,7 +444,7 @@
           "objectiveKnown": true,
           "committedDecisions": 1,
           "facts": 1,
-          "evidenceHandles": 0,
+          "evidenceHandles": 1,
           "remainingObjectives": 1,
           "nextAction": "Continue inspect: read only what the objective still needs."
         }
@@ -504,6 +535,14 @@
       }
     },
     {
+      "id": "turn_golden:notice:8",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "notification",
+      "text": "That last look turned up nothing new — working from what has already been gathered."
+    },
+    {
       "id": "turn_golden:run-state",
       "conversationId": "conv_golden",
       "ts": 1000,
@@ -517,7 +556,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 4,
+        "version": 5,
         "objective": {
           "request": "what is on the timeline?",
           "outcome": "what is on the timeline?",
@@ -525,19 +564,23 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "what is on the timeline?"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
         "stage": "inspect",
-        "completedStages": ["interpret"],
+        "completedStages": [
+          "interpret"
+        ],
         "stageEnteredAtTurn": 1,
         "facts": [
           {
             "id": "fact_1",
             "kind": "project",
             "statement": "Reading the timeline → 2 tracks, 2 clips: video_1(2), audio_1(0)",
-            "evidenceIds": ["ev_1"],
+            "evidenceIds": [
+              "ev_1"
+            ],
             "scope": "timeline_dependent",
             "observedAtRevision": 0,
             "stage": "inspect"
@@ -558,12 +601,22 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
         },
-        "evidence": [],
+        "evidence": [
+          {
+            "id": "ev_1",
+            "source": "get_timeline",
+            "descriptor": "Reading the timeline",
+            "scope": "timeline_dependent",
+            "observedAtRevision": 0
+          }
+        ],
         "objectives": [
           {
             "id": "objective_1",
@@ -585,7 +638,7 @@
       }
     },
     {
-      "id": "turn_golden:status:8",
+      "id": "turn_golden:status:9",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -607,7 +660,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 14667,
+      "usedTokens": 15935,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -626,30 +679,38 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1775,
+            "tokenEstimate": 1626,
             "included": true
           },
           {
             "id": "s3",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 2148,
+            "type": "conversation",
+            "label": "user turn 2",
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s4",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 545,
+            "included": true
+          },
+          {
+            "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 10609,
+            "tokenEstimate": 11854,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 14667,
+          "estimatedInputTokensBeforeSend": 15935,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 177141,
+          "estimatedRemainingCapacity": 175873,
+          "toolSchemaTokensRebilled": 11854,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -664,7 +725,7 @@
           "objectiveKnown": true,
           "committedDecisions": 1,
           "facts": 1,
-          "evidenceHandles": 0,
+          "evidenceHandles": 1,
           "remainingObjectives": 1,
           "nextAction": "Continue inspect: read only what the objective still needs."
         }
@@ -680,7 +741,7 @@
       "done": true
     },
     {
-      "id": "turn_golden:status:9",
+      "id": "turn_golden:status:10",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -709,7 +770,7 @@
       "title": "Reading the timeline"
     },
     {
-      "id": "turn_golden:result:10",
+      "id": "turn_golden:result:11",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -731,7 +792,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 5,
+        "version": 6,
         "objective": {
           "request": "what is on the timeline?",
           "outcome": "what is on the timeline?",
@@ -739,19 +800,23 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "what is on the timeline?"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
         "stage": "inspect",
-        "completedStages": ["interpret"],
+        "completedStages": [
+          "interpret"
+        ],
         "stageEnteredAtTurn": 1,
         "facts": [
           {
             "id": "fact_1",
             "kind": "project",
             "statement": "Reading the timeline → 2 tracks, 2 clips: video_1(2), audio_1(0)",
-            "evidenceIds": ["ev_1"],
+            "evidenceIds": [
+              "ev_1"
+            ],
             "scope": "timeline_dependent",
             "observedAtRevision": 0,
             "stage": "inspect"
@@ -772,12 +837,22 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
         },
-        "evidence": [],
+        "evidence": [
+          {
+            "id": "ev_1",
+            "source": "get_timeline",
+            "descriptor": "Reading the timeline",
+            "scope": "timeline_dependent",
+            "observedAtRevision": 0
+          }
+        ],
         "objectives": [
           {
             "id": "objective_1",
@@ -790,7 +865,7 @@
         "verifications": [],
         "nextAction": {
           "stage": "verify",
-          "action": "Do this now: what is on the timeline?. Everything you need is in the run state above.",
+          "action": "Make the next edit the request calls for, using what this run has already gathered. Do not read anything else first.",
           "objectiveId": "objective_1"
         },
         "blockedOn": null,
@@ -803,7 +878,7 @@
       }
     },
     {
-      "id": "turn_golden:notice:11",
+      "id": "turn_golden:notice:12",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -824,7 +899,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 7,
+        "version": 8,
         "objective": {
           "request": "what is on the timeline?",
           "outcome": "what is on the timeline?",
@@ -832,19 +907,23 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "what is on the timeline?"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
         "stage": "inspect",
-        "completedStages": ["interpret"],
+        "completedStages": [
+          "interpret"
+        ],
         "stageEnteredAtTurn": 1,
         "facts": [
           {
             "id": "fact_1",
             "kind": "project",
             "statement": "Reading the timeline → 2 tracks, 2 clips: video_1(2), audio_1(0)",
-            "evidenceIds": ["ev_1"],
+            "evidenceIds": [
+              "ev_1"
+            ],
             "scope": "timeline_dependent",
             "observedAtRevision": 0,
             "stage": "inspect"
@@ -865,12 +944,22 @@
           "id": "plan_turn_golden_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": false
         },
-        "evidence": [],
+        "evidence": [
+          {
+            "id": "ev_1",
+            "source": "get_timeline",
+            "descriptor": "Reading the timeline",
+            "scope": "timeline_dependent",
+            "observedAtRevision": 0
+          }
+        ],
         "objectives": [
           {
             "id": "objective_1",
@@ -891,7 +980,7 @@
         ],
         "nextAction": {
           "stage": "verify",
-          "action": "Do this now: what is on the timeline?. Everything you need is in the run state above.",
+          "action": "Make the next edit the request calls for, using what this run has already gathered. Do not read anything else first.",
           "objectiveId": "objective_1"
         },
         "blockedOn": {
@@ -907,7 +996,7 @@
               "message": "Verification found: No traceable project mutation for the committed plan.",
               "stage": "verify",
               "blocking": true,
-              "atVersion": 6
+              "atVersion": 7
             }
           ]
         },
@@ -916,7 +1005,7 @@
       }
     },
     {
-      "id": "turn_golden:usage:12",
+      "id": "turn_golden:usage:13",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -926,7 +1015,7 @@
       "modelCalls": 3
     },
     {
-      "id": "turn_golden:status:13",
+      "id": "turn_golden:status:14",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",

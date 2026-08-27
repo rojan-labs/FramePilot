@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 85,
+  "toolCount": 86,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -370,11 +370,45 @@
           "trackId"
         ],
         "properties": {
+          "align": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "center",
+              "left",
+              "right"
+            ]
+          },
+          "background": {
+            "type": [
+              "string"
+            ]
+          },
+          "boxWidthPercent": {
+            "type": [
+              "number"
+            ],
+            "maximum": 100,
+            "exclusiveMinimum": 0
+          },
+          "color": {
+            "type": [
+              "string"
+            ]
+          },
           "end": {
             "type": [
               "number"
             ],
             "minimum": 0
+          },
+          "sizePercent": {
+            "type": [
+              "number"
+            ],
+            "maximum": 100,
+            "exclusiveMinimum": 0
           },
           "start": {
             "type": [
@@ -391,6 +425,20 @@
             "type": [
               "string"
             ]
+          },
+          "xPercent": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "yPercent": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 100
           }
         }
       }
@@ -2927,6 +2975,46 @@
             "minimum": 0
           },
           "query": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    },
+    "remember_preference": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "exportPlatforms": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "key": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "brandStyle",
+              "captionStyle",
+              "preferredPacing",
+              "targetAudience"
+            ]
+          },
+          "value": {
             "type": [
               "string"
             ]

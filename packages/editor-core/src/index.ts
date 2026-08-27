@@ -42,3 +42,4 @@ export * from './audio-commands.js';
 // How a transition is stored across the two clips it joins, and where its ramp
 // sits relative to the cut (plan/ADVANCED-TRANSITION-SYSTEM.md).
 export * from './transitions.js';
+export * from './frame-grid.js';

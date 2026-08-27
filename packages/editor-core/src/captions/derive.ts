@@ -158,24 +158,97 @@ function overlapThreshold(span: ClipSpan, word: TranscriptWord): number {
  * worse: it produces stuttering, duplicated captions at every reuse.
  */
 function bestSpanFor(
-  spans: readonly ClipSpan[],
+  index: SourceSpanIndex,
   word: TranscriptWord,
   assetId: string | undefined,
 ): ClipSpan | undefined {
   let best: ClipSpan | undefined;
   let bestOverlap = 0;
-  for (const span of spans) {
-    // An unattributed word (pre-v12 transcript) matches any asset — the v11
-    // behavior — while an attributed one is confined to its own footage.
-    if (assetId !== undefined && span.assetId !== assetId) continue;
+  const consider = (span: ClipSpan): void => {
     const overlap = sourceOverlap(span, word);
-    if (overlap <= overlapThreshold(span, word)) continue;
+    if (overlap <= overlapThreshold(span, word)) return;
     if (overlap > bestOverlap) {
       best = span;
       bestOverlap = overlap;
     }
+  };
+  // An unattributed word (pre-v12 transcript) matches any asset — the v11 behavior —
+  // while an attributed one is confined to its own footage.
+  const groups =
+    assetId === undefined ? index.byAsset.values() : [index.byAsset.get(assetId) ?? EMPTY_GROUP];
+  for (const group of groups) {
+    for (const span of candidatesIn(group, word)) consider(span);
   }
   return best;
+}
+
+/**
+ * Spans grouped by asset and sorted by source in-point, so mapping a word is a search
+ * rather than a scan.
+ *
+ * WHY: `mapTranscript` called `bestSpanFor` once per word and `bestSpanFor` walked EVERY
+ * span, which is O(words x clips). On an hour of footage — nine thousand words over
+ * eighteen hundred clips — that is sixteen million overlap tests, paid by every caption
+ * derivation and every review. The result is unchanged: the same majority rule over the
+ * same candidates, reached by binary search.
+ */
+interface SourceSpanGroup {
+  /** Spans for one asset, ascending by `sourceStart`. */
+  readonly spans: readonly ClipSpan[];
+  /** The longest source range any of them covers — the bound on the backward walk. */
+  readonly longestSource: number;
+}
+
+interface SourceSpanIndex {
+  readonly byAsset: ReadonlyMap<string, SourceSpanGroup>;
+}
+
+const EMPTY_GROUP: SourceSpanGroup = { spans: [], longestSource: 0 };
+
+function indexSpansBySource(spans: readonly ClipSpan[]): SourceSpanIndex {
+  const grouped = new Map<string, ClipSpan[]>();
+  for (const span of spans) {
+    const list = grouped.get(span.assetId);
+    if (list === undefined) grouped.set(span.assetId, [span]);
+    else list.push(span);
+  }
+  const byAsset = new Map<string, SourceSpanGroup>();
+  for (const [assetId, list] of grouped) {
+    const sorted = [...list].sort((a, b) => a.sourceStart - b.sourceStart);
+    const longestSource = sorted.reduce(
+      (max, span) => Math.max(max, span.sourceEnd - span.sourceStart),
+      0,
+    );
+    byAsset.set(assetId, { spans: sorted, longestSource });
+  }
+  return { byAsset };
+}
+
+/**
+ * The spans in `group` that could overlap `word` in source time.
+ *
+ * Binary search to the first span starting at or after the word's end, then walk back
+ * while a span could still reach the word. The walk is bounded by the group's longest
+ * source range — a real quantity, not an assumption that spans do not overlap, which they
+ * do whenever footage is reused.
+ */
+function candidatesIn(group: SourceSpanGroup, word: TranscriptWord): ClipSpan[] {
+  const { spans, longestSource } = group;
+  let low = 0;
+  let high = spans.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (spans[mid]!.sourceStart < word.end) low = mid + 1;
+    else high = mid;
+  }
+  const found: ClipSpan[] = [];
+  const floor = word.start - longestSource;
+  for (let i = Math.min(low, spans.length) - 1; i >= 0; i -= 1) {
+    const span = spans[i]!;
+    if (span.sourceStart <= floor) break;
+    if (span.sourceEnd > word.start) found.push(span);
+  }
+  return found;
 }
 
 /**
@@ -217,6 +290,7 @@ export function mapTranscript(
 ): MappedTranscript {
   const mapped: MappedWord[] = [];
   let droppedCount = 0;
+  const index = indexSpansBySource(map.spans);
 
   for (const word of transcript) {
     // Zero/negative-duration entries carry no readable time and would skew every
@@ -228,7 +302,7 @@ export function mapTranscript(
     // `?? undefined` because the attribution is nullish across the language
     // boundary (the Python engine serializes "no asset" as null), and null must
     // read as "unattributed", not as an asset literally named null.
-    const span = bestSpanFor(map.spans, word, word.assetId ?? undefined);
+    const span = bestSpanFor(index, word, word.assetId ?? undefined);
     if (span === undefined) {
       droppedCount += 1;
       continue;

@@ -13,7 +13,9 @@ import {
   buildContext,
   estimateTokens,
   focusedClipIds,
-  MAX_CLIPS_PER_LAYER,
+  MIN_CLIPS_PER_LAYER,
+  MIN_TRANSCRIPT_WORDS,
+  allocateGroundingSlice,
   summarizeTimeline,
   summarizeTranscript,
 } from './context-builder.js';
@@ -414,14 +416,73 @@ describe('bounded timeline slice (K2.2)', () => {
   it('the bounded slice is dramatically smaller than the whole-timeline dump', () => {
     const tl: Timeline = { tracks: [track('t1', bigLayer)] };
     const dump = summarizeTimeline(tl, new Map());
-    const slice = summarizeTimeline(tl, new Map(), undefined, MAX_CLIPS_PER_LAYER);
+    const slice = summarizeTimeline(tl, new Map(), undefined, MIN_CLIPS_PER_LAYER);
     expect(estimateTokens(slice)).toBeLessThan(estimateTokens(dump) / 5);
   });
 
-  it('assembleContext bounds the unfocused timeline slice for a large project', () => {
+  it('assembleContext shows a large timeline in full when the model has room (P1.3)', () => {
+    // This used to collapse at 12 clips per layer whatever the model was, because the cap
+    // was a compile-time constant. 200 clips is nothing against a real window, and the
+    // whole point of the allocation is that the model gets to see them.
     const project = makeProject({ timeline: { tracks: [track('t1', bigLayer)] } });
     const content = assembleContext({ project, userPrompt: 'x' }).messages.at(-1)?.content ?? '';
-    expect(content).toContain('more clip(s)');
+    expect(content).toContain('c199[');
+    expect(content).not.toContain('more clip(s)');
+  });
+
+  it('still bounds the slice when the room is genuinely small', () => {
+    const project = makeProject({ timeline: { tracks: [track('t1', bigLayer)] } });
+    const assetKinds = new Map(project.assets.map((a) => [a.id, a.kind]));
+    const tight = allocateGroundingSlice(project, assetKinds, 400);
+    expect(tight.maxClipsPerLayer).toBeGreaterThanOrEqual(MIN_CLIPS_PER_LAYER);
+    expect(tight.maxClipsPerLayer).toBeLessThan(bigLayer.length);
+    // And what it allocated actually fits what it was given.
+    expect(
+      estimateTokens(
+        summarizeTimeline(project.timeline, assetKinds, undefined, tight.maxClipsPerLayer),
+      ),
+    ).toBeLessThanOrEqual(400);
+  });
+
+  it('never falls below the historical floor, even with no room at all', () => {
+    const project = makeProject({ timeline: { tracks: [track('t1', bigLayer)] } });
+    const assetKinds = new Map(project.assets.map((a) => [a.id, a.kind]));
+    // Negative room is the honest case for a window smaller than the system contract.
+    // The allocation pins to the floor and DROP_ORDER takes over, exactly as before P1.3.
+    for (const room of [-5_000, 0, 1]) {
+      const allocation = allocateGroundingSlice(project, assetKinds, room);
+      expect(allocation.maxClipsPerLayer).toBe(MIN_CLIPS_PER_LAYER);
+      // Capped by what exists: this fixture has two words, and the floor is an allowance,
+      // not a demand for words the project does not have.
+      expect(allocation.maxTranscriptWords).toBeLessThanOrEqual(MIN_TRANSCRIPT_WORDS);
+    }
+  });
+
+  it('a focused request is selected by relevance, not grown by budget', () => {
+    const project = makeProject({ timeline: { tracks: [track('t1', bigLayer)] } });
+    const assetKinds = new Map(project.assets.map((a) => [a.id, a.kind]));
+    const focused = allocateGroundingSlice(project, assetKinds, 1_000_000, { start: 10, end: 20 });
+    expect(focused.maxClipsPerLayer).toBe(MIN_CLIPS_PER_LAYER);
+    expect(focused.maxTranscriptWords).toBe(MIN_TRANSCRIPT_WORDS);
+  });
+
+  it('hands the timeline the room a small transcript does not need', () => {
+    const wordy = makeProject({
+      timeline: { tracks: [track('t1', bigLayer)] },
+      transcript: Array.from({ length: 5_000 }, (_, i) => ({
+        word: `word${i}`,
+        start: i * 0.4,
+        end: i * 0.4 + 0.35,
+      })),
+    });
+    const silent = makeProject({ timeline: { tracks: [track('t1', bigLayer)] }, transcript: [] });
+    const assetKinds = new Map(silent.assets.map((a) => [a.id, a.kind]));
+    const room = 900;
+    // Same timeline, same room: the one with nothing to say in the transcript tier must
+    // not have half the room reserved for it.
+    expect(allocateGroundingSlice(silent, assetKinds, room).maxClipsPerLayer).toBeGreaterThan(
+      allocateGroundingSlice(wordy, assetKinds, room).maxClipsPerLayer,
+    );
   });
 });
 
@@ -453,14 +514,18 @@ describe('transcript relevance window (K2.2)', () => {
     expect(summarizeTranscript(project)).toContain('word0');
   });
 
-  it('assembleContext windows the transcript when a selection is present', () => {
+  it('assembleContext biases toward the selection without walling off the rest (P2.2)', () => {
+    // Before Phase 2 a selection HARD-narrowed the transcript: a 30s selection on a
+    // 60-minute project took the model from 600 words to 97, which is right for "tighten
+    // this" and wrong for "find the strongest hook". A selection is now a bias, so the
+    // dialogue around it leads and the rest of the recording stays eligible for the room.
     const project = makeProject({ transcript: longTranscript });
     const content =
       assembleContext({ project, userPrompt: 'x', selection: { start: 50, end: 52 } }).messages.at(
         -1,
       )?.content ?? '';
     expect(content).toContain('focused on 50–52s');
-    expect(content).not.toContain('word0 ');
+    expect(content).toContain('word0');
   });
 });
 

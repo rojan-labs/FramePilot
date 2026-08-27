@@ -152,8 +152,9 @@ describe('treatment coverage', () => {
   });
 
   it('skips when the request asked nothing of every clip', () => {
-    expect(critique(cut(5, 0, 0), {}).checks.find((c) => c.id === 'treatment_coverage')).
-      toMatchObject({ status: 'skipped' });
+    expect(
+      critique(cut(5, 0, 0), {}).checks.find((c) => c.id === 'treatment_coverage'),
+    ).toMatchObject({ status: 'skipped' });
   });
 });
 
@@ -177,9 +178,7 @@ describe('reframe coverage', () => {
               sourceEnd: 1,
               effects: [],
               keyframes: [],
-              ...(index < cropped
-                ? { crop: { x: 0.34, y: 0, width: 0.3164, height: 1 } }
-                : {}),
+              ...(index < cropped ? { crop: { x: 0.34, y: 0, width: 0.3164, height: 1 } } : {}),
             })),
           },
         ],
@@ -199,24 +198,24 @@ describe('reframe coverage', () => {
   });
 
   it('passes when every picture clip is reframed', () => {
-    expect(critique(verticalCut(10, 10), {}).checks.find((c) => c.id === 'reframe_coverage')).
-      toMatchObject({ status: 'pass' });
+    expect(
+      critique(verticalCut(10, 10), {}).checks.find((c) => c.id === 'reframe_coverage'),
+    ).toMatchObject({ status: 'pass' });
   });
 
   it('warns — never fails — when a portrait frame has no reframing at all', () => {
     // Might be a same-aspect edit that needs none; the project does not carry each asset's
     // pixel dimensions, so this cannot be settled, only raised.
-    const found = critique(verticalCut(10, 0), {}).checks.find(
-      (c) => c.id === 'reframe_coverage',
-    );
+    const found = critique(verticalCut(10, 0), {}).checks.find((c) => c.id === 'reframe_coverage');
     expect(found).toMatchObject({ status: 'warn' });
     expect(found?.detail).toContain('black bars');
   });
 
   it('says nothing about an uncropped landscape edit', () => {
     // The default fixture is 1920x1080 with no crops — the ordinary case, and not a defect.
-    expect(critique(makeProject(), {}).checks.find((c) => c.id === 'reframe_coverage')).
-      toMatchObject({ status: 'skipped' });
+    expect(
+      critique(makeProject(), {}).checks.find((c) => c.id === 'reframe_coverage'),
+    ).toMatchObject({ status: 'skipped' });
   });
 });
 
@@ -225,6 +224,7 @@ describe('critique — shape', () => {
     const report = critique(makeProject());
     expect(report.checks.map((c) => c.id)).toEqual([
       'request_match',
+      'picture_present',
       'duration_target',
       'shot_count',
       'reframe_coverage',
@@ -235,17 +235,71 @@ describe('critique — shape', () => {
       'black_frames',
       'missing_assets',
       'export_settings',
+      // Editorial checks (context-management Phase 4). The battery above answers "is the
+      // deliverable well-formed?" and not one of it answers "is this a good cut?"; these
+      // six do, and they run on every review rather than behind a flag.
+      'jump_cut',
+      'word_severed',
+      'dead_air',
+      'transition_fit',
+      'audio_slam',
+      'shot_rhythm',
     ]);
   });
 
   it('ok is false only when a check fails; warnings still pass', () => {
+    // The fixture is a 10s timeline whose two transcript words end at 1s, so `dead_air`
+    // warns about the nine seconds of nothing after the last word — correctly, and as a
+    // warning rather than a failure (see the check's own note on promotion).
     const ok = critique(makeProject(), { producedChanges: true });
     expect(ok.ok).toBe(true);
-    expect(ok.summary).toBe('All checks passed.');
+    expect(ok.summary).toMatch(/warning/);
 
     const warned = critique(makeProject(), { producedChanges: false });
     expect(warned.ok).toBe(true);
     expect(warned.summary).toMatch(/warning/);
+  });
+});
+
+describe('picture_present', () => {
+  /** The shape run e30c1fe9 shipped: text overlays over an empty video track. */
+  const textOnBlack = () =>
+    withTracks([
+      {
+        id: 'txt_main',
+        type: 'overlay',
+        clips: [
+          clip({ id: 'txt_1', assetId: '__text__', trackId: 'txt_main', start: 0, end: 15 }),
+          clip({ id: 'txt_2', assetId: '__text__', trackId: 'txt_main', start: 15, end: 30 }),
+        ],
+      },
+      { id: 'v_main', type: 'video', clips: [] },
+    ]);
+
+  it('fails a reel that is text on black when a visual deliverable was asked for', () => {
+    const report = critique(textOnBlack(), { durationTargetSeconds: 30 });
+    expect(idOf(report, 'picture_present')).toMatchObject({ status: 'fail' });
+    expect(idOf(report, 'picture_present')?.detail).toMatch(/no picture under them/);
+    expect(report.ok).toBe(false);
+  });
+
+  it('stops the duration check from certifying that reel as on target in silence', () => {
+    // It IS 30 seconds long, and saying so is fine — as long as it also says of what.
+    const duration = idOf(
+      critique(textOnBlack(), { durationTargetSeconds: 30 }),
+      'duration_target',
+    );
+    expect(duration).toMatchObject({ status: 'pass' });
+    expect(duration?.detail).toMatch(/Only 0s of that is picture or sound/);
+  });
+
+  it('only warns when nothing visual was asked for', () => {
+    expect(idOf(critique(textOnBlack()), 'picture_present')).toMatchObject({ status: 'warn' });
+  });
+
+  it('passes an ordinary cut and skips an empty timeline', () => {
+    expect(idOf(critique(makeProject()), 'picture_present')).toMatchObject({ status: 'pass' });
+    expect(idOf(critique(withTracks([])), 'picture_present')).toMatchObject({ status: 'skipped' });
   });
 });
 

@@ -105,6 +105,7 @@ _EXPECTED_FLAGS: dict[str, tuple[bool, bool]] = {
     "manage_assets": (True, True),
     "add_marker": (True, True),
     "remove_marker": (True, True),
+    "remember_preference": (True, True),
     "transcribe": (True, False),
     "render_preview": (True, False),
     "export_video": (True, False),
@@ -636,6 +637,45 @@ def test_add_text_layer_maps_to_overlay_op(ctx: ToolContext, project: Project) -
     _assert_patch_ok(result, project)
 
 
+def test_add_text_layer_carries_style_into_the_effect_params(
+    ctx: ToolContext, project: Project
+) -> None:
+    """GAP-006: the agent can make one word visually dominant.
+
+    ``add_text_layer`` used to take four fields and produce a default centred caption, so
+    a brief asking for "large typography, important words dominant" had no way through.
+    The style rides a second op on the same patch, into the params bag the Inspector
+    writes and ``render/text_overlay.py`` resolves — one vocabulary, three consumers.
+    """
+    result = run_tool(
+        "add_text_layer",
+        {
+            "trackId": "ov",
+            "text": "$327,000,000",
+            "start": 0.0,
+            "end": 2.0,
+            "sizePercent": 18,
+            "color": "#ff2d55",
+            "yPercent": 30,
+            "align": "center",
+        },
+        ctx,
+    )
+    assert result.operations is not None
+    assert [op["type"] for op in result.operations] == ["add_text_overlay", "set_effect_params"]
+    style = result.operations[1]
+    assert style["clipId"] == result.operations[0]["clipId"]
+    assert style["params"] == {
+        "fontSizePercent": 18,
+        "color": "#ff2d55",
+        "align": "center",
+        "yPercent": 30,
+    }
+    # The style must target the effect the first op creates on that clip, not a guess.
+    assert style["effectId"] == f"{style['clipId']}__text"
+    _assert_patch_ok(result, project)
+
+
 def test_add_caption_layer(ctx: ToolContext, project: Project) -> None:
     result = run_tool("add_caption_layer", {"trackId": "cap", "start": 0.0, "end": 2.0}, ctx)
     _assert_patch_ok(result, project)
@@ -1057,6 +1097,27 @@ def test_add_asset_derives_id_and_emits_op() -> None:
             "asset": {"id": "asset_gen_clip_one_mp4", "path": "gen/clip one.mp4", "kind": "video"},
         }
     ]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "stock://pexels/20349219",  # the captured fabrication
+        "https://example.com/clip.mp4",
+        "clip",  # no extension: not a file
+        "   ",
+    ],
+)
+def test_add_asset_refuses_a_path_the_model_invented(path: str) -> None:
+    """Mirrors ``modelAuthoredMediaPath`` in the TS registry.
+
+    A captured agent run lost its stock ``remoteId``s to log compaction and guessed a path
+    instead. Nothing looked at it: the patch validated and the card showed a checkmark for a
+    bin entry pointing at nothing. A dead end the run can act on beats a success it cannot.
+    """
+    ctx = ToolContext(project=_bin_project(), selection=None)
+    with pytest.raises(ToolInputError):
+        run_tool("add_asset", {"path": path}, ctx)
 
 
 def test_add_asset_honors_explicit_fields() -> None:

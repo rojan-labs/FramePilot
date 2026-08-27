@@ -34,7 +34,7 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "trim the dead air"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
@@ -57,7 +57,9 @@
           "id": "plan_turn_parity_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -106,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 20731,
+      "usedTokens": 21258,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -125,30 +127,37 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1775,
+            "tokenEstimate": 1626,
             "included": true
           },
           {
             "id": "s3",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 1772,
+            "type": "conversation",
+            "label": "user turn 2",
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s4",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 170,
+            "included": true
+          },
+          {
+            "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17049,
+            "tokenEstimate": 17552,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 20731,
+          "estimatedInputTokensBeforeSend": 21258,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 851269,
+          "estimatedRemainingCapacity": 850742,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -211,28 +220,35 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1775,
+            "tokenEstimate": 1626,
             "included": true
           },
           {
             "id": "s3",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 1772,
+            "type": "conversation",
+            "label": "user turn 2",
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s4",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 170,
+            "included": true
+          },
+          {
+            "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17049,
+            "tokenEstimate": 17552,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 20731,
+          "estimatedInputTokensBeforeSend": 21258,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -404,7 +420,9 @@
             ],
             "revision": 1
           },
-          "summary": ["[video_1] ~ clip clip_a (0–6s → 3–6s)"]
+          "summary": [
+            "[video_1] ~ clip clip_a (0–6s → 3–6s)"
+          ]
         },
         "text": "Trimming the dead air now."
       },
@@ -450,12 +468,14 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "trim the dead air"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
         "stage": "inspect",
-        "completedStages": ["interpret"],
+        "completedStages": [
+          "interpret"
+        ],
         "stageEnteredAtTurn": 1,
         "facts": [],
         "decisions": [
@@ -473,7 +493,9 @@
           "id": "plan_turn_parity_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -499,6 +521,7 @@
             "idempotencyKey": "turn_parity:plan_turn_parity_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":3}:0",
             "projectRevisionBefore": 0,
             "projectRevisionAfter": 1,
+            "patchId": "patch_bce93659",
             "objectiveId": "objective_1"
           }
         ],
@@ -536,7 +559,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 20774,
+      "usedTokens": 21301,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -555,30 +578,38 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1775,
+            "tokenEstimate": 1626,
             "included": true
           },
           {
             "id": "s3",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 1815,
+            "type": "conversation",
+            "label": "user turn 2",
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s4",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 213,
+            "included": true
+          },
+          {
+            "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17049,
+            "tokenEstimate": 17552,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 20774,
+          "estimatedInputTokensBeforeSend": 21301,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 851226,
+          "estimatedRemainingCapacity": 850699,
+          "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -642,30 +673,38 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1775,
+            "tokenEstimate": 1626,
             "included": true
           },
           {
             "id": "s3",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 1815,
+            "type": "conversation",
+            "label": "user turn 2",
+            "tokenEstimate": 1775,
             "included": true
           },
           {
             "id": "s4",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 213,
+            "included": true
+          },
+          {
+            "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17049,
+            "tokenEstimate": 17552,
             "included": true
           }
         ],
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 20774,
+          "estimatedInputTokensBeforeSend": 21301,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
+          "toolSchemaTokensRebilled": 0,
           "calculationSource": "provider_reported",
           "providerReportedInputTokens": 100,
           "providerReportedOutputTokens": 20
@@ -718,12 +757,14 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "trim the dead air"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
         "stage": "inspect",
-        "completedStages": ["interpret"],
+        "completedStages": [
+          "interpret"
+        ],
         "stageEnteredAtTurn": 1,
         "facts": [],
         "decisions": [
@@ -741,7 +782,9 @@
           "id": "plan_turn_parity_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -767,6 +810,7 @@
             "idempotencyKey": "turn_parity:plan_turn_parity_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":3}:0",
             "projectRevisionBefore": 0,
             "projectRevisionAfter": 1,
+            "patchId": "patch_bce93659",
             "objectiveId": "objective_1"
           }
         ],
@@ -811,7 +855,7 @@
           "acceptance": [
             {
               "id": "criterion_1",
-              "description": "trim the dead air"
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
             }
           ]
         },
@@ -842,7 +886,9 @@
           "id": "plan_turn_parity_1",
           "committedAtTurn": 0,
           "basedOnProjectRevision": 0,
-          "decisionIds": ["decision_1"]
+          "decisionIds": [
+            "decision_1"
+          ]
         },
         "execution": {
           "authorized": true
@@ -868,6 +914,7 @@
             "idempotencyKey": "turn_parity:plan_turn_parity_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":3}:0",
             "projectRevisionBefore": 0,
             "projectRevisionAfter": 1,
+            "patchId": "patch_bce93659",
             "objectiveId": "objective_1"
           }
         ],
