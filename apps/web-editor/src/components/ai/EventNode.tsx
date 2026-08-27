@@ -219,17 +219,138 @@ function formatRuntime(ms: number): string {
   return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`;
 }
 
+/** A prompt this long reads as a wall of text at full height (the "FINAL DELIVERABLE"
+ *  spec prompts in practice run 30+ lines) — collapse anything past a few lines and let
+ *  a click on the card reveal the rest, same "click to expand" contract as tool output. */
+const USER_MESSAGE_COLLAPSED_LINES = 4;
+const USER_MESSAGE_COLLAPSE_CHAR_THRESHOLD = 240;
+
+/** Long enough that showing it in full would dominate the thread — matches the same
+ *  bar {@link summaryExceedsOneLine} uses for tool summaries, just at a few lines. */
+function userMessageNeedsCollapse(text: string): boolean {
+  return (
+    text.length > USER_MESSAGE_COLLAPSE_CHAR_THRESHOLD ||
+    text.split('\n').length > USER_MESSAGE_COLLAPSED_LINES
+  );
+}
+
+/** Where a right-click landed on a user turn — just enough to place the one-item menu. */
+interface UserCopyMenuTarget {
+  readonly x: number;
+  readonly y: number;
+}
+
+/** The user turn's right-click menu: one item, "Copy". Same `.context-menu` chrome and
+ *  close-on-outside-click/Escape contract as {@link TrackContextMenu} — a full clipboard
+ *  history/edit menu would be scope this card doesn't need; copying the prompt is the
+ *  one thing worth a right-click here. */
+function UserCopyMenu({
+  target,
+  text,
+  onClose,
+}: {
+  target: UserCopyMenuTarget;
+  text: string;
+  onClose: () => void;
+}): JSX.Element {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDown = (event: PointerEvent): void => {
+      if (!ref.current?.contains(event.target as Node)) onClose();
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, [onClose]);
+  return (
+    <div
+      ref={ref}
+      className="context-menu"
+      role="menu"
+      aria-label="prompt actions"
+      style={{ left: target.x, top: target.y }}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => {
+          void navigator.clipboard?.writeText(text);
+          onClose();
+        }}
+      >
+        <Copy size={ICON_SIZE.sm} aria-hidden="true" /> Copy
+      </button>
+    </div>
+  );
+}
+
 /**
  * The user's turn — where a long thread visibly restarts.
  *
  * Cursor's move, and the right one: not an accent-filled chat bubble, but a quiet card
  * with an accent tick down its leading edge. In a run that produces fifty activity rows,
  * that tick is the only thing you scroll to when you want "where did I ask for this".
+ *
+ * A short prompt renders in full, as before. A long one (a multi-section brief pasted
+ * into the composer) starts clamped to a few lines — the card, not just a hidden control,
+ * is the click target to expand it, since it is the one thing in the row worth clicking.
+ *
+ * Copying the prompt back out has two paths in, same as a tool row: a hover-revealed
+ * icon button (pointer users who spot it) and a right-click menu (pointer users who
+ * reach for the OS habit instead) — both write the same untruncated `node.text`.
  */
 function UserMessage({ node }: { node: UserNode }): JSX.Element {
+  const collapsible = userMessageNeedsCollapse(node.text);
+  const [open, setOpen] = useState(false);
+  const [menuTarget, setMenuTarget] = useState<UserCopyMenuTarget | null>(null);
+  const expanded = open || !collapsible;
   return (
     <div className="ai-event ai-event--user" role="listitem">
-      <div className="ai-bubble ai-bubble--user">{node.text}</div>
+      <div
+        className="ai-bubble ai-bubble--user"
+        data-collapsible={collapsible}
+        data-expanded={expanded}
+        role={collapsible ? 'button' : undefined}
+        tabIndex={collapsible ? 0 : undefined}
+        aria-expanded={collapsible ? expanded : undefined}
+        onClick={collapsible ? () => setOpen((v) => !v) : undefined}
+        onKeyDown={
+          collapsible
+            ? (event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                setOpen((v) => !v);
+              }
+            : undefined
+        }
+        onContextMenu={(event) => {
+          event.preventDefault();
+          setMenuTarget({ x: event.clientX, y: event.clientY });
+        }}
+      >
+        <div className="ai-bubble--user-text">{node.text}</div>
+        {collapsible && (
+          <span className="ai-bubble--user-hint">{expanded ? 'Show less' : 'Show more'}</span>
+        )}
+        {/* Stop the copy click from bubbling to the card's own onClick, which would
+            toggle expand/collapse right underneath the button being pressed. */}
+        <span
+          className="ai-bubble--user-actions"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <CopyButton text={node.text} label="Copy prompt" />
+        </span>
+      </div>
+      {menuTarget && (
+        <UserCopyMenu target={menuTarget} text={node.text} onClose={() => setMenuTarget(null)} />
+      )}
     </div>
   );
 }
