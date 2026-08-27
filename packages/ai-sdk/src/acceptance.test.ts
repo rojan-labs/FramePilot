@@ -15,8 +15,10 @@ import {
   explicitCoverage,
   explicitMinShotCount,
   hasCheckableAcceptance,
+  mentionsUnreadableShotCount,
   unmeetableDeliverables,
 } from './acceptance.js';
+import { MONTAGE_BRIEF_E36235CC } from './__fixtures__/montage-brief-e36235cc.js';
 
 describe('explicitMinShotCount', () => {
   it('reads a shot count from the way editors actually ask', () => {
@@ -220,5 +222,90 @@ describe('acceptanceCriteria', () => {
     const criteria = acceptanceCriteria(checkableAcceptance(brief, 30));
     expect(criteria.some((line) => line.includes('high-retention'))).toBe(false);
     expect(criteria.join('').length).toBeLessThan(400);
+  });
+});
+
+describe('round 5 — the beat-map table must not suppress the shot count', () => {
+  it('reads 50 from the captured montage brief', () => {
+    // The regression. `50+ visually distinct clips` sits at index ~218; `0.50s` appears three
+    // times in a beat-map EXAMPLE table thousands of characters later. The guard used to test
+    // the WHOLE prompt, so the table invalidated the requirement and the run's only checkable
+    // condition vanished — which is how a one-clip timeline reported `completed`.
+    expect(explicitMinShotCount(MONTAGE_BRIEF_E36235CC)).toBe(50);
+  });
+
+  it('records the shot count as a criterion the ledger reports against', () => {
+    expect(acceptanceCriteria(checkableAcceptance(MONTAGE_BRIEF_E36235CC, undefined))).toContain(
+      'The cut uses at least 50 distinct shots.',
+    );
+  });
+
+  it.each([
+    ['50+ visually distinct clips', 50],
+    ['at least 50 separate video clips', 50],
+    ['**Minimum clips:** 50', 50],
+    ['use 20+ of the best moments', 20],
+    ['use 20 clips', 20],
+    // A range promises its NEAR end.
+    ['60-80 clips', 60],
+    ['60–80 clips', 60],
+    ['60 to 80 clips', 60],
+    // Durations, resolutions and frame rates are not shot counts.
+    ['30 second cuts', undefined],
+    ['use 30s clips', undefined],
+    ['0.5-1.0s per clip', undefined],
+    ['1080p 9:16 30fps', undefined],
+    // Out of range, or not a stated number at all.
+    ['1000 subscribers', undefined],
+    ['2 clips', undefined],
+    ['a few clips', undefined],
+    ['', undefined],
+  ])('reads %j as %s', (prompt, expected) => {
+    expect(explicitMinShotCount(prompt)).toBe(expected);
+  });
+
+  it('prefers a marked floor over a larger aspiration', () => {
+    // "Prefer 60-80" and "Target approximately 80-120 candidate clips" are not floors. Taking
+    // the largest number would make the criterion 120 and fail a cut of 80 that did the work.
+    expect(
+      explicitMinShotCount('At least 50 clips. Prefer 60-80 clips. Target 80-120 candidate clips.'),
+    ).toBe(50);
+  });
+
+  it('ignores a search-pool size', () => {
+    expect(explicitMinShotCount('Target approximately 80-120 candidate clips')).toBeUndefined();
+  });
+
+  it('reads the largest marked floor when a brief repeats itself', () => {
+    expect(explicitMinShotCount('at least 20 clips … no fewer than 40 clips')).toBe(40);
+  });
+
+  it('is not fooled by a throwaway count in the opening line', () => {
+    // First-match-wins would have returned 3 here.
+    expect(explicitMinShotCount('Open with a few 3-shot sequences, then at least 50 clips.')).toBe(
+      50,
+    );
+  });
+
+  it('reads the same prompt the same way twice (module-level /g regex state)', () => {
+    expect(explicitMinShotCount(MONTAGE_BRIEF_E36235CC)).toBe(
+      explicitMinShotCount(MONTAGE_BRIEF_E36235CC),
+    );
+  });
+});
+
+describe('mentionsUnreadableShotCount', () => {
+  it('is false for the captured brief now that it reads', () => {
+    expect(mentionsUnreadableShotCount(MONTAGE_BRIEF_E36235CC)).toBe(false);
+  });
+
+  it('is false for a short prompt, however it is phrased', () => {
+    expect(mentionsUnreadableShotCount('make it nice')).toBe(false);
+  });
+
+  it('flags a spec-length brief whose only count is unreadable', () => {
+    const spec = `${'Make a montage. '.repeat(120)} Use 2 clips.`;
+    expect(explicitMinShotCount(spec)).toBeUndefined();
+    expect(mentionsUnreadableShotCount(spec)).toBe(true);
   });
 });

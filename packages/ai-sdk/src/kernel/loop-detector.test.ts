@@ -10,10 +10,12 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_NO_PROGRESS_TURNS,
   SEMANTIC_LOOP_TURNS,
+  catalogueSearchRefusal,
   isSemanticLoop,
   madeMeaningfulProgress,
   normalizeIntent,
   recoveryAction,
+  shouldWithholdCatalogueSearch,
   type TurnProgress,
 } from './loop-detector.js';
 import {
@@ -202,5 +204,68 @@ describe('recoveryAction — an action, never a plan', () => {
     // rather than invent work.
     const state = recordOperation(base(), { intent: 'cut', status: 'succeeded', patchId: 'p' });
     expect(recoveryAction(state)).toBeNull();
+  });
+});
+
+describe('shouldWithholdCatalogueSearch (02 — the commit-only latch)', () => {
+  it('never engages before a search has landed', () => {
+    // ADR 0147's exact case: on an empty project there is no remoteId to add BY, and the
+    // only thing that mints one is the search this would refuse. Withholding here is what
+    // left run f1d5285e with no legal move at all.
+    expect(shouldWithholdCatalogueSearch({ bankedSearches: 0, placementsApplied: 0 })).toBe(false);
+  });
+
+  it('engages once results are banked and nothing has been placed', () => {
+    expect(shouldWithholdCatalogueSearch({ bankedSearches: 1, placementsApplied: 0 })).toBe(true);
+    expect(shouldWithholdCatalogueSearch({ bankedSearches: 19, placementsApplied: 0 })).toBe(true);
+  });
+
+  it('releases on the first placement and stays released', () => {
+    expect(shouldWithholdCatalogueSearch({ bankedSearches: 19, placementsApplied: 1 })).toBe(false);
+    expect(shouldWithholdCatalogueSearch({ bankedSearches: 99, placementsApplied: 50 })).toBe(
+      false,
+    );
+  });
+
+  it('names a way out rather than only saying no', () => {
+    const refusal = catalogueSearchRefusal(19);
+    expect(refusal).toContain('19 search result(s)');
+    expect(refusal).toContain('recall_evidence');
+    // `ask_user` must not be offered: no askUser host is wired, so naming it would
+    // advertise an escape that does not exist.
+    expect(refusal).not.toContain('ask_user');
+  });
+});
+
+describe('novelty alone stays progress here — the bound lives elsewhere', () => {
+  const base = {
+    learnedSomethingNew: false,
+    attemptedEdit: false,
+    appliedEdit: false,
+    recordedVerification: false,
+    advancedStage: false,
+    committedDecision: false,
+    satisfiedObjective: false,
+  };
+
+  it('credits a turn that learned something, however many came before it', () => {
+    // An earlier pass capped this, and the cap silently pre-empted RESEARCH_BUDGET_TURNS
+    // and the diminishing-returns guard — so runs stopped for a reason that was no longer
+    // the true one. The bound on gathering belongs to the research budget, which is tuned
+    // and tested; this test exists to keep a second one from growing back here.
+    expect(madeMeaningfulProgress({ ...base, learnedSomethingNew: true })).toBe(true);
+  });
+
+  it('credits every stronger signal on its own', () => {
+    expect(madeMeaningfulProgress({ ...base, attemptedEdit: true })).toBe(true);
+    expect(madeMeaningfulProgress({ ...base, appliedEdit: true })).toBe(true);
+    expect(madeMeaningfulProgress({ ...base, advancedStage: true })).toBe(true);
+    expect(madeMeaningfulProgress({ ...base, committedDecision: true })).toBe(true);
+    expect(madeMeaningfulProgress({ ...base, recordedVerification: true })).toBe(true);
+    expect(madeMeaningfulProgress({ ...base, satisfiedObjective: true })).toBe(true);
+  });
+
+  it('credits nothing to a turn that did nothing', () => {
+    expect(madeMeaningfulProgress(base)).toBe(false);
   });
 });

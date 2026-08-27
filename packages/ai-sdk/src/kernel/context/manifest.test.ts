@@ -399,3 +399,38 @@ describe('section taxonomy', () => {
     ]);
   });
 });
+
+describe("the provider's cache count actually reaches the manifest", () => {
+  const built = (): ContextManifest =>
+    buildRequestManifest({
+      requestId: 'r1',
+      contextWindow: 128_000,
+      windowSource: 'model_catalog',
+      reservedOutputTokens: 8_192,
+      request: { messages: [{ role: 'user', content: 'do the thing' }] },
+    });
+
+  it('reads cacheReadInputTokens — the name the provider layer actually uses', () => {
+    // Every caller passes a provider `Usage`, which spells it `cacheReadInputTokens`; this
+    // function read `cachedInputTokens`, which nothing produced. So the field was undefined
+    // on every manifest ever built and a run's cache-hit rate was structurally unknowable.
+    const settled = withProviderUsage(built(), {
+      inputTokens: 20_000,
+      cacheReadInputTokens: 16_000,
+    });
+    expect(settled.usage.cachedInputTokens).toBe(16_000);
+  });
+
+  it('still accepts the manifest-side spelling', () => {
+    const settled = withProviderUsage(built(), { inputTokens: 100, cachedInputTokens: 40 });
+    expect(settled.usage.cachedInputTokens).toBe(40);
+  });
+
+  it('stays absent when the provider reported no cache counts at all', () => {
+    // Absent is the honest answer: "cannot report" is not "did not hit", and the run ledger
+    // excludes such a request from the cached share rather than scoring it a miss.
+    expect(
+      withProviderUsage(built(), { inputTokens: 100 }).usage.cachedInputTokens,
+    ).toBeUndefined();
+  });
+});

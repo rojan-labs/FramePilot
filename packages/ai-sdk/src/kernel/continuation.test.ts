@@ -95,3 +95,50 @@ describe('deriveObjectiveText — a nudge resolves to the request underneath it'
     expect(deriveObjectiveText('  add captions  ')).toBe('add captions');
   });
 });
+
+describe('D5 — "continue from here" is a nudge, not a new brief', () => {
+  it("recognizes the phrase the captured run's editor typed twice", () => {
+    // It tokenized to [continue, from, here]; `from` fell outside the vocabulary, so a
+    // three-word nudge was recorded as a brand-new request — which threw away the 50-clip
+    // brief it was nudging, criteria and all.
+    expect(isBareContinuation('continue from here')).toBe(true);
+  });
+
+  it.each([
+    'continue from here',
+    'carry on from here',
+    'keep going from here',
+    'finish off',
+    'proceed from here',
+  ])('reads %j as a nudge', (text) => {
+    expect(isBareContinuation(text)).toBe(true);
+  });
+
+  it.each([
+    'continue but make it shorter',
+    'go from the top',
+    'continue with the wide shot',
+    'here is the plan',
+  ])('leaves %j as a request of its own', (text) => {
+    expect(isBareContinuation(text)).toBe(false);
+  });
+
+  it('resolves the nudge back to the brief underneath it', () => {
+    const brief = 'Build a 50-clip beat-synced montage.';
+    const history = [
+      { role: 'user' as const, content: brief },
+      { role: 'assistant' as const, content: 'working on it' },
+      { role: 'user' as const, content: 'continue from here' },
+    ];
+    expect(deriveObjectiveText('continue from here', history)).toBe(brief);
+  });
+
+  it('skips earlier nudges to reach the real request', () => {
+    const brief = 'Build a 50-clip beat-synced montage.';
+    const history = [
+      { role: 'user' as const, content: brief },
+      { role: 'user' as const, content: 'continue from here' },
+    ];
+    expect(deriveObjectiveText('continue from here', history)).toBe(brief);
+  });
+});

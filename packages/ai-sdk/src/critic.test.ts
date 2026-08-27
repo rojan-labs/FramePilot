@@ -125,6 +125,58 @@ describe('shot count', () => {
       status: 'skipped',
     });
   });
+
+  it('counts picture only — the music bed is not a shot', () => {
+    // The captured montage run ended with exactly one clip on the timeline: the track it had
+    // just downloaded. Counting `allClips` minus overlays made that a shot, the same
+    // derivation that let `picture_present` report "pass: 1 picture clip" on a fifty-clip
+    // request whose timeline held nothing but its soundtrack.
+    const project = withTracks(
+      [
+        {
+          id: 'music_1',
+          type: 'audio',
+          clips: [
+            clip({
+              id: 'clip_bed',
+              assetId: 'music_bed',
+              trackId: 'music_1',
+              end: 121,
+              sourceEnd: 121,
+            }),
+          ],
+        },
+      ],
+      {
+        assets: [{ id: 'music_bed', path: 'media/bed.mp3', kind: 'audio', durationSeconds: 121 }],
+      } as never,
+    );
+    const report = critique(project, { minShotCount: 50 });
+    expect(idOf(report, 'shot_count')).toMatchObject({ status: 'fail' });
+    expect(idOf(report, 'shot_count')?.detail).toContain('0 shots');
+    expect(report.ok).toBe(false);
+  });
+
+  it('warns when a spec-length brief states a count the reader could not read', () => {
+    const spec = `${'Make a montage. '.repeat(120)} Use 2 clips.`;
+    expect(idOf(critique(makeProject(), { request: spec }), 'shot_count')).toMatchObject({
+      status: 'warn',
+    });
+  });
+
+  it('a warned shot count never blocks the run', () => {
+    const spec = `${'Make a montage. '.repeat(120)} Use 2 clips.`;
+    const report = critique(makeProject(), { request: spec });
+    expect(report.checks.some((c) => c.id === 'shot_count' && c.status === 'warn')).toBe(true);
+    expect(report.checks.filter((c) => c.status === 'fail')).toHaveLength(0);
+    expect(report.ok).toBe(true);
+  });
+
+  it('stays skipped when a short request genuinely named no count', () => {
+    expect(
+      idOf(critique(makeProject(), { request: 'tighten the intro' }), 'shot_count'),
+    ).toMatchObject({ status: 'skipped' });
+  });
 });
 
 describe('treatment coverage', () => {

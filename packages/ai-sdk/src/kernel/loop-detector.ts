@@ -162,6 +162,22 @@ export function isSemanticLoop(
   return window.every((intent) => intent === first);
 }
 
+/**
+ * Why there is no novelty cap here.
+ *
+ * An earlier pass at this capped consecutive novelty-only turns, on the reasoning that
+ * round 3's first-time-recall credit let gathering satisfy this test forever. The reasoning
+ * was right and the lever was wrong: `RESEARCH_BUDGET_TURNS` in `conductor.ts` already
+ * bounds exactly that — "this turn gathered without attempting an edit, so it spends
+ * research budget" — and it is tuned, tested, and reached through `actionRecoveryPending`.
+ * A second cap at a lower number silently pre-empted it, and with it the diminishing-returns
+ * guard, so runs stopped for a reason that was no longer the true one.
+ *
+ * The real gap was in that budget's REFUND, not in its absence: it refunded on
+ * `turnOpCount > 0`, and stocking the media bin produces ops. See
+ * `conductor.ts#researchStreak`.
+ */
+
 /** What a turn is credited with, for the progress test. */
 export interface TurnProgress {
   readonly learnedSomethingNew: boolean;
@@ -247,4 +263,45 @@ export function recoveryAction(state: RunWorkingState): NextAction | null {
 
   log.debug('recovery → nothing actionable remains');
   return null;
+}
+
+/**
+ * Has this run banked sourcing candidates it has not spent?
+ *
+ * The commit-only scope (02) turns on this and nothing else. Deliberately narrow: the run's
+ * pathology in captured run `e36235cc` was not that it re-read what it held — it was that it
+ * kept fetching MORE while holding 600 unspent candidates and one clip on the timeline.
+ * Nineteen searches, twelve downloads, zero picture placed.
+ *
+ * @param bankedSearches - Evidence handles whose source is a catalogue search.
+ * @param placementsApplied - Picture clips this run has actually put on the timeline.
+ *   Counting *assets added to the bin* here would release the latch on the very act the
+ *   latch exists to distinguish from an edit.
+ */
+export function shouldWithholdCatalogueSearch(args: {
+  readonly bankedSearches: number;
+  readonly placementsApplied: number;
+}): boolean {
+  // Never before a search has landed: on an empty project there is no `remoteId` to add BY,
+  // and the only thing that mints one is the search this would refuse (ADR 0147).
+  if (args.bankedSearches === 0) return false;
+  // Released by the first real placement, and it is a one-way latch per run — a later
+  // failed placement must not re-engage it and strand a run mid-edit.
+  return args.placementsApplied === 0;
+}
+
+/**
+ * The refusal an editor and a model can both act on.
+ *
+ * Names the legal moves, because a refusal that only says "no" is how ADR 0143's recovery
+ * turn left a run with no move at all. `ask_user` is deliberately NOT offered: no `askUser`
+ * host is wired, so naming it would advertise an escape that does not exist.
+ */
+export function catalogueSearchRefusal(bankedSearches: number): string {
+  return (
+    `This run already has ${String(bankedSearches)} search result(s) it has not used, and ` +
+    'nothing on the timeline yet. Searching again is not available until something is ' +
+    'placed. Use `recall_evidence` to re-open a result you already have, then place a clip ' +
+    'from it. Reading the timeline and the media bin is still available.'
+  );
 }

@@ -27,6 +27,7 @@
  * asset, and the orchestrator turns that into the same reversible operations the
  * Stock panel builds by hand.
  */
+import { randomUUID } from 'node:crypto';
 import { DEFAULT_STOCK_STILL_SECONDS, stockPlacementConflictReason } from '@framepilot/editor-core';
 import { type HostToolOutcome, stockErrorMessage } from '@framepilot/ai-sdk';
 import type { Project } from '@framepilot/timeline-schema';
@@ -40,6 +41,24 @@ export interface StockHostIO {
   knownItem(remoteId: string): { readonly durationSeconds?: number | null | undefined } | undefined;
   download(request: StockDownloadRequest): Promise<StockDownloadResult>;
 }
+
+/**
+ * Enrol a freshly downloaded asset into the visual index, in the background.
+ *
+ * D1. `describe_footage` returned `{"packets":[],"reason":"not_indexed"}` for every one of
+ * the eleven calls captured run `e36235cc` made against its own downloads, because nothing
+ * enrolled them: the only automatic enrolment is `autoIndexImportedAssets`, on the HUMAN
+ * import path in the renderer. So a montage judged on visual variety, motion matching and
+ * intensity-to-beat pairing was assembled blind.
+ *
+ * Optional, and never awaited by the download: enrolment is an optimization, it needs a
+ * configured key, and a run that cannot index must still be able to place footage. Its own
+ * failures are swallowed by the honest-degrade client, exactly as the import path's are.
+ */
+export type EnrolStockAsset = (input: {
+  readonly projectId: string;
+  readonly assetId: string;
+}) => void;
 
 /** The `add_stock` arguments as the sidecar executor forwards them. */
 export interface StockHostArgs {
@@ -57,6 +76,7 @@ export interface StockHostArgs {
  */
 export function createStockHost(
   io: StockHostIO,
+  enrol?: EnrolStockAsset,
 ): (project: Project, args: StockHostArgs) => Promise<HostToolOutcome> {
   return async (project, args) => {
     const { remoteId, atSeconds } = args;
@@ -99,21 +119,35 @@ export function createStockHost(
       remoteId,
       targetHeight: project.resolution?.height ?? 1080,
       ...(project.fps ? { targetFps: project.fps } : {}),
-      operationId: `agent_${remoteId}_${Date.now()}`,
+      // `randomUUID`, not `Date.now()`: the agent now issues a turn's downloads
+      // concurrently (03), and same-millisecond ids collided in the cancel map — two
+      // downloads sharing one AbortController means cancelling either kills both.
+      operationId: `agent_${remoteId}_${randomUUID()}`,
     });
     if (!result.ok) {
       return { status: 'failed', summary: stockErrorMessage(result.error, result.detail) };
     }
     const { asset } = result;
+    const assetId = `stock_${asset.source.provider}_${asset.source.remoteId}`.replace(
+      /[^a-zA-Z0-9_]/g,
+      '_',
+    );
+    // Fire-and-forget, on the COMMIT side of the download (D1). Deliberately not awaited:
+    // it must never add to `add_stock` latency, which is the whole point of acquiring these
+    // concurrently in the first place.
+    enrol?.({ projectId: project.id, assetId });
+    // `deduped` says whether this cost bandwidth or was already on disk. It was dropped
+    // here, so nothing could tell a re-download from a free cache hit — which is exactly
+    // the number that says whether warming a turn's downloads (ADR 0150) is working.
+    const summary = asset.deduped
+      ? `Already downloaded — reused "${asset.relativePath}".`
+      : `Downloaded "${asset.relativePath}".`;
     return {
       status: 'completed',
-      summary: `Downloaded "${asset.relativePath}".`,
+      summary,
       data: {
         asset: {
-          id: `stock_${asset.source.provider}_${asset.source.remoteId}`.replace(
-            /[^a-zA-Z0-9_]/g,
-            '_',
-          ),
+          id: assetId,
           path: asset.relativePath,
           kind: asset.kind,
           ...(asset.durationSeconds === undefined

@@ -3795,9 +3795,19 @@ describe('streamAgent micro-compaction of old tool results (E2)', () => {
       arguments: { assetId },
     });
     // Big enough that each analysis note carries a ~1200-char preview (~300 tokens):
-    // four of them push the log past AGENT_LOG_CLEAR_THRESHOLD_TOKENS.
+    // four of them push the log past the findings budget.
     const bulk = {
       silences: Array.from({ length: 60 }, (_, i) => ({ start: i * 2, end: i * 2 + 1.5 })),
+    };
+    // A model with no room to spare. The findings budget scales with measured remaining
+    // capacity (05), so on a 128k window these four notes now ride whole — which is the
+    // point of that change, and makes this the wrong place to prove clearing still works.
+    // A 24k window with an 8k output reservation and the tool block on top leaves nothing,
+    // so the budget falls to its floor and micro-compaction engages. That also makes this
+    // an end-to-end test of the degradation path the budget promises for small models.
+    const cramped: ContextInput = {
+      ...input,
+      budget: { contextWindow: 24_000, maxOutputTokens: 8_192 },
     };
     const provider = new ScriptedProvider([
       { text: 't1', toolCalls: [silence('a1', 'asset_1')] },
@@ -3811,7 +3821,7 @@ describe('streamAgent micro-compaction of old tool results (E2)', () => {
       run: async () => ({ status: 'completed' as const, summary: 'Found silences', data: bulk }),
     };
     const events = await drain(
-      new Orchestrator(provider, { executor }).streamAgent(input, opts(), { maxSteps: 8 }),
+      new Orchestrator(provider, { executor }).streamAgent(cramped, opts(), { maxSteps: 8 }),
     );
     // The run converged normally under compaction — honestly `failed`, not `completed`:
     // every call in the run was read-only `analyze_silence`, so no edit ever landed

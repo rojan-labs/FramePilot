@@ -597,6 +597,26 @@ export interface AgentTurnResult {
   readonly anyToolCancelled: boolean;
   /** A host tool genuinely failed (drives a real-work turn's plan-step status). */
   readonly anyToolFailed: boolean;
+  /**
+   * Calls this turn made that the HARNESS refused (02's commit-only latch, the recovery
+   * turn's withheld surface) rather than the model wasting.
+   *
+   * A withheld call returns a `warning` outcome with no payload, so it banks no fact and no
+   * novelty — which means a turn made entirely of refusals scores `learnedSomethingNew:
+   * false`, increments `noProgressStreak`, and reaches `MAX_NO_PROGRESS_TURNS` in two
+   * turns. Without this the gate that exists to save a stalling run would be the thing that
+   * kills it. The run is not failing to progress; it is being told to do something else.
+   */
+  readonly withheldCallCount?: number;
+  /**
+   * Operations this turn proposed that change the CUT rather than only the media bin.
+   *
+   * The research budget's refund reads this rather than {@link turnOpCount}: adding an
+   * asset produces ops, so a run could restock its bin every few turns and refund the
+   * budget built to force it to edit. Absent ⇒ fall back to `turnOpCount`, which is the
+   * behaviour every existing caller and fixture had.
+   */
+  readonly turnPlacementCount?: number;
   /** Operations the turn proposed, before validation (drives the per-turn cap). */
   readonly turnOpCount: number;
   /** Ops proposed by the turn's calls but refused by the per-call validator. */
@@ -1498,7 +1518,19 @@ export function onTurnResult(
   // R1: this turn gathered information without attempting an edit, so it spends research
   // budget. Any attempt — even one the validator rejected — proves the run has left
   // reconnaissance and refunds the whole budget.
-  const researchStreak = attemptedEdit ? 0 : state.researchStreak + 1;
+  //
+  // "Attempt" means an attempt AT THE CUT. It used to mean `turnOpCount > 0`, and stocking
+  // the media bin produces ops — so in captured run `e36235cc` thirteen "Added asset"
+  // operations, spread across the run, refunded the whole eight-turn budget again and
+  // again. The guard built to force research→execute could not fire on a run that spent 30
+  // minutes researching, because downloading counted as executing. A turn that only puts
+  // material in the bin has not left reconnaissance; it has restocked it.
+  //
+  // `turnPlacementCount` is absent for callers that do not report it, which keeps the old
+  // behaviour for the legacy loop and every fixture rather than silently tightening them.
+  const changedTheCut =
+    r.turnPlacementCount === undefined ? attemptedEdit : r.turnPlacementCount > 0;
+  const researchStreak = changedTheCut ? 0 : state.researchStreak + 1;
   // Recalls are excluded from this question, and the exclusion is load-bearing.
   //
   // `recall_evidence` returns stored data, so it is `fromCache` by construction — which
@@ -1595,7 +1627,17 @@ export function onTurnResult(
     stageAdvanced,
     decisionCommitted: false,
   });
-  const noProgressStreak = progressedMeaningfully ? 0 : state.noProgressStreak + 1;
+  // A turn the harness refused outright is not a turn that failed to progress: the model
+  // asked for something, was told no, and banked nothing BECAUSE of the refusal. Holding
+  // the streak (rather than resetting it) keeps a genuinely stuck run on its way to the
+  // guard while giving the refused turn the chance to obey the refusal.
+  const everyCallWithheld =
+    (r.withheldCallCount ?? 0) > 0 && (r.withheldCallCount ?? 0) === r.callFacts.length;
+  const noProgressStreak = progressedMeaningfully
+    ? 0
+    : everyCallWithheld
+      ? state.noProgressStreak
+      : state.noProgressStreak + 1;
   const recovering = looping || noProgressStreak >= MAX_NO_PROGRESS_TURNS;
   // Recovery yields an ACTION, never another plan — the run's problem is that it cannot
   // stop planning, so the remedy must not be an invitation to plan again.

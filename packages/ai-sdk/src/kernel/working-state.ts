@@ -1111,7 +1111,17 @@ export function setObjective(
       request: state.objective.request,
       // A provisional outcome is the request read back, so it is stored bounded. A real
       // interpretation a turn wrote is kept whole — that one says something new.
-      outcome: provisional ? requestEcho(objective.outcome) : objective.outcome,
+      //
+      // …unless it says nothing new. A turn can hand back the request VERBATIM as its
+      // interpretation, and with `provisional: false` that stored a second whole copy of it:
+      // captured run `e36235cc` carried its 9,885-character brief twice in every one of 57
+      // run-state serializations. `JUDGEMENT_CRITERION` records the same problem being
+      // solved for `criteria` ("a pointer keeps the meaning and drops the duplication") and
+      // the fix was never applied here. Bounded by what it IS, not by which flag was set.
+      outcome:
+        provisional || isRequestEcho(objective.outcome, state.objective.request)
+          ? requestEcho(objective.outcome)
+          : objective.outcome,
       provisional,
       acceptance: objective.acceptance.map((a, i) => ({
         id: `criterion_${i + 1}`,

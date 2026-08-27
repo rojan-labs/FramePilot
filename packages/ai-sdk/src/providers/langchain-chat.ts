@@ -31,6 +31,7 @@ import { classifyLangChainError } from './errors.js';
 import { openAiContent } from './message-content.js';
 import type {
   AiCompletionRequest,
+  AiMessage,
   AiProvider,
   AiResponse,
   ProviderChunk,
@@ -423,16 +424,61 @@ export abstract class LangChainChatProvider implements AiProvider {
  * Content goes through the shared {@link openAiContent} serializer, so a message
  * carrying images produces the same content-part array the native path sends.
  *
- * Anthropic does NOT use this: it needs cache breakpoints, which are the one thing
- * the providers genuinely disagree about.
+ * ## Cache breakpoints on an OpenAI-shaped body
+ *
+ * `cacheBoundary` used to be Anthropic's alone, and that was a real cost rather than a
+ * tidy separation of concerns. Captured run `e36235cc` ran on `openrouter/auto-beta` and
+ * assembled 1,223,811 tokens across 52 calls, **736,595 of them (60.2%) tool definitions
+ * re-sent whole every call**. Whether any of that was cached was unknowable from the code:
+ * the marker the agent loop carefully places was simply dropped on this path.
+ *
+ * So it is carried here too. A gateway that understands the marker — OpenRouter passes
+ * `cache_control` through to Anthropic models — uses it; a gateway that does not ignores
+ * an unknown key on a content part, which is the ordinary shape of an OpenAI content
+ * array. Providers doing AUTOMATIC prefix caching (OpenAI, most local servers) are
+ * unaffected either way: their caching keys on the byte prefix, which this does not move.
+ *
+ * That asymmetry is why this is worth doing blind. Sending it costs nothing when it is not
+ * understood and saves the largest line item in the product when it is.
  */
 export function toChatMessages(request: AiCompletionRequest): BaseMessage[] {
-  return request.messages.map((message) => {
+  const boundaryIndex = request.messages.reduce(
+    (last, message, index) => (message.cacheBoundary === true ? index : last),
+    -1,
+  );
+  return request.messages.map((message, index) => {
     // `openAiContent` returns a string, or OpenAI's content-part array for images.
     // LangChain accepts both under the same field, so this is a pass-through.
-    const content = openAiContent(message) as unknown as string;
+    const content =
+      index === boundaryIndex
+        ? (openAiCacheBoundaryContent(message) as unknown as string)
+        : (openAiContent(message) as unknown as string);
     if (message.role === 'system') return new SystemMessage(content);
     if (message.role === 'assistant') return new AIMessage(content);
     return new HumanMessage(content);
   });
+}
+
+/**
+ * The boundary message as an OpenAI content array carrying a `cache_control` marker.
+ *
+ * Block-shaped for the same reason Anthropic's is: the marker has to sit on a part, not on
+ * the message. A message that already carries images keeps its parts and the marker rides
+ * on the last one, so the whole message is inside the cached prefix.
+ */
+export function openAiCacheBoundaryContent(message: AiMessage): unknown {
+  const marked = { type: 'text', text: message.content, cache_control: { type: 'ephemeral' } };
+  const base = openAiContent(message);
+  if (!Array.isArray(base)) return [marked];
+  // Images already produced parts; append the marked text rather than discarding them.
+  return [...(base as unknown[]).filter((part) => !isPlainTextPart(part)), marked];
+}
+
+/** Is this content part the plain-text half that {@link openAiCacheBoundaryContent} replaces? */
+function isPlainTextPart(part: unknown): boolean {
+  return (
+    typeof part === 'object' &&
+    part !== null &&
+    (part as { readonly type?: unknown }).type === 'text'
+  );
 }
