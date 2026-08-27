@@ -455,10 +455,22 @@ export function withProviderUsage(
     readonly inputTokens?: number;
     readonly outputTokens?: number;
     readonly cachedInputTokens?: number;
+    /**
+     * What the PROVIDER layer calls the same number (`reliability/types.ts#Usage`).
+     *
+     * Both spellings are accepted because only one of them was ever sent. Every caller
+     * passes a provider `Usage`, which carries `cacheReadInputTokens`; this function read
+     * `cachedInputTokens`, which nothing produced. So `cachedInputTokens` was `undefined`
+     * on every manifest ever built, and a run's cache-hit rate was structurally
+     * unknowable — captured run `e36235cc` reports "cache not reported by this provider"
+     * for exactly this reason, whatever the provider actually did.
+     */
+    readonly cacheReadInputTokens?: number;
     readonly reasoningTokens?: number;
   },
 ): ContextManifest {
   const reportedInput = usage.inputTokens;
+  const cachedInput = usage.cachedInputTokens ?? usage.cacheReadInputTokens;
   const effectiveInput = reportedInput ?? manifest.usage.estimatedInputTokensBeforeSend;
   const next: ContextManifest = {
     ...manifest,
@@ -468,9 +480,7 @@ export function withProviderUsage(
       ...(usage.outputTokens !== undefined
         ? { providerReportedOutputTokens: usage.outputTokens }
         : {}),
-      ...(usage.cachedInputTokens !== undefined
-        ? { cachedInputTokens: usage.cachedInputTokens }
-        : {}),
+      ...(cachedInput !== undefined ? { cachedInputTokens: cachedInput } : {}),
       ...(usage.reasoningTokens !== undefined ? { reasoningTokens: usage.reasoningTokens } : {}),
       estimatedRemainingCapacity: remainingCapacity(
         manifest.usage.modelContextLimit,

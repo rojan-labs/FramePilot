@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import {
   mergeArgs,
   mergeUsage,
+  openAiCacheBoundaryContent,
   reasoningFromKwargs,
   stopReasonFrom,
   textAndReasoning,
@@ -251,5 +252,72 @@ describe('stopReasonFrom', () => {
     expect(stopReasonFrom({ finish_reason: 7 })).toBeUndefined();
     expect(stopReasonFrom('length')).toBeUndefined();
     expect(stopReasonFrom(null)).toBeUndefined();
+  });
+});
+
+describe('cache breakpoints ride an OpenAI-shaped body too', () => {
+  const boundary = (): AiCompletionRequest => ({
+    messages: [
+      { role: 'system', content: 'contract' },
+      { role: 'user', content: 'stable head', cacheBoundary: true },
+      { role: 'user', content: 'this turn' },
+    ],
+  });
+
+  const partsOf = (message: { content: unknown }): Record<string, unknown>[] =>
+    Array.isArray(message.content) ? (message.content as Record<string, unknown>[]) : [];
+
+  it('marks the message the agent loop flagged', () => {
+    // The marker used to be dropped on every non-Anthropic path. Captured run e36235cc ran
+    // on openrouter/auto-beta and re-sent 736,595 tokens of tool definitions across 52
+    // calls; whether any of it was cached was unknowable, because the breakpoint the agent
+    // loop places was silently discarded here.
+    const messages = toChatMessages(boundary());
+    expect(partsOf(messages[1]!)).toEqual([
+      { type: 'text', text: 'stable head', cache_control: { type: 'ephemeral' } },
+    ]);
+  });
+
+  it('leaves every other message a plain string', () => {
+    // Marking more than the boundary would spend a breakpoint on a shorter prefix and
+    // change the bytes of messages that were fine as they were.
+    const messages = toChatMessages(boundary());
+    expect(messages[0]!.content).toBe('contract');
+    expect(messages[2]!.content).toBe('this turn');
+  });
+
+  it('marks the LAST boundary when a request carries more than one', () => {
+    const messages = toChatMessages({
+      messages: [
+        { role: 'user', content: 'first', cacheBoundary: true },
+        { role: 'user', content: 'second', cacheBoundary: true },
+      ],
+    });
+    expect(messages[0]!.content).toBe('first');
+    expect(partsOf(messages[1]!)[0]).toMatchObject({ text: 'second' });
+  });
+
+  it('changes nothing for a request with no boundary', () => {
+    const messages = toChatMessages({
+      messages: [
+        { role: 'system', content: 'contract' },
+        { role: 'user', content: 'hello' },
+      ],
+    });
+    expect(messages.map((message) => message.content)).toEqual(['contract', 'hello']);
+  });
+
+  it("keeps a boundary message's images and marks its text", () => {
+    const content = openAiCacheBoundaryContent({
+      role: 'user',
+      content: 'look at this',
+      images: [{ mediaType: 'image/png', base64: 'aGk=' }],
+    }) as Record<string, unknown>[];
+    expect(content.some((part) => part.type === 'image_url')).toBe(true);
+    expect(content.at(-1)).toEqual({
+      type: 'text',
+      text: 'look at this',
+      cache_control: { type: 'ephemeral' },
+    });
   });
 });
