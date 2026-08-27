@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 21260,
+      "usedTokens": 21287,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -127,7 +127,7 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1626,
+            "tokenEstimate": 1664,
             "included": true
           },
           {
@@ -141,7 +141,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 172,
+            "tokenEstimate": 161,
             "included": true
           },
           {
@@ -155,9 +155,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21260,
+          "estimatedInputTokensBeforeSend": 21287,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 850740,
+          "estimatedRemainingCapacity": 850713,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -211,7 +211,7 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1626,
+            "tokenEstimate": 1664,
             "included": true
           },
           {
@@ -225,7 +225,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 172,
+            "tokenEstimate": 161,
             "included": true
           },
           {
@@ -239,7 +239,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21260,
+          "estimatedInputTokensBeforeSend": 21287,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -402,7 +402,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 21353,
+      "usedTokens": 21380,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -421,7 +421,7 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1626,
+            "tokenEstimate": 1664,
             "included": true
           },
           {
@@ -435,7 +435,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 265,
+            "tokenEstimate": 254,
             "included": true
           },
           {
@@ -449,9 +449,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21353,
+          "estimatedInputTokensBeforeSend": 21380,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 850647,
+          "estimatedRemainingCapacity": 850620,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -516,7 +516,7 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1626,
+            "tokenEstimate": 1664,
             "included": true
           },
           {
@@ -530,7 +530,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 265,
+            "tokenEstimate": 254,
             "included": true
           },
           {
@@ -544,7 +544,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21353,
+          "estimatedInputTokensBeforeSend": 21380,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 0,

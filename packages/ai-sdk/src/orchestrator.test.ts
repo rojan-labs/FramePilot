@@ -9,6 +9,7 @@ import {
   Orchestrator,
   ToolInvocationError,
   callNoveltyKey,
+  evidencePayload,
   AGENT_LOG_CLEAR_THRESHOLD_TOKENS,
   AGENT_LOG_PAYLOAD_FRESH,
   CLEARED_RESULT_MARKER,
@@ -25,6 +26,7 @@ import { type ContextInput, estimateTokens } from './context-builder.js';
 import { TOOL_REGISTRY, getTool } from './tool-registry.js';
 import { classifyTool } from './tool-classification.js';
 import { toolContract } from './tool-contract.js';
+import { toolRole } from './kernel/stage-policy.js';
 import { distil } from './kernel/briefing.js';
 import { makeProject } from './__fixtures__/project.js';
 import { DIMINISHING_RETURNS_TURNS, STALL_CONFIRM_TURNS } from './kernel/conductor.js';
@@ -1098,6 +1100,71 @@ describe('micro-compaction of old tool results (E2)', () => {
   });
 });
 
+describe('evidencePayload (what a run remembers of a catalogue search)', () => {
+  const item = () => ({
+    remoteId: '38787737',
+    kind: 'video',
+    title: 'Aerial eagle',
+    width: 2160,
+    height: 3840,
+    durationSeconds: 28,
+    creator: 'Unaizat',
+    license: 'pexels',
+    licenseUrl: 'https://www.pexels.com/license/',
+    sourceUrl: 'https://www.pexels.com/video/38787737/',
+    creatorUrl: 'https://www.pexels.com/@unaizat97',
+    attribution: 'Video by Unaizat on Pexels',
+    hasPreview: true,
+    variants: Array.from({ length: 6 }, (_, i) => ({ id: String(i), width: 1080, height: 1920 })),
+  });
+
+  it('regression: keeps what the model can act on and drops what it cannot', () => {
+    // The digest for `search_stock` says provider URLs "never reach it at all", and on the
+    // search path that held. Reopening the same result broke it: `recall_evidence` renders
+    // the STORED payload, which was the provider's whole record — ~900 tokens for three
+    // clips, almost all of it licence links, profile URLs and six rendition descriptors.
+    // `add_stock` takes a `remoteId` and nothing else. Run `2131d2c5` spent 546,932 tokens
+    // and 63 recalls on this and downloaded nothing.
+    const stored = evidencePayload('search_stock', { items: [item()], requestsLeftThisMonth: 40 });
+    const kept = (stored as { items: Record<string, unknown>[] }).items[0]!;
+    // Everything a shot is chosen and placed by.
+    expect(kept).toMatchObject({
+      remoteId: '38787737',
+      kind: 'video',
+      title: 'Aerial eagle',
+      width: 2160,
+      height: 3840,
+      durationSeconds: 28,
+      creator: 'Unaizat',
+      license: 'pexels',
+    });
+    for (const dead of ['variants', 'licenseUrl', 'sourceUrl', 'creatorUrl', 'attribution']) {
+      expect(kept).not.toHaveProperty(dead);
+    }
+    // Siblings of the record list are untouched — the quota reading changes what the run
+    // should do next.
+    expect(stored).toMatchObject({ requestsLeftThisMonth: 40 });
+  });
+
+  it('leaves the payload a LIST, so recall can still filter and page it by record', () => {
+    // `EvidenceStore.recall` filters by record and pages the result; projecting must not
+    // turn the payload into something it can only return whole.
+    const stored = evidencePayload('search_music', {
+      tracks: [{ remoteId: 'a', title: 'One', licenseUrl: 'x' }],
+    });
+    expect(Array.isArray((stored as { tracks: unknown[] }).tracks)).toBe(true);
+  });
+
+  it('is identity for every other tool, and for a payload of an unexpected shape', () => {
+    const timeline = { clips: [{ id: 'c1', sourceUrl: 'keep-me' }] };
+    expect(evidencePayload('get_timeline', timeline)).toBe(timeline);
+    expect(evidencePayload('search_stock', { items: 'not a list' })).toEqual({
+      items: 'not a list',
+    });
+    expect(evidencePayload('search_stock', undefined)).toBeUndefined();
+  });
+});
+
 describe('callNoveltyKey (reconnaissance vs the analysis spin)', () => {
   const c = (name: string, args: Record<string, unknown>): ToolCall => ({
     id: 'x',
@@ -1159,6 +1226,65 @@ describe('callNoveltyKey (reconnaissance vs the analysis spin)', () => {
   it('argument ORDER cannot manufacture novelty', () => {
     expect(callNoveltyKey(c('get_clip', { clipId: 'a', trackId: 't' }))).toBe(
       callNoveltyKey(c('get_clip', { trackId: 't', clipId: 'a' })),
+    );
+  });
+
+  it('regression: a catalogue search is keyed by its QUERY, not collapsed to one key', () => {
+    // The run-ending bug. `search_music` is `analysis`-kind and has no `assetId`, so the
+    // asset arm keyed every search in a run as `search_music:*`. Run `f1d5285e` searched
+    // four times with four queries; three were credited with nothing, the stall streak
+    // reached STALL_CONFIRM_TURNS on turn four, and the run terminated having applied no
+    // edit. A montage needing 80–120 stock searches could not clear its second turn.
+    const queries = [
+      'energetic cinematic electronic strong beats',
+      'epic percussion drums build drop',
+      'fast tempo nature documentary score',
+    ];
+    const keys = queries.map((query) => callNoveltyKey(c('search_music', { query })));
+    expect(new Set(keys).size).toBe(queries.length);
+  });
+
+  it('a catalogue search asking the SAME question twice still collapses', () => {
+    // The spin guard this branch exists for is intact: repeating a query teaches nothing,
+    // and asking for more results is the same question with a bigger `limit`.
+    expect(callNoveltyKey(c('search_stock', { query: 'eagle in flight', kind: 'video' }))).toBe(
+      callNoveltyKey(c('search_stock', { query: 'eagle in flight', kind: 'video', limit: 40 })),
+    );
+  });
+
+  it('a catalogue search for a different MEDIUM is a different question', () => {
+    expect(callNoveltyKey(c('search_stock', { query: 'waterfall', kind: 'video' }))).not.toBe(
+      callNoveltyKey(c('search_stock', { query: 'waterfall', kind: 'photo' })),
+    );
+  });
+
+  it('a visual search keeps its query and the assets it was narrowed to', () => {
+    // `search_visual` takes `assetIds` (plural), so it falls to the identity arm: the
+    // query and the narrowing both carry the question, while `k` and `timeRange` tune it.
+    const base = { query: 'sunset over water', assetIds: ['m1'] };
+    expect(callNoveltyKey(c('search_visual', base))).toBe(
+      callNoveltyKey(c('search_visual', { ...base, k: 20, timeRange: [0, 30] })),
+    );
+    expect(callNoveltyKey(c('search_visual', base))).not.toBe(
+      callNoveltyKey(c('search_visual', { ...base, query: 'a lightning strike' })),
+    );
+    expect(callNoveltyKey(c('search_visual', base))).not.toBe(
+      callNoveltyKey(c('search_visual', { ...base, assetIds: ['m2'] })),
+    );
+  });
+
+  it('an asseted analysis still ignores every tuning argument beside it', () => {
+    // The asset arm is unchanged and still wins outright — nothing but the asset counts.
+    expect(callNoveltyKey(c('detect_scenes', { assetId: 'm', threshold: 0.2 }))).toBe(
+      callNoveltyKey(c('detect_scenes', { assetId: 'm', threshold: 0.8 })),
+    );
+  });
+
+  it('an argument-free analysis still collapses to a single key', () => {
+    // `map_footage` over the whole project, with and without `refresh`, is one question —
+    // re-mapping unchanged footage is the spin, not progress.
+    expect(callNoveltyKey(c('map_footage', {}))).toBe(
+      callNoveltyKey(c('map_footage', { refresh: true })),
     );
   });
 });
@@ -2505,20 +2631,31 @@ describe('route-scoped tool surface (E5)', () => {
     // redundant. This assertion is why the filter reads `effectClass` now.
     expect(names).toContain('add_stock');
     expect(names).toContain('add_music');
-    // Sourcing that only GATHERS stays out: the turn exists because the run has looked
-    // enough.
-    expect(names).not.toContain('search_stock');
-    expect(names).not.toContain('search_music');
+    // …and the search that mints the `remoteId` those two require comes with them. The
+    // previous rule let `add_stock` through while withholding `search_stock`, which is a
+    // complete surface only for a run that had already searched. A run on an EMPTY
+    // project had no legal move at all: it could reach `recall_evidence` (a memo hit,
+    // scored as no progress) and nothing else, so the recovery turn ended the run it was
+    // meant to rescue.
+    expect(names).toContain('search_stock');
+    expect(names).toContain('search_music');
+    // Reconnaissance over the project the run already has stays out — that is what the
+    // turn exists to stop.
     expect(names).not.toContain('get_timeline');
     expect(names).not.toContain('list_assets');
     expect(names).not.toContain('detect_beats');
+    expect(names).not.toContain('get_transcript');
+    expect(names).not.toContain('map_footage');
     for (const name of names) {
       if (name === 'recall_evidence') continue;
       const tool = getTool(name)!;
-      // The contract, not the registry kind — that is the whole correction.
+      // The contract and the sourcing role, not the registry kind — that is the whole
+      // correction, in its two halves (ADR 0143, then ADR 0147).
       expect(
-        toolContract(tool).effectClass === 'mutation' || tool.kind === 'ask',
-        `${name} is neither a mutation nor an ask`,
+        toolContract(tool).effectClass === 'mutation' ||
+          tool.kind === 'ask' ||
+          toolRole(tool.name, tool.mutates) === 'sourcing',
+        `${name} is neither a mutation, an ask, nor sourcing`,
       ).toBe(true);
     }
   });

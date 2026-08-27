@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 21261,
+      "usedTokens": 21289,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -127,7 +127,7 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1626,
+            "tokenEstimate": 1666,
             "included": true
           },
           {
@@ -141,7 +141,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 173,
+            "tokenEstimate": 161,
             "included": true
           },
           {
@@ -155,9 +155,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21261,
+          "estimatedInputTokensBeforeSend": 21289,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 850739,
+          "estimatedRemainingCapacity": 850711,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -211,7 +211,7 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1626,
+            "tokenEstimate": 1666,
             "included": true
           },
           {
@@ -225,7 +225,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 173,
+            "tokenEstimate": 161,
             "included": true
           },
           {
@@ -239,7 +239,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21261,
+          "estimatedInputTokensBeforeSend": 21289,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -542,7 +542,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 21305,
+      "usedTokens": 21333,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -561,7 +561,7 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1626,
+            "tokenEstimate": 1666,
             "included": true
           },
           {
@@ -575,7 +575,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 217,
+            "tokenEstimate": 205,
             "included": true
           },
           {
@@ -589,9 +589,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21305,
+          "estimatedInputTokensBeforeSend": 21333,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 850695,
+          "estimatedRemainingCapacity": 850667,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -647,7 +647,7 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1626,
+            "tokenEstimate": 1666,
             "included": true
           },
           {
@@ -661,7 +661,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 217,
+            "tokenEstimate": 205,
             "included": true
           },
           {
@@ -675,7 +675,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21305,
+          "estimatedInputTokensBeforeSend": 21333,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 0,
@@ -1008,7 +1008,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 21323,
+      "usedTokens": 21351,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -1027,7 +1027,7 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1626,
+            "tokenEstimate": 1666,
             "included": true
           },
           {
@@ -1041,7 +1041,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 235,
+            "tokenEstimate": 223,
             "included": true
           },
           {
@@ -1055,9 +1055,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21323,
+          "estimatedInputTokensBeforeSend": 21351,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 850677,
+          "estimatedRemainingCapacity": 850649,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -1122,7 +1122,7 @@
             "id": "s2",
             "type": "conversation",
             "label": "user turn 1",
-            "tokenEstimate": 1626,
+            "tokenEstimate": 1666,
             "included": true
           },
           {
@@ -1136,7 +1136,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 235,
+            "tokenEstimate": 223,
             "included": true
           },
           {
@@ -1150,7 +1150,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21323,
+          "estimatedInputTokensBeforeSend": 21351,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 0,

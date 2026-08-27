@@ -101,6 +101,23 @@ function stubProvider(result: StockSearchPage | Error): StockProvider & { calls:
   return provider;
 }
 
+/**
+ * A provider that keeps every signal it was handed, so a test can assert which searches
+ * were aborted. Resolves on a macrotask so concurrent calls genuinely overlap.
+ */
+function signalRecordingProvider(): StockProvider & { signals: (AbortSignal | undefined)[] } {
+  const provider = {
+    name: 'pexels' as const,
+    signals: [] as (AbortSignal | undefined)[],
+    async search(_request: unknown, signal?: AbortSignal): Promise<StockSearchPage> {
+      provider.signals.push(signal);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return page([VIDEO_ITEM]);
+    },
+  };
+  return provider as StockProvider & { signals: (AbortSignal | undefined)[] };
+}
+
 /** A streaming Response over fixed bytes, so downloads exercise the real path. */
 function bytesResponse(
   body: Uint8Array,
@@ -183,6 +200,53 @@ describe('search', () => {
     await service.search({ text: '  SKYLINE ', kind: 'video' });
     // Normalized key: re-opening the panel must not spend one of ~200 per hour.
     expect(provider.calls).toBe(1);
+  });
+
+  it('regression: parallel agent searches do not cancel each other', async () => {
+    // The agent batches concurrency-safe calls four at a time, so four DELIBERATE
+    // queries arrive together. Under the panel's supersede rule each aborted the one
+    // before it: in run `f014f3ac` the fourth query of every batch returned forty clips
+    // while the first three came back `cancelled` in ~120ms — and `cancelled` renders as
+    // the empty string, so the model saw three failures with no reason and asked again.
+    // Fifteen of twenty-one footage searches were lost that way and the montage never
+    // got its pictures.
+    const provider = signalRecordingProvider();
+    const service = makeService({ provider });
+    const results = await Promise.all(
+      ['a', 'b', 'c', 'd'].map((text) =>
+        service.search({ text, kind: 'video' }, { supersedePrevious: false }),
+      ),
+    );
+
+    expect(provider.signals.some((signal) => signal?.aborted === true)).toBe(false);
+    expect(results.every((result) => result.ok)).toBe(true);
+  });
+
+  it("the panel's supersede behaviour is untouched by default", async () => {
+    // A person typing revises one question and means the last version of it.
+    const provider = signalRecordingProvider();
+    const service = makeService({ provider });
+    const first = service.search({ text: 'a', kind: 'video' });
+    await service.search({ text: 'b', kind: 'video' });
+    await first;
+
+    expect(provider.signals[0]?.aborted).toBe(true);
+  });
+
+  it("a caller's own signal still cancels its search", async () => {
+    // Not superseding must not mean uncancellable: an agent run's Stop reaches the
+    // provider through the caller's signal rather than through the supersede slot.
+    const provider = signalRecordingProvider();
+    const service = makeService({ provider });
+    const controller = new AbortController();
+    const pending = service.search(
+      { text: 'a', kind: 'video' },
+      { supersedePrevious: false, signal: controller.signal },
+    );
+    controller.abort();
+    await pending;
+
+    expect(provider.signals[0]?.aborted).toBe(true);
   });
 
   it('treats a different kind or page as a different search', async () => {

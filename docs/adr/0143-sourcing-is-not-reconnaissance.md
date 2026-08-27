@@ -1,6 +1,7 @@
 # ADR 0143 — Sourcing is not reconnaissance
 
-**Status:** accepted
+**Status:** accepted; amended by ADR 0147 (a recovery turn keeps the whole `sourcing`
+role, not only its mutating half)
 **Date:** 2026-08-26
 **Related:** ADR 0068 (descriptor withholding), ADR 0074 (empty-run honesty), ADR 0075
 (task memory / stage policy), ADR 0083 (never report an edit on an unchanged timeline),
@@ -47,6 +48,12 @@ stages and says nothing about `sourcing`, so an executing run can still shop.
 `'mutation'` — which is how `add_stock`/`add_music` survive a recovery turn while
 `search_stock`/`search_music` correctly do not: that turn exists because the run has looked
 enough, and a download is the act it is being asked for.
+
+> **Amended by ADR 0147.** That last clause held for the run this ADR was written from,
+> which had eighty clips in hand and was refused the download. It is false for a run that
+> has found nothing yet: `add_stock` places a clip by `remoteId`, and only the search mints
+> one, so on an empty project the recovery turn had no legal move at all. The surface now
+> admits the whole `sourcing` role.
 
 **A withheld tool is refused with the reason that is actually true.** The refusal consults
 the run's memo: a result genuinely in hand names the handle that returns it; anything else

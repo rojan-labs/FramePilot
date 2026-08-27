@@ -18,6 +18,7 @@ import { makeProject } from '../__fixtures__/project.js';
 import type { Command } from './commands.js';
 import {
   type AgentTurnResult,
+  type TurnCallFact,
   type ConductorState,
   type DraftPlanResult,
   type ResumeResult,
@@ -32,6 +33,7 @@ import {
   onCommand,
   onEffectResult,
 } from './conductor.js';
+import { SEMANTIC_LOOP_TURNS } from './loop-detector.js';
 
 /** Exactly `PLAN_APPROVAL_STEP_THRESHOLD` step labels — at the gate, not over it. */
 const labelsAtThreshold = Array.from({ length: PLAN_APPROVAL_STEP_THRESHOLD }, (_, i) => `s${i}`);
@@ -822,6 +824,157 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     expect(effects[0]).toMatchObject({ kind: 'run_turn' });
   });
 
+  it('regression: three productive turns are not a loop just because they say so alike', () => {
+    // Run `f1d5285e`. The semantic loop detector reads the model's prose, `'find the'` is
+    // an `analyze` marker, and every one of these three sentences contains it — so three
+    // music searches that each returned a DIFFERENT catalogue were declared to be going
+    // in circles and the run was switched onto the restricted recovery surface. The
+    // window now holds stuck turns only, so a turn that learned something empties it.
+    const rationales = [
+      'First, I need to find the right music — an energetic cinematic track.',
+      'Let me find the right energetic track to drive this montage.',
+      'Let me find the right music first, then build the beat-synced montage.',
+    ];
+    let s = started();
+    const emitted: string[] = [];
+    rationales.forEach((rationale, i) => {
+      const step = onEffectResult(
+        s,
+        turn({
+          signature: `search-${String(i)}`,
+          rationale,
+          callFacts: [
+            { key: `search_music:query="q${String(i)}"`, status: 'completed', fromCache: false },
+          ],
+        }),
+      );
+      emitted.push(...step.events.flatMap((e) => (e.type === 'notification' ? [e.text] : [])));
+      s = step.state;
+    });
+    expect(emitted.some((text) => /circles/i.test(text))).toBe(false);
+    expect(s.actionRecoveryPending).toBe(false);
+    expect(s.stallStreak).toBe(0);
+  });
+
+  it('still fills the loop window when the turns discover nothing', () => {
+    // The counterpart, asserted on the window itself rather than on which of the three
+    // recovery sentences wins the race: a run that keeps re-asking a question it has
+    // already answered accumulates its intent, exactly as before. (Whether `looping` or
+    // `noProgressStreak` reaches the recovery gate first depends on the run; both lead
+    // to the same restricted turn.)
+    const rationales = [
+      'Let me orient myself.',
+      'Let me get the full picture.',
+      'Let me first understand the project.',
+    ];
+    let s = started();
+    for (const rationale of rationales) {
+      s = onEffectResult(
+        s,
+        turn({
+          signature: 'orienting',
+          rationale,
+          callFacts: [{ key: 'get_timeline:', status: 'completed', fromCache: true }],
+        }),
+      ).state;
+    }
+    expect(s.recentIntents).toEqual(['orient', 'orient', 'orient']);
+  });
+
+  it('still declares a loop when a run keeps proposing under one purpose and learns nothing', () => {
+    // The case the detector is actually reachable for, and the one it was built for:
+    // every turn "progresses" in the loose sense (it proposed operations, so the
+    // no-progress streak resets and the research budget is refunded) while discovering
+    // nothing and saying the same thing about it. Three of those trip the loop and the
+    // run is switched onto the recovery surface — the behaviour the productive-search
+    // regression above must not have removed.
+    let s = started();
+    const emitted: string[] = [];
+    for (let i = 0; i < SEMANTIC_LOOP_TURNS; i += 1) {
+      const step = onEffectResult(
+        s,
+        turn({
+          signature: `propose-${String(i)}`,
+          rationale: 'Let me find the right place to cut.',
+          turnOpCount: 1,
+          applied: false,
+          satisfied: false,
+          callFacts: [],
+        }),
+      );
+      emitted.push(...step.events.flatMap((e) => (e.type === 'notification' ? [e.text] : [])));
+      s = step.state;
+    }
+    expect(emitted.some((text) => /circles/i.test(text))).toBe(true);
+    expect(s.actionRecoveryPending).toBe(true);
+  });
+
+  it('one novel turn clears the loop window rather than shortening it', () => {
+    // The window is not a rolling average — a turn that genuinely learned something means
+    // the run is not circling NOW, so what it was doing two turns ago stops counting.
+    const stuck = onEffectResult(
+      started(),
+      turn({
+        signature: 'a',
+        rationale: 'Let me orient myself.',
+        callFacts: [{ key: 'get_timeline:', status: 'completed', fromCache: true }],
+      }),
+    ).state;
+    expect(stuck.recentIntents).toEqual(['orient']);
+    const learned = onEffectResult(
+      stuck,
+      turn({
+        signature: 'b',
+        rationale: 'Let me orient myself again.',
+        callFacts: [{ key: 'list_assets:', status: 'completed', fromCache: false }],
+      }),
+    ).state;
+    expect(learned.recentIntents).toEqual([]);
+  });
+
+  it('regression: a failed call does not bank its key against the retry that works', () => {
+    // Run `f1d5285e`: the first `search_music` was rejected by the provider. Its key was
+    // recorded in `seenCallKeys` anyway, so the retry that actually returned a catalogue
+    // read as "already seen" and was credited with nothing — and so was every search
+    // after it. A key claims the run HOLDS this call's answer; a failure holds nothing.
+    const first = onEffectResult(
+      started(),
+      turn({
+        signature: 'rejected-search',
+        callFacts: [{ key: 'search_music:query="epic"', status: 'failed', fromCache: false }],
+      }),
+    );
+    expect(first.state.stallStreak).toBe(1);
+    expect(first.state.seenCallKeys).not.toContain('search_music:query="epic"');
+
+    const retry = onEffectResult(
+      first.state,
+      turn({
+        signature: 'retried-search',
+        callFacts: [{ key: 'search_music:query="epic"', status: 'completed', fromCache: false }],
+      }),
+    );
+    expect(retry.state.stallStreak).toBe(0);
+    expect(retry.state.seenCallKeys).toContain('search_music:query="epic"');
+  });
+
+  it('a call that keeps failing still never buys the run runway', () => {
+    // The relaxation above cannot resurrect the spin it sits next to: novelty is denied
+    // on the call's own status, so retrying a broken call forever still stalls out.
+    let s = started();
+    for (const expected of [1, 2, 3]) {
+      const step = onEffectResult(
+        s,
+        turn({
+          signature: `broken-${String(expected)}`,
+          callFacts: [{ key: 'detect_scenes:a', status: 'failed', fromCache: false }],
+        }),
+      );
+      expect(step.state.stallStreak).toBe(expected);
+      s = step.state;
+    }
+  });
+
   it('a turn served entirely from the memo learned nothing (W3)', () => {
     // Real data, but nothing the run did not already have — the memo suppressed a repeat.
     const { state } = onEffectResult(
@@ -829,6 +982,54 @@ describe('onEffectResult — turn stop/continue decisions', () => {
       turn({
         signature: 'cached',
         callFacts: [{ key: 'detect_beats:m', status: 'completed', fromCache: true }],
+      }),
+    );
+    expect(state.stallStreak).toBe(1);
+  });
+
+  it('regression: a first recall of a handle is progress, a repeat of it is not', () => {
+    // Run `09529490`. The agent log keeps payloads for only the two freshest entries and a
+    // stock `remoteId` exists nowhere else, so a run holding twenty-one search handles has
+    // to recall them to act — which the contract explicitly tells it to do. Every recall is
+    // `fromCache` by construction, so every one of those turns scored as learning nothing
+    // and the run was killed by the stall guard for obeying its own instructions.
+    const recall = (evidenceId: string): TurnCallFact => ({
+      key: `recall_evidence:evidenceId="${evidenceId}"`,
+      status: 'completed',
+      fromCache: true,
+      role: 'recall',
+    });
+    const first = onEffectResult(
+      started({ stallStreak: 2 }),
+      turn({ signature: 'recall-ev1', callFacts: [recall('ev_1')] }),
+    );
+    expect(first.state.stallStreak).toBe(0);
+    expect(first.state.seenCallKeys).toContain('recall_evidence:evidenceId="ev_1"');
+
+    // Working through DIFFERENT handles keeps earning credit — that is a run reading its
+    // own material, not one going in circles.
+    const second = onEffectResult(
+      first.state,
+      turn({ signature: 'recall-ev2', callFacts: [recall('ev_2')] }),
+    );
+    expect(second.state.stallStreak).toBe(0);
+
+    // Re-opening one it has already opened teaches nothing, and still stalls.
+    const repeat = onEffectResult(
+      second.state,
+      turn({ signature: 'recall-ev1-again', callFacts: [recall('ev_1')] }),
+    );
+    expect(repeat.state.stallStreak).toBe(1);
+  });
+
+  it('the memo exemption is for recalls only — an ordinary cached read still stalls', () => {
+    // The exemption is about how `recall_evidence` is SERVED, not a general licence to
+    // treat cache hits as discoveries.
+    const { state } = onEffectResult(
+      started(),
+      turn({
+        signature: 'cached-read',
+        callFacts: [{ key: 'get_timeline:', status: 'completed', fromCache: true, role: 'read' }],
       }),
     );
     expect(state.stallStreak).toBe(1);

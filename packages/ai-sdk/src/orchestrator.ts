@@ -991,6 +991,42 @@ function turnSignature(calls: readonly ToolCall[]): string {
 const WINDOW_ARG_KEYS = new Set(['start', 'end']);
 
 /**
+ * Analysis arguments that TUNE a call without changing the question it asks: how many
+ * results to return, how sensitive the detector is, which slice of an asset to look at,
+ * whether to bypass a cache. Dropped from an unasseted analysis call's
+ * {@link callNoveltyKey} for exactly the reason `sensitivity` is dropped from an asseted
+ * one — asking the same question with a bigger `limit` is the same question.
+ *
+ * `timeRange` rides here rather than in {@link WINDOW_ARG_KEYS} so the read branch keeps
+ * the key it has always produced; the two sets are read by different branches on purpose.
+ */
+const ANALYSIS_TUNING_ARG_KEYS = new Set([
+  'limit',
+  'k',
+  'sensitivity',
+  'threshold',
+  'minDuration',
+  'refresh',
+  'wait',
+  'start',
+  'end',
+  'timeRange',
+]);
+
+/**
+ * The identity-bearing arguments of a call, rendered as a stable, order-independent
+ * string. `drop` names the arguments that do not confer identity.
+ */
+function identifyingArgs(call: ToolCall, drop: ReadonlySet<string>): string {
+  const args = (call.arguments ?? {}) as Record<string, unknown>;
+  return Object.keys(args)
+    .filter((k) => !drop.has(k))
+    .sort()
+    .map((k) => `${k}=${JSON.stringify(args[k])}`)
+    .join(',');
+}
+
+/**
  * The **memo key** for one call: what {@link HostCallContext.evidence} stores a read's
  * result under. Always the FULL arguments, because the memo serves real data back to the
  * model and a coarser key would answer `get_transcript{start:60,end:180}` with the words
@@ -1007,12 +1043,18 @@ function callMemoKey(call: ToolCall): string {
  * Deliberately coarser than both {@link turnSignature} and {@link callMemoKey}: it
  * answers "is this a new question?", not "is this the same bytes?".
  *
- * Coarser for **analysis** tools — keyed by `name + assetId`, dropping the tuning
- * arguments. That is the precise fix for the spin the no-progress guard exists to catch:
- * `detect_beats` on the same track at sensitivity 1.5, then 3.5, then 2 is the same
- * question asked three ways, and re-analysing the same media cannot reveal something new
- * about it. Analysing a DIFFERENT asset is genuinely new, and keying on the asset keeps
- * it so.
+ * Coarser for **analysis** tools that name an asset — keyed by `name + assetId`,
+ * dropping the tuning arguments. That is the precise fix for the spin the no-progress
+ * guard exists to catch: `detect_beats` on the same track at sensitivity 1.5, then 3.5,
+ * then 2 is the same question asked three ways, and re-analysing the same media cannot
+ * reveal something new about it. Analysing a DIFFERENT asset is genuinely new, and
+ * keying on the asset keeps it so.
+ *
+ * An analysis that names NO asset is keyed by its identity-bearing arguments instead
+ * (`query`, `kind`, `orientation`, …) minus {@link ANALYSIS_TUNING_ARG_KEYS}. The
+ * premise above — "re-analysing the same media cannot reveal something new" — has no
+ * media to stand on for a catalogue search, and reading it as `name:*` meant every
+ * search a run ever made was the same question. The body names the run that killed.
  *
  * Coarser for **reads** in the same spirit, and for a failure seen in the wild that the
  * analysis rule alone did not cover: a run that re-read the transcript every turn at a
@@ -1052,16 +1094,30 @@ export function callNoveltyKey(call: ToolCall): string {
   const tool = getTool(call.name);
   if (tool?.kind === 'analysis') {
     const assetId = (call.arguments as { assetId?: unknown }).assetId;
-    return `${call.name}:${typeof assetId === 'string' ? assetId : '*'}`;
+    // An asseted analysis keys on the asset alone — see the doc above: re-running
+    // `detect_beats` on the same track at a new sensitivity is one question asked twice.
+    if (typeof assetId === 'string') return `${call.name}:${assetId}`;
+    // An analysis with NO asset is a different animal, and collapsing it to `name:*` was
+    // a real, run-ending bug. `search_music` / `search_stock` / `search_media` /
+    // `search_visual` / `find_similar` are `analysis`-kind but take no `assetId`: their
+    // whole identity is the `query`. Every search a run made therefore shared one key,
+    // so the SECOND search of a run — however different its query, however many new
+    // tracks or clips it returned — was scored "learned nothing new". A captured run
+    // (`f1d5285e`) searched music four times with four queries, was credited with
+    // nothing for three of them, hit `STALL_CONFIRM_TURNS` on turn four and terminated
+    // having applied no edit. A request that needs many searches (80–120 stock clips for
+    // a montage) could not survive its own second turn.
+    //
+    // So key on what the call actually asks — the query, the media kind, the orientation
+    // — minus the tuning arguments that do not change the question
+    // ({@link ANALYSIS_TUNING_ARG_KEYS}). The spin this branch exists to catch is
+    // untouched: a re-run of the SAME query still produces the same key, and an
+    // argument-free analysis (`map_footage` over the whole project) still collapses to
+    // one key exactly as before.
+    return `${call.name}:${identifyingArgs(call, ANALYSIS_TUNING_ARG_KEYS)}`;
   }
   if (tool?.kind === 'read') {
-    const args = (call.arguments ?? {}) as Record<string, unknown>;
-    const identifying = Object.keys(args)
-      .filter((k) => !WINDOW_ARG_KEYS.has(k))
-      .sort()
-      .map((k) => `${k}=${JSON.stringify(args[k])}`)
-      .join(',');
-    return `${call.name}:${identifying}`;
+    return `${call.name}:${identifyingArgs(call, WINDOW_ARG_KEYS)}`;
   }
   return `${call.name}:${JSON.stringify(call.arguments)}`;
 }
@@ -1583,6 +1639,70 @@ function visualEvidenceDigest(obj: Record<string, unknown>): string {
     'caption is not enough evidence of what the shot shows.',
     ...shown,
   ].join('\n');
+}
+
+/**
+ * Provider record fields the model can never act on, dropped before a result is STORED as
+ * evidence.
+ *
+ * The digest arms for `search_stock`/`search_music` say it outright — "provider URLs never
+ * reach it at all" — and on the search path that is true. It stopped being true the moment
+ * the run reopened the same result: `recall_evidence` renders the stored payload, and the
+ * stored payload was the provider's whole record. A three-clip recall came back as ~900
+ * tokens of licence links, creator profile URLs, and a `variants` array of six renditions
+ * for every item.
+ *
+ * None of it is reachable. `add_stock` and `add_music` take a `remoteId` and nothing else
+ * — the host picks the rendition from the project's own height (`ai/stock-host.ts`) — so a
+ * variant id is not a choice the model gets to make, and a licence URL is not a page it
+ * can open. What it needs to choose a shot and place it survives: the id, the title, the
+ * length, the shape, the creator, and whether a credit is owed.
+ *
+ * Run `2131d2c5` spent 546,932 tokens and 63 recalls on this, and downloaded nothing.
+ */
+const UNACTIONABLE_PROVIDER_FIELDS: ReadonlySet<string> = new Set([
+  'variants',
+  'licenseUrl',
+  'sourceUrl',
+  'creatorUrl',
+  'attribution',
+  'hasPreview',
+]);
+
+/** The record lists a sourcing payload is a list OF, by the key each tool returns them under. */
+const SOURCING_RECORD_KEY: Record<string, string> = {
+  search_stock: 'items',
+  search_music: 'tracks',
+};
+
+/**
+ * What a result should look like in the evidence store — not necessarily what the provider
+ * returned.
+ *
+ * Identity for every tool but the two catalogue searches, whose records carry a large tail
+ * of fields no tool accepts (see {@link UNACTIONABLE_PROVIDER_FIELDS}). Projecting at
+ * STORE time rather than at recall time keeps `EvidenceStore`'s record filtering and
+ * paging working exactly as they do — it is still an object with an array-valued property,
+ * just without the dead weight — and it means the run's memory holds what the run can use.
+ */
+export function evidencePayload(toolName: string, value: unknown): unknown {
+  const recordKey = SOURCING_RECORD_KEY[toolName];
+  if (recordKey === undefined || typeof value !== 'object' || value === null) return value;
+  const obj = value as Record<string, unknown>;
+  const records = obj[recordKey];
+  if (!Array.isArray(records)) return value;
+  return {
+    ...obj,
+    [recordKey]: records.map((record) =>
+      typeof record === 'object' && record !== null
+        ? Object.fromEntries(
+            Object.entries(record as Record<string, unknown>).filter(
+              ([field]) => !UNACTIONABLE_PROVIDER_FIELDS.has(field),
+            ),
+          )
+        : record,
+    ),
+  };
 }
 
 export function summarizeReadResult(toolName: string, value: unknown): string {
@@ -2657,11 +2777,13 @@ export class Orchestrator {
    *   As of E5.5 the question route (`streamChat`) really sends this surface and
    *   executes its calls — including `ask_user` (P12), which pauses on the run's
    *   AskUser gate exactly as in agent mode. Out-of-scope calls are refused there.
-   * - `'action-recovery'`: a one-turn mutate/ask surface — plus `recall_evidence` —
-   *   after the prior turn requested only memo-served information. This makes duplicate
-   *   suppression an executable constraint rather than another ignored prompt warning.
-   *   The recall exception is load-bearing: the turn's whole premise is that the run
-   *   already HAS what it needs, which is false if it cannot reach it.
+   * - `'action-recovery'`: a one-turn mutate/ask surface — plus `recall_evidence` and the
+   *   `sourcing` role (ADR 0147) — after the prior turn requested only memo-served
+   *   information. This makes duplicate suppression an executable constraint
+   *   rather than another ignored prompt warning. Both exceptions are load-bearing: the
+   *   turn's whole premise is that the run already HAS what it needs, which is false if
+   *   it cannot reach it (recall), and false again if the material it needs was never on
+   *   this machine to begin with (sourcing).
    *
    * `stage` narrows any of the above further (ADR 0075 §3.6). Once the run is executing
    * against a locked plan, analysis and guidance descriptors are withheld: the evidence
@@ -2725,8 +2847,28 @@ export class Orchestrator {
         // `e30c1fe9` asked for exactly one clip it had already found, was refused, and
         // built a reel with no footage in it. A recovery turn demands an ACTION; these
         // are actions.
+        //
+        // `sourcing` rides alongside, which completes the same correction one step
+        // earlier. Admitting `add_stock` while withholding `search_stock` is a whole
+        // surface only for a run that has already searched. A run on an EMPTY project has
+        // nothing to add BY `remoteId`, and the only thing that mints a `remoteId` is the
+        // search it was just refused — so run `f1d5285e` was told to stop looking and make
+        // the edit, could reach nothing but `recall_evidence`, and was ended by the memo
+        // hit that answer counts as. The guard produced the outcome it exists to prevent
+        // (ADR 0147, amending ADR 0143).
+        //
+        // Reconnaissance over material the project ALREADY holds — the transcript, the
+        // footage map, silence, scenes — stays withheld, which is what the turn is for.
+        // And `state.actionRecoveryPending` is set for the whole recovery turn, so one
+        // that spends this allowance without acting falls straight through to the
+        // convergence guard rather than earning another.
         const effect = toolContract(tool).effectClass;
-        return effect === 'mutation' || tool.kind === 'ask' || tool.name === 'recall_evidence';
+        return (
+          effect === 'mutation' ||
+          tool.kind === 'ask' ||
+          tool.name === 'recall_evidence' ||
+          toolRole(tool.name, tool.mutates) === 'sourcing'
+        );
       }
       if (questionScope !== undefined && !questionScope.has(tool.name)) return false;
       return stage === undefined || stageAllowsRole(stage, toolRole(tool.name, tool.mutates));
@@ -3127,7 +3269,7 @@ export class Orchestrator {
               key: callMemoKey(call),
               source: call.name,
               descriptor: desc,
-              data: outcome.data,
+              data: evidencePayload(call.name, outcome.data),
             })
           : undefined;
       // `transcribe` is a host-backed mutation: the model supplies only asset identity,
@@ -3467,7 +3609,7 @@ export class Orchestrator {
           key: readKey,
           source: call.name,
           descriptor: desc,
-          data: value,
+          data: evidencePayload(call.name, value),
         });
         // Card shows the short action label; the model log keeps an id-preserving digest
         // (so it never has to invent asset/clip ids) plus the evidence handle that makes

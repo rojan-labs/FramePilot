@@ -176,6 +176,27 @@ describe('describeToolCall', () => {
       );
     });
 
+    it('regression: two catalogue searches are two different rows', () => {
+      // The sourcing pair was added after the verb table and never entered in it, so it
+      // fell through to the bare tool name — four rows reading "Search stock" for four
+      // different queries. The same string is the EVIDENCE DESCRIPTOR, so the run could
+      // not tell its own handles apart either and spent 30 of run `f014f3ac`'s 71 tool
+      // calls opening them one at a time to find out what they held.
+      const first = describeToolCall({
+        name: 'search_stock',
+        arguments: { query: 'eagle flying over mountain', kind: 'video' },
+      });
+      const second = describeToolCall({
+        name: 'search_stock',
+        arguments: { query: 'ocean waves crashing aerial', kind: 'video' },
+      });
+      expect(first).toBe('Searching stock footage for eagle flying over mountain');
+      expect(second).not.toBe(first);
+      expect(
+        describeToolCall({ name: 'search_music', arguments: { query: 'drum and bass 160 bpm' } }),
+      ).toBe('Searching music for drum and bass 160 bpm');
+    });
+
     it('names the catalog entry an effect/transition call chose, not the clip', () => {
       expect(
         describeToolCall({

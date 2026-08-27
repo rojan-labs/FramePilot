@@ -103,6 +103,15 @@ const TOOL_VERBS: Record<string, string> = {
   search_media: 'Searching media for',
   find_similar: 'Finding footage like',
   search_visual: 'Looking through the footage for',
+  // The sourcing pair was added after this table and never entered in it, so it hit the
+  // bare-tool-name fallback and reproduced the exact failure the note above describes —
+  // four rows reading "Search stock" for four different queries. That cost more than
+  // legibility: the same string becomes the EVIDENCE DESCRIPTOR, so a run holding four
+  // stock searches saw four handles all labelled "Search stock" and had to spend a call
+  // opening each one to find out what it held. Run `f014f3ac` made 30 `recall_evidence`
+  // calls out of 71 tool calls.
+  search_stock: 'Searching stock footage for',
+  search_music: 'Searching music for',
   describe_footage: 'Describing',
   map_footage: 'Mapping',
   index_media: 'Indexing',
@@ -164,6 +173,10 @@ const SUBJECT_ARG_KEYS: Record<string, readonly string[]> = {
   search_media: ['query'],
   find_similar: ['query'],
   search_visual: ['query'],
+  // The query is the whole identity of a catalogue search — there is no clip and no asset
+  // to fall back on, and `remoteId` is not something a person has ever seen.
+  search_stock: ['query'],
+  search_music: ['query'],
   discover_caption_styles: ['query', 'category'],
   discover_effects: ['query', 'category', 'shelf'],
   discover_transitions: ['query', 'category'],
