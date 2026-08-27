@@ -1,6 +1,8 @@
 # ADR 0147 — A search is not a repeat, and consistent wording is not a loop
 
-**Status:** accepted
+**Status:** accepted — narrowed by ADR 0149 (a run holding unspent candidates may not fetch
+more), which withholds the catalogue searches from a run that has already banked results it
+has not spent. `recall_evidence` and this ADR's empty-project case are untouched.
 **Date:** 2026-08-27
 **Amends:** ADR 0143 (sourcing is not reconnaissance) — the clause withholding
 `search_stock`/`search_music` from a recovery turn is reversed

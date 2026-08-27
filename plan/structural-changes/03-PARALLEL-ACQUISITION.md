@@ -1,6 +1,20 @@
 # 03 — Split `add_stock` into parallel acquire + serial commit
 
-**Status:** `[ ]` not started
+**Status:** `[x]` done — 2026-08-27, commit `1646ee5`; **ADR 0150**
+
+**What shipped.** A turn's `add_stock`/`add_music` downloads are warmed concurrently
+through `mapBounded` at the existing pool of 4 before the serial pass; the serial commit is
+untouched and still probes against the advanced `turnCtx`. Concurrency made safe: an
+in-flight map keyed `provider|remoteId|variantId`, serialized `appendLedger`, a
+`randomUUID` `operationId`, and `STOCK_DOWNLOAD_MAX_MS` (180s) bounding total wall clock
+alongside the 30s stall timer.
+
+**Not done, and deliberately.** The targeted QUIC retry and the `.tmp` startup sweep are
+not built — both are justified by a hypothesis (that the degradation ladder is Chromium
+session state) that step 11 exists to falsify, and building the remedy before the
+measurement is the wrong order. **Step 11 itself — the live re-run against the captured 18
+`remoteId`s — has not been run.** The ≈960s → ≈250s claim is a projection, not a
+measurement.
 **Depends on:** 01 (measurement). Independent of 02 — can land in parallel.
 **Blast radius:** `packages/ai-sdk/src/tool-contract.ts`,
 `packages/ai-sdk/src/orchestrator.ts` (`executeToolCalls`),

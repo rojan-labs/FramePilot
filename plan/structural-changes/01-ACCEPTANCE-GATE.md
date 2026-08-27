@@ -1,6 +1,20 @@
 # 01 — Make the acceptance gate fire
 
-**Status:** `[ ]` not started
+**Status:** `[x]` done — 2026-08-27, commit `e952b77`
+
+**What shipped.** The duration guard is span-local and `(?<![\d.])`-anchored, so a decimal's
+fractional tail can no longer read as a count. Every stated count is read rather than the
+first, marked floors beat aspirations, a range contributes its near end, and a search pool
+is not a floor — the captured brief's `80-120 candidate clips` would otherwise have set the
+criterion to 120 and failed a cut of 80 that did everything asked. Spec-style
+`Minimum clips: 50` is read as well as `50 clips`. `checkShotCount` counts picture only (it
+counted the music bed as a shot). A spec-length brief naming a count the reader cannot read
+now warns rather than silently skipping.
+
+**Verified.** The verbatim 9,885-char fixture from run `e36235cc` yields `50`; every
+edge-case row passes; a 1-clip timeline against the brief reports
+`2 check(s) failed, 1 warning(s)` with `ok = false`, which `conductor.ts` refuses to fold to
+`complete`. 50 acceptance tests, 47 critic tests.
 **Depends on:** nothing. **Blocks:** 02, 03 (they are unmeasurable until this lands).
 **Blast radius:** `packages/ai-sdk/src/acceptance.ts`, `packages/ai-sdk/src/critic.ts`.
 No schema change, no new subsystem, no new tool.

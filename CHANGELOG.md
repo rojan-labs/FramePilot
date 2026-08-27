@@ -8,6 +8,39 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A montage that asked for 50 clips can no longer finish with one.** The check that
+  compares the finished cut against the number you asked for was silently switched off by
+  any brief containing a timing example like `0.50s` — it read the `50s` inside the decimal
+  as a duration and threw away the requirement. A run that delivers far less than you asked
+  for now says so instead of reporting success. (`packages/ai-sdk`)
+- **Downloading a batch of stock clips is no longer one-at-a-time.** Eighteen clips took
+  sixteen minutes because each download waited for the one before it. They now download
+  together, and a transfer that hangs is given up on instead of holding everything else
+  behind it. (`packages/ai-sdk`, `apps/desktop`)
+- **The assistant stops hunting for more footage once it has plenty.** It could spend an
+  entire session searching, re-reading its own results and never actually cutting. When it
+  is holding footage it has not used yet, searching for more is turned off until something
+  lands on the timeline. (`packages/ai-sdk`)
+- **The assistant can see the stock clips it downloaded.** Footage it fetched itself was
+  never added to the visual index, so every attempt to look at what was in a clip came back
+  empty and it picked shots blind. (`packages/ai-sdk`, `apps/desktop`)
+- **Stock searches match your project's shape.** A vertical project was being handed
+  landscape footage by default. (`packages/ai-sdk`)
+- **"Continue from here" keeps the brief.** Typing it started the assistant over as if it
+  were a brand-new one-line request, discarding everything the original brief asked for.
+  (`packages/ai-sdk`)
+- **Music searches say what they actually searched for.** The library matches short
+  phrases, so a long description of a mood quietly narrowed to its first two words — the
+  assistant now knows that up front instead of discovering it ten searches in.
+  (`packages/ai-sdk`)
+
+### Changed
+
+- **The assistant keeps more of what it finds in front of it.** It was clearing its own
+  research after about two lookups regardless of how much room was actually free, then
+  re-fetching the same results over and over. It now keeps as much as the model's context
+  genuinely allows. (`packages/ai-sdk`)
+
 - **Reopening a search result is no longer more expensive than the search was.** A stored
   result kept the provider's entire record — licence links, profile URLs, and six
   download-size descriptors per clip — so reopening three clips cost about 900 words of

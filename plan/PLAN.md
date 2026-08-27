@@ -13,8 +13,21 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
-**Status snapshot (2026-08-27, montage run gap analysis, round 5):** `[~]` **The harness is
-no longer the blocker; the gate is off and the strategy is unforced.** Run `e36235cc` is the
+**Status snapshot (2026-08-27, montage run gap analysis, round 5):** `[x]` **Five defects
+closed; one measurement outstanding.** Implementation: `e952b77` (01), `92ee038` (02),
+`1646ee5` (03), `de57046` (04), `fc58de5` (05). ADRs **0149** (a run holding unspent
+candidates may not fetch more, narrowing 0147), **0150** (acquire in parallel, commit in
+series), **0151** (the findings budget scales with the window).
+
+**Nothing below has been measured against a live run** — every figure is read from the
+captured transcript, and the targets are projections. The round-5 re-run settles them.
+**One question outranks the re-run itself:** whether the live OpenRouter path honours the
+cache breakpoint. `cacheBoundary` appears nowhere in the OpenAI-compatible adapter
+(`splitAnthropicMessages` is Anthropic-specific), so either automatic prefix caching covers
+it or 736,595 tokens were billed at full price. It cannot be settled from the code; the run
+ledger added in `fc58de5` reports the answer on the next live run.
+
+**The harness was no longer the blocker; the gate was off and the strategy was unforced.** Run `e36235cc` is the
 same brief again. Rounds 1-4 worked: it reached `apply`, held a 121-beat grid and 12
 downloaded clips, made 143 tool calls -- and delivered a timeline with **one clip on it**
 (the music bed), then reported **`completed`**. 30 minutes, 367,398 billed tokens (1,223,811

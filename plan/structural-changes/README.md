@@ -1,7 +1,24 @@
 # Structural changes — montage run gap analysis, round 5
 
 **Created:** 2026-08-27 · **Source evidence:** `run.md` (conversation `0049aed5`, runs
-`e36235cc` + `4aa31c96`) · **Status:** `[ ]` not started
+`e36235cc` + `4aa31c96`) · **Status:** `[x]` 01–04 done, `[~]` 05 in progress
+
+| Doc                       | Status | Commit    | ADR  |
+| ------------------------- | ------ | --------- | ---- |
+| `01-ACCEPTANCE-GATE`      | `[x]`  | `e952b77` | —    |
+| `02-COMMITMENT-GATE`      | `[x]`  | `92ee038` | 0149 |
+| `03-PARALLEL-ACQUISITION` | `[x]`  | `1646ee5` | 0150 |
+| `04-SUPPORTING-DEFECTS`   | `[x]`  | `de57046` | —    |
+| `05-CONTEXT-ECONOMICS`    | `[~]`  | `fc58de5` | 0151 |
+
+**The one thing left, and it outranks the rest.** `05` Change 2 step 1: whether the live
+OpenRouter path honours the cache breakpoint. `cacheBoundary` appears nowhere in the
+OpenAI-compatible adapter, so either automatic prefix caching covers it or 736,595 tokens
+were billed at full price. It cannot be settled from the code — it needs one live request,
+and the run ledger now reports the answer.
+
+**Nothing here has been measured against a live run.** Every target below is a projection
+from the captured transcript. The round-5 re-run is what settles them.
 
 ---
 

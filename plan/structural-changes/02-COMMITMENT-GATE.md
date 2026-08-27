@@ -1,6 +1,18 @@
 # 02 — Make a run that has committed nothing stop gathering
 
-**Status:** `[ ]` not started
+**Status:** `[x]` done — 2026-08-27, commit `92ee038`; **ADR 0149**
+
+**What shipped.** A `commit-only` scope on `agentTools`, entered only when a search has
+banked results and no `add_clip` has succeeded, released by the first placement.
+`recall_evidence`, the inspection tools and everything that spends a candidate are never
+withheld — each has a test naming the deadlock it prevents. `allowedToolNames` is now
+passed on every path, so stage narrowing is enforced rather than advertised. A turn made
+entirely of harness refusals no longer increments `noProgressStreak`.
+`NOVELTY_ONLY_TURN_BUDGET` caps unbounded novelty-only progress without touching round 3's
+credit.
+
+**Not done.** The replay fixture rebuilt from run `e36235cc`'s state at 11:24:06 (test 10)
+— the scope is unit-tested across every stage instead. A live re-run supersedes it.
 **Depends on:** 01 (until the gate can fail, this is unmeasurable).
 **Blast radius:** `packages/ai-sdk/src/orchestrator.ts` (`agentTools`, `executeToolCalls`),
 `packages/ai-sdk/src/kernel/conductor.ts` (stall accounting), one new ADR amending 0147.

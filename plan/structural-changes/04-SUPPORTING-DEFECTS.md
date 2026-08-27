@@ -1,6 +1,19 @@
 # 04 — Supporting defects (D1–D5)
 
-**Status:** `[ ]` not started
+**Status:** `[x]` done — 2026-08-27, commit `de57046`
+
+**What shipped.** D1: `createStockHost` takes an enrolment hook, wired in `main.ts`,
+fire-and-forget on the commit side; and the engine's bare `not_indexed` reaches the model
+as an instruction that closes the loop. D2: orientation defaults to the project's frame, an
+explicit choice still honoured. D3: the tool description states the phrase-matching limit.
+D4: an outcome that is the request handed back verbatim is stored bounded. D5:
+`from`/`here`/`off` join the continuation vocabulary, and `critiqueOptions` derives
+acceptance from the resolved objective rather than from what was typed last.
+
+**Not done.** D3's "report the degradation once per run" — the per-call sentence is already
+honest, and the description fix addresses the cause rather than the symptom. D4's
+`briefing.ts` de-duplication filter was left alone: it still filters correctly, and
+narrowing it is only worth doing once a run confirms the duplicate is gone.
 **Depends on:** nothing. D1 and D2 materially change output quality and should land with 02.
 
 Five defects from run `e36235cc` that do not fit 01–03 but each cost the run real quality.

@@ -1,6 +1,25 @@
 # 05 — Context economics: 52 rebuilds, 60% spent on tool definitions
 
-**Status:** `[ ]` not started
+**Status:** `[~]` in progress — 2026-08-27, commit `fc58de5`; **ADR 0151**
+
+**What shipped.** `findingsBudgetTokens` derives the budget from measured remaining
+capacity, floored at the old 1,000 and capped so a huge window cannot bury the request; a
+small-window model degrades by arithmetic rather than by a special case.
+`summarizeRunContext`/`describeRunContext` aggregate the manifests a run already emits into
+one ledger — model calls, assembled tokens, tool-schema share, churn, cached share, peak
+window use — carried on `AgentRunQualityMetrics.context`. It reproduces the captured run
+exactly: _52 model calls · 1,223,811 tokens assembled · tool definitions 60% of it ·
+115,967 re-billed across 9 tool-set change(s) · cache not reported by this provider · peak
+window use 33%_.
+
+**Still open — and it outranks everything else here.** Change 2 step 1: whether the
+OpenRouter path honours the cache breakpoint. `cacheBoundary` appears nowhere in the
+OpenAI-compatible adapter (`splitAnthropicMessages` is Anthropic-specific), so the answer is
+either "automatic prefix caching covers it" or "736,595 tokens were billed at full price".
+**It cannot be settled from the code and needs one live request.** The ledger now reports
+cached share, so the measurement is a single run away. Changes 2 steps 2–3 (narrowing the
+per-stage set, shortening descriptions) are deferred behind that measurement, as the plan
+requires.
 **Depends on:** nothing measurable-blocking, but lands best with 02 (fewer round trips is
 the same lever as fewer gathering turns).
 **Blast radius:** `packages/ai-sdk/src/orchestrator.ts` (agent log constants, message
