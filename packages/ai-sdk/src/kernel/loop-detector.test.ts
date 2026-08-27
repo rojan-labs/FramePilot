@@ -9,11 +9,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_NO_PROGRESS_TURNS,
+  NOVELTY_ONLY_TURN_BUDGET,
   SEMANTIC_LOOP_TURNS,
+  catalogueSearchRefusal,
   isSemanticLoop,
   madeMeaningfulProgress,
   normalizeIntent,
   recoveryAction,
+  shouldWithholdCatalogueSearch,
   type TurnProgress,
 } from './loop-detector.js';
 import {
@@ -202,5 +205,85 @@ describe('recoveryAction — an action, never a plan', () => {
     // rather than invent work.
     const state = recordOperation(base(), { intent: 'cut', status: 'succeeded', patchId: 'p' });
     expect(recoveryAction(state)).toBeNull();
+  });
+});
+
+describe('shouldWithholdCatalogueSearch (02 — the commit-only latch)', () => {
+  it('never engages before a search has landed', () => {
+    // ADR 0147's exact case: on an empty project there is no remoteId to add BY, and the
+    // only thing that mints one is the search this would refuse. Withholding here is what
+    // left run f1d5285e with no legal move at all.
+    expect(shouldWithholdCatalogueSearch({ bankedSearches: 0, placementsApplied: 0 })).toBe(false);
+  });
+
+  it('engages once results are banked and nothing has been placed', () => {
+    expect(shouldWithholdCatalogueSearch({ bankedSearches: 1, placementsApplied: 0 })).toBe(true);
+    expect(shouldWithholdCatalogueSearch({ bankedSearches: 19, placementsApplied: 0 })).toBe(true);
+  });
+
+  it('releases on the first placement and stays released', () => {
+    expect(shouldWithholdCatalogueSearch({ bankedSearches: 19, placementsApplied: 1 })).toBe(false);
+    expect(shouldWithholdCatalogueSearch({ bankedSearches: 99, placementsApplied: 50 })).toBe(
+      false,
+    );
+  });
+
+  it('names a way out rather than only saying no', () => {
+    const refusal = catalogueSearchRefusal(19);
+    expect(refusal).toContain('19 search result(s)');
+    expect(refusal).toContain('recall_evidence');
+    // `ask_user` must not be offered: no askUser host is wired, so naming it would
+    // advertise an escape that does not exist.
+    expect(refusal).not.toContain('ask_user');
+  });
+});
+
+describe('madeMeaningfulProgress caps novelty-only turns (02)', () => {
+  const base = {
+    learnedSomethingNew: false,
+    attemptedEdit: false,
+    appliedEdit: false,
+    recordedVerification: false,
+    advancedStage: false,
+    committedDecision: false,
+    satisfiedObjective: false,
+  };
+
+  it('counts novelty alone while the budget lasts', () => {
+    for (let streak = 0; streak < NOVELTY_ONLY_TURN_BUDGET; streak += 1) {
+      expect(
+        madeMeaningfulProgress({ ...base, learnedSomethingNew: true, noveltyOnlyStreak: streak }),
+      ).toBe(true);
+    }
+  });
+
+  it('stops counting novelty alone once the budget is spent', () => {
+    // 62 recalls deep with one clip on the timeline is not progress.
+    expect(
+      madeMeaningfulProgress({
+        ...base,
+        learnedSomethingNew: true,
+        noveltyOnlyStreak: NOVELTY_ONLY_TURN_BUDGET,
+      }),
+    ).toBe(false);
+  });
+
+  it('is unbounded for a caller that does not track the streak', () => {
+    // Additive: every existing caller and fixture keeps the behaviour it had.
+    expect(madeMeaningfulProgress({ ...base, learnedSomethingNew: true })).toBe(true);
+  });
+
+  it('a stronger signal still counts however long the streak', () => {
+    const spent = { ...base, noveltyOnlyStreak: 99 };
+    expect(madeMeaningfulProgress({ ...spent, attemptedEdit: true })).toBe(true);
+    expect(madeMeaningfulProgress({ ...spent, appliedEdit: true })).toBe(true);
+    expect(madeMeaningfulProgress({ ...spent, advancedStage: true })).toBe(true);
+    expect(madeMeaningfulProgress({ ...spent, committedDecision: true })).toBe(true);
+    expect(madeMeaningfulProgress({ ...spent, recordedVerification: true })).toBe(true);
+    expect(madeMeaningfulProgress({ ...spent, satisfiedObjective: true })).toBe(true);
+  });
+
+  it('a turn that learned nothing is still no progress, budget or not', () => {
+    expect(madeMeaningfulProgress({ ...base, noveltyOnlyStreak: 0 })).toBe(false);
   });
 });

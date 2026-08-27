@@ -275,3 +275,23 @@ export function factScopeOf(
 ): 'revision_independent' | 'timeline_dependent' {
   return scope === 'timeline_dependent' ? 'timeline_dependent' : 'revision_independent';
 }
+
+/**
+ * Sourcing tools that FETCH new candidates, as opposed to those that commit one.
+ *
+ * The distinction the `sourcing` role alone cannot make, and the one the commit-only scope
+ * turns on: `search_stock` mints `remoteId`s, `add_stock` spends them. A run holding
+ * unspent ids does not need more searching; it needs to place what it has.
+ */
+const CATALOGUE_SEARCH_TOOLS: ReadonlySet<string> = new Set([
+  'search_stock',
+  'search_music',
+  'search_media',
+  'search_visual',
+  'find_similar',
+]);
+
+/** Does this tool fetch NEW sourcing candidates (rather than commit one already found)? */
+export function isCatalogueSearch(name: string): boolean {
+  return CATALOGUE_SEARCH_TOOLS.has(name);
+}

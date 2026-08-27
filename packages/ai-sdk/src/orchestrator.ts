@@ -100,6 +100,8 @@ import {
 import { type AnalysisBudget, createAnalysisBudget } from './kernel/cost/analysis-caps.js';
 import { estimateUsd } from './kernel/cost/cost-meter.js';
 import { stageAllowsRole, toolRole } from './kernel/stage-policy.js';
+import { isCatalogueSearch } from './tool-classification.js';
+import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
 import { buildStateBriefing, distil } from './kernel/briefing.js';
 import { createNarrationFilter } from './kernel/narration.js';
 import { alignBeatBackedBoundaries } from './kernel/beat-grid/beat-alignment.js';
@@ -308,6 +310,15 @@ const BUDGET_HEADROOM_TOKENS = 2000;
  * @param provider - The provider/model actually selected.
  * @param reservedPromptTokens - Fixed cost this route pays outside `assembleContext`.
  */
+/**
+ * Which surface a turn advertises.
+ *
+ * `commit-only` is `agent` minus the catalogue searches — the scope a run enters once it
+ * holds sourcing candidates it has not spent. See `Orchestrator.agentTools` for why it
+ * withholds so little, and {@link shouldWithholdCatalogueSearch} for when it engages.
+ */
+export type AgentToolScope = 'agent' | 'question' | 'action-recovery' | 'commit-only';
+
 export function resolveContextBudget(
   input: ContextInput,
   provider: AiProvider | undefined,
@@ -439,6 +450,23 @@ function isContentEvidenceFact(fact: { readonly key: string; readonly status: st
  * out a dropped request without turning a real dead end into a loop.
  */
 const MAX_UNUSABLE_TURN_RETRIES = 1;
+
+/**
+ * Picture clips this run has actually put on the timeline.
+ *
+ * `add_clip` specifically, not "any applied operation": the captured run applied
+ * seventeen operations — thirteen assets into the bin, three layers, one music clip — and
+ * had nothing to show. Counting those as commitment would release the commit-only latch on
+ * exactly the act it exists to distinguish from an edit.
+ */
+function placementCount(ops: readonly AnyOperation[]): number {
+  return ops.filter((op) => op.type === 'add_clip').length;
+}
+
+/** Evidence handles this run banked from a catalogue search. */
+function bankedSearchCount(working: RunWorkingState | undefined): number {
+  return (working?.evidence ?? []).filter((handle) => isCatalogueSearch(handle.source)).length;
+}
 
 /**
  * Why this step's response cannot be used, or `undefined` when it can.
@@ -2867,7 +2895,7 @@ export class Orchestrator {
   }
 
   public agentTools(
-    scope: 'agent' | 'question' | 'action-recovery' = 'agent',
+    scope: AgentToolScope = 'agent',
     stage?: RunStage,
   ): ReturnType<typeof toolDescriptors> {
     const questionScope =
@@ -2926,6 +2954,22 @@ export class Orchestrator {
           toolRole(tool.name, tool.mutates) === 'sourcing'
         );
       }
+      // A run holding unspent candidates may not fetch more (05/02). Withholding is
+      // narrow on purpose, and every exclusion below is a deadlock this would otherwise
+      // cause:
+      //
+      // - `recall_evidence` is NEVER withheld. The agent log keeps payloads for two turns
+      //   (`AGENT_LOG_PAYLOAD_FRESH`) and a stock `remoteId` exists nowhere else, so
+      //   refusing a recall does not force commitment — it removes the only route to the
+      //   argument `add_stock` takes, which is the ADR 0143 failure ADR 0147 reversed.
+      // - Inspection stays open. A run whose downloads all failed, or whose placement is
+      //   refused for want of a free span, has to be able to read the timeline and say so.
+      // - Only the CATALOGUE SEARCHES go. They are what mints more candidates, and more
+      //   candidates is precisely what the run does not need.
+      //
+      // The scope is entered only when a search has already banked results (so an empty
+      // project can always search) and released by the first successful placement.
+      if (scope === 'commit-only' && isCatalogueSearch(tool.name)) return false;
       if (questionScope !== undefined && !questionScope.has(tool.name)) return false;
       return stage === undefined || stageAllowsRole(stage, toolRole(tool.name, tool.mutates));
     });
@@ -4715,12 +4759,19 @@ export class Orchestrator {
     beatEvidence?: { current?: unknown; hardSync?: boolean },
     /** Durable note sink for what the editor tells the run (see `rememberDecision`). */
     rememberDecision?: (note: { readonly title: string; readonly body: string }) => void,
+    /**
+     * Banked catalogue searches, when this turn is running commit-only (02). Present ⇒ a
+     * withheld search is refused with the specific reason and the specific way out.
+     */
+    bankedSearches?: number,
   ): AsyncGenerator<
     AiEvent,
     {
       turnOps: AnyOperation[];
       notes: string[];
       turnStatuses: ToolStatus[];
+      /** Calls the harness refused this turn (commit-only latch, recovery surface). */
+      withheldCallCount: number;
       rejectedOpCount: number;
       rejectionNotes: string[];
       /** Per-call progress facts the reducer folds (see `TurnCallFact`). */
@@ -4735,6 +4786,7 @@ export class Orchestrator {
     const turnOps: AnyOperation[] = [];
     const notes: string[] = [];
     const turnStatuses: ToolStatus[] = [];
+    let withheldCallCount = 0;
     /** Frames this turn's `get_frame` calls rendered, for the NEXT request's images. */
     const frames: AiImage[] = [];
     const callFacts: TurnCallFact[] = [];
@@ -4834,9 +4886,10 @@ export class Orchestrator {
         // as the analysis/action actually takes, and the returned data reaches
         // the model's next turn via the log note. Abort mid-call settles the
         // card as `cancelled`, never a checkmark.
+        if (!inScope) withheldCallCount += 1;
         const outcome: AgentCallOutcome = inScope
           ? await this.runAgentCall(call, turnCtx, turnNames, hostContext)
-          : withheldCallOutcome(call, evidence);
+          : withheldCallOutcome(call, evidence, bankedSearches);
         settled = [{ call, outcome, runtimeMs: now() - started, announced: true }];
       }
 
@@ -4950,7 +5003,16 @@ export class Orchestrator {
       }
       if (stopped) break;
     }
-    return { turnOps, notes, turnStatuses, rejectedOpCount, rejectionNotes, callFacts, frames };
+    return {
+      turnOps,
+      notes,
+      turnStatuses,
+      withheldCallCount,
+      rejectedOpCount,
+      rejectionNotes,
+      callFacts,
+      frames,
+    };
   }
 
   /**
@@ -6407,6 +6469,22 @@ export class Orchestrator {
         }
         /* v8 ignore next -- see the guard above: `effect.working` is always defined on the live path, so `invariants` is always defined too once we reach here, and the `?? effect.working` fallback never runs. */
         const taskMemory = invariants?.state ?? briefedWorking;
+        // 02 — a run holding unspent sourcing candidates and nothing on the timeline loses
+        // the catalogue searches for this turn. Recomputed per turn from live state (not
+        // latched in a variable) so the first successful placement releases it immediately,
+        // and so a run that never searched is never affected.
+        const bankedSearches = bankedSearchCount(taskMemory);
+        const withholdSearch = shouldWithholdCatalogueSearch({
+          bankedSearches,
+          placementsApplied: placementCount(state.cumulativeOps),
+        });
+        const turnScope: AgentToolScope = withholdSearch ? 'commit-only' : 'agent';
+        if (withholdSearch) {
+          orchestratorLog.action('commit-only turn — catalogue search withheld', {
+            bankedSearches,
+            stage: effect.stage,
+          });
+        }
         // C2: the turn's assistant text is about to stream, before its tool calls (if
         // any) are even known — `generating` is the specific, honest status for that
         // phase (vs. the generic `editing` the caller set for the whole run).
@@ -6431,7 +6509,7 @@ export class Orchestrator {
               // fires, but an executing run is closed to fresh reconnaissance regardless.
               tools: effect.actionRecovery
                 ? self.agentTools('action-recovery')
-                : self.agentTools('agent', effect.stage),
+                : self.agentTools(turnScope, effect.stage),
             },
             signal,
             // Per-step thinking (U3, redesign §12): each step captures the model's
@@ -6581,26 +6659,42 @@ export class Orchestrator {
             note: 'Idempotency hit: this planned operation already succeeded.',
           });
         }
-        const { turnOps, notes, turnStatuses, rejectedOpCount, rejectionNotes, callFacts, frames } =
-          yield* self.executeToolCalls(
-            emit,
-            turn.calls,
-            ctx,
-            names,
-            effectRuntime,
-            evidence,
-            loadedSkills,
-            controls.askUser,
-            signal,
-            now,
-            analysisBudget,
-            wipeGuard,
-            effect.actionRecovery
-              ? new Set(self.agentTools('action-recovery').map((tool) => tool.name))
-              : undefined,
-            beatEvidence,
-            controls.rememberDecision,
-          );
+        const {
+          turnOps,
+          notes,
+          turnStatuses,
+          withheldCallCount,
+          rejectedOpCount,
+          rejectionNotes,
+          callFacts,
+          frames,
+        } = yield* self.executeToolCalls(
+          emit,
+          turn.calls,
+          ctx,
+          names,
+          effectRuntime,
+          evidence,
+          loadedSkills,
+          controls.askUser,
+          signal,
+          now,
+          analysisBudget,
+          wipeGuard,
+          // Enforced, not merely advertised. `allowedToolNames` used to be passed only on
+          // the recovery path, so a stage-narrowed tool called anyway executed normally —
+          // the narrowing was a suggestion. A withholding scope that the model can step
+          // around is the same advisory lever that has now failed four times.
+          new Set(
+            (effect.actionRecovery
+              ? self.agentTools('action-recovery')
+              : self.agentTools(turnScope, effect.stage)
+            ).map((tool) => tool.name),
+          ),
+          beatEvidence,
+          controls.rememberDecision,
+          withholdSearch ? bankedSearches : undefined,
+        );
         if (callFacts.some(isContentEvidenceFact)) sawContentEvidence = true;
         // Hand this turn's frames to the NEXT request (see `pendingFrames`).
         pendingFrames = frames;
@@ -6608,6 +6702,7 @@ export class Orchestrator {
         const common = {
           planSteps,
           planStepIndex: stepIdx,
+          withheldCallCount,
           intent,
           // The turn's own prose, so the reducer can tell whether four differently-worded
           // turns were the same turn (ADR 0075 §3.5).
@@ -6902,7 +6997,25 @@ export class Orchestrator {
  * tool is unavailable on this turn and what the turn is for. A refusal a run can act on
  * beats a checkmark it cannot — and a false refusal is worse than either.
  */
-function withheldCallOutcome(call: ToolCall, evidence: EvidenceStore): AgentCallOutcome {
+function withheldCallOutcome(
+  call: ToolCall,
+  evidence: EvidenceStore,
+  /**
+   * Banked catalogue searches, when this refusal is the commit-only latch (02) rather than
+   * the recovery turn. Given, the refusal names the specific reason and the specific way
+   * out instead of the generic one — a run refused with no legal move named is how ADR 0143
+   * stranded a run on an empty project.
+   */
+  bankedSearches?: number,
+): AgentCallOutcome {
+  if (bankedSearches !== undefined && isCatalogueSearch(call.name)) {
+    return {
+      ops: [],
+      note: catalogueSearchRefusal(bankedSearches),
+      summary: `${call.name} withheld — place what this run already found`,
+      status: 'warning',
+    };
+  }
   const stored = evidence.lookup(callMemoKey(call));
   if (stored) {
     return {

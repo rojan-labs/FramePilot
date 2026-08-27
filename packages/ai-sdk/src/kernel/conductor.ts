@@ -398,6 +398,13 @@ export interface ConductorState {
    * forever without ever moving the task, which is exactly what happened.
    */
   readonly noProgressStreak: number;
+  /**
+   * Consecutive turns whose only claim to progress was novelty (02).
+   *
+   * Reset by any stronger signal — an attempted edit, a stage advance, a committed
+   * decision — so a run doing real work never accumulates one.
+   */
+  readonly noveltyOnlyStreak: number;
   /** Monotonic per-run event sequence, threaded so ids never collide across folds. */
   readonly seq: number;
 }
@@ -429,6 +436,7 @@ export function initialConductorState(turnRef: TurnRef): ConductorState {
     working: initialWorkingState({ runId: turnRef.turnId, request: '' }),
     recentIntents: [],
     noProgressStreak: 0,
+    noveltyOnlyStreak: 0,
     cancelled: false,
     integrityFailed: false,
     log: [],
@@ -597,6 +605,17 @@ export interface AgentTurnResult {
   readonly anyToolCancelled: boolean;
   /** A host tool genuinely failed (drives a real-work turn's plan-step status). */
   readonly anyToolFailed: boolean;
+  /**
+   * Calls this turn made that the HARNESS refused (02's commit-only latch, the recovery
+   * turn's withheld surface) rather than the model wasting.
+   *
+   * A withheld call returns a `warning` outcome with no payload, so it banks no fact and no
+   * novelty — which means a turn made entirely of refusals scores `learnedSomethingNew:
+   * false`, increments `noProgressStreak`, and reaches `MAX_NO_PROGRESS_TURNS` in two
+   * turns. Without this the gate that exists to save a stalling run would be the thing that
+   * kills it. The run is not failing to progress; it is being told to do something else.
+   */
+  readonly withheldCallCount?: number;
   /** Operations the turn proposed, before validation (drives the per-turn cap). */
   readonly turnOpCount: number;
   /** Ops proposed by the turn's calls but refused by the per-call validator. */
@@ -1037,6 +1056,7 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
     working: restored ?? freshWorking,
     recentIntents: [],
     noProgressStreak: 0,
+    noveltyOnlyStreak: 0,
     seq: em.seq(),
   };
   const firstEffect: ConductorEffect = resuming
@@ -1443,6 +1463,7 @@ export function onTurnResult(
       // An applied edit is meaningful progress by definition, so both new streaks clear
       // with the old ones.
       noProgressStreak: 0,
+      noveltyOnlyStreak: 0,
       recentIntents: [],
       recentOutputDeltas: [],
       actionRecoveryPending: false,
@@ -1558,6 +1579,9 @@ export function onTurnResult(
   const learnedSomethingNew = turnLearnedSomethingNew(r.callFacts, state.seenCallKeys);
   // Meaningful progress is a stricter question than the stall guard's: reasoning text,
   // restated summaries and memo hits are a run describing itself, not progressing.
+  const strongerSignal = attemptedEdit || stageAdvanced;
+  const noveltyOnlyStreak =
+    strongerSignal || !learnedSomethingNew ? 0 : state.noveltyOnlyStreak + 1;
   const progressedMeaningfully = madeMeaningfulProgress({
     learnedSomethingNew,
     attemptedEdit,
@@ -1566,6 +1590,9 @@ export function onTurnResult(
     advancedStage: stageAdvanced,
     committedDecision: false,
     satisfiedObjective: false,
+    // The streak BEFORE this turn: the budget asks how many turns have already been spent
+    // discovering and not acting, so counting this one would spend the allowance a turn early.
+    noveltyOnlyStreak: state.noveltyOnlyStreak,
   });
   // Semantic loop detection (ADR 0075 §3.5). Tracks what turns were FOR: a run that
   // re-announces the same purpose three times while advancing nothing is circling, however
@@ -1595,7 +1622,17 @@ export function onTurnResult(
     stageAdvanced,
     decisionCommitted: false,
   });
-  const noProgressStreak = progressedMeaningfully ? 0 : state.noProgressStreak + 1;
+  // A turn the harness refused outright is not a turn that failed to progress: the model
+  // asked for something, was told no, and banked nothing BECAUSE of the refusal. Holding
+  // the streak (rather than resetting it) keeps a genuinely stuck run on its way to the
+  // guard while giving the refused turn the chance to obey the refusal.
+  const everyCallWithheld =
+    (r.withheldCallCount ?? 0) > 0 && (r.withheldCallCount ?? 0) === r.callFacts.length;
+  const noProgressStreak = progressedMeaningfully
+    ? 0
+    : everyCallWithheld
+      ? state.noProgressStreak
+      : state.noProgressStreak + 1;
   const recovering = looping || noProgressStreak >= MAX_NO_PROGRESS_TURNS;
   // Recovery yields an ACTION, never another plan — the run's problem is that it cannot
   // stop planning, so the remedy must not be an invitation to plan again.
@@ -1613,6 +1650,7 @@ export function onTurnResult(
     working: recovered ? setNextAction(workingAfterTurn, recovered) : workingAfterTurn,
     recentIntents,
     noProgressStreak,
+    noveltyOnlyStreak,
     rejectedOpCount,
     rejectionReasons,
     attemptedAnyEdit: state.attemptedAnyEdit || attemptedEdit,
