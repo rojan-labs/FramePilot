@@ -34,6 +34,7 @@ import path from 'node:path';
 import { createLogger } from '@framepilot/shared-types';
 import { resolveWithin } from '@framepilot/shared-types/safety';
 import {
+  STOCK_DOWNLOAD_MAX_MS,
   STOCK_DOWNLOAD_STALL_MS,
   STOCK_MAX_DOWNLOAD_BYTES,
   STOCK_SEARCH_DEFAULT_LIMIT,
@@ -228,6 +229,26 @@ export class StockService {
    */
   private readonly knownItems = new Map<string, StockItem>();
   private readonly downloads = new Map<string, AbortController>();
+  /**
+   * Downloads currently in flight, keyed `provider|remoteId|variantId`.
+   *
+   * The agent now issues a turn's downloads CONCURRENTLY (03), and two calls for the same
+   * clip would otherwise both miss the ledger — it is written only after the rename — take
+   * the same `dedupeName` (the real file does not exist yet, only two `.tmp`s), and both
+   * rename onto the same path. Last writer wins atomically, so nothing corrupts, but the
+   * bytes are paid for twice. Sharing the promise makes the second caller wait for the
+   * first instead.
+   */
+  private readonly inFlight = new Map<string, Promise<StockDownloadResult>>();
+  /**
+   * Serializes `sources.json` writes.
+   *
+   * `appendLedger` is a read-modify-write. It re-reads rather than trusting a stale
+   * snapshot, which is necessary but not sufficient: two concurrent completions can still
+   * interleave read/read/write/write and lose an entry, and a lost entry costs a redundant
+   * download later — the exact cost this concurrency exists to remove.
+   */
+  private ledgerWrites: Promise<unknown> = Promise.resolve();
   private inFlightSearch: AbortController | null = null;
   /** Built per call, because the key can change without restarting the app. */
   private cachedProvider: { key: string; provider: StockProvider } | null = null;
@@ -458,6 +479,21 @@ export class StockService {
   // Download
   // -------------------------------------------------------------------------
 
+  /**
+   * {@link appendLedger}, one writer at a time.
+   *
+   * Chained rather than locked: each append waits for the previous one to settle (including
+   * a rejection — a failed write must not stall every later one), so a turn's concurrent
+   * downloads cannot interleave their read-modify-write and drop an entry.
+   */
+  private async appendLedgerSerially(ledgerPath: string, entry: SourcesLedgerEntry): Promise<void> {
+    const write = this.ledgerWrites
+      .catch(() => undefined)
+      .then(() => appendLedger(ledgerPath, entry));
+    this.ledgerWrites = write.catch(() => undefined);
+    await write;
+  }
+
   public cancelDownload(operationId: string): void {
     this.downloads.get(operationId)?.abort();
   }
@@ -469,6 +505,27 @@ export class StockService {
     }
 
     const variant = this.resolveVariant(item, request);
+    // Share one fetch between concurrent callers asking for the same file (see `inFlight`).
+    // Keyed on the variant as well as the id, for the same reason the ledger dedupe is: the
+    // same clip at 720p and at 1080p are different files.
+    const flightKey = `${item.provider}|${item.remoteId}|${variant.id}`;
+    const inFlight = this.inFlight.get(flightKey);
+    if (inFlight) return inFlight;
+    const flight = this.downloadUnshared(request, item, variant);
+    this.inFlight.set(flightKey, flight);
+    try {
+      return await flight;
+    } finally {
+      this.inFlight.delete(flightKey);
+    }
+  }
+
+  /** {@link download} without the in-flight sharing — never call this directly. */
+  private async downloadUnshared(
+    request: StockDownloadRequest,
+    item: StockItem,
+    variant: StockVariant,
+  ): Promise<StockDownloadResult> {
     if (variant.approxBytes !== undefined && variant.approxBytes > STOCK_MAX_DOWNLOAD_BYTES) {
       return { ok: false, error: 'too_large' };
     }
@@ -523,7 +580,7 @@ export class StockService {
       });
       const bytes = await this.streamToTemp(variant, tempPath, request, controller);
       await rename(tempPath, absolutePath);
-      await appendLedger(ledgerPath, {
+      await this.appendLedgerSerially(ledgerPath, {
         fileName,
         provider: item.provider,
         remoteId: item.remoteId,
@@ -625,6 +682,15 @@ export class StockService {
     // after the fact, since `AbortSignal.reason` is not carried through the
     // reader's rejection.
     let stalled = false;
+    // A TOTAL cap, alongside the per-chunk stall timer. A download that keeps trickling
+    // bytes never stalls, so before this the only bound was the file's size: the captured
+    // run's longest successful download took 154s and its longest failure took 154s too,
+    // and nothing could tell them apart until one of them ended. `STOCK_DOWNLOAD_MAX_MS`
+    // sits above the observed good maximum so a legitimate 4K pull still completes.
+    const deadline = setTimeout(() => {
+      stalled = true;
+      controller.abort();
+    }, STOCK_DOWNLOAD_MAX_MS);
 
     try {
       for (;;) {
@@ -661,6 +727,7 @@ export class StockService {
       }
       throw error;
     } finally {
+      clearTimeout(deadline);
       await closeStream(sink);
     }
 

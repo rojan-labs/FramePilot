@@ -4849,6 +4849,58 @@ export class Orchestrator {
       typeof process !== 'undefined' ? process.env[TOOL_CONCURRENCY_ENV] : undefined,
     );
 
+    // 03 — warm this turn's sourcing downloads CONCURRENTLY before the serial pass.
+    //
+    // `add_stock`/`add_music` are declared `concurrency: 'serial'` in `tool-contract.ts`
+    // and must stay that way: their COMMIT computes placement from `ctx.project` and
+    // probes it, `buildAddStockOps` derives `nextLayerId` from `timeline.tracks.length`
+    // and mints deterministic clip ids, so two placements computed against the same stale
+    // project would emit colliding layer and clip ids in one patch.
+    //
+    // But that row governs two operations with opposite requirements. The COMMIT is
+    // milliseconds and order-dependent. The ACQUIRE is a `net.fetch` of a third-party file
+    // — no project state, and where all the latency lives: in captured run `e36235cc` the
+    // eighteen `add_stock` calls ran strictly serially for ~960 seconds, 16 of the run's 30
+    // minutes, with six failing. `search_stock` was already parallel; this was not.
+    //
+    // Warming rather than restructuring: the host's download is idempotent and
+    // ledger-deduplicated (`stock-service.ts`), so once a file is on disk the serial call
+    // that follows hits the dedupe path at zero bytes and returns immediately. The serial
+    // commit still runs against the advanced `turnCtx`, exactly as before. A warm that
+    // fails is discarded in silence — the serial call will make the same request and report
+    // the failure through the normal path, so an error is never reported twice or early.
+    const warmable = calls.filter(
+      (call) =>
+        (call.name === 'add_stock' || call.name === 'add_music') &&
+        (allowedToolNames === undefined || allowedToolNames.has(call.name)),
+    );
+    if (warmable.length > 1) {
+      orchestratorLog.action('warming sourcing downloads', {
+        count: warmable.length,
+        pool: poolSize,
+      });
+      await mapBounded(warmable, poolSize, async (call) => {
+        const tool = getTool(call.name);
+        if (!tool) return;
+        try {
+          await effectRuntime.run(
+            {
+              kind: 'host_tool',
+              call: {
+                ...call,
+                arguments: sanitizeToolArgs(tool, call.arguments) as Record<string, unknown>,
+              },
+              project: turnCtx.project,
+              analysisBudget,
+            },
+            signal,
+          );
+        } catch {
+          // Deliberately swallowed — see above.
+        }
+      });
+    }
+
     let stopped = false;
     for (const batch of batches) {
       // This batch's settled calls, ALWAYS in original call order (mapBounded returns

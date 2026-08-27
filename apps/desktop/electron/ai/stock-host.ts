@@ -27,6 +27,7 @@
  * asset, and the orchestrator turns that into the same reversible operations the
  * Stock panel builds by hand.
  */
+import { randomUUID } from 'node:crypto';
 import { DEFAULT_STOCK_STILL_SECONDS, stockPlacementConflictReason } from '@framepilot/editor-core';
 import { type HostToolOutcome, stockErrorMessage } from '@framepilot/ai-sdk';
 import type { Project } from '@framepilot/timeline-schema';
@@ -99,7 +100,10 @@ export function createStockHost(
       remoteId,
       targetHeight: project.resolution?.height ?? 1080,
       ...(project.fps ? { targetFps: project.fps } : {}),
-      operationId: `agent_${remoteId}_${Date.now()}`,
+      // `randomUUID`, not `Date.now()`: the agent now issues a turn's downloads
+      // concurrently (03), and same-millisecond ids collided in the cancel map — two
+      // downloads sharing one AbortController means cancelling either kills both.
+      operationId: `agent_${remoteId}_${randomUUID()}`,
     });
     if (!result.ok) {
       return { status: 'failed', summary: stockErrorMessage(result.error, result.detail) };

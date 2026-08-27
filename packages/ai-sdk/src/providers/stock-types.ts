@@ -362,6 +362,20 @@ export const STOCK_SEARCH_TIMEOUT_MS = 10_000;
 export const STOCK_THUMBNAIL_TIMEOUT_MS = 15_000;
 /** No wall-clock cap on a download — a 4K clip on a slow line is not an error — but silence is. */
 export const STOCK_DOWNLOAD_STALL_MS = 30_000;
+
+/**
+ * Total wall clock one download may take, however steadily it trickles.
+ *
+ * The stall timer above bounds SILENCE, not duration, and its own comment declined a total
+ * cap. That was defensible while downloads were serialized and rare; it is not now that a
+ * turn issues them concurrently (03). Without a total bound one slow transfer holds a slot
+ * in the pool indefinitely and the whole turn waits on it.
+ *
+ * 180s sits above the longest download observed to SUCCEED in captured run `e36235cc`
+ * (154.0s), so a legitimate 4K pull still completes, and well below the point where a user
+ * has concluded the app is broken.
+ */
+export const STOCK_DOWNLOAD_MAX_MS = 180_000;
 /** Refuse an implausibly large file rather than filling the user's disk. */
 export const STOCK_MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024;
 

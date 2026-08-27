@@ -796,3 +796,77 @@ describe('shared ledger', () => {
     ]);
   });
 });
+
+describe('concurrent acquisition is safe (03)', () => {
+  const body = new Uint8Array(2048).fill(3);
+
+  /** Three distinct clips in one search, so a turn can download them together. */
+  const clip = (remoteId: string): StockItem => ({
+    ...VIDEO_ITEM,
+    remoteId,
+    title: `clip ${remoteId}`,
+  });
+
+  async function seededMany(fetchImpl: unknown, items: readonly StockItem[]) {
+    const service = makeService({ provider: stubProvider(page([...items])), fetchImpl });
+    await service.search({ text: 'q', kind: 'video' });
+    return service;
+  }
+
+  const ledgerEntries = (): { remoteId: string }[] =>
+    JSON.parse(readFileSync(join(mediaDir(), 'sources.json'), 'utf8')).entries;
+
+  it('shares one fetch between concurrent callers asking for the same file', async () => {
+    // The agent now issues a turn's downloads concurrently. Two calls for the same clip
+    // would otherwise both miss the ledger (written only after the rename), take the same
+    // `dedupeName` (the real file does not exist yet, only two `.tmp`s), and both rename
+    // onto the same path — atomic, so nothing corrupts, but the bytes are paid for twice.
+    const fetchImpl = vi.fn().mockImplementation(() => bytesResponse(body));
+    const service = await seededMany(fetchImpl, [VIDEO_ITEM]);
+    const base = { projectId: PROJECT_ID, remoteId: VIDEO_ITEM.remoteId, targetHeight: 1080 };
+    const results = await Promise.all([
+      service.download({ ...base, operationId: 'op_a' }),
+      service.download({ ...base, operationId: 'op_b' }),
+      service.download({ ...base, operationId: 'op_c' }),
+    ]);
+    expect(results.every((result) => result.ok)).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('serves a later download of the same file from the ledger, not the network', async () => {
+    // This is what makes warming a turn's downloads free: the serial commit that follows
+    // hits the dedupe path at zero bytes.
+    const fetchImpl = vi.fn().mockImplementation(() => bytesResponse(body));
+    const service = await seededMany(fetchImpl, [VIDEO_ITEM]);
+    const base = { projectId: PROJECT_ID, remoteId: VIDEO_ITEM.remoteId, targetHeight: 1080 };
+    await service.download({ ...base, operationId: 'op_a' });
+    const second = await service.download({ ...base, operationId: 'op_b' });
+    expect(second.ok).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not lose a ledger entry when downloads finish together', async () => {
+    // `appendLedger` is a read-modify-write. It re-reads rather than trusting a stale
+    // snapshot, which is necessary but not sufficient: two concurrent completions can still
+    // interleave read/read/write/write and drop an entry, costing a redundant download
+    // later — the exact cost this concurrency exists to remove.
+    const fetchImpl = vi.fn().mockImplementation(() => bytesResponse(body));
+    const items = ['1001', '1002', '1003'].map(clip);
+    const service = await seededMany(fetchImpl, items);
+    await Promise.all(
+      items.map((item, index) =>
+        service.download({
+          projectId: PROJECT_ID,
+          remoteId: item.remoteId,
+          operationId: `op_${String(index)}`,
+          targetHeight: 1080,
+        }),
+      ),
+    );
+    expect(
+      ledgerEntries()
+        .map((entry) => entry.remoteId)
+        .sort(),
+    ).toEqual(['1001', '1002', '1003']);
+  });
+});
