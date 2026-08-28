@@ -8,6 +8,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Projects made of photos are understood again.** Adding still images to a project
+  left media intelligence stuck at "0 of 61 assets prepared" with no footage map, no
+  matter how long you waited. Photos were being sent to TwelveLabs, whose index only
+  takes video and audio, and the resulting error stopped preparation on the very first
+  photo — so nothing behind it was ever prepared either. Photos are now understood on
+  this machine (TwelveLabs still handles your video and audio when its key is set), one
+  file a provider refuses no longer blocks the rest of the project, and a preparation
+  run that has stopped now says so with the reason instead of showing a progress badge
+  that never moves.
+
 - **A montage that asked for 50 clips can no longer finish with one.** The check that
   compares the finished cut against the number you asked for was silently switched off by
   any brief containing a timing example like `0.50s` — it read the `50s` inside the decimal

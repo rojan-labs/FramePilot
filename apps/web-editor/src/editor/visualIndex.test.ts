@@ -120,6 +120,27 @@ describe('autoIndexImportedAssets', () => {
     expect(bodies[0]).toEqual({ projectId: 'p1', assetIds: ['a1'], twelveLabsKey: 'tlk-x' });
   });
 
+  it('forwards BOTH keys so stills can be prepared on-device while TwelveLabs runs', async () => {
+    // TwelveLabs cannot index a still photo, so the engine routes stills to the
+    // on-device embedder — which it can only do if this key reaches it. Dropping
+    // it whenever a TwelveLabs key existed is what left a 61-photo project at
+    // 0/61 prepared with no footage map.
+    const { client, bodies } = doneClient();
+    const result = await autoIndexImportedAssets({
+      projectId: 'p1',
+      assetIds: ['a1'],
+      config: config({ twelveLabs: 'tlk-x', nvidiaEmbeddings: 'nvapi-x' }),
+      client,
+    });
+    expect(result?.status).toBe('done');
+    expect(bodies[0]).toEqual({
+      projectId: 'p1',
+      assetIds: ['a1'],
+      twelveLabsKey: 'tlk-x',
+      nvidiaKeys: 'nvapi-x',
+    });
+  });
+
   it('degrades honestly to unreachable when the sidecar is down', async () => {
     const fetchFn = (async () => {
       throw new Error('ECONNREFUSED');

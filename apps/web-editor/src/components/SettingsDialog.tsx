@@ -668,6 +668,59 @@ function AsrSettings(): JSX.Element {
 
 type MediaStatusState = VisualStatusResponse | 'loading' | 'error' | 'no-project';
 
+type CoverageTone = 'idle' | 'running' | 'completed' | 'warning';
+
+/**
+ * Turn a `/brain/visual/status` reading into an honest badge + sentence.
+ *
+ * ## Why this is not `indexed < total ? 'running' : 'completed'`
+ *
+ * That is what it used to be, and it is how the reported defect stayed invisible:
+ * a preparation job that had already given up — three retries, every one stopped
+ * by the same provider error — rendered as a blue "running" badge reading
+ * `0/61 assets prepared · 0%`, forever. Nothing on the panel said the work had
+ * stopped, why, or what to do. So the badge now follows the JOB's own state, and
+ * a stopped job shows its reason. `totalAssets === 0` is its own case too: an
+ * empty project is idle, not perpetually mid-run.
+ */
+function describeCoverage(status: VisualStatusResponse): {
+  statusText: string;
+  tone: CoverageTone;
+} {
+  if (!status.available) {
+    return {
+      statusText: `Media understanding unavailable${status.reason ? `: ${status.reason}` : '.'}`,
+      tone: 'warning',
+    };
+  }
+  const prepared = `${status.indexedAssets}/${status.totalAssets} assets prepared`;
+  if (status.totalAssets > 0 && status.indexedAssets >= status.totalAssets) {
+    return { statusText: `${prepared}.`, tone: 'completed' };
+  }
+  const job = status.lastJob;
+  if (job && (job.state === 'failed' || job.state === 'interrupted')) {
+    // `cancelled by user` is the engine's own wording for a deliberate stop; it is
+    // not a fault, so it must not read like one.
+    const cancelled = (job.error ?? '').includes('cancelled by user');
+    return {
+      statusText: cancelled
+        ? `${prepared}. Preparation was cancelled — it resumes on the next semantic request.`
+        : `${prepared}. Preparation stopped${job.error ? `: ${job.error}` : '.'} It retries on the next semantic request.`,
+      tone: cancelled ? 'idle' : 'warning',
+    };
+  }
+  if (job?.state === 'running') {
+    return { statusText: `${prepared} · ${Math.round(job.progress * 100)}%.`, tone: 'running' };
+  }
+  if (status.totalAssets === 0) {
+    return { statusText: 'No media to prepare yet.', tone: 'idle' };
+  }
+  return {
+    statusText: `${prepared}. Preparation starts on import or first semantic need.`,
+    tone: 'idle',
+  };
+}
+
 function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string }): JSX.Element {
   const { config, setTwelveLabs, setNvidiaEmbeddings } = useAiConfig();
   const client = useMemo(() => createVisualIndexClient(), []);
@@ -708,15 +761,7 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
       'The media engine is currently unreachable. Cached/local editing remains available.';
     tone = 'warning';
   } else if (typeof status === 'object') {
-    statusText = status.available
-      ? `${status.indexedAssets}/${status.totalAssets} assets prepared${status.lastJob?.state === 'running' ? ` · ${Math.round(status.lastJob.progress * 100)}%` : ''}.`
-      : `Media understanding unavailable${status.reason ? `: ${status.reason}` : '.'}`;
-    tone =
-      status.available && status.indexedAssets >= status.totalAssets && status.totalAssets > 0
-        ? 'completed'
-        : status.available
-          ? 'running'
-          : 'warning';
+    ({ statusText, tone } = describeCoverage(status));
   }
 
   return (
@@ -760,7 +805,7 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
         <span className="setting-hint">
           NVIDIA API key(s) for visual embeddings, comma-separated. Footage is indexed and searched
           on this machine — only the embedding request leaves it, never the media. Used when no
-          TwelveLabs key is set.
+          TwelveLabs key is set, and always for still photos, which the hosted service cannot index.
         </span>
       </div>
       <div className="setting-row">
@@ -786,8 +831,9 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
       </div>
       {hostedKey && onDeviceKey ? (
         <p className="setting-hint setting-note">
-          Both keys are set. TwelveLabs takes priority, so footage is understood by the hosted
-          service — clear that key to fall back to on-device embeddings.
+          Both keys are set. TwelveLabs takes priority for video and audio, so that footage is
+          understood by the hosted service; still photos are always understood on-device, because
+          TwelveLabs cannot index them. Clear the TwelveLabs key to keep everything on-device.
         </p>
       ) : null}
       {!keyConfigured ? (

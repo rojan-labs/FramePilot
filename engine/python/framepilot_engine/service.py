@@ -166,6 +166,7 @@ from framepilot_engine.brain.vector_store import VisualVectorStore
 from framepilot_engine.brain.visual_embed import (
     MODEL_ID,
     VisualEmbedClient,
+    VisualEmbedderResolution,
     VisualEmbedError,
     resolve_visual_embedder,
 )
@@ -723,6 +724,11 @@ VISUAL_JOB_KIND = "visual-index"
 DEFAULT_VISUAL_SLICE = 1
 #: Hard cap on assets per slice (a single call can't reintroduce a long block).
 MAX_VISUAL_SLICE = 10
+#: How many assets in a row may fail on the hosted (TwelveLabs) path before the
+#: slice stops. One failure is a bad file and must not block the other assets;
+#: a run of them is a bad index, account, or network, and continuing would upload
+#: — and be billed for — every remaining asset just to fail identically.
+TL_CONSECUTIVE_FAILURE_LIMIT = 3
 
 
 class VisualCaptionProviderPayload(BaseModel):
@@ -2061,6 +2067,24 @@ def create_app(
         except PydanticValidationError:  # pragma: no cover - probe is engine-written
             return False
 
+    def _asset_is_still_image(asset: AssetRow) -> bool:
+        """Whether a brain asset is a single still photo rather than moving footage.
+
+        WHY this is a routing decision and not a cosmetic one: TwelveLabs' index is
+        a *video/audio* index. A still uploads fine (``POST /assets`` accepts
+        images, for entity search) but cannot be attached to a Marengo index, so
+        the attach/poll step answers ``404 resource_not_exists`` — observed on a
+        real 61-photo project, where it froze preparation at cursor 0 forever. The
+        built-in sample->embed path already understands stills
+        (``sample_asset(is_image=True)``), so stills are routed there instead.
+        """
+        if asset.probe is None:
+            return False
+        try:
+            return MediaInfo.model_validate(asset.probe).is_image
+        except PydanticValidationError:  # pragma: no cover - probe is engine-written
+            return False
+
     def _scene_cuts_for(
         store: BrainStore, asset_id: str, media_path: Path, content_hash: str, timeout: float
     ) -> list[float]:
@@ -2339,6 +2363,55 @@ def create_app(
             updated_at=job.updated_at,
         )
 
+    def _tl_still_image_item(
+        store: BrainStore,
+        vstore: VisualVectorStore,
+        still_res: VisualEmbedderResolution,
+        captioner: SceneCaptioner | None,
+        caption_model: str,
+        asset_id: str,
+        resolved_root: Path,
+        timeout: float,
+    ) -> VisualIndexItem:
+        """Prepare one still photo on the built-in path while TwelveLabs is active.
+
+        TwelveLabs cannot index a still into its video index, so a photo project
+        would otherwise be understood by nothing at all even with both keys set.
+        The built-in sampler already handles ``is_image``, so a still is embedded
+        here and becomes searchable + mappable exactly like a built-in-indexed
+        video. The caption provider is passed through: a photo's caption IS its
+        chapter title in the footage map, and without one a photo project's map is
+        sixty identical "Scene 1" rows the model cannot tell apart.
+
+        Honest-degrade: without an on-device embedding key the item reports why,
+        and the cursor still advances — an unpreparable asset must never freeze
+        the assets behind it.
+        """
+        if still_res.client is None:
+            return VisualIndexItem(
+                asset_id=asset_id,
+                ok=False,
+                reason=(
+                    "still images are not indexable by TwelveLabs and need an "
+                    f"on-device embedding key: {still_res.reason}"
+                ),
+            )
+        try:
+            return _index_one_asset(
+                store,
+                vstore,
+                still_res.client,
+                captioner,
+                caption_model,
+                asset_id,
+                resolved_root,
+                timeout,
+            )
+        except (KeyRingExhaustedError, VisualEmbedError) as exc:
+            reason = getattr(exc, "last_error", None) or str(exc)
+            _log.warning("still-image embed failed: asset=%s reason=%s", asset_id, reason)
+            return VisualIndexItem(asset_id=asset_id, ok=False, reason=reason)
+
     def _tl_index_slice(
         client: TwelveLabsClient, req: VisualIndexRequest, resolved_root: Path
     ) -> VisualIndexResponse:
@@ -2398,8 +2471,41 @@ def create_app(
         items: list[VisualIndexItem] = []
         indexed = advanced = 0
         stop_reason: str | None = None
+        # Stills never reach TwelveLabs (see `_asset_is_still_image`); they are
+        # embedded on the built-in path instead, so the hosted key does not withdraw
+        # image understanding from a photo project. Resolved lazily because
+        # `resolve_visual_embedder`/`resolve_captioner` each construct an HTTP client:
+        # a video-only project must not pay for one on every slice.
+        still_backend: tuple[VisualEmbedderResolution, SceneCaptioner | None, str] | None = None
+
+        def _still_backend() -> tuple[VisualEmbedderResolution, SceneCaptioner | None, str]:
+            nonlocal still_backend
+            if still_backend is None:
+                provider = req.caption_provider
+                still_backend = (
+                    resolve_visual_embedder(req.nvidia_keys or settings.nvidia_embeddings_keys),
+                    resolve_captioner(
+                        CaptionProviderConfig(
+                            kind=provider.kind,
+                            model=provider.model,
+                            api_key=provider.api_key,
+                            base_url=provider.base_url,
+                        )
+                        if provider is not None
+                        else None
+                    ).captioner,
+                    provider.model if provider is not None else "",
+                )
+            return still_backend
+
+        # Journaled on the job, not counted per slice: a slice is one asset by
+        # default (`DEFAULT_VISUAL_SLICE`), so a per-slice counter could never
+        # reach the bound and a broken index would upload every asset in the
+        # project one call at a time.
+        consecutive_failures = int(job.payload.get("consecutiveFailures", 0))
         try:
             with open_brain(resolved_root, req.project_id) as store:
+                vstore = VisualVectorStore(store)
                 for asset_id in slice_ids:
                     asset = store.get_asset(asset_id)
                     if asset is None:
@@ -2408,6 +2514,22 @@ def create_app(
                                 asset_id=asset_id, ok=False, reason="asset not known to brain"
                             )
                         )
+                        advanced += 1
+                        continue
+                    if _asset_is_still_image(asset):
+                        embed_res, still_captioner, still_caption_model = _still_backend()
+                        item = _tl_still_image_item(
+                            store,
+                            vstore,
+                            embed_res,
+                            still_captioner,
+                            still_caption_model,
+                            asset_id,
+                            resolved_root,
+                            timeout,
+                        )
+                        items.append(item)
+                        indexed += item.indexed
                         advanced += 1
                         continue
                     try:
@@ -2435,12 +2557,40 @@ def create_app(
                             content_hash=content_hash,
                         )
                     except TwelveLabsAuthError:
+                        # Auth is a property of the key, not of this file: every
+                        # remaining asset would fail identically. Stop the run.
                         stop_reason = "invalid_api_key"
                         break
                     except TwelveLabsError as exc:
-                        stop_reason = str(exc)
-                        _log.warning("TwelveLabs index stopped: %s", stop_reason)
-                        break
+                        # One asset the provider will not take (an unsupported or
+                        # corrupt file) must NOT freeze the project. Before this,
+                        # any TwelveLabsError broke the slice without advancing the
+                        # cursor, so every re-post hit the same asset again and
+                        # coverage stayed at 0/N forever — the reported defect.
+                        # Record it as failed, advance, keep going.
+                        reason = str(exc)
+                        store_video_mapping(
+                            store,
+                            asset_id,
+                            content_hash=content_hash,
+                            status="failed",
+                        )
+                        items.append(VisualIndexItem(asset_id=asset_id, ok=False, reason=reason))
+                        advanced += 1
+                        consecutive_failures += 1
+                        _log.warning(
+                            "twelvelabs index asset failed: asset=%s reason=%s (%d consecutive)",
+                            asset_id,
+                            reason,
+                            consecutive_failures,
+                        )
+                        if consecutive_failures >= TL_CONSECUTIVE_FAILURE_LIMIT:
+                            # Not a bad file any more — a bad index/account/network.
+                            # Stop before uploading (and being billed for) the rest.
+                            stop_reason = reason
+                            break
+                        continue
+                    consecutive_failures = 0
                     items.append(
                         VisualIndexItem(
                             asset_id=asset_id,
@@ -2465,9 +2615,23 @@ def create_app(
             with open_brain(resolved_root, req.project_id) as store:
                 store.update_job(
                     job.id,
-                    state=JobState.DONE if done else JobState.RUNNING,
+                    # A job that stopped on a provider error is FAILED, not
+                    # "running". It sat at `running` 0% for three retries in the
+                    # reported defect, so the panel showed a blue progress badge
+                    # for work that had already given up.
+                    state=(
+                        JobState.FAILED
+                        if stop_reason is not None
+                        else JobState.DONE
+                        if done
+                        else JobState.RUNNING
+                    ),
                     progress=new_cursor / total if total else 1.0,
-                    payload={**job.payload, "cursor": new_cursor},
+                    payload={
+                        **job.payload,
+                        "cursor": new_cursor,
+                        "consecutiveFailures": consecutive_failures,
+                    },
                     error=stop_reason,
                 )
         except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
@@ -2622,7 +2786,15 @@ def create_app(
                 with open_brain(resolved_root, req.project_id) as store:
                     store.update_job(
                         job.id,
-                        state=JobState.DONE if done else JobState.RUNNING,
+                        # Same honesty rule as the hosted path: a slice that gave
+                        # up on an exhausted key ring is FAILED, never "running".
+                        state=(
+                            JobState.FAILED
+                            if exhausted is not None
+                            else JobState.DONE
+                            if done
+                            else JobState.RUNNING
+                        ),
                         progress=new_cursor / total if total else 1.0,
                         payload={**job.payload, "cursor": new_cursor},
                         error=EXHAUSTED_REASON if exhausted is not None else None,
@@ -2734,11 +2906,18 @@ def create_app(
                 # coverage is TwelveLabs-owned; the built-in vector store is empty.
                 tl_active = env_tl_key or read_index_id(store) is not None
                 if tl_active:
-                    indexed = len(video_to_asset_map(store))
+                    # Coverage is the UNION of both backends. A TwelveLabs project
+                    # containing stills has them prepared on the built-in path
+                    # (TwelveLabs cannot index a photo), so counting only the
+                    # hosted mappings reported 0/61 on an all-photo project even
+                    # once every photo was understood.
+                    hosted = set(video_to_asset_map(store).values())
+                    builtin = store.visual_indexed_asset_ids()
+                    indexed = len(hosted | builtin)
                     return VisualStatusResponse(
                         available=True,
                         backend="twelvelabs",
-                        counts={"videos": indexed},
+                        counts={"videos": len(hosted), "images": len(builtin - hosted)},
                         indexed_assets=indexed,
                         total_assets=total_assets,
                         key_configured=env_tl_key,
@@ -2986,9 +3165,7 @@ def create_app(
                         asset_id,
                         content_hash=content_hash,
                         video_id=mapping.video_id if mapping is not None else None,
-                        source_asset_id=(
-                            mapping.source_asset_id if mapping is not None else None
-                        ),
+                        source_asset_id=(mapping.source_asset_id if mapping is not None else None),
                         index_id=index_id,
                         # `cached_only` withdraws permission to fetch: a miss returns
                         # nothing rather than paying Pegasus for a caller that only
@@ -3053,6 +3230,18 @@ def create_app(
                             )
                     if gist:
                         summaries.append(gist)
+                # Assets the hosted backend never mapped are understood by the
+                # built-in index instead — stills are routed there because
+                # TwelveLabs cannot index a photo. Their chapters ARE the entire
+                # footage map of a photo project, so merge them here; without this
+                # a 61-photo project answered `not_indexed` no matter how much of
+                # it had been prepared.
+                builtin_only = store.visual_indexed_asset_ids() - set(targets)
+                builtin_chapters = _builtin_chapters_for(
+                    store, req, clips_by_asset, only_assets=builtin_only
+                )
+                chapters.extend(builtin_chapters)
+                served_assets += len({c.asset_id for c in builtin_chapters if c.asset_id})
         except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
             return FootageMapResponse(available=False, reason=str(exc))
         except TwelveLabsIndexNotGenerativeError:
@@ -3103,33 +3292,32 @@ def create_app(
             summary=" ".join(summaries),
         )
 
-    def _builtin_footage_map(
-        req: FootageMapRequest, resolved_root: Path, project_doc: Project | None
-    ) -> FootageMapResponse:
-        """Derive the footage map from indexed spans/captions (built-in parity, D3).
+    def _builtin_chapters_for(
+        store: BrainStore,
+        req: FootageMapRequest,
+        clips_by_asset: dict[str, list[Any]],
+        *,
+        only_assets: set[str] | None = None,
+    ) -> list[FootageChapter]:
+        """Chapters derived from the BUILT-IN visual index, for an open brain.
 
-        No key or network call: chapters are the already-indexed visual spans
-        (captioned where a caption exists), projected onto timeline time. Highlights
-        are left empty — the built-in index has no salience signal, and an honest
-        empty list beats a fabricated one. Honest-absent when nothing is indexed.
+        Shared by the built-in map and the hosted map: a TwelveLabs project can
+        still contain assets only the built-in index understands (stills), and
+        those chapters are the whole footage map for a photo project. ``only_assets``
+        narrows the derivation to the assets the hosted arm did not already serve,
+        so a merged map never lists an asset twice.
         """
-        clips_by_asset = _clips_by_asset(project_doc)
-        try:
-            with open_brain(resolved_root, req.project_id) as store:
-                backend = VisualVectorStore(store).backend()
-                spans = [
-                    span
-                    for span in store.list_visual_spans(model=MODEL_ID)
-                    if req.asset_id is None or span.asset_id == req.asset_id
-                ]
-                captions = {
-                    (caption.asset_id, caption.scene_index): caption.text
-                    for caption in store.list_visual_captions(req.asset_id)
-                    if is_informative_caption(caption.text)
-                }
-        except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
-            return FootageMapResponse(available=False, reason=str(exc))
-
+        spans = [
+            span
+            for span in store.list_visual_spans(model=MODEL_ID)
+            if (req.asset_id is None or span.asset_id == req.asset_id)
+            and (only_assets is None or span.asset_id in only_assets)
+        ]
+        captions = {
+            (caption.asset_id, caption.scene_index): caption.text
+            for caption in store.list_visual_captions(req.asset_id)
+            if is_informative_caption(caption.text)
+        }
         chapters: list[FootageChapter] = []
         for span in spans:
             if req.asset_time:
@@ -3150,6 +3338,26 @@ def create_app(
                     asset_id=span.asset_id,
                 )
             )
+        return chapters
+
+    def _builtin_footage_map(
+        req: FootageMapRequest, resolved_root: Path, project_doc: Project | None
+    ) -> FootageMapResponse:
+        """Derive the footage map from indexed spans/captions (built-in parity, D3).
+
+        No key or network call: chapters are the already-indexed visual spans
+        (captioned where a caption exists), projected onto timeline time. Highlights
+        are left empty — the built-in index has no salience signal, and an honest
+        empty list beats a fabricated one. Honest-absent when nothing is indexed.
+        """
+        clips_by_asset = _clips_by_asset(project_doc)
+        try:
+            with open_brain(resolved_root, req.project_id) as store:
+                backend = VisualVectorStore(store).backend()
+                chapters = _builtin_chapters_for(store, req, clips_by_asset)
+        except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
+            return FootageMapResponse(available=False, reason=str(exc))
+
         if not chapters:
             return FootageMapResponse(available=True, backend=backend, reason="not_indexed")
         if req.asset_time:

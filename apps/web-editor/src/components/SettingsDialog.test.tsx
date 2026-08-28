@@ -348,6 +348,69 @@ describe('SettingsDialog', () => {
       await waitFor(() => expect(screen.getByText(/0\/3 assets prepared · 33%/)).toBeTruthy());
     });
 
+    it('reports a stopped preparation job as a failure, never as progress', async () => {
+      // The reported defect's most misleading symptom: a job that had already
+      // given up (three retries, same provider error) rendered as a blue
+      // "running" badge reading `0/61 assets prepared · 0%`, forever.
+      stubVisualFetch({
+        available: true,
+        backend: 'twelvelabs',
+        counts: { videos: 0 },
+        indexedAssets: 0,
+        totalAssets: 61,
+        keyConfigured: true,
+        lastJob: {
+          jobId: 'job-1',
+          state: 'failed',
+          progress: 0,
+          error: 'TwelveLabs API error (HTTP 404) (resource_not_exists).',
+          cursor: 0,
+          total: 61,
+          updatedAt: '2026-08-27T19:28:47Z',
+        },
+      });
+      openAiForProject('p1');
+      await waitFor(() =>
+        expect(screen.getByText(/Preparation stopped: TwelveLabs API error/)).toBeTruthy(),
+      );
+      expect(screen.queryByText(/· 0%/)).toBeNull();
+    });
+
+    it('reads a cancelled preparation as idle, not as a fault', async () => {
+      stubVisualFetch({
+        available: true,
+        backend: 'sqlite-vec',
+        counts: { assets: 1 },
+        indexedAssets: 1,
+        totalAssets: 4,
+        keyConfigured: true,
+        lastJob: {
+          jobId: 'job-2',
+          state: 'failed',
+          progress: 0.25,
+          error: 'cancelled by user',
+          cursor: 1,
+          total: 4,
+          updatedAt: '2026-08-27T19:28:47Z',
+        },
+      });
+      openAiForProject('p1');
+      await waitFor(() => expect(screen.getByText(/Preparation was cancelled/)).toBeTruthy());
+    });
+
+    it('says an empty project is idle rather than perpetually running', async () => {
+      stubVisualFetch({
+        available: true,
+        backend: 'sqlite-vec',
+        counts: { assets: 0 },
+        indexedAssets: 0,
+        totalAssets: 0,
+        keyConfigured: true,
+      });
+      openAiForProject('p1');
+      await waitFor(() => expect(screen.getByText(/No media to prepare yet/)).toBeTruthy());
+    });
+
     it('reports an unreachable engine honestly (no fake success)', async () => {
       vi.stubGlobal(
         'fetch',

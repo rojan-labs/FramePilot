@@ -89,7 +89,10 @@ export async function autoIndexImportedAssets(
       projectId: input.projectId,
       assetIds: input.assetIds,
       ...(tlKey ? { twelveLabsKey: tlKey } : {}),
-      ...(!tlKey && nvidiaKeys ? { nvidiaKeys } : {}),
+      // Sent alongside the hosted key: stills are routed to the on-device
+      // embedder because TwelveLabs cannot index a photo (see the engine's
+      // `_asset_is_still_image`), and that route needs this key.
+      ...(nvidiaKeys ? { nvidiaKeys } : {}),
     },
   });
   log.action('media warmup → done', {
@@ -127,7 +130,7 @@ export async function ensureProjectMediaUnderstanding(
     project: input.project as unknown as Record<string, unknown>,
     ...(input.assetIds ? { assetIds: input.assetIds } : {}),
     ...(tlKey ? { twelveLabsKey: tlKey } : {}),
-    ...(!tlKey && nvidiaKeys ? { nvidiaKeys } : {}),
+    ...(nvidiaKeys ? { nvidiaKeys } : {}),
     ...(input.refresh ? { refresh: true } : {}),
     ...(input.signal ? { signal: input.signal } : {}),
     ...(input.onEvent ? { onEvent: input.onEvent } : {}),

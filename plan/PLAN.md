@@ -13,6 +13,12 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-28, media-intelligence closure):** a reported "footage map is
+never created for images" turned out to be photos being dispatched to a video-only hosted
+index, where one refusal froze the whole project's preparation at asset #1. Phase 1 of
+`plan/media-intelligence-closure/` is shipped and tested; phases 2-5 (time base, parallel
+preparation, per-asset outcomes, removals) are open.
+
 **Status snapshot (2026-08-27, montage run gap analysis, round 5):** `[x]` **All five closed
 in code; the re-run is what settles them.** See `plan/structural-changes/` for the per-plan
 account. ADRs **0149** (a run holding unspent candidates may not fetch more, narrowing
@@ -2280,6 +2286,25 @@ and applies atomically through `applyPatchChecked` — never half-applied; an
 unstandable subset fails validation honestly. **Totals:** web-editor 1051 (new
 `DiffPreviewModal.test.tsx` + rewritten `EventNode`/`AiSidebar` specs); typecheck +
 lint clean. No schema change; `validate→apply→record` untouched.
+
+**Media intelligence closure — `[~]` IN PROGRESS (2026-08-28; see
+`plan/media-intelligence-closure/`).** A 61-photo project reported `0/61 assets
+prepared · 0%` with a "running" badge and never produced a footage map. Diagnosed
+against the user's own brain databases, not a synthetic repro: **still photos were
+dispatched to TwelveLabs, whose index is a video/audio index**, and the resulting
+`404 resource_not_exists` broke the hosted slice *without advancing the job cursor*,
+so every retry re-hit photo #1 forever while the job journalled itself `running`.
+`[x]` **Phase 1 (preparation correctness) shipped** — stills route to the on-device
+embedder (maintainer decision, per-asset capability routing), a refused asset advances
+the cursor, a run of refusals stops the slice and marks the job `failed`, coverage is
+the union of both backends, the footage map merges both arms, and the Settings panel
+derives its badge from the job rather than from coverage. 6 new engine regression tests
+(fail before / pass after); engine suite 2635 green. `[ ]` Phases 2–5 open: the
+auto-injected footage map carries **asset seconds under a timeline label** (largest
+remaining correctness gap), ≈98% of measured preparation wall clock is serialized
+network wait, multiple NVIDIA keys are failover rather than throughput, and per-asset
+outcomes are never persisted (one project holds 55 assets, ~100 `done` jobs and zero
+index rows).
 
 **Media Intelligence plan authored (2026-07-18; see
 `plan/MEDIA-INTELLIGENCE.md`) — `[x]` COMPLETE (2026-07-18).** Sub-plan (phases MI0–MI7) giving the

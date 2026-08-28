@@ -1045,6 +1045,17 @@ class BrainStore:
             self._conn.execute("DELETE FROM visual_captions WHERE asset_id = ?", (asset_id,))
             self._conn.execute("DELETE FROM visual_spans WHERE asset_id = ?", (asset_id,))
 
+    def visual_indexed_asset_ids(self) -> set[str]:
+        """Ids of the assets the BUILT-IN visual index has at least one span for.
+
+        Used by ``GET /brain/visual/status`` to union built-in coverage with
+        TwelveLabs coverage: a project can legitimately be prepared by both at
+        once (stills on the built-in path, footage on the hosted one), and
+        counting only one of them under-reports coverage forever.
+        """
+        rows = self._conn.execute("SELECT DISTINCT asset_id FROM visual_spans").fetchall()
+        return {str(r["asset_id"]) for r in rows}
+
     def visual_index_counts(self) -> dict[str, int]:
         """Coverage counters for ``GET /brain/visual/status`` (plan MI4.3).
 

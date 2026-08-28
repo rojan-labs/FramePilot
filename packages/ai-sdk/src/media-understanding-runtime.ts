@@ -48,7 +48,11 @@ export interface EnsureMediaUnderstandingInput {
   readonly assetIds?: readonly string[];
   /** TwelveLabs wins when configured. It never silently falls through to another hosted backend. */
   readonly twelveLabsKey?: string;
-  /** Existing built-in visual backend, used only when TwelveLabs is not selected. */
+  /**
+   * Built-in on-device visual backend. Sent whether or not TwelveLabs is
+   * selected: TwelveLabs owns video and audio understanding when configured, but
+   * its index cannot take a still photo, so the engine routes stills here.
+   */
   readonly nvidiaKeys?: string;
   readonly signal?: AbortSignal;
   readonly refresh?: boolean;
@@ -179,7 +183,11 @@ async function prepare(
       ...(input.project ? { project: input.project } : {}),
       ...(input.assetIds ? { assetIds: input.assetIds } : {}),
       ...(input.twelveLabsKey ? { twelveLabsKey: input.twelveLabsKey } : {}),
-      ...(!input.twelveLabsKey && input.nvidiaKeys ? { nvidiaKeys: input.nvidiaKeys } : {}),
+      // BOTH keys ride along. TwelveLabs still owns footage understanding when it
+      // is configured, but its index cannot take a still photo, so the engine
+      // routes stills to the on-device embedder — and can only do that if the key
+      // reached it. Withholding it made a photo project unpreparable by design.
+      ...(input.nvidiaKeys ? { nvidiaKeys: input.nvidiaKeys } : {}),
     },
     ...(input.signal ? { signal: input.signal } : {}),
     onSlice: (slice) => {
