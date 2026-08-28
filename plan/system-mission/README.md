@@ -43,7 +43,7 @@ these; none of them is to be reinvented.
 
 | # | File | Ships | Depends on | Maintainer gate | State |
 | --- | --- | --- | --- | --- | --- |
-| 0 | [`00-BASELINE.md`](./00-BASELINE.md) | Numbers for every claim the mission will make; a system map | — | none | `[ ]` |
+| 0 | [`00-BASELINE.md`](./00-BASELINE.md) | Numbers for every claim the mission will make; a system map | — | none | `[~]` P0.1 done |
 | 1 | [`01-ORCHESTRATION-AND-CONTEXT.md`](./01-ORCHESTRATION-AND-CONTEXT.md) | Fewer, purposeful model calls; structured state instead of prose; cross-turn decision memory | 0 | none unless a schema field is needed for persisted decisions (then `[!]`) | `[ ]` |
 | 2 | [`02-PROMPT-AUDIT-AND-PARITY.md`](./02-PROMPT-AUDIT-AND-PARITY.md) | Audited prompts, one source of truth per prompt/tool/schema across hosts | 0 | none | `[ ]` |
 | 3 | [`03-REFERENCE-MEDIA-CONTEXT.md`](./03-REFERENCE-MEDIA-CONTEXT.md) | Reference videos + images attached in the sidebar reach the model as analyzed, reusable structured context | 1 | **yes** — a persisted `references` field is a schema change | `[ ]` |

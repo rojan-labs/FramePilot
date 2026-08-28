@@ -1,4 +1,4 @@
-# Phase 0 — Baseline and system map — `[ ]`
+# Phase 0 — Baseline and system map — `[~]`
 
 > **Ships:** a number for every claim the later phases will make, produced by
 > reproducible commands, plus a current system map. Nothing behavioural changes.
@@ -26,7 +26,7 @@ downloads or generates them, with checksums:
   design frame).
 - `project-montage.fp.json`, `project-podcast.fp.json` — projects pointing at the above.
 
-## P0.1 — System map — `[ ]`
+## P0.1 — System map — `[x]`
 
 **Touches:** `docs/architecture/system-map.md` (create).
 Walk the tree in the order `PROMPT.md` §2 lists and write the map: one section per
