@@ -44,6 +44,18 @@ DEFAULT_RENDER_TIMEOUT_SECONDS = 900
 # ffmpeg decodes pathologically slowly) must not be able to hang the import path.
 # Mirrors FRAMEPILOT_RENDER_TIMEOUT_SECONDS but scoped to the /asset-media route.
 DEFAULT_ASSET_MEDIA_TIMEOUT_SECONDS = 60
+# How many /asset-media derivations may run at once, process-wide. One call is an
+# ffprobe, a FULL waveform decode, five thumbnail extractions and (for video) a proxy
+# transcode of the ORIGINAL source — a 4K camera file or stock rendition. Routes run in
+# Starlette's 40-slot threadpool, so ungated the only bound is how fast callers arrive:
+# the desktop agent warms four sourcing downloads at a time and a human can drop in
+# dozens of files at once, and each one then holds a threadpool slot AND an ffmpeg
+# process against the same cores and the same memory. Two keeps one derivation's ffmpeg
+# (itself multi-threaded) saturating the machine while the next is already queued, which
+# is where the throughput is, without N simultaneous 4K decode buffers. 1 restores
+# strictly-serial derivation. Same reasoning as the /review/temporal-evidence gate; that
+# one is 1 because its unit of work is a whole compiled timeline rather than one file.
+DEFAULT_ASSET_MEDIA_CONCURRENCY = 2
 # How many assets one /brain/visual/index slice prepares at once (plan
 # media-intelligence-closure phase 3). Preparation was strictly serial and ~98% of its
 # measured wall clock was network wait: 60 photos cost 92.7s against ~1.5s of local CPU.
@@ -159,6 +171,7 @@ class Settings(BaseModel):
     soul_root: Path | None = None
     render_timeout_seconds: int = Field(default=DEFAULT_RENDER_TIMEOUT_SECONDS, gt=0)
     asset_media_timeout_seconds: int = Field(default=DEFAULT_ASSET_MEDIA_TIMEOUT_SECONDS, gt=0)
+    asset_media_concurrency: int = Field(default=DEFAULT_ASSET_MEDIA_CONCURRENCY, gt=0)
     visual_index_concurrency: int = Field(default=DEFAULT_VISUAL_INDEX_CONCURRENCY, gt=0)
     proxy_timeout_seconds: int = Field(default=DEFAULT_PROXY_TIMEOUT_SECONDS, gt=0)
     proxy_max_duration_seconds: int = Field(default=DEFAULT_PROXY_MAX_DURATION_SECONDS, gt=0)
@@ -222,6 +235,9 @@ class Settings(BaseModel):
             asset_media_timeout_seconds=int(
                 value("FRAMEPILOT_ASSET_MEDIA_TIMEOUT_SECONDS")
                 or DEFAULT_ASSET_MEDIA_TIMEOUT_SECONDS
+            ),
+            asset_media_concurrency=int(
+                value("FRAMEPILOT_ASSET_MEDIA_CONCURRENCY") or DEFAULT_ASSET_MEDIA_CONCURRENCY
             ),
             visual_index_concurrency=int(
                 value("FRAMEPILOT_VISUAL_INDEX_CONCURRENCY") or DEFAULT_VISUAL_INDEX_CONCURRENCY

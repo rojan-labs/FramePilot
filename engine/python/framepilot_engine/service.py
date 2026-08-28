@@ -1657,6 +1657,12 @@ def create_app(
     # related ones. See the route for the measurements behind it.
     _temporal_evidence_gate = asyncio.Semaphore(1)
 
+    # The same bargain for `/asset-media`, which had none: a derivation is a probe, a
+    # full waveform decode, five thumbnail extractions and a proxy transcode of the
+    # ORIGINAL source. Not keyed by project for the same reason — the contended
+    # resource is the machine, not the project. See the route.
+    _asset_media_gate = asyncio.Semaphore(settings.asset_media_concurrency)
+
     def _visual_index_lock(project_id: str) -> threading.Lock:
         with _visual_index_locks_guard:
             lock = _visual_index_locks.get(project_id)
@@ -4258,7 +4264,7 @@ def create_app(
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
     @app.post("/asset-media", response_model=AssetMediaResponse)
-    def asset_media_route(req: AssetMediaRequest) -> AssetMediaResponse:
+    async def asset_media_route(req: AssetMediaRequest) -> AssetMediaResponse:
         """Probe an imported asset and derive read-only media for the timeline
         (duration + kind + waveform peaks). Drives the desktop import path so the
         renderer never computes media itself (plan Phase 8; render-vs-preview).
@@ -4266,7 +4272,23 @@ def create_app(
         Every ffmpeg/ffprobe subprocess spawned here (probe, waveform decode,
         thumbnail extraction) is bounded by ``settings.asset_media_timeout_seconds``
         (env ``FRAMEPILOT_ASSET_MEDIA_TIMEOUT_SECONDS``) so a crafted or looping
-        input cannot hang the import path (security follow-up, plan Phase 9.5)."""
+        input cannot hang the import path (security follow-up, plan Phase 9.5).
+
+        CONCURRENCY-GATED (``settings.asset_media_concurrency``, env
+        ``FRAMEPILOT_ASSET_MEDIA_CONCURRENCY``). A per-call timeout bounds how long
+        ONE derivation may take; it says nothing about how many may run together, and
+        this route had no answer to that at all. Each call spawns real ffmpeg work
+        against an untouched original, so N simultaneous callers allocate N 4K decode
+        pipelines and hold N of Starlette's 40 threadpool slots — the same shape as the
+        temporal-evidence gate above, and the same failure it was added to stop. The
+        wait happens in the event loop, NOT on a threadpool thread: a queued caller
+        costs nothing while it waits, which is the whole point of gating here rather
+        than with a blocking semaphore inside the sync body."""
+        async with _asset_media_gate:
+            return await run_in_threadpool(_derive_asset_media, req)
+
+    def _derive_asset_media(req: AssetMediaRequest) -> AssetMediaResponse:
+        """The derivation itself, run on a threadpool thread under the gate above."""
         # Loopback-only route; the path is sandbox-checked before any disk access.
         derive_timeout = float(settings.asset_media_timeout_seconds)
         input_path = sandbox(req.input_path)

@@ -181,11 +181,13 @@ import { exportViaSidecar } from './render/export-client.js';
 import { ExportHub } from './render/export-hub.js';
 import { saveExportAs } from './render/export-save.js';
 import { importAssetViaSidecar } from './media/asset-media-client.js';
+import { cacheDerivedMedia } from './media/derived-media-cache.js';
 import { MusicService } from './media/music-service.js';
 import { StockService, isStockKind } from './media/stock-service.js';
 
 import { StockQuotaStore } from './media/stock-quota.js';
 import { localMusicAssetRefusal, musicErrorMessage, stockErrorMessage } from '@framepilot/ai-sdk';
+import { createAssetEnroller } from './ai/asset-enrolment.js';
 import { createStockHost } from './ai/stock-host.js';
 import { agentSearchFailureSummary } from './ai/search-failure-summary.js';
 import { LocalTelemetry, telemetryEnabledFromEnv } from './telemetry/telemetry.js';
@@ -666,20 +668,30 @@ function registerIpcHandlers(): void {
    * `blob:` URL, which `media-src` already permits. The renderer is never handed
    * a provider URL, so the guarantee is structural rather than a convention.
    */
-  const musicService = new MusicService({
-    projectsRoot: resolveProjectsDir(process.env, app.getPath('documents')),
-    fetchImpl: electronFetch,
-    deriveAssetMedia: async (absolutePath) => {
-      // Reuses the existing /asset-media route — no new engine surface. A
-      // failure is non-fatal: a missing waveform is a degraded timeline row, a
-      // missing asset is a lost download.
+  const projectsRoot = resolveProjectsDir(process.env, app.getPath('documents'));
+  /**
+   * One memo per derive REQUEST shape, never one shared across both — see
+   * `cacheDerivedMedia`. This is what makes the warm/serial pair the orchestrator
+   * intends (acquire concurrently, commit in series) actually cost one derivation
+   * instead of two.
+   */
+  const cachedDerive = (request: { thumbnails: number; proxy: boolean }) =>
+    cacheDerivedMedia(async (absolutePath: string) => {
       const derived = await importAssetViaSidecar(
         engineBaseUrl,
-        { inputPath: absolutePath, thumbnails: 0, proxy: false },
+        { inputPath: absolutePath, ...request },
         electronFetch,
       );
       return derived.ok ? derived : null;
-    },
+    }, { projectsRoot });
+
+  const musicService = new MusicService({
+    projectsRoot,
+    fetchImpl: electronFetch,
+    // Reuses the existing /asset-media route — no new engine surface. A failure is
+    // non-fatal: a missing waveform is a degraded timeline row, a missing asset is a
+    // lost download.
+    deriveAssetMedia: cachedDerive({ thumbnails: 0, proxy: false }),
     onProgress: (progress) => {
       if (mainWindow !== null && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send(IpcChannels.musicDownloadProgress, progress);
@@ -706,20 +718,14 @@ function registerIpcHandlers(): void {
     }
   });
   const stockService = new StockService({
-    projectsRoot: resolveProjectsDir(process.env, app.getPath('documents')),
+    projectsRoot,
     resolveApiKey: () => aiConfig.resolvePexelsApiKey(),
     quota: stockQuota,
     fetchImpl: electronFetch,
-    deriveAssetMedia: async (absolutePath) => {
-      // Thumbnails are requested here (unlike music, which asks for none): a
-      // stock clip in the bin without a filmstrip is the one that looks broken.
-      const derived = await importAssetViaSidecar(
-        engineBaseUrl,
-        { inputPath: absolutePath, thumbnails: 5, proxy: true },
-        electronFetch,
-      );
-      return derived.ok ? derived : null;
-    },
+    // Thumbnails and a proxy are requested here (unlike music, which asks for neither):
+    // a stock clip in the bin without a filmstrip is the one that looks broken, and
+    // without a proxy the editor previews the untouched 4K original.
+    deriveAssetMedia: cachedDerive({ thumbnails: 5, proxy: true }),
     onProgress: (progress) => {
       if (mainWindow !== null && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send(IpcChannels.stockDownloadProgress, progress);
@@ -2110,6 +2116,32 @@ function registerIpcHandlers(): void {
    * needs a configured key, and a run that cannot index must still be able to place
    * footage. The same contract `autoIndexImportedAssets` has.
    */
+  /**
+   * Ends all background enrolment at quit. Held here, beside the enroller, because
+   * `before-quit` is registered a long way below and both halves have to name the same
+   * controller for the abort to reach anything.
+   */
+  const enrolmentShutdown = new AbortController();
+  const assetEnroller = createAssetEnroller({
+    signal: enrolmentShutdown.signal,
+    // ONE loop per batch, not one per asset. `/brain/visual/index` takes a list and paces
+    // its own slices behind a per-project lock, so N single-asset loops could only queue
+    // on that lock — each holding a slot in the sidecar's 40-slot threadpool while it
+    // waited, starving the render/analysis/asset-media calls the same run depends on.
+    enrol: async ({ projectId, assetIds, signal }) => {
+      const result = await runVisualIndexLoop({
+        client: new VisualIndexClient({ baseUrl: engineBaseUrl, fetchFn: electronFetch }),
+        request: { projectId, assetIds: [...assetIds], ...visualIndexCredentials() },
+        signal,
+      });
+      aiLog.debug('stock asset enrolment settled', {
+        projectId,
+        assets: assetIds.length,
+        status: result.status,
+      });
+    },
+  });
+
   const enrolStockAsset = ({
     projectId,
     assetId,
@@ -2117,17 +2149,12 @@ function registerIpcHandlers(): void {
     readonly projectId: string;
     readonly assetId: string;
   }): void => {
+    // Checked before queueing, not inside the batch: without a key there is nothing to
+    // enrol into, and remembering the id anyway would suppress a real enrolment after the
+    // user adds one in Settings.
     const credentials = visualIndexCredentials();
     if (!credentials.twelveLabsKey && !credentials.nvidiaKeys) return;
-    void runVisualIndexLoop({
-      client: new VisualIndexClient({ baseUrl: engineBaseUrl, fetchFn: electronFetch }),
-      request: { projectId, assetIds: [assetId], ...credentials },
-    }).catch((error: unknown) => {
-      aiLog.debug('stock asset enrolment failed', {
-        assetId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
+    assetEnroller.request(projectId, assetId);
   };
 
   const hostAddStock = createStockHost(stockService, enrolStockAsset);
@@ -2828,6 +2855,9 @@ function registerIpcHandlers(): void {
   app.on('before-quit', () => {
     aiStreamHub.abortAll();
     runIpcHub.close();
+    // Background enrolment is an optimization; nothing waits on it, and letting it keep
+    // calling a sidecar that is being shut down is how a quit turns into a hang.
+    enrolmentShutdown.abort();
   });
 }
 
