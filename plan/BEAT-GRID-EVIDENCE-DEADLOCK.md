@@ -1,5 +1,9 @@
 # Beat-grid evidence deadlock — root-cause plan
 
+> **Status: `[x]` done (2026-08-29, branch `fix/beat-grid-deadlock`, ADR 0157).** All six
+> root causes are fixed, plus one misreport discovered while validating. See
+> **Reconciliation** at the bottom for every observation in the run and where it landed.
+
 > Incident: run `ea8e46ec-778f-4da2-9ba2-06e5557b9876` (conversation
 > `a6e4868c-d33b-4b89-a7f9-d16ba8381598`, project `project_beat_sync_champadevi_mtbws6ztmw6v`,
 > 2026-08-28). 35 minutes, 41 model calls, 645 769 tokens, $4.40, **zero picture clips
@@ -158,3 +162,37 @@ New
 | RC5 | Two turns with the same rejection reason converge instead of retrying forever. |
 | RC6 | A run with landed ops **and** a standing rejection surfaces the rejection to the editor. |
 | End to end | `beat-grid-wiring.test.ts` replays the incident: audition three, place one, montage lands. |
+
+
+---
+
+# Reconciliation — every observation in the run
+
+| # | Run observation | Root cause | Change | Regression test | Class |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Six `add_clips` proposals rejected: "the analyzed audio asset `4c9cb2da` is not on the timeline" | RC1 + RC2 — one last-writer-wins slot; the grid bound to the last analysis, not the placed music | `kernel/beat-grid/beat-evidence.ts` (ledger + deterministic resolution); `beat-alignment.ts` takes a resolved grid | `beat-evidence.test.ts` (14 cases), `beat-grid-wiring.test.ts` "cuts to the track it PLACED" (mutation-tested) | **FIXED** |
+| 2 | `detect_beats` → "Skipped redundant detect_beats call" (18:29:46) | RC4 — the guard's remedy is an `analysis` tool the execution stages withhold | `VALIDATOR_INPUT_TOOL_NAMES` + `stageAllowsTool`; `beat-grid/beat-tool.ts` as the shared name | `stage-policy.test.ts` — invariant asserted in both directions | **FIXED** |
+| 3 | `detect_beats` → "detect_beats is unavailable this turn" (18:36:57) | RC4, same | as above | as above | **FIXED** |
+| 4 | An ungrounded grid vetoing a run that never asked for hard sync | RC3 — the one branch that escaped the module's own `hardSync` split | groundedness reports by default, rejects only under `hardSync` | `beat-alignment.test.ts` × 3, `beat-grid-wiring.test.ts` × 2 | **FIXED** |
+| 5 | Six identical refusals over 30 minutes, each resetting the stall streak | RC5 — "a bounded retry" with nothing bounding it | `lastRejectionReason` on `ConductorState`; a verbatim repeat is not progress | `conductor.test.ts` × 3 | **FIXED** |
+| 6 | "The run stopped making progress — no further edits could be found for this request" | RC6 — the notice ignored the run's own rejection tally | `stalledRunMessage` names the standing refusal | `conductor.test.ts` "names the standing refusal" | **FIXED** |
+| 7 | Two audio ops landed; the six vetoed montages produced no user-facing account at all | RC6 — the refusal account was gated on the run landing *nothing* | `partialRunMessage` | `conductor.test.ts` "says what did NOT land" | **FIXED** |
+| 8 | 61 green "Added clip Video 1 · 0s–0.5s" cards for clips that never landed | Cards settle before the turn gate runs | a whole-turn rejection re-settles its proposal cards as `failed` | `beat-grid-wiring.test.ts` × 2; `streamAgent-golden` per-turn-cap scenario | **FIXED** |
+| 9 | Self-check: "The timeline has 1 overlay/caption clip … renders as text on black" — there were no overlays and no text | `picture_present` counted `allClips` as overlays | count overlays as overlays; a distinct sentence for sound-with-no-picture | `critic.test.ts` "a music bed alone is not picture" | **FIXED** (discovered while validating) |
+| 10 | `search_music` × 2 → "withheld — place what this run already found" | The commit-only latch (ADR 0149): three tracks were already downloaded and unspent | none | — | **EXPECTED BEHAVIOR** |
+| 11 | `recall_evidence ev_9` → "no such handle" | The model invented a handle; the refusal names the seven that exist | none | — | **EXPECTED BEHAVIOR** |
+| 12 | Self-check: "The cut uses 0 shots but at least 61 were asked for" | The true consequence of #1 | resolved by #1 | — | **FIXED** (downstream) |
+| 13 | Acceptance criterion 6: sound effects cannot be sourced | The stock libraries cover music and picture, not SFX; the run said so up front | none | — | **EXPECTED BEHAVIOR** |
+| 14 | No rendered file delivered (criterion 5) | The panel does not render; the report says where to export | none | — | **EXPECTED BEHAVIOR** |
+
+## Validation run
+
+| Check | Result |
+| --- | --- |
+| `pnpm typecheck` | 17/17 tasks |
+| `pnpm test` | 18/18 tasks, incl. 83 Playwright e2e |
+| ai-sdk suite | 3717 passed, 1 skipped |
+| `pnpm build` | 10/10 tasks |
+| `pnpm engine:test` | 2696 passed, 1 skipped |
+| `pnpm engine:lint` / `engine:typecheck` | ruff clean; mypy clean, 207 files |
+| `pnpm lint` | clean per package. The **whole-repo** invocation OOMs the linter — reproduced on `main` at `ad5a1b0`, so it is a pre-existing tooling limit, not this change. |
