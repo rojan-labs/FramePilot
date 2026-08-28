@@ -364,6 +364,31 @@ def fit_entries(entries: list[str], budget_bytes: int) -> tuple[list[str], bool]
     return kept, truncated
 
 
+_TITLE_LINE_RE = re.compile(r"^## \S+ — (?P<title>.+?)\s*$", re.MULTILINE)
+
+
+def entry_title(entry: str) -> str | None:
+    """The title of a rendered entry (the text after the em dash on its heading)."""
+    match = _TITLE_LINE_RE.search(entry)
+    return match.group("title").strip() if match else None
+
+
+def supersede_by_title(entries: list[str], title: str) -> list[str]:
+    """Drop earlier entries that carry the same title as the one about to be appended.
+
+    WHY (plan/system-mission P1.5): a decision is a *current* fact, not a log line. When
+    the editor says "captions bold uppercase" on turn 2 and "captions small lowercase" on
+    turn 4, a tier that keeps both hands the next run two contradicting instructions and
+    lets the byte cap — not the user — decide which survives. The newest same-titled
+    entry supersedes; unrelated entries are untouched, so the file stays append-only in
+    contract (nothing is edited) while contradictions resolve deterministically.
+    """
+    wanted = title.strip().casefold()
+    if not wanted:
+        return entries
+    return [e for e in entries if (entry_title(e) or "").casefold() != wanted]
+
+
 def append_memory_entry(
     brain_dir: Path,
     entry: MemoryEntry,
@@ -380,7 +405,7 @@ def append_memory_entry(
     """
     target = tier_path(brain_dir, entry.tier, ts=entry.ts)
     existing = target.read_text(encoding="utf-8") if target.exists() else ""
-    entries = [*parse_entries(existing), render_entry(entry)]
+    entries = [*supersede_by_title(parse_entries(existing), entry.title), render_entry(entry)]
     header_bytes = len(render_tier_file(entry.tier, [], truncated=True).encode("utf-8"))
     kept, truncated = fit_entries(entries, max(0, max_bytes - header_bytes))
     atomic_write_text(target, render_tier_file(entry.tier, kept, truncated=truncated))
