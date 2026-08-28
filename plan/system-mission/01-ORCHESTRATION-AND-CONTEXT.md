@@ -1,4 +1,4 @@
-# Phase 1 — Orchestration and context — `[ ]`
+# Phase 1 — Orchestration and context — `[~]`
 
 > **Ships:** fewer, purposeful model calls per task; facts the model never rediscovers
 > because they arrive as structured state; decisions that survive across turns with TTL
@@ -15,7 +15,7 @@ The context-management sub-plan already fixed *what the model sees of the footag
 phase is about *how many times it is asked, with what*, and *what it is told instead of
 having to infer*. Everything here is measured by re-running `mission-baseline.mjs`.
 
-## P1.1 — Classify every call in the ledger and remove the ones that should not exist — `[ ]`
+## P1.1 — Classify every call in the ledger and remove the ones that should not exist — `[~]`
 
 **Input:** the P0.2 call ledger. **Touches:** `kernel/conductor.ts` decisions,
 `kernel/stage-policy.ts`, `orchestrator.ts` turn loop, `kernel/proposers/*`.
@@ -30,6 +30,12 @@ code, not prompt. Expected candidates (verify against the ledger, do not assume)
 - Two consecutive turns that read the same transcript slice → one.
 
 Each removal is one commit with the ledger row id in the message.
+
+Landed so far:
+- **P1.1a — output room on every agent request** (`orchestrator.ts` `outputRoomFor`,
+  `orchestrator.output-room.test.ts`). Root cause of 2/3 failed montage runs and the
+  failed smoke run: no `maxTokens` on the wire → bridge default 8,192 → truncated tool
+  batch → retry at the same cap → run failed. See `docs/reports/system-mission/01-leads.md` #7.
 **Done when:** p50 model calls per scenario ≤ baseline − (count of rows classified
 removable) and the P0.3 rubric score is unchanged or higher.
 

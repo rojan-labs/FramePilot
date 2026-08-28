@@ -23,3 +23,15 @@ Measured on `mission-montage` run 1 (35 calls, 1.07M prompt tokens, $1.29, 924 s
    account for those before/after.
 6. **`usage` USD** is priced by tier tables, not provider-reported; report tokens as the
    primary metric.
+7. **Root cause of the failed montage runs (2 of 3) and the failed smoke run:** the agent
+   loop sends `AiCompletionRequest` without `maxTokens` (no caller sets it on the agent
+   path; only `caption-emphasis` 512 and `vision-judge` 300 do). The openai-compatible
+   bridge fills `max_tokens || 8192`; `reservedOutputFor()` meanwhile reserves 128k of
+   window for output that is never requested. A long tool-call batch (`add_clips` /
+   `set_clip_crop` over many clips) is cut at 8,192 output tokens → no parseable tool
+   call → classified `truncated`/`empty` → one retry (same cap) → run `failed` after
+   ~3 minutes and $0.15–0.30 of output. Fix: request `maxTokens = min(reservedOutputTokens,
+   capabilities.maxOutputTokens)` on every agent request; treat provider `length` as a
+   distinct failure with a "split the step" continuation instead of a blind retry.
+   Evidence: `baseline-orchestration.json` montage r2/r3 calls 9–10 end in
+   `→8192 ~90 s` pairs; smoke.json likewise.

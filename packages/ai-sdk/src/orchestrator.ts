@@ -296,6 +296,19 @@ function reservedOutputFor(input: ContextInput, provider?: AiProvider): number {
 }
 
 /**
+ * The `maxTokens` to put on the wire for one model call: the room the manifest reserved,
+ * never more than the model's real output ceiling. Exported for tests.
+ */
+export function outputRoomFor(
+  provider: AiProvider | undefined,
+  modelCall: { readonly reservedOutputTokens?: number },
+): number {
+  const ceiling = capabilitiesFor(provider?.name, provider?.modelId).maxOutputTokens;
+  const reserved = modelCall.reservedOutputTokens ?? ceiling;
+  return Math.max(1, Math.min(reserved, ceiling));
+}
+
+/**
  * Headroom kept for the estimator's own drift. Same value the default budget has always
  * used; named here because it now applies to every model rather than only to the one
  * hardcoded 190K window.
@@ -4873,9 +4886,18 @@ export class Orchestrator {
     // was never the bug, the unasked-for thinking was. Asked for only on the calls whose
     // thinking is displayed (never the classifier/critic calls, which have nowhere to
     // show it), and degraded by the provider when a model refuses the parameter.
+    // Ask the provider for the output room the manifest reserved. Without an explicit
+    // `maxTokens` every adapter/bridge falls back to its own default (8,192 on the
+    // OpenAI-compatible path), so a long tool-call batch was cut mid-JSON, classified
+    // "truncated", retried once at the same cap, and the run failed — while the window
+    // accounting believed 128k of output was available (plan/system-mission P1.1).
+    const withOutputRoom: AiCompletionRequest =
+      request.maxTokens !== undefined
+        ? request
+        : { ...request, maxTokens: outputRoomFor(this.provider, modelCall) };
     const modelRequest: AiCompletionRequest = captureReasoning
-      ? { ...request, reasoningEffort: request.reasoningEffort ?? 'medium' }
-      : request;
+      ? { ...withOutputRoom, reasoningEffort: withOutputRoom.reasoningEffort ?? 'medium' }
+      : withOutputRoom;
     let reasoning = '';
     let reasoningOpened = false;
     // Settle the reasoning row (stops the "Thinking…" shimmer) — on normal end and on an
