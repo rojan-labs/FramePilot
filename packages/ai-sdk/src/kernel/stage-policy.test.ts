@@ -12,6 +12,8 @@ import {
   stageAllowsRole,
   toolRole,
 } from './stage-policy.js';
+import { TOOL_REGISTRY, getTool } from '../tool-registry.js';
+import { RUN_STAGES } from './working-state.js';
 
 describe('toolRole', () => {
   it('separates reading the arrangement from reading the content', () => {
@@ -70,12 +72,53 @@ describe('the locked plan is actually closed to re-analysis', () => {
     for (const tool of ['detect_beats', 'index_media', 'describe_footage', 'transcribe']) {
       expect(stageAllowsRole(stage, toolRole(tool, false))).toBe(false);
     }
-    // Guidance is closed too — the playbook was loaded during planning.
-    expect(stageAllowsRole(stage, toolRole('load_skill', false))).toBe(false);
+    // Guidance is NOT closed (GAP-006's sibling, GAP-008). It is static reference data —
+    // the shipped effect and transition catalogs, the playbooks, the remembered
+    // preferences — not observation of the material, so there is nothing stored to recall
+    // in its place. Withholding it took `discover_transitions` away from an executing run
+    // while leaving `add_transition`, whose own description says the ids are not guessable.
+    expect(stageAllowsRole(stage, toolRole('discover_transitions', false))).toBe(true);
+    expect(stageAllowsRole(stage, toolRole('discover_effects', false))).toBe(true);
+    expect(stageAllowsRole(stage, toolRole('load_skill', false))).toBe(true);
     // But the CURRENT arrangement stays readable: a patch needs live clip ids.
     expect(stageAllowsRole(stage, toolRole('get_timeline', false))).toBe(true);
     // And recall always works — that is the way back to the stored payload.
     expect(stageAllowsRole(stage, toolRole('recall_evidence', false))).toBe(true);
+  });
+
+  /**
+   * The invariant behind GAP-008, asserted against the registry rather than against a
+   * hand-written list.
+   *
+   * A tool description that says "call X first" is a contract with the model. If the
+   * stage policy can offer the tool while withholding X, the contract is unkeepable and
+   * the model is left to invent an id that the validator will refuse — which is exactly
+   * what an executing run faced with `add_transition` and no `discover_transitions` had
+   * to do. Whenever a prerequisite is NAMED in a description, it must be reachable in
+   * every stage the tool itself is reachable in.
+   */
+  it('never offers a tool in a stage that withholds the tool its description requires', () => {
+    const PREREQUISITE = /(?:call (?:this|\w+) before|use (\w+) first)/i;
+    const named = (description: string): readonly string[] =>
+      [...description.matchAll(/\b(discover_[a-z_]+|get_timeline|search_[a-z_]+)\b/g)].map(
+        (m) => m[1]!,
+      );
+    for (const tool of TOOL_REGISTRY) {
+      if (!PREREQUISITE.test(tool.description)) continue;
+      for (const prerequisite of named(tool.description)) {
+        const prerequisiteSpec = getTool(prerequisite);
+        if (!prerequisiteSpec) continue;
+        for (const stage of RUN_STAGES) {
+          const toolRoleHere = toolRole(tool.name, tool.mutates);
+          const prerequisiteRole = toolRole(prerequisite, prerequisiteSpec.mutates);
+          if (!stageAllowsRole(stage, toolRoleHere)) continue;
+          expect(
+            stageAllowsRole(stage, prerequisiteRole),
+            `${tool.name} is offered in "${stage}" but its stated prerequisite ${prerequisite} is not`,
+          ).toBe(true);
+        }
+      }
+    }
   });
 
   it('leaves every role open while the run is still planning', () => {
@@ -141,10 +184,12 @@ describe('stageAllowsRole — the boundary is structural', () => {
     }
   });
 
-  it('closes fresh reconnaissance once the plan is locked', () => {
+  it('closes fresh reconnaissance of the MATERIAL once the plan is locked', () => {
     for (const stage of ['apply', 'enhance', 'repair'] as const) {
       expect(stageAllowsRole(stage, 'analysis')).toBe(false);
-      expect(stageAllowsRole(stage, 'guidance')).toBe(false);
+      // Reference data is not reconnaissance: a catalog the run never read has nothing
+      // stored to recall, and the mutators that require its ids stay on offer.
+      expect(stageAllowsRole(stage, 'guidance')).toBe(true);
     }
   });
 

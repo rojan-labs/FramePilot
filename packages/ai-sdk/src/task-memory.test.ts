@@ -237,7 +237,12 @@ describe('stages drive the run forward (M2)', () => {
     expect(offered[0]).toContain('get_transcript');
     expect(offered[1]).toContain('get_transcript');
     expect(offered[3]).not.toContain('get_transcript');
-    expect(offered[3]).not.toContain('load_skill');
+    // Reference data stays open (GAP-008): a catalog or a playbook is not observation of
+    // the material, so there is nothing stored to recall in its place — and withholding
+    // it stranded an executing run with `add_transition` on offer and no legal way to
+    // learn a transition id.
+    expect(offered[3]).toContain('load_skill');
+    expect(offered[3]).toContain('discover_transitions');
     // Inspection and recall stay open — a patch is written against the current
     // arrangement, and reading back stored evidence is not research.
     expect(offered[3]).toContain('get_timeline');
