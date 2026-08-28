@@ -14,7 +14,38 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   single step. If one shot in the batch is wrong, it is told which one, so it fixes that shot
   and re-sends rather than starting over.
 
+### Changed
+
+- **The editor's chrome got tighter and easier to read.** The timeline's tool row mixed
+  two icon sizes in two different button sizes, which read as two toolbars welded
+  together and stole ~12px of height from the timeline; it now uses one control size
+  throughout, matching the library rail on the left. The track gutter has stopped
+  spreading its five lane flags across dead space — the column is narrower and the
+  flags sit next to the track they belong to. (`apps/web-editor`)
+
+- **The export panel is a real panel now.** Its Export button used to be at the bottom
+  of a single scrolling list, so a project with credited music pushed the button
+  off-screen and you had to scroll a settings list to reach the thing you opened the
+  panel for. The action bar is now pinned, and it carries the live status too — "Queued",
+  "Rendering", "Saved to…" — so you can see how the export is going without scrolling.
+  The options are grouped into Format, Audio, and Credits; Audio and a long credits list
+  fold away, each saying what it's hiding, and the preset now states exactly what it
+  will render (`1080 × 1920 · 30 fps · MP4 (H.264)`). (`apps/web-editor`)
+
+- **History reads as a list of edits again.** When the assistant explains its plan the
+  explanation can run to paragraphs, and printed in full it made every AI edit taller
+  than the panel. Reasons now show three lines with a "More" to open them. Each filter
+  says how many edits it will show, the header says where you are (`Step 3 of 12 · 9
+  undone`), the current point is labelled rather than only dotted, and a filter that
+  matches nothing says so instead of looking broken. (`apps/web-editor`)
+
 ### Fixed
+
+- **The timeline's overview strip is visible without clicking it.** The minimap under the
+  timeline measured its own width only when you pressed on it, so until then it drew every
+  clip at zero width and looked like an empty bar — you had to click a navigation aid to
+  find out where you were before you could use it to go somewhere. It now measures on the
+  first paint and tracks window and panel resizes. (`apps/web-editor`)
 
 - **Downloading a lot of footage at once no longer takes the machine with it.** Building a
   montage means the assistant may fetch dozens of clips in a few minutes, and each one has

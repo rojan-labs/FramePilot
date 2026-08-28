@@ -11,7 +11,7 @@
  * The window is keyboard-operable as a slider (←/→ nudge, Home/End jump) and the
  * strip honours `prefers-reduced-motion` through the shared token reset.
  */
-import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Timeline } from '@framepilot/timeline-schema';
 import { minimapGeometry, minimapScrollLeft } from '../editor/selectors.js';
 
@@ -55,14 +55,42 @@ function TimelineMinimapImpl({
   const draggingRef = useRef(false);
   const [width, setWidth] = useState(0);
 
-  // Measure the strip's own width so the geometry maps the sequence onto it. We
-  // read it lazily (on first pointer/layout) since jsdom reports 0; the px values
-  // are recomputed every render from the live width, so a resize self-corrects.
+  // Measure the strip's own width so the geometry maps the sequence onto it. All
+  // px values are recomputed every render from the live width, so a resize
+  // self-corrects; `width` starts at 0 only until the first measurement lands.
   const measure = useCallback((): number => {
     const w = stripRef.current?.getBoundingClientRect().width ?? 0;
     if (w > 0 && w !== width) setWidth(w);
     return w || width;
   }, [width]);
+
+  // Measure BEFORE the first paint, and again whenever the strip resizes.
+  //
+  // This used to run only from `onPointerDown`/`scrollToX`, so the strip mounted
+  // at `width = 0`: every block and the viewport window computed to zero px and
+  // the map rendered as an empty bar. It only appeared once the user clicked it —
+  // which is exactly backwards for a navigation aid, since you have to be able to
+  // see where you are before you decide where to drag to. A layout effect paints
+  // it correctly on the first frame; the observer keeps it correct when the
+  // window, the rails, or the timeline dock resize (none of which are clicks).
+  useLayoutEffect(() => {
+    measure();
+  }, [measure]);
+
+  useEffect(() => {
+    const node = stripRef.current;
+    // jsdom and older embedders have no ResizeObserver — the layout effect above
+    // still gives a correct first paint; only live resize tracking is lost.
+    if (!node || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const w = entry.contentRect.width;
+      if (w > 0) setWidth((prev) => (prev === w ? prev : w));
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   // Memoised so a re-render that doesn't change the sequence/viewport (and any that
   // slip through the memo boundary) doesn't re-walk every clip (perf slice 4).

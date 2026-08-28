@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { Asset } from '@framepilot/timeline-schema';
 import { ExportDialog } from './ExportDialog.js';
 import type { ExportProgressMessage, RendererBridge } from '../editor/bridge.js';
 
@@ -65,6 +66,24 @@ function installBridge(
   };
 }
 
+/** A credit-bearing asset, so the popover renders its longest optional section. */
+function creditedAsset(id: string): Asset {
+  return {
+    id,
+    path: `media/${id}.mp3`,
+    kind: 'audio',
+    source: {
+      provider: 'openverse',
+      remoteId: id,
+      license: 'cc-by',
+      attributionRequired: true,
+      attribution: `"${id}" by Ada Lovelace is licensed under CC BY 4.0.`,
+      creator: 'Ada Lovelace',
+      fetchedAt: '2026-08-23T12:00:00.000Z',
+    },
+  };
+}
+
 /** Open the export dropdown — the trigger button's accessible name is "Export
  *  video" (`aria-label`), distinct from the popover's inner "Export" submit
  *  button, so this never collides with `getByRole('button', { name: 'Export' })`. */
@@ -87,6 +106,47 @@ describe('ExportDialog', () => {
     expect(screen.getByRole('dialog', { name: 'Export video' })).toBeDefined();
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: 'Export video' })).toBeNull();
+  });
+
+  it('keeps the action bar out of the scrolling body, whatever the options add', () => {
+    // Regression: the popover itself was the scroller, so the footer scrolled
+    // with the options — a project with a credits list pushed the Export button
+    // below the fold and the user had to scroll a settings list to reach the
+    // button the popover exists for. The footer must be a SIBLING of the body.
+    render(
+      <ExportDialog
+        assets={[creditedAsset('cc-by-1'), creditedAsset('cc-by-2')]}
+        ensureSaved={vi.fn()}
+        onReveal={vi.fn()}
+      />,
+    );
+    openExportMenu();
+    const dialog = screen.getByRole('dialog', { name: 'Export video' });
+    const body = dialog.querySelector('.export-body')!;
+    const foot = dialog.querySelector('.export-foot')!;
+    expect(body).not.toBeNull();
+    expect(foot).not.toBeNull();
+    expect(body.contains(foot)).toBe(false);
+    expect(foot.contains(screen.getByRole('button', { name: 'Export' }))).toBe(true);
+  });
+
+  it('summarises the audio section it collapses, so nothing set is hidden silently', () => {
+    render(<ExportDialog assets={[]} ensureSaved={vi.fn()} onReveal={vi.fn()} />);
+    openExportMenu();
+    expect(screen.getByText('Unprocessed')).toBeDefined();
+    fireEvent.click(screen.getByLabelText('Reduce background noise'));
+    expect(screen.getByText('1 filter on')).toBeDefined();
+    fireEvent.click(screen.getByLabelText('Apply limiter'));
+    expect(screen.getByText('2 filters on')).toBeDefined();
+  });
+
+  it('states what the chosen preset actually renders', () => {
+    render(<ExportDialog assets={[]} ensureSaved={vi.fn()} onReveal={vi.fn()} />);
+    openExportMenu();
+    expect(screen.getByText('1080 × 1920 · 30 fps · MP4 (H.264)')).toBeDefined();
+    fireEvent.click(screen.getByRole('combobox', { name: 'Export preset' }));
+    fireEvent.click(screen.getByRole('option', { name: 'YouTube (16:9)' }));
+    expect(screen.getByText('1920 × 1080 · 30 fps · MP4 (H.264)')).toBeDefined();
   });
 
   it('shows a desktop-only note and disables Export in the browser', () => {
@@ -300,6 +360,12 @@ describe('ExportDialog', () => {
 
     expect(exportVideoCancel).toHaveBeenCalledWith(DEFAULT_REQUEST_ID);
     await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Cancelling'));
+    // The live status sits in the pinned footer beside the buttons, not at the
+    // end of the scrolling options, so progress never needs scrolling to.
+    const foot = screen
+      .getByRole('dialog', { name: 'Export video' })
+      .querySelector('.export-foot')!;
+    expect(foot.contains(screen.getByRole('status'))).toBe(true);
 
     emit({
       requestId: DEFAULT_REQUEST_ID,

@@ -166,7 +166,7 @@ export function Toolbar({
             aria-label="Selection tool"
             onClick={() => onSetTool?.('select')}
           >
-            <MousePointer2 size={ICON_SIZE.md} aria-hidden="true" />
+            <MousePointer2 size={ICON_SIZE.sm} aria-hidden="true" />
           </Button>
         </Tooltip>
         <Tooltip
@@ -187,7 +187,7 @@ export function Toolbar({
             aria-label="Blade tool"
             onClick={() => onSetTool?.('blade')}
           >
-            <Scissors size={ICON_SIZE.md} aria-hidden="true" />
+            <Scissors size={ICON_SIZE.sm} aria-hidden="true" />
           </Button>
         </Tooltip>
       </div>
@@ -197,7 +197,7 @@ export function Toolbar({
           <Menu
             label="More tools"
             className="toolbar-more-menu"
-            trigger={<MoreHorizontal size={ICON_SIZE.md} aria-hidden="true" />}
+            trigger={<MoreHorizontal size={ICON_SIZE.sm} aria-hidden="true" />}
           >
             {(close) => (
               <>
@@ -274,7 +274,7 @@ export function Toolbar({
                 onClick={split}
                 disabled={!hasSelection}
               >
-                <Scissors size={ICON_SIZE.md} aria-hidden="true" />
+                <Scissors size={ICON_SIZE.sm} aria-hidden="true" />
               </Button>
             </Tooltip>
             <Tooltip
@@ -294,7 +294,7 @@ export function Toolbar({
                 onClick={remove}
                 disabled={!hasSelection}
               >
-                <Trash2 size={ICON_SIZE.md} aria-hidden="true" />
+                <Trash2 size={ICON_SIZE.sm} aria-hidden="true" />
               </Button>
             </Tooltip>
             <Tooltip
@@ -314,7 +314,7 @@ export function Toolbar({
                 onClick={rippleRemove}
                 disabled={!hasSelection}
               >
-                <ListX size={ICON_SIZE.md} aria-hidden="true" />
+                <ListX size={ICON_SIZE.sm} aria-hidden="true" />
               </Button>
             </Tooltip>
             <Tooltip
@@ -333,7 +333,7 @@ export function Toolbar({
                 onClick={duplicate}
                 disabled={!hasSelection}
               >
-                <Copy size={ICON_SIZE.md} aria-hidden="true" />
+                <Copy size={ICON_SIZE.sm} aria-hidden="true" />
               </Button>
             </Tooltip>
           </div>
@@ -343,7 +343,7 @@ export function Toolbar({
               <Menu
                 label="More tools"
                 className="toolbar-more-menu"
-                trigger={<MoreHorizontal size={ICON_SIZE.md} aria-hidden="true" />}
+                trigger={<MoreHorizontal size={ICON_SIZE.sm} aria-hidden="true" />}
               >
                 {(close) => (
                   <MenuItem
@@ -376,7 +376,7 @@ export function Toolbar({
                   aria-label="Marker"
                   onClick={() => editor.toggleMarker(editor.getPlayhead())}
                 >
-                  <Bookmark size={ICON_SIZE.md} aria-hidden="true" />
+                  <Bookmark size={ICON_SIZE.sm} aria-hidden="true" />
                 </Button>
               </Tooltip>
             </div>
@@ -448,7 +448,7 @@ export function Toolbar({
             onClick={editor.undo}
             disabled={!editor.canUndo}
           >
-            <Undo2 size={ICON_SIZE.md} aria-hidden="true" />
+            <Undo2 size={ICON_SIZE.sm} aria-hidden="true" />
           </Button>
         </Tooltip>
         <Tooltip
@@ -463,7 +463,7 @@ export function Toolbar({
             onClick={editor.redo}
             disabled={!editor.canRedo}
           >
-            <Redo2 size={ICON_SIZE.md} aria-hidden="true" />
+            <Redo2 size={ICON_SIZE.sm} aria-hidden="true" />
           </Button>
         </Tooltip>
       </div>

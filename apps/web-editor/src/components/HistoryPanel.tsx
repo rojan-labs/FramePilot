@@ -124,6 +124,18 @@ function opIcon(type: string): JSX.Element {
   }
 }
 
+/**
+ * How much of an AI patch's `reason` shows before it is folded behind "More".
+ *
+ * The agent's reason is a narration of its own plan, and on a long run it is
+ * routinely several hundred words. Rendered whole, one row of the reel was
+ * taller than the panel — the list of edits stopped being scannable, which is
+ * the only thing this panel is for. Clamping by *character count* (rather than
+ * measuring the rendered box) keeps the decision pure and deterministic: the
+ * same entry folds identically at any panel width, in tests and in the app.
+ */
+const REASON_CLAMP_CHARS = 150;
+
 /** A compact "2m ago" style timestamp; falls back to "earlier" for unstamped entries. */
 function relativeTime(committedAt: number | undefined, now: number): string {
   if (committedAt === undefined) return 'earlier';
@@ -213,11 +225,14 @@ function EditRow({
   onHover,
 }: RowProps): JSX.Element {
   const [expanded, setExpanded] = useState(false);
+  const [reasonOpen, setReasonOpen] = useState(false);
   const ops = entry.patch.operations;
   const primary = ops[0];
   const author: Author = entry.patch.createdBy;
   const label = primary ? describeOperation(primary, names).action : 'Edit';
   const extra = ops.length - 1;
+  const reason = author === 'agent' ? entry.patch.reason : undefined;
+  const reasonIsLong = (reason?.length ?? 0) > REASON_CLAMP_CHARS;
 
   return (
     <li
@@ -256,21 +271,40 @@ function EditRow({
               </span>
               <span className="hist-time">{relativeTime(entry.committedAt, now)}</span>
               {extra > 0 && <span className="hist-count">+{extra} more</span>}
+              {current && <span className="hist-here">You are here</span>}
             </span>
           </span>
         </button>
-        {author === 'agent' && entry.patch.reason && (
-          <p className="hist-reason">{entry.patch.reason}</p>
+        {reason && (
+          <p className="hist-reason" data-clamped={reasonIsLong && !reasonOpen}>
+            {reason}
+          </p>
         )}
-        {extra > 0 && (
-          <button
-            type="button"
-            className="hist-expand"
-            aria-expanded={expanded}
-            onClick={() => setExpanded((v) => !v)}
-          >
-            {expanded ? 'Hide' : `Show all ${ops.length} operations`}
-          </button>
+        {/* Row-level disclosures live on one line so a long AI entry adds one
+            strip of chrome, not a stack of stray links down the reel. */}
+        {(reasonIsLong || extra > 0) && (
+          <div className="hist-row-actions">
+            {reasonIsLong && (
+              <button
+                type="button"
+                className="hist-expand"
+                aria-expanded={reasonOpen}
+                onClick={() => setReasonOpen((v) => !v)}
+              >
+                {reasonOpen ? 'Less' : 'More'}
+              </button>
+            )}
+            {extra > 0 && (
+              <button
+                type="button"
+                className="hist-expand"
+                aria-expanded={expanded}
+                onClick={() => setExpanded((v) => !v)}
+              >
+                {expanded ? 'Hide' : `Show all ${ops.length} operations`}
+              </button>
+            )}
+          </div>
         )}
         {expanded && (
           <ul className="hist-ops">
@@ -365,12 +399,35 @@ export function HistoryPanel({
   const canJumpEnd = cursor < entries.length;
   const now = nowRef.current;
 
+  // Counts per author, so each filter says how much it will show BEFORE it is
+  // clicked. A filter that can only be evaluated by trying it is a guess.
+  const agentCount = entries.filter((e) => e.patch.createdBy === 'agent').length;
+  const filterCounts: Record<Filter, number> = {
+    all: entries.length,
+    user: entries.length - agentCount,
+    agent: agentCount,
+  };
+  const visibleCount = filterCounts[filter];
+  const FILTER_LABELS: Record<Filter, string> = { all: 'All', user: 'You', agent: 'AI' };
+
   return (
     <>
       <div className="history-backdrop" onClick={onClose} aria-hidden="true" />
       <aside className="history-panel" role="dialog" aria-label="Project history">
         <header className="history-head">
-          <h2 className="history-title">History</h2>
+          <div className="history-titles">
+            <h2 className="history-title">History</h2>
+            {/* Where the project actually stands. The reel showed which dot was
+                current, but not that anything sat *after* it — so an undone tail
+                read as edits that were still applied. */}
+            <p className="history-position">
+              {entries.length === 0
+                ? 'Nothing recorded yet'
+                : cursor === entries.length
+                  ? `${entries.length} ${entries.length === 1 ? 'edit' : 'edits'} · at the latest`
+                  : `Step ${cursor} of ${entries.length} · ${entries.length - cursor} undone`}
+            </p>
+          </div>
           <Tooltip label="Close history" shortcut="Esc" placement="bottom">
             <button
               type="button"
@@ -437,9 +494,17 @@ export function HistoryPanel({
                 type="button"
                 className="history-chip"
                 data-active={filter === f}
+                // The visible count is decoration on top of the name; keeping the
+                // accessible name to the word alone means "AI" stays "AI" to a
+                // screen reader (and to a by-name query) as the count changes.
+                aria-label={FILTER_LABELS[f]}
+                aria-pressed={filter === f}
                 onClick={() => setFilter(f)}
               >
-                {f === 'all' ? 'All' : f === 'user' ? 'You' : 'AI'}
+                {FILTER_LABELS[f]}
+                <span className="history-chip-count" aria-hidden="true">
+                  {filterCounts[f]}
+                </span>
               </button>
             ))}
           </div>
@@ -498,6 +563,16 @@ export function HistoryPanel({
                 );
               })}
             </ol>
+          )}
+          {/* A filter that matches nothing used to render as the origin node and
+              then nothing — indistinguishable from a broken panel. */}
+          {entries.length > 0 && visibleCount === 0 && (
+            <p className="history-filter-empty">
+              No edits by {filter === 'agent' ? 'the AI' : 'you'} yet.{' '}
+              <button type="button" className="hist-expand" onClick={() => setFilter('all')}>
+                Show all
+              </button>
+            </p>
           )}
         </div>
       </aside>
