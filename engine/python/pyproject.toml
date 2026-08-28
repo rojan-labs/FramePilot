@@ -21,7 +21,7 @@ dependencies = [
   "moviepy>=2.0.0",
   "imageio-ffmpeg>=0.5.1",
   "numpy>=1.26",
-  "pillow>=10.3",
+  "pillow>=12.3",
   # Service
   "fastapi>=0.115",
   "uvicorn[standard]>=0.52.3",

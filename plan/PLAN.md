@@ -13,6 +13,47 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-28, high-severity dependency alerts):** `[x]` **The 59 open
+high-severity Dependabot alerts are down to 1, and the one that remains has no fix to take.**
+Fetched from the alerts API rather than the UI, so the fix targets resolved versions instead
+of advisory titles. Direct bumps: `electron` 32 → **39.8.10** (the alerts wanted 39.8.10 and
+32.x is long out of support), `electron-builder` 25 → **26.15**, `electron-updater` 6.3 →
+**6.8.9** (this is what moves `builder-util-runtime` to the patched 9.7.0), `vite` 5.4 →
+**6.4.3** in both `apps/web-editor` and `apps/desktop`, `next` 15.1.6 → **15.5.21**, and
+`pillow` >=10.3 → **>=12.3**. Eight transitive packages with no direct owner —
+`brace-expansion` (three majors live in the tree), `js-yaml` (two), `nanoid`, `fast-uri`,
+`ip-address`, `postcss`, `sharp`, `shell-quote` — are pinned through `pnpm.overrides`, keyed
+per major where the tree carries more than one so no package is forced across a major.
+
+Two things needed a judgment call rather than a version bump:
+
+- **Pillow could not be resolved cleanly.** `moviepy` 2.2.1 (latest) still caps
+  `pillow<12.0`, but every Pillow below 12.3 carries high-severity decoder bugs (alerts
+  #140–#157: OOB writes on the PSD and McIdas paths, FITS/JPEG2000 decompression bombs) that
+  are reachable from any still the engine opens. moviepy's cap reads as precautionary — it
+  names no incompatibility — so it is overridden via `[tool.uv] override-dependencies` in the
+  root `pyproject.toml`, with the reason in a comment there, and the choice is gated on the
+  engine suite: **2687 passed, 1 skipped, 0 failed** on Pillow 12.3.
+- **`electron-builder-squirrel-windows` had to become an explicit devDependency.** It was
+  arriving as an auto-installed optional peer pinned at 25.1.8, which held vulnerable
+  `app-builder-lib@25` and `builder-util-runtime@9.2.10` in the tree; `pnpm.overrides` does
+  not reach auto-installed peers. Declaring it at `^26.15.7` in `apps/desktop` is what clears
+  alerts #100 and #101. The repo only builds nsis and dmg, so nothing actually calls it.
+
+**`extract-zip` (#138, GHSA-jmr9-qjv8-65gv) stays open** — no patched version exists at any
+release. It arrives only under the `electron` npm package, which uses it at install time to
+unpack the checksum-verified Electron binary; it ships in nothing and never sees user media.
+Recorded as an accepted advisory in `SECURITY.md` so the next agent does not re-litigate it.
+
+Verification, desktop path first per the product focus: **the packaged desktop app boots on
+Electron 39** — renderer loads, sidecar spawns via `dev-uv`, `GET /health → 200`. Beyond
+that: engine 2687 pass, all 18 TS test tasks pass, `turbo run typecheck` 17/17, `turbo run
+lint` 17/17, `turbo run build` 10/10, Playwright e2e **83 passed** under Vite 6, and
+`pnpm license:scan` clean on the new packages. `pnpm audit --audit-level high` now reports
+the single `extract-zip` finding. Note for whoever hits it next: `pnpm lint` at full turbo
+concurrency OOMs the linter on this tree regardless of these changes; `--concurrency=1` is
+green. **Last updated:** 2026-08-28
+
 **Status snapshot (2026-08-28, run `bfb5c75b` memory spike):** `[x]` **Sourced assets were
 throwing away the proxy the engine had just built for them.** A 50+ clip nature montage
 (`run.md` at the repo root, conversation `bfb5c75b`) spiked memory until the app had to be
