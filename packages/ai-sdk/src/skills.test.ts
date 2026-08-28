@@ -204,3 +204,17 @@ describe('skillsByName + summarizeSkillsManifest', () => {
     expect(summarizeSkillsManifest([])).toBe('');
   });
 });
+
+describe('bundled skill descriptions are the discovery surface (plan/system-mission P2.5)', () => {
+  it('every bundled description fits the cap the manifest shows the model, and no two collide', () => {
+    const CAP = 300;
+    const seen = new Set<string>();
+    for (const skill of BUNDLED_SKILLS) {
+      expect(skill.description.length, `${skill.name} description length`).toBeLessThanOrEqual(CAP);
+      expect(skill.description.length, `${skill.name} description is empty`).toBeGreaterThan(40);
+      const key = skill.description.trim().toLowerCase();
+      expect(seen.has(key), `${skill.name} duplicates another skill's description`).toBe(false);
+      seen.add(key);
+    }
+  });
+});
