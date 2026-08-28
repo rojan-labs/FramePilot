@@ -812,7 +812,11 @@ describe('agent auto-repair (C3) and plan ledger (C4)', () => {
     expect(run.steps.some((s) => s.note.startsWith('Repair pass:'))).toBe(false);
   });
 
-  it('does not repair when the model declines (no tool calls in the repair turn)', async () => {
+  // GAP-016. A repair pass that RAN and produced nothing is a different fact from one
+  // that never ran — it cost a large-model call, and "why didn't it fix the duration?" is
+  // the one diagnostic question worth asking about a failed run. It used to be
+  // unanswerable: every terminating branch returned `null` and recorded nothing.
+  it('records the repair turn when the model declines (no tool calls in the repair turn)', async () => {
     const provider = new ScriptedProvider([
       { text: 'edit', toolCalls: [call('adjust_audio', { clipId: 'clip_a', gainDb: -2 })] },
       { text: 'done' }, // finish AND the repeated repair response → toolCalls undefined
@@ -821,7 +825,10 @@ describe('agent auto-repair (C3) and plan ledger (C4)', () => {
       durationTargetSeconds: 45,
       maxSteps: 2,
     });
-    expect(run.steps.some((s) => s.note.startsWith('Repair pass:'))).toBe(false);
+    const repair = run.steps.find((s) => s.note.startsWith('Repair pass:'));
+    expect(repair?.note).toContain('proposed no change');
+    // It declined, so nothing was applied — the record is honest, not a claim of work.
+    expect(repair?.applied).toBe(false);
   });
 
   it('drafts an up-front plan when planFirst is set (C4)', async () => {
@@ -862,7 +869,7 @@ describe('agent auto-repair (C3) and plan ledger (C4)', () => {
     expect(run.steps.some((s) => s.note.startsWith('Repair pass:'))).toBe(false);
   });
 
-  it('does not record a repair step when the repair turn only reads (no ops)', async () => {
+  it('records a repair turn that only read, applying nothing (GAP-016)', async () => {
     const provider = new ScriptedProvider([
       { text: 'edit', toolCalls: [call('adjust_audio', { clipId: 'clip_a', gainDb: -2 })] },
       { text: 'done', toolCalls: [] },
@@ -872,12 +879,15 @@ describe('agent auto-repair (C3) and plan ledger (C4)', () => {
       durationTargetSeconds: 45,
       maxSteps: 2,
     });
-    expect(run.steps.some((s) => s.note.startsWith('Repair pass:'))).toBe(false);
+    const repair = run.steps.find((s) => s.note.startsWith('Repair pass:'));
+    expect(repair).toBeDefined();
+    expect(repair?.applied).toBe(false);
+    expect(run.result.patch.operations.some((o) => o.type === 'adjust_audio')).toBe(true);
   });
 
   it('rejects a repair turn that exceeds the per-turn op cap', async () => {
     // maxOpsPerTurn: 0 rejects the main edit AND the repair edit; the duration target
-    // still fails (fixable), so the repair runs but its op is over the cap → no repair step.
+    // still fails (fixable), so the repair runs but its op is over the cap → refused,
     const provider = new ScriptedProvider([
       { text: 'edit', toolCalls: [call('adjust_audio', { clipId: 'clip_a', gainDb: -2 })] },
       { text: 'repair', toolCalls: [call('adjust_audio', { clipId: 'clip_a', gainDb: -6 })] },
@@ -887,7 +897,11 @@ describe('agent auto-repair (C3) and plan ledger (C4)', () => {
       maxOpsPerTurn: 0,
       maxSteps: 2,
     });
-    expect(run.steps.some((s) => s.note.startsWith('Repair pass:'))).toBe(false);
+    const repair = run.steps.find((s) => s.note.startsWith('Repair pass:'));
+    // GAP-016: the over-cap refusal is now stated, with the numbers behind it, instead of
+    // vanishing. Nothing is applied either way.
+    expect(repair?.note).toContain('exceeds the per-turn cap');
+    expect(repair?.applied).toBe(false);
     expect(run.result.patch.operations).toHaveLength(0);
   });
 

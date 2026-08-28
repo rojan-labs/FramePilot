@@ -94,6 +94,7 @@ import {
   DIMINISHING_RETURNS_TURNS,
   PLAN_STEP_HEADROOM,
   STALL_CONFIRM_TURNS,
+  type RepairOutcome,
   type TurnCallFact,
   turnLearnedSomethingNew,
 } from './kernel/conductor.js';
@@ -3952,10 +3953,22 @@ export class Orchestrator {
      * re-deriving the context it is fixing against.
      */
     taskMemory?: RunWorkingState;
-  }): Promise<{ step: AgentStep; working: Project; ops: AnyOperation[] } | null> {
+  }): Promise<{
+    step: AgentStep;
+    working: Project;
+    ops: AnyOperation[];
+    /**
+     * What this pass did — carried even when `ops` is empty, so a repair that RAN and
+     * produced nothing can be told apart from one that never ran. See
+     * `VerifyResult.repairOutcome`; the four arms name four different next steps.
+     */
+    outcome: RepairOutcome;
+  } | null> {
     const fixable = args.report.checks.filter(
       (c) => c.status === 'fail' && FIXABLE_CHECKS.has(c.id),
     );
+    // The only branch that returns before a model call is made: nothing failed that this
+    // pass knows how to fix, so there is no spend and nothing to report.
     if (fixable.length === 0) return null;
 
     const instruction = repairPassInstruction(fixable.map((c) => `${c.label}: ${c.detail}`));
@@ -3983,7 +3996,20 @@ export class Orchestrator {
     // nothing still shows up as spend of unknown size rather than as no spend.
     args.onUsage?.(response.usage);
     const calls = response.toolCalls ?? [];
-    if (calls.length === 0) return null;
+    if (calls.length === 0) {
+      return {
+        step: {
+          index: args.stepIndex,
+          rationale: response.text || 'Repair pass',
+          toolCalls: [],
+          applied: false,
+          note: 'Repair pass: proposed no change.',
+        },
+        working: args.working,
+        ops: [],
+        outcome: { kind: 'no_calls' },
+      };
+    }
 
     // Thread the repair turn's speculative working copy call-to-call (see executeToolCalls).
     let ctx = this.toolContext({ ...args.input, project: args.working });
@@ -4011,7 +4037,6 @@ export class Orchestrator {
       // non-applied attempt (with the validator's reasons) instead of dropping it;
       // a repair turn that proposed nothing at all stays a silent no-op.
       const rejections = notes.filter((n) => n.startsWith('Rejected'));
-      if (rejections.length === 0) return null;
       return {
         step: {
           index: args.stepIndex,
@@ -4022,10 +4047,27 @@ export class Orchestrator {
         },
         working: args.working,
         ops: [],
+        outcome:
+          rejections.length > 0
+            ? { kind: 'all_rejected', reasons: rejections }
+            : { kind: 'no_calls' },
       };
     }
     // Respect the per-turn blast-radius bound even during repair.
-    if (turnOps.length > args.maxOpsPerTurn) return null;
+    if (turnOps.length > args.maxOpsPerTurn) {
+      return {
+        step: {
+          index: args.stepIndex,
+          rationale: response.text || 'Repair pass',
+          toolCalls: calls.map((c) => c.name),
+          applied: false,
+          note: `Repair pass: ${String(turnOps.length)} operations exceeds the per-turn cap of ${String(args.maxOpsPerTurn)}.`,
+        },
+        working: args.working,
+        ops: [],
+        outcome: { kind: 'over_cap', opCount: turnOps.length, cap: args.maxOpsPerTurn },
+      };
+    }
 
     const step = this.applyAgentTurn({
       index: args.stepIndex,
@@ -4040,8 +4082,20 @@ export class Orchestrator {
     });
     const record: AgentStep = { ...step.record, note: `Repair pass: ${step.record.note}` };
     return step.applied
-      ? { step: record, working: step.working, ops: turnOps }
-      : { step: record, working: args.working, ops: [] };
+      ? {
+          step: record,
+          working: step.working,
+          ops: turnOps,
+          outcome: { kind: 'applied', opCount: turnOps.length, note: step.record.note },
+        }
+      : {
+          step: record,
+          working: args.working,
+          ops: [],
+          // The turn-level assemble rejected what the per-call checks let through, so the
+          // notes carry the validator's reasons.
+          outcome: { kind: 'all_rejected', reasons: [step.record.note] },
+        };
   }
 
   /**
@@ -6973,6 +7027,7 @@ export class Orchestrator {
           self.critiqueOptions(input, agentOptions, state.cumulativeOps.length > 0, evidence),
         );
         const repairOps: AnyOperation[] = [];
+        let repairOutcome: RepairOutcome | undefined;
         if ((agentOptions.autoRepair ?? true) && !report.ok) {
           const repair = await self.attemptRepair({
             input,
@@ -7000,6 +7055,9 @@ export class Orchestrator {
               usageUsd += cost.usd;
             },
           });
+          // Carried whether or not anything landed: a repair that RAN and produced nothing
+          // is a different fact from one that never ran, and it cost a large-model call.
+          repairOutcome = repair?.outcome;
           if (repair && repair.ops.length > 0) {
             // Assemble the repair patch against the PRE-repair working project — that is
             // the timeline state its ops were validated against inside attemptRepair.
@@ -7019,19 +7077,23 @@ export class Orchestrator {
               turnIndex: state.planSteps.length + 1,
               runId: analysisRunId,
             });
-            yield emit.notification(`Repair pass: ${repair.step.note}`);
             report = critique(working, self.critiqueOptions(input, agentOptions, true, evidence));
           }
         }
-        const failedChecks = report.checks
-          .filter((c) => c.status === 'fail')
-          .map((c) => ({ label: c.label, detail: c.detail }));
+        const named = (status: 'fail' | 'warn'): { label: string; detail: string }[] =>
+          report.checks
+            .filter((c) => c.status === status)
+            .map((c) => ({ label: c.label, detail: c.detail }));
         return {
           kind: 'verify',
           ok: report.ok,
           summary: report.summary,
-          failedChecks,
+          failedChecks: named('fail'),
+          // Advisory checks reached the editor as a COUNT and nothing else. See
+          // `VerifyResult.warnedChecks`.
+          warnedChecks: named('warn'),
           repairOps,
+          ...(repairOutcome ? { repairOutcome } : {}),
           endSeq: emit.seq(),
         };
       },

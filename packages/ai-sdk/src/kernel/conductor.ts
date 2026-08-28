@@ -718,10 +718,43 @@ export interface VerifyResult {
   readonly ok: boolean;
   readonly summary: string;
   readonly failedChecks: readonly { readonly label: string; readonly detail: string }[];
+  /**
+   * Checks that came back `warn` — advisory by contract, and until now invisible.
+   *
+   * The Critic's advisory checks are deliberately non-blocking ("a false alarm here cannot
+   * block a run that did the work"), and the price of that was that their advice never
+   * arrived: only `failedChecks` was carried, so a `warn` reached the editor as the number
+   * in "3 check(s) failed, 1 warning(s)" and nothing else. In run `fc10301a` the withheld
+   * sentence was `checkReframeCoverage`'s — "any landscape source will render with black
+   * bars" — over a montage of landscape stills in a 1080x1920 frame, which is the single
+   * most actionable thing anyone could have said about that output.
+   *
+   * Carried separately from `failedChecks` so the severity distinction survives to the
+   * event stream: a failure is a warning event, an advisory is a notification.
+   */
+  readonly warnedChecks: readonly { readonly label: string; readonly detail: string }[];
   /** Ops the bounded repair pass applied (folded into the run's combined diff). */
   readonly repairOps: readonly AnyOperation[];
+  /**
+   * What the bounded repair pass did, when the self-check gave it something to fix.
+   *
+   * `undefined` means it was never invoked (nothing failed, or nothing that failed is
+   * repairable). Any other value means a model call was made and this is what came of it —
+   * which is the distinction the run could not previously express. A repair that ran and
+   * produced nothing looked exactly like a repair that never ran, so the one diagnostic
+   * question worth asking about a failed run ("why didn't it fix the duration?") had no
+   * answer in the transcript, and a large-model call went unaccounted for.
+   */
+  readonly repairOutcome?: RepairOutcome;
   readonly endSeq: number;
 }
+
+/** Why the bounded repair pass produced no operations, or that it produced some. */
+export type RepairOutcome =
+  | { readonly kind: 'applied'; readonly opCount: number; readonly note: string }
+  | { readonly kind: 'no_calls' }
+  | { readonly kind: 'all_rejected'; readonly reasons: readonly string[] }
+  | { readonly kind: 'over_cap'; readonly opCount: number; readonly cap: number };
 
 /** What the runtime folds back into the Conductor. */
 export type ConductorResult =
@@ -1833,6 +1866,26 @@ function mergeSeenKeys(seen: readonly string[], facts: readonly TurnCallFact[]):
   return [...new Set([...seen, ...facts.filter(callAnswered).map((f) => f.key)])];
 }
 
+/**
+ * One sentence for what the bounded repair pass did, in the editor's terms.
+ *
+ * Each arm names a different thing to do next, which is the point of distinguishing them:
+ * a repair with no calls is the model declining, a rejected repair is the validator
+ * disagreeing, and an over-cap repair is a fix too large for one turn.
+ */
+function describeRepairOutcome(outcome: RepairOutcome): string {
+  switch (outcome.kind) {
+    case 'applied':
+      return `Repair pass: ${outcome.note}`;
+    case 'no_calls':
+      return 'The repair pass looked at the failed checks and proposed no change.';
+    case 'all_rejected':
+      return `The repair pass proposed a fix and the validator rejected all of it: ${outcome.reasons.join('; ')}`;
+    case 'over_cap':
+      return `The repair pass proposed ${String(outcome.opCount)} operations, over this turn's cap of ${String(outcome.cap)}, so none were applied.`;
+  }
+}
+
 /** Fold the verify self-check (+ repair): surface its findings, fold repair ops, finalize. */
 export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitter): ConductorStep {
   // A Critic verdict is meaningful only when there is an edited result to inspect.
@@ -1846,6 +1899,15 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
     for (const check of r.failedChecks) {
       events.push(em.warning(`${check.label}: ${check.detail}`));
     }
+    // Advisory, so a notification rather than a warning — but SAID, which it was not.
+    // See `VerifyResult.warnedChecks`.
+    for (const check of r.warnedChecks) {
+      events.push(em.notification(`${check.label}: ${check.detail}`));
+    }
+    // A repair pass that ran and produced nothing used to be indistinguishable from one
+    // that never ran — including to the cost meter, which saw the model call but nothing
+    // to attribute it to. Say which of the four happened.
+    if (r.repairOutcome) events.push(em.notification(describeRepairOutcome(r.repairOutcome)));
   }
   let working = state.working;
   if (r.repairOps.length > 0) {

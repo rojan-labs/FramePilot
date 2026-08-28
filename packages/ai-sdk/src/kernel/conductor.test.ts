@@ -103,6 +103,7 @@ const verify = (over: Partial<VerifyResult> = {}): VerifyResult => ({
   ok: true,
   summary: 'looks good',
   failedChecks: [],
+  warnedChecks: [],
   repairOps: [],
   endSeq: 1,
   ...over,
@@ -1298,6 +1299,63 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
     expect(types(events)).toEqual(['notification', 'warning']);
     expect(events[0]).toMatchObject({ text: 'Deterministic self-check: one issue' });
     expect(effects[0]).toMatchObject({ kind: 'finalize', ops: s.cumulativeOps, cancelled: false });
+  });
+
+  // GAP-010 (run `fc10301a`). Advisory checks are non-blocking on purpose, and the price
+  // of that was that their advice never arrived: only failures were carried, so a `warn`
+  // reached the editor as the number in "3 check(s) failed, 1 warning(s)". The withheld
+  // sentence in that run was "any landscape source will render with black bars", over a
+  // montage of landscape stills in a portrait frame.
+  it('says what an advisory check found, not just how many there were', () => {
+    const s = started({ phase: 'verifying', cumulativeOps: ops(2), appliedTurns: 1 });
+    const { events } = onEffectResult(
+      s,
+      verify({
+        ok: false,
+        summary: '1 check(s) failed, 1 warning(s)',
+        failedChecks: [{ label: 'Duration', detail: 'too long' }],
+        warnedChecks: [
+          { label: 'Reframing is consistent', detail: 'any landscape source will render…' },
+        ],
+      }),
+    );
+    // The failure is a warning event; the advisory is a notification — the severity
+    // distinction survives to the stream rather than being flattened.
+    expect(types(events)).toEqual(['notification', 'warning', 'notification']);
+    expect(events[2]).toMatchObject({
+      text: 'Reframing is consistent: any landscape source will render…',
+    });
+  });
+
+  // GAP-016. Four different things could have happened; they all looked identical.
+  it('says what the repair pass did, including when it did nothing', () => {
+    const s = started({ phase: 'verifying', cumulativeOps: ops(2), appliedTurns: 1 });
+    const { events } = onEffectResult(
+      s,
+      verify({ ok: false, summary: 'one issue', repairOutcome: { kind: 'no_calls' } }),
+    );
+    expect(
+      events.some(
+        (e) => e.type === 'notification' && e.text.includes('proposed no change'),
+      ),
+    ).toBe(true);
+  });
+
+  it('names the validator when the repair pass was rejected', () => {
+    const s = started({ phase: 'verifying', cumulativeOps: ops(2), appliedTurns: 1 });
+    const { events } = onEffectResult(
+      s,
+      verify({
+        ok: false,
+        summary: 'one issue',
+        repairOutcome: { kind: 'all_rejected', reasons: ['Rejected: overlaps neighbour'] },
+      }),
+    );
+    expect(
+      events.some(
+        (e) => e.type === 'notification' && e.text.includes('overlaps neighbour'),
+      ),
+    ).toBe(true);
   });
 
   it('blocks successful completion when deterministic verification still fails', () => {
