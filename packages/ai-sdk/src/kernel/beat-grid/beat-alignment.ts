@@ -74,15 +74,35 @@
  *   case it is rejected, which is what a correction turn then needs.
  * - A proposal that declares **no picture boundary at all** — crops, transforms, keyframes,
  *   transitions, text, gain — is outside the rule and passes untouched, whatever the state of
- *   the grid. Relevance is decided before groundedness, or the ungrounded rejection below
+ *   the grid. Relevance is decided before groundedness, or the ungrounded report below
  *   becomes a turn-level veto over work the grid has no opinion about.
- * - When the graph analyzed beats but neither the project nor the proposal places the
- *   analyzed asset, a proposal that DOES cut picture is rejected as ungrounded — the
- *   old silent pass is gone. Nothing here ever fabricates an onset.
+ * - When the run analyzed beats but none of what it analyzed is on the timeline or in the
+ *   proposal, the grid is **ungrounded**: it is reported, and rejected only under `hardSync`.
+ *   Nothing here ever fabricates an onset, and the old silent pass is still gone.
+ *
+ * ## Why ungrounded is a measurement and not a veto
+ *
+ * The `hardSync` split above is the module's governing rule: quantising every interior cut is
+ * one legitimate style among several, so a cut the runtime cannot place on an onset is
+ * MEASURED unless the run promised otherwise. The ungrounded branch used to be the one place
+ * that rule was not applied — it rejected whatever the run had declared.
+ *
+ * That asymmetry is what deadlocked run `ea8e46ec`. Three tracks were auditioned in one turn,
+ * the run's single-slot beat evidence kept an arbitrary one of them (see `beat-evidence.ts`),
+ * the editor placed a different one, and every montage proposal after that was refused for
+ * not placing an asset nobody had chosen. The run had never declared `hardSync`; it was held
+ * to a promise it never made, and the tool that could have changed the runtime's mind
+ * (`detect_beats`) is an `analysis` tool the execution stages withhold. Six proposals, one
+ * verbatim rejection, 35 minutes, no picture on the timeline.
+ *
+ * A rejection whose only remedy the run is forbidden to reach is not a guarantee, it is a
+ * dead end. So: report by default; reject when — and only when — the run declared hard sync,
+ * where the remedy (place the analyzed bed) is a mutation every execution stage offers.
  */
 import { createLogger } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
 import type { AnyOperation } from '@framepilot/editor-core';
+import type { ResolvedBeatGrid } from './beat-evidence.js';
 
 const log = createLogger('ai-sdk:kernel:beat-alignment');
 
@@ -114,6 +134,13 @@ export type BeatAlignmentResult =
        * it to the editor) as a measurement; absent when everything is on-grid.
        */
       readonly offGrid?: string;
+      /**
+       * The run analysed music, but none of it is placed — so these cuts were checked
+       * against nothing. Reported rather than vetoed (see the module doc); absent when the
+       * grid was resolvable. Never set together with {@link offGrid}: an unchecked cut has
+       * no measured distance to report.
+       */
+      readonly ungrounded?: string;
     }
   | { readonly ok: false; readonly error: string };
 
@@ -124,84 +151,23 @@ interface Boundary {
   readonly field: 'start' | 'end' | 'at';
 }
 
-/** Read `{ assetId }` off a raw `detect_beats` payload. */
-function readAnalyzedAssetId(payload: unknown): string | undefined {
-  const record = (payload ?? {}) as Record<string, unknown>;
-  return typeof record.assetId === 'string' && record.assetId.length > 0
-    ? record.assetId
-    : undefined;
-}
-
-/** Read the onset times off a raw `detect_beats` payload (`beats: [{ time }]`). */
-function readOnsetTimes(payload: unknown): readonly number[] {
-  const record = (payload ?? {}) as Record<string, unknown>;
-  const rows = Array.isArray(record.beats) ? record.beats : [];
-  const times: number[] = [];
-  for (const row of rows) {
-    const time = (row as Record<string, unknown> | null)?.time;
-    if (typeof time === 'number' && Number.isFinite(time) && time >= 0) times.push(time);
-  }
-  return times;
-}
-
 /**
- * Translate the analyzed asset's onsets into timeline time using a placement the PROPOSAL
- * itself declares — the case the old rule could not see. An `add_clip` plays its source at
- * 1x (the registry derives `sourceEnd` from the timeline span), so an onset inside the
- * trimmed source window maps to `start + (onset - sourceStart)`.
- */
-function gridFromProposedPlacement(
-  operations: readonly AnyOperation[],
-  assetId: string,
-  onsets: readonly number[],
-): readonly number[] {
-  const times: number[] = [];
-  for (const operation of operations) {
-    if (operation.type !== 'add_clip' || operation.assetId !== assetId) continue;
-    for (const onset of onsets) {
-      if (onset < operation.sourceStart || onset >= operation.sourceEnd) continue;
-      times.push(operation.start + (onset - operation.sourceStart));
-    }
-  }
-  return sortedUnique(times);
-}
-
-/** Sort ascending and drop exact duplicates, so "nearest onset" is well defined. */
-function sortedUnique(times: readonly number[]): readonly number[] {
-  const sorted = [...times].sort((a, b) => a - b);
-  return sorted.filter((time, index) => index === 0 || time !== sorted[index - 1]);
-}
-
-/**
- * Resolve the grid this proposal must align to.
+ * The sentence that explains an ungrounded grid, as a rejection or as a measurement.
  *
- * `projectGrid` is the timeline-time grid the Semantic Index already derived from clips of
- * the analyzed asset that are on the timeline. When it is empty, the analyzed asset is not
- * placed yet — so the grid is recovered from a placement inside the proposal, and when
- * there is none either, the caller gets an honest rejection instead of a silent pass.
+ * One text for both so the two can never drift into telling the model different stories
+ * about the same state; only the surrounding verb changes.
  */
-function resolveGrid(
-  projectGrid: readonly number[] | undefined,
-  rawBeats: unknown,
-  operations: readonly AnyOperation[],
-): { readonly grid: readonly number[] } | { readonly error: string } {
-  if (projectGrid && projectGrid.length > 0) return { grid: sortedUnique(projectGrid) };
-  const onsets = readOnsetTimes(rawBeats);
-  const assetId = readAnalyzedAssetId(rawBeats);
-  if (onsets.length === 0 || !assetId) {
-    // Beat detection ran but returned nothing usable (silent footage, a failed analysis).
-    // There is no grid to hold anyone to, and inventing one would be a fabricated edit.
-    return { grid: [] };
-  }
-  const fromProposal = gridFromProposedPlacement(operations, assetId, onsets);
-  if (fromProposal.length > 0) return { grid: fromProposal };
-  return {
-    error:
-      `this step cuts to detected beats, but the analyzed audio asset "${assetId}" is not on ` +
-      'the timeline and this proposal does not place it, so no boundary can be checked ' +
-      'against a real onset. Place the music on an audio track in this same proposal (or in ' +
-      'an earlier step) and cut the picture to its onsets.',
-  };
+function ungroundedReason(analyzedAssetIds: readonly string[]): string {
+  const named = analyzedAssetIds.map((id) => `"${id}"`).join(', ');
+  const subject = analyzedAssetIds.length === 1 ? 'audio asset' : 'audio assets';
+  return (
+    `this step cuts to detected beats, but the analyzed ${subject} ${named} ` +
+    `${analyzedAssetIds.length === 1 ? 'is' : 'are'} not on the timeline and this proposal ` +
+    'does not place ' +
+    `${analyzedAssetIds.length === 1 ? 'it' : 'any of them'}, so no boundary can be checked ` +
+    'against a real onset. Put the music you are cutting to on an audio track, or run ' +
+    'detect_beats on the music that IS on the timeline.'
+  );
 }
 
 /** Index every track id → type, and every existing clip id → its track type. */
@@ -284,16 +250,16 @@ function withSnappedTime(operation: AnyOperation, field: Boundary['field'], time
  * @param project - The project the proposal is being validated against (supplies `fps`,
  *   track types, and existing clip ids).
  * @param operations - The proposed operations, already registry-validated.
- * @param projectGrid - The timeline-time onset grid the Semantic Index derived, if any.
- * @param rawBeats - The raw `detect_beats` payload, used to recover the grid when the music
- *   bed is placed by this same proposal.
+ * @param resolved - Which grid this proposal sits against, from
+ *   {@link import('./beat-evidence.js').resolveBeatGrid}. Resolution is deliberately not
+ *   done here: "which music" is a fact about the project and the proposal, and merging it
+ *   into "do these cuts land" is what let one arbitrary payload veto a whole run.
  * @returns The proposal with interior near-misses snapped, or an actionable rejection.
  */
 export function alignBeatBackedBoundaries(
   project: Project,
   operations: readonly AnyOperation[],
-  projectGrid: readonly number[] | undefined,
-  rawBeats: unknown,
+  resolved: ResolvedBeatGrid,
   /**
    * Did the run DECLARE that it is cutting hard to the grid (`detect_beats({ hardSync: true })`)?
    *
@@ -319,9 +285,34 @@ export function alignBeatBackedBoundaries(
   const boundaries = structuralBoundaries(project, operations);
   if (boundaries.length === 0) return { ok: true, operations, snapped: 0 };
 
-  const resolved = resolveGrid(projectGrid, rawBeats, operations);
-  if ('error' in resolved) return { ok: false, error: resolved.error };
-  const grid = resolved.grid;
+  if (resolved.kind === 'none') return { ok: true, operations, snapped: 0 };
+  if (resolved.kind === 'ungrounded') {
+    const reason = ungroundedReason(resolved.analyzedAssetIds);
+    if (hardSync) {
+      log.warn('alignBeatBackedBoundaries → rejected an ungrounded proposal (hard sync)', {
+        analyzed: resolved.analyzedAssetIds.length,
+      });
+      return {
+        ok: false,
+        error: `you declared hard sync, so ${reason}`,
+      };
+    }
+    // No declaration: the cuts stand, and the state goes to the model as a measurement. A
+    // rejection here would be a veto whose only remedy is `detect_beats`, which every
+    // execution stage withholds — see the module doc.
+    log.action('alignBeatBackedBoundaries → ungrounded grid reported, cuts left as proposed', {
+      analyzed: resolved.analyzedAssetIds.length,
+    });
+    return {
+      ok: true,
+      operations,
+      snapped: 0,
+      ungrounded: `These cuts were not checked against any onset: ${reason}`,
+    };
+  }
+  const grid = resolved.times;
+  /* v8 ignore next -- `resolveBeatGrid` never returns a `grid` with no times (both branches
+     that build one require a non-empty array); kept so the arithmetic below is total. */
   if (grid.length === 0) return { ok: true, operations, snapped: 0 };
 
   const onGridTolerance = 0.5 / project.fps;

@@ -109,7 +109,13 @@ import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/
 import { buildStateBriefing, distil } from './kernel/briefing.js';
 import { createNarrationFilter } from './kernel/narration.js';
 import { alignBeatBackedBoundaries } from './kernel/beat-grid/beat-alignment.js';
-import { beatGridFor } from './kernel/semantic-index/semantic-index.js';
+import {
+  type BeatEvidence,
+  createBeatEvidence,
+  hasBeatEvidence,
+  recordBeatAnalysis,
+  resolveBeatGrid,
+} from './kernel/beat-grid/beat-evidence.js';
 import { describeUnrecovered, ensureContextInvariants } from './kernel/context/invariants.js';
 import { EvidenceStore, evidenceScopeFor } from './kernel/evidence-store.js';
 import { hostRefusalFor, type HostPatchRefusal } from './kernel/commit-ledger.js';
@@ -964,14 +970,12 @@ function* trimNotices(
  * actually land on it, because that is frame arithmetic against 300 onsets and no model
  * should be doing it in its head (ADR 0076's two-timebases rule, same reasoning).
  *
- * ## Why the project grid is resolved here
+ * ## Which grid, before whether the cuts land on it
  *
- * `alignBeatBackedBoundaries` can recover a grid from a proposal that places the music
- * itself, but not from music placed on an EARLIER turn — it would report the asset as
- * absent and reject a perfectly good cut. {@link beatGridFor} translates the analyzed
- * asset's onsets through the clips already on the timeline, which is the normal case once a
- * montage is under way, and the module falls back to the proposal when that comes back
- * empty.
+ * Resolution is `beat-evidence.ts`'s job and is a fact about the project and the proposal,
+ * not about which analysis the run happened to finish last. It considers EVERY track the
+ * run analyzed — a music-video brief that says "evaluate multiple tracks and select the
+ * strongest" produces several — and picks the one the picture actually sits against.
  *
  * Returns the operations unchanged when there is no beat evidence, so a run that never
  * looked at the music pays one map lookup.
@@ -979,18 +983,20 @@ function* trimNotices(
 function alignTurnToBeatGrid(
   working: Project,
   turnOps: AnyOperation[],
-  rawBeats: unknown,
-  hardSync = false,
-): { ok: true; operations: AnyOperation[]; offGrid?: string } | { ok: false; error: string } {
-  if (rawBeats === undefined) return { ok: true, operations: turnOps };
+  evidence: BeatEvidence | undefined,
+):
+  | { ok: true; operations: AnyOperation[]; offGrid?: string; ungrounded?: string }
+  | { ok: false; error: string } {
+  if (!hasBeatEvidence(evidence) || !evidence) return { ok: true, operations: turnOps };
 
-  const projectGrid = beatGridFor(working, rawBeats)?.times;
-  const aligned = alignBeatBackedBoundaries(working, turnOps, projectGrid, rawBeats, hardSync);
+  const resolved = resolveBeatGrid(working, evidence, turnOps);
+  const aligned = alignBeatBackedBoundaries(working, turnOps, resolved, evidence.hardSync);
   if (!aligned.ok) return aligned;
   return {
     ok: true,
     operations: [...aligned.operations],
     ...(aligned.offGrid ? { offGrid: aligned.offGrid } : {}),
+    ...(aligned.ungrounded ? { ungrounded: aligned.ungrounded } : {}),
   };
 }
 
@@ -1329,15 +1335,19 @@ interface HostCallContext {
    */
   readonly evidence?: EvidenceStore;
   /**
-   * The run's most recent raw `detect_beats` payload, for the beat-grid boundary rule
-   * (`kernel/beat-grid/beat-alignment.ts`).
+   * Every `detect_beats` payload this run gathered, keyed by the asset it describes, for
+   * the beat-grid boundary rule (`kernel/beat-grid/`).
    *
-   * A per-run mutable box rather than a field on the Orchestrator, which serves concurrent
-   * runs — exactly the threading ADR 0126 named as the missing piece. Analysis results are
-   * NOT kept in the evidence store (only reads and `measure_color` are), so this is the one
-   * place the payload survives the turn that fetched it.
+   * A per-run mutable ledger rather than a field on the Orchestrator, which serves
+   * concurrent runs — the threading ADR 0126 named as the missing piece. Analysis results
+   * are NOT kept in the evidence store (only reads and `measure_color` are), so this is the
+   * one place the payloads survive the turn that fetched them.
+   *
+   * Keyed, not a single slot: `detect_beats` is `pure_read` and therefore runs in parallel,
+   * so a turn that auditions three tracks has three concurrent writers. Distinct keys
+   * commute; one field did not (see `beat-evidence.ts`).
    */
-  readonly beatEvidence?: { current?: unknown; hardSync?: boolean };
+  readonly beatEvidence?: BeatEvidence;
   /**
    * The run's analysis budget (plan B5.4). Threaded into the host executor so a
    * capped call (frames extracted, ffmpeg seconds, transcription minutes) that
@@ -3503,16 +3513,18 @@ export class Orchestrator {
       /* v8 ignore stop */
       const outcome: HostToolOutcome = result.outcome;
       const runtimeCached = result.cached;
-      // Keep the beat grid for the rest of the run. A later re-analysis at a different
-      // sensitivity replaces it: the grid the model is cutting to is the one it last saw.
+      // Keep every beat analysis for the rest of the run, filed under the asset it
+      // describes. A later re-analysis of the SAME asset at a different sensitivity
+      // replaces that entry: the grid the model is cutting to is the one it last saw for
+      // that track. An analysis of a DIFFERENT track is a separate fact and is kept
+      // alongside — auditioning candidate tracks is what a music brief asks for, and the
+      // old single slot could remember exactly one of them.
       if (call.name === 'detect_beats' && outcome.status === 'completed' && host.beatEvidence) {
-        host.beatEvidence.current = outcome.data;
-        // The run's own editorial declaration, not an analysis parameter: whether it intends
-        // every interior cut to sit exactly on an onset. Sticky for the run once set, because
-        // a later re-analysis at a different sensitivity does not change the intent.
-        if ((call.arguments as { hardSync?: unknown }).hardSync === true) {
-          host.beatEvidence.hardSync = true;
-        }
+        recordBeatAnalysis(
+          host.beatEvidence,
+          outcome.data,
+          (call.arguments as { hardSync?: unknown }).hardSync === true,
+        );
       }
       // EVERY host-tool payload is stored, not just `measure_color`'s.
       //
@@ -4044,10 +4056,8 @@ export class Orchestrator {
     critiqueOptions: CritiqueOptions;
     stepIndex: number;
     appliedPatchIds: Set<string>;
-    /** This run's beat payload, so a repair is held to the grid like any other turn. */
-    rawBeats?: unknown;
-    /** The run's hard-sync declaration, so a repair inherits the same policy. */
-    beatHardSync?: boolean;
+    /** This run's beat ledger, so a repair is held to the grid like any other turn. */
+    beatEvidence?: BeatEvidence;
     maxOpsPerTurn: number;
     /** The run's abort signal, so Stop cancels the repair `complete()` call too. */
     signal?: AbortSignal;
@@ -4244,8 +4254,7 @@ export class Orchestrator {
       turnOps,
       working: args.working,
       appliedPatchIds: args.appliedPatchIds,
-      rawBeats: args.rawBeats,
-      beatHardSync: args.beatHardSync === true,
+      ...(args.beatEvidence ? { beatEvidence: args.beatEvidence } : {}),
     });
     const record: AgentStep = { ...step.record, note: `Repair pass: ${step.record.note}` };
     return step.applied
@@ -4312,7 +4321,7 @@ export class Orchestrator {
     // unchanged working copy is served from here, marked non-novel, so it never looks
     // like progress — and, unlike the memo it replaces, it serves the DATA back.
     const evidence = new EvidenceStore();
-    const beatEvidence: { current?: unknown; hardSync?: boolean } = {};
+    const beatEvidence = createBeatEvidence();
     // ADR 0057: per-run skill ledger — see the streaming loop's identical comment.
     const loadedSkills = new Map<string, string>();
     // Per-run analysis budget (B5.4): caps frames/ffmpeg-seconds/transcription across
@@ -4437,8 +4446,7 @@ export class Orchestrator {
         turnOps,
         working,
         appliedPatchIds,
-        rawBeats: beatEvidence.current,
-        beatHardSync: beatEvidence.hardSync === true,
+        beatEvidence,
       });
       steps.push(step.record);
       log.push(`Step ${index}: ${rationale ? `${rationale} — ` : ''}${step.record.note}`);
@@ -4516,7 +4524,7 @@ export class Orchestrator {
         critiqueOptions: this.critiqueOptions(input, options, cumulativeOps.length > 0, evidence),
         stepIndex: steps.length + 1,
         appliedPatchIds,
-        rawBeats: beatEvidence.current,
+        beatEvidence,
         maxOpsPerTurn,
         effectRuntime,
         loadedSkills,
@@ -4568,17 +4576,12 @@ export class Orchestrator {
     working: Project;
     appliedPatchIds: Set<string>;
     /**
-     * This run's raw `detect_beats` payload, when it gathered one. Passed per call rather
-     * than held on the Orchestrator, which serves concurrent runs (ADR 0126's note on this
-     * exact wiring point).
+     * This run's beat ledger, when it gathered any: every `detect_beats` payload keyed by
+     * the asset it describes, plus the run's own hard-sync declaration. Passed per call
+     * rather than held on the Orchestrator, which serves concurrent runs (ADR 0126's note
+     * on this exact wiring point).
      */
-    rawBeats?: unknown;
-    /**
-     * Whether the run DECLARED hard sync (`detect_beats({ hardSync: true })`). Without it an
-     * off-grid interior cut is reported to the model, not rejected — see
-     * `kernel/beat-grid/beat-alignment.ts`.
-     */
-    beatHardSync?: boolean;
+    beatEvidence?: BeatEvidence;
   }): {
     record: AgentStep;
     applied: boolean;
@@ -4595,8 +4598,9 @@ export class Orchestrator {
      */
     rejection?: string;
     /**
-     * Interior cuts left deliberately off the beat grid, as a measurement to report. Only
-     * set when the run did NOT declare hard sync — see `kernel/beat-grid/beat-alignment.ts`.
+     * Interior cuts left deliberately off the beat grid, or cuts checked against nothing
+     * because none of the analyzed music is placed — a measurement to report. Only set when
+     * the run did NOT declare hard sync; see `kernel/beat-grid/beat-alignment.ts`.
      */
     offGrid?: string;
     working: Project;
@@ -4631,12 +4635,7 @@ export class Orchestrator {
     // A cut too far to snap is REPORTED unless the run declared hard sync: quantising every
     // cut is a style, not a correctness property, and holding a run to it uninvited rewrote
     // the rhythm a captured brief had asked for in so many words.
-    const beatAligned = alignTurnToBeatGrid(
-      working,
-      args.turnOps,
-      args.rawBeats,
-      args.beatHardSync === true,
-    );
+    const beatAligned = alignTurnToBeatGrid(working, args.turnOps, args.beatEvidence);
     if (!beatAligned.ok) {
       return {
         record: {
@@ -4653,7 +4652,10 @@ export class Orchestrator {
     }
     const turnOps = beatAligned.operations;
     // The measurement rides with the turn's note, which is what the model reads next turn.
-    const beatNote = beatAligned.offGrid ? `${baseNote}; ${beatAligned.offGrid}` : baseNote;
+    // `ungrounded` and `offGrid` are mutually exclusive by construction — a cut checked
+    // against nothing has no measured distance — so one field carries whichever applies.
+    const beatMeasurement = beatAligned.offGrid ?? beatAligned.ungrounded;
+    const beatNote = beatMeasurement ? `${baseNote}; ${beatMeasurement}` : baseNote;
 
     const edit = assembleEdit(working, turnOps, rationale || 'Agent step', 'agent');
     /* v8 ignore start -- defense in depth: every op in `turnOps` already passed its own
@@ -4713,7 +4715,7 @@ export class Orchestrator {
     return {
       record: { index, rationale, toolCalls, patch: edit.patch, applied: true, note: beatNote },
       applied: true,
-      ...(beatAligned.offGrid ? { offGrid: beatAligned.offGrid } : {}),
+      ...(beatMeasurement ? { offGrid: beatMeasurement } : {}),
       working: nextWorking,
       edit,
     };
@@ -5022,11 +5024,11 @@ export class Orchestrator {
     /** Enforce an exceptional route-scoped descriptor set at execution time. */
     allowedToolNames?: ReadonlySet<string>,
     /**
-     * The run's beat-payload box (see `HostCallContext.beatEvidence`). Absent on routes
+     * The run's beat ledger (see `HostCallContext.beatEvidence`). Absent on routes
      * that never edit — the question route can call `detect_beats` to answer a question,
      * but has no turn to hold to a grid.
      */
-    beatEvidence?: { current?: unknown; hardSync?: boolean },
+    beatEvidence?: BeatEvidence,
     /** Durable note sink for what the editor tells the run (see `rememberDecision`). */
     rememberDecision?: (note: { readonly title: string; readonly body: string }) => void,
     /**
@@ -6429,7 +6431,7 @@ export class Orchestrator {
     // unchanged working copy is served from here and marked non-novel, so re-reading is
     // never mistaken for progress. Cleared inside `runAgentCall` when an edit lands.
     const evidence = new EvidenceStore();
-    const beatEvidence: { current?: unknown; hardSync?: boolean } = {};
+    const beatEvidence = createBeatEvidence();
     // ADR 0057: per-run skill ledger — shared across the run's turns AND its repair
     // pass, so a playbook is fetched once and stays pinned in context for the rest of
     // the run (see `HostCallContext.loadedSkills` / `agentSkillsBlock`).
@@ -7126,8 +7128,7 @@ export class Orchestrator {
           turnOps,
           working,
           appliedPatchIds,
-          rawBeats: beatEvidence.current,
-          beatHardSync: beatEvidence.hardSync === true,
+          beatEvidence,
         });
         if (applied.offGrid) offGridNote = applied.offGrid;
         const describedActions: DescribedAction[] = [];
@@ -7225,8 +7226,7 @@ export class Orchestrator {
             critiqueOptions: verifyOptions,
             stepIndex: state.planSteps.length + 1,
             appliedPatchIds,
-            rawBeats: beatEvidence.current,
-            beatHardSync: beatEvidence.hardSync === true,
+            beatEvidence,
             maxOpsPerTurn,
             effectRuntime,
             loadedSkills,
