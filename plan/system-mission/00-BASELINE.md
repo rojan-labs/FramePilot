@@ -116,3 +116,11 @@ the PLAN.md **SYSMISSION** snapshot.
       `/analyze-silence` already answers the same case with `{ranges: [], reason}`; transcribe
       should probe for an audio stream first and return a typed "no audio track" outcome → Phase 5
       (P5.4 error contracts) / Phase 8 (sidebar shows it in plain words).
+- [ ] **A run whose every model call fails still reports `completed` and applies an edit.**
+      Smoke run with the DeepSeek provider answering `402 Insufficient Balance`: 2 captured
+      provider calls at 0 ms / 0 tokens, `errors: []`, final status `completed`, two
+      `delete_range` tool calls (one repeated) and one operation applied to the podcast
+      project (`reports/system-mission/smoke.json`, label `smoke`, 2026-08-29). The user
+      would see "done" with a timeline change that no model reasoned about. → Phase 5 P5.5
+      (provider failure must be a typed run failure) and Phase 8 P8.2 (failed state).
+

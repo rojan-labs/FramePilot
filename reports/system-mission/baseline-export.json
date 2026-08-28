@@ -1,0 +1,1121 @@
+{
+  "generatedAt": "2026-08-28T21:39:58.039Z",
+  "results": [
+    {
+      "project": "mission-export-30s",
+      "jobId": "81274cd30db4434482d30ba6d89200eb",
+      "wallMs": 94205,
+      "stages": [
+        {
+          "state": "running",
+          "atMs": 34
+        },
+        {
+          "state": "completed",
+          "atMs": 94162
+        }
+      ],
+      "finalState": "completed",
+      "error": null,
+      "outputPath": null,
+      "probe": null,
+      "peakPythonRssMb": 53.4,
+      "peakFfmpegRssMb": 1726.6,
+      "maxFfmpegConcurrent": 4,
+      "avgFfmpegCpu": 146,
+      "samples": [
+        {
+          "atMs": 81,
+          "pythonRssMb": 53.4,
+          "pythonCpu": 4,
+          "ffmpegCount": 0,
+          "ffmpegRssMb": 0,
+          "ffmpegCpu": 0,
+          "progress": null
+        },
+        {
+          "atMs": 1144,
+          "pythonRssMb": 50.8,
+          "pythonCpu": 0,
+          "ffmpegCount": 4,
+          "ffmpegRssMb": 1049.8,
+          "ffmpegCpu": 176,
+          "progress": null
+        },
+        {
+          "atMs": 2185,
+          "pythonRssMb": 42.5,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1049.3,
+          "ffmpegCpu": 50,
+          "progress": null
+        },
+        {
+          "atMs": 3224,
+          "pythonRssMb": 42.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1225.2,
+          "ffmpegCpu": 63,
+          "progress": null
+        },
+        {
+          "atMs": 4265,
+          "pythonRssMb": 42.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1197.5,
+          "ffmpegCpu": 54,
+          "progress": null
+        },
+        {
+          "atMs": 5312,
+          "pythonRssMb": 42.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1211.6,
+          "ffmpegCpu": 53,
+          "progress": null
+        },
+        {
+          "atMs": 6350,
+          "pythonRssMb": 40.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1382.9,
+          "ffmpegCpu": 120,
+          "progress": null
+        },
+        {
+          "atMs": 7400,
+          "pythonRssMb": 40.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1556.4,
+          "ffmpegCpu": 158,
+          "progress": null
+        },
+        {
+          "atMs": 8447,
+          "pythonRssMb": 37,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1610.7,
+          "ffmpegCpu": 179,
+          "progress": null
+        },
+        {
+          "atMs": 9492,
+          "pythonRssMb": 34.8,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1665.6,
+          "ffmpegCpu": 179,
+          "progress": null
+        },
+        {
+          "atMs": 10537,
+          "pythonRssMb": 34.5,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1649.6,
+          "ffmpegCpu": 175,
+          "progress": null
+        },
+        {
+          "atMs": 11572,
+          "pythonRssMb": 34.4,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1660,
+          "ffmpegCpu": 213,
+          "progress": null
+        },
+        {
+          "atMs": 12637,
+          "pythonRssMb": 34.4,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1709.1,
+          "ffmpegCpu": 163,
+          "progress": null
+        },
+        {
+          "atMs": 13682,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1678,
+          "ffmpegCpu": 191,
+          "progress": null
+        },
+        {
+          "atMs": 14721,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1706.1,
+          "ffmpegCpu": 201,
+          "progress": null
+        },
+        {
+          "atMs": 15769,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1702.6,
+          "ffmpegCpu": 199,
+          "progress": null
+        },
+        {
+          "atMs": 16805,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1661.2,
+          "ffmpegCpu": 211,
+          "progress": null
+        },
+        {
+          "atMs": 17850,
+          "pythonRssMb": 34.4,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1686.8,
+          "ffmpegCpu": 188,
+          "progress": null
+        },
+        {
+          "atMs": 18892,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1726.6,
+          "ffmpegCpu": 181,
+          "progress": null
+        },
+        {
+          "atMs": 19938,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1712.1,
+          "ffmpegCpu": 219,
+          "progress": null
+        },
+        {
+          "atMs": 20977,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1605.5,
+          "ffmpegCpu": 214,
+          "progress": null
+        },
+        {
+          "atMs": 22016,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1616.8,
+          "ffmpegCpu": 190,
+          "progress": null
+        },
+        {
+          "atMs": 23065,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1656.5,
+          "ffmpegCpu": 204,
+          "progress": null
+        },
+        {
+          "atMs": 24102,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1655,
+          "ffmpegCpu": 149,
+          "progress": null
+        },
+        {
+          "atMs": 25148,
+          "pythonRssMb": 34.4,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1666.6,
+          "ffmpegCpu": 153,
+          "progress": null
+        },
+        {
+          "atMs": 26187,
+          "pythonRssMb": 34.4,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1670.3,
+          "ffmpegCpu": 176,
+          "progress": null
+        },
+        {
+          "atMs": 27238,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1534.3,
+          "ffmpegCpu": 157,
+          "progress": null
+        },
+        {
+          "atMs": 28280,
+          "pythonRssMb": 34.4,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1460.6,
+          "ffmpegCpu": 164,
+          "progress": null
+        },
+        {
+          "atMs": 29330,
+          "pythonRssMb": 34.4,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1557.4,
+          "ffmpegCpu": 161,
+          "progress": null
+        },
+        {
+          "atMs": 30373,
+          "pythonRssMb": 34.4,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1577.9,
+          "ffmpegCpu": 136,
+          "progress": null
+        },
+        {
+          "atMs": 31419,
+          "pythonRssMb": 34.4,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1599.1,
+          "ffmpegCpu": 141,
+          "progress": null
+        },
+        {
+          "atMs": 32457,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1534.3,
+          "ffmpegCpu": 165,
+          "progress": null
+        },
+        {
+          "atMs": 33503,
+          "pythonRssMb": 34.2,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1505.6,
+          "ffmpegCpu": 160,
+          "progress": null
+        },
+        {
+          "atMs": 34551,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1511.9,
+          "ffmpegCpu": 155,
+          "progress": null
+        },
+        {
+          "atMs": 35616,
+          "pythonRssMb": 34.4,
+          "pythonCpu": 1,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1567.5,
+          "ffmpegCpu": 167,
+          "progress": null
+        },
+        {
+          "atMs": 36668,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1527.7,
+          "ffmpegCpu": 145,
+          "progress": null
+        },
+        {
+          "atMs": 37705,
+          "pythonRssMb": 34.4,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1585.3,
+          "ffmpegCpu": 144,
+          "progress": null
+        },
+        {
+          "atMs": 38749,
+          "pythonRssMb": 34.4,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1620.8,
+          "ffmpegCpu": 166,
+          "progress": null
+        },
+        {
+          "atMs": 39788,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1629.1,
+          "ffmpegCpu": 145,
+          "progress": null
+        },
+        {
+          "atMs": 40827,
+          "pythonRssMb": 34.4,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1619.4,
+          "ffmpegCpu": 158,
+          "progress": null
+        },
+        {
+          "atMs": 41867,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1572.7,
+          "ffmpegCpu": 143,
+          "progress": null
+        },
+        {
+          "atMs": 42907,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1599.1,
+          "ffmpegCpu": 170,
+          "progress": null
+        },
+        {
+          "atMs": 43944,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1636.9,
+          "ffmpegCpu": 138,
+          "progress": null
+        },
+        {
+          "atMs": 44986,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1658.8,
+          "ffmpegCpu": 142,
+          "progress": null
+        },
+        {
+          "atMs": 46026,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1613.1,
+          "ffmpegCpu": 165,
+          "progress": null
+        },
+        {
+          "atMs": 47067,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1625.8,
+          "ffmpegCpu": 137,
+          "progress": null
+        },
+        {
+          "atMs": 48115,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1590.7,
+          "ffmpegCpu": 138,
+          "progress": null
+        },
+        {
+          "atMs": 49153,
+          "pythonRssMb": 34.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1610.9,
+          "ffmpegCpu": 130,
+          "progress": null
+        },
+        {
+          "atMs": 50190,
+          "pythonRssMb": 34.4,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1634.4,
+          "ffmpegCpu": 145,
+          "progress": null
+        },
+        {
+          "atMs": 51240,
+          "pythonRssMb": 34.4,
+          "pythonCpu": 1,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1644.4,
+          "ffmpegCpu": 148,
+          "progress": null
+        },
+        {
+          "atMs": 52296,
+          "pythonRssMb": 34.5,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1635.3,
+          "ffmpegCpu": 128,
+          "progress": null
+        },
+        {
+          "atMs": 53334,
+          "pythonRssMb": 34.5,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1637.3,
+          "ffmpegCpu": 145,
+          "progress": null
+        },
+        {
+          "atMs": 54373,
+          "pythonRssMb": 34.5,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1648.1,
+          "ffmpegCpu": 143,
+          "progress": null
+        },
+        {
+          "atMs": 55421,
+          "pythonRssMb": 36,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1664.4,
+          "ffmpegCpu": 150,
+          "progress": null
+        },
+        {
+          "atMs": 56463,
+          "pythonRssMb": 36,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1648.4,
+          "ffmpegCpu": 112,
+          "progress": null
+        },
+        {
+          "atMs": 57500,
+          "pythonRssMb": 35.9,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1630,
+          "ffmpegCpu": 115,
+          "progress": null
+        },
+        {
+          "atMs": 58554,
+          "pythonRssMb": 36,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1639.1,
+          "ffmpegCpu": 135,
+          "progress": null
+        },
+        {
+          "atMs": 59599,
+          "pythonRssMb": 35.9,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1621.1,
+          "ffmpegCpu": 128,
+          "progress": null
+        },
+        {
+          "atMs": 60640,
+          "pythonRssMb": 35.9,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1626.8,
+          "ffmpegCpu": 111,
+          "progress": null
+        },
+        {
+          "atMs": 61680,
+          "pythonRssMb": 35.9,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1627.2,
+          "ffmpegCpu": 115,
+          "progress": null
+        },
+        {
+          "atMs": 62753,
+          "pythonRssMb": 33.2,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1170.5,
+          "ffmpegCpu": 99,
+          "progress": null
+        },
+        {
+          "atMs": 63814,
+          "pythonRssMb": 33.1,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1196.4,
+          "ffmpegCpu": 131,
+          "progress": null
+        },
+        {
+          "atMs": 64857,
+          "pythonRssMb": 33.1,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1179,
+          "ffmpegCpu": 140,
+          "progress": null
+        },
+        {
+          "atMs": 65923,
+          "pythonRssMb": 33.2,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1337.1,
+          "ffmpegCpu": 108,
+          "progress": null
+        },
+        {
+          "atMs": 66983,
+          "pythonRssMb": 33.2,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1039.5,
+          "ffmpegCpu": 139,
+          "progress": null
+        },
+        {
+          "atMs": 68033,
+          "pythonRssMb": 33.1,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1104.2,
+          "ffmpegCpu": 165,
+          "progress": null
+        },
+        {
+          "atMs": 69075,
+          "pythonRssMb": 33.2,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1217.8,
+          "ffmpegCpu": 146,
+          "progress": null
+        },
+        {
+          "atMs": 70124,
+          "pythonRssMb": 33.2,
+          "pythonCpu": 1,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1183.6,
+          "ffmpegCpu": 170,
+          "progress": null
+        },
+        {
+          "atMs": 71166,
+          "pythonRssMb": 33.2,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1114.1,
+          "ffmpegCpu": 150,
+          "progress": null
+        },
+        {
+          "atMs": 72222,
+          "pythonRssMb": 33.2,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1134.6,
+          "ffmpegCpu": 152,
+          "progress": null
+        },
+        {
+          "atMs": 73274,
+          "pythonRssMb": 33.2,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1164.3,
+          "ffmpegCpu": 119,
+          "progress": null
+        },
+        {
+          "atMs": 74329,
+          "pythonRssMb": 33.2,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 936.3,
+          "ffmpegCpu": 139,
+          "progress": null
+        },
+        {
+          "atMs": 75395,
+          "pythonRssMb": 33.2,
+          "pythonCpu": 1,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1005.1,
+          "ffmpegCpu": 123,
+          "progress": null
+        },
+        {
+          "atMs": 76495,
+          "pythonRssMb": 33,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 808.8,
+          "ffmpegCpu": 157,
+          "progress": null
+        },
+        {
+          "atMs": 77546,
+          "pythonRssMb": 33.1,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 855.9,
+          "ffmpegCpu": 132,
+          "progress": null
+        },
+        {
+          "atMs": 78587,
+          "pythonRssMb": 33.1,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1185,
+          "ffmpegCpu": 109,
+          "progress": null
+        },
+        {
+          "atMs": 79635,
+          "pythonRssMb": 33.1,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1357.5,
+          "ffmpegCpu": 99,
+          "progress": null
+        },
+        {
+          "atMs": 80679,
+          "pythonRssMb": 33.2,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1521.8,
+          "ffmpegCpu": 145,
+          "progress": null
+        },
+        {
+          "atMs": 81718,
+          "pythonRssMb": 33.2,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1589.9,
+          "ffmpegCpu": 137,
+          "progress": null
+        },
+        {
+          "atMs": 82759,
+          "pythonRssMb": 33.2,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1625.6,
+          "ffmpegCpu": 134,
+          "progress": null
+        },
+        {
+          "atMs": 83795,
+          "pythonRssMb": 33.2,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1645.2,
+          "ffmpegCpu": 128,
+          "progress": null
+        },
+        {
+          "atMs": 84832,
+          "pythonRssMb": 33.2,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1663.7,
+          "ffmpegCpu": 156,
+          "progress": null
+        },
+        {
+          "atMs": 85871,
+          "pythonRssMb": 33.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1674,
+          "ffmpegCpu": 111,
+          "progress": null
+        },
+        {
+          "atMs": 86910,
+          "pythonRssMb": 33.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1676.3,
+          "ffmpegCpu": 106,
+          "progress": null
+        },
+        {
+          "atMs": 87952,
+          "pythonRssMb": 33.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1676.5,
+          "ffmpegCpu": 152,
+          "progress": null
+        },
+        {
+          "atMs": 88988,
+          "pythonRssMb": 33.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1677.2,
+          "ffmpegCpu": 178,
+          "progress": null
+        },
+        {
+          "atMs": 90030,
+          "pythonRssMb": 33.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1677.4,
+          "ffmpegCpu": 141,
+          "progress": null
+        },
+        {
+          "atMs": 91066,
+          "pythonRssMb": 33.3,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1684,
+          "ffmpegCpu": 118,
+          "progress": null
+        },
+        {
+          "atMs": 92109,
+          "pythonRssMb": 33.4,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 1640.8,
+          "ffmpegCpu": 140,
+          "progress": null
+        },
+        {
+          "atMs": 93157,
+          "pythonRssMb": 33.4,
+          "pythonCpu": 0,
+          "ffmpegCount": 1,
+          "ffmpegRssMb": 114.8,
+          "ffmpegCpu": 375,
+          "progress": null
+        },
+        {
+          "atMs": 94205,
+          "pythonRssMb": 36.5,
+          "pythonCpu": 0,
+          "ffmpegCount": 0,
+          "ffmpegRssMb": 0,
+          "ffmpegCpu": 0,
+          "progress": null
+        }
+      ],
+      "ffmpegCmd": null,
+      "validation": null
+    },
+    {
+      "project": "mission-export-60s",
+      "jobId": "0040a901e20e4bd8a82a8e0613c89907",
+      "wallMs": 27066,
+      "stages": [
+        {
+          "state": "running",
+          "atMs": 12
+        },
+        {
+          "state": "completed",
+          "atMs": 27021
+        }
+      ],
+      "finalState": "completed",
+      "error": null,
+      "outputPath": null,
+      "probe": null,
+      "peakPythonRssMb": 44.1,
+      "peakFfmpegRssMb": 924.1,
+      "maxFfmpegConcurrent": 3,
+      "avgFfmpegCpu": 216,
+      "samples": [
+        {
+          "atMs": 45,
+          "pythonRssMb": 44,
+          "pythonCpu": 4,
+          "ffmpegCount": 0,
+          "ffmpegRssMb": 0,
+          "ffmpegCpu": 0,
+          "progress": null
+        },
+        {
+          "atMs": 1082,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 102.8,
+          "ffmpegCpu": 111,
+          "progress": null
+        },
+        {
+          "atMs": 2123,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 778.9,
+          "ffmpegCpu": 240,
+          "progress": null
+        },
+        {
+          "atMs": 3162,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 870.4,
+          "ffmpegCpu": 247,
+          "progress": null
+        },
+        {
+          "atMs": 4203,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 886.1,
+          "ffmpegCpu": 272,
+          "progress": null
+        },
+        {
+          "atMs": 5243,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 889,
+          "ffmpegCpu": 265,
+          "progress": null
+        },
+        {
+          "atMs": 6282,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 890.9,
+          "ffmpegCpu": 251,
+          "progress": null
+        },
+        {
+          "atMs": 7320,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 892,
+          "ffmpegCpu": 257,
+          "progress": null
+        },
+        {
+          "atMs": 8360,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 894.1,
+          "ffmpegCpu": 267,
+          "progress": null
+        },
+        {
+          "atMs": 9399,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 895.2,
+          "ffmpegCpu": 257,
+          "progress": null
+        },
+        {
+          "atMs": 10438,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 895.9,
+          "ffmpegCpu": 209,
+          "progress": null
+        },
+        {
+          "atMs": 11477,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 895.9,
+          "ffmpegCpu": 203,
+          "progress": null
+        },
+        {
+          "atMs": 12516,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 896.7,
+          "ffmpegCpu": 220,
+          "progress": null
+        },
+        {
+          "atMs": 13554,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 896.7,
+          "ffmpegCpu": 204,
+          "progress": null
+        },
+        {
+          "atMs": 14593,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 896.8,
+          "ffmpegCpu": 216,
+          "progress": null
+        },
+        {
+          "atMs": 15631,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 899,
+          "ffmpegCpu": 206,
+          "progress": null
+        },
+        {
+          "atMs": 16669,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 899,
+          "ffmpegCpu": 213,
+          "progress": null
+        },
+        {
+          "atMs": 17706,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 905.7,
+          "ffmpegCpu": 191,
+          "progress": null
+        },
+        {
+          "atMs": 18743,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 909.3,
+          "ffmpegCpu": 182,
+          "progress": null
+        },
+        {
+          "atMs": 19782,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 915.2,
+          "ffmpegCpu": 176,
+          "progress": null
+        },
+        {
+          "atMs": 20820,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 915.2,
+          "ffmpegCpu": 193,
+          "progress": null
+        },
+        {
+          "atMs": 21859,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 921.2,
+          "ffmpegCpu": 190,
+          "progress": null
+        },
+        {
+          "atMs": 22897,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 921.2,
+          "ffmpegCpu": 194,
+          "progress": null
+        },
+        {
+          "atMs": 23935,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 923.4,
+          "ffmpegCpu": 190,
+          "progress": null
+        },
+        {
+          "atMs": 24975,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 3,
+          "ffmpegRssMb": 924.1,
+          "ffmpegCpu": 205,
+          "progress": null
+        },
+        {
+          "atMs": 26017,
+          "pythonRssMb": 44,
+          "pythonCpu": 0,
+          "ffmpegCount": 1,
+          "ffmpegRssMb": 113.3,
+          "ffmpegCpu": 684,
+          "progress": null
+        },
+        {
+          "atMs": 27066,
+          "pythonRssMb": 44.1,
+          "pythonCpu": 1,
+          "ffmpegCount": 0,
+          "ffmpegRssMb": 0,
+          "ffmpegCpu": 0,
+          "progress": null
+        }
+      ],
+      "ffmpegCmd": null,
+      "validation": null
+    }
+  ]
+}
