@@ -21,7 +21,7 @@ apps/desktop/engine-build/
 # electron-builder's `buildResources` dir (electron-builder.yml) is a SOURCE
 # directory (app icon, entitlements), not build output — track it despite the
 # blanket `build/` rule above.
-!apps/desktop/build/
+!apps/desktop/build/ 
 !apps/desktop/build/**
 
 # Test / coverage artifacts (reports/ tree is tracked but generated contents are not)
@@ -113,3 +113,8 @@ run.md
 
 # Local-only research notes, not for commit.
 TOOLS_REPORT.md
+TOOL_REPORT.md
+PERSONA.md
+
+# Private advisory/application material, never committed.
+advisories/
