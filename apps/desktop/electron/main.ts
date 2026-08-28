@@ -13,11 +13,11 @@
  * This file is intentionally not unit-tested — it requires an Electron runtime
  * and only wires the modules above (which are tested). Keep logic out of here.
  */
+import { loadDotEnvFile } from './env.js';
 import {
   appendFileSync,
   createReadStream,
   existsSync,
-  readFileSync,
   watch as fsWatch,
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -199,41 +199,9 @@ const DEV_SERVER_URL = 'http://localhost:5173';
 const DEFAULT_ENGINE_HOST = '127.0.0.1';
 const DEFAULT_ENGINE_PORT = 8765;
 
-/**
- * Load `.env` from the monorepo root into `process.env` for dev mode.
- * Uses no external deps — plain Node.js file read + line parsing.
- *
- * WHY `.env` OVERRIDES inherited shell vars: the local `.env` is gitignored and
- * is the developer's explicit, intentional configuration. Honouring an inherited
- * value instead would let a stray export (e.g. `FRAMEPILOT_AI_PROVIDER=mock`
- * lingering in the shell that launched the app) silently defeat the `.env`
- * provider choice — the app would fall back to canned mock output even though
- * `.env` selects a real provider. Packaged builds ship no `.env` (the read
- * throws and is caught), so real production environment config is unaffected.
- */
-function loadDotEnv(): void {
-  try {
-    // main.ts compiles to dist/main.js — three dirs up is the monorepo root.
-    const envPath = path.resolve(dirname, '../../../.env');
-    const lines = readFileSync(envPath, 'utf-8').split('\n');
-    for (const raw of lines) {
-      const line = raw.trim();
-      if (!line || line.startsWith('#')) continue;
-      const eq = line.indexOf('=');
-      if (eq === -1) continue;
-      const key = line.slice(0, eq).trim();
-      const val = line
-        .slice(eq + 1)
-        .trim()
-        .replace(/^["']|["']$/g, '');
-      if (key) process.env[key] = val;
-    }
-  } catch {
-    // .env absent or unreadable — silently skip (production build has real env).
-  }
-}
-
-loadDotEnv();
+// Repo `.env` fills gaps only; anything the parent process set (test launcher, CI, shell)
+// wins. See electron/env.ts for why.
+loadDotEnvFile(path.resolve(dirname, '../../../.env'));
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);

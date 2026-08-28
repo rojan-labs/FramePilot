@@ -123,4 +123,11 @@ the PLAN.md **SYSMISSION** snapshot.
       project (`reports/system-mission/smoke.json`, label `smoke`, 2026-08-29). The user
       would see "done" with a timeline change that no model reasoned about. → Phase 5 P5.5
       (provider failure must be a typed run failure) and Phase 8 P8.2 (failed state).
+- [x] **Desktop `.env` loader overrode the parent process environment.** `main.ts`
+      `loadDotEnv()` wrote every `.env` line into `process.env` unconditionally, so an empty
+      `FRAMEPILOT_LICENSE_DEV_BYPASS=` in `.env` erased the `1` a test launcher (or CI, or a
+      shell) had set — no external environment could ever override `.env` for the desktop
+      app. Fixed at the root: `electron/env.ts` (`parseDotEnv`/`applyDotEnv`, process env
+      wins, table-tested), `main.ts` uses `loadDotEnvFile`. Found while building
+      `tests/e2e-desktop` (P9.0 pulled forward because P0.4/P0.6 need the desktop host).
 

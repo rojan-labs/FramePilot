@@ -189,6 +189,8 @@ async function runTurn({ project, prompt, history, scenarioId, turnIndex }) {
       wallMs,
       modelCalls: turns.length,
       tokens: {
+        /** input + cacheRead: the whole prompt the provider processed. */
+        prompt: sum(turns, 'inputTokens') + sum(turns, 'cacheReadInputTokens'),
         input: sum(turns, 'inputTokens'),
         output: sum(turns, 'outputTokens'),
         cacheRead: turns.some((t) => t.cacheReadInputTokens !== undefined) ? sum(turns, 'cacheReadInputTokens') : null,
@@ -275,7 +277,7 @@ for (const scenario of SCENARIOS) {
         },
       });
       process.stdout.write(
-        `   turn ${turnIndex + 1}: calls=${outcome.metrics.modelCalls} tokens=${outcome.metrics.tokens.input}/${outcome.metrics.tokens.output} tools=${outcome.metrics.toolCalls} (repeat ${outcome.metrics.repeatedToolCalls}) ops=${outcome.metrics.operations} wall=${(outcome.metrics.wallMs / 1000).toFixed(0)}s usd=${outcome.metrics.usd ?? '?'} score=${score.score.toFixed(2)}\n`,
+        `   turn ${turnIndex + 1}: calls=${outcome.metrics.modelCalls} prompt=${outcome.metrics.tokens.prompt} out=${outcome.metrics.tokens.output} tools=${outcome.metrics.toolCalls} (repeat ${outcome.metrics.repeatedToolCalls}) ops=${outcome.metrics.operations} wall=${(outcome.metrics.wallMs / 1000).toFixed(0)}s usd=${outcome.metrics.usd ?? '?'} score=${score.score.toFixed(2)}\n`,
       );
       history = [...history, { role: 'user', content: turn.prompt }, { role: 'assistant', content: outcome.assistantText || '(edit applied)' }];
       project = outcome.working;

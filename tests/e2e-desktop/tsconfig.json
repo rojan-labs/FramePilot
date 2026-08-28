@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["@playwright/test", "node"]
+  },
+  "include": ["specs/**/*.ts", "playwright.config.ts"]
+}
