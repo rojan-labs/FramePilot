@@ -44,9 +44,9 @@ describe('useViewPreference', () => {
   });
 
   it('accepts an updater, like useState', () => {
-    const { result } = renderHook(() => useViewPreference<number>('n', 1, (r) =>
-      typeof r === 'number' ? r : undefined,
-    ));
+    const { result } = renderHook(() =>
+      useViewPreference<number>('n', 1, (r) => (typeof r === 'number' ? r : undefined)),
+    );
     act(() => {
       result.current[1]((current) => current + 1);
     });

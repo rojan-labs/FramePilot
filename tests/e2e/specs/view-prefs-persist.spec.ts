@@ -68,8 +68,14 @@ test.describe('view preferences persist across a reload', () => {
     // Set them through the same storage the app writes, then prove the app READS
     // them back — a drag would test Playwright's mouse, not the persistence.
     await page.evaluate(() => {
-      localStorage.setItem('framepilot.rail.right', JSON.stringify({ width: 420, collapsed: false }));
-      localStorage.setItem('framepilot.rail.left', JSON.stringify({ width: 330, collapsed: false }));
+      localStorage.setItem(
+        'framepilot.rail.right',
+        JSON.stringify({ width: 420, collapsed: false }),
+      );
+      localStorage.setItem(
+        'framepilot.rail.left',
+        JSON.stringify({ width: 330, collapsed: false }),
+      );
       localStorage.setItem('framepilot.timelineDock.height', '320');
     });
     await page.reload();

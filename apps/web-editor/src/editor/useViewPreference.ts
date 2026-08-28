@@ -94,8 +94,7 @@ export function useViewPreference<T>(
   const set = useCallback(
     (next: T | ((current: T) => T)): void => {
       setValue((current) => {
-        const resolved =
-          typeof next === 'function' ? (next as (c: T) => T)(current) : next;
+        const resolved = typeof next === 'function' ? (next as (c: T) => T)(current) : next;
         // Write inside the updater so the stored value always matches what rendered,
         // including when several updates are batched into one commit.
         if (!Object.is(resolved, current)) save(key, resolved);
