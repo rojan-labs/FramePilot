@@ -773,3 +773,43 @@ describe('validatePatch — replay semantics', () => {
     expect(result.issues.map((i) => i.code)).toEqual(['missing_reference', 'negative_duration']);
   });
 });
+
+describe('validatePatch — an unexpected throw is reported, not fatal', () => {
+  it('reports a malformed clip as an invalid operation instead of crashing', () => {
+    // `fromOperationError` maps the codes the operations layer raises deliberately. It used
+    // to have no arm for anything else, so a throw it did not recognise fell off the end of
+    // the switch, put `undefined` in the issue list, and took `validatePatch` down on the
+    // `issue.severity` read. A validator may reject a patch; it must not die on one.
+    // Reachable in practice: a clip with no `effects` array (a hand-built or partially
+    // migrated project) makes `transitionOverlapChecks` throw a TypeError.
+    const timeline = {
+      tracks: [
+        {
+          id: 'video_1',
+          type: 'video',
+          clips: [{ id: 'c_1', assetId: 'a', start: 0, end: 2, sourceStart: 0, sourceEnd: 2 }],
+        },
+      ],
+    } as unknown as Timeline;
+    const patch = {
+      id: 'p_malformed',
+      operations: [
+        {
+          type: 'add_clip',
+          trackId: 'video_1',
+          assetId: 'a',
+          clipId: 'c_2',
+          start: 2,
+          end: 4,
+          sourceStart: 0,
+          sourceEnd: 2,
+        },
+      ],
+    } as unknown as Parameters<typeof validatePatch>[1];
+
+    const result = validatePatch(timeline, patch);
+    expect(result.valid).toBe(false);
+    expect(result.issues.every((issue) => issue.severity !== undefined)).toBe(true);
+    expect(result.issues.some((issue) => issue.code === 'invalid_operation')).toBe(true);
+  });
+});

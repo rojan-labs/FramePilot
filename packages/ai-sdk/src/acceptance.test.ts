@@ -146,6 +146,38 @@ describe('explicitCoverage', () => {
     // reads the FRAME, not the prose.
   });
 
+  // `checkTreatmentCoverage` FAILS a run rather than warning it, and `reframe_coverage` is
+  // repairable, so a criterion read out of a line that asked for nothing costs the user a
+  // failed verdict and a repair call. Each of these lines carries a treatment WORD and a
+  // universal quantifier and still demands no treatment.
+  it('does not read a demand out of footage described, not asked for', () => {
+    expect(explicitCoverage('Keep camera movement smooth across all shots')).toEqual([]);
+    expect(explicitCoverage('Trim all the clips so there is no wasted motion')).toEqual([]);
+    expect(explicitCoverage('The animation in every clip already reads well')).toEqual([]);
+  });
+
+  it('does not read a prohibition as a demand', () => {
+    expect(explicitCoverage('Avoid zooming on all the photos.')).toEqual([]);
+    expect(explicitCoverage('No push-ins on any of the shots.')).toEqual([]);
+    expect(explicitCoverage('Leave every clip ungraded — do not grade anything.')).toEqual([]);
+  });
+
+  // The sameness is what is forbidden; the animation is still required.
+  it('still reads a demand whose negation is aimed at repeating it', () => {
+    expect(explicitCoverage('Do not apply the same animation to every image.')).toEqual(['motion']);
+  });
+
+  // A safe area belongs to whatever is inside it. Captions have one; so does the picture.
+  it('does not read a caption safe area as a reframe demand', () => {
+    expect(explicitCoverage('Keep text inside the safe areas on every shot.')).toEqual([]);
+    expect(explicitCoverage('Keep every shot inside the 9:16 safe areas.')).toEqual(['crop']);
+  });
+
+  // A spec lists its consequences together; the earlier `no` must not disqualify the later one.
+  it('reads a consequence-form crop demand next to another prohibition', () => {
+    expect(explicitCoverage('Every photo: no stretched images, no black bars.')).toEqual(['crop']);
+  });
+
   it('does not let a quantifier on one line reach a treatment on another', () => {
     const prompt = 'Every clip must be trimmed tight.\nAdd a speed ramp to the fall.';
     expect(explicitCoverage(prompt)).toEqual([]);

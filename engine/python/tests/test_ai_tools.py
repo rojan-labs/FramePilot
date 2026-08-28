@@ -26,6 +26,7 @@ from framepilot_engine.ai_tools import (
     get_tool,
     run_tool,
 )
+from framepilot_engine.ai_tools.contract_overrides import MAX_CLIPS_PER_BATCH
 from framepilot_engine.ai_tools.handlers import _derive_id
 from framepilot_engine.ai_tools.registry import TOOL_REGISTRY, NoArgs, ToolSpec
 from framepilot_engine.timeline.models import (
@@ -651,6 +652,19 @@ def test_add_clips_refuses_an_empty_batch(ctx: ToolContext) -> None:
     """Proposing nothing is not a placement; say so rather than settling with no ops."""
     with pytest.raises(ToolInputError):
         run_tool("add_clips", {"trackId": "v", "clips": []}, ctx)
+
+
+def test_add_clips_refuses_a_batch_longer_than_one_turn_can_apply(ctx: ToolContext) -> None:
+    """The schema states the limit; the per-turn cap only says a number was exceeded."""
+    entries = [
+        {"assetId": "asset_001", "start": 100.0 + i, "end": 100.5 + i}
+        for i in range(MAX_CLIPS_PER_BATCH + 1)
+    ]
+    with pytest.raises(ToolInputError):
+        run_tool("add_clips", {"trackId": "v", "clips": entries}, ctx)
+    at_cap = run_tool("add_clips", {"trackId": "v", "clips": entries[:-1]}, ctx)
+    assert at_cap.operations is not None
+    assert len(at_cap.operations) == MAX_CLIPS_PER_BATCH
 
 
 def test_add_clips_names_the_entry_that_is_wrong(ctx: ToolContext) -> None:

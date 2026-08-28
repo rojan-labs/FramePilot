@@ -252,44 +252,38 @@ def move_clip(args: MoveClipArgs, ctx: ToolContext) -> Operations:
     ]
 
 
+def _add_clip_op(track_id: str, clip: Any) -> dict[str, Any]:
+    """One placement, built the same way whether it arrived alone or in a batch.
+
+    ``add_clip`` has no speed argument, so its source duration is not an independent
+    model choice: at 1x it must equal the timeline duration. Derive it here instead of
+    trusting duplicated arithmetic from an untrusted tool call — and derive it in ONE
+    place, so the batch tool cannot drift from the singular one. ``source_end`` remains
+    accepted by the registry solely for backward compatibility. Mirrors
+    ``domain-tools/timeline.ts#addClipOperation``.
+    """
+    return {
+        "type": "add_clip",
+        "trackId": track_id,
+        "assetId": clip.asset_id,
+        "start": clip.start,
+        "end": clip.end,
+        "sourceStart": clip.source_start,
+        "sourceEnd": clip.source_start + (clip.end - clip.start),
+    }
+
+
 def add_clip(args: AddClipArgs, ctx: ToolContext) -> Operations:
-    # `add_clip` has no speed argument, so its source duration is not an independent
-    # model choice: at 1x it must equal the timeline duration. Derive it here instead
-    # of trusting duplicated arithmetic from an untrusted tool call. `source_end`
-    # remains accepted by the registry solely for backward compatibility.
-    source_end = args.source_start + (args.end - args.start)
-    return [
-        {
-            "type": "add_clip",
-            "trackId": args.track_id,
-            "assetId": args.asset_id,
-            "start": args.start,
-            "end": args.end,
-            "sourceStart": args.source_start,
-            "sourceEnd": source_end,
-        }
-    ]
+    return [_add_clip_op(args.track_id, args)]
 
 
 def add_clips(args: AddClipsArgs, ctx: ToolContext) -> Operations:
     """Every entry through the same derivation ``add_clip`` uses, in one patch.
 
     A batch that placed clips by even slightly different rules than the singular tool
-    would be worse than no batch at all, so the source end is derived here exactly as it
-    is there and nothing else differs.
+    would be worse than no batch at all, so both go through :func:`_add_clip_op`.
     """
-    return [
-        {
-            "type": "add_clip",
-            "trackId": args.track_id,
-            "assetId": clip.asset_id,
-            "start": clip.start,
-            "end": clip.end,
-            "sourceStart": clip.source_start,
-            "sourceEnd": clip.source_start + (clip.end - clip.start),
-        }
-        for clip in args.clips
-    ]
+    return [_add_clip_op(args.track_id, clip) for clip in args.clips]
 
 
 def _next_track_id(project: Project, role: str) -> str:

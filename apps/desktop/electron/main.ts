@@ -185,11 +185,7 @@ import { MusicService } from './media/music-service.js';
 import { StockService, isStockKind } from './media/stock-service.js';
 
 import { StockQuotaStore } from './media/stock-quota.js';
-import {
-  localMusicAssetRefusal,
-  musicErrorMessage,
-  stockErrorMessage,
-} from '@framepilot/ai-sdk';
+import { localMusicAssetRefusal, musicErrorMessage, stockErrorMessage } from '@framepilot/ai-sdk';
 import { createStockHost } from './ai/stock-host.js';
 import { agentSearchFailureSummary } from './ai/search-failure-summary.js';
 import { LocalTelemetry, telemetryEnabledFromEnv } from './telemetry/telemetry.js';
@@ -1949,7 +1945,9 @@ function registerIpcHandlers(): void {
     // of ten. The captured run spent ten searches and ~76k tokens re-learning this.
     const matched =
       result.matchedQuery === undefined
-        ? `"${query}"`
+        ? // Both arms end the sentence: the summary continues with another one, and
+          // `…for "hiking" No tempo or structure…` reads as a single run-on line.
+          `"${query}".`
         : `"${result.matchedQuery}" — this library matches short phrases, so only the ` +
           `opening words of a longer query are used. Search two or three words.`;
     // Say what these rows do NOT contain, at the moment the model is about to choose from

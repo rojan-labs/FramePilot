@@ -4,7 +4,11 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { Project } from '@framepilot/timeline-schema';
-import { CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID, applyProjectPatch } from '@framepilot/editor-core';
+import {
+  CAPTION_ASSET_ID,
+  TEXT_OVERLAY_ASSET_ID,
+  applyProjectPatch,
+} from '@framepilot/editor-core';
 import {
   critique,
   explicitDurationTarget,
@@ -775,9 +779,9 @@ describe('standingAgainstAcceptance', () => {
         ],
       },
     ]);
-    expect(standingAgainstAcceptance(project, { durationTargetSeconds: 4, minShotCount: 2 })).toEqual(
-      [],
-    );
+    expect(
+      standingAgainstAcceptance(project, { durationTargetSeconds: 4, minShotCount: 2 }),
+    ).toEqual([]);
   });
 
   it('reports nothing when the request stated no checkable condition', () => {
@@ -789,6 +793,28 @@ describe('standingAgainstAcceptance', () => {
       },
     ]);
     expect(standingAgainstAcceptance(project, {})).toEqual([]);
+  });
+
+  // The in-flight block is built from `critiqueOptions(input, agentOptions, true)` with no
+  // evidence store, while the verdict passes one. That is only safe while no whole-cut
+  // check reads evidence — an invariant nothing enforced, and the first check that starts
+  // reading `measuredSilences` would make a run judged by something it was never shown.
+  it('is measured by options the verdict cannot disagree with', () => {
+    const project = withTracks([
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 30 })],
+      },
+    ]);
+    const options = { durationTargetSeconds: 4, minShotCount: 61 };
+    expect(standingAgainstAcceptance(project, options)).toEqual(
+      standingAgainstAcceptance(project, {
+        ...options,
+        measuredSilences: [{ start: 1, end: 2 }],
+        blackFrames: [{ start: 0, end: 3 }],
+      }),
+    );
   });
 
   it('leaves local defects to the seam that shows them, not to a standing count', () => {
@@ -804,9 +830,9 @@ describe('standingAgainstAcceptance', () => {
         ],
       },
     ]);
-    expect(standingAgainstAcceptance(project, { durationTargetSeconds: 4, minShotCount: 2 })).toEqual(
-      [],
-    );
+    expect(
+      standingAgainstAcceptance(project, { durationTargetSeconds: 4, minShotCount: 2 }),
+    ).toEqual([]);
   });
 });
 
@@ -830,7 +856,13 @@ describe('reframe_coverage with measured sources', () => {
       {
         resolution: { width: 1080, height: 1920 },
         assets: [
-          { id: 'asset_1', path: 'media/a.jpeg', kind: 'image', durationSeconds: 5, ...(media ? { media } : {}) },
+          {
+            id: 'asset_1',
+            path: 'media/a.jpeg',
+            kind: 'image',
+            durationSeconds: 5,
+            ...(media ? { media } : {}),
+          },
         ] as Project['assets'],
       },
     );
@@ -846,15 +878,19 @@ describe('reframe_coverage with measured sources', () => {
 
   it('says nothing when the source is already portrait', () => {
     expect(
-      idOf(critique(portraitProjectOf({ width: 1080, height: 1920 }), { minShotCount: 2 }), 'reframe_coverage'),
+      idOf(
+        critique(portraitProjectOf({ width: 1080, height: 1920 }), { minShotCount: 2 }),
+        'reframe_coverage',
+      ),
     ).toMatchObject({ status: 'warn' });
   });
 
   it('keeps the old warning when nothing was measured', () => {
     // Absent dimensions mean unknown. Failing a run over a shape nobody probed would be
     // worse than the gap this closes.
-    expect(idOf(critique(portraitProjectOf(undefined), { minShotCount: 2 }), 'reframe_coverage'))
-      .toMatchObject({ status: 'warn' });
+    expect(
+      idOf(critique(portraitProjectOf(undefined), { minShotCount: 2 }), 'reframe_coverage'),
+    ).toMatchObject({ status: 'warn' });
   });
 });
 
@@ -878,7 +914,13 @@ describe('picture_coverage', () => {
           id: 'a_music',
           type: 'audio',
           clips: [
-            clip({ id: 'music', assetId: 'asset_music', trackId: 'a_music', start: 0, end: 36.107 }),
+            clip({
+              id: 'music',
+              assetId: 'asset_music',
+              trackId: 'a_music',
+              start: 0,
+              end: 36.107,
+            }),
           ],
         },
       ],
@@ -906,9 +948,7 @@ describe('picture_coverage', () => {
     it('trims the bed back to where the picture ends', () => {
       const project = musicOutrunsPicture();
       const ops = repairTrailingSoundOverrun(project, { minShotCount: 61 });
-      expect(ops).toEqual([
-        { type: 'trim_clip', clipId: 'music', start: 0, end: 10.008 },
-      ]);
+      expect(ops).toEqual([{ type: 'trim_clip', clipId: 'music', start: 0, end: 10.008 }]);
     });
 
     it('refuses an interior hole — that needs picture, not a trim', () => {
@@ -1116,7 +1156,9 @@ describe('run 4c9b5f82, end to end', () => {
       minShotCount: acceptance.minShotCount,
     });
     expect(report.ok).toBe(false);
-    const failed = report.checks.filter((check) => check.status === 'fail').map((check) => check.id);
+    const failed = report.checks
+      .filter((check) => check.status === 'fail')
+      .map((check) => check.id);
     expect(failed).toContain('picture_coverage');
     expect(failed).toContain('shot_count');
     expect(failed).toContain('duration_target');
@@ -1144,9 +1186,7 @@ describe('run 4c9b5f82, end to end', () => {
         {
           id: 'layer_audio_1',
           type: 'audio',
-          clips: [
-            clip({ id: 'music', assetId: 'asset_music', trackId: 'layer_audio_1', end: 30 }),
-          ],
+          clips: [clip({ id: 'music', assetId: 'asset_music', trackId: 'layer_audio_1', end: 30 })],
         },
       ],
       {

@@ -652,8 +652,7 @@ export function repairTrailingSoundOverrun(
     project.assets.filter((asset) => asset.kind === 'audio').map((asset) => asset.id),
   );
   const overrunning = allClips(project.timeline).filter(
-    (clip) =>
-      !isOverlayClip(clip) && audioAssetIds.has(clip.assetId) && clip.end > pictureEnd,
+    (clip) => !isOverlayClip(clip) && audioAssetIds.has(clip.assetId) && clip.end > pictureEnd,
   );
   // Every clip past the picture must be sound. If any picture clip ends beyond
   // `pictureEnd` the span merge above was wrong, and if something else runs past it this
@@ -1634,21 +1633,34 @@ function checkShotRhythm(project: Project, fps: number): CriticCheck {
  * @returns A {@link CritiqueReport}; `ok` is false when any check failed.
  */
 /**
- * The acceptance checks that count the WHOLE cut, and are therefore worth telling a run
- * about while it can still act on them.
+ * The acceptance checks that count the WHOLE cut — `picture_coverage`, `duration_target`,
+ * `shot_count`, `reframe_coverage`, `treatment_coverage` — run on their own.
  *
  * Not every check belongs here. A jump cut or a severed word is a local defect the model
  * finds by looking at the seam; these five are properties of the finished thing that the
  * model cannot see from any one edit — how long it is, how many shots it has, whether
- * anything is under the sound, whether the treatment reached every clip.
+ * anything is under the sound, whether the treatment reached every clip. That is what
+ * makes them worth telling a run about while it can still act on them.
+ *
+ * `standingAgainstAcceptance` is called on every prompt build — once per turn AND once per
+ * retry attempt — and running the full battery to keep five of its twenty-odd results meant
+ * the editorial passes (jump cut, severed word, dead air, shot rhythm) were re-walked every
+ * clip of an hour-long project for nothing. `critic-scale.test.ts` measures that battery at
+ * ~185ms clean and ~805ms under coverage, so a long-form run was paying seconds inside the
+ * turn loop for a five-line block.
+ *
+ * `critique` composes the same function rather than repeating the calls, so the block a run
+ * is shown in flight and the checks that judge it at the end can never come apart.
  */
-const WHOLE_CUT_CHECK_IDS: ReadonlySet<CheckId> = new Set<CheckId>([
-  'duration_target',
-  'shot_count',
-  'picture_coverage',
-  'reframe_coverage',
-  'treatment_coverage',
-]);
+function wholeCutChecks(project: Project, options: CritiqueOptions): CriticCheck[] {
+  return [
+    checkPictureCoverage(project, options),
+    checkDurationTarget(project.timeline, options),
+    checkShotCount(project, options),
+    checkReframeCoverage(project),
+    checkTreatmentCoverage(project, options),
+  ];
+}
 
 /**
  * Where the cut currently stands against what the request asked for, in the run's own
@@ -1681,10 +1693,8 @@ export function standingAgainstAcceptance(
   project: Project,
   options: CritiqueOptions = {},
 ): readonly string[] {
-  return critique(project, options)
-    .checks.filter(
-      (c) => WHOLE_CUT_CHECK_IDS.has(c.id) && (c.status === 'fail' || c.status === 'warn'),
-    )
+  return wholeCutChecks(project, options)
+    .filter((c) => c.status === 'fail' || c.status === 'warn')
     .map((c) => c.detail);
 }
 
@@ -1697,11 +1707,7 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
   const checks: CriticCheck[] = [
     checkRequestMatch(options),
     checkPicturePresent(project, options),
-    checkPictureCoverage(project, options),
-    checkDurationTarget(timeline, options),
-    checkShotCount(project, options),
-    checkReframeCoverage(project),
-    checkTreatmentCoverage(project, options),
+    ...wholeCutChecks(project, options),
     checkCaptionAlignment(timeline),
     checkSafeArea(timeline),
     checkAudioClipping(options),

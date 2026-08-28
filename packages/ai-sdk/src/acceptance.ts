@@ -296,6 +296,52 @@ const UNIVERSAL_QUANTIFIER = /\b(every|each|all|across|per|throughout)\b/;
  */
 const CLIP_NOUN = new RegExp(`\\b(?:${PICTURE_NOUN_SOURCE})\\b`);
 
+/** One way of reading one treatment out of a line. */
+interface TreatmentReader {
+  readonly treatment: CoverageTreatment;
+  /** Global, so every occurrence on the line can be judged on its own context. */
+  readonly pattern: RegExp;
+  /** The match only counts when the whole line also says this. */
+  readonly requiresOnLine?: RegExp;
+  /** A hit in the text just before a match disqualifies THAT match. */
+  readonly disqualifiedBefore?: RegExp;
+}
+
+/**
+ * Words that say a treatment is NOT wanted.
+ *
+ * Read against the text immediately before a treatment word, because a brief prohibits
+ * locally — "avoid zooming on all the photos" is a demand for stillness, and crediting it as
+ * a motion requirement makes `checkTreatmentCoverage` fail a run for doing what was asked.
+ */
+const PROHIBITION = /\b(?:do not|don'?t|avoid|never|refrain from|without|skip|omit|no)\b/;
+
+/**
+ * The negation is aimed at the SAMENESS, not at the treatment.
+ *
+ * "Do not apply the same animation to every image" still demands animation on every image;
+ * what it forbids is reusing one. Without this the stills brief that motivated the motion
+ * vocabulary would read as asking for no motion at all.
+ */
+const NEGATION_TARGETS_SAMENESS = /\bsame\b/;
+
+/** A requirement written as its own negative consequence — "no black bars" IS the crop demand. */
+const STATED_AS_CONSEQUENCE = /^no\b/;
+
+const PROHIBITION_WINDOW_CHARS = 40;
+
+/**
+ * Verbs and modals that make a bare motion noun a DEMAND rather than a description.
+ *
+ * "Motion should follow the composition of each photo" asks for motion; "keep camera
+ * movement smooth across all shots" describes footage that already moves, and "trim all the
+ * clips so there is no wasted motion" is not about motion at all. Only the first is a
+ * whole-cut requirement, and `checkTreatmentCoverage` FAILS a run — it does not warn — so
+ * reading the other two as demands fails runs that did exactly what was asked.
+ */
+const MOTION_IS_AUTHORED =
+  /\b(?:add(?:s|ing)?|appl(?:y|ies|ied|ying)|creat(?:e|es|ing)|animat(?:e|es|ing)|introduc(?:e|es|ing)|give[sn]?|us(?:e|es|ing)|includ(?:e|es|ing))\b|\b(?:motion|movement|animations?)\s+(?:should|must|needs? to|ha[sv]e to)\b/;
+
 /**
  * How a treatment is named in ordinary creator language.
  *
@@ -304,25 +350,59 @@ const CLIP_NOUN = new RegExp(`\\b(?:${PICTURE_NOUN_SOURCE})\\b`);
  * clips" on another, and matching document-wide would let any universal quantifier anywhere
  * pull in every treatment mentioned anywhere.
  */
-const TREATMENT_WORDS: readonly (readonly [CoverageTreatment, RegExp])[] = [
-  // `no black bars` and `safe area` are crop requirements stated as their consequence,
-  // which is how a delivery spec writes them ("9:16 … no black bars, no stretched photos").
-  [
-    'crop',
-    /\b(reframe[sd]?|reframing|crop(?:ped|ping)?|fill the (?:full )?(?:vertical )?frame|no black bars|safe areas?)\b/,
-  ],
-  ['grade', /\b(grade[sd]?|grading|colou?r[- ]?correct(?:ed|ion)?)\b/],
-  // `animation`/`motion`/`movement`/`parallax` are how a STILLS brief asks for the same
-  // thing a video brief calls a push-in: "create motion inside them", "do not apply the
-  // same animation to every image". Naming only the camera-move vocabulary meant the one
-  // kind of footage that cannot move on its own was the one kind whose motion requirement
-  // was invisible.
-  [
-    'motion',
-    /\b(ken burns|zoom(?:ing)?|pan(?:ning)?|drift|push[- ]?in|punch[- ]?in|animat(?:e|ed|ion|ions)|motion|movement|parallax)\b/,
-  ],
-  ['speed', /\b(speed ramp|ramp(?:ed|ing)?|slow[- ]?mo(?:tion)?|retim(?:e|ed|ing))\b/],
+const TREATMENT_READERS: readonly TreatmentReader[] = [
+  {
+    treatment: 'crop',
+    // `no black bars` is a crop requirement stated as its consequence, which is how a
+    // delivery spec writes it ("9:16 … no black bars, no stretched photos").
+    pattern:
+      /\b(?:reframe[sd]?|reframing|crop(?:ped|ping)?|fill the (?:full )?(?:vertical )?frame|no black bars)\b/g,
+  },
+  {
+    treatment: 'crop',
+    // A safe area is a crop requirement only when it is about the PICTURE. "Keep text inside
+    // the safe areas on every shot" is a caption-placement rule, and reading it as a reframe
+    // demand failed montages whose framing was already correct.
+    pattern: /\bsafe areas?\b/g,
+    disqualifiedBefore: /\b(?:text|captions?|titles?|subtitles?|lower thirds?|words?)\b/,
+  },
+  { treatment: 'grade', pattern: /\b(?:grade[sd]?|grading|colou?r[- ]?correct(?:ed|ion)?)\b/g },
+  {
+    treatment: 'motion',
+    // Technique names. Nobody says "parallax" or "ken burns" about footage they are not
+    // asking to be moved, so these stand on their own.
+    pattern: /\b(?:ken burns|zoom(?:ing)?|pan(?:ning)?|drift|push[- ]?in|punch[- ]?in|parallax)\b/g,
+  },
+  {
+    treatment: 'motion',
+    // `animation`/`motion`/`movement` are how a STILLS brief asks for the same thing a video
+    // brief calls a push-in: "create motion inside them", "do not apply the same animation to
+    // every image". Naming only the camera-move vocabulary meant the one kind of footage that
+    // cannot move on its own was the one kind whose motion requirement was invisible — but
+    // these three words are also ordinary English about footage, so they need
+    // {@link MOTION_IS_AUTHORED} on the line before they count.
+    pattern: /\b(?:animat(?:e|ed|ion|ions)|motion|movement)\b/g,
+    requiresOnLine: MOTION_IS_AUTHORED,
+  },
+  {
+    treatment: 'speed',
+    pattern: /\b(?:speed ramp|ramp(?:ed|ing)?|slow[- ]?mo(?:tion)?|retim(?:e|ed|ing))\b/g,
+  },
 ];
+
+/** Does this line demand the reader's treatment, rather than merely mention its words? */
+function lineDemands(line: string, reader: TreatmentReader): boolean {
+  if (reader.requiresOnLine && !reader.requiresOnLine.test(line)) return false;
+  for (const match of line.matchAll(reader.pattern)) {
+    const index = match.index ?? 0;
+    const before = line.slice(Math.max(0, index - PROHIBITION_WINDOW_CHARS), index);
+    if (reader.disqualifiedBefore?.test(before)) continue;
+    if (STATED_AS_CONSEQUENCE.test(match[0])) return true;
+    if (PROHIBITION.test(before) && !NEGATION_TARGETS_SAMENESS.test(before)) continue;
+    return true;
+  }
+  return false;
+}
 
 /**
  * Treatments a request demands of every clip, read line by line.
@@ -336,8 +416,9 @@ export function explicitCoverage(prompt: string): readonly CoverageTreatment[] {
   for (const rawLine of prompt.split(/[\n.;]/)) {
     const line = rawLine.toLowerCase();
     if (!UNIVERSAL_QUANTIFIER.test(line) || !CLIP_NOUN.test(line)) continue;
-    for (const [treatment, pattern] of TREATMENT_WORDS) {
-      if (pattern.test(line)) found.add(treatment);
+    for (const reader of TREATMENT_READERS) {
+      if (found.has(reader.treatment)) continue;
+      if (lineDemands(line, reader)) found.add(reader.treatment);
     }
   }
   return [...found];

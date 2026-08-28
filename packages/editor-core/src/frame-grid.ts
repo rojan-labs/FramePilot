@@ -304,6 +304,19 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
  * Degenerate inputs pass through rather than being repaired here: a zero-length or
  * non-finite range has no speed to preserve, and turning invalid intent into a valid edit
  * before validation sees it is exactly what `add_transition`'s guard above refuses to do.
+ *
+ * Two limits, both deliberate:
+ *
+ * - `sourceStart` is NOT snapped. It is the frame the viewer sees first and moving it
+ *   would change which one that is; the out-point is rescaled around it instead. So a
+ *   run asking for "exact frame-aligned cuts" gets frame-aligned CUTS — its in-points
+ *   may still seek to an off-grid source frame, which no downstream operation reads.
+ * - Snapping `end` up can push a full-source placement (`sourceEnd` = the asset's whole
+ *   duration, which is how `stock-placement.ts` and `music-placement.ts` build one)
+ *   under a frame past the real end. That is safe and already handled where it lands:
+ *   `compiler.py#_subclipped_source` drops a `source_end` at or beyond the asset's
+ *   duration and plays to the end. Clamping here is not possible anyway — this is a pure
+ *   operation transform and knows nothing of the media bin.
  */
 function snapAddClip(op: AddClipOp, fps: number): AddClipOp {
   const start = snapSecondsToFrame(op.start, fps);

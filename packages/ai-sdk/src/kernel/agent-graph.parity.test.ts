@@ -72,6 +72,7 @@ const verified = (state: ConductorState): VerifyResult => ({
   ok: true,
   summary: 'verified',
   failedChecks: [],
+  warnedChecks: [],
   repairOps: [],
   endSeq: state.seq,
 });

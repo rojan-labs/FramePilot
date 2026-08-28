@@ -51,7 +51,8 @@ turn one places all 61 photos, lands inside 20–35 seconds, and covers the bed.
 **Status snapshot (2026-08-28, run `fc10301a` gap analysis, round 8):** `[x]` **All 21 gaps
 closed.** The re-run of the 61-photo montage after ADR 0154. It placed 34 of 61 photos over
 0–24.079s of a 47.8s bed, applied no motion, transitions, grade or crop, and settled
-`failed` with 11 of 30 steps unspent. `TOOL_REPORT.md` holds the evidence per gap; the
+`failed` with 11 of 30 steps unspent. [`docs/reports/2026-08-28-run-fc10301a-gap-index.md`](../docs/reports/2026-08-28-run-fc10301a-gap-index.md)
+indexes all 21 gaps and where each was closed; the
 short account of what was actually wrong:
 
 - **The run was never told what "done" meant.** `acceptance.ts` derived "about 27.5s" and

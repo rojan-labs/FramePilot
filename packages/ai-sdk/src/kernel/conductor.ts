@@ -100,6 +100,8 @@ import { assessEditCompletion } from '../completion-gate.js';
 // `streamAgent` loop in `orchestrator.ts` keeps its own, much smaller default (30); the
 // two are independent by design — that path has no research budget to protect it.
 const DEFAULT_MAX_AGENT_STEPS = 300;
+// Deliberately larger than `orchestrator.ts`'s 100, for the same reason the step ceiling
+// above is: the rails exist here. `MAX_CLIPS_PER_BATCH` bounds itself by the smaller one.
 const DEFAULT_MAX_OPS_PER_TURN = 200;
 const DEFAULT_MAX_OPS_PER_RUN = 800;
 /** How many distinct validator-rejection reasons to retain for the empty-run notice. */
@@ -1180,10 +1182,7 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
  * Rejects a single step that echoes the request, because that is the seed arriving by
  * another route. Bounded, because this is stored and streamed on every turn.
  */
-function planInterpretation(
-  state: RunWorkingState,
-  labels: readonly string[],
-): string | undefined {
+function planInterpretation(state: RunWorkingState, labels: readonly string[]): string | undefined {
   if (!state.objective.provisional) return undefined;
   const steps = labels.map((label) => label.trim()).filter(Boolean);
   if (steps.length === 0) return undefined;
@@ -1491,7 +1490,9 @@ export function onTurnResult(
       const working = setNextAction(state.working, {
         stage: state.working.stage,
         action,
-        ...(state.working.objectives[0]?.id ? { objectiveId: state.working.objectives[0]!.id } : {}),
+        ...(state.working.objectives[0]?.id
+          ? { objectiveId: state.working.objectives[0]!.id }
+          : {}),
       });
       events.push(
         em.notification(`The request is not met yet — continuing. ${shortfall.join(' ')}`),

@@ -174,6 +174,18 @@ const timelineWindowSchema = z
 
 const trimSchema = z.object({ clipId: z.string(), start: seconds, end: seconds }).strict();
 /**
+ * The most placements one `add_clips` call may carry.
+ *
+ * A batch is still N operations to the turn's blast-radius bound, and the two default
+ * bounds disagree — `orchestrator.ts` caps a turn at 100 operations, `kernel/conductor.ts`
+ * at 200. Capping here at the SMALLER of the two means a batch that parses is a batch that
+ * can be applied on either path. Beyond that the rejection has to come from the schema,
+ * where it can say what the limit is: `Turn rejected: 120 operations exceeds the per-turn
+ * cap` names no fix, so a model that hits it re-sends the same batch.
+ */
+export const MAX_CLIPS_PER_BATCH = 100;
+
+/**
  * One placement, built the same way whether it arrived alone or in a batch.
  *
  * `sourceEnd` is derived rather than accepted: `add_clip` has no speed argument, so the
@@ -702,7 +714,9 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         'end, sourceStart? } and follow add_clip’s rules exactly — timeline seconds, ' +
         'real asset ids, no overlaps on the track, and sourceEnd derived for you. The ' +
         'whole call is validated together, so if any one entry is rejected none of them ' +
-        'land and the reason names the entry: fix that one and send the batch again.',
+        'land and the reason names the entry: fix that one and send the batch again. At ' +
+        `most ${String(MAX_CLIPS_PER_BATCH)} entries per call — split a longer sequence ` +
+        'across consecutive calls.',
     },
     z
       .object({
@@ -719,7 +733,8 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
               })
               .strict(),
           )
-          .min(1),
+          .min(1)
+          .max(MAX_CLIPS_PER_BATCH),
       })
       .strict(),
     (a) => a.clips.map((clip) => addClipOperation({ ...clip, trackId: a.trackId })),

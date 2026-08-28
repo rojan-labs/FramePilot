@@ -67,7 +67,9 @@ export type ValidationCode =
   | 'invalid_effect_layer'
   | 'duplicate_effect_layer'
   | 'unsupported_effect_kind'
-  | 'invalid_effect_params';
+  | 'invalid_effect_params'
+  /** An apply path threw something the operations layer did not raise deliberately. */
+  | 'invalid_operation';
 
 export type ValidationSeverity = 'error' | 'warning';
 
@@ -661,4 +663,15 @@ function fromOperationError(cause: unknown, index: number): ValidationIssue {
     case 'duplicate_effect_layer':
       return { code: 'duplicate_effect_layer', severity: 'error', message, operationIndex: index };
   }
+  // Anything the operations layer did not raise deliberately — a TypeError from a
+  // malformed clip, a bug in an apply path. Without this arm the switch falls off the end
+  // and returns `undefined`, which is pushed into `issues` and then crashes the
+  // `issue.severity` read below: a patch that should have been REPORTED invalid takes the
+  // whole validation down instead, which is the one thing a validator must never do.
+  return {
+    code: 'invalid_operation',
+    severity: 'error',
+    message: message || 'Operation could not be applied.',
+    operationIndex: index,
+  };
 }

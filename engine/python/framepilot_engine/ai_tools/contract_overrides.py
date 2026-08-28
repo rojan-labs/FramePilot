@@ -92,10 +92,17 @@ class _AddClipEntry(BaseModel):
         return self
 
 
+#: The most placements one ``add_clips`` call may carry. Mirrors
+#: ``domain-tools/timeline.ts#MAX_CLIPS_PER_BATCH`` — a batch is still N operations to the
+#: turn's blast-radius bound, and the smaller of the two TS defaults (100) is the only value
+#: that parses on either path. Rejecting here says what the limit IS; the turn cap does not.
+MAX_CLIPS_PER_BATCH = 100
+
+
 class _AddClipsArgs(BaseModel):
     model_config = _STRICT
     track_id: str = Field(alias="trackId")
-    clips: list[_AddClipEntry] = Field(min_length=1)
+    clips: list[_AddClipEntry] = Field(min_length=1, max_length=MAX_CLIPS_PER_BATCH)
 
 
 class _AddTrackArgs(BaseModel):

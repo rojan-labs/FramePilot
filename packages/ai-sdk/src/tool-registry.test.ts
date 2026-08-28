@@ -12,6 +12,7 @@ import {
 import { ZodError } from 'zod/v4';
 import { TOOL_REGISTRY, concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
 import type { ToolContext } from './tool-context.js';
+import { MAX_CLIPS_PER_BATCH } from './domain-tools/timeline.js';
 import { makeProject } from './__fixtures__/project.js';
 
 const ctx: ToolContext = { project: makeProject(), selection: { start: 1, end: 2 } };
@@ -451,8 +452,9 @@ describe('read tools', () => {
         { id: 'p1', path: 'media/1.jpeg', kind: 'image', media: { width: 4032, height: 3024 } },
       ],
     });
-    expect((getTool('list_assets')?.read?.({}, { project }) as { letterbox?: string }).letterbox)
-      .toBeUndefined();
+    expect(
+      (getTool('list_assets')?.read?.({}, { project }) as { letterbox?: string }).letterbox,
+    ).toBeUndefined();
   });
 
   it('says nothing about letterboxing when nothing has been measured', () => {
@@ -462,8 +464,9 @@ describe('read tools', () => {
       resolution: { width: 1080, height: 1920 },
       assets: [{ id: 'p1', path: 'media/1.jpeg', kind: 'image' }],
     });
-    expect((getTool('list_assets')?.read?.({}, { project }) as { letterbox?: string }).letterbox)
-      .toBeUndefined();
+    expect(
+      (getTool('list_assets')?.read?.({}, { project }) as { letterbox?: string }).letterbox,
+    ).toBeUndefined();
   });
 
   it('list_assets collapses provenance to the one fact the model can act on', () => {
@@ -940,6 +943,22 @@ describe('mutating tools — build valid operations', () => {
 
   it('add_clips refuses an empty batch rather than proposing nothing', () => {
     expect(() => build('add_clips', { trackId: 'video_1', clips: [] })).toThrow();
+  });
+
+  // A batch is still N operations against the turn's blast-radius bound. Rejecting an
+  // over-long batch at the schema — where the description states the limit — beats
+  // `Turn rejected: 120 operations exceeds the per-turn cap`, which names no fix and
+  // invites the model to re-send the same batch.
+  it('refuses a batch longer than one turn could apply, and states the limit', () => {
+    const entry = (i: number) => ({ assetId: 'asset_1', start: i, end: i + 0.5 });
+    const atCap = Array.from({ length: MAX_CLIPS_PER_BATCH }, (_, i) => entry(i));
+    expect(build('add_clips', { trackId: 'video_1', clips: atCap })).toHaveLength(
+      MAX_CLIPS_PER_BATCH,
+    );
+    expect(() =>
+      build('add_clips', { trackId: 'video_1', clips: [...atCap, entry(MAX_CLIPS_PER_BATCH)] }),
+    ).toThrow();
+    expect(getTool('add_clips')?.description).toContain(String(MAX_CLIPS_PER_BATCH));
   });
 
   it('adjust_audio / add_transition / add_mask / track_object', () => {

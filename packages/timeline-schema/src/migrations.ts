@@ -273,7 +273,7 @@ export const MIGRATIONS: readonly Migration[] = [
       'vertical frame. Purely additive and nothing to backfill — the engine probes them ' +
       'when it derives media, and an asset that has not been probed is honestly absent ' +
       'rather than guessed at. Reading them is what lets `list_assets` say which clips ' +
-      'will letterboxe without a crop; the renderer fits rather than covers.',
+      'will letterbox without a crop; the renderer fits rather than covers.',
     migrate: (raw) => raw,
   },
 ];

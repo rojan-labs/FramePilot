@@ -6,6 +6,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **The assistant can lay down a whole sequence in one move.** Building a montage meant one
+  call per shot — sixty photos was sixty round trips, and a run could spend its whole budget
+  placing clips instead of editing them. It can now place an entire sequence on a track in a
+  single step. If one shot in the batch is wrong, it is told which one, so it fixes that shot
+  and re-sends rather than starting over.
+
 ### Fixed
 
 - **Vertical edits no longer arrive letterboxed without warning.** FramePilot renders a
@@ -19,6 +27,19 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   re-import them.
 
 ### Changed
+
+- **Clips land on whole frames.** A clip placed by the assistant, dropped from the media bin,
+  or added from stock is now snapped to the nearest frame boundary, the same as every other
+  edit. Placements used to keep whatever fractional time they were given, which could put a
+  cut a fraction of a frame away from where the render actually made it. Durations are
+  preserved — a clip is moved onto the grid, not stretched or shortened.
+- **The assistant is given a count of your media instead of the whole list.** Reading project
+  state used to include every asset id, which the assistant usually already had from listing
+  the media bin — on a 61-photo project it paid for that list twice in the same minute. It now
+  gets totals by media type and is told to list the bin when it needs the ids. If you drive
+  FramePilot from your own tools over MCP, `get_project_state` no longer returns `assets`; it
+  returns `assetSummary` (`total`, `byKind`), and `list_assets` returns the full list as
+  before.
 
 - **Understanding your footage is roughly four times faster.** Preparing media used to
   happen one file at a time, and almost all of that time was spent waiting on the

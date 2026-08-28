@@ -378,7 +378,15 @@ function costFromUsage(
  */
 const DEFAULT_MAX_AGENT_STEPS = 30;
 
-/** Blast-radius bounds for one agent run (R3 C1). Mirrors `kernel/conductor.ts`. */
+/**
+ * Blast-radius bounds for one agent run (R3 C1).
+ *
+ * NOTE `maxOpsPerRun` mirrors `kernel/conductor.ts`; `maxOpsPerTurn` does NOT — that path
+ * allows 200, for the same reason it allows more steps (it has behavioral rails this legacy
+ * loop does not). Anything that must parse on either path — `add_clips`, whose whole batch
+ * lands in one turn — bounds itself by the SMALLER of the two. See
+ * `domain-tools/timeline.ts#MAX_CLIPS_PER_BATCH`.
+ */
 const DEFAULT_MAX_OPS_PER_TURN = 100;
 const DEFAULT_MAX_OPS_PER_RUN = 800;
 const USER_WAIT_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
@@ -3199,7 +3207,10 @@ export class Orchestrator {
      * map" on a turn where no footage map existed. Nothing in 41 manifests could falsify
      * it.
      */
-    readonly assembled: { readonly sections: readonly AssembledSection[]; readonly droppedTokenEstimate: number };
+    readonly assembled: {
+      readonly sections: readonly AssembledSection[];
+      readonly droppedTokenEstimate: number;
+    };
   } {
     const stableHead = this.agentStableInstruction(loadedSkills, plan);
     // P1.2: the agent turn's budget subtracts what `buildContext` does not assemble — the
@@ -4112,8 +4123,12 @@ export class Orchestrator {
             note: `Repair pass: ${note}`,
           },
           working: applyProjectPatch(args.working, edit.patch),
-          ops: [...deterministic],
-          outcome: { kind: 'applied', opCount: deterministic.length, note },
+          // The PATCH's operations, not the raw ones: `assembleEdit` quantizes to the
+          // frame grid, and these are pushed to `repairOps`/`cumulativeOps` — the run's
+          // ledger of what it did. Reporting the pre-snap numbers there would make the
+          // ledger disagree with the timeline over the same edit.
+          ops: [...edit.patch.operations],
+          outcome: { kind: 'applied', opCount: edit.patch.operations.length, note },
         };
       }
       // The computed trim did not validate — say so rather than applying nothing in
@@ -4498,12 +4513,7 @@ export class Orchestrator {
         working,
         log,
         report,
-        critiqueOptions: this.critiqueOptions(
-          input,
-          options,
-          cumulativeOps.length > 0,
-          evidence,
-        ),
+        critiqueOptions: this.critiqueOptions(input, options, cumulativeOps.length > 0, evidence),
         stepIndex: steps.length + 1,
         appliedPatchIds,
         rawBeats: beatEvidence.current,
@@ -5930,7 +5940,9 @@ export class Orchestrator {
           // ("they are not perceptually clean") that reads as a verdict the run stood
           // behind rather than as work it never reached. Saying which one it is costs a
           // sentence and tells the editor whether asking again is worth anything.
-          const unattempted = remaining.filter((finding) => !findings.hasExhaustedSteering(finding));
+          const unattempted = remaining.filter(
+            (finding) => !findings.hasExhaustedSteering(finding),
+          );
           const attempted = remaining.filter((finding) => findings.hasExhaustedSteering(finding));
           if (attempted.length > 0) {
             const notice: AiEvent = {
