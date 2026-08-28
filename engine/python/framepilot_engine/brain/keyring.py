@@ -28,6 +28,7 @@ is ever exposed.
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -93,9 +94,7 @@ class KeyRingExhaustedError(Exception):
     ``{available: false, reason: "all_keys_failing", lastError}`` payload.
     """
 
-    def __init__(
-        self, *, last_status: int | None = None, last_error: str | None = None
-    ) -> None:
+    def __init__(self, *, last_status: int | None = None, last_error: str | None = None) -> None:
         detail = f"lastStatus={last_status}" if last_status is not None else "no status recorded"
         super().__init__(f"All embeddings API keys are failing ({detail}).")
         self.last_status = last_status
@@ -177,10 +176,17 @@ class KeyRing:
         self._base_cooldown = base_cooldown_seconds
         self._max_cooldown = max_cooldown_seconds
         self._slots: list[_KeySlot] = [
-            _KeySlot(key=key, next_cooldown=base_cooldown_seconds)
-            for key in dict.fromkeys(keys)
+            _KeySlot(key=key, next_cooldown=base_cooldown_seconds) for key in dict.fromkeys(keys)
         ]
         self._last_status: int | None = None
+        # Guards every mutation. The ring was a single-threaded state machine until
+        # embedding started issuing several requests at once; without this two workers
+        # can interleave a cooldown transition and lose one of them.
+        self._lock = threading.Lock()
+        # How many in-flight requests are currently holding each key. Only consulted
+        # under `exclusive` checkout (see `acquire`), and always zero for a caller that
+        # never releases — which is why the sequential path is bit-for-bit unchanged.
+        self._in_flight: dict[str, int] = {}
 
     def __repr__(self) -> str:  # never leaks key material
         states = ",".join(slot.state.value for slot in self._slots)
@@ -191,23 +197,68 @@ class KeyRing:
         """HTTP status of the most recent failure reported to the ring, if any."""
         return self._last_status
 
-    def acquire(self, now: float) -> str | None:
+    def acquire(self, now: float, *, exclusive: bool = False) -> str | None:
         """Pick the key to use next, or ``None`` if the ring is exhausted.
 
         Preference order: the first **alive** key (stable rotation — earlier
         keys are always retried first once healthy), else the first **cooling**
         key whose cooldown has elapsed (which is revived to alive), else
         ``None``.
+
+        ``exclusive`` turns the ring from failover into **throughput**. Several keys
+        bought resilience and nothing else: `acquire` always answered "the first alive
+        key", so eight concurrent requests all queued behind one key's rate limit. Under
+        `exclusive` the preference becomes "the alive key with the fewest requests in
+        flight, earliest first on a tie", so N concurrent callers draw N distinct keys
+        while a single key behaves exactly as before. The caller MUST pair it with
+        :meth:`release`; a caller that never releases sees in-flight counts of zero
+        throughout and therefore the original behaviour, which is why the sequential
+        path is unchanged.
         """
-        for slot in self._slots:
-            if slot.state is KeyState.ALIVE:
+        with self._lock:
+            alive = [slot for slot in self._slots if slot.state is KeyState.ALIVE]
+            if alive:
+                slot = (
+                    min(alive, key=lambda s: self._in_flight.get(s.key, 0))
+                    if exclusive
+                    else alive[0]
+                )
+                if exclusive:
+                    self._in_flight[slot.key] = self._in_flight.get(slot.key, 0) + 1
                 return slot.key
-        for slot in self._slots:
-            if slot.state is KeyState.COOLING and slot.cooldown_until <= now:
-                slot.state = KeyState.ALIVE
-                _log.debug("embeddings key %s cooled down; back in rotation", mask_key(slot.key))
-                return slot.key
-        return None
+            for slot in self._slots:
+                if slot.state is KeyState.COOLING and slot.cooldown_until <= now:
+                    slot.state = KeyState.ALIVE
+                    _log.debug(
+                        "embeddings key %s cooled down; back in rotation", mask_key(slot.key)
+                    )
+                    if exclusive:
+                        self._in_flight[slot.key] = self._in_flight.get(slot.key, 0) + 1
+                    return slot.key
+            return None
+
+    def alive_count(self, now: float) -> int:
+        """How many keys could serve a request right now (alive, or cooled off).
+
+        This is the ceiling on useful concurrency: issuing eight requests against two
+        healthy keys just queues six of them behind a rate limit. It is also the
+        backpressure signal — as keys cool, this falls, and the caller's concurrency
+        falls with it without a second piece of state to keep in sync.
+        """
+        with self._lock:
+            return sum(
+                1
+                for slot in self._slots
+                if slot.state is KeyState.ALIVE
+                or (slot.state is KeyState.COOLING and slot.cooldown_until <= now)
+            )
+
+    def release(self, key: str) -> None:
+        """Hand back a key taken with ``exclusive=True`` (idempotent below zero)."""
+        with self._lock:
+            held = self._in_flight.get(key, 0)
+            if held > 0:
+                self._in_flight[key] = held - 1
 
     def report_success(self, key: str) -> None:
         """Record a successful call: reset the key's backoff and failure state.
@@ -215,12 +266,13 @@ class KeyRing:
         A dead key stays dead — dead-marking is session-permanent by design,
         and a success report for one indicates caller confusion, not recovery.
         """
-        slot = self._slot_for(key)
-        slot.next_cooldown = self._base_cooldown
-        slot.cooldown_until = 0.0
-        slot.last_status = None
-        if slot.state is not KeyState.DEAD:
-            slot.state = KeyState.ALIVE
+        with self._lock:
+            slot = self._slot_for(key)
+            slot.next_cooldown = self._base_cooldown
+            slot.cooldown_until = 0.0
+            slot.last_status = None
+            if slot.state is not KeyState.DEAD:
+                slot.state = KeyState.ALIVE
 
     def report_failure(self, key: str, status: int, now: float) -> None:
         """Record a failed call and transition the key per the D5 semantics.
@@ -229,28 +281,29 @@ class KeyRing:
         ``5xx``, and — conservatively — any other status) → cooldown with
         exponential backoff, doubling per consecutive failure up to the cap.
         """
-        slot = self._slot_for(key)
-        slot.last_status = status
-        self._last_status = status
-        if status in FATAL_STATUSES:
-            slot.state = KeyState.DEAD
-            _log.warning(
-                "embeddings key %s rejected with HTTP %d; dead for this session",
+        with self._lock:
+            slot = self._slot_for(key)
+            slot.last_status = status
+            self._last_status = status
+            if status in FATAL_STATUSES:
+                slot.state = KeyState.DEAD
+                _log.warning(
+                    "embeddings key %s rejected with HTTP %d; dead for this session",
+                    mask_key(slot.key),
+                    status,
+                )
+                return
+            if slot.state is KeyState.DEAD:
+                return  # a late transient report must not resurrect a dead key
+            slot.state = KeyState.COOLING
+            slot.cooldown_until = now + slot.next_cooldown
+            _log.debug(
+                "embeddings key %s cooling for %.1fs after HTTP %d",
                 mask_key(slot.key),
+                slot.next_cooldown,
                 status,
             )
-            return
-        if slot.state is KeyState.DEAD:
-            return  # a late transient report must not resurrect a dead key
-        slot.state = KeyState.COOLING
-        slot.cooldown_until = now + slot.next_cooldown
-        _log.debug(
-            "embeddings key %s cooling for %.1fs after HTTP %d",
-            mask_key(slot.key),
-            slot.next_cooldown,
-            status,
-        )
-        slot.next_cooldown = min(slot.next_cooldown * 2.0, self._max_cooldown)
+            slot.next_cooldown = min(slot.next_cooldown * 2.0, self._max_cooldown)
 
     def exhausted(self, now: float) -> bool:
         """Whether :meth:`acquire` would return ``None`` at ``now`` (no mutation)."""
@@ -269,9 +322,7 @@ class KeyRing:
                 fingerprint=mask_key(slot.key),
                 state=slot.state,
                 cooldown_remaining=(
-                    max(0.0, slot.cooldown_until - now)
-                    if slot.state is KeyState.COOLING
-                    else 0.0
+                    max(0.0, slot.cooldown_until - now) if slot.state is KeyState.COOLING else 0.0
                 ),
                 last_status=slot.last_status,
             )

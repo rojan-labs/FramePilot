@@ -279,9 +279,60 @@ def test_health_snapshot_shape_and_aliases() -> None:
         "index": 0,
         "fingerprint": "…1111",
         "state": "cooling",
-        "cooldownRemaining": pytest.approx(
-            DEFAULT_BASE_COOLDOWN_SECONDS - 1.0
-        ),
+        "cooldownRemaining": pytest.approx(DEFAULT_BASE_COOLDOWN_SECONDS - 1.0),
         "lastStatus": 429,
     }
     assert DEFAULT_MAX_COOLDOWN_SECONDS == 300.0
+
+
+# --- exclusive checkout: several keys as throughput, not just failover -----------
+
+
+def test_exclusive_checkout_spreads_concurrent_callers_across_keys() -> None:
+    """Several keys used to buy resilience and nothing else.
+
+    `acquire` always answered "the first alive key", so eight concurrent embedding
+    requests all queued behind one key's rate limit — the Settings field invites
+    comma-separated keys and the user reasonably reads that as throughput.
+    """
+    ring = KeyRing(["a", "b", "c"])
+    taken = [ring.acquire(0.0, exclusive=True) for _ in range(3)]
+    assert sorted(k for k in taken if k is not None) == ["a", "b", "c"]
+
+
+def test_a_released_key_is_offered_again() -> None:
+    ring = KeyRing(["a", "b"])
+    first = ring.acquire(0.0, exclusive=True)
+    ring.acquire(0.0, exclusive=True)
+    assert first is not None
+    ring.release(first)
+    assert ring.acquire(0.0, exclusive=True) == first
+
+
+def test_one_key_under_checkout_behaves_exactly_as_before() -> None:
+    ring = KeyRing(["only"])
+    assert [ring.acquire(0.0, exclusive=True) for _ in range(3)] == ["only"] * 3
+
+
+def test_the_sequential_path_is_untouched_by_the_checkout_machinery() -> None:
+    """A caller that never releases must see the original stable rotation."""
+    ring = KeyRing(["a", "b", "c"])
+    assert [ring.acquire(0.0) for _ in range(5)] == ["a"] * 5
+
+
+def test_release_below_zero_is_a_no_op() -> None:
+    ring = KeyRing(["a"])
+    ring.release("a")
+    ring.release("unknown")
+    assert ring.acquire(0.0, exclusive=True) == "a"
+
+
+def test_alive_count_is_the_ceiling_on_useful_concurrency() -> None:
+    ring = KeyRing(["a", "b", "c"])
+    assert ring.alive_count(0.0) == 3
+    ring.report_failure("a", 401, 0.0)  # dead for the session
+    ring.report_failure("b", 429, 0.0)  # cooling
+    assert ring.alive_count(0.0) == 1
+    # The cooled key comes back and concurrency rises with it — the backpressure is the
+    # ring's own state, not a second limiter to keep in sync.
+    assert ring.alive_count(10_000.0) == 2

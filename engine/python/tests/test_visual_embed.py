@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import base64
 import json
+import threading
+import time
 from typing import Any
 
 import httpx
@@ -48,9 +50,7 @@ def make_client(
 def embeddings_response(count: int, *, dim: int = DIM) -> dict[str, Any]:
     """A well-formed response body; indices deliberately reversed to prove sorting."""
     return {
-        "data": [
-            {"index": i, "embedding": [float(i)] * dim} for i in reversed(range(count))
-        ],
+        "data": [{"index": i, "embedding": [float(i)] * dim} for i in reversed(range(count))],
         "model": MODEL_ID,
         "usage": {"prompt_tokens": 0, "total_tokens": 0},
     }
@@ -373,3 +373,70 @@ def test_resolve_default_http_client_is_usable() -> None:
     resolution = resolve_visual_embedder(KEY_A)  # no injected http client
     assert resolution.client is not None
     assert resolution.client.embed_query("q") == [0.0] * DIM
+
+
+# --- concurrent batches ---------------------------------------------------------
+
+
+def test_batches_go_out_together_and_come_back_in_order(respx_mock: respx.MockRouter) -> None:
+    """Batches were issued one after another, so embedding N frames cost N/batch_size
+    round-trips end to end — and on a real 60-photo project ~98% of measured wall clock
+    was that wait. They are independent, so they go out together; what must NOT change
+    is that the vectors line up with their frames."""
+    seen: list[int] = []
+    in_flight = 0
+    peak = 0
+    lock = threading.Lock()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal in_flight, peak
+        body = json.loads(request.content)
+        first = body["input"][0]
+        with lock:
+            in_flight += 1
+            peak = max(peak, in_flight)
+        time.sleep(0.02)
+        with lock:
+            in_flight -= 1
+            seen.append(len(body["input"]))
+        # Echo a vector whose first component identifies the batch's first frame, so a
+        # reordering is visible in the result rather than merely possible.
+        marker = float(len(first))
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"index": i, "embedding": [marker, float(i), 0.0]}
+                    for i in range(len(body["input"]))
+                ]
+            },
+        )
+
+    respx_mock.post(EMBEDDINGS_URL).mock(side_effect=handler)
+    client = VisualEmbedClient(
+        KeyRing([KEY_A, KEY_B]), http=httpx.Client(), batch_size=1, max_concurrency=4
+    )
+    images = [f"frame-{i}".encode() for i in range(6)]
+    result = client.embed_passages(images)
+
+    assert len(result.vectors) == 6
+    # Six single-frame batches, each carrying its own index back in order.
+    assert [v[1] for v in result.vectors] == [0.0] * 6
+    assert peak > 1, "batches queued instead of overlapping"
+    assert len(seen) == 6
+
+
+def test_a_single_batch_needs_no_pool(respx_mock: respx.MockRouter) -> None:
+    """The common case — one asset, one frame — must not pay for a thread pool."""
+    respx_mock.post(EMBEDDINGS_URL).mock(
+        return_value=httpx.Response(200, json={"data": [{"index": 0, "embedding": [1.0, 2.0]}]})
+    )
+    client = VisualEmbedClient(KeyRing([KEY_A]), http=httpx.Client())
+    result = client.embed_passages([b"one-frame"])
+    assert result.vectors == [[1.0, 2.0]]
+    assert result.dim == 2
+
+
+def test_max_concurrency_must_be_positive() -> None:
+    with pytest.raises(ValueError, match="max_concurrency"):
+        VisualEmbedClient(KeyRing([KEY_A]), http=httpx.Client(), max_concurrency=0)

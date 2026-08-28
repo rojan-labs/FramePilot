@@ -25,8 +25,10 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -182,7 +184,7 @@ from framepilot_engine.brain.visual_search import (
     project_span_to_timeline,
     transcript_overlap,
 )
-from framepilot_engine.config import Settings, get_settings
+from framepilot_engine.config import DEFAULT_VISUAL_INDEX_CONCURRENCY, Settings, get_settings
 from framepilot_engine.media.derive import PROXY_ENCODE_VERSION, generate_proxy, generate_thumbnails
 from framepilot_engine.media.ffmpeg import FFmpegError, NoAudioStreamError
 from framepilot_engine.media.probe import MediaInfo, inspect_media
@@ -724,16 +726,26 @@ class BrainSimilarResponse(BaseModel):
 #: Job ``kind`` for a chunked visual-index job (plan MI4.1); guards ``jobId`` reuse
 #: the same way :data:`BATCH_JOB_KIND` does for analysis.
 VISUAL_JOB_KIND = "visual-index"
-#: Default assets indexed per ``/brain/visual/index`` slice. Small on purpose:
-#: sampling + embedding + captioning an asset is far heavier than an analysis
-#: pass, so one call stays well under the request timeout (paced across turns).
-DEFAULT_VISUAL_SLICE = 1
+#: Default assets per ``/brain/visual/index`` slice. This was 1, which was the right
+#: number while a slice prepared its assets one after another — sampling + embedding +
+#: captioning is far heavier than an analysis pass, and one call had to stay well under
+#: the request timeout. A slice now prepares its assets CONCURRENTLY
+#: (``FRAMEPILOT_VISUAL_INDEX_CONCURRENCY``), so a slice of one leaves the pool empty and
+#: the whole point unrealised. Matched to the concurrency default so the two move
+#: together; a slice still costs about one asset's wall clock.
+DEFAULT_VISUAL_SLICE = DEFAULT_VISUAL_INDEX_CONCURRENCY
 #: Hard cap on assets per slice (a single call can't reintroduce a long block).
 MAX_VISUAL_SLICE = 10
 #: How many assets in a row may fail on the hosted (TwelveLabs) path before the
 #: slice stops. One failure is a bad file and must not block the other assets;
 #: a run of them is a bad index, account, or network, and continuing would upload
 #: — and be billed for — every remaining asset just to fail identically.
+#:
+#: The slice's assets are prepared concurrently, so the ones already in flight when the
+#: bound trips still complete: the real ceiling is this limit plus
+#: ``FRAMEPILOT_VISUAL_INDEX_CONCURRENCY - 1`` uploads, once, before the job is marked
+#: failed and no further slice runs. Bounded and small, against a 61-asset project that
+#: would otherwise be uploaded in full.
 TL_CONSECUTIVE_FAILURE_LIMIT = 3
 #: Above this many spans the pairwise near-duplicate comparison behind
 #: `similarGroup` stops earning its cost, and the signal is omitted rather than
@@ -2447,6 +2459,80 @@ def create_app(
             updated_at=job.updated_at,
         )
 
+    @dataclass(frozen=True)
+    class _AssetOutcome:
+        """What preparing one asset decided about the job's cursor.
+
+        ``advanced`` is whether the cursor may move past this asset — False while a
+        hosted upload is still indexing, so the slice is re-posted to keep polling.
+        ``stop_reason`` is a SYSTEMIC failure (an exhausted key ring, a broken index):
+        the slice stops at this asset rather than paying for the rest of the worklist.
+        """
+
+        item: VisualIndexItem
+        advanced: bool
+        stop_reason: str | None = None
+
+    def _prepare_slice(
+        slice_ids: Sequence[str],
+        prepare: Callable[[BrainStore, VisualVectorStore, str], _AssetOutcome],
+        *,
+        resolved_root: Path,
+        project_id: str,
+    ) -> tuple[list[VisualIndexItem], int, str | None]:
+        """Prepare a slice's assets concurrently, then commit an ordered PREFIX.
+
+        ## Why concurrently
+
+        Preparation was strictly serial and, measured on real projects, ~98% of its wall
+        clock was waiting on the understanding provider — 60 photos cost 92.7s against
+        about 1.5s of local CPU. The assets are independent, so they are prepared
+        together, bounded by ``FRAMEPILOT_VISUAL_INDEX_CONCURRENCY``. Each worker opens
+        its OWN brain connection: the store is not thread-safe, but the database is WAL
+        with a busy timeout and was designed for exactly this (two request handlers hold
+        their own connection already).
+
+        ## Why a prefix, and not "everything that succeeded"
+
+        The job's durable state is a single cursor, so resume is only correct if the
+        completed set is a prefix of the worklist. If asset 3 fails while asset 4 has
+        already succeeded, the cursor stops at 3 — asset 4's work is persisted and its
+        re-run is a cheap no-op (``existing_visual_span_keys``), and correctness does not
+        depend on remembering a hole. Concurrency must never make resume ambiguous.
+
+        :returns: ``(items, advanced, stop_reason)`` — all three describe the prefix only.
+        """
+        concurrency = max(1, min(settings.visual_index_concurrency, len(slice_ids)))
+        outcomes: dict[int, _AssetOutcome] = {}
+
+        def run(index: int) -> tuple[int, _AssetOutcome]:
+            with open_brain(resolved_root, project_id) as store:
+                return index, prepare(store, VisualVectorStore(store), slice_ids[index])
+
+        if concurrency == 1:
+            # One asset, or concurrency switched off: no pool, so a single-asset slice
+            # costs exactly what it did before and stack traces stay direct.
+            for index in range(len(slice_ids)):
+                _, outcomes[index] = run(index)
+        else:
+            with ThreadPoolExecutor(max_workers=concurrency) as pool:
+                for index, outcome in pool.map(run, range(len(slice_ids))):
+                    outcomes[index] = outcome
+
+        items: list[VisualIndexItem] = []
+        advanced = 0
+        stop_reason: str | None = None
+        for index in range(len(slice_ids)):
+            outcome = outcomes[index]
+            if outcome.stop_reason is not None:
+                stop_reason = outcome.stop_reason
+                break
+            items.append(outcome.item)
+            if not outcome.advanced:
+                break
+            advanced += 1
+        return items, advanced, stop_reason
+
     def _tl_still_image_item(
         store: BrainStore,
         vstore: VisualVectorStore,
@@ -2552,19 +2638,21 @@ def create_app(
         # the slice without advancing past it (resumable); the caller re-posts.
         slice_ids = asset_ids[cursor : cursor + req.max_assets]
         timeout = float(settings.asset_media_timeout_seconds)
-        items: list[VisualIndexItem] = []
-        indexed = advanced = 0
-        stop_reason: str | None = None
         # Stills never reach TwelveLabs (see `_asset_is_still_image`); they are
         # embedded on the built-in path instead, so the hosted key does not withdraw
         # image understanding from a photo project. Resolved lazily because
         # `resolve_visual_embedder`/`resolve_captioner` each construct an HTTP client:
-        # a video-only project must not pay for one on every slice.
+        # a video-only project must not pay for one on every slice. Guarded because the
+        # slice's assets are prepared concurrently and two photos would otherwise race
+        # to build two clients.
         still_backend: tuple[VisualEmbedderResolution, SceneCaptioner | None, str] | None = None
+        still_backend_lock = threading.Lock()
 
         def _still_backend() -> tuple[VisualEmbedderResolution, SceneCaptioner | None, str]:
             nonlocal still_backend
-            if still_backend is None:
+            with still_backend_lock:
+                if still_backend is not None:
+                    return still_backend
                 provider = req.caption_provider
                 still_backend = (
                     resolve_visual_embedder(req.nvidia_keys or settings.nvidia_embeddings_keys),
@@ -2580,116 +2668,116 @@ def create_app(
                     ).captioner,
                     provider.model if provider is not None else "",
                 )
-            return still_backend
+                return still_backend
 
         # Journaled on the job, not counted per slice: a slice is one asset by
         # default (`DEFAULT_VISUAL_SLICE`), so a per-slice counter could never
         # reach the bound and a broken index would upload every asset in the
         # project one call at a time.
         consecutive_failures = int(job.payload.get("consecutiveFailures", 0))
+
+        def prepare_hosted(
+            store: BrainStore, vstore: VisualVectorStore, asset_id: str
+        ) -> _AssetOutcome:
+            asset = store.get_asset(asset_id)
+            if asset is None:
+                return _AssetOutcome(
+                    item=VisualIndexItem(
+                        asset_id=asset_id, ok=False, reason="asset not known to brain"
+                    ),
+                    advanced=True,
+                )
+            if _asset_is_still_image(asset):
+                embed_res, still_captioner, still_caption_model = _still_backend()
+                return _AssetOutcome(
+                    item=_tl_still_image_item(
+                        store,
+                        vstore,
+                        embed_res,
+                        still_captioner,
+                        still_caption_model,
+                        asset_id,
+                        resolved_root,
+                        timeout,
+                    ),
+                    advanced=True,
+                )
+            try:
+                media_path = resolve_within(resolved_root, asset.path)
+            except PathTraversalError as exc:
+                return _AssetOutcome(
+                    item=VisualIndexItem(asset_id=asset_id, ok=False, reason=str(exc)),
+                    advanced=True,
+                )
+            content_hash = asset.content_sha256 or _sha256_file(media_path)
+
+            def _upload(idx: str = index_id, path: Path = media_path) -> str:
+                return client.create_index_task(idx, path)
+
+            try:
+                outcome = poll_index_asset(
+                    client,
+                    store,
+                    index_id,
+                    asset_id,
+                    media_path.name,
+                    upload=_upload,
+                    content_hash=content_hash,
+                )
+            except TwelveLabsAuthError:
+                # Auth is a property of the key, not of this file: every remaining
+                # asset would fail identically. Stop the run.
+                return _AssetOutcome(
+                    item=VisualIndexItem(asset_id=asset_id, ok=False, reason="invalid_api_key"),
+                    advanced=False,
+                    stop_reason="invalid_api_key",
+                )
+            except TwelveLabsError as exc:
+                # One asset the provider will not take (an unsupported or corrupt file)
+                # must NOT freeze the project. Before this, any TwelveLabsError broke the
+                # slice without advancing the cursor, so every re-post hit the same asset
+                # again and coverage stayed at 0/N forever — the reported defect. Record
+                # it as failed and advance; a RUN of them is caught below.
+                reason = str(exc)
+                store_video_mapping(store, asset_id, content_hash=content_hash, status="failed")
+                _log.warning("twelvelabs index asset failed: asset=%s reason=%s", asset_id, reason)
+                return _AssetOutcome(
+                    item=VisualIndexItem(asset_id=asset_id, ok=False, reason=reason),
+                    advanced=True,
+                )
+            return _AssetOutcome(
+                item=VisualIndexItem(
+                    asset_id=asset_id,
+                    ok=outcome.ok,
+                    indexed=outcome.newly_indexed,
+                    reason=outcome.reason,
+                ),
+                # Still indexing — yield the slice and keep the cursor, so the caller's
+                # re-post keeps polling this asset rather than skipping it.
+                advanced=outcome.advanced,
+            )
+
         try:
-            with open_brain(resolved_root, req.project_id) as store:
-                vstore = VisualVectorStore(store)
-                for asset_id in slice_ids:
-                    asset = store.get_asset(asset_id)
-                    if asset is None:
-                        items.append(
-                            VisualIndexItem(
-                                asset_id=asset_id, ok=False, reason="asset not known to brain"
-                            )
-                        )
-                        advanced += 1
-                        continue
-                    if _asset_is_still_image(asset):
-                        embed_res, still_captioner, still_caption_model = _still_backend()
-                        item = _tl_still_image_item(
-                            store,
-                            vstore,
-                            embed_res,
-                            still_captioner,
-                            still_caption_model,
-                            asset_id,
-                            resolved_root,
-                            timeout,
-                        )
-                        items.append(item)
-                        indexed += item.indexed
-                        advanced += 1
-                        continue
-                    try:
-                        media_path = resolve_within(resolved_root, asset.path)
-                    except PathTraversalError as exc:
-                        items.append(VisualIndexItem(asset_id=asset_id, ok=False, reason=str(exc)))
-                        advanced += 1
-                        continue
-                    content_hash = asset.content_sha256 or _sha256_file(media_path)
-
-                    # `upload` is invoked synchronously inside `poll_index_asset`
-                    # (before this loop advances), so this closure over `media_path`
-                    # has no late-binding hazard.
-                    def _upload(idx: str = index_id, path: Path = media_path) -> str:
-                        return client.create_index_task(idx, path)
-
-                    try:
-                        outcome = poll_index_asset(
-                            client,
-                            store,
-                            index_id,
-                            asset_id,
-                            media_path.name,
-                            upload=_upload,
-                            content_hash=content_hash,
-                        )
-                    except TwelveLabsAuthError:
-                        # Auth is a property of the key, not of this file: every
-                        # remaining asset would fail identically. Stop the run.
-                        stop_reason = "invalid_api_key"
-                        break
-                    except TwelveLabsError as exc:
-                        # One asset the provider will not take (an unsupported or
-                        # corrupt file) must NOT freeze the project. Before this,
-                        # any TwelveLabsError broke the slice without advancing the
-                        # cursor, so every re-post hit the same asset again and
-                        # coverage stayed at 0/N forever — the reported defect.
-                        # Record it as failed, advance, keep going.
-                        reason = str(exc)
-                        store_video_mapping(
-                            store,
-                            asset_id,
-                            content_hash=content_hash,
-                            status="failed",
-                        )
-                        items.append(VisualIndexItem(asset_id=asset_id, ok=False, reason=reason))
-                        advanced += 1
-                        consecutive_failures += 1
-                        _log.warning(
-                            "twelvelabs index asset failed: asset=%s reason=%s (%d consecutive)",
-                            asset_id,
-                            reason,
-                            consecutive_failures,
-                        )
-                        if consecutive_failures >= TL_CONSECUTIVE_FAILURE_LIMIT:
-                            # Not a bad file any more — a bad index/account/network.
-                            # Stop before uploading (and being billed for) the rest.
-                            stop_reason = reason
-                            break
-                        continue
-                    consecutive_failures = 0
-                    items.append(
-                        VisualIndexItem(
-                            asset_id=asset_id,
-                            ok=outcome.ok,
-                            indexed=outcome.newly_indexed,
-                            reason=outcome.reason,
-                        )
-                    )
-                    indexed += outcome.newly_indexed
-                    if outcome.advanced:
-                        advanced += 1
-                    else:
-                        break  # still indexing — yield the slice, keep the cursor
+            items, advanced, stop_reason = _prepare_slice(
+                slice_ids,
+                prepare_hosted,
+                resolved_root=resolved_root,
+                project_id=req.project_id,
+            )
         except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
             return VisualIndexResponse(available=False, reason=str(exc))
+        indexed = sum(item.indexed for item in items)
+        # A RUN of refusals is a bad index, account, or network — not a bad file — and
+        # continuing would upload (and bill for) every remaining asset just to fail
+        # identically. Counted over the committed prefix and carried on the job, because
+        # a slice is one asset by default: a per-slice counter could never reach the bound.
+        for position, item in enumerate(items[:advanced]):
+            consecutive_failures = 0 if item.ok else consecutive_failures + 1
+            if not item.ok and consecutive_failures >= TL_CONSECUTIVE_FAILURE_LIMIT:
+                stop_reason = item.reason
+                advanced = position + 1
+                items = items[:advanced]
+                break
 
         # Phase 3 — persist the advanced cursor + terminal state.
         _ = timeout  # media timeout unused on the TL path (no local decode)
@@ -2818,49 +2906,59 @@ def create_app(
             except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
                 return VisualIndexResponse(available=False, reason=str(exc))
 
-            # Phase 2 — index this slice, asset by asset. A key exhaustion stops the
-            # slice cleanly before advancing past the unprocessed asset (resumable).
+            # Phase 2 — index this slice. The assets go together (see `_prepare_slice`);
+            # a key exhaustion stops the slice cleanly before advancing past the
+            # unprocessed asset, and the cursor only ever advances over a prefix.
             slice_ids = asset_ids[cursor : cursor + req.max_assets]
             timeout = float(settings.asset_media_timeout_seconds)
-            items: list[VisualIndexItem] = []
-            indexed = captioned = completed = 0
-            exhausted: str | None = None
+            embed_client = embedder_res.client
+
+            def prepare_builtin(
+                store: BrainStore, vstore: VisualVectorStore, asset_id: str
+            ) -> _AssetOutcome:
+                try:
+                    item = _index_one_asset(
+                        store,
+                        vstore,
+                        embed_client,
+                        captioner_res.captioner,
+                        caption_model,
+                        asset_id,
+                        resolved_root,
+                        timeout,
+                    )
+                except KeyRingExhaustedError as exc:
+                    reason = exc.last_error or EXHAUSTED_REASON
+                    _log.warning("Visual index stopped: embedding keys exhausted (%s)", reason)
+                    return _AssetOutcome(
+                        item=VisualIndexItem(asset_id=asset_id, ok=False, reason=reason),
+                        advanced=False,
+                        stop_reason=reason,
+                    )
+                except VisualEmbedError as exc:
+                    # Non-retryable across every key (bad payload, malformed response) —
+                    # rotating keys can't fix it, so stop the slice honestly rather than
+                    # crash (mirrors /brain/visual/search).
+                    reason = str(exc)
+                    _log.warning("Visual index stopped: embedding request failed (%s)", reason)
+                    return _AssetOutcome(
+                        item=VisualIndexItem(asset_id=asset_id, ok=False, reason=reason),
+                        advanced=False,
+                        stop_reason=reason,
+                    )
+                return _AssetOutcome(item=item, advanced=True)
+
             try:
-                with open_brain(resolved_root, req.project_id) as store:
-                    vstore = VisualVectorStore(store)
-                    for asset_id in slice_ids:
-                        try:
-                            item = _index_one_asset(
-                                store,
-                                vstore,
-                                embedder_res.client,
-                                captioner_res.captioner,
-                                caption_model,
-                                asset_id,
-                                resolved_root,
-                                timeout,
-                            )
-                        except KeyRingExhaustedError as exc:
-                            exhausted = exc.last_error or EXHAUSTED_REASON
-                            _log.warning(
-                                "Visual index stopped: embedding keys exhausted (%s)", exhausted
-                            )
-                            break
-                        except VisualEmbedError as exc:
-                            # Non-retryable across every key (bad payload, malformed
-                            # response) — rotating keys can't fix it, so stop the slice
-                            # honestly rather than crash (mirrors /brain/visual/search).
-                            exhausted = str(exc)
-                            _log.warning(
-                                "Visual index stopped: embedding request failed (%s)", exhausted
-                            )
-                            break
-                        items.append(item)
-                        indexed += item.indexed
-                        captioned += item.captioned
-                        completed += 1
+                items, completed, exhausted = _prepare_slice(
+                    slice_ids,
+                    prepare_builtin,
+                    resolved_root=resolved_root,
+                    project_id=req.project_id,
+                )
             except (BrainError, BrainSchemaError, PathTraversalError, OSError, FFmpegError) as exc:
                 return VisualIndexResponse(available=False, reason=str(exc))
+            indexed = sum(item.indexed for item in items)
+            captioned = sum(item.captioned for item in items)
 
             # Phase 3 — persist the advanced cursor + terminal state; embed captions.
             new_cursor = cursor + completed

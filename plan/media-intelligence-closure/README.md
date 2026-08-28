@@ -18,7 +18,7 @@ brain databases, not a synthetic repro — see `00-DIAGNOSIS.md`.
 | ----- | -------------------------------------------------------------------- | ------------------------ |
 | 1     | Preparation correctness — stills, head-of-line blocking, job honesty | `[x]` shipped 2026-08-28 |
 | 2     | Time base and the LLM-consumption contract                           | `[x]` shipped 2026-08-28 |
-| 3     | Parallel preparation                                                 | `[ ]` not started        |
+| 3     | Parallel preparation                                                 | `[x]` shipped 2026-08-28 |
 | 4     | Per-asset outcomes and the panel state matrix                        | `[ ]` not started        |
 | 5     | Removals                                                             | `[ ]` not started        |
 

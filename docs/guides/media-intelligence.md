@@ -148,12 +148,21 @@ Everything is opt-in behind a key.
   that should produce the short scene descriptions. On desktop its key remains in
   the main process and is forwarded to the Python sidecar only for captioning; it
   is never returned to the Settings UI.
-- **Multi-key failover.** Give several comma-separated keys and the engine's
-  key ring rotates automatically: mark a key dead for the session on 401/403,
+- **Multi-key failover _and_ throughput.** Give several comma-separated keys and the
+  engine's key ring rotates automatically: mark a key dead for the session on 401/403,
   cool it down (exponential backoff) on 429/5xx and move to the next. All keys
   exhausted → a typed `{available:false, reason:"all_keys_failing"}`, never a
   fake result. Per-key health is surfaced in `/brain/visual/status` and the
-  settings UI.
+  settings UI. Concurrent embedding requests now draw **different** keys rather than
+  queueing behind the first healthy one, so extra keys buy speed as well as resilience.
+- **Concurrent preparation.** `FRAMEPILOT_VISUAL_INDEX_CONCURRENCY` (default 4) sets how
+  many assets one index slice prepares at once. Preparation is dominated by waiting on
+  the provider, not by local work — 60 photos measured 92.7 s of wall clock against about
+  1.5 s of local CPU — so this is the main lever on how quickly a freshly imported
+  project becomes searchable: 60 photos go from ~110 s to ~30 s at the default, and to
+  ~17 s at the maximum. Raise it if you have several keys; set it to `1` to restore
+  strictly serial preparation. Results are identical at any setting — the cursor still
+  advances over a prefix of the worklist, so resume stays exact.
 - **Batch contract.** NVIDIA requires `modality` to be a list with exactly one
   encoder-tower value per `input`. The client constructs both arrays together
   (`["image", ...]` for stored frames, `["text"]` for a query), so a batch can

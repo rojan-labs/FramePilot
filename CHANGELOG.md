@@ -6,6 +6,22 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- **Understanding your footage is roughly four times faster.** Preparing media used to
+  happen one file at a time, and almost all of that time was spent waiting on the
+  service doing the understanding rather than on your machine — 60 photos took over a
+  minute and a half of waiting. Files are now prepared together: the same 60 photos take
+  about half a minute, and less than that if you have set more than one embeddings key,
+  which now share the work instead of taking turns. Nothing else changes — the same
+  files, the same results, the same cost, and preparation still picks up exactly where it
+  left off if you close the app. If you would rather it took its time, set
+  `FRAMEPILOT_VISUAL_INDEX_CONCURRENCY=1`.
+- **The AI can tell a half-read project from an empty one.** The footage map has always
+  been usable before preparation finishes, but it never said how much of your project it
+  had actually read, so the assistant could conclude there was nothing else to cut to. It
+  now says "built from 12 of 61 assets prepared so far" while there is more to come.
+
 ### Fixed
 
 - **Projects made of photos are understood again.** Adding still images to a project

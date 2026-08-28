@@ -281,7 +281,11 @@ def test_one_refused_asset_advances_the_cursor(
     assert last["cursor"] == 2
     refused = next(i for i in last["items"] if i["assetId"] == "vid1")
     assert refused["ok"] is False and "resource_not_exists" in refused["reason"]
-    assert tl.uploads == ["clip1.mp4", "clip2.mp4"]
+    # A slice prepares its assets concurrently, so upload ORDER is not a property worth
+    # asserting; that both were attempted, and that the cursor walked both in worklist
+    # order, is.
+    assert sorted(tl.uploads) == ["clip1.mp4", "clip2.mp4"]
+    assert [i["assetId"] for i in last["items"]] == ["vid1", "vid2"]
 
     status = client.get("/brain/visual/status", params={"projectId": "p1"}).json()
     assert status["indexedAssets"] == 1  # only the asset that really indexed
@@ -300,8 +304,12 @@ def test_a_run_of_refusals_stops_the_slice_and_fails_the_job(
     last = _run_to_completion(client)
     assert last["done"] is False
     assert "resource_not_exists" in last["reason"]
-    # Stopped at the consecutive-failure bound instead of burning all six.
-    assert len(tl.uploads) == service_module.TL_CONSECUTIVE_FAILURE_LIMIT
+    # Stopped near the consecutive-failure bound instead of burning all six. The assets
+    # already in flight when the bound trips still complete, so the ceiling is the limit
+    # plus concurrency - 1 — bounded and small, against a project that would otherwise be
+    # uploaded in full.
+    assert len(tl.uploads) < len(names)
+    assert len(tl.uploads) <= service_module.TL_CONSECUTIVE_FAILURE_LIMIT + 1
 
     status = client.get("/brain/visual/status", params={"projectId": "p1"}).json()
     # The defect's most misleading symptom: a job that had given up still read

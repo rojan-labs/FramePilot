@@ -44,6 +44,12 @@ DEFAULT_RENDER_TIMEOUT_SECONDS = 900
 # ffmpeg decodes pathologically slowly) must not be able to hang the import path.
 # Mirrors FRAMEPILOT_RENDER_TIMEOUT_SECONDS but scoped to the /asset-media route.
 DEFAULT_ASSET_MEDIA_TIMEOUT_SECONDS = 60
+# How many assets one /brain/visual/index slice prepares at once (plan
+# media-intelligence-closure phase 3). Preparation was strictly serial and ~98% of its
+# measured wall clock was network wait: 60 photos cost 92.7s against ~1.5s of local CPU.
+# Four keeps the sockets and the SQLite write contention modest while removing most of
+# that wait; 1 restores the old strictly-serial behaviour exactly.
+DEFAULT_VISUAL_INDEX_CONCURRENCY = 4
 # Preview-proxy derivation (H3): transcodes are far slower than probes, so they
 # get their own budget; sources longer than the cap are skipped synchronously
 # (a background proxy queue is the follow-up for feature-length footage).
@@ -153,6 +159,7 @@ class Settings(BaseModel):
     soul_root: Path | None = None
     render_timeout_seconds: int = Field(default=DEFAULT_RENDER_TIMEOUT_SECONDS, gt=0)
     asset_media_timeout_seconds: int = Field(default=DEFAULT_ASSET_MEDIA_TIMEOUT_SECONDS, gt=0)
+    visual_index_concurrency: int = Field(default=DEFAULT_VISUAL_INDEX_CONCURRENCY, gt=0)
     proxy_timeout_seconds: int = Field(default=DEFAULT_PROXY_TIMEOUT_SECONDS, gt=0)
     proxy_max_duration_seconds: int = Field(default=DEFAULT_PROXY_MAX_DURATION_SECONDS, gt=0)
     ai_max_tokens: int = Field(default=DEFAULT_AI_MAX_TOKENS, gt=0)
@@ -215,6 +222,9 @@ class Settings(BaseModel):
             asset_media_timeout_seconds=int(
                 value("FRAMEPILOT_ASSET_MEDIA_TIMEOUT_SECONDS")
                 or DEFAULT_ASSET_MEDIA_TIMEOUT_SECONDS
+            ),
+            visual_index_concurrency=int(
+                value("FRAMEPILOT_VISUAL_INDEX_CONCURRENCY") or DEFAULT_VISUAL_INDEX_CONCURRENCY
             ),
             proxy_timeout_seconds=int(
                 value("FRAMEPILOT_PROXY_TIMEOUT_SECONDS") or DEFAULT_PROXY_TIMEOUT_SECONDS
