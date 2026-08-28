@@ -312,7 +312,14 @@ export interface ConductorState {
   readonly cumulativeOps: readonly AnyOperation[];
   /** Turns that produced applied edits (the completion report's step count). */
   readonly appliedTurns: number;
-  /** Tool-call signatures already seen to make no progress (exact-repeat spin guard). */
+  /**
+   * Tool-call signatures already seen to make no progress (exact-repeat spin guard).
+   *
+   * A signature is banked ONLY for a turn that genuinely learned nothing — see
+   * {@link bankableSignature}. A turn whose reads came back with fresh data is not
+   * evidence of a spin, however little the model then did with it, and banking those was
+   * half of what stopped run `fc10301a` four batches into a montage.
+   */
   readonly noProgress: readonly string[];
   /**
    * How many turns in a row made no progress (reset to 0 by any turn that applied or
@@ -1732,7 +1739,7 @@ export function onTurnResult(
         ),
       );
     }
-    return advance({ ...guarded, noProgress: [...state.noProgress, r.signature] }, em, events);
+    return advance(bankIfStale(guarded, state, r, learnedSomethingNew), em, events);
   }
   const converged = stallStreak >= STALL_CONFIRM_TURNS;
   if (state.noProgress.includes(r.signature) || converged) {
@@ -1740,6 +1747,16 @@ export function onTurnResult(
       events.push(
         em.notification(
           'The run stopped making progress — no further edits could be found for this request.',
+        ),
+      );
+    } else {
+      // The exact-repeat arm used to end the run in silence. An editor watching saw a
+      // tool card go green and the run settle `failed` in the same breath, with the
+      // self-check warnings as the only account — and those describe the TIMELINE, not
+      // the decision to stop. Run `fc10301a` ended exactly here.
+      events.push(
+        em.notification(
+          'That exact set of calls was already made against this same arrangement and produced nothing new, so the run is settling here rather than repeating it.',
         ),
       );
     }
@@ -1765,7 +1782,37 @@ export function onTurnResult(
     );
     return toVerify(guarded, em, events);
   }
-  return advance({ ...guarded, noProgress: [...state.noProgress, r.signature] }, em, events);
+  return advance(bankIfStale(guarded, state, r, learnedSomethingNew), em, events);
+}
+
+/**
+ * Bank this turn's signature against the spin guard — but only when the turn is actually
+ * evidence of a spin.
+ *
+ * The guard's premise is "these exact calls, against this exact arrangement, already
+ * answered nothing new". A turn that ANSWERED — a read that came back uncached, a search
+ * that returned candidates, a call the run had never made before — fails that premise
+ * whatever the model did with the answer, and banking it arms a trap for the next turn
+ * that legitimately asks the same question.
+ *
+ * That is not hypothetical. Run `fc10301a` banked `get_timeline + list_assets` on a turn
+ * where both were memo hits, then made the same pair four turns and thirty-four clips
+ * later — uncached, against a timeline that had moved from empty to 24 seconds of picture
+ * — and was terminated on the match with eleven of thirty steps unspent. The revision is
+ * now part of the signature ({@link turnSignature} in `orchestrator.ts`), which fixes that
+ * exact collision; this fixes the class it belonged to.
+ *
+ * The stall and no-progress streaks are untouched: a run retrying one failing call
+ * forever still increments those every turn and still converges.
+ */
+function bankIfStale(
+  guarded: ConductorState,
+  state: ConductorState,
+  r: AgentTurnResult,
+  learnedSomethingNew: boolean,
+): ConductorState {
+  if (learnedSomethingNew) return guarded;
+  return { ...guarded, noProgress: [...state.noProgress, r.signature] };
 }
 
 /**

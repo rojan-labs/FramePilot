@@ -100,7 +100,7 @@ import {
 import { type AnalysisBudget, createAnalysisBudget } from './kernel/cost/analysis-caps.js';
 import { estimateUsd } from './kernel/cost/cost-meter.js';
 import { stageAllowsRole, toolRole } from './kernel/stage-policy.js';
-import { isCatalogueSearch } from './tool-classification.js';
+import { classifyTool, isCatalogueSearch } from './tool-classification.js';
 import { deriveObjectiveText } from './kernel/continuation.js';
 import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
 import { buildStateBriefing, distil } from './kernel/briefing.js';
@@ -1050,18 +1050,50 @@ const IDENTITY_PREFIX_RESERVE_CHARS = 160; // room for `${runId}:${planId}:${dec
 const SIGNATURE_PREFIX_CHARS = MAX_IDENTITY_KEY_CHARS - IDENTITY_PREFIX_RESERVE_CHARS;
 
 /**
- * A stable, bounded signature of a turn's tool calls (names + arguments), used to detect
- * a *spinning* agent: a turn that made no progress and repeats a signature we have
- * already seen make no progress means the model is stuck, so the run should stop.
- * A novel no-progress turn is allowed to continue (e.g. a no-op "organize" when the
- * bin is already tidy, or a first failed call the model can now retry from the
- * surfaced error).
+ * A stable, bounded signature of a turn's tool calls (names, arguments, and — for a call
+ * whose answer depends on the timeline — the revision it was asked at), used to detect a
+ * *spinning* agent: a turn that made no progress and repeats a signature we have already
+ * seen make no progress means the model is stuck, so the run should stop. A novel
+ * no-progress turn is allowed to continue (e.g. a no-op "organize" when the bin is
+ * already tidy, or a first failed call the model can now retry from the surfaced error).
  *
  * Long turns keep a readable head and carry a digest of the whole thing, so two turns
  * that differ only past the cut-off still compare as different.
+ *
+ * ## Why the revision is part of the signature
+ *
+ * It was not, and the omission terminated a healthy run. `get_timeline` + `list_assets`
+ * with no arguments is the same STRING whether the timeline holds nothing or holds
+ * thirty-four clips, so a montage that reads the arrangement between batches — which it
+ * must, because applying a patch invalidates its timeline evidence — collides with itself
+ * on its second batch and is stopped as a spin. Run `fc10301a` was killed exactly there,
+ * with eleven of thirty steps unspent, on a read that had returned an entirely different
+ * timeline from the one banked four turns earlier (revision 71 → 75).
+ *
+ * Only a timeline-dependent QUESTION carries the revision, and the distinction is the
+ * whole rule:
+ *
+ * - A read or inspection is a question, and its answer changes when the timeline does.
+ *   Asking it again at a new revision is new work, so the revision belongs in its identity.
+ * - A `load_skill` or a `detect_beats` answers the same at every revision, so stamping one
+ *   would defeat the guard for the run it was built for — the model asking one unchanging
+ *   question forever.
+ * - A MUTATION is an intent, not a question. Re-proposing the same edit turn after turn is
+ *   repeating yourself whether or not earlier ones landed, and stamping the revision would
+ *   make an applying-but-runaway agent look novel every turn. A rejected edit does not move
+ *   the revision, so the exact-repeat guard still catches the re-proposed bad edit it was
+ *   written for; and an edit that DOES land is credited by `progressedMeaningfully`, which
+ *   is where "this turn achieved something" belongs.
  */
-function turnSignature(calls: readonly ToolCall[]): string {
-  const full = calls.map((c) => `${c.name}:${JSON.stringify(c.arguments)}`).join('|');
+function turnSignature(calls: readonly ToolCall[], revision: number): string {
+  const full = calls
+    .map((c) => {
+      const { role, scope } = classifyTool(c.name, getTool(c.name)?.kind);
+      const asksTheTimeline = scope === 'timeline_dependent' && role !== 'mutation';
+      const at = asksTheTimeline ? `@${String(revision)}` : '';
+      return `${c.name}${at}:${JSON.stringify(c.arguments)}`;
+    })
+    .join('|');
   return boundedKeySegment(full, SIGNATURE_PREFIX_CHARS);
 }
 
@@ -4225,7 +4257,7 @@ export class Orchestrator {
         outputDelta === undefined
           ? []
           : [...recentOutputDeltas, outputDelta].slice(-diminishingTurns);
-      const signature = turnSignature(calls);
+      const signature = turnSignature(calls, working.timeline.revision ?? 0);
       if (noProgressSignatures.has(signature) || stallStreak >= STALL_CONFIRM_TURNS) {
         break;
       }
@@ -6744,7 +6776,10 @@ export class Orchestrator {
         // C2: the turn's calls are now known — announce the specific, honest status for
         // what they're about to do before running them (never per-call, just once here).
         yield emit.status(statusForToolCalls(turn.calls));
-        const signature = turnSignature(turn.calls);
+        // The AUTHORITATIVE structural counter (`TimelineSchema.revision`, schema v12),
+        // not the ledger's own, and read BEFORE this turn's calls run — the signature
+        // describes "these calls, asked against this arrangement".
+        const signature = turnSignature(turn.calls, working.timeline.revision ?? 0);
         /* v8 ignore next 5 -- taskMemory is always defined on the live path (see the effect.working guard above), so the `undefined` side never runs. */
         const decisionId = taskMemory
           ? taskMemory.plan.decisionIds[Math.min(stepIdx, taskMemory.plan.decisionIds.length - 1)]
@@ -7121,6 +7156,24 @@ function withheldCallOutcome(
    */
   bankedSearches?: number,
 ): AgentCallOutcome {
+  // A name the registry has never heard of is not "withheld this turn" — it is not a tool.
+  //
+  // Every branch below explains a REAL tool that this turn is not offering, and each ends
+  // by telling the model to try again later or reach for the stored answer instead. Told
+  // that about a hallucinated name, a model does exactly what it is told: it waits a turn
+  // and calls the same non-existent tool again. Worse, the outcome settled as `warning`,
+  // which `callAnswered` reads as "this call answered" — so inventing a tool CREDITED the
+  // turn with having learned something, resetting the guards that exist to stop it.
+  //
+  // The one honest thing to say is that the name is wrong, and to say it as a failure.
+  // `runAgentCall` already answers this way on the serial path (`Refused unknown tool`);
+  // this is the same verdict for the path that never reaches it.
+  if (!getTool(call.name)) {
+    const note =
+      `There is no tool called "${call.name}". Use one of the tools offered on this ` +
+      'turn — inventing a name will not make it exist on the next one.';
+    return { ops: [], note, summary: `Refused unknown tool "${call.name}"`, status: 'failed' };
+  }
   if (bankedSearches !== undefined && isCatalogueSearch(call.name)) {
     return {
       ops: [],

@@ -782,6 +782,49 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     expect(effects).toEqual([{ kind: 'run_verify' }]);
   });
 
+  // GAP-002 (run `fc10301a`). The exact-repeat arm ended runs in silence: a tool card went
+  // green and the run settled `failed` in the same breath, with only the timeline's
+  // self-check warnings to explain it. The editor could not tell a converged run from a
+  // crashed one.
+  it('says why it is settling when a signature exactly repeats', () => {
+    const { events } = onEffectResult(
+      started({ noProgress: ['sig'] }),
+      turn({ applied: false, turnOpCount: 2, note: 'overlaps neighbour' }),
+    );
+    expect(
+      events.some(
+        (e) => e.type === 'notification' && e.text.includes('already made against this same'),
+      ),
+    ).toBe(true);
+  });
+
+  // GAP-002, the banking half. A turn that ANSWERED is not evidence of a spin, whatever
+  // the model then did with the answer — and banking it arms a trap for the next turn
+  // that legitimately asks the same question. Run `fc10301a` banked
+  // `get_timeline + list_assets` on a memo-hit turn, made the same pair four turns and
+  // thirty-four clips later against a moved timeline, and was killed on the match.
+  it('does not bank a signature for a turn whose reads came back with fresh data', () => {
+    const { state } = onEffectResult(
+      started(),
+      turn({
+        signature: 'read-timeline',
+        callFacts: [{ key: 'get_timeline', status: 'completed', fromCache: false }],
+      }),
+    );
+    expect(state.noProgress).not.toContain('read-timeline');
+  });
+
+  it('still banks a signature for a turn that learned nothing', () => {
+    const { state } = onEffectResult(
+      started(),
+      turn({
+        signature: 'read-timeline',
+        callFacts: [{ key: 'get_timeline', status: 'completed', fromCache: true }],
+      }),
+    );
+    expect(state.noProgress).toContain('read-timeline');
+  });
+
   it('treats an attempted (even rejected) edit as progress — the streak resets, not climbs', () => {
     // A model actively proposing edits is not stalling, even if the validator rejects
     // them: the reason is now in the log and it gets to correct itself. Only the
