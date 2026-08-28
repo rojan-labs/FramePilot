@@ -24,6 +24,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant reads your photo library instead of fetching it.** On a project of 61
+  photos it was shown 24 of them and told to go and look up the rest, so it spent its last
+  three steps paging descriptions back out of storage and stopped with 14 photos placed and
+  nothing left to place them with. Two things were making that read expensive: the
+  descriptions arrived with every sentence written twice (all 61 of them), and the summary
+  the assistant sees was capped at 24 entries no matter how short they were. Both are
+  fixed — a small library is now shown whole, and there is nothing to fetch.
 - **A montage that stops a third of the way through no longer reports success.** Given 61
   photos and a 36-second track, the assistant could place ten photos over the first ten
   seconds, leave the rest of the song playing over black, and call the job finished. It

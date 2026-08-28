@@ -27,9 +27,26 @@ a stale music id reported "provider not responding, try again"). ADR **0153**.
 `packages/ai-sdk/src/critic.test.ts` asserts the whole chain, brief to verdict, and that a
 cut which actually answers the brief still passes.
 
-**Not yet measured against a live run.** The re-run settles: whether the timeline reaches
-61 photos, whether it lands inside 20–35 seconds, whether picture covers the bed, and
-whether the recovery turn is spent productively rather than on a second "done".
+**Round 6 was measured.** Run `accd014d` settled `failed` with all three checks naming the
+real defect — 28.489s with no picture, 14 shots of 61, 36.5s against 27.5s — instead of
+`completed`. The verdict is fixed; the montage is not. It ran out of turns FETCHING the
+descriptions of the photos it was asked to edit: the digest showed 24 of 61 and told it to
+look up the rest, and the payload it then paged was 28,264 characters against a
+16,000-character recall, where a recall is a whole model turn. Its last four turns applied
+nothing and the research budget correctly settled it.
+
+**Status snapshot (2026-08-28, photo-montage run gap analysis, round 7):** `[x]` **The
+fetch is gone.** Three measurements off that run's own map, all the same shape — a thing
+that says nothing costing characters, and characters costing model turns: all 61 chapters
+had `title` byte-identical to `summary` (37% of the payload); `map_footage` settled past
+its own schema so the model was the only reader getting the un-normalised map; and the
+digest cap was a row count sized for hour-long video. Payload 28,264 → 15,794 chars (two
+recalls → one); digest 24 rows → all 61, no fetch needed. ADR **0154**. The guards
+(research budget, no-progress, semantic loop) are deliberately unchanged — they fired
+correctly, and loosening them would have bought more turns to keep fetching.
+
+**Not yet measured.** The next run settles whether a run holding all 61 descriptions from
+turn one places all 61 photos, lands inside 20–35 seconds, and covers the bed.
 
 **Status snapshot (2026-08-28, media-intelligence closure):** a reported "footage map is
 never created for images" turned out to be photos being dispatched to a video-only hosted
