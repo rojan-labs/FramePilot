@@ -11,6 +11,7 @@ import {
   explicitDurationTargetSeconds,
   timelineDuration,
 } from './critic.js';
+import { checkableAcceptance } from './acceptance.js';
 import { makeProject } from './__fixtures__/project.js';
 
 const clip = (over: Record<string, unknown>) => ({
@@ -814,5 +815,132 @@ describe('picture_coverage', () => {
 
   it('skips a timeline with no picture at all — picture_present owns that', () => {
     expect(idOf(critique(withTracks([])), 'picture_coverage')).toMatchObject({ status: 'skipped' });
+  });
+});
+
+describe('run 4c9b5f82, end to end', () => {
+  /**
+   * The whole chain the run walked through, from the brief it was given to the verdict it
+   * should have reached. Every link was individually broken:
+   *
+   * - the brief's "61 photos" was not a shot noun, so no floor was read;
+   * - the brief's "20-35 seconds" range was dropped whole, so no duration was read;
+   * - with neither, the only checks that could fail were skipped;
+   * - and `picture_present` passed on ten clips over a thirty-six-second programme.
+   *
+   * So the run reported `completed` over ten of sixty-one photos and twenty-six seconds
+   * of black. This asserts the chain, not the links, because that is what failed.
+   */
+  const brief = [
+    'I have provided **approximately 61 hiking photos**. Turn them into a montage.',
+    '# FORMAT',
+    'Create the final video for Instagram:',
+    '**Aspect ratio:** 9:16 vertical',
+    '**Frame rate:** 30fps',
+    '**Resolution:** 1080 × 1920 or higher',
+    '**Duration:** Approximately 20–35 seconds, depending on the selected music.',
+    '# IMPORTANT. USE ALL PHOTOS INTELLIGENTLY',
+    'Attempt to use **all approximately 61 hiking photos**.',
+  ].join('\n\n');
+
+  /** Ten photos over the first 10.008s; the music bed runs to 36.107s. */
+  const whatItShipped = () =>
+    withTracks(
+      [
+        {
+          id: 'layer_video_2',
+          type: 'video',
+          clips: Array.from({ length: 10 }, (_, index) =>
+            clip({
+              id: `p_${String(index)}`,
+              trackId: 'layer_video_2',
+              start: index * 1.0008,
+              end: (index + 1) * 1.0008,
+            }),
+          ),
+        },
+        {
+          id: 'layer_audio_1',
+          type: 'audio',
+          clips: [
+            clip({
+              id: 'music',
+              assetId: 'asset_music',
+              trackId: 'layer_audio_1',
+              start: 0,
+              end: 36.107,
+            }),
+          ],
+        },
+      ],
+      {
+        assets: [
+          { id: 'asset_1', path: 'media/a.jpeg', kind: 'image', durationSeconds: 5 },
+          { id: 'asset_music', path: 'media/m.mp3', kind: 'audio', durationSeconds: 47.8 },
+        ] as Project['assets'],
+      },
+    );
+
+  it('reads the brief and fails what the run shipped against it', () => {
+    const stated = explicitDurationTarget(brief);
+    expect(stated).toEqual({ seconds: 27.5, toleranceSeconds: 7.5 });
+    const acceptance = checkableAcceptance(brief, stated?.seconds);
+    expect(acceptance.minShotCount).toBe(61);
+
+    const report = critique(whatItShipped(), {
+      request: brief,
+      durationTargetSeconds: stated!.seconds,
+      durationToleranceSeconds: stated!.toleranceSeconds,
+      minShotCount: acceptance.minShotCount,
+    });
+    expect(report.ok).toBe(false);
+    const failed = report.checks.filter((check) => check.status === 'fail').map((check) => check.id);
+    expect(failed).toContain('picture_coverage');
+    expect(failed).toContain('shot_count');
+    expect(failed).toContain('duration_target');
+  });
+
+  it('passes the same brief once the cut actually answers it', () => {
+    // 61 photos filling the whole 36.107s bed, which is outside 20-35s — so the honest
+    // answer is still a duration failure and nothing else. Proof the checks discriminate
+    // rather than firing together on anything imperfect.
+    const shots = 61;
+    const project = withTracks(
+      [
+        {
+          id: 'layer_video_2',
+          type: 'video',
+          clips: Array.from({ length: shots }, (_, index) =>
+            clip({
+              id: `p_${String(index)}`,
+              trackId: 'layer_video_2',
+              start: (index * 30) / shots,
+              end: ((index + 1) * 30) / shots,
+            }),
+          ),
+        },
+        {
+          id: 'layer_audio_1',
+          type: 'audio',
+          clips: [
+            clip({ id: 'music', assetId: 'asset_music', trackId: 'layer_audio_1', end: 30 }),
+          ],
+        },
+      ],
+      {
+        assets: [
+          { id: 'asset_1', path: 'media/a.jpeg', kind: 'image', durationSeconds: 5 },
+          { id: 'asset_music', path: 'media/m.mp3', kind: 'audio', durationSeconds: 47.8 },
+        ] as Project['assets'],
+      },
+    );
+    const report = critique(project, {
+      request: brief,
+      durationTargetSeconds: 27.5,
+      durationToleranceSeconds: 7.5,
+      minShotCount: 61,
+    });
+    expect(report.checks.filter((check) => check.status === 'fail')).toEqual([]);
+    expect(report.ok).toBe(true);
   });
 });
