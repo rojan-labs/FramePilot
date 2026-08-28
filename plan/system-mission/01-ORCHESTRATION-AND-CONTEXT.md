@@ -36,6 +36,16 @@ Landed so far:
   `orchestrator.output-room.test.ts`). Root cause of 2/3 failed montage runs and the
   failed smoke run: no `maxTokens` on the wire → bridge default 8,192 → truncated tool
   batch → retry at the same cap → run failed. See `docs/reports/system-mission/01-leads.md` #7.
+- **P1.1b — verification looks in execution stages** (`stage-policy.ts`
+  `VERIFICATION_LOOK_TOOL_NAMES`): `get_frame` is allowed in apply/enhance/repair, bounded by
+  analysis caps and the redundant-call memo. Ledger: 7 refused looks across 5 requests.
+- **P1.1c — `get_frame` memo key ignores `maxDimension`** (`callMemoKey`): a smaller
+  re-render of a frame the run holds is a memo hit. Ledger: 11 renders for 6 timestamps.
+- **P1.3a — source-media facts block** (`summarizeSourceMedia`): file, dimensions,
+  orientation vs the sequence, priced into the grounding allocation. Ledger: 5
+  `recall_evidence` + 5 `describe_footage` requests for these facts.
+- Goldens (`golden-corpus`, `langchain-anthropic-sessions`, `streamAgent-golden`)
+  regenerated after each; the diffs are the measured prompt/request deltas.
 **Done when:** p50 model calls per scenario ≤ baseline − (count of rows classified
 removable) and the P0.3 rubric score is unchanged or higher.
 
