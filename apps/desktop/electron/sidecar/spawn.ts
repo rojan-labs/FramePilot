@@ -26,8 +26,8 @@ export interface SidecarCommand {
   readonly cwd: string;
   /**
    * Environment ADDITIONS (merged over `process.env` by the caller): the
- * bundled engine ships its own ffprobe. Heavy optional runtimes such as
- * whisper-cli arrive through signed Capability Packs and are injected by main
+   * bundled engine ships its own ffprobe. Heavy optional runtimes such as
+   * whisper-cli arrive through signed Capability Packs and are injected by main
    * (engine/python .../media/ffmpeg.py, audio/asr.py). Empty in dev — the
    * source engine uses PATH / imageio-ffmpeg as always.
    */
@@ -55,6 +55,19 @@ export interface SidecarSpawnContext {
    * have their own ffprobe.
    */
   readonly fileExists: (filePath: string) => boolean;
+  /**
+   * The absolute projects folder the app itself resolved
+   * (`resolveProjectsDir(process.env, app.getPath('documents'))`).
+   *
+   * WHY it must be injected here rather than left to the engine: the sidecar's
+   * sandbox root comes ONLY from `FRAMEPILOT_PROJECTS_ROOT`, and the engine has
+   * no default — with the var unset every path-based route (analysis, render,
+   * temporal review) refuses. The desktop app has always computed the same
+   * folder for itself and defaulted it to `~/Documents/FramePilot Projects`,
+   * but never passed it on, so a user who had not exported the var by hand ran
+   * a sidecar that could not open a single one of their own media files.
+   */
+  readonly projectsRoot: string;
 }
 
 /** Bundle directory name under Resources; must match electron-builder.yml `extraResources.to`. */
@@ -66,9 +79,7 @@ const BUNDLED_ENGINE_BINARY = 'framepilot-engine';
  * ffprobe is part of the base application; heavyweight intelligence stays in
  * on-demand Capability Packs.
  */
-const BUNDLED_TOOL_ENV = [
-  { envVar: 'FRAMEPILOT_FFPROBE', binary: 'ffprobe' },
-] as const;
+const BUNDLED_TOOL_ENV = [{ envVar: 'FRAMEPILOT_FFPROBE', binary: 'ffprobe' }] as const;
 
 const serveArgs = (host: string, port: number): string[] => [
   'serve',
@@ -90,7 +101,7 @@ export function resolveSidecarCommand(
       command: 'uv',
       args: ['run', 'framepilot', ...serveArgs(host, port)],
       cwd: overrideDir,
-      env: {},
+      env: projectsRootEnv(context),
       source: 'engine-dir-override',
     };
   }
@@ -103,7 +114,7 @@ export function resolveSidecarCommand(
       args: serveArgs(host, port),
       // cwd inside the bundle keeps any relative writes out of the user's cwd.
       cwd: bundleDir,
-      env: bundledToolEnv(bundleDir, suffix, context),
+      env: { ...projectsRootEnv(context), ...bundledToolEnv(bundleDir, suffix, context) },
       source: 'bundled',
     };
   }
@@ -112,9 +123,23 @@ export function resolveSidecarCommand(
     command: 'uv',
     args: ['run', 'framepilot', ...serveArgs(host, port)],
     cwd: path.resolve(context.moduleDir, '../../../engine/python'),
-    env: {},
+    env: projectsRootEnv(context),
     source: 'dev-uv',
   };
+}
+
+/**
+ * The sandbox root the engine runs under, as an env addition.
+ *
+ * Always emitted, in every branch: an unset `FRAMEPILOT_PROJECTS_ROOT` is not a
+ * degraded mode in the engine, it is a hard stop for every route that touches a
+ * path. The value is the app's own resolved folder, which already honours a
+ * user-set `FRAMEPILOT_PROJECTS_ROOT` (and makes it absolute), so this narrows
+ * nothing the user chose — it only removes the case where the two processes
+ * disagree about where the user's projects live.
+ */
+function projectsRootEnv(context: SidecarSpawnContext): Record<string, string> {
+  return { FRAMEPILOT_PROJECTS_ROOT: context.projectsRoot };
 }
 
 /**

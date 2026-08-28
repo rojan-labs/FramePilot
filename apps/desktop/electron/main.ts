@@ -302,6 +302,11 @@ function spawnSidecar(host: string, port: number): SidecarProcess {
     platform: process.platform,
     moduleDir: dirname,
     fileExists: existsSync,
+    // The engine's sandbox root. Resolved from the SAME helper the app uses for
+    // its own project files, so the two processes can never disagree about where
+    // the user's projects live — and so the sidecar is never left with no root at
+    // all, which disables every path-based route it serves.
+    projectsRoot: resolveProjectsDir(process.env, app.getPath('documents')),
   });
   aiLog.action('sidecar:spawn', {
     source: resolved.source,

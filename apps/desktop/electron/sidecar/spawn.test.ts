@@ -8,6 +8,9 @@ const PORT = 8765;
 const SERVE_ARGS = ['serve', '--host', HOST, '--port', String(PORT)];
 const RESOURCES = '/opt/FramePilot/resources';
 const BUNDLE_DIR = path.join(RESOURCES, 'engine');
+const PROJECTS_ROOT = '/home/u/Documents/FramePilot Projects';
+/** Every branch must carry the sandbox root; helper env is additive on top of it. */
+const ROOT_ENV = { FRAMEPILOT_PROJECTS_ROOT: PROJECTS_ROOT };
 
 const baseContext: SidecarSpawnContext = {
   env: {},
@@ -16,6 +19,7 @@ const baseContext: SidecarSpawnContext = {
   platform: 'darwin',
   moduleDir: '/repo/apps/desktop/dist',
   fileExists: () => false,
+  projectsRoot: PROJECTS_ROOT,
 };
 
 describe('resolveSidecarCommand', () => {
@@ -25,7 +29,7 @@ describe('resolveSidecarCommand', () => {
       command: 'uv',
       args: ['run', 'framepilot', ...SERVE_ARGS],
       cwd: path.resolve('/repo/apps/desktop/dist', '../../../engine/python'),
-      env: {},
+      env: ROOT_ENV,
       source: 'dev-uv',
     });
     expect(command.cwd).toBe(path.join('/repo', 'engine', 'python'));
@@ -37,7 +41,7 @@ describe('resolveSidecarCommand', () => {
       command: path.join(BUNDLE_DIR, 'framepilot-engine'),
       args: SERVE_ARGS,
       cwd: BUNDLE_DIR,
-      env: {},
+      env: ROOT_ENV,
       source: 'bundled',
     });
   });
@@ -62,7 +66,7 @@ describe('resolveSidecarCommand', () => {
       command: 'uv',
       args: ['run', 'framepilot', ...SERVE_ARGS],
       cwd: '/work/engine/python',
-      env: {},
+      env: ROOT_ENV,
       source: 'engine-dir-override',
     });
   });
@@ -88,6 +92,34 @@ describe('resolveSidecarCommand', () => {
     ]);
   });
 
+  // The sidecar's sandbox root comes ONLY from this var and the engine has no
+  // default: unset, every path-based route (analysis, render, temporal review)
+  // answers 503 and the agent loses beat detection, transcription, and review.
+  // The app resolved this folder for itself all along without passing it on.
+  describe('sandbox root', () => {
+    it.each([
+      ['dev-uv', baseContext],
+      ['bundled', { ...baseContext, isPackaged: true }],
+      [
+        'engine-dir-override',
+        { ...baseContext, env: { FRAMEPILOT_ENGINE_DIR: '/work/engine/python' } },
+      ],
+    ] as const)('is handed to the engine in the %s branch', (source, context) => {
+      const command = resolveSidecarCommand(HOST, PORT, context);
+      expect(command.source).toBe(source);
+      expect(command.env.FRAMEPILOT_PROJECTS_ROOT).toBe(PROJECTS_ROOT);
+    });
+
+    it('passes the app-resolved root, which already honours a user-set var', () => {
+      const command = resolveSidecarCommand(HOST, PORT, {
+        ...baseContext,
+        env: { FRAMEPILOT_PROJECTS_ROOT: '/somewhere/else' },
+        projectsRoot: '/somewhere/else',
+      });
+      expect(command.env.FRAMEPILOT_PROJECTS_ROOT).toBe('/somewhere/else');
+    });
+  });
+
   describe('bundled helper-tool env', () => {
     it('points the engine only at the small staged ffprobe helper', () => {
       const command = resolveSidecarCommand(HOST, PORT, {
@@ -96,6 +128,7 @@ describe('resolveSidecarCommand', () => {
         fileExists: () => true,
       });
       expect(command.env).toEqual({
+        ...ROOT_ENV,
         FRAMEPILOT_FFPROBE: path.join(BUNDLE_DIR, 'ffprobe'),
       });
     });
@@ -107,6 +140,7 @@ describe('resolveSidecarCommand', () => {
         fileExists: (filePath) => filePath.endsWith('ffprobe'),
       });
       expect(command.env).toEqual({
+        ...ROOT_ENV,
         FRAMEPILOT_FFPROBE: path.join(BUNDLE_DIR, 'ffprobe'),
       });
     });
@@ -123,6 +157,7 @@ describe('resolveSidecarCommand', () => {
         },
       });
       expect(command.env).toEqual({
+        ...ROOT_ENV,
         FRAMEPILOT_FFPROBE: path.join(BUNDLE_DIR, 'ffprobe.exe'),
       });
       expect(seen).not.toContain(path.join(BUNDLE_DIR, 'whisper-cli.exe'));
@@ -135,15 +170,15 @@ describe('resolveSidecarCommand', () => {
         env: { FRAMEPILOT_FFPROBE: '/usr/local/bin/ffprobe' },
         fileExists: () => true,
       });
-      expect(command.env).toEqual({});
+      expect(command.env).toEqual(ROOT_ENV);
     });
 
-    it('adds no env in dev — the source engine keeps PATH/imageio discovery', () => {
+    it('adds no helper env in dev — the source engine keeps PATH/imageio discovery', () => {
       const command = resolveSidecarCommand(HOST, PORT, {
         ...baseContext,
         fileExists: () => true,
       });
-      expect(command.env).toEqual({});
+      expect(command.env).toEqual(ROOT_ENV);
     });
   });
 });

@@ -4341,6 +4341,38 @@ def create_app(
             brainRecorded=brain_recorded,
         )
 
+    def inline_media_base() -> Path:
+        """Media base directory for an INLINE project document, or fail closed.
+
+        An inline document carries project-RELATIVE asset paths and no project
+        file to resolve them against, so the base can only be the sandbox root.
+
+        WHY this refuses instead of falling back to :func:`Path.cwd`: the old
+        ``settings.projects_root or Path.cwd()`` made the engine's read base
+        depend on where the process happened to be launched, and when
+        ``projects_root`` was unset it turned every inline analysis/render into
+        an opaque 500 — ``Path.cwd()`` itself raises ``FileNotFoundError`` once
+        the launch directory is replaced (a `git checkout` in a long-running dev
+        session is enough), and that unhandled error preempted the actionable
+        503 :func:`sandbox` would have raised a few lines later. Sharing
+        :func:`sandbox`'s failure means one misconfiguration has one diagnosis.
+
+        :raises HTTPException: 503 if no ``projects_root`` is configured.
+        """
+        root = settings.projects_root
+        if root is None:
+            _log.error(
+                "projects_root is not configured; refusing an inline project because "
+                "its relative media paths have no sandbox root to resolve against. "
+                "Set FRAMEPILOT_PROJECTS_ROOT."
+            )
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "projects_root is not configured; path-based operations are unavailable. "
+                "Set FRAMEPILOT_PROJECTS_ROOT.",
+            )
+        return root
+
     def resolve_project_source(source: AnalysisProjectSource) -> tuple[Project, Path, str]:
         """Load the project a request names — saved path OR inline document.
 
@@ -4352,7 +4384,8 @@ def create_app(
 
         :returns: ``(project, media_base_dir, label)`` — the label is for logs
             only, never for the response.
-        :raises HTTPException: 400 on a load/validation failure.
+        :raises HTTPException: 400 on a load/validation failure; 503 when an
+            inline document arrives with no ``projects_root`` configured.
         """
         if source.project_path is not None:
             resolved = sandbox(source.project_path)
@@ -4367,7 +4400,7 @@ def create_app(
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST, f"Invalid inline project: {exc}"
             ) from exc
-        return project, settings.projects_root or Path.cwd(), "inline"
+        return project, inline_media_base(), "inline"
 
     def resolve_asset_media(
         source: AnalysisProjectSource,
@@ -4392,7 +4425,8 @@ def create_app(
             silent footage as often as on the track the caller meant.
         :returns: The resolved ``(asset_id, media_path)``.
         :raises HTTPException: 400 on project-load/validation failure, 404 when
-            no matching asset exists.
+            no matching asset exists, 503 when an inline document arrives with no
+            ``projects_root`` configured.
         """
         if source.project_path is not None:
             resolved_project = sandbox(source.project_path)
@@ -4412,7 +4446,7 @@ def create_app(
                 raise HTTPException(
                     status.HTTP_400_BAD_REQUEST, f"Invalid inline project: {exc}"
                 ) from exc
-            media_base = settings.projects_root or Path.cwd()
+            media_base = inline_media_base()
 
         compatible = {"video", "audio"} if need_audio else {"video"}
         asset = None

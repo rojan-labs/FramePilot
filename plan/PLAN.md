@@ -8228,10 +8228,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                                                  Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                                                  a pre-existing local edit commenting out temperature forwarding, untouched here);
-                                                  engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                                                  **Last updated:** 2026-08-14
+                                                    Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                                                    a pre-existing local edit commenting out temperature forwarding, untouched here);
+                                                    engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                                                    **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 
@@ -8660,6 +8660,35 @@ were reproduced against that real project, not a fixture.
       `onPointerDown`, so it mounted at width 0 and rendered as an empty bar until clicked —
       a navigation aid you had to use blind. Measures in a layout effect and tracks resizes
       via `ResizeObserver`. Regression test in `TimelineView.viewlayout.test.tsx`.
+
+## Discovered (2026-08-28) — the sidecar was never told its sandbox root
+
+Root-caused from run `2ca2fcbe` (`run.md`): 61 photos in the bin, 2 edits made, **0 shots
+placed**. Every analysis call returned `Analysis failed (500): Internal Server Error`, the
+per-turn circuit breaker disabled `detect_beats`, the repetition guard stopped the run, and
+the review engine rejected both batches with the same 500. See ADR 0156.
+
+- [x] **The desktop hands the engine `FRAMEPILOT_PROJECTS_ROOT`.** The engine sandboxes every
+      path against it and has no default; unset, `/detect-beats`, `/detect-scenes`,
+      `/analyze-silence`, `/analyze`, `/transcribe`, `/asr/prepare-audio`, `/render`,
+      `/render/frame` and `/review/temporal-evidence` are all dead. The app resolved that
+      folder for itself all along and never passed it on, so the sidecar only ever saw it by
+      inheriting a maintainer's shell. `resolveSidecarCommand` now emits it in all three
+      branches. `apps/desktop/electron/sidecar/spawn.ts`, `main.ts`.
+- [x] **The engine stopped resolving media against its own working directory.** Both inline
+      project resolvers used `settings.projects_root or Path.cwd()`. `Path.cwd()` raises
+      once the launch directory is unlinked (a checkout under a long-running sidecar), which
+      is how a misconfiguration became an unhandled 500 — and it ran before the asset lookup,
+      masking the 404/400 those routes could have given. `inline_media_base()` returns the
+      sandbox root or raises the same 503 `sandbox()` raises. `engine/python/.../service.py`.
+- [x] **One engine outage is reported once, with its count.** Every review in a turn shares
+      one engine, so one outage published the identical warning once per batch — the user saw
+      "Review could not run" twice in a row. `packages/ai-sdk/src/review-findings.ts`.
+- [ ] **Verify the recovered path end-to-end on desktop-scale media.** Restart the desktop
+      app on this fix and re-run the montage request against the same 61-photo project:
+      `detect_beats` must return a grid, the run must place shots, and the temporal review
+      must produce a verdict rather than a failure. Until then the fix is proven at the
+      route level (503 not 500, root handed over) but not against a full agent run.
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)
