@@ -1,20 +1,20 @@
 # Media Intelligence — the orchestrator can see your footage
 
 FramePilot's AI used to be **blind**. It reasoned over transcripts, silence maps,
-scene cuts, and loudness — all *signal-derived* facts — but it had no idea what
+scene cuts, and loudness — all _signal-derived_ facts — but it had no idea what
 was actually **on screen**. "Cut to the product shot", "find where the whiteboard
 appears", "make a short from the demo part" all degraded to transcript keyword
-luck or plain heuristics: if nobody happened to *say* "product", the moment was
+luck or plain heuristics: if nobody happened to _say_ "product", the moment was
 invisible.
 
 Media Intelligence gives every project a **visual memory**. Footage is sampled,
 embedded, and captioned into the [Project Brain](./project-brain.md); the
-orchestrator gets tools that retrieve *ranked visual evidence* on demand. So an
+orchestrator gets tools that retrieve _ranked visual evidence_ on demand. So an
 edit like "cut to the product shot" is grounded in retrieved frames and their
 captions — evidence, not vibes.
 
 **WHY it is safe to have:** like everything else in the brain, the visual index
-is a *derived, rebuildable cache with provenance*, never a second source of
+is a _derived, rebuildable cache with provenance_, never a second source of
 truth. `project.fp.json` stays canonical; deleting the derived directory loses
 time, never work. See [ADR 0058](../adr/0058-project-brain-derived-sqlite-substrate.md)
 for the substrate and [ADR 0066](../adr/0066-nvidia-cloud-visual-embeddings.md)
@@ -52,15 +52,15 @@ Four stages turn raw footage into readable evidence:
 
 A static talking-head must not cost 60 near-identical API calls per minute.
 Per video asset the sampler (`analysis/visual_sampler.py`) reuses the brain's
-scene detection, samples candidate frames at 1 fps *within* each scene, computes
+scene detection, samples candidate frames at 1 fps _within_ each scene, computes
 a **dHash** per candidate, and collapses frames within a Hamming-distance
-threshold of the last *embedded* frame into that vector's span instead of
+threshold of the last _embedded_ frame into that vector's span instead of
 producing a new vector.
 
 The result is an ordered, **contiguous, non-overlapping** set of spans
 `[t0, t1)` per asset: every second is covered by exactly one vector, scene
 boundaries always start a new span, and a query hit maps deterministically back
-to timeline time. Vectors cover time *spans*, so full temporal coverage costs a
+to timeline time. Vectors cover time _spans_, so full temporal coverage costs a
 fraction of strict 1 fps. Images are a single span `[0, 0)`. The idempotency key
 `(asset content_hash, model_id, sampler_version, t0)` means nothing is ever
 embedded twice and interrupted jobs resume mid-asset.
@@ -68,7 +68,7 @@ embedded twice and interrupted jobs resume mid-asset.
 ### 2. Cross-modal embeddings (NVIDIA)
 
 Sampled frames are embedded by NVIDIA `llama-nemotron-embed-vl-1b-v2` — a
-**cross-modal** model where image *passages* and text *queries* land in the same
+**cross-modal** model where image _passages_ and text _queries_ land in the same
 vector space, so "the product shot" (text) can rank frames (image) it never has
 words for. The engine JPEG-encodes each frame (bounded long edge — the model
 doesn't need 4K), POSTs batches as passages (`input_type:"passage"`), and stores
@@ -78,7 +78,7 @@ stored. See [ADR 0066](../adr/0066-nvidia-cloud-visual-embeddings.md).
 
 ### 3. Per-scene VLM captions
 
-Vectors only *rank*; the LLM needs readable descriptions to *reason*. Each scene
+Vectors only _rank_; the LLM needs readable descriptions to _reason_. Each scene
 gets a short, factual "what is on screen" caption (`brain/captioner.py`) via your
 **existing** vision-capable provider from the registry — no new vendor. Captions
 are written to `visual_captions` with `source='model'` provenance, ingested into
@@ -109,11 +109,11 @@ tools. To act on what they find, the model follows up with the normal reversible
 timeline operations (e.g. `add_marker`, trims, cuts), each still validated
 before apply.
 
-| Tool | What it does |
-|---|---|
+| Tool                                              | What it does                                                                                                                                         |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `search_visual(query, k?, assetIds?, timeRange?)` | The primary grounding tool: fused, ranked evidence packets across all footage. "Where does the app appear?" → spans + captions + transcript overlap. |
-| `describe_footage(assetId, timeRange?)` | Walks **one** asset in time order — its captions and scene structure. The "what am I looking at" primer. |
-| `index_media(assetId?\|projectId, wait?)` | Builds/finishes the visual index. Also what auto-index calls. |
+| `describe_footage(assetId, timeRange?)`           | Walks **one** asset in time order — its captions and scene structure. The "what am I looking at" primer.                                             |
+| `index_media(assetId?\|projectId, wait?)`         | Builds/finishes the visual index. Also what auto-index calls.                                                                                        |
 
 `describe_footage` is an enumeration, not a disguised semantic search: the
 sidecar reads every indexed span for that asset in time order and does not need
@@ -132,7 +132,7 @@ content-dependent edit, and to **cite** the captions and timecodes it acted on,
 so a visual decision is traceable rather than an unfalsifiable claim. The context
 builder injects one compact line — the `/brain/visual/status` coverage summary
 (`visual index: 3/4 assets, 2,841 vectors`) or the honest reason it's unavailable
-— so the model knows *when to look and when it can't*.
+— so the model knows _when to look and when it can't_.
 
 ## Configuration
 
@@ -148,12 +148,21 @@ Everything is opt-in behind a key.
   that should produce the short scene descriptions. On desktop its key remains in
   the main process and is forwarded to the Python sidecar only for captioning; it
   is never returned to the Settings UI.
-- **Multi-key failover.** Give several comma-separated keys and the engine's
-  key ring rotates automatically: mark a key dead for the session on 401/403,
+- **Multi-key failover _and_ throughput.** Give several comma-separated keys and the
+  engine's key ring rotates automatically: mark a key dead for the session on 401/403,
   cool it down (exponential backoff) on 429/5xx and move to the next. All keys
   exhausted → a typed `{available:false, reason:"all_keys_failing"}`, never a
   fake result. Per-key health is surfaced in `/brain/visual/status` and the
-  settings UI.
+  settings UI. Concurrent embedding requests now draw **different** keys rather than
+  queueing behind the first healthy one, so extra keys buy speed as well as resilience.
+- **Concurrent preparation.** `FRAMEPILOT_VISUAL_INDEX_CONCURRENCY` (default 4) sets how
+  many assets one index slice prepares at once. Preparation is dominated by waiting on
+  the provider, not by local work — 60 photos measured 92.7 s of wall clock against about
+  1.5 s of local CPU — so this is the main lever on how quickly a freshly imported
+  project becomes searchable: 60 photos go from ~110 s to ~30 s at the default, and to
+  ~17 s at the maximum. Raise it if you have several keys; set it to `1` to restore
+  strictly serial preparation. Results are identical at any setting — the cursor still
+  advances over a prefix of the worklist, so resume stays exact.
 - **Batch contract.** NVIDIA requires `modality` to be a list with exactly one
   encoder-tower value per `input`. The client constructs both arrays together
   (`["image", ...]` for stored frames, `["text"]` for a query), so a batch can
@@ -163,8 +172,37 @@ Everything is opt-in behind a key.
   friction. It never blocks import or preview.
 - **Status line.** `GET /brain/visual/status` reports coverage per asset, vector
   count, the active vector backend (sqlite-vec vs brute-force fallback), key
-  health, and the last error. The UI wires live job progress, cancel, and an
-  "Index now" button off it.
+  health, and the last error. Settings → AI → Media intelligence renders live job
+  progress and the job's own terminal state off it. **There is no "Index now"
+  button** — preparation is automatic on import or first semantic need, and an
+  e2e test (`tests/e2e/specs/visual-embeddings-settings.spec.ts`) holds that line.
+
+## Which backend handles which asset
+
+When a TwelveLabs key is configured it owns understanding for **video and audio**.
+It does **not** own still photos: its index is a video/audio index, so an image
+uploads (its `POST /assets` accepts one, for entity search) and then cannot be
+attached — the attach step answers `404 resource_not_exists`.
+
+Routing is therefore a **per-asset capability gate**, not only a per-project policy
+([ADR 0152](../adr/0152-a-backend-that-cannot-index-a-photo-must-not-be-given-one.md)):
+
+| Asset                      | Backend                                       | What happens                                                                      |
+| -------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------- |
+| video, audio               | TwelveLabs when its key is set, else built-in | upload → index → Pegasus footage map                                              |
+| **still photo**            | **always the built-in on-device path**        | one keyframe → NVIDIA embedding → optional VLM caption → span/caption footage map |
+| still photo, no NVIDIA key | none                                          | reported honestly per asset; the cursor still advances                            |
+
+Both keys are forwarded to the engine together, so the photo route is reachable for a
+user who configured TwelveLabs. The consequence, stated in the Settings panel: image
+embedding requests reach NVIDIA even when TwelveLabs is your chosen backend.
+
+Two rules follow from the same ADR and apply to any future backend:
+
+- **A provider's refusal of one asset advances the job cursor.** Previously it did not,
+  and one un-indexable file left every asset behind it permanently unprepared.
+- **A job that has stopped reports `failed`, not `running`** — with the provider's own
+  reason, so the panel can show it.
 
 ## Honest-unavailable everywhere
 
@@ -216,12 +254,12 @@ brought p95 to ~62 ms at 50k, and the strict gate passes.
 
 Tests are layered by boundary, so each seam is proven where it lives:
 
-| Boundary | Where |
-|---|---|
-| Engine visual routes (index/search/status) | `engine/python/tests/test_service_visual_*.py` |
-| Retrieval + RRF fusion + span math | `engine/python/tests/test_brain_visual_search.py` |
-| Orchestrator search → cite → edit round-trip | `packages/ai-sdk` `orchestrator-stream.test.ts` |
-| Settings + status UI | browser e2e |
+| Boundary                                     | Where                                             |
+| -------------------------------------------- | ------------------------------------------------- |
+| Engine visual routes (index/search/status)   | `engine/python/tests/test_service_visual_*.py`    |
+| Retrieval + RRF fusion + span math           | `engine/python/tests/test_brain_visual_search.py` |
+| Orchestrator search → cite → edit round-trip | `packages/ai-sdk` `orchestrator-stream.test.ts`   |
+| Settings + status UI                         | browser e2e                                       |
 
 Per the plan's Definition of Done: **no live NVIDIA calls in any test tier** —
 the client is mocked (respx) everywhere, with a hand-run smoke script for manual
@@ -240,5 +278,5 @@ no sidecar, no sqlite-vec, no vision provider — has an honest-degradation test
   [0065](../adr/0065-sqlite-vec-adoption.md) (vector store),
   [0066](../adr/0066-nvidia-cloud-visual-embeddings.md) (cloud embeddings),
   [0067](../adr/0067-plaintext-key-storage-multi-key-failover.md) (key storage).
-</content>
-</invoke>
+  </content>
+  </invoke>

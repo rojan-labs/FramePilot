@@ -13,6 +13,47 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-28, photo-montage run gap analysis, round 6):** `[x]` **All six
+closed in code; the re-run is what settles them.** Run `4c9b5f82` answered a 61-photo,
+"20–35 second" brief with ten photos over the first 10.0s of a 36.1s music bed — 72% of the
+programme black — and reported `completed`. Six layers each had a reason not to catch it,
+and all six are fixed: `picture_coverage` (a new deterministic check comparing picture
+against the whole programme), the acceptance reader (photos are shots; a stated range is a
+length), the early-done guard (the model's "done" now answers to the request's own failing
+checks and buys one bounded recovery turn), the representative frame probes (they measured
+black and asserted nothing), the review's account of a finding it never reached, and two
+tool dead ends that cost five of seventeen model calls (`get_timeline` took no window;
+a stale music id reported "provider not responding, try again"). ADR **0153**.
+`packages/ai-sdk/src/critic.test.ts` asserts the whole chain, brief to verdict, and that a
+cut which actually answers the brief still passes.
+
+**Round 6 was measured.** Run `accd014d` settled `failed` with all three checks naming the
+real defect — 28.489s with no picture, 14 shots of 61, 36.5s against 27.5s — instead of
+`completed`. The verdict is fixed; the montage is not. It ran out of turns FETCHING the
+descriptions of the photos it was asked to edit: the digest showed 24 of 61 and told it to
+look up the rest, and the payload it then paged was 28,264 characters against a
+16,000-character recall, where a recall is a whole model turn. Its last four turns applied
+nothing and the research budget correctly settled it.
+
+**Status snapshot (2026-08-28, photo-montage run gap analysis, round 7):** `[x]` **The
+fetch is gone.** Three measurements off that run's own map, all the same shape — a thing
+that says nothing costing characters, and characters costing model turns: all 61 chapters
+had `title` byte-identical to `summary` (37% of the payload); `map_footage` settled past
+its own schema so the model was the only reader getting the un-normalised map; and the
+digest cap was a row count sized for hour-long video. Payload 28,264 → 15,794 chars (two
+recalls → one); digest 24 rows → all 61, no fetch needed. ADR **0154**. The guards
+(research budget, no-progress, semantic loop) are deliberately unchanged — they fired
+correctly, and loosening them would have bought more turns to keep fetching.
+
+**Not yet measured.** The next run settles whether a run holding all 61 descriptions from
+turn one places all 61 photos, lands inside 20–35 seconds, and covers the bed.
+
+**Status snapshot (2026-08-28, media-intelligence closure):** a reported "footage map is
+never created for images" turned out to be photos being dispatched to a video-only hosted
+index, where one refusal froze the whole project's preparation at asset #1. Phase 1 of
+`plan/media-intelligence-closure/` is shipped and tested; phases 2-5 (time base, parallel
+preparation, per-asset outcomes, removals) are open.
+
 **Status snapshot (2026-08-27, montage run gap analysis, round 5):** `[x]` **All five closed
 in code; the re-run is what settles them.** See `plan/structural-changes/` for the per-plan
 account. ADRs **0149** (a run holding unspent candidates may not fetch more, narrowing
@@ -2280,6 +2321,25 @@ and applies atomically through `applyPatchChecked` — never half-applied; an
 unstandable subset fails validation honestly. **Totals:** web-editor 1051 (new
 `DiffPreviewModal.test.tsx` + rewritten `EventNode`/`AiSidebar` specs); typecheck +
 lint clean. No schema change; `validate→apply→record` untouched.
+
+**Media intelligence closure — `[~]` IN PROGRESS (2026-08-28; see
+`plan/media-intelligence-closure/`).** A 61-photo project reported `0/61 assets
+prepared · 0%` with a "running" badge and never produced a footage map. Diagnosed
+against the user's own brain databases, not a synthetic repro: **still photos were
+dispatched to TwelveLabs, whose index is a video/audio index**, and the resulting
+`404 resource_not_exists` broke the hosted slice *without advancing the job cursor*,
+so every retry re-hit photo #1 forever while the job journalled itself `running`.
+`[x]` **Phase 1 (preparation correctness) shipped** — stills route to the on-device
+embedder (maintainer decision, per-asset capability routing), a refused asset advances
+the cursor, a run of refusals stops the slice and marks the job `failed`, coverage is
+the union of both backends, the footage map merges both arms, and the Settings panel
+derives its badge from the job rather than from coverage. 6 new engine regression tests
+(fail before / pass after); engine suite 2635 green. `[ ]` Phases 2–5 open: the
+auto-injected footage map carries **asset seconds under a timeline label** (largest
+remaining correctness gap), ≈98% of measured preparation wall clock is serialized
+network wait, multiple NVIDIA keys are failover rather than throughput, and per-asset
+outcomes are never persisted (one project holds 55 assets, ~100 `done` jobs and zero
+index rows).
 
 **Media Intelligence plan authored (2026-07-18; see
 `plan/MEDIA-INTELLIGENCE.md`) — `[x]` COMPLETE (2026-07-18).** Sub-plan (phases MI0–MI7) giving the

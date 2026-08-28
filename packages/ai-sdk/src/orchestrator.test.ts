@@ -225,7 +225,7 @@ describe('agent mode', () => {
     expect(run.steps.filter((s) => s.applied)).toHaveLength(1);
     expect(run.steps.some((s) => /already in place/.test(s.note))).toBe(true);
     expect(run.log.length).toBeGreaterThan(0);
-    expect(run.critique.checks.length).toBe(18);
+    expect(run.critique.checks.length).toBe(19);
   });
 
   it('interleaves asset management and timeline editing in one project-scoped run', async () => {
@@ -2505,7 +2505,7 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
 describe('review mode', () => {
   it('returns a deterministic critic report + readable text', async () => {
     const review = await new Orchestrator(new MockProvider()).review(input);
-    expect(review.report.checks.length).toBe(18);
+    expect(review.report.checks.length).toBe(19);
     expect(review.text).toContain(review.report.summary);
     expect(review.text).toMatch(/\[(PASS|WARN|FAIL|SKIPPED)\]/);
   });

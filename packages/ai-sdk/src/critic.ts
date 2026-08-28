@@ -42,6 +42,7 @@ export type CheckStatus = 'pass' | 'warn' | 'fail' | 'skipped';
 export type CheckId =
   | 'request_match'
   | 'picture_present'
+  | 'picture_coverage'
   | 'duration_target'
   | 'shot_count'
   | 'reframe_coverage'
@@ -205,6 +206,41 @@ function endsARange(text: string, index: number): boolean {
  * its rhythm this way.
  */
 export function explicitDurationTargetSeconds(prompt: string): number | undefined {
+  return explicitDurationTarget(prompt)?.seconds;
+}
+
+/**
+ * A stated deliverable length, with the slack the request itself allowed.
+ *
+ * A brief that says "20–35 seconds" has not named one number and a tolerance nobody chose;
+ * it has named an interval, and the honest target is its midpoint with the half-width as
+ * the tolerance, so anything inside the stated range passes and nothing outside it does.
+ */
+export interface DurationTarget {
+  readonly seconds: number;
+  /** Half-width of a stated range. Absent when the request named a single length. */
+  readonly toleranceSeconds?: number;
+}
+
+/**
+ * Read an explicit deliverable length — a single length or a stated range.
+ *
+ * Ranges used to be dropped whole. {@link endsARange} exists to stop "0.3–0.6s per clip"
+ * being read as a 0.6-second deliverable, and it did that by refusing the FAR end; the
+ * near end was never matched in the first place, because in `20–35 seconds` only the far
+ * number carries the unit. So a brief that stated its length as plainly as
+ *
+ *     **Duration:** Approximately 20–35 seconds
+ *
+ * yielded nothing at all. Run 4c9b5f82 delivered 10.0 seconds against it and
+ * `duration_target` reported `skipped — no duration target was set`.
+ *
+ * Reading the range as an interval keeps the guard's actual intent (the far end alone is
+ * never the target) while stopping the range from being silently discarded. `duration` and
+ * `length` join the lead anchors for the same reason: that is the word the brief used, and
+ * the deliverable noun sat ninety characters upstream under a `# FORMAT` heading.
+ */
+export function explicitDurationTarget(prompt: string): DurationTarget | undefined {
   const normalized = prompt.trim().toLowerCase().replace(/\s+/g, ' ');
   if (!normalized) return undefined;
   const unitValue = (value: string, unit: string): number => {
@@ -212,32 +248,65 @@ export function explicitDurationTargetSeconds(prompt: string): number | undefine
     return /^m(?:in(?:ute)?s?)?$/.test(unit) ? amount * 60 : amount;
   };
   const units = '(s|sec|secs|second|seconds|m|min|mins|minute|minutes)';
+  const anchors =
+    'full|complete|entire|video|montage|reel|short|timeline|duration|length|runtime|run time|' +
+    'make it|create|build|produce|export';
   // A candidate survives only if it is neither the far end of a range nor qualified
   // per-clip. Scanning rather than taking the first hit: the brief that broke this had a
   // dozen pacing figures before any real length, and stopping at the first match would
   // still read one of them.
-  const firstDeliverableLength = (pattern: RegExp): number | undefined => {
+  const firstDeliverableLength = (
+    pattern: RegExp,
+    /** Index of the capture group holding the range's far end, when the pattern has one. */
+    farGroup?: number,
+  ): DurationTarget | undefined => {
     for (const match of normalized.matchAll(pattern)) {
-      const [, value, unit] = match;
+      const value = match[1];
+      const far = farGroup === undefined ? undefined : match[farGroup];
+      const unit = match[farGroup === undefined ? 2 : farGroup + 1];
       if (value === undefined || unit === undefined) continue;
-      const numberAt = match.index + match[0].lastIndexOf(value);
+      // The capture's own offset, not a search for its text: an anchor phrase can contain
+      // the same digits ("1080 x 1920 ... duration: 20-35 seconds"), and either a first- or
+      // a last-match search picks the wrong one on some brief.
+      const numberAt = match.indices?.[1]?.[0] ?? match.index + match[0].lastIndexOf(value);
       if (endsARange(normalized, numberAt)) continue;
       if (PER_UNIT_QUALIFIER.test(normalized.slice(match.index + match[0].length))) continue;
-      return unitValue(value, unit);
+      const near = unitValue(value, unit);
+      if (far === undefined) return { seconds: near };
+      const end = unitValue(far, unit);
+      // A malformed or degenerate range is one number stated twice; take it as one.
+      if (!(end > near)) return { seconds: near };
+      return { seconds: (near + end) / 2, toleranceSeconds: (end - near) / 2 };
     }
     return undefined;
   };
-  const leading = firstDeliverableLength(
+  // Ranges first: `20-35 seconds` also matches the single-length pattern at `35`, and that
+  // match is the far end — the one reading the guard exists to refuse.
+  const leadingRange = firstDeliverableLength(
     new RegExp(
-      `\\b(?:full|complete|entire|video|montage|reel|short|timeline|make it|create|build|produce|export)\\b.{0,40}?\\b(\\d+(?:\\.\\d+)?)\\s*${units}\\b`,
-      'g',
+      `\\b(?:${anchors})\\b.{0,40}?\\b(\\d+(?:\\.\\d+)?)\\s*(?:-|–|—|to)\\s*(\\d+(?:\\.\\d+)?)\\s*${units}\\b`,
+      'gd',
     ),
+    2,
+  );
+  if (leadingRange !== undefined) return leadingRange;
+  const leading = firstDeliverableLength(
+    new RegExp(`\\b(?:${anchors})\\b.{0,40}?\\b(\\d+(?:\\.\\d+)?)\\s*${units}\\b`, 'gd'),
   );
   if (leading !== undefined) return leading;
+  const trailingRange = firstDeliverableLength(
+    new RegExp(
+      `\\b(\\d+(?:\\.\\d+)?)\\s*(?:-|–|—|to)\\s*(\\d+(?:\\.\\d+)?)\\s*[- ]?${units}\\b` +
+        `.{0,28}?\\b(?:video|montage|reel|short|timeline|long)\\b`,
+      'gd',
+    ),
+    2,
+  );
+  if (trailingRange !== undefined) return trailingRange;
   return firstDeliverableLength(
     new RegExp(
       `\\b(\\d+(?:\\.\\d+)?)\\s*[- ]?${units}\\b.{0,28}?\\b(?:video|montage|reel|short|timeline|long)\\b`,
-      'g',
+      'gd',
     ),
   );
 }
@@ -377,13 +446,130 @@ function checkPicturePresent(project: Project, options: CritiqueOptions): Critic
     `The timeline has ${String(overlays)} overlay/caption clip${overlays === 1 ? '' : 's'} and ` +
     'no picture under them, so the whole thing renders as text on black. Place footage, a ' +
     'still, or a stock clip before this is a video.';
-  // A visual target — a platform, a duration, a shot count — means someone asked for a
-  // film. Failing then is the honest verdict; without one, say it and let the run decide.
-  const wantsPicture =
+  return check(
+    'picture_present',
+    'The edit has picture',
+    requestWantsPicture(options) ? 'fail' : 'warn',
+    detail,
+  );
+}
+
+/**
+ * Did someone ask for a film, as opposed to an audio-only or caption-only pass?
+ *
+ * A visual target — a platform, a duration, a shot count — means they did. Without one,
+ * the picture checks warn rather than fail: an audio pass is a legitimate thing to ask
+ * for and must not be failed for having no picture.
+ */
+function requestWantsPicture(options: CritiqueOptions): boolean {
+  return (
     options.targetPlatform !== undefined ||
     options.durationTargetSeconds !== undefined ||
-    options.minShotCount !== undefined;
-  return check('picture_present', 'The edit has picture', wantsPicture ? 'fail' : 'warn', detail);
+    options.minShotCount !== undefined
+  );
+}
+
+/** A merged, ascending list of the spans picture occupies. */
+function pictureSpans(project: Project): readonly { start: number; end: number }[] {
+  const sorted = [...pictureClips(project)]
+    .map((clip) => ({ start: clip.start, end: clip.end }))
+    .filter((span) => span.end > span.start)
+    .sort((left, right) => left.start - right.start);
+  const merged: { start: number; end: number }[] = [];
+  for (const span of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && span.start <= last.end) {
+      last.end = Math.max(last.end, span.end);
+      continue;
+    }
+    merged.push({ ...span });
+  }
+  return merged;
+}
+
+/**
+ * Gaps of at least a second, past which a hole in the picture reads as a missing shot
+ * rather than a deliberate beat of black. Same threshold and same reasoning as
+ * {@link DEAD_AIR_FRAMES}, stated in frames because every editorial threshold here is.
+ */
+const PICTURE_GAP_FRAMES = 30;
+
+/**
+ * Does picture actually cover the programme?
+ *
+ * `picture_present` (ADR 0144) asks whether ANY picture exists and is satisfied by one
+ * clip. Run 4c9b5f82 satisfied it with ten: a 36.1-second music bed with pictures over
+ * only its first 10.0 seconds, so 72% of the programme rendered as black with music
+ * playing. Every check in this battery passed or skipped, the run reported `completed`,
+ * and the only trace of the defect was the perceptual reviewer reporting the two black
+ * frames that happened to fall inside its ±2-frame window around the final cut — as a
+ * defect in that cut, rather than as the absence of 26 seconds of film.
+ *
+ * The programme is measured by {@link contentDuration} — picture AND sound, because a
+ * music bed that outruns the picture is exactly the case this catches. Overlays are
+ * excluded on both sides: they sit over the picture and cannot stand in for it.
+ *
+ * Deterministic and render-free, so unlike the perceptual reviewer it can be consulted
+ * BEFORE a run is allowed to call itself complete.
+ */
+function checkPictureCoverage(project: Project, options: CritiqueOptions): CriticCheck {
+  const spans = pictureSpans(project);
+  if (spans.length === 0) {
+    // `picture_present` owns "there is no picture at all" and says it better; a second
+    // check repeating it would double-count one defect.
+    return check(
+      'picture_coverage',
+      'Picture covers the programme',
+      'skipped',
+      'No picture clips, so there is no coverage to measure.',
+    );
+  }
+  const programme = contentDuration(project.timeline);
+  if (!(programme > 0)) {
+    return check(
+      'picture_coverage',
+      'Picture covers the programme',
+      'skipped',
+      'The programme has no duration to cover.',
+    );
+  }
+  const fps = Number.isFinite(project.fps) && project.fps > 0 ? project.fps : 30;
+  const threshold = PICTURE_GAP_FRAMES / fps;
+  const holes: { start: number; end: number }[] = [];
+  let cursor = 0;
+  for (const span of spans) {
+    if (span.start - cursor >= threshold) holes.push({ start: cursor, end: span.start });
+    cursor = Math.max(cursor, span.end);
+  }
+  if (programme - cursor >= threshold) holes.push({ start: cursor, end: programme });
+  const covered = spans.reduce(
+    (total, span) => total + (Math.min(span.end, programme) - Math.min(span.start, programme)),
+    0,
+  );
+  if (holes.length === 0) {
+    return check(
+      'picture_coverage',
+      'Picture covers the programme',
+      'pass',
+      `Picture covers ${round(covered)}s of the ${round(programme)}s programme.`,
+    );
+  }
+  const uncovered = holes.reduce((total, hole) => total + (hole.end - hole.start), 0);
+  const where = holes
+    .slice(0, 3)
+    .map((hole) => `${round(hole.start)}s–${round(hole.end)}s`)
+    .join(', ');
+  const detail =
+    `${round(uncovered)}s of the ${round(programme)}s programme has no picture under it ` +
+    `(${where}${holes.length > 3 ? ', …' : ''}) — that renders as black. ` +
+    'Extend the picture to the end of the programme, or trim the sound back to the ' +
+    'picture, so every moment that plays has something on screen.';
+  return check(
+    'picture_coverage',
+    'Picture covers the programme',
+    requestWantsPicture(options) ? 'fail' : 'warn',
+    detail,
+  );
 }
 
 function checkDurationTarget(timeline: Timeline, options: CritiqueOptions): CriticCheck {
@@ -1336,6 +1522,7 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
   const checks: CriticCheck[] = [
     checkRequestMatch(options),
     checkPicturePresent(project, options),
+    checkPictureCoverage(project, options),
     checkDurationTarget(timeline, options),
     checkShotCount(project, options),
     checkReframeCoverage(project),

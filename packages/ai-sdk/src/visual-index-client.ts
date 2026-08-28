@@ -95,6 +95,15 @@ export const visualJobStatusSchema = z.object({
 
 export type VisualJobStatus = z.infer<typeof visualJobStatusSchema>;
 
+/** One asset the last preparation attempt could not handle, and why. */
+export const visualAssetFailureSchema = z.object({
+  assetId: z.string(),
+  /** The provider's or the engine's own wording. */
+  reason: z.string().nullish(),
+});
+
+export type VisualAssetFailure = z.infer<typeof visualAssetFailureSchema>;
+
 /**
  * `GET /brain/visual/status` response. Mirrors the engine's Pydantic
  * `VisualStatusResponse` field-for-field. `keyConfigured` reflects the engine's
@@ -110,6 +119,14 @@ export const visualStatusResponseSchema = z.object({
   counts: z.record(z.string(), z.number()).default({}),
   indexedAssets: z.number().default(0),
   totalAssets: z.number().default(0),
+  /**
+   * Assets whose last preparation attempt failed, for their current bytes.
+   *
+   * Per-asset outcomes used to be returned once over HTTP and dropped, so a job that
+   * prepared NOTHING still reported `done` and the project was silently unsearchable —
+   * the reasons lived only in a sidecar log line nobody sees. Empty is the normal case.
+   */
+  failures: z.array(visualAssetFailureSchema).default([]),
   keyConfigured: z.boolean().default(false),
   lastJob: visualJobStatusSchema.nullish(),
 });

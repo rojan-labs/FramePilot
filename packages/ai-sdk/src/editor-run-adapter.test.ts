@@ -243,6 +243,40 @@ describe('streamEditorRun route adapters', () => {
     );
   });
 
+  it('says a last-turn finding was never acted on, rather than standing behind it', () => {
+    // Run 4c9b5f82. The review of the last edit settled twenty-six milliseconds AFTER the
+    // run reported `completed`, so it was never steered on and nothing was attempted — but
+    // the account said "your edits are applied and validated, but they are not perceptually
+    // clean", which reads as a verdict the run stood behind. The two cases must not share
+    // one sentence: one is unfixed, the other is untried, and only the second is worth
+    // asking again about.
+    return collect(
+      new Orchestrator(new MockProvider()).streamEditorRun(
+        input,
+        { ...options, runId: 'unattempted_finding' },
+        { route: 'edit' },
+        {
+          // Slow enough that the per-turn `drainSettled` (one macrotask) cannot see it, so
+          // the finding lands in the terminal `drainAll` — exactly where a review of the
+          // LAST edit lands, and the case the old wording described wrongly.
+          temporalEvidence: async () => {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            return { renderSettings, results: [] };
+          },
+        },
+      ),
+    ).then((events) => {
+      const warnings = events.filter((event) => event.type === 'warning');
+      const unattempted = warnings.find((event) => event.text.includes('after the run had'));
+      expect(unattempted).toBeDefined();
+      expect(unattempted?.text).toContain('Ask me to fix this');
+      // …and it must not also claim a correction was tried.
+      expect(warnings.some((event) => event.text.includes('correction attempt did not fix'))).toBe(
+        false,
+      );
+    });
+  });
+
   it('never proposes a patch of its own from a failing review', async () => {
     // Review used to call back into streamEdit for a bounded repair. That second writer is
     // what made ordering between turns a problem at all; it must not come back.

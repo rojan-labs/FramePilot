@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 21468,
+      "usedTokens": 21616,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -152,7 +152,7 @@
             "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17648,
+            "tokenEstimate": 17796,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -160,9 +160,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21468,
+          "estimatedInputTokensBeforeSend": 21616,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 850532,
+          "estimatedRemainingCapacity": 850384,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -250,7 +250,7 @@
             "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17648,
+            "tokenEstimate": 17796,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -258,7 +258,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21468,
+          "estimatedInputTokensBeforeSend": 21616,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -570,7 +570,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 21512,
+      "usedTokens": 21660,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -614,7 +614,7 @@
             "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17648,
+            "tokenEstimate": 17796,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -622,9 +622,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21512,
+          "estimatedInputTokensBeforeSend": 21660,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 850488,
+          "estimatedRemainingCapacity": 850340,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -714,7 +714,7 @@
             "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17648,
+            "tokenEstimate": 17796,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -722,7 +722,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21512,
+          "estimatedInputTokensBeforeSend": 21660,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 0,
@@ -853,7 +853,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "notification",
-      "text": "Deterministic self-check: All checks passed."
+      "text": "Deterministic self-check: Passed with 1 warning(s)."
     },
     {
       "id": "turn_parity:run-state",
@@ -946,7 +946,7 @@
             "criterion": "trim the dead air",
             "passed": true,
             "atRevision": 1,
-            "detail": "All checks passed."
+            "detail": "Passed with 1 warning(s)."
           }
         ],
         "nextAction": null,

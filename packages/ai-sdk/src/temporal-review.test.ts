@@ -829,3 +829,80 @@ describe('loudness review', () => {
     expect(report.checks[0]!.issues.join(' ')).toContain('LUFS target');
   });
 });
+
+describe('representative frames assert what they measure', () => {
+  const frameAt = (frame: number, blackRatio: number) => ({
+    schemaVersion: 1 as const,
+    requestId: `representative_x_${String(frame)}`,
+    projectRevision: 7,
+    kind: 'frame' as const,
+    renderSettings,
+    sample: { frame, luma: blackRatio === 1 ? 0 : 0.5, blackRatio },
+  });
+
+  const requestAt = (frame: number, reason: string) => ({
+    schemaVersion: 1 as const,
+    requestId: `representative_x_${String(frame)}`,
+    projectRevision: 7,
+    kind: 'frame' as const,
+    atFrame: frame,
+    metrics: ['luma', 'black_ratio', 'perceptual_hash'] as const,
+    checks: ['black_frames'] as const,
+    reason,
+  });
+
+  it('regression: a black programme midpoint and ending are reported', () => {
+    // Run 4c9b5f82. Picture ran out at 10.0s of a 36.1s programme. Both of these frames
+    // came back with blackRatio 1 and both were checked only for carrying the right frame
+    // number, so the run's whole account of 26 seconds of black was the two frames that
+    // fell inside a ±2-frame window around the final cut.
+    const report = reviewTemporalEvidence(
+      [
+        requestAt(0, 'Program opening'),
+        requestAt(541, 'Program midpoint'),
+        requestAt(1083, 'Program ending'),
+      ],
+      [frameAt(0, 0), frameAt(541, 1), frameAt(1083, 1)],
+    );
+    expect(report.ok).toBe(false);
+    expect(report.checks[0]).toMatchObject({ status: 'pass' });
+    expect(report.checks[1]).toMatchObject({ status: 'fail' });
+    expect(report.checks[1]?.issues.join(' ')).toBe('Program midpoint is black (frame 541).');
+    expect(report.checks[2]?.issues.join(' ')).toBe('Program ending is black (frame 1083).');
+  });
+
+  it('a frame request without checks still only measures', () => {
+    const { checks: _checks, ...measureOnly } = requestAt(541, 'Program midpoint');
+    const report = reviewTemporalEvidence([measureOnly], [frameAt(541, 1)]);
+    expect(report.ok).toBe(true);
+  });
+
+  it('the edit planner asks its representative frames to assert', () => {
+    const before = makeProject();
+    const video = before.timeline.tracks[0]!;
+    const after = {
+      ...before.timeline,
+      revision: 1,
+      tracks: [
+        { ...video, clips: [{ ...video.clips[0]!, end: 5.5 }, video.clips[1]!] },
+        before.timeline.tracks[1]!,
+      ],
+    };
+    const requests = planTemporalEvidenceForEdit({
+      projectRevision: 7,
+      edit: {
+        patch: { patchId: 'patch', createdBy: 'agent', reason: 'test', operations: [] },
+        validation: { valid: true, issues: [] },
+        diff: { before: before.timeline, after, summary: ['changed'] },
+        text: 'test',
+      },
+      sequenceFps: 30,
+      durationFrames: 1084,
+    });
+    const representative = requests.filter((request) => request.requestId.startsWith('repres'));
+    expect(representative.length).toBeGreaterThan(0);
+    for (const request of representative) {
+      expect(request).toMatchObject({ kind: 'frame', checks: ['black_frames'] });
+    }
+  });
+});

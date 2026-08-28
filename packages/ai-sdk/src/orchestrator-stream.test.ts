@@ -2125,16 +2125,20 @@ describe('streamAgent robustness (parity with agent())', () => {
   it('runs one bounded repair pass that applies a fix, then re-checks (R3 C3)', async () => {
     const provider = new ScriptedProvider([
       { text: 'edit', toolCalls: [deleteRange('a', 0, 3)] }, // turn 1 applies
-      { text: 'done' }, // turn 2 ends the loop
+      { text: 'done' }, // turn 2 declares done — the 1s target is unmet, so one recovery
+      { text: 'done' }, // turn 3 declares done again; the latch settles it to verify
       { text: 'fix', toolCalls: [deleteRange('b', 8, 9)] }, // repair applies a new op
     ]);
     const events = await drain(
       new Orchestrator(provider).streamAgent(input, opts(), {
         durationTargetSeconds: 1,
-        maxSteps: 3,
+        maxSteps: 4,
       }),
     );
-    expect(provider.requests).toHaveLength(3);
+    // Four model calls: the edit, the two declarations, and the repair. The middle one is
+    // the bounded unmet-request recovery — a stated 1s target the timeline does not meet
+    // buys exactly one more turn before the run is allowed to stop.
+    expect(provider.requests).toHaveLength(4);
     expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Repair pass'))).toBe(
       true,
     );
@@ -3164,7 +3168,8 @@ describe('streamAgent usage (C1)', () => {
         toolCalls: [deleteRange('a', 0, 3)],
         usage: { inputTokens: 10, outputTokens: 2 },
       }, // turn 1 applies
-      { text: 'done' }, // turn 2 ends the loop — reports no usage
+      { text: 'done' }, // turn 2 declares done — reports no usage
+      { text: 'done' }, // turn 3 settles the unmet-request recovery — reports no usage
       {
         text: 'fix',
         toolCalls: [deleteRange('b', 8, 9)],
@@ -3174,7 +3179,7 @@ describe('streamAgent usage (C1)', () => {
     const events = await drain(
       new Orchestrator(provider).streamAgent(input, opts(), {
         durationTargetSeconds: 1,
-        maxSteps: 3,
+        maxSteps: 4,
       }),
     );
     expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Repair pass'))).toBe(
@@ -3595,18 +3600,19 @@ describe('streamAgent prompt-prefix stability (E3)', () => {
   it('the repair pass reproduces the same run-stable prefix as the turns (shared helper)', async () => {
     const provider = new ScriptedProvider([
       { text: 'edit', toolCalls: [deleteRange('a', 0, 3)] }, // turn 1 applies
-      { text: 'done' }, // turn 2 ends the loop
+      { text: 'done' }, // turn 2 declares done — the 1s target is unmet, so one recovery
+      { text: 'done' }, // turn 3 settles it
       { text: 'fix', toolCalls: [deleteRange('b', 8, 9)] }, // repair pass
     ]);
     await drain(
       new Orchestrator(provider).streamAgent(input, opts(), {
         durationTargetSeconds: 1,
-        maxSteps: 3,
+        maxSteps: 4,
       }),
     );
-    expect(provider.requests.length).toBe(3);
-    const turn2 = provider.requests[1]!;
-    const repair = provider.requests[2]!;
+    expect(provider.requests.length).toBe(4);
+    const turn2 = provider.requests[2]!;
+    const repair = provider.requests[3]!;
     // Repair = the same agentMessages + one extra instruction message on the end.
     expect(repair.messages.length).toBe(turn2.messages.length + 1);
     // Same post-edit working copy → the base context is byte-identical…
@@ -3616,7 +3622,11 @@ describe('streamAgent prompt-prefix stability (E3)', () => {
     // …and the repair pass reproduces the identical cached head message. The repair adds
     // one extra instruction message on the end, so its head sits one further back.
     expect(headMessageOf(repair.messages.slice(0, -1))).toEqual(headMessageOf(turn2.messages));
-    expect(JSON.stringify(repair.tools)).toBe(JSON.stringify(turn2.tools));
+    // Against a NORMAL turn, not the recovery one immediately before it: an unmet-request
+    // recovery turn is deliberately given a narrowed, mutation-only surface, so comparing
+    // the repair's tools to that turn's would assert the recovery bound away rather than
+    // the prefix stability this test is about.
+    expect(JSON.stringify(repair.tools)).toBe(JSON.stringify(provider.requests[1]!.tools));
   });
 
   it('pinning a skill re-derives the head once, then it is stable again (memo revalidation)', async () => {

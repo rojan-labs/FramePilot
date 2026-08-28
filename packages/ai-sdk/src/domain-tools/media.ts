@@ -207,12 +207,17 @@ export const MEDIA_TOOLS: readonly ToolSpec[] = [
       description:
         'Map the WHOLE footage with no query — the FIRST move on unfamiliar or long ' +
         'material before you plan any edit. Returns a time-ordered digest ' +
-        '{ chapters: [{ t0, t1, title, summary }], highlights: [{ t0, t1, label, score }], ' +
-        'summary, durationSec } in timeline seconds, so you can see the story shape at a ' +
-        'glance and decide where to cut, tighten, punch in, or reframe. Then drill into a ' +
-        'chapter with describe_footage / search_visual. Optional assetId maps just one ' +
-        'asset; refresh recomputes past the cache. Honestly reports when the footage is not ' +
-        'indexed yet or generative understanding is unavailable. Does not edit the timeline.',
+        '{ chapters: [{ t0, t1, title, summary, assetId }], highlights, summary, ' +
+        'durationSec, timeBase, unplacedAssets }, so you can see the story shape at a ' +
+        'glance and decide where to cut, tighten, punch in, or reframe. READ timeBase ' +
+        'before acting on a time: "timeline" means the times are timeline seconds and you ' +
+        'can act on them directly; "asset" means they are that footage\'s own source ' +
+        'seconds. Assets listed in unplacedAssets are not on the timeline at all, so their ' +
+        'rows are source seconds whatever timeBase says — place the asset before cutting ' +
+        'to one. Then drill into a chapter with describe_footage / search_visual (which ' +
+        'always answer in asset seconds). Optional assetId maps just one asset; refresh ' +
+        'recomputes past the cache. Honestly reports when the footage is not indexed yet ' +
+        'or generative understanding is unavailable. Does not edit the timeline.',
       capabilities: ['analysis', 'visual'],
     },
     mapFootageSchema,

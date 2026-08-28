@@ -73,6 +73,12 @@ class FrameEvidenceRequest(_RequestBase):
     kind: Literal["frame"]
     at_frame: int = Field(ge=0)
     metrics: list[Literal["luma", "black_ratio", "perceptual_hash"]] = Field(min_length=1)
+    # What the caller will ASSERT on the measurements, mirroring the TS request contract
+    # (`temporal-review.ts`). This side only measures; the judgement is made where the
+    # report is built. Accepted rather than ignored because `extra="forbid"` would
+    # otherwise reject the whole request, and optional because a caller may still want a
+    # measurement with nothing riding on it.
+    checks: list[Literal["black_frames"]] | None = None
 
 
 class _WindowRequest(_RequestBase):

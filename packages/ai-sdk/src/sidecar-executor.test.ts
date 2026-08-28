@@ -494,6 +494,43 @@ describe('visual grounding (MI6.1)', () => {
   });
 
   describe('unwrapFootageMap', () => {
+    it('settles through the footage-map contract, not past it', () => {
+      // Run `accd014d`. Every other reader of a footage map goes through
+      // `footageMapSchema` — the context digest, the understanding panel — and that is
+      // where a chapter whose summary merely repeats its title becomes one sentence. This
+      // settle forwarded the wire record instead, so the MODEL was the one reader getting
+      // the un-normalised map: 28,264 characters where the contract says 15,855, against a
+      // 16,000-character `recall_evidence`. That gap was a second model turn, and the run
+      // had two left.
+      const sentence = 'A man in a brown jacket stands on a stone path below wooded hills.';
+      const outcome = unwrapFootageMap({
+        available: true,
+        backend: 'twelvelabs',
+        chapters: [
+          { t0: 0, t1: 0, title: sentence, summary: sentence, assetId: 'asset_1' },
+          { t0: 0, t1: 0, title: 'Second', summary: sentence, assetId: 'asset_2' },
+        ],
+        highlights: [],
+      });
+      const { chapters } = outcome.data as { chapters: Record<string, unknown>[] };
+      // The repeat is gone and the key with it; the real description is untouched.
+      expect(chapters[0]).toEqual({ t0: 0, t1: 0, title: sentence, assetId: 'asset_1' });
+      expect(chapters[1]).toMatchObject({ title: 'Second', summary: sentence });
+      // `similarGroup: null` says nothing and is not sent.
+      expect(chapters[0]).not.toHaveProperty('similarGroup');
+    });
+
+    it('still forwards a response the contract does not recognise', () => {
+      // Normalisation is an improvement on the payload, never a gate on it: an engine
+      // shape this schema has not learned yet must still reach the model.
+      const outcome = unwrapFootageMap({
+        available: true,
+        chapters: [{ t0: 'nope', t1: 10, title: 'Intro' }],
+      });
+      expect(outcome.status).toBe('completed');
+      expect((outcome.data as { chapters: unknown[] }).chapters).toHaveLength(1);
+    });
+
     it('hands chapters/highlights back verbatim on a mapped response', () => {
       const outcome = unwrapFootageMap({
         available: true,

@@ -40,7 +40,7 @@ import {
   PROVIDER_NAMES,
   createAskUserGate,
 } from '@framepilot/ai-sdk';
-import { parseProject } from '@framepilot/timeline-schema';
+import { type Project, parseProject } from '@framepilot/timeline-schema';
 import type { PatchCommitLedger } from '@framepilot/ai-sdk';
 import { createLogger } from '@framepilot/shared-types';
 import type {
@@ -504,6 +504,30 @@ async function readOptionalContext(
 }
 
 /**
+ * {@link readOptionalContext} for a reader that needs the whole project.
+ *
+ * Same contract — a reader that throws costs this run one context block and nothing
+ * else — but it hands over the live project document rather than an id, which the
+ * footage map needs in order to answer in timeline time at all.
+ */
+async function readContextFor(
+  reader: ((project: Project) => Promise<string | undefined>) | undefined,
+  project: Project,
+  label: string,
+): Promise<string | undefined> {
+  if (!reader || project.id === '') return undefined;
+  try {
+    return await reader(project);
+  } catch (error) {
+    log.debug(`${label} unavailable for this run`, {
+      projectId: project.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return undefined;
+  }
+}
+
+/**
  * Read the previous run's ledger, never failing the run over it (P5.1).
  *
  * Same contract as {@link readOptionalContext} and for the same reason: this is context
@@ -598,8 +622,14 @@ export async function runAiStream(
    * Awaited once per run, before the first model call, and never allowed to fail the run.
    */
   visualStatusFor?: (projectId: string, canSeeFrames: boolean) => Promise<string | undefined>,
-  /** Reads this project's cached footage-map digest (see `HubOptions.footageMapFor`). */
-  footageMapFor?: (projectId: string) => Promise<string | undefined>,
+  /**
+   * Reads this project's cached footage-map digest (see `HubOptions.footageMapFor`).
+   *
+   * Takes the whole project, not just its id, because the map's chapter times can only
+   * be projected onto timeline seconds THROUGH the current edit. Passing an id alone is
+   * what silently handed every run source seconds under a timeline label.
+   */
+  footageMapFor?: (project: Project) => Promise<string | undefined>,
   /** Reads this project's session-memory digest (see `HubOptions.sessionContextFor`). */
   sessionContextFor?: (projectId: string) => Promise<string | undefined>,
   /**
@@ -644,7 +674,7 @@ export async function runAiStream(
   // covers what the run DISCOVERED, which nothing carried before.
   const [visualStatus, footageMap, sessionContext, carriedForward] = await Promise.all([
     readOptionalContext(readVisualStatus, project.id, 'visual status'),
-    readOptionalContext(footageMapFor, project.id, 'footage map'),
+    readContextFor(footageMapFor, project, 'footage map'),
     readOptionalContext(sessionContextFor, project.id, 'session context'),
     readCarriedForward(carriedForwardFor, request.conversationId, project.id),
   ]);
@@ -770,8 +800,12 @@ interface HubOptions {
    * footage — for a project. Must be a CACHE-ONLY read (`cachedOnly`): this runs before
    * every AI run, and a cache miss that reached for Pegasus would stall the run on a slow
    * generative round-trip and bill for it. Optional and fail-soft, like the status line.
+   *
+   * Receives the whole project because the map answers in timeline seconds only when it
+   * has the current edit to project through — a projection is pure arithmetic over clips
+   * already in memory, so this stays a cache-only read and still costs nothing.
    */
-  readonly footageMapFor?: (projectId: string) => Promise<string | undefined>;
+  readonly footageMapFor?: (project: Project) => Promise<string | undefined>;
   /**
    * Reads the project's session-memory digest (`createSessionContextDigester`) — the bin
    * summary, the latest session note, and the corrections/decisions tiers.

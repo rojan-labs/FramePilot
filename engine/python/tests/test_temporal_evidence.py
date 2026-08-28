@@ -909,3 +909,52 @@ class TestReviewResolution:
             ],
         )
         assert seen == [evidence_module.REVIEW_MAX_DIMENSION]
+
+
+def test_a_frame_request_may_carry_the_checks_it_will_be_judged_against() -> None:
+    """The TS reviewer asserts on a representative frame's black ratio (run 4c9b5f82).
+
+    This side only measures, but ``extra="forbid"`` means an unknown field rejects the
+    whole request — so the field has to be accepted here for the assertion to exist there.
+    """
+    request = FrameEvidenceRequest.model_validate(
+        {
+            "schemaVersion": 1,
+            "requestId": "representative_1_541",
+            "projectRevision": 7,
+            "reason": "Program midpoint",
+            "kind": "frame",
+            "atFrame": 541,
+            "metrics": ["luma", "black_ratio", "perceptual_hash"],
+            "checks": ["black_frames"],
+        }
+    )
+    assert request.checks == ["black_frames"]
+    assert request.at_frame == 541
+
+    without = FrameEvidenceRequest.model_validate(
+        {
+            "schemaVersion": 1,
+            "requestId": "representative_1_541",
+            "projectRevision": 7,
+            "reason": "Program midpoint",
+            "kind": "frame",
+            "atFrame": 541,
+            "metrics": ["luma"],
+        }
+    )
+    assert without.checks is None
+
+    with pytest.raises(ValidationError):
+        FrameEvidenceRequest.model_validate(
+            {
+                "schemaVersion": 1,
+                "requestId": "representative_1_541",
+                "projectRevision": 7,
+                "reason": "Program midpoint",
+                "kind": "frame",
+                "atFrame": 541,
+                "metrics": ["luma"],
+                "checks": ["flash_frames"],
+            }
+        )

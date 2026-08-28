@@ -578,6 +578,65 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     );
   });
 
+  it('does not accept early done while the request itself is unmet', () => {
+    // Run 4c9b5f82. A 61-photo brief was decomposed into ONE objective, so the first
+    // applied batch — ten photos over the first ten seconds of a thirty-six-second music
+    // bed — reconciled the whole ledger. The model then said it was done, the plan guard
+    // above found nothing unfinished, and the run reported `completed` while its own
+    // memory still read "Continue apply / remainingObjectives: 1". The plan is the model's
+    // account of the work; the shortfall is the request's.
+    const planned = started({
+      ledgerLength: 1,
+      cumulativeOps: ops(1),
+      planSteps: [{ id: 'step-1', label: 'Build the montage', status: 'completed' }],
+    });
+    const step = onEffectResult(
+      planned,
+      turn({
+        done: true,
+        acceptanceShortfall: [
+          '26.099s of the 36.107s programme has no picture under it.',
+          'The cut uses 10 shots but at least 61 were asked for.',
+        ],
+      }),
+    );
+    expect(step.state.phase).toBe('executing');
+    expect(step.state.actionRecoveryPending).toBe(true);
+    expect(step.state.working.nextAction?.action).toContain('no picture under it');
+    expect(step.effects[0]).toMatchObject({ kind: 'run_turn', actionRecovery: true });
+    expect(step.events).toContainEqual(
+      expect.objectContaining({
+        type: 'notification',
+        text: expect.stringContaining('not met yet'),
+      }),
+    );
+  });
+
+  it('bounds an unmet-request recovery to one turn, like the plan one', () => {
+    const planned = started({
+      ledgerLength: 1,
+      actionRecoveryPending: true,
+      cumulativeOps: ops(1),
+      planSteps: [{ id: 'step-1', label: 'Build the montage', status: 'completed' }],
+    });
+    const step = onEffectResult(
+      planned,
+      turn({ done: true, acceptanceShortfall: ['The cut uses 10 shots but 61 were asked for.'] }),
+    );
+    expect(step.state.phase).toBe('verifying');
+    expect(step.effects).toEqual([{ kind: 'run_verify' }]);
+  });
+
+  it('accepts done when the request states nothing the timeline fails', () => {
+    const planned = started({
+      ledgerLength: 1,
+      cumulativeOps: ops(1),
+      planSteps: [{ id: 'step-1', label: 'Build the montage', status: 'completed' }],
+    });
+    const step = onEffectResult(planned, turn({ done: true, acceptanceShortfall: [] }));
+    expect(step.state.phase).toBe('verifying');
+  });
+
   it('bounds an early-done recovery to one turn', () => {
     const planned = started({
       ledgerLength: 1,

@@ -1206,6 +1206,16 @@ export type MusicErrorCodeWire =
   | 'unauthorized'
   | 'rate_limited'
   | 'provider_unavailable'
+  /**
+   * The id is not one this process handed out — the search results behind it are from a
+   * previous run, or a different session.
+   *
+   * Its own arm because the only sentence it had was `provider_unavailable`'s, which says
+   * "try again shortly" — advice that can never work here and that an agent will take
+   * literally. Run 4c9b5f82 spent three of its seventeen model calls retrying a download
+   * for a track id this process had never seen.
+   */
+  | 'unknown_track'
   | 'offline'
   | 'timeout'
   | 'cancelled'

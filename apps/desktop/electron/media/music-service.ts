@@ -347,10 +347,11 @@ export class MusicService {
   public async preview(remoteId: string): Promise<MusicPreviewResult> {
     const track = this.knownTracks.get(remoteId);
     if (!track) {
-      // Not a provider failure: the renderer asked about a track this process
-      // never saw, which means the search results it holds are from a previous
-      // run. Say so rather than reporting the provider is down.
-      return { ok: false, error: 'provider_unavailable', detail: 'unknown track' };
+      // Not a provider failure: the caller asked about a track this process never saw,
+      // which means the search results it holds are from a previous run. Say so rather
+      // than reporting the provider is down — this comment described the intent, and the
+      // code returned the opposite until `unknown_track` existed to carry it.
+      return { ok: false, error: 'unknown_track', detail: 'unknown track' };
     }
 
     const cached = this.previewCache.get(remoteId);
@@ -410,7 +411,9 @@ export class MusicService {
   public async download(request: MusicDownloadRequest): Promise<MusicDownloadResult> {
     const track = this.knownTracks.get(request.remoteId);
     if (!track) {
-      return { ok: false, error: 'provider_unavailable', detail: 'unknown track' };
+      // Same reasoning as `preview`: a stale id, not an outage. The agent shares this
+      // service with the panel (ADR 0148), and "try again shortly" bought three retries.
+      return { ok: false, error: 'unknown_track', detail: 'unknown track' };
     }
 
     // Refused before any byte is fetched. FramePilot users monetize, and no

@@ -389,7 +389,11 @@ describe('runAiStream', () => {
     // The map is the structure of what is IN the footage. It reaches the model through
     // the same fail-soft channel, and — critically — through a CACHE-ONLY read, so a cold
     // project costs a run nothing rather than stalling it on a billed Pegasus fetch.
-    const seen: string[] = [];
+    //
+    // It also receives the WHOLE project, not just its id: chapter times can only come
+    // back in timeline seconds if the engine has the current edit to project through.
+    // Passing an id alone silently handed every run source seconds under a timeline label.
+    const seen: { id: string; assets: number }[] = [];
     await runAiStream(
       new Orchestrator(new MockProvider()),
       request('chat'),
@@ -397,12 +401,12 @@ describe('runAiStream', () => {
       new AbortController().signal,
       {},
       () => Promise.reject(new Error('sidecar is busy')),
-      async (projectId) => {
-        seen.push(projectId);
-        return 'Footage map (0:14 total) — the structure of what is IN the footage.';
+      async (doc) => {
+        seen.push({ id: doc.id, assets: doc.assets.length });
+        return 'Footage map (0:14.0 total) — the structure of what is IN the footage.';
       },
     );
-    expect(seen).toEqual([project.id]);
+    expect(seen).toEqual([{ id: project.id, assets: project.assets.length }]);
   });
 
   it('runs normally when the status read fails — context, never a dependency', async () => {

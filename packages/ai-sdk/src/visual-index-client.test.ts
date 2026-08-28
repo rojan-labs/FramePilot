@@ -52,6 +52,9 @@ describe('schemas', () => {
       counts: {},
       indexedAssets: 0,
       totalAssets: 0,
+      // No failures is the normal case, and an engine that omits the field entirely
+      // must read as "nothing failed", never as "unknown".
+      failures: [],
       keyConfigured: false,
     });
   });

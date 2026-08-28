@@ -6,7 +6,75 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- **Understanding your footage is roughly four times faster.** Preparing media used to
+  happen one file at a time, and almost all of that time was spent waiting on the
+  service doing the understanding rather than on your machine — 60 photos took over a
+  minute and a half of waiting. Files are now prepared together: the same 60 photos take
+  about half a minute, and less than that if you have set more than one embeddings key,
+  which now share the work instead of taking turns. Nothing else changes — the same
+  files, the same results, the same cost, and preparation still picks up exactly where it
+  left off if you close the app. If you would rather it took its time, set
+  `FRAMEPILOT_VISUAL_INDEX_CONCURRENCY=1`.
+- **The AI can tell a half-read project from an empty one.** The footage map has always
+  been usable before preparation finishes, but it never said how much of your project it
+  had actually read, so the assistant could conclude there was nothing else to cut to. It
+  now says "built from 12 of 61 assets prepared so far" while there is more to come.
+
 ### Fixed
+
+- **The assistant reads your photo library instead of fetching it.** On a project of 61
+  photos it was shown 24 of them and told to go and look up the rest, so it spent its last
+  three steps paging descriptions back out of storage and stopped with 14 photos placed and
+  nothing left to place them with. Two things were making that read expensive: the
+  descriptions arrived with every sentence written twice (all 61 of them), and the summary
+  the assistant sees was capped at 24 entries no matter how short they were. Both are
+  fixed — a small library is now shown whole, and there is nothing to fetch.
+- **A montage that stops a third of the way through no longer reports success.** Given 61
+  photos and a 36-second track, the assistant could place ten photos over the first ten
+  seconds, leave the rest of the song playing over black, and call the job finished. It
+  now measures whether picture actually covers the whole video before it is allowed to
+  stop, and keeps going if it does not. It also reads two things out of your brief that it
+  used to miss entirely: a count written as photos, images or stills rather than clips
+  ("use all 61 photos"), and a length written as a range ("20–35 seconds"). Both are now
+  conditions the finished edit is held to.
+- **The review no longer reports two black frames when a quarter of your video is black.**
+  The check that looks at the start, middle and end of a video measured how dark each one
+  was and then ignored the answer, so a video that ran out of picture halfway was only
+  ever caught at the last cut. It now says which part of the video is black.
+- **A finding that arrived after the run finished says so.** When the last edit's review
+  came back too late for anything to be done about it, the assistant reported it as though
+  it had tried and failed. It now tells you nothing was attempted, and that asking again
+  will pick up from what the review found.
+- **Reading a long timeline no longer costs a wasted step.** `get_timeline` now takes a
+  start and end, the way reading the transcript already did — the assistant used to ask
+  for a section, get an error, and try again.
+- **A stale music track says it is stale.** Asking to add a track from a previous
+  session's search results reported "the music provider is not responding, try again
+  shortly". The provider was fine, and retrying could never work. It now says to search
+  again.
+- **When a file can't be prepared, you can now see which one and why.** Media
+  intelligence used to report a clean "done" even when it had prepared nothing at all —
+  the reasons existed for the length of one request and were then thrown away, so a
+  project could be quietly unsearchable with nothing on screen to say so. Failures are
+  now remembered per file, named in Settings → AI → Media intelligence, and offered a
+  retry that only re-does the ones that failed. A run that stops making progress says
+  "hasn't advanced since 14:32" instead of showing a progress badge forever, and a
+  rejected key says it was rejected. There is still no manual indexing step.
+- **The on-device embeddings note was wrong about what leaves your machine.** It said
+  only the request leaves, never the media. Sampled frames are sent to NVIDIA to be
+  embedded — your source files are not — and the wording now says so.
+
+- **Projects made of photos are understood again.** Adding still images to a project
+  left media intelligence stuck at "0 of 61 assets prepared" with no footage map, no
+  matter how long you waited. Photos were being sent to TwelveLabs, whose index only
+  takes video and audio, and the resulting error stopped preparation on the very first
+  photo — so nothing behind it was ever prepared either. Photos are now understood on
+  this machine (TwelveLabs still handles your video and audio when its key is set), one
+  file a provider refuses no longer blocks the rest of the project, and a preparation
+  run that has stopped now says so with the reason instead of showing a progress badge
+  that never moves.
 
 - **A montage that asked for 50 clips can no longer finish with one.** The check that
   compares the finished cut against the number you asked for was silently switched off by

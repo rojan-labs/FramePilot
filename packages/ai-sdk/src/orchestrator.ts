@@ -54,7 +54,7 @@ import {
   type CritiqueOptions,
   type CritiqueReport,
   critique,
-  explicitDurationTargetSeconds,
+  explicitDurationTarget,
   timelineDuration,
 } from './critic.js';
 import { describeOperation, describeToolCall } from './describe.js';
@@ -2723,8 +2723,12 @@ export class Orchestrator {
     // run's objective; the Critic reads the same answer so criterion and check cannot be
     // about two different requests.
     const objectiveText = deriveObjectiveText(input.userPrompt, input.history);
-    const durationTargetSeconds =
-      options.durationTargetSeconds ?? explicitDurationTargetSeconds(objectiveText);
+    // A request that stated a RANGE ("20–35 seconds") also stated its own tolerance; using
+    // the 2s default over the range's midpoint would fail a 34-second cut the brief allowed.
+    const stated = explicitDurationTarget(objectiveText);
+    const durationTargetSeconds = options.durationTargetSeconds ?? stated?.seconds;
+    const durationToleranceSeconds =
+      options.durationTargetSeconds === undefined ? stated?.toleranceSeconds : undefined;
     // The conditions the request stated in checkable terms (see `acceptance.ts`). The same
     // reading is recorded on the run's objective, so the criterion the ledger reports against
     // and the check that settles it can never be two different things.
@@ -2736,6 +2740,7 @@ export class Orchestrator {
       request: objectiveText,
       ...(producedChanges !== undefined ? { producedChanges } : {}),
       ...(durationTargetSeconds !== undefined ? { durationTargetSeconds } : {}),
+      ...(durationToleranceSeconds !== undefined ? { durationToleranceSeconds } : {}),
       ...(minShotCount !== undefined ? { minShotCount } : {}),
       ...(coverage !== undefined ? { coverage } : {}),
       ...(options.targetPlatform !== undefined ? { targetPlatform: options.targetPlatform } : {}),
@@ -5669,12 +5674,33 @@ export class Orchestrator {
           // a run could tell the editor "all checks passed" while its own perceptual review
           // was still holding an unresolved defect. Amend the account here: the edits did
           // land and are valid, and this is what the review found about them.
-          if (remaining.length > 0) {
+          //
+          // Split by whether the run ever GOT to act, because the two say very different
+          // things to the person reading them and the old wording said only the second.
+          // A review of the last turn's edit settles after the agent has stopped — in run
+          // 4c9b5f82, twenty-six milliseconds after the run reported `completed` — so the
+          // finding was never steered on, never attempted, and was reported in language
+          // ("they are not perceptually clean") that reads as a verdict the run stood
+          // behind rather than as work it never reached. Saying which one it is costs a
+          // sentence and tells the editor whether asking again is worth anything.
+          const unattempted = remaining.filter((finding) => !findings.hasExhaustedSteering(finding));
+          const attempted = remaining.filter((finding) => findings.hasExhaustedSteering(finding));
+          if (attempted.length > 0) {
             const notice: AiEvent = {
               ...evidenceBase(),
               id: `${options.turnId}:review-unresolved`,
               type: 'warning',
-              text: `The perceptual review finished with ${String(remaining.length)} unresolved finding${remaining.length === 1 ? '' : 's'}. Your edits are applied and validated, but they are not perceptually clean: ${describeFindings(remaining)}`,
+              text: `The perceptual review finished with ${String(attempted.length)} unresolved finding${attempted.length === 1 ? '' : 's'} that a correction attempt did not fix. Your edits are applied and validated, but they are not perceptually clean: ${describeFindings(attempted)}`,
+            };
+            projector?.observe(notice);
+            yield notice;
+          }
+          if (unattempted.length > 0) {
+            const notice: AiEvent = {
+              ...evidenceBase(),
+              id: `${options.turnId}:review-unattempted`,
+              type: 'warning',
+              text: `The review of the last edit came back after the run had finished, so nothing was done about it: ${describeFindings(unattempted)} Your edits are applied and validated. Ask me to fix this and I will start from what the review found.`,
             };
             projector?.observe(notice);
             yield notice;
@@ -6329,6 +6355,22 @@ export class Orchestrator {
       ...over,
     });
 
+    /**
+     * What the request asked for that the timeline does not yet deliver.
+     *
+     * Only the checks that can FAIL — the ones read deterministically off the request by
+     * `acceptance.ts` and measured off the timeline by `critique`. Warnings are advisory by
+     * contract and must never hold a run open; a `fail` is an unmet condition the editor
+     * stated, and the run has no business calling itself finished while one stands.
+     *
+     * Cheap by construction: pure, render-free, and computed once, on the single turn where
+     * the model says it is done.
+     */
+    const acceptanceShortfall = (producedChanges: boolean): string[] =>
+      critique(working, self.critiqueOptions(input, agentOptions, producedChanges, evidence))
+        .checks.filter((check) => check.status === 'fail')
+        .map((check) => check.detail);
+
     const handlers: ConductorHandlers = {
       // R3 C4: draft the up-front plan (a read-only model call). The reducer seeds the
       // ledger + emits `plan`/`status('thinking')`; here we emit `status('planning')`
@@ -6669,7 +6711,14 @@ export class Orchestrator {
           }
           log.push(`Step ${index}: ${turn.text}`);
           yield emit.assistant(segmentId, turn.text);
-          return turnBase(index, emit.seq(), { done: true });
+          // The model has declared itself finished. Measure the conditions the REQUEST
+          // stated against the timeline as it actually is, so the reducer can tell a run
+          // that is done from one that has stopped. See `AgentTurnResult.acceptanceShortfall`.
+          const shortfall = acceptanceShortfall(state.cumulativeOps.length > 0);
+          return turnBase(index, emit.seq(), {
+            done: true,
+            ...(shortfall.length > 0 ? { acceptanceShortfall: shortfall } : {}),
+          });
         }
 
         const intent = turn.calls.map((c) => describeToolCall(c, names)).join(', ');

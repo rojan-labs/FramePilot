@@ -41,6 +41,7 @@ export const MUSIC_ERROR_CODES = [
   'unauthorized',
   'rate_limited',
   'provider_unavailable',
+  'unknown_track',
   'offline',
   'timeout',
   'cancelled',
@@ -73,6 +74,10 @@ function musicErrorSentence(code: MusicErrorCode): string {
       return 'Too many searches in a row. Try again in a moment.';
     case 'provider_unavailable':
       return 'The music provider is not responding. Try again shortly.';
+    case 'unknown_track':
+      // Deliberately NOT "try again": retrying is the one thing that cannot work, and
+      // this sentence is read by an agent as an instruction.
+      return 'That track id is no longer valid. Search again and use an id from the new results.';
     case 'offline':
       return 'No network connection.';
     case 'timeout':

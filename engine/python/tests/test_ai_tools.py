@@ -10,6 +10,7 @@ action tools validating without a handler.
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
@@ -1332,6 +1333,26 @@ def test_get_transcript_windows_by_start_end(ctx: ToolContext) -> None:
     assert run_tool("get_transcript", {"start": 0.4}, ctx).data == [hello]
     assert run_tool("get_transcript", {"start": 0.5}, ctx).data == []
     assert run_tool("get_transcript", {"end": 0.0}, ctx).data == []
+
+
+def test_get_timeline_windows_by_start_end(ctx: ToolContext) -> None:
+    """Mirrors the TS ``get_timeline`` window (run 4c9b5f82).
+
+    The agent asked for ``{start, end}`` twice, was told ``Unrecognized keys``
+    both times, and spent two of its seventeen model calls learning that a read
+    it had every reason to expect did not exist.
+    """
+    def clip_ids(data: dict[str, Any]) -> list[list[str]]:
+        return [[clip["id"] for clip in track["clips"]] for track in data["tracks"]]
+    assert clip_ids(run_tool("get_timeline", {}, ctx).data) == [["A", "B"], ["AU"], [], []]
+    assert clip_ids(run_tool("get_timeline", {"end": 4}, ctx).data) == [["A"], ["AU"], [], []]
+    assert clip_ids(run_tool("get_timeline", {"start": 5}, ctx).data) == [["B"], [], [], []]
+    assert clip_ids(run_tool("get_timeline", {"start": 3, "end": 6}, ctx).data) == [
+        ["A", "B"],
+        ["AU"],
+        [],
+        [],
+    ]
 
 
 # ---------------------------------------------------------------------------

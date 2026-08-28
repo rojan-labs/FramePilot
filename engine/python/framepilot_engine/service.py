@@ -25,7 +25,10 @@ import logging
 import os
 import threading
 import time
+from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -66,7 +69,12 @@ from framepilot_engine.analysis.tiers import (
     analysis_params_hash,
     kinds_for,
 )
-from framepilot_engine.analysis.visual_sampler import SAMPLER_VERSION, VisualSpan
+from framepilot_engine.analysis.visual_sampler import (
+    DEFAULT_HAMMING_THRESHOLD,
+    SAMPLER_VERSION,
+    VisualSpan,
+    hamming,
+)
 from framepilot_engine.audio.asr import (
     DEFAULT_ASR_MODEL,
     AsrError,
@@ -166,16 +174,18 @@ from framepilot_engine.brain.vector_store import VisualVectorStore
 from framepilot_engine.brain.visual_embed import (
     MODEL_ID,
     VisualEmbedClient,
+    VisualEmbedderResolution,
     VisualEmbedError,
     resolve_visual_embedder,
 )
+from framepilot_engine.brain.visual_outcomes import failed_outcomes, record_asset_outcome
 from framepilot_engine.brain.visual_search import (
     EvidencePacket,
     build_evidence_packets,
     project_span_to_timeline,
     transcript_overlap,
 )
-from framepilot_engine.config import Settings, get_settings
+from framepilot_engine.config import DEFAULT_VISUAL_INDEX_CONCURRENCY, Settings, get_settings
 from framepilot_engine.media.derive import PROXY_ENCODE_VERSION, generate_proxy, generate_thumbnails
 from framepilot_engine.media.ffmpeg import FFmpegError, NoAudioStreamError
 from framepilot_engine.media.probe import MediaInfo, inspect_media
@@ -717,12 +727,31 @@ class BrainSimilarResponse(BaseModel):
 #: Job ``kind`` for a chunked visual-index job (plan MI4.1); guards ``jobId`` reuse
 #: the same way :data:`BATCH_JOB_KIND` does for analysis.
 VISUAL_JOB_KIND = "visual-index"
-#: Default assets indexed per ``/brain/visual/index`` slice. Small on purpose:
-#: sampling + embedding + captioning an asset is far heavier than an analysis
-#: pass, so one call stays well under the request timeout (paced across turns).
-DEFAULT_VISUAL_SLICE = 1
+#: Default assets per ``/brain/visual/index`` slice. This was 1, which was the right
+#: number while a slice prepared its assets one after another — sampling + embedding +
+#: captioning is far heavier than an analysis pass, and one call had to stay well under
+#: the request timeout. A slice now prepares its assets CONCURRENTLY
+#: (``FRAMEPILOT_VISUAL_INDEX_CONCURRENCY``), so a slice of one leaves the pool empty and
+#: the whole point unrealised. Matched to the concurrency default so the two move
+#: together; a slice still costs about one asset's wall clock.
+DEFAULT_VISUAL_SLICE = DEFAULT_VISUAL_INDEX_CONCURRENCY
 #: Hard cap on assets per slice (a single call can't reintroduce a long block).
 MAX_VISUAL_SLICE = 10
+#: How many assets in a row may fail on the hosted (TwelveLabs) path before the
+#: slice stops. One failure is a bad file and must not block the other assets;
+#: a run of them is a bad index, account, or network, and continuing would upload
+#: — and be billed for — every remaining asset just to fail identically.
+#:
+#: The slice's assets are prepared concurrently, so the ones already in flight when the
+#: bound trips still complete: the real ceiling is this limit plus
+#: ``FRAMEPILOT_VISUAL_INDEX_CONCURRENCY - 1`` uploads, once, before the job is marked
+#: failed and no further slice runs. Bounded and small, against a 61-asset project that
+#: would otherwise be uploaded in full.
+TL_CONSECUTIVE_FAILURE_LIMIT = 3
+#: Above this many spans the pairwise near-duplicate comparison behind
+#: `similarGroup` stops earning its cost, and the signal is omitted rather than
+#: approximated. Comfortably above a real photo dump or a multi-take shoot.
+_SIMILAR_GROUP_SPAN_CAP = 1200
 
 
 class VisualCaptionProviderPayload(BaseModel):
@@ -890,6 +919,17 @@ class VisualJobStatus(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class VisualAssetFailure(BaseModel):
+    """One asset the last preparation attempt could not handle, and why."""
+
+    asset_id: str = Field(alias="assetId")
+    reason: str | None = Field(
+        default=None, description="The provider's or the engine's own wording."
+    )
+
+    model_config = {"populate_by_name": True}
+
+
 class VisualStatusResponse(BaseModel):
     """Visual-index coverage/health for ``GET /brain/visual/status`` (plan MI4.3).
 
@@ -906,6 +946,15 @@ class VisualStatusResponse(BaseModel):
     counts: dict[str, int] = Field(default_factory=dict)
     indexed_assets: int = Field(default=0, alias="indexedAssets")
     total_assets: int = Field(default=0, alias="totalAssets")
+    failures: list[VisualAssetFailure] = Field(
+        default_factory=list,
+        description=(
+            "Assets whose last preparation attempt failed, for their current bytes. "
+            "Without this a job that prepared NOTHING still reported `done` and the "
+            "project was silently unsearchable — the reasons lived only in a sidecar log "
+            "line the user never sees. Empty is the normal case."
+        ),
+    )
     key_configured: bool = Field(default=False, alias="keyConfigured")
     last_job: VisualJobStatus | None = Field(default=None, alias="lastJob")
 
@@ -1099,6 +1148,17 @@ class FootageChapter(BaseModel):
         description="Owning asset id. Set so the UI can label/group by footage and "
         "project onto the timeline when the asset is placed.",
     )
+    similar_group: int | None = Field(
+        default=None,
+        alias="similarGroup",
+        description=(
+            "Chapters that LOOK the same share a group number; a chapter with nothing "
+            "like it has none. Cutting two chapters from one group into the same edit "
+            "repeats a shot — pick the best one per group. Derived from the perceptual "
+            "hash already stored on each span, so it costs no extra analysis; absent on "
+            "chapters from a hosted generative backend, which supplies no hash."
+        ),
+    )
 
     model_config = {"populate_by_name": True}
 
@@ -1119,6 +1179,39 @@ class FootageHighlight(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class FootageMapCoverage(BaseModel):
+    """How much of a project a footage map was built from (plan phase 3.5).
+
+    The map has always been progressive — it derives from whatever spans exist, so a
+    10%-prepared project already returns a real 10% map. Nothing said so, which left
+    every reader unable to tell a thin map from thin footage.
+    """
+
+    prepared: int = Field(description="Assets whose understanding is ready.")
+    total: int = Field(description="Assets in the project eligible for understanding.")
+
+    model_config = {"populate_by_name": True}
+
+
+class FootageTimeBase(StrEnum):
+    """Which clock a footage map's times are measured on.
+
+    WHY this is on the wire rather than implied: ``map_footage`` promised "timeline
+    seconds", but the projection needs a project document to project THROUGH. The
+    per-run context read sent none, so ``project_span_to_timeline`` returned nothing
+    and every chapter silently fell back to source seconds — labelled as timeline
+    time. On a single-asset project starting at 0 the two coincide, which is how it
+    survived; on any multi-asset project the model was reading boundaries that do not
+    exist on the timeline. The response now states its own clock and the digest
+    renders the label, so the two can never disagree silently again.
+    """
+
+    #: Projected onto the current edit through the supplied project document.
+    TIMELINE = "timeline"
+    #: The footage's own source seconds (asset-native).
+    ASSET = "asset"
+
+
 class FootageMapResponse(BaseModel):
     """Time-ordered structural digest of a project's footage (plan FI0.1/§4).
 
@@ -1134,6 +1227,36 @@ class FootageMapResponse(BaseModel):
     available: bool
     reason: str | None = None
     backend: str | None = None
+    time_base: FootageTimeBase = Field(
+        default=FootageTimeBase.ASSET,
+        alias="timeBase",
+        description=(
+            "Which clock every t0/t1 in this response is measured on. `timeline` means "
+            "the times were projected onto the current edit; `asset` means they are the "
+            "footage's own source seconds. A caller that sends no project document "
+            "CANNOT be given timeline time, and gets `asset` — the response says which "
+            "rather than leaving the reader to assume."
+        ),
+    )
+    coverage: FootageMapCoverage | None = Field(
+        default=None,
+        description=(
+            "How much of the project this map is built from. A map is USABLE long before "
+            "preparation finishes — it derives from whatever spans exist — so this is the "
+            "difference between 'the footage contains nothing else' and 'the rest has not "
+            "been read yet'. Absent when coverage could not be determined."
+        ),
+    )
+    unplaced_assets: list[str] = Field(
+        default_factory=list,
+        alias="unplacedAssets",
+        description=(
+            "Assets that are in the map but not on the timeline. Their chapters keep "
+            "their own source seconds even when `timeBase` is `timeline`, because there "
+            "is no timeline position to project onto — so a reader acting on those rows "
+            "must place the asset first. Listing them beats silently mixing two clocks."
+        ),
+    )
     duration_sec: float = Field(
         default=0.0, alias="durationSec", description="Total footage duration in seconds."
     )
@@ -2061,6 +2184,24 @@ def create_app(
         except PydanticValidationError:  # pragma: no cover - probe is engine-written
             return False
 
+    def _asset_is_still_image(asset: AssetRow) -> bool:
+        """Whether a brain asset is a single still photo rather than moving footage.
+
+        WHY this is a routing decision and not a cosmetic one: TwelveLabs' index is
+        a *video/audio* index. A still uploads fine (``POST /assets`` accepts
+        images, for entity search) but cannot be attached to a Marengo index, so
+        the attach/poll step answers ``404 resource_not_exists`` — observed on a
+        real 61-photo project, where it froze preparation at cursor 0 forever. The
+        built-in sample->embed path already understands stills
+        (``sample_asset(is_image=True)``), so stills are routed there instead.
+        """
+        if asset.probe is None:
+            return False
+        try:
+            return MediaInfo.model_validate(asset.probe).is_image
+        except PydanticValidationError:  # pragma: no cover - probe is engine-written
+            return False
+
     def _scene_cuts_for(
         store: BrainStore, asset_id: str, media_path: Path, content_hash: str, timeout: float
     ) -> list[float]:
@@ -2323,6 +2464,13 @@ def create_app(
             job_id, kind=VISUAL_JOB_KIND, payload={"assetIds": asset_ids, "cursor": 0}
         )
 
+    def _asset_failures(store: BrainStore) -> list[VisualAssetFailure]:
+        """Assets whose last preparation attempt failed, for their current bytes."""
+        return [
+            VisualAssetFailure(asset_id=record.asset_id, reason=record.reason)
+            for record in failed_outcomes(store)
+        ]
+
     def _last_visual_job(store: BrainStore) -> VisualJobStatus | None:
         """The most recent visual-index job's journaled state (plan MI4.3)."""
         jobs = [j for j in store.list_jobs() if j.kind == VISUAL_JOB_KIND]
@@ -2338,6 +2486,160 @@ def create_app(
             total=len(job.payload.get("assetIds", [])),
             updated_at=job.updated_at,
         )
+
+    @dataclass(frozen=True)
+    class _AssetOutcome:
+        """What preparing one asset decided about the job's cursor.
+
+        ``advanced`` is whether the cursor may move past this asset — False while a
+        hosted upload is still indexing, so the slice is re-posted to keep polling.
+        ``stop_reason`` is a SYSTEMIC failure (an exhausted key ring, a broken index):
+        the slice stops at this asset rather than paying for the rest of the worklist.
+        """
+
+        item: VisualIndexItem
+        advanced: bool
+        stop_reason: str | None = None
+
+    def _prepare_slice(
+        slice_ids: Sequence[str],
+        prepare: Callable[[BrainStore, VisualVectorStore, str], _AssetOutcome],
+        *,
+        resolved_root: Path,
+        project_id: str,
+    ) -> tuple[list[VisualIndexItem], int, str | None]:
+        """Prepare a slice's assets concurrently, then commit an ordered PREFIX.
+
+        ## Why concurrently
+
+        Preparation was strictly serial and, measured on real projects, ~98% of its wall
+        clock was waiting on the understanding provider — 60 photos cost 92.7s against
+        about 1.5s of local CPU. The assets are independent, so they are prepared
+        together, bounded by ``FRAMEPILOT_VISUAL_INDEX_CONCURRENCY``. Each worker opens
+        its OWN brain connection: the store is not thread-safe, but the database is WAL
+        with a busy timeout and was designed for exactly this (two request handlers hold
+        their own connection already).
+
+        ## Why a prefix, and not "everything that succeeded"
+
+        The job's durable state is a single cursor, so resume is only correct if the
+        completed set is a prefix of the worklist. If asset 3 fails while asset 4 has
+        already succeeded, the cursor stops at 3 — asset 4's work is persisted and its
+        re-run is a cheap no-op (``existing_visual_span_keys``), and correctness does not
+        depend on remembering a hole. Concurrency must never make resume ambiguous.
+
+        :returns: ``(items, advanced, stop_reason)`` — all three describe the prefix only.
+        """
+        concurrency = max(1, min(settings.visual_index_concurrency, len(slice_ids)))
+        outcomes: dict[int, _AssetOutcome] = {}
+
+        def run(index: int) -> tuple[int, _AssetOutcome]:
+            with open_brain(resolved_root, project_id) as store:
+                return index, prepare(store, VisualVectorStore(store), slice_ids[index])
+
+        if concurrency == 1:
+            # One asset, or concurrency switched off: no pool, so a single-asset slice
+            # costs exactly what it did before and stack traces stay direct.
+            for index in range(len(slice_ids)):
+                _, outcomes[index] = run(index)
+        else:
+            with ThreadPoolExecutor(max_workers=concurrency) as pool:
+                for index, outcome in pool.map(run, range(len(slice_ids))):
+                    outcomes[index] = outcome
+
+        items: list[VisualIndexItem] = []
+        advanced = 0
+        stop_reason: str | None = None
+        for index in range(len(slice_ids)):
+            outcome = outcomes[index]
+            if outcome.stop_reason is not None:
+                stop_reason = outcome.stop_reason
+                break
+            items.append(outcome.item)
+            if not outcome.advanced:
+                break
+            advanced += 1
+        return items, advanced, stop_reason
+
+    def _journal_outcomes(
+        items: Sequence[VisualIndexItem], *, resolved_root: Path, project_id: str
+    ) -> None:
+        """Persist what happened to each asset, so a failure outlives the response.
+
+        Before this, ``VisualIndexItem`` was returned once over HTTP and dropped — which
+        is how a real 55-asset project came to hold ~100 ``done`` jobs, zero index rows,
+        and no record anywhere of why. Best-effort: journalling an outcome must never
+        fail the slice that produced it.
+        """
+        if not items:
+            return
+        try:
+            with open_brain(resolved_root, project_id) as store:
+                for item in items:
+                    asset = store.get_asset(item.asset_id)
+                    content_hash = asset.content_sha256 if asset is not None else None
+                    if content_hash is None:
+                        continue
+                    record_asset_outcome(
+                        store,
+                        item.asset_id,
+                        content_hash=content_hash,
+                        ok=item.ok,
+                        reason=item.reason,
+                        indexed=item.indexed,
+                        captioned=item.captioned,
+                    )
+        except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
+            _log.warning("could not journal per-asset outcomes: %s", exc)
+
+    def _tl_still_image_item(
+        store: BrainStore,
+        vstore: VisualVectorStore,
+        still_res: VisualEmbedderResolution,
+        captioner: SceneCaptioner | None,
+        caption_model: str,
+        asset_id: str,
+        resolved_root: Path,
+        timeout: float,
+    ) -> VisualIndexItem:
+        """Prepare one still photo on the built-in path while TwelveLabs is active.
+
+        TwelveLabs cannot index a still into its video index, so a photo project
+        would otherwise be understood by nothing at all even with both keys set.
+        The built-in sampler already handles ``is_image``, so a still is embedded
+        here and becomes searchable + mappable exactly like a built-in-indexed
+        video. The caption provider is passed through: a photo's caption IS its
+        chapter title in the footage map, and without one a photo project's map is
+        sixty identical "Scene 1" rows the model cannot tell apart.
+
+        Honest-degrade: without an on-device embedding key the item reports why,
+        and the cursor still advances — an unpreparable asset must never freeze
+        the assets behind it.
+        """
+        if still_res.client is None:
+            return VisualIndexItem(
+                asset_id=asset_id,
+                ok=False,
+                reason=(
+                    "still images are not indexable by TwelveLabs and need an "
+                    f"on-device embedding key: {still_res.reason}"
+                ),
+            )
+        try:
+            return _index_one_asset(
+                store,
+                vstore,
+                still_res.client,
+                captioner,
+                caption_model,
+                asset_id,
+                resolved_root,
+                timeout,
+            )
+        except (KeyRingExhaustedError, VisualEmbedError) as exc:
+            reason = getattr(exc, "last_error", None) or str(exc)
+            _log.warning("still-image embed failed: asset=%s reason=%s", asset_id, reason)
+            return VisualIndexItem(asset_id=asset_id, ok=False, reason=reason)
 
     def _tl_index_slice(
         client: TwelveLabsClient, req: VisualIndexRequest, resolved_root: Path
@@ -2395,67 +2697,155 @@ def create_app(
         # the slice without advancing past it (resumable); the caller re-posts.
         slice_ids = asset_ids[cursor : cursor + req.max_assets]
         timeout = float(settings.asset_media_timeout_seconds)
-        items: list[VisualIndexItem] = []
-        indexed = advanced = 0
-        stop_reason: str | None = None
+        # Stills never reach TwelveLabs (see `_asset_is_still_image`); they are
+        # embedded on the built-in path instead, so the hosted key does not withdraw
+        # image understanding from a photo project. Resolved lazily because
+        # `resolve_visual_embedder`/`resolve_captioner` each construct an HTTP client:
+        # a video-only project must not pay for one on every slice. Guarded because the
+        # slice's assets are prepared concurrently and two photos would otherwise race
+        # to build two clients.
+        still_backend: tuple[VisualEmbedderResolution, SceneCaptioner | None, str] | None = None
+        still_backend_lock = threading.Lock()
+
+        def _still_backend() -> tuple[VisualEmbedderResolution, SceneCaptioner | None, str]:
+            nonlocal still_backend
+            with still_backend_lock:
+                if still_backend is not None:
+                    return still_backend
+                provider = req.caption_provider
+                still_backend = (
+                    resolve_visual_embedder(req.nvidia_keys or settings.nvidia_embeddings_keys),
+                    resolve_captioner(
+                        CaptionProviderConfig(
+                            kind=provider.kind,
+                            model=provider.model,
+                            api_key=provider.api_key,
+                            base_url=provider.base_url,
+                        )
+                        if provider is not None
+                        else None
+                    ).captioner,
+                    provider.model if provider is not None else "",
+                )
+                return still_backend
+
+        # Journaled on the job, not counted per slice: a slice is one asset by
+        # default (`DEFAULT_VISUAL_SLICE`), so a per-slice counter could never
+        # reach the bound and a broken index would upload every asset in the
+        # project one call at a time.
+        consecutive_failures = int(job.payload.get("consecutiveFailures", 0))
+
+        def prepare_hosted(
+            store: BrainStore, vstore: VisualVectorStore, asset_id: str
+        ) -> _AssetOutcome:
+            asset = store.get_asset(asset_id)
+            if asset is None:
+                return _AssetOutcome(
+                    item=VisualIndexItem(
+                        asset_id=asset_id, ok=False, reason="asset not known to brain"
+                    ),
+                    advanced=True,
+                )
+            if _asset_is_still_image(asset):
+                # The routing decision the reported defect turned on. Logged per asset so
+                # the next instance of this class of failure is diagnosable from the log
+                # alone, without reading the source.
+                _log.debug(
+                    "visual index route: asset=%s kind=still → on-device (TwelveLabs "
+                    "cannot index a photo)",
+                    asset_id,
+                )
+                embed_res, still_captioner, still_caption_model = _still_backend()
+                return _AssetOutcome(
+                    item=_tl_still_image_item(
+                        store,
+                        vstore,
+                        embed_res,
+                        still_captioner,
+                        still_caption_model,
+                        asset_id,
+                        resolved_root,
+                        timeout,
+                    ),
+                    advanced=True,
+                )
+            try:
+                media_path = resolve_within(resolved_root, asset.path)
+            except PathTraversalError as exc:
+                return _AssetOutcome(
+                    item=VisualIndexItem(asset_id=asset_id, ok=False, reason=str(exc)),
+                    advanced=True,
+                )
+            content_hash = asset.content_sha256 or _sha256_file(media_path)
+
+            def _upload(idx: str = index_id, path: Path = media_path) -> str:
+                return client.create_index_task(idx, path)
+
+            try:
+                outcome = poll_index_asset(
+                    client,
+                    store,
+                    index_id,
+                    asset_id,
+                    media_path.name,
+                    upload=_upload,
+                    content_hash=content_hash,
+                )
+            except TwelveLabsAuthError:
+                # Auth is a property of the key, not of this file: every remaining
+                # asset would fail identically. Stop the run.
+                return _AssetOutcome(
+                    item=VisualIndexItem(asset_id=asset_id, ok=False, reason="invalid_api_key"),
+                    advanced=False,
+                    stop_reason="invalid_api_key",
+                )
+            except TwelveLabsError as exc:
+                # One asset the provider will not take (an unsupported or corrupt file)
+                # must NOT freeze the project. Before this, any TwelveLabsError broke the
+                # slice without advancing the cursor, so every re-post hit the same asset
+                # again and coverage stayed at 0/N forever — the reported defect. Record
+                # it as failed and advance; a RUN of them is caught below.
+                reason = str(exc)
+                store_video_mapping(store, asset_id, content_hash=content_hash, status="failed")
+                _log.warning("twelvelabs index asset failed: asset=%s reason=%s", asset_id, reason)
+                return _AssetOutcome(
+                    item=VisualIndexItem(asset_id=asset_id, ok=False, reason=reason),
+                    advanced=True,
+                )
+            return _AssetOutcome(
+                item=VisualIndexItem(
+                    asset_id=asset_id,
+                    ok=outcome.ok,
+                    indexed=outcome.newly_indexed,
+                    reason=outcome.reason,
+                ),
+                # Still indexing — yield the slice and keep the cursor, so the caller's
+                # re-post keeps polling this asset rather than skipping it.
+                advanced=outcome.advanced,
+            )
+
         try:
-            with open_brain(resolved_root, req.project_id) as store:
-                for asset_id in slice_ids:
-                    asset = store.get_asset(asset_id)
-                    if asset is None:
-                        items.append(
-                            VisualIndexItem(
-                                asset_id=asset_id, ok=False, reason="asset not known to brain"
-                            )
-                        )
-                        advanced += 1
-                        continue
-                    try:
-                        media_path = resolve_within(resolved_root, asset.path)
-                    except PathTraversalError as exc:
-                        items.append(VisualIndexItem(asset_id=asset_id, ok=False, reason=str(exc)))
-                        advanced += 1
-                        continue
-                    content_hash = asset.content_sha256 or _sha256_file(media_path)
-
-                    # `upload` is invoked synchronously inside `poll_index_asset`
-                    # (before this loop advances), so this closure over `media_path`
-                    # has no late-binding hazard.
-                    def _upload(idx: str = index_id, path: Path = media_path) -> str:
-                        return client.create_index_task(idx, path)
-
-                    try:
-                        outcome = poll_index_asset(
-                            client,
-                            store,
-                            index_id,
-                            asset_id,
-                            media_path.name,
-                            upload=_upload,
-                            content_hash=content_hash,
-                        )
-                    except TwelveLabsAuthError:
-                        stop_reason = "invalid_api_key"
-                        break
-                    except TwelveLabsError as exc:
-                        stop_reason = str(exc)
-                        _log.warning("TwelveLabs index stopped: %s", stop_reason)
-                        break
-                    items.append(
-                        VisualIndexItem(
-                            asset_id=asset_id,
-                            ok=outcome.ok,
-                            indexed=outcome.newly_indexed,
-                            reason=outcome.reason,
-                        )
-                    )
-                    indexed += outcome.newly_indexed
-                    if outcome.advanced:
-                        advanced += 1
-                    else:
-                        break  # still indexing — yield the slice, keep the cursor
+            items, advanced, stop_reason = _prepare_slice(
+                slice_ids,
+                prepare_hosted,
+                resolved_root=resolved_root,
+                project_id=req.project_id,
+            )
         except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
             return VisualIndexResponse(available=False, reason=str(exc))
+        indexed = sum(item.indexed for item in items)
+        _journal_outcomes(items, resolved_root=resolved_root, project_id=req.project_id)
+        # A RUN of refusals is a bad index, account, or network — not a bad file — and
+        # continuing would upload (and bill for) every remaining asset just to fail
+        # identically. Counted over the committed prefix and carried on the job, because
+        # a slice is one asset by default: a per-slice counter could never reach the bound.
+        for position, item in enumerate(items[:advanced]):
+            consecutive_failures = 0 if item.ok else consecutive_failures + 1
+            if not item.ok and consecutive_failures >= TL_CONSECUTIVE_FAILURE_LIMIT:
+                stop_reason = item.reason
+                advanced = position + 1
+                items = items[:advanced]
+                break
 
         # Phase 3 — persist the advanced cursor + terminal state.
         _ = timeout  # media timeout unused on the TL path (no local decode)
@@ -2465,22 +2855,39 @@ def create_app(
             with open_brain(resolved_root, req.project_id) as store:
                 store.update_job(
                     job.id,
-                    state=JobState.DONE if done else JobState.RUNNING,
+                    # A job that stopped on a provider error is FAILED, not
+                    # "running". It sat at `running` 0% for three retries in the
+                    # reported defect, so the panel showed a blue progress badge
+                    # for work that had already given up.
+                    state=(
+                        JobState.FAILED
+                        if stop_reason is not None
+                        else JobState.DONE
+                        if done
+                        else JobState.RUNNING
+                    ),
                     progress=new_cursor / total if total else 1.0,
-                    payload={**job.payload, "cursor": new_cursor},
+                    payload={
+                        **job.payload,
+                        "cursor": new_cursor,
+                        "consecutiveFailures": consecutive_failures,
+                    },
                     error=stop_reason,
                 )
         except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
             return VisualIndexResponse(available=False, reason=f"cursor not persisted: {exc}")
 
         _log.info(
-            "ACT twelvelabs index: project=%s job=%s cursor=%d/%d done=%s indexed=%d",
+            "ACT twelvelabs index: project=%s job=%s cursor=%d/%d done=%s indexed=%d "
+            "failed=%d stopped=%s",
             req.project_id,
             job.id,
             new_cursor,
             total,
             done,
             indexed,
+            sum(1 for item in items if not item.ok),
+            stop_reason or "-",
         )
         return VisualIndexResponse(
             available=True,
@@ -2519,6 +2926,11 @@ def create_app(
             # TwelveLabs backend: when a key is configured, delegate understanding to
             # the hosted index instead of the built-in NVIDIA-embed pipeline.
             tl = resolve_twelvelabs(req.twelve_labs_key or settings.twelvelabs_api_key)
+            _log.info(
+                "ACT visual index backend: project=%s backend=%s",
+                req.project_id,
+                "twelvelabs" if tl.client is not None else "builtin",
+            )
             if tl.client is not None:
                 return _tl_index_slice(tl.client, req, root.resolve())
             embedder_res = resolve_visual_embedder(
@@ -2570,49 +2982,60 @@ def create_app(
             except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
                 return VisualIndexResponse(available=False, reason=str(exc))
 
-            # Phase 2 — index this slice, asset by asset. A key exhaustion stops the
-            # slice cleanly before advancing past the unprocessed asset (resumable).
+            # Phase 2 — index this slice. The assets go together (see `_prepare_slice`);
+            # a key exhaustion stops the slice cleanly before advancing past the
+            # unprocessed asset, and the cursor only ever advances over a prefix.
             slice_ids = asset_ids[cursor : cursor + req.max_assets]
             timeout = float(settings.asset_media_timeout_seconds)
-            items: list[VisualIndexItem] = []
-            indexed = captioned = completed = 0
-            exhausted: str | None = None
+            embed_client = embedder_res.client
+
+            def prepare_builtin(
+                store: BrainStore, vstore: VisualVectorStore, asset_id: str
+            ) -> _AssetOutcome:
+                try:
+                    item = _index_one_asset(
+                        store,
+                        vstore,
+                        embed_client,
+                        captioner_res.captioner,
+                        caption_model,
+                        asset_id,
+                        resolved_root,
+                        timeout,
+                    )
+                except KeyRingExhaustedError as exc:
+                    reason = exc.last_error or EXHAUSTED_REASON
+                    _log.warning("Visual index stopped: embedding keys exhausted (%s)", reason)
+                    return _AssetOutcome(
+                        item=VisualIndexItem(asset_id=asset_id, ok=False, reason=reason),
+                        advanced=False,
+                        stop_reason=reason,
+                    )
+                except VisualEmbedError as exc:
+                    # Non-retryable across every key (bad payload, malformed response) —
+                    # rotating keys can't fix it, so stop the slice honestly rather than
+                    # crash (mirrors /brain/visual/search).
+                    reason = str(exc)
+                    _log.warning("Visual index stopped: embedding request failed (%s)", reason)
+                    return _AssetOutcome(
+                        item=VisualIndexItem(asset_id=asset_id, ok=False, reason=reason),
+                        advanced=False,
+                        stop_reason=reason,
+                    )
+                return _AssetOutcome(item=item, advanced=True)
+
             try:
-                with open_brain(resolved_root, req.project_id) as store:
-                    vstore = VisualVectorStore(store)
-                    for asset_id in slice_ids:
-                        try:
-                            item = _index_one_asset(
-                                store,
-                                vstore,
-                                embedder_res.client,
-                                captioner_res.captioner,
-                                caption_model,
-                                asset_id,
-                                resolved_root,
-                                timeout,
-                            )
-                        except KeyRingExhaustedError as exc:
-                            exhausted = exc.last_error or EXHAUSTED_REASON
-                            _log.warning(
-                                "Visual index stopped: embedding keys exhausted (%s)", exhausted
-                            )
-                            break
-                        except VisualEmbedError as exc:
-                            # Non-retryable across every key (bad payload, malformed
-                            # response) — rotating keys can't fix it, so stop the slice
-                            # honestly rather than crash (mirrors /brain/visual/search).
-                            exhausted = str(exc)
-                            _log.warning(
-                                "Visual index stopped: embedding request failed (%s)", exhausted
-                            )
-                            break
-                        items.append(item)
-                        indexed += item.indexed
-                        captioned += item.captioned
-                        completed += 1
+                items, completed, exhausted = _prepare_slice(
+                    slice_ids,
+                    prepare_builtin,
+                    resolved_root=resolved_root,
+                    project_id=req.project_id,
+                )
             except (BrainError, BrainSchemaError, PathTraversalError, OSError, FFmpegError) as exc:
                 return VisualIndexResponse(available=False, reason=str(exc))
+            _journal_outcomes(items, resolved_root=resolved_root, project_id=req.project_id)
+            indexed = sum(item.indexed for item in items)
+            captioned = sum(item.captioned for item in items)
 
             # Phase 3 — persist the advanced cursor + terminal state; embed captions.
             new_cursor = cursor + completed
@@ -2622,7 +3045,15 @@ def create_app(
                 with open_brain(resolved_root, req.project_id) as store:
                     store.update_job(
                         job.id,
-                        state=JobState.DONE if done else JobState.RUNNING,
+                        # Same honesty rule as the hosted path: a slice that gave
+                        # up on an exhausted key ring is FAILED, never "running".
+                        state=(
+                            JobState.FAILED
+                            if exhausted is not None
+                            else JobState.DONE
+                            if done
+                            else JobState.RUNNING
+                        ),
                         progress=new_cursor / total if total else 1.0,
                         payload={**job.payload, "cursor": new_cursor},
                         error=EXHAUSTED_REASON if exhausted is not None else None,
@@ -2639,7 +3070,8 @@ def create_app(
                 return VisualIndexResponse(available=False, reason=f"cursor not persisted: {exc}")
 
             _log.info(
-                "ACT visual index: project=%s job=%s cursor=%d/%d done=%s indexed=%d captioned=%d",
+                "ACT visual index: project=%s job=%s cursor=%d/%d done=%s indexed=%d "
+                "captioned=%d failed=%d stopped=%s",
                 req.project_id,
                 job.id,
                 new_cursor,
@@ -2647,6 +3079,8 @@ def create_app(
                 done,
                 indexed,
                 captioned,
+                sum(1 for item in items if not item.ok),
+                exhausted or "-",
             )
             return VisualIndexResponse(
                 available=True,
@@ -2734,17 +3168,26 @@ def create_app(
                 # coverage is TwelveLabs-owned; the built-in vector store is empty.
                 tl_active = env_tl_key or read_index_id(store) is not None
                 if tl_active:
-                    indexed = len(video_to_asset_map(store))
+                    # Coverage is the UNION of both backends. A TwelveLabs project
+                    # containing stills has them prepared on the built-in path
+                    # (TwelveLabs cannot index a photo), so counting only the
+                    # hosted mappings reported 0/61 on an all-photo project even
+                    # once every photo was understood.
+                    hosted = set(video_to_asset_map(store).values())
+                    builtin = store.visual_indexed_asset_ids()
+                    indexed = len(hosted | builtin)
                     return VisualStatusResponse(
                         available=True,
                         backend="twelvelabs",
-                        counts={"videos": indexed},
+                        counts={"videos": len(hosted), "images": len(builtin - hosted)},
                         indexed_assets=indexed,
                         total_assets=total_assets,
+                        failures=_asset_failures(store),
                         key_configured=env_tl_key,
                         last_job=last_job,
                     )
                 counts = store.visual_index_counts()
+                failures = _asset_failures(store)
                 backend = VisualVectorStore(store).backend()
         except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
             return VisualStatusResponse(
@@ -2759,6 +3202,7 @@ def create_app(
             counts=counts,
             indexed_assets=counts["assets"],
             total_assets=total_assets,
+            failures=failures,
             key_configured=nvidia_key_configured,
             last_job=last_job,
         )
@@ -2953,8 +3397,10 @@ def create_app(
         chapters: list[FootageChapter] = []
         highlights: list[FootageHighlight] = []
         summaries: list[str] = []
+        coverage: FootageMapCoverage | None = None
         try:
             with open_brain(resolved_root, req.project_id) as store:
+                coverage = _map_coverage(store)
                 index_id = read_index_id(store)
                 # Every asset the brain has ever mapped to a TwelveLabs video — the
                 # `tl:video` rows persist even if the live index is gone, so they still
@@ -2986,9 +3432,7 @@ def create_app(
                         asset_id,
                         content_hash=content_hash,
                         video_id=mapping.video_id if mapping is not None else None,
-                        source_asset_id=(
-                            mapping.source_asset_id if mapping is not None else None
-                        ),
+                        source_asset_id=(mapping.source_asset_id if mapping is not None else None),
                         index_id=index_id,
                         # `cached_only` withdraws permission to fetch: a miss returns
                         # nothing rather than paying Pegasus for a caller that only
@@ -2999,6 +3443,11 @@ def create_app(
                     if pegasus is None:
                         # No cache and no live index to fetch from — skip this asset
                         # rather than charge for or fabricate a map.
+                        _log.debug(
+                            "footage-map: asset=%s not served (no cache, fetch=%s)",
+                            asset_id,
+                            can_fetch and not req.cached_only,
+                        )
                         continue
                     served_assets += 1
                     tl_chapters, tl_highlights, gist = pegasus
@@ -3053,6 +3502,18 @@ def create_app(
                             )
                     if gist:
                         summaries.append(gist)
+                # Assets the hosted backend never mapped are understood by the
+                # built-in index instead — stills are routed there because
+                # TwelveLabs cannot index a photo. Their chapters ARE the entire
+                # footage map of a photo project, so merge them here; without this
+                # a 61-photo project answered `not_indexed` no matter how much of
+                # it had been prepared.
+                builtin_only = store.visual_indexed_asset_ids() - set(targets)
+                builtin_chapters = _builtin_chapters_for(
+                    store, req, clips_by_asset, only_assets=builtin_only
+                )
+                chapters.extend(builtin_chapters)
+                served_assets += len({c.asset_id for c in builtin_chapters if c.asset_id})
         except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
             return FootageMapResponse(available=False, reason=str(exc))
         except TwelveLabsIndexNotGenerativeError:
@@ -3077,7 +3538,13 @@ def create_app(
             return FootageMapResponse(available=False, reason=str(exc))
 
         if served_assets == 0:
-            return FootageMapResponse(available=True, backend="twelvelabs", reason="not_indexed")
+            return FootageMapResponse(
+                available=True,
+                backend="twelvelabs",
+                reason="not_indexed",
+                time_base=_map_time_base(req, project_doc),
+                coverage=coverage,
+            )
         if req.asset_time:
             # Group by footage, then by source time — asset-native times from different
             # videos would interleave meaninglessly if sorted on time alone.
@@ -3097,39 +3564,125 @@ def create_app(
         return FootageMapResponse(
             available=True,
             backend="twelvelabs",
+            time_base=_map_time_base(req, project_doc),
+            coverage=coverage,
+            unplaced_assets=(
+                []
+                if req.asset_time or project_doc is None
+                else _unplaced_assets([c.asset_id for c in chapters if c.asset_id], clips_by_asset)
+            ),
             duration_sec=duration,
             chapters=chapters,
             highlights=highlights,
             summary=" ".join(summaries),
         )
 
-    def _builtin_footage_map(
-        req: FootageMapRequest, resolved_root: Path, project_doc: Project | None
-    ) -> FootageMapResponse:
-        """Derive the footage map from indexed spans/captions (built-in parity, D3).
+    def _map_coverage(store: BrainStore) -> FootageMapCoverage:
+        """How much of this project's footage the map could have been built from.
 
-        No key or network call: chapters are the already-indexed visual spans
-        (captioned where a caption exists), projected onto timeline time. Highlights
-        are left empty — the built-in index has no salience signal, and an honest
-        empty list beats a fabricated one. Honest-absent when nothing is indexed.
+        The union of both backends, exactly as `GET /brain/visual/status` counts it —
+        one definition of "prepared", not two that can disagree.
         """
-        clips_by_asset = _clips_by_asset(project_doc)
-        try:
-            with open_brain(resolved_root, req.project_id) as store:
-                backend = VisualVectorStore(store).backend()
-                spans = [
-                    span
-                    for span in store.list_visual_spans(model=MODEL_ID)
-                    if req.asset_id is None or span.asset_id == req.asset_id
-                ]
-                captions = {
-                    (caption.asset_id, caption.scene_index): caption.text
-                    for caption in store.list_visual_captions(req.asset_id)
-                    if is_informative_caption(caption.text)
-                }
-        except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
-            return FootageMapResponse(available=False, reason=str(exc))
+        prepared = set(video_to_asset_map(store).values()) | store.visual_indexed_asset_ids()
+        total = sum(1 for a in store.list_assets() if _asset_is_visual(a))
+        return FootageMapCoverage(prepared=len(prepared), total=total)
 
+    def _map_time_base(req: FootageMapRequest, project_doc: Project | None) -> FootageTimeBase:
+        """Which clock this map's times will actually be on.
+
+        `assetTime` asks for source seconds outright. Without a project document
+        there is nothing to project THROUGH, so source seconds are all we can
+        honestly return — this is the case the per-run context read was silently in.
+        """
+        if req.asset_time or project_doc is None:
+            return FootageTimeBase.ASSET
+        return FootageTimeBase.TIMELINE
+
+    def _unplaced_assets(
+        asset_ids: Iterable[str], clips_by_asset: dict[str, list[Any]]
+    ) -> list[str]:
+        """The mapped assets that have no clip on the timeline, sorted."""
+        return sorted({a for a in asset_ids if not clips_by_asset.get(a)})
+
+    def _similar_groups(spans: Sequence[VisualSpanRow]) -> dict[tuple[str, int], int]:
+        """Group spans that LOOK the same, keyed by ``(asset_id, scene_index)``.
+
+        WHY this is worth having: the two situations where a montage repeats itself are
+        a photo dump of one moment and a multi-take shoot, and nothing in the index told
+        the model which of its candidates were the same picture twice. The signal costs
+        no new analysis — every span already stores the dHash of its keyframe
+        (``visual_spans.phash``), computed at index time and, until now, read by nothing
+        for this. Two spans within :data:`DEFAULT_HAMMING_THRESHOLD` bits are the same
+        content; that is the same threshold the sampler uses to decide a span has not
+        drifted, reused rather than invented.
+
+        Singletons get no group — a number that only ever appears once is noise in the
+        prompt. Above :data:`_SIMILAR_GROUP_SPAN_CAP` spans the pairwise comparison stops
+        earning its cost, so the signal is omitted rather than approximated.
+        """
+        if len(spans) > _SIMILAR_GROUP_SPAN_CAP:
+            _log.debug(
+                "similar-group signal skipped: %d spans exceeds the %d cap",
+                len(spans),
+                _SIMILAR_GROUP_SPAN_CAP,
+            )
+            return {}
+        # Union-find over the near-duplicate relation, so A~B and B~C put all three
+        # together even when A and C are just past the threshold.
+        parent = list(range(len(spans)))
+
+        def find(i: int) -> int:
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        for i in range(len(spans)):
+            for j in range(i + 1, len(spans)):
+                if hamming(spans[i].phash, spans[j].phash) <= DEFAULT_HAMMING_THRESHOLD:
+                    parent[find(i)] = find(j)
+        members: dict[int, list[int]] = {}
+        for i in range(len(spans)):
+            members.setdefault(find(i), []).append(i)
+        groups: dict[tuple[str, int], int] = {}
+        # Numbered by first appearance so the same footage always reads the same way.
+        root_group: dict[int, int] = {}
+        for i, span in enumerate(spans):
+            root = find(i)
+            if len(members[root]) < 2:
+                continue
+            if root not in root_group:
+                root_group[root] = len(root_group) + 1
+            groups[(span.asset_id, span.scene_index)] = root_group[root]
+        return groups
+
+    def _builtin_chapters_for(
+        store: BrainStore,
+        req: FootageMapRequest,
+        clips_by_asset: dict[str, list[Any]],
+        *,
+        only_assets: set[str] | None = None,
+    ) -> list[FootageChapter]:
+        """Chapters derived from the BUILT-IN visual index, for an open brain.
+
+        Shared by the built-in map and the hosted map: a TwelveLabs project can
+        still contain assets only the built-in index understands (stills), and
+        those chapters are the whole footage map for a photo project. ``only_assets``
+        narrows the derivation to the assets the hosted arm did not already serve,
+        so a merged map never lists an asset twice.
+        """
+        spans = [
+            span
+            for span in store.list_visual_spans(model=MODEL_ID)
+            if (req.asset_id is None or span.asset_id == req.asset_id)
+            and (only_assets is None or span.asset_id in only_assets)
+        ]
+        captions = {
+            (caption.asset_id, caption.scene_index): caption.text
+            for caption in store.list_visual_captions(req.asset_id)
+            if is_informative_caption(caption.text)
+        }
+        similar = _similar_groups(spans)
         chapters: list[FootageChapter] = []
         for span in spans:
             if req.asset_time:
@@ -3148,10 +3701,39 @@ def create_app(
                     title=caption or f"Scene {span.scene_index + 1}",
                     summary=caption or "",
                     asset_id=span.asset_id,
+                    similar_group=similar.get((span.asset_id, span.scene_index)),
                 )
             )
+        return chapters
+
+    def _builtin_footage_map(
+        req: FootageMapRequest, resolved_root: Path, project_doc: Project | None
+    ) -> FootageMapResponse:
+        """Derive the footage map from indexed spans/captions (built-in parity, D3).
+
+        No key or network call: chapters are the already-indexed visual spans
+        (captioned where a caption exists), projected onto timeline time. Highlights
+        are left empty — the built-in index has no salience signal, and an honest
+        empty list beats a fabricated one. Honest-absent when nothing is indexed.
+        """
+        clips_by_asset = _clips_by_asset(project_doc)
+        coverage: FootageMapCoverage | None = None
+        try:
+            with open_brain(resolved_root, req.project_id) as store:
+                coverage = _map_coverage(store)
+                backend = VisualVectorStore(store).backend()
+                chapters = _builtin_chapters_for(store, req, clips_by_asset)
+        except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
+            return FootageMapResponse(available=False, reason=str(exc))
+
         if not chapters:
-            return FootageMapResponse(available=True, backend=backend, reason="not_indexed")
+            return FootageMapResponse(
+                available=True,
+                backend=backend,
+                reason="not_indexed",
+                time_base=_map_time_base(req, project_doc),
+                coverage=coverage,
+            )
         if req.asset_time:
             chapters.sort(key=lambda c: (c.asset_id or "", c.t0, c.t1))
         else:
@@ -3166,6 +3748,13 @@ def create_app(
         return FootageMapResponse(
             available=True,
             backend=backend,
+            time_base=_map_time_base(req, project_doc),
+            coverage=coverage,
+            unplaced_assets=(
+                []
+                if req.asset_time or project_doc is None
+                else _unplaced_assets([c.asset_id for c in chapters if c.asset_id], clips_by_asset)
+            ),
             duration_sec=duration,
             chapters=chapters,
             highlights=[],

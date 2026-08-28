@@ -84,6 +84,9 @@ function fakeEditor(): UseEditor & { setPlayhead: (t: number) => void } {
 const mapWithChapters: FootageMap = {
   available: true,
   backend: 'twelvelabs',
+  // The panel asks for assetTime, so these fixtures are the footage's own seconds.
+  timeBase: 'asset',
+  unplacedAssets: [],
   durationSec: 30,
   summary: 'A short demo of the product.',
   chapters: [
@@ -198,6 +201,8 @@ describe('FootageUnderstandingPanel', () => {
        action exists, and Rebuild only re-fetched a map that could never appear. */
     const unread: FootageMap = {
       available: true,
+      timeBase: 'asset' as const,
+      unplacedAssets: [],
       backend: 'twelvelabs',
       reason: 'not_indexed',
       durationSec: 0,
@@ -220,6 +225,8 @@ describe('FootageUnderstandingPanel', () => {
     // Once the footage IS read, the same fetch returns a real map.
     fetchFootageMap.mockResolvedValue({
       available: true,
+      timeBase: 'asset' as const,
+      unplacedAssets: [],
       backend: 'twelvelabs',
       reason: null,
       durationSec: 30,
@@ -235,6 +242,8 @@ describe('FootageUnderstandingPanel', () => {
   it('reports honestly when reading the footage fails, and offers a retry', async () => {
     fetchFootageMap.mockResolvedValue({
       available: true,
+      timeBase: 'asset' as const,
+      unplacedAssets: [],
       backend: 'twelvelabs',
       reason: 'not_indexed',
       durationSec: 0,
@@ -259,6 +268,8 @@ describe('FootageUnderstandingPanel', () => {
   it('renders the honest coverage message for a not_indexed map', async () => {
     fetchFootageMap.mockResolvedValue({
       available: true,
+      timeBase: 'asset' as const,
+      unplacedAssets: [],
       backend: 'twelvelabs',
       reason: 'not_indexed',
       durationSec: 0,

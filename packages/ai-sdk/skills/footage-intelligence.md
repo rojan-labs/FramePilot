@@ -36,6 +36,7 @@ Retrieve before assuming, then decide. Evidence gathering is valuable only when 
 - Index when available and needed; otherwise use transcript/scene evidence honestly.
 - Compare candidates by story value, visual clarity, motion completion, composition, novelty, and cost.
 - `read_edit_signals` reports what is measurably there; choosing the move is yours. A signal it echoes back is only as real as the evidence you passed in.
+- Check `timeBase` before you act on a map time. `timeline` is directly actionable; `asset` is that footage's own source seconds, and so is any asset named in `unplacedAssets` — those are still in the bin, so place them before cutting to one. `describe_footage` and `search_visual` always answer in asset seconds; `map_time` converts.
 
 ## Decision framework
 

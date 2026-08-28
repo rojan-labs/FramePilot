@@ -309,3 +309,45 @@ describe('mentionsUnreadableShotCount', () => {
     expect(mentionsUnreadableShotCount(spec)).toBe(true);
   });
 });
+
+describe('round 6 — a brief made of photos still states a shot count', () => {
+  /**
+   * Run 4c9b5f82. A 12,000-character brief for 61 hiking photos named its material as
+   * "photos" throughout and no shot noun ever appeared, so the only checkable count in it
+   * was unreadable. `checkShotCount` reported `skipped`, and a montage that used ten of
+   * the sixty-one finished as `completed`.
+   */
+  it('reads a photo count as a shot count', () => {
+    expect(explicitMinShotCount('I have provided approximately 61 hiking photos.')).toBe(61);
+    expect(explicitMinShotCount('Use these 24 images for the montage.')).toBe(24);
+    expect(explicitMinShotCount('Cut the 12 stills to the beat.')).toBe(12);
+  });
+
+  it('treats "use all N" as the floor it plainly is', () => {
+    expect(explicitMinShotCount('Attempt to use all approximately 61 hiking photos.')).toBe(61);
+    expect(explicitMinShotCount('Every one of the 40 shots must appear.')).toBe(40);
+  });
+
+  it('still refuses a photo count that is really a duration or a search pool', () => {
+    expect(explicitMinShotCount('Hold each photo for 5 seconds')).toBeUndefined();
+    expect(explicitMinShotCount('Gather 80 candidate photos, then cut the best')).toBeUndefined();
+  });
+
+  it('reads the whole captured brief as 61 photos over 20–35 seconds', () => {
+    const brief = [
+      'I have provided **approximately 61 hiking photos**.',
+      '# FORMAT',
+      'Create the final video for Instagram:',
+      '**Aspect ratio:** 9:16 vertical',
+      '**Frame rate:** 30fps',
+      '**Resolution:** 1080 × 1920 or higher',
+      '**Duration:** Approximately 20–35 seconds, depending on the selected music.',
+      '# IMPORTANT. USE ALL PHOTOS INTELLIGENTLY',
+      'Attempt to use **all approximately 61 hiking photos**.',
+    ].join('\n\n');
+    expect(checkableAcceptance(brief, 27.5)).toMatchObject({
+      minShotCount: 61,
+      durationSeconds: 27.5,
+    });
+  });
+});

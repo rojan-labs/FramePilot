@@ -44,6 +44,7 @@ from __future__ import annotations
 import base64
 import logging
 import re
+import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -126,6 +127,7 @@ def is_informative_caption(text: str) -> bool:
     """Whether provider text contains visual evidence rather than status metadata."""
     collapsed = " ".join(text.split())
     return bool(collapsed) and _STATUS_ONLY_CAPTION.fullmatch(collapsed) is None
+
 
 _USER_TEXT = "Caption this scene."
 _IMAGE_MEDIA_TYPE = "image/jpeg"
@@ -256,17 +258,13 @@ class SceneCaptioner:
         )
         return (self._config.base_url or default).rstrip("/")
 
-    def _build_request(
-        self, frames: list[bytes]
-    ) -> tuple[str, dict[str, str], dict[str, Any]]:
+    def _build_request(self, frames: list[bytes]) -> tuple[str, dict[str, str], dict[str, Any]]:
         """Build ``(url, headers, json_body)`` for the configured wire format."""
         if self._config.kind == "anthropic":
             return self._anthropic_request(frames)
         return self._openai_request(frames)
 
-    def _anthropic_request(
-        self, frames: list[bytes]
-    ) -> tuple[str, dict[str, str], dict[str, Any]]:
+    def _anthropic_request(self, frames: list[bytes]) -> tuple[str, dict[str, str], dict[str, Any]]:
         """Anthropic Messages API: base64 image blocks + a system instruction."""
         content: list[dict[str, Any]] = [
             {
@@ -293,9 +291,7 @@ class SceneCaptioner:
         }
         return f"{self._base_url()}/v1/messages", headers, payload
 
-    def _openai_request(
-        self, frames: list[bytes]
-    ) -> tuple[str, dict[str, str], dict[str, Any]]:
+    def _openai_request(self, frames: list[bytes]) -> tuple[str, dict[str, str], dict[str, Any]]:
         """OpenAI-compatible chat completions: image_url data-URI content parts."""
         content: list[dict[str, Any]] = [{"type": "text", "text": _USER_TEXT}]
         content.extend(
@@ -342,6 +338,21 @@ class SceneCaptioner:
         return collapsed
 
 
+#: One HTTP client per process for captioning, created on first use. See the identical
+#: note in `visual_embed._default_http`.
+_shared_http: httpx.Client | None = None
+_shared_http_lock = threading.Lock()
+
+
+def _default_http() -> httpx.Client:
+    """The process-wide captioning HTTP client, created on first use."""
+    global _shared_http
+    with _shared_http_lock:
+        if _shared_http is None:
+            _shared_http = httpx.Client()
+        return _shared_http
+
+
 def resolve_captioner(
     config: CaptionProviderConfig | None, *, http: httpx.Client | None = None
 ) -> CaptionerResolution:
@@ -355,5 +366,7 @@ def resolve_captioner(
     """
     if config is None:
         return CaptionerResolution(captioner=None, reason=NO_VISION_PROVIDER_REASON)
-    client = http if http is not None else httpx.Client()
+    # Shared, like the embedder's: a client per resolution was a client per index slice,
+    # never closed, and now multiplied by the concurrency limit.
+    client = http if http is not None else _default_http()
     return CaptionerResolution(captioner=SceneCaptioner(config, http=client))

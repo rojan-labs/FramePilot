@@ -186,6 +186,29 @@ describe('read tools', () => {
     expect(getTool('get_selected_range')?.read?.({}, ctx)).toEqual({ start: 1, end: 2 });
   });
 
+  it('get_timeline reads a window, like get_transcript already did', () => {
+    // Run 4c9b5f82 asked for `{start: 0, end: 50}` and then `{start: 0, end: 37}`, was
+    // told `Unrecognized keys: "start", "end"` both times, and spent two of its seventeen
+    // model calls learning that a read it had every reason to expect did not exist.
+    const ctx = { project: makeProject() };
+    // The fixture's clips are 0-6s and 6-10s.
+    const head = getTool('get_timeline')?.read?.({ end: 5 }, ctx) as {
+      tracks: { clips: { id: string }[] }[];
+    };
+    expect(head.tracks[0]!.clips.map((clip) => clip.id)).toEqual(['clip_a']);
+    const tail = getTool('get_timeline')?.read?.({ start: 7 }, ctx) as {
+      tracks: { clips: { id: string }[] }[];
+    };
+    expect(tail.tracks[0]!.clips.map((clip) => clip.id)).toEqual(['clip_b']);
+    // A window that touches both keeps both; no args is still the whole timeline, by
+    // identity, so the common read allocates nothing.
+    const both = getTool('get_timeline')?.read?.({ start: 5, end: 7 }, ctx) as {
+      tracks: { clips: { id: string }[] }[];
+    };
+    expect(both.tracks[0]!.clips).toHaveLength(2);
+    expect(getTool('get_timeline')?.read?.({}, ctx)).toBe(ctx.project.timeline);
+  });
+
   it('get_selected_range returns null when there is no selection', () => {
     expect(getTool('get_selected_range')?.read?.({}, { project: makeProject() })).toBeNull();
   });

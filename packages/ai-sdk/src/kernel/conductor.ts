@@ -684,6 +684,16 @@ export interface AgentTurnResult {
    * `unknown`, which never contributes to a loop — silence is not evidence of repetition.
    */
   readonly rationale?: string;
+  /**
+   * Acceptance conditions the request STATED that the timeline does not yet meet, in the
+   * words the Critic uses. Attached only to a turn where the model declared itself done,
+   * because that is the only moment the answer changes what happens next.
+   *
+   * The reducer cannot compute this — it is pure and holds no project — so the runtime
+   * measures and the reducer decides, the same division `hostRefusals` and `callFacts`
+   * already use.
+   */
+  readonly acceptanceShortfall?: readonly string[];
   /** The ledger snapshot with this turn's step flipped to `running` (design §2). */
   readonly planSteps: readonly PlanStep[];
   /** Which ledger index this turn occupies (the reducer sets its terminal status). */
@@ -1348,6 +1358,33 @@ export function onTurnResult(
         em.notification(
           `The plan still has unfinished work — continuing with “${nextStep.label}”.`,
         ),
+      );
+      return advance(
+        { ...base, working, actionRecoveryPending: true, modelDeclaredDone: false },
+        em,
+        events,
+      );
+    }
+    // The ledger agreeing is not the same as the REQUEST agreeing. Run 4c9b5f82 decomposed
+    // a 61-photo brief into one objective, so the first applied batch — ten photos, ten
+    // seconds of a thirty-six-second music bed — reconciled the whole plan; the model then
+    // said it was done, this guard found nothing unfinished, and the run reported
+    // `completed` while its own memory still read "Continue apply / remainingObjectives: 1".
+    //
+    // The plan is the model's account of the work. The acceptance shortfall is the
+    // request's, measured off the timeline by the same deterministic checks that settle the
+    // run, so it cannot be talked past. Same bounded recovery as above, same latch: one
+    // turn, then the second declaration settles through verification rather than looping.
+    const shortfall = r.acceptanceShortfall ?? [];
+    if (shortfall.length > 0 && !state.actionRecoveryPending) {
+      const action = shortfall.join(' ');
+      const working = setNextAction(state.working, {
+        stage: state.working.stage,
+        action,
+        ...(state.working.objectives[0]?.id ? { objectiveId: state.working.objectives[0]!.id } : {}),
+      });
+      events.push(
+        em.notification(`The request is not met yet — continuing. ${shortfall.join(' ')}`),
       );
       return advance(
         { ...base, working, actionRecoveryPending: true, modelDeclaredDone: false },

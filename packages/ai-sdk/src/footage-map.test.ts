@@ -5,15 +5,21 @@
  * chapter-segmented digest rendering (caps, singular/plural "+N more", highlights).
  */
 import { describe, expect, it } from 'vitest';
-import { footageMapSchema, summarizeFootageMap, type FootageMap } from './footage-map.js';
+import {
+  compactFootageChapters,
+  footageMapSchema,
+  summarizeFootageMap,
+  type FootageMap,
+} from './footage-map.js';
 
 function chapter(
   t0: number,
   t1: number,
   title: string,
   summary = '',
+  assetId?: string,
 ): FootageMap['chapters'][number] {
-  return { t0, t1, title, summary };
+  return { t0, t1, title, summary, ...(assetId === undefined ? {} : { assetId }) };
 }
 
 describe('summarizeFootageMap', () => {
@@ -39,9 +45,9 @@ describe('summarizeFootageMap', () => {
       chapters: [chapter(0, 10, 'Intro', 'Says hello')],
     });
     const digest = summarizeFootageMap(map)!;
-    expect(digest).toContain('(2:05 total)');
+    expect(digest).toContain('(2:05.0 total)');
     expect(digest).toContain('Overview: A quick walkthrough of the product.');
-    expect(digest).toContain('0:00–0:10 Intro — Says hello');
+    expect(digest).toContain('0:00.0–0:10.0 Intro — Says hello');
   });
 
   it('omits the total-duration parenthetical when durationSec is 0', () => {
@@ -66,7 +72,7 @@ describe('summarizeFootageMap', () => {
       chapters: [chapter(0, 5, 'Intro')],
     });
     const digest = summarizeFootageMap(map)!;
-    expect(digest).toContain('0:00–0:05 Intro');
+    expect(digest).toContain('0:00.0–0:05.0 Intro');
     expect(digest).not.toContain('Intro —');
   });
 
@@ -78,21 +84,61 @@ describe('summarizeFootageMap', () => {
     });
     const digest = summarizeFootageMap(map)!;
     expect(digest).toContain('…');
-    expect(digest.length).toBeLessThan(longSummary.length + 50);
+    // The summary is capped at MAX_CHAPTER_SUMMARY_CHARS; the slack covers the map's
+    // fixed header lines (title + the time-base statement), not an untrimmed summary.
+    expect(digest.length).toBeLessThan(longSummary.length + 160);
   });
 
-  it('collapses chapters past the cap into a plural "+N more" line', () => {
-    const chapters = Array.from({ length: 26 }, (_, i) => chapter(i * 10, i * 10 + 5, `Ch ${i}`));
+  /** A realistic generated description, long enough that the budget is what bounds it. */
+  const longTitle = (i: number) =>
+    `Chapter ${i}: a man in a brown jacket stands on a stone path with wooded hills rising ` +
+    'behind him under a hazy overcast sky, a timestamp in the corner';
+
+  /** Chapter rows in a digest, excluding the "+N more" line (which is also bulleted). */
+  const rowsIn = (digest: string): number =>
+    (digest.match(/^• /gm) ?? []).length - (/^• …\+\d+ more/m.test(digest) ? 1 : 0);
+
+  /** How many rows of that shape the budget actually affords. */
+  const rowsAfforded = (): number => {
+    const many = Array.from({ length: 400 }, (_, i) => chapter(i * 10, i * 10 + 5, longTitle(i)));
+    return rowsIn(
+      summarizeFootageMap(footageMapSchema.parse({ available: true, chapters: many }))!,
+    );
+  };
+
+  it('collapses chapters past the budget into a plural "+N more" line', () => {
+    const shown = rowsAfforded();
+    const chapters = Array.from({ length: shown + 2 }, (_, i) =>
+      chapter(i * 10, i * 10 + 5, longTitle(i)),
+    );
     const map = footageMapSchema.parse({ available: true, chapters });
-    const digest = summarizeFootageMap(map)!;
-    expect(digest).toContain('+2 more chapters (use describe_footage to read them)');
+    expect(summarizeFootageMap(map)!).toContain(
+      '+2 more chapters (use describe_footage to read them)',
+    );
   });
 
   it('uses the singular "+1 more chapter" when exactly one remains', () => {
-    const chapters = Array.from({ length: 25 }, (_, i) => chapter(i * 10, i * 10 + 5, `Ch ${i}`));
+    const shown = rowsAfforded();
+    const chapters = Array.from({ length: shown + 1 }, (_, i) =>
+      chapter(i * 10, i * 10 + 5, longTitle(i)),
+    );
     const map = footageMapSchema.parse({ available: true, chapters });
-    const digest = summarizeFootageMap(map)!;
-    expect(digest).toContain('+1 more chapter (use describe_footage to read them)');
+    expect(summarizeFootageMap(map)!).toContain(
+      '+1 more chapter (use describe_footage to read them)',
+    );
+  });
+
+  it('regression: a 61-photo library is shown whole, not 24 of it', () => {
+    // Run `accd014d`. Each chapter here is one photograph the editor handed over, and the
+    // digest showed 24 with "+37 more chapters (use describe_footage to read them)". The
+    // model did exactly that: map_footage, then two paged recall_evidence calls against a
+    // 16,000-character limit — the last three turns of the run. It placed 14 of 61.
+    const chapters = Array.from({ length: 61 }, (_, i) =>
+      chapter(0, 0, longTitle(i), '', `asset_photo_${String(i)}`),
+    );
+    const digest = summarizeFootageMap(footageMapSchema.parse({ available: true, chapters }))!;
+    expect(digest).not.toMatch(/\+\d+ more chapter/);
+    expect(rowsIn(digest)).toBe(61);
   });
 
   it('omits the "+N more" line when chapters are within the cap', () => {
@@ -126,5 +172,215 @@ describe('summarizeFootageMap', () => {
       chapters: [chapter(0, 5, 'Intro')],
     });
     expect(summarizeFootageMap(map)!).not.toContain('Highlights:');
+  });
+});
+
+describe('summarizeFootageMap — which clock the times are on', () => {
+  it('says the times are timeline seconds when they were projected', () => {
+    const map = footageMapSchema.parse({
+      available: true,
+      timeBase: 'timeline',
+      chapters: [chapter(30, 35, 'Intro')],
+    });
+    expect(summarizeFootageMap(map)!).toContain('Times are TIMELINE seconds');
+  });
+
+  it("says the times are the asset's own seconds when nothing could be projected", () => {
+    // The per-run context read sends no project document, so this is the case that was
+    // silently mislabelled as timeline time on every multi-asset project.
+    const map = footageMapSchema.parse({
+      available: true,
+      chapters: [chapter(0, 5, 'Intro')],
+    });
+    const digest = summarizeFootageMap(map)!;
+    expect(digest).toContain('OWN source seconds');
+    expect(digest).not.toContain('TIMELINE');
+  });
+
+  it('defaults to asset time when the engine omits timeBase entirely', () => {
+    // An older engine must never be read as having returned timeline seconds.
+    expect(footageMapSchema.parse({ available: true }).timeBase).toBe('asset');
+  });
+
+  it('names an asset that is in the map but not on the timeline', () => {
+    const map = footageMapSchema.parse({
+      available: true,
+      timeBase: 'timeline',
+      unplacedAssets: ['asset_b'],
+      chapters: [
+        { ...chapter(0, 5, 'On the timeline'), assetId: 'asset_a' },
+        { ...chapter(0, 2, 'Still in the bin'), assetId: 'asset_b' },
+      ],
+    });
+    const digest = summarizeFootageMap(map)!;
+    expect(digest).toContain('[asset_b — not on the timeline');
+    expect(digest).toContain('[asset_a]');
+  });
+});
+
+describe('summarizeFootageMap — telling one piece of footage from another', () => {
+  it('groups rows by asset when the map spans more than one', () => {
+    const map = footageMapSchema.parse({
+      available: true,
+      timeBase: 'timeline',
+      chapters: [
+        { ...chapter(0, 5, 'A one'), assetId: 'a' },
+        { ...chapter(5, 9, 'B one'), assetId: 'b' },
+        { ...chapter(9, 12, 'A two'), assetId: 'a' },
+      ],
+    });
+    const lines = summarizeFootageMap(map)!.split('\n');
+    expect(lines.indexOf('[a]')).toBeLessThan(lines.indexOf('[b]'));
+    // Both of a's rows sit under a's header, not interleaved with b's.
+    expect(lines.filter((l) => l.includes('A one') || l.includes('A two')).length).toBe(2);
+    expect(lines.indexOf('[b]')).toBeGreaterThan(lines.findIndex((l) => l.includes('A two')));
+  });
+
+  it('does not add an asset header to a single-asset map', () => {
+    const map = footageMapSchema.parse({
+      available: true,
+      chapters: [{ ...chapter(0, 5, 'Only'), assetId: 'a' }],
+    });
+    expect(summarizeFootageMap(map)!).not.toContain('[a]');
+  });
+
+  it('renders a still as an instant, not a zero-length range', () => {
+    // A photo occupies a moment. `0:12.5–0:12.5` is noise; on a 61-photo project every
+    // row read `0:00–0:00` and the model could not tell them apart.
+    const map = footageMapSchema.parse({
+      available: true,
+      timeBase: 'timeline',
+      chapters: [{ ...chapter(12.5, 12.5, 'Hikers on a ridge'), assetId: 'photo1' }],
+    });
+    const digest = summarizeFootageMap(map)!;
+    expect(digest).toContain('at 0:12.5 Hikers on a ridge');
+    expect(digest).not.toContain('0:12.5–0:12.5');
+  });
+
+  it('keeps sub-second precision so a cut can land inside a frame', () => {
+    const map = footageMapSchema.parse({
+      available: true,
+      timeBase: 'timeline',
+      chapters: [chapter(74.3, 78.9, 'The claim')],
+    });
+    expect(summarizeFootageMap(map)!).toContain('1:14.3–1:18.9');
+  });
+});
+
+describe('summarizeFootageMap — not cutting the same picture twice', () => {
+  it('marks chapters that look the same and says what the mark means', () => {
+    const map = footageMapSchema.parse({
+      available: true,
+      timeBase: 'timeline',
+      chapters: [
+        { ...chapter(0, 5, 'Ridge'), assetId: 'p1', similarGroup: 1 },
+        { ...chapter(5, 9, 'Summit'), assetId: 'p2' },
+        { ...chapter(9, 12, 'Ridge again'), assetId: 'p3', similarGroup: 1 },
+      ],
+    });
+    const digest = summarizeFootageMap(map)!;
+    expect(digest).toContain('Rows sharing a [~n] mark look the same');
+    expect(digest).toContain('Ridge [~1]');
+    expect(digest).toContain('Ridge again [~1]');
+    // The one with nothing like it carries no mark — a number that appears once is noise.
+    expect(digest.split('\n').find((l) => l.includes('Summit'))).not.toContain('[~');
+  });
+
+  it('says nothing about similarity when no chapter has a twin', () => {
+    const map = footageMapSchema.parse({
+      available: true,
+      chapters: [chapter(0, 5, 'Intro')],
+    });
+    expect(summarizeFootageMap(map)!).not.toContain('[~n]');
+  });
+});
+
+describe('summarizeFootageMap — a partial map is not thin footage', () => {
+  it('says how much of the project the map was built from while preparation runs', () => {
+    const map = footageMapSchema.parse({
+      available: true,
+      timeBase: 'timeline',
+      coverage: { prepared: 12, total: 61 },
+      chapters: [chapter(0, 5, 'Intro')],
+    });
+    expect(summarizeFootageMap(map)!).toContain('Built from 12 of 61 assets prepared so far');
+  });
+
+  it('stays quiet once everything is prepared', () => {
+    const map = footageMapSchema.parse({
+      available: true,
+      coverage: { prepared: 61, total: 61 },
+      chapters: [chapter(0, 5, 'Intro')],
+    });
+    expect(summarizeFootageMap(map)!).not.toContain('prepared so far');
+  });
+
+  it('stays quiet when the engine reports no coverage at all', () => {
+    const map = footageMapSchema.parse({ available: true, chapters: [chapter(0, 5, 'Intro')] });
+    expect(summarizeFootageMap(map)!).not.toContain('prepared so far');
+  });
+});
+
+describe('a chapter that repeats itself carries one sentence', () => {
+  const sentence =
+    'A man in a brown jacket stands on a stone path with wooded hills rising behind him.';
+
+  it('regression: the generative backend answers title and summary identically', () => {
+    // Run `accd014d`. All 61 chapters of a 61-photo map had `title` byte-identical to
+    // `summary` — 10,491 of the payload's 28,264 characters were the same sentences twice.
+    // `recall_evidence` returns 16,000 characters per call and a call is a whole model
+    // turn, so that duplication alone was the difference between a one-turn read and a
+    // two-turn one. The run had two turns left and spent both of them on it.
+    const map = footageMapSchema.parse({
+      available: true,
+      chapters: [{ t0: 0, t1: 0, title: sentence, summary: sentence }],
+    });
+    expect(map.chapters[0]!.summary).toBe('');
+    expect(map.chapters[0]!.title).toBe(sentence);
+    // …and the digest prints it once.
+    const digest = summarizeFootageMap(map)!;
+    expect(digest.split(sentence).length - 1).toBe(1);
+  });
+
+  it('ignores whitespace when deciding they are the same sentence', () => {
+    const map = footageMapSchema.parse({
+      available: true,
+      chapters: [{ t0: 0, t1: 0, title: sentence, summary: `  ${sentence}\n ` }],
+    });
+    expect(map.chapters[0]!.summary).toBe('');
+  });
+
+  it('keeps a summary that genuinely says something else', () => {
+    const map = footageMapSchema.parse({
+      available: true,
+      chapters: [{ t0: 0, t1: 4, title: 'Trailhead', summary: sentence }],
+    });
+    expect(map.chapters[0]!.summary).toBe(sentence);
+    expect(summarizeFootageMap(map)!).toContain(`Trailhead — ${sentence}`);
+  });
+});
+
+describe('compactFootageChapters', () => {
+  it('drops the fields that say nothing, keeps the ones that do', () => {
+    const [row] = compactFootageChapters(
+      footageMapSchema.parse({
+        available: true,
+        chapters: [{ t0: 0, t1: 0, title: 'A path', summary: 'A path', assetId: 'asset_1' }],
+      }).chapters,
+    );
+    // `summary: ""` and `similarGroup: null` are two ways of writing "nothing here"; on a
+    // 61-photo map they cost 1,933 characters — the difference between a payload
+    // recall_evidence returns in one call and one it splits across two.
+    expect(row).toEqual({ t0: 0, t1: 0, title: 'A path', assetId: 'asset_1' });
+  });
+
+  it('keeps a zero, which is a real time and not an absence', () => {
+    const [row] = compactFootageChapters(
+      footageMapSchema.parse({
+        available: true,
+        chapters: [{ t0: 0, t1: 0, title: 'Still', summary: 'A longer description' }],
+      }).chapters,
+    );
+    expect(row).toMatchObject({ t0: 0, t1: 0, summary: 'A longer description' });
   });
 });

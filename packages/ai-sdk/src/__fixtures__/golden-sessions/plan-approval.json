@@ -213,7 +213,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21579,
+      "usedTokens": 21727,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -257,7 +257,7 @@
             "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17648,
+            "tokenEstimate": 17796,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -265,9 +265,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21579,
+          "estimatedInputTokensBeforeSend": 21727,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170229,
+          "estimatedRemainingCapacity": 170081,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -631,7 +631,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21616,
+      "usedTokens": 21764,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -675,7 +675,7 @@
             "id": "s5",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17648,
+            "tokenEstimate": 17796,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -683,9 +683,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21616,
+          "estimatedInputTokensBeforeSend": 21764,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170192,
+          "estimatedRemainingCapacity": 170044,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -1090,7 +1090,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "notification",
-      "text": "Deterministic self-check: All checks passed."
+      "text": "Deterministic self-check: Passed with 1 warning(s)."
     },
     {
       "id": "turn_golden:notice:15",

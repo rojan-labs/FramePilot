@@ -5,7 +5,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Project } from '@framepilot/timeline-schema';
 import { CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID } from '@framepilot/editor-core';
-import { critique, explicitDurationTargetSeconds, timelineDuration } from './critic.js';
+import {
+  critique,
+  explicitDurationTarget,
+  explicitDurationTargetSeconds,
+  timelineDuration,
+} from './critic.js';
+import { checkableAcceptance } from './acceptance.js';
 import { makeProject } from './__fixtures__/project.js';
 
 const clip = (over: Record<string, unknown>) => ({
@@ -75,7 +81,28 @@ describe('explicitDurationTargetSeconds', () => {
     ).toBeUndefined();
     expect(explicitDurationTargetSeconds('Create a video with 2 seconds per shot')).toBeUndefined();
     expect(explicitDurationTargetSeconds('Make it 4s each cut')).toBeUndefined();
-    expect(explicitDurationTargetSeconds('Build a reel, 1\u20132 minutes')).toBeUndefined();
+    // The far end alone is still never the target: 2 minutes is not what this asked for.
+    expect(explicitDurationTargetSeconds('Build a reel, 1\u20132 minutes')).not.toBe(120);
+  });
+
+  it('reads a stated range as an interval, not as nothing', () => {
+    // Run 4c9b5f82. `endsARange` refuses the far end, and in `20\u201335 seconds` only the far
+    // number carries the unit \u2014 so the near end was never matched and the whole range was
+    // dropped. The brief said its length as plainly as a brief can, and `duration_target`
+    // reported `skipped` over a 10-second answer.
+    expect(
+      explicitDurationTarget('**Duration:** Approximately 20\u201335 seconds, depending on music'),
+    ).toEqual({ seconds: 27.5, toleranceSeconds: 7.5 });
+    expect(explicitDurationTarget('Build a reel, 1\u20132 minutes')).toEqual({
+      seconds: 90,
+      toleranceSeconds: 30,
+    });
+  });
+
+  it('does not read a pacing range as the deliverable length', () => {
+    // The range reading must not undo the guard it sits beside: a per-clip figure is
+    // pacing whether it is stated as one number or as two.
+    expect(explicitDurationTarget('Build a montage at 0.3\u20130.6s per clip')).toBeUndefined();
   });
 
   it('still finds a real length stated after the pacing talk', () => {
@@ -319,6 +346,7 @@ describe('critique — shape', () => {
     expect(report.checks.map((c) => c.id)).toEqual([
       'request_match',
       'picture_present',
+      'picture_coverage',
       'duration_target',
       'shot_count',
       'reframe_coverage',
@@ -689,5 +717,230 @@ describe('export_settings', () => {
     expect(
       idOf(critique(makeProject(), { targetPlatform: 'linkedin' }), 'export_settings')?.status,
     ).toBe('pass');
+  });
+});
+
+describe('picture_coverage', () => {
+  /**
+   * The shape run 4c9b5f82 shipped: a 36.1s music bed with ten photos over only its
+   * first 10.0 seconds. 72% of the programme rendered as black with music playing.
+   */
+  const musicOutrunsPicture = () =>
+    withTracks(
+      [
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [
+            clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 5.004 }),
+            clip({ id: 'p_2', trackId: 'v_main', start: 5.004, end: 10.008 }),
+          ],
+        },
+        {
+          id: 'a_music',
+          type: 'audio',
+          clips: [
+            clip({ id: 'music', assetId: 'asset_music', trackId: 'a_music', start: 0, end: 36.107 }),
+          ],
+        },
+      ],
+      {
+        assets: [
+          { id: 'asset_1', path: 'media/a.jpeg', kind: 'image', durationSeconds: 5 },
+          { id: 'asset_music', path: 'media/m.mp3', kind: 'audio', durationSeconds: 47.8 },
+        ] as Project['assets'],
+      },
+    );
+
+  it('regression: fails a montage whose music outruns its picture', () => {
+    const report = critique(musicOutrunsPicture(), { minShotCount: 61 });
+    const coverage = idOf(report, 'picture_coverage');
+    expect(coverage).toMatchObject({ status: 'fail' });
+    expect(coverage?.detail).toMatch(/26\.099s of the 36\.107s programme has no picture/);
+    expect(coverage?.detail).toMatch(/10\.008s–36\.107s/);
+    expect(report.ok).toBe(false);
+  });
+
+  it('is what picture_present cannot ask: that check passes the same timeline', () => {
+    const report = critique(musicOutrunsPicture(), { minShotCount: 61 });
+    expect(idOf(report, 'picture_present')).toMatchObject({ status: 'pass' });
+  });
+
+  it('reports an interior hole, not only a tail', () => {
+    const project = withTracks([
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [
+          clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 4 }),
+          clip({ id: 'p_2', trackId: 'v_main', start: 9, end: 12 }),
+        ],
+      },
+    ]);
+    const coverage = idOf(critique(project, { minShotCount: 2 }), 'picture_coverage');
+    expect(coverage).toMatchObject({ status: 'fail' });
+    expect(coverage?.detail).toMatch(/4s–9s/);
+  });
+
+  it('only warns when nothing visual was asked for', () => {
+    expect(idOf(critique(musicOutrunsPicture()), 'picture_coverage')).toMatchObject({
+      status: 'warn',
+    });
+  });
+
+  it('tolerates a gap under a second and overlapping picture layers', () => {
+    const project = withTracks([
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 6 })],
+      },
+      {
+        id: 'v_b',
+        type: 'video',
+        clips: [clip({ id: 'p_2', trackId: 'v_b', start: 5, end: 9.9 })],
+      },
+      {
+        id: 'a_music',
+        type: 'audio',
+        clips: [
+          clip({ id: 'music', assetId: 'asset_music', trackId: 'a_music', start: 0, end: 10 }),
+        ],
+      },
+    ]);
+    expect(idOf(critique(project, { minShotCount: 2 }), 'picture_coverage')).toMatchObject({
+      status: 'pass',
+    });
+  });
+
+  it('skips a timeline with no picture at all — picture_present owns that', () => {
+    expect(idOf(critique(withTracks([])), 'picture_coverage')).toMatchObject({ status: 'skipped' });
+  });
+});
+
+describe('run 4c9b5f82, end to end', () => {
+  /**
+   * The whole chain the run walked through, from the brief it was given to the verdict it
+   * should have reached. Every link was individually broken:
+   *
+   * - the brief's "61 photos" was not a shot noun, so no floor was read;
+   * - the brief's "20-35 seconds" range was dropped whole, so no duration was read;
+   * - with neither, the only checks that could fail were skipped;
+   * - and `picture_present` passed on ten clips over a thirty-six-second programme.
+   *
+   * So the run reported `completed` over ten of sixty-one photos and twenty-six seconds
+   * of black. This asserts the chain, not the links, because that is what failed.
+   */
+  const brief = [
+    'I have provided **approximately 61 hiking photos**. Turn them into a montage.',
+    '# FORMAT',
+    'Create the final video for Instagram:',
+    '**Aspect ratio:** 9:16 vertical',
+    '**Frame rate:** 30fps',
+    '**Resolution:** 1080 × 1920 or higher',
+    '**Duration:** Approximately 20–35 seconds, depending on the selected music.',
+    '# IMPORTANT. USE ALL PHOTOS INTELLIGENTLY',
+    'Attempt to use **all approximately 61 hiking photos**.',
+  ].join('\n\n');
+
+  /** Ten photos over the first 10.008s; the music bed runs to 36.107s. */
+  const whatItShipped = () =>
+    withTracks(
+      [
+        {
+          id: 'layer_video_2',
+          type: 'video',
+          clips: Array.from({ length: 10 }, (_, index) =>
+            clip({
+              id: `p_${String(index)}`,
+              trackId: 'layer_video_2',
+              start: index * 1.0008,
+              end: (index + 1) * 1.0008,
+            }),
+          ),
+        },
+        {
+          id: 'layer_audio_1',
+          type: 'audio',
+          clips: [
+            clip({
+              id: 'music',
+              assetId: 'asset_music',
+              trackId: 'layer_audio_1',
+              start: 0,
+              end: 36.107,
+            }),
+          ],
+        },
+      ],
+      {
+        assets: [
+          { id: 'asset_1', path: 'media/a.jpeg', kind: 'image', durationSeconds: 5 },
+          { id: 'asset_music', path: 'media/m.mp3', kind: 'audio', durationSeconds: 47.8 },
+        ] as Project['assets'],
+      },
+    );
+
+  it('reads the brief and fails what the run shipped against it', () => {
+    const stated = explicitDurationTarget(brief);
+    expect(stated).toEqual({ seconds: 27.5, toleranceSeconds: 7.5 });
+    const acceptance = checkableAcceptance(brief, stated?.seconds);
+    expect(acceptance.minShotCount).toBe(61);
+
+    const report = critique(whatItShipped(), {
+      request: brief,
+      durationTargetSeconds: stated!.seconds,
+      durationToleranceSeconds: stated!.toleranceSeconds,
+      minShotCount: acceptance.minShotCount,
+    });
+    expect(report.ok).toBe(false);
+    const failed = report.checks.filter((check) => check.status === 'fail').map((check) => check.id);
+    expect(failed).toContain('picture_coverage');
+    expect(failed).toContain('shot_count');
+    expect(failed).toContain('duration_target');
+  });
+
+  it('passes the same brief once the cut actually answers it', () => {
+    // 61 photos filling the whole 36.107s bed, which is outside 20-35s — so the honest
+    // answer is still a duration failure and nothing else. Proof the checks discriminate
+    // rather than firing together on anything imperfect.
+    const shots = 61;
+    const project = withTracks(
+      [
+        {
+          id: 'layer_video_2',
+          type: 'video',
+          clips: Array.from({ length: shots }, (_, index) =>
+            clip({
+              id: `p_${String(index)}`,
+              trackId: 'layer_video_2',
+              start: (index * 30) / shots,
+              end: ((index + 1) * 30) / shots,
+            }),
+          ),
+        },
+        {
+          id: 'layer_audio_1',
+          type: 'audio',
+          clips: [
+            clip({ id: 'music', assetId: 'asset_music', trackId: 'layer_audio_1', end: 30 }),
+          ],
+        },
+      ],
+      {
+        assets: [
+          { id: 'asset_1', path: 'media/a.jpeg', kind: 'image', durationSeconds: 5 },
+          { id: 'asset_music', path: 'media/m.mp3', kind: 'audio', durationSeconds: 47.8 },
+        ] as Project['assets'],
+      },
+    );
+    const report = critique(project, {
+      request: brief,
+      durationTargetSeconds: 27.5,
+      durationToleranceSeconds: 7.5,
+      minShotCount: 61,
+    });
+    expect(report.checks.filter((check) => check.status === 'fail')).toEqual([]);
+    expect(report.ok).toBe(true);
   });
 });
