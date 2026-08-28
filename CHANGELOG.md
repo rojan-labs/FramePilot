@@ -61,6 +61,28 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant can hear the music again — and see its own edit.** The render engine
+  sandboxes every file it touches against a projects folder it learns from
+  `FRAMEPILOT_PROJECTS_ROOT`, and the desktop app — which works that folder out for itself
+  and defaults it to `~/Documents/FramePilot Projects` — never told the engine what it was.
+  Unless you happened to have that variable exported in your shell, the engine started with
+  no folder it was allowed to read, and every job that opens a media file died: beat
+  detection, scene detection, silence analysis, transcription, single-frame previews, export
+  rendering, and the perceptual review of a finished edit. What you saw was
+  "Analysis failed (500): Internal Server Error" over and over, an assistant that could add a
+  song but never cut to it, and runs that ended with an empty timeline. The app now hands the
+  engine its folder on startup, in packaged builds and from source alike.
+
+- **A misconfigured engine says what is wrong instead of "Internal Server Error".** When the
+  engine has no projects folder, the routes that analyse or render an unsaved project used to
+  fall back to whatever directory the engine process happened to be started in — which
+  produced an unhandled crash and a bare 500 that named nothing. They now refuse with the
+  same message the rest of the engine already gave: the setting that is missing, and its name.
+
+- **One engine outage is reported once.** A run whose review engine was unreachable printed
+  the identical "Review could not run" warning once per review, pushing the findings above it
+  out of view. Repeats are collapsed into a single line carrying the count.
+
 - **The timeline's overview strip is visible without clicking it.** The minimap under the
   timeline measured its own width only when you pressed on it, so until then it drew every
   clip at zero width and looked like an empty bar — you had to click a navigation aid to
