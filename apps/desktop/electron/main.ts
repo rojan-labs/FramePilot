@@ -1952,9 +1952,20 @@ function registerIpcHandlers(): void {
         ? `"${query}"`
         : `"${result.matchedQuery}" — this library matches short phrases, so only the ` +
           `opening words of a longer query are used. Search two or three words.`;
+    // Say what these rows do NOT contain, at the moment the model is about to choose from
+    // them. Openverse publishes no tempo, key or section structure — `genres` and
+    // `category` come back null in practice — so a brief that says "evaluate multiple
+    // tracks and select the strongest" is asking for a judgement the catalogue cannot
+    // support. Run `fc10301a` was given eight titles and reported one as "a high-energy
+    // cinematic drum track built for adventure"; it had heard nothing and measured
+    // nothing. The tool description carries the same fact, and this repeats it where the
+    // guess would otherwise happen.
     return {
       status: 'completed',
-      summary: `Found ${result.tracks.length} track${result.tracks.length === 1 ? '' : 's'} for ${matched}.`,
+      summary:
+        `Found ${result.tracks.length} track${result.tracks.length === 1 ? '' : 's'} for ${matched} ` +
+        'No tempo or structure is published for any of them — to know a track’s rhythm, ' +
+        'add_music it and run detect_beats.',
       data: { tracks: result.tracks },
     };
   };

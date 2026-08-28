@@ -793,6 +793,20 @@ describe('mutating tools — build valid operations', () => {
     expect(lut.effect).toMatchObject({ type: 'lut', params: { name: 'teal' } });
   });
 
+  // GAP-013 (run `fc10301a`). The brief said "evaluate multiple suitable tracks and select
+  // the strongest one", listing clear beat, build-up, drop and beat separation as the
+  // criteria. Search results carry a title, a duration and a licence — Openverse publishes
+  // no tempo, and its `genres`/`category` come back null in practice — so that judgement
+  // cannot be made from them. The run reported a track as "a high-energy cinematic drum
+  // track built for adventure" having heard nothing and measured nothing.
+  it('says that music results carry no tempo, and names the route that does', () => {
+    const description = getTool('search_music')?.description ?? '';
+    expect(description).toMatch(/NO tempo, key, energy or section structure/);
+    expect(description).toContain('detect_beats');
+    // And that changing your mind is cheap, so the honest route is not the expensive one.
+    expect(description).toMatch(/undo removes the track/);
+  });
+
   // GAP-017 (run `fc10301a`). Every grade parameter name and bound was enforced on both
   // sides of the boundary and NONE was advertised: the description was "Apply a color
   // grade to a clip." and `params` an untyped record, so a model could only learn the

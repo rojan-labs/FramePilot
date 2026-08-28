@@ -250,7 +250,13 @@ export const MEDIA_TOOLS: readonly ToolSpec[] = [
         'attributionRequired, creator }; play nothing, download nothing, spend nothing. ' +
         'Pass a remoteId to add_music to actually use one. Every result is cleared for ' +
         'monetized video; some require crediting the artist, and the result says which. ' +
-        'Does not edit the timeline.',
+        'A result carries NO tempo, key, energy or section structure — this library does ' +
+        'not publish them, so a title is all you have to go on and you cannot rank ' +
+        'candidates by BPM or by where their drop is from here. To actually know a ' +
+        "track's rhythm, add_music it and run detect_beats on the asset; that is the only " +
+        'route, and undo removes the track, its layer and the file in one step if you ' +
+        'then want a different one. Say you chose on mood and title if that is what you ' +
+        'did. Does not edit the timeline.',
       // Executes in the Electron main process (the provider network lives there and
       // the sidecar has no route for it), so the standalone MCP server neither
       // advertises nor accepts it. Desktop Agent mode is unaffected — this flag
