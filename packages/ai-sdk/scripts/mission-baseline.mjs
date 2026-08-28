@@ -147,7 +147,7 @@ function sectionTotals(manifest) {
   return byType;
 }
 
-async function runTurn({ project, prompt, history, scenarioId, turnIndex }) {
+async function runTurn({ project, prompt, history, scenarioId, turnIndex, carriedForward }) {
   const provider = createProviderFromConfig(resolveProviderConfig(providerName));
   const capture = new BaselineCaptureProvider(provider);
   const executor = createSidecarExecutor({ baseUrl: BASE_URL });
@@ -170,6 +170,7 @@ async function runTurn({ project, prompt, history, scenarioId, turnIndex }) {
   const timeout = setTimeout(() => controller.abort(), Number(process.env.MISSION_TURN_TIMEOUT_MS ?? 20 * 60_000));
   let working = project;
   let assistantText = '';
+  let lastWorking;
   try {
     for await (const event of orchestrator.streamAgent(
       {
@@ -181,10 +182,14 @@ async function runTurn({ project, prompt, history, scenarioId, turnIndex }) {
         ...(sessionContext ? { sessionContext } : {}),
       },
       { conversationId: `mission-${scenarioId}`, turnId: `mission-${scenarioId}-t${turnIndex}`, signal: controller.signal },
-      {},
+      // The desktop hands the previous run's working state to the next request
+      // (`AgentOptions.carriedForward`, context-management P5.1); mirrored here so a
+      // second turn does not re-learn the footage in the harness either.
+      carriedForward === undefined ? {} : { carriedForward },
       { rememberDecision },
     )) {
       events.push(event);
+      if (event.type === 'run_state' && event.working) lastWorking = event.working;
       if (event.type === 'diff' && event.edit.validation.valid) {
         const before = event.scope === 'turn' ? working : project;
         working = applyProjectPatch(before, event.edit.patch);
@@ -214,6 +219,7 @@ async function runTurn({ project, prompt, history, scenarioId, turnIndex }) {
   const status = events.filter((e) => e.type === 'status').at(-1);
   return {
     working,
+    lastWorking,
     assistantText,
     metrics: {
       wallMs,
@@ -270,6 +276,7 @@ for (const scenario of SCENARIOS) {
     const base = loadProject(scenario.project);
     let project = base;
     let history = [];
+    let carriedForward;
     const turnRecords = [];
     process.stdout.write(`▶ ${scenario.id} run ${run}/${RUNS}\n`);
     for (const [turnIndex, turn] of scenario.turns.entries()) {
@@ -281,7 +288,7 @@ for (const scenario of SCENARIOS) {
       }
       let outcome;
       try {
-        outcome = await runTurn({ project, prompt: turn.prompt, history, scenarioId: scenario.id, turnIndex });
+        outcome = await runTurn({ project, prompt: turn.prompt, history, scenarioId: scenario.id, turnIndex, carriedForward });
       } catch (error) {
         turnRecords.push({ turnIndex, prompt: turn.prompt, crashed: String(error), wallMs: Date.now() - t0 });
         process.stdout.write(`   turn ${turnIndex + 1}: CRASH ${String(error).slice(0, 200)}\n`);
@@ -325,6 +332,7 @@ for (const scenario of SCENARIOS) {
       );
       history = [...history, { role: 'user', content: turn.prompt }, { role: 'assistant', content: outcome.assistantText || '(edit applied)' }];
       project = outcome.working;
+      carriedForward = outcome.lastWorking;
     }
     results.push({ scenario: scenario.id, project: scenario.project, run, turns: turnRecords });
     mkdirSync(dirname(OUT), { recursive: true });
