@@ -175,7 +175,7 @@ describe('transition recovery wording', () => {
         kind: '__definitely_not_real__',
         durationSeconds: 0.5,
       }),
-    ).toThrow(ToolInputContractError);
+    ).toThrow(/discover_transitions/);
     expect(() =>
       parseToolArguments(tool('add_transition'), {
         trackId: 'video-1',

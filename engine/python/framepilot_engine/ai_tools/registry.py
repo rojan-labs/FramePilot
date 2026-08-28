@@ -35,6 +35,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
+from framepilot_engine.ai_tools.tool_descriptions_generated import TOOL_DESCRIPTIONS
 from framepilot_engine.render.caption_templates import load_catalog
 from framepilot_engine.timeline.models import BlendMode, CaptionStyle, CropRect
 
@@ -991,7 +992,9 @@ def _spec(
     """
     return ToolSpec(
         name=name,
-        description=description,
+        # The TS registry is the single source of the text the model reads (P2.3); the
+        # literal passed here is the fallback for a tool TS does not define.
+        description=TOOL_DESCRIPTIONS.get(name, description),
         kind=kind,
         mutating=mutating,
         available=available,

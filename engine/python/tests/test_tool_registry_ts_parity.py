@@ -153,3 +153,19 @@ def test_python_registry_matches_ts_tool_names() -> None:
     assert not only_in_python, (
         f"Tools registered in Python but missing from TS: {sorted(only_in_python)}"
     )
+
+
+def test_every_tool_description_is_the_generated_ts_text() -> None:
+    """The model must read one description per tool on every surface (plan/system-mission
+    P2.3). Python's registry takes its text from the generated mirror; a literal that
+    survives here means a tool TS does not define, which is the only allowed exception."""
+    from framepilot_engine.ai_tools.registry import TOOL_REGISTRY
+    from framepilot_engine.ai_tools.tool_descriptions_generated import TOOL_DESCRIPTIONS
+
+    shared = [name for name in TOOL_REGISTRY if name in TOOL_DESCRIPTIONS]
+    assert len(shared) >= 70
+    for name in shared:
+        assert TOOL_REGISTRY[name].description == TOOL_DESCRIPTIONS[name], name
+    # Every Python tool has a TS text: a name here would be a tool the desktop cannot see.
+    only_python = sorted(name for name in TOOL_REGISTRY if name not in TOOL_DESCRIPTIONS)
+    assert only_python == [], only_python

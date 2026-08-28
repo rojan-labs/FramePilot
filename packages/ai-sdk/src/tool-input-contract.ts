@@ -244,21 +244,8 @@ export function assertToolInputSemantics(toolName: string, parsed: unknown): voi
   if (toolName === 'apply_effect') assertEffectParams(value);
 }
 
-function describeContractError(toolName: string, cause: unknown): never {
-  if (toolName === 'add_transition' && cause instanceof Error) {
-    const corrected = cause.message.replaceAll('list_transitions', 'discover_transitions');
-    if (corrected !== cause.message) throw new ToolInputContractError(toolName, corrected);
-  }
-  throw cause;
-}
-
 function parseWithContract(tool: ToolSpec, rawArgs: unknown): unknown {
-  let parsed: unknown;
-  try {
-    parsed = tool.parse(rawArgs);
-  } catch (cause) {
-    return describeContractError(tool.name, cause);
-  }
+  const parsed = tool.parse(rawArgs);
   assertToolInputSemantics(tool.name, parsed);
   return parsed;
 }
@@ -419,10 +406,6 @@ export function withToolInputContract(tool: ToolSpec): ToolSpec {
   const originalBuildOps = tool.buildOps;
   const contracted: ToolSpec = Object.freeze({
     ...tool,
-    description:
-      tool.name === 'add_transition'
-        ? tool.description.replaceAll('list_transitions', 'discover_transitions')
-        : tool.description,
     parameters: contractedToolParameters(tool),
     parse,
     ...(originalRead

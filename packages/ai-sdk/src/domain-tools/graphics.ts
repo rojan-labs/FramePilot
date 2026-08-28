@@ -264,7 +264,7 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         'Read the timeline first to get the real track and clip ids; a transition needs ' +
         'two clips, so it cannot be added when the track has only one clip. ' +
         'Kinds come from the transition catalog — `cross-dissolve`, `whip-pan-left`, ' +
-        '`glitch`, `circular-wipe` and 70-odd more; `list_transitions` names them all. ' +
+        '`glitch`, `circular-wipe` and 70-odd more; `discover_transitions` names them all. ' +
         'A cut can carry at most half of its shorter clip; ask for longer and the ' +
         'transition is shortened to fit rather than refused, so short clips take one ' +
         'too. Read the applied duration back before describing it to the editor.',
@@ -280,7 +280,7 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         // An unknown id is refused by the op with a readable sentence, which is
         // exactly what a model needs to correct itself.
         kind: z.string().refine((value) => getTransition(value) !== undefined, {
-          message: 'Unknown transition kind. Call list_transitions to see what exists.',
+          message: 'Unknown transition kind. Call discover_transitions to see what exists.',
         }),
         durationSeconds: numeric(z.number().positive()),
       })

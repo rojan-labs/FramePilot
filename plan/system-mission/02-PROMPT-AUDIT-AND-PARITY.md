@@ -32,7 +32,7 @@ that a validator can enforce.
 **Done when:** each inventory row has an audit outcome and the goldens are regenerated
 with the delta recorded.
 
-## P2.3 — Tool description parity (TS ↔ Python ↔ MCP) — `[ ]`
+## P2.3 — Tool description parity (TS ↔ Python ↔ MCP) — `[x]`
 
 **Reuses:** `scripts/generate-tool-parity-fixture.mjs` and the parity tests. Extend the
 fixture to compare `description`, argument schema, and enum values, not only names.
@@ -41,6 +41,15 @@ TS registry at generate time (there is already a generator; extend it) so drift 
 impossible rather than tested-for.
 **Done when:** the parity test fails on any description/schema difference and the
 generator is the only writer of the mirrored files.
+
+Landed 2026-08-29: `scripts/generate-tool-descriptions.mjs` writes
+`ai_tools/tool_descriptions_generated.py` (in the ai-sdk build); the Python registry's
+`_spec` reads the TS text for every tool; `test_tool_registry_ts_parity.py` asserts every
+Python tool's description is the generated text and that no Python-only tool exists;
+`tool-descriptions-generated.test.ts` fails on a stale file. Before: 38 of 73 shared
+descriptions matched. Found and removed a workaround stack on the way: the TS
+`add_transition` text still said `list_transitions`, and both the TS contract layer and
+the Python overrides patched it at runtime — fixed at the source, both patches deleted.
 
 ## P2.4 — Host prompt parity (desktop vs web vs CLI) — `[ ]`
 
