@@ -1949,6 +1949,28 @@ describe('streamAgent', () => {
     expect(events.at(-1)).toMatchObject({ status: 'completed' });
   });
 
+  // GAP-020 (run `fc10301a`). The agent folds every context tier into one turn-varying
+  // message, and the manifest fell back to a per-MESSAGE account — so all 41 manifests in
+  // that run read `system contract`, `user turn 1`, `user turn 2`, `user request`,
+  // `tool definitions` and nothing else. Whether the footage map or the media bin were in
+  // the prompt was unanswerable from the run's own record, and the run claimed to have
+  // "absorbed all the photo descriptions from the footage map" on a turn where no footage
+  // map existed. Nothing could falsify it.
+  it('reports what the project view held, tier by tier, not one row per message', async () => {
+    const events = await drain(
+      new Orchestrator(new MockProvider()).streamAgent(input, opts(), { maxSteps: 1 }),
+    );
+    const usage = events.find((e) => e.type === 'context_usage');
+    const labels =
+      usage?.type === 'context_usage' ? usage.manifest.sections.map((s) => s.label) : [];
+    expect(labels).toContain('timeline summary');
+    expect(labels).toContain('project header');
+    expect(labels).toContain('tool definitions');
+    // The briefing, steering and action log ride in the same message as the tiers, so the
+    // account names the remainder rather than silently under-reporting the prompt.
+    expect(labels).toContain('additional request content');
+  });
+
   it('defaults the clock when absent; a run that never edits emits no diff', async () => {
     const bare: ContextInput = { project: makeProject(), userPrompt: '' };
     const events = await drain(

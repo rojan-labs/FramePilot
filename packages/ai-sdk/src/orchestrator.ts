@@ -3180,7 +3180,27 @@ export class Orchestrator {
      * an empty block rather than a wrong one.
      */
     agentOptions: AgentOptions = {},
-  ): AiMessage[] {
+  ): {
+    readonly messages: AiMessage[];
+    /**
+     * The TIER account `assembleContext` produced, carried out so the request manifest can
+     * name what the project view actually held (GAP-020).
+     *
+     * It used to be discarded. The agent folds every tier into one turn-varying message,
+     * and `buildRequestManifest` falls back to a per-MESSAGE account when it is given no
+     * assembled sections — so every manifest in an agent run read `system contract`,
+     * `user turn 1`, `user turn 2`, `user request`, `tool definitions` and nothing else.
+     * Whether the footage map, the media bin, the timeline summary or the transcript slice
+     * were in the prompt was unanswerable from the run's own record, and a trimmed tier
+     * left no trace at all: compaction is invisible in a payload-derived account, which is
+     * the one thing this field exists to carry.
+     *
+     * Run `fc10301a` claimed to have "absorbed all the photo descriptions from the footage
+     * map" on a turn where no footage map existed. Nothing in 41 manifests could falsify
+     * it.
+     */
+    readonly assembled: { readonly sections: readonly AssembledSection[]; readonly droppedTokenEstimate: number };
+  } {
     const stableHead = this.agentStableInstruction(loadedSkills, plan);
     // P1.2: the agent turn's budget subtracts what `buildContext` does not assemble — the
     // widest tool set the run can advertise, plus this run's stable head (the agent
@@ -3269,12 +3289,18 @@ export class Orchestrator {
       // image attached here can never invalidate the cached prefix above it.
       ...(frames && frames.length > 0 ? { images: frames } : {}),
     };
-    return [
-      ...stablePrefix,
-      { role: 'user', content: stableContext },
-      { role: 'user', content: stableHead, cacheBoundary: true },
-      turnMessage,
-    ];
+    return {
+      messages: [
+        ...stablePrefix,
+        { role: 'user', content: stableContext },
+        { role: 'user', content: stableHead, cacheBoundary: true },
+        turnMessage,
+      ],
+      assembled: {
+        sections: assembled.sections,
+        droppedTokenEstimate: assembled.droppedTokenEstimate,
+      },
+    };
   }
 
   /**
@@ -4108,7 +4134,7 @@ export class Orchestrator {
         undefined,
         false,
         args.taskMemory,
-      ),
+      ).messages,
       { role: 'user' as const, content: instruction },
     ];
     const response = await this.completeModel(
@@ -4314,7 +4340,7 @@ export class Orchestrator {
             undefined,
             pendingFrames,
             options,
-          ),
+          ).messages,
           tools,
         },
         undefined,
@@ -6814,22 +6840,26 @@ export class Orchestrator {
         // phase (vs. the generic `editing` the caller set for the whole run).
         yield emit.status('generating');
         /** One attempt at this turn's model call. Re-callable — see the retry below. */
-        const streamOnce = (attempt: number) =>
+        // Built once per attempt and held, so the manifest can report the TIER account
+        // rather than falling back to one row per message (GAP-020).
+        const built = () =>
+          self.agentMessages(
+            input,
+            working,
+            log,
+            loadedSkills,
+            plan,
+            steeringMessage,
+            effect.actionRecovery,
+            taskMemory,
+            pendingFrames,
+            agentOptions,
+          );
+        const streamOnce = (attempt: number, prompt = built()) =>
           self.streamAssistant(
             emit,
             {
-              messages: self.agentMessages(
-                input,
-                working,
-                log,
-                loadedSkills,
-                plan,
-                steeringMessage,
-                effect.actionRecovery,
-                taskMemory,
-                pendingFrames,
-                agentOptions,
-              ),
+              messages: prompt.messages,
               // Stage-scoped surface (ADR 0075 §3.6): action recovery still wins when it
               // fires, but an executing run is closed to fresh reconnaissance regardless.
               tools: effect.actionRecovery
@@ -6853,6 +6883,10 @@ export class Orchestrator {
               tier: 'mid',
               contextWindow: contextWindowFor(input, self.provider),
               reservedOutputTokens: reservedOutputFor(input, self.provider),
+              // What the project view actually held, tier by tier — the only way a dropped
+              // section reaches the manifest, since a trimmed tier leaves no trace in the
+              // payload. See `agentMessages`'s return type.
+              assembled: prompt.assembled,
               // The run's durable memory rides with the request so the composer can say
               // "memory intact" while the prompt itself shrinks between turns.
               /* v8 ignore next -- taskMemory is always defined on the live path (see the effect.working guard above), so the empty-object fallback never runs. */
