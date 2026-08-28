@@ -927,12 +927,16 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // here too, because they ride the timeline tier and are not the assembler's to size.
   const visualStatus = input.visualStatus?.trim() ?? '';
   const footageMap = input.footageMap?.trim() ?? '';
+  // Priced here for the same reason: it rides the timeline tier and must not eat the
+  // grounding slice that the transcript and clip retrievals are sized from.
+  const sourceMedia = summarizeSourceMedia(project);
   const spentElsewhere = [
     SYSTEM_PROMPT,
     ...mandatory,
     ...fixed.map((b) => b.text),
     visualStatus,
     footageMap,
+    sourceMedia,
     promptBlock,
     ...history.map((m) => m.content),
   ].reduce((sum, text) => sum + estimateTokens(text), 0);
@@ -972,7 +976,6 @@ export function assembleContext(input: ContextInput): AssembledContext {
   }
   // Source facts (file, dimensions, orientation vs the sequence) ride with the bin: they
   // are what the model otherwise re-derives with recall/describe calls (P1.3a).
-  const sourceMedia = summarizeSourceMedia(project);
   if (sourceMedia !== '') {
     tiered.push({ tier: 'timeline', label: 'source media', text: sourceMedia });
   }

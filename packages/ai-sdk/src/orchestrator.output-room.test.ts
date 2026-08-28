@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AiCompletionRequest, AiProvider, AiResponse, ProviderChunk } from './providers/types.js';
-import { Orchestrator, outputRoomFor } from './orchestrator.js';
+import { Orchestrator, callMemoKey, outputRoomFor } from './orchestrator.js';
 import { makeProject } from './__fixtures__/project.js';
 
 /** A provider that records every request it is given and answers with plain text. */
@@ -54,5 +54,21 @@ describe('agent requests carry maxTokens', () => {
       expect(r.maxTokens).toBeGreaterThan(8_192);
       expect(r.maxTokens).toBeLessThanOrEqual(128_000);
     }
+  });
+});
+
+describe('callMemoKey (P1.1c)', () => {
+  it('treats a smaller re-render of the same frame as the same call', () => {
+    const a = callMemoKey({ id: '1', name: 'get_frame', arguments: { timeSeconds: 15, maxDimension: 640 } });
+    const b = callMemoKey({ id: '2', name: 'get_frame', arguments: { timeSeconds: 15, maxDimension: 480 } });
+    const c = callMemoKey({ id: '3', name: 'get_frame', arguments: { timeSeconds: 16, maxDimension: 640 } });
+    expect(a).toBe(b);
+    expect(a).not.toBe(c);
+  });
+
+  it('keeps every other tool keyed by its full arguments', () => {
+    expect(callMemoKey({ id: '1', name: 'detect_scenes', arguments: { assetId: 'a', threshold: 0.3 } })).not.toBe(
+      callMemoKey({ id: '2', name: 'detect_scenes', arguments: { assetId: 'a', threshold: 0.4 } }),
+    );
   });
 });

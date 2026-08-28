@@ -1191,7 +1191,20 @@ function identifyingArgs(call: ToolCall, drop: ReadonlySet<string>): string {
  * from `{start:0,end:60}`. Correctness first: novelty accounting is allowed to be
  * approximate, cached data never is.
  */
-function callMemoKey(call: ToolCall): string {
+/**
+ * Identity of a call for the redundant-call memo. Exported for tests.
+ *
+ * `get_frame` is keyed by WHAT it looks at, not how large the picture is: the mission
+ * montage ledger shows the model rendering the same six timestamps at 640 px and again at
+ * 480 px (11 renders, ~50 s) because the second batch had a different `maxDimension` and so
+ * a different memo key. A smaller re-render of a frame the run already holds is redundant
+ * by any editorial standard; the stored evidence is recalled instead.
+ */
+export function callMemoKey(call: ToolCall): string {
+  if (call.name === 'get_frame' && call.arguments && typeof call.arguments === 'object') {
+    const { maxDimension: _size, ...rest } = call.arguments as Record<string, unknown>;
+    return `${call.name}:${JSON.stringify(rest)}`;
+  }
   return `${call.name}:${JSON.stringify(call.arguments)}`;
 }
 

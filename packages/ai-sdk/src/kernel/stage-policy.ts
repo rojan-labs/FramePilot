@@ -192,8 +192,23 @@ export const VALIDATOR_INPUT_TOOL_NAMES: ReadonlySet<string> = new Set([BEAT_ANA
  * Prefer this over {@link stageAllowsRole} at any call site that decides what a run may
  * actually call — the role alone cannot express "the runtime will hold you to this".
  */
+/**
+ * Tools that LOOK AT THE RESULT of an edit rather than gather evidence for a plan.
+ *
+ * `get_frame` is classified `analysis` because it renders a picture, but in an execution
+ * stage its use is verification: the model has just cropped a landscape source into a
+ * portrait frame and wants to see whether the subject survived. The mission montage ledger
+ * (plan/system-mission P1.1) shows seven such calls across five requests, every one
+ * answered "unavailable this turn" — ~110k prompt tokens spent on a check the run was
+ * forbidden to make, while the run never reached `verify` (the stage machine only leaves
+ * `apply` through the explicit verify effect). Frames stay bounded by the analysis caps and
+ * the redundant-call memo; what changes is that a look after an edit is no longer refused.
+ */
+export const VERIFICATION_LOOK_TOOL_NAMES: ReadonlySet<string> = new Set(['get_frame']);
+
 export function stageAllowsTool(stage: RunStage, name: string, mutates: boolean): boolean {
   if (VALIDATOR_INPUT_TOOL_NAMES.has(name)) return true;
+  if (VERIFICATION_LOOK_TOOL_NAMES.has(name)) return true;
   return stageAllowsRole(stage, toolRole(name, mutates));
 }
 

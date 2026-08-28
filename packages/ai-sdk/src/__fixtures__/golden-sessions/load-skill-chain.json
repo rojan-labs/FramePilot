@@ -820,7 +820,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19658,
+      "usedTokens": 19879,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -888,7 +888,7 @@
             "id": "s9",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15448,
+            "tokenEstimate": 15669,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -896,10 +896,10 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19658,
+          "estimatedInputTokensBeforeSend": 19879,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172150,
-          "toolSchemaTokensRebilled": 15448,
+          "estimatedRemainingCapacity": 171929,
+          "toolSchemaTokensRebilled": 15669,
           "calculationSource": "local_estimate"
         },
         "compaction": {

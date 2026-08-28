@@ -135,9 +135,11 @@ the PLAN.md **SYSMISSION** snapshot.
       `delete_clip` on it is rejected with "delete_range.end must be greater than start" —
       four model requests spent on it. Either the split must not create it or delete must
       accept it → Phase 4 (editor-core `timeline-engineer`).
-- [ ] **A tool withheld by stage policy is still offered in the schema list.** `get_frame`
-      is in `apply`-stage tool schemas but every call answers "unavailable this turn"; the
-      model retried it in five separate requests (~110k prompt tokens). → Phase 1 P1.1.
+- [ ] **A run that has committed its edits stays in `apply` and never reaches `verify`.**
+      Montage ledger: from request #11 to #44 the stage is `apply`; the model's seven
+      `get_frame` attempts to check its crops were refused ("unavailable this turn") across
+      five requests (~110k prompt tokens). The schema list and the allowed set are the same
+      object, so this is a stage-advance gap, not an advertised-but-withheld tool. → Phase 1 P1.1.
 - [ ] **`map_footage` / `describe_footage` are offered on projects with no visual index**, so
       the model spends a request per asset learning "not indexed". → Phase 1 P1.3 (index
       status as structured state) / P2 (tool descriptions).
