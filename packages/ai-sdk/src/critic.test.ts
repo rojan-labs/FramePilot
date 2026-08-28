@@ -319,6 +319,7 @@ describe('critique — shape', () => {
     expect(report.checks.map((c) => c.id)).toEqual([
       'request_match',
       'picture_present',
+      'picture_coverage',
       'duration_target',
       'shot_count',
       'reframe_coverage',
@@ -689,5 +690,103 @@ describe('export_settings', () => {
     expect(
       idOf(critique(makeProject(), { targetPlatform: 'linkedin' }), 'export_settings')?.status,
     ).toBe('pass');
+  });
+});
+
+describe('picture_coverage', () => {
+  /**
+   * The shape run 4c9b5f82 shipped: a 36.1s music bed with ten photos over only its
+   * first 10.0 seconds. 72% of the programme rendered as black with music playing.
+   */
+  const musicOutrunsPicture = () =>
+    withTracks(
+      [
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [
+            clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 5.004 }),
+            clip({ id: 'p_2', trackId: 'v_main', start: 5.004, end: 10.008 }),
+          ],
+        },
+        {
+          id: 'a_music',
+          type: 'audio',
+          clips: [
+            clip({ id: 'music', assetId: 'asset_music', trackId: 'a_music', start: 0, end: 36.107 }),
+          ],
+        },
+      ],
+      {
+        assets: [
+          { id: 'asset_1', path: 'media/a.jpeg', kind: 'image', durationSeconds: 5 },
+          { id: 'asset_music', path: 'media/m.mp3', kind: 'audio', durationSeconds: 47.8 },
+        ] as Project['assets'],
+      },
+    );
+
+  it('regression: fails a montage whose music outruns its picture', () => {
+    const report = critique(musicOutrunsPicture(), { minShotCount: 61 });
+    const coverage = idOf(report, 'picture_coverage');
+    expect(coverage).toMatchObject({ status: 'fail' });
+    expect(coverage?.detail).toMatch(/26\.099s of the 36\.107s programme has no picture/);
+    expect(coverage?.detail).toMatch(/10\.008s–36\.107s/);
+    expect(report.ok).toBe(false);
+  });
+
+  it('is what picture_present cannot ask: that check passes the same timeline', () => {
+    const report = critique(musicOutrunsPicture(), { minShotCount: 61 });
+    expect(idOf(report, 'picture_present')).toMatchObject({ status: 'pass' });
+  });
+
+  it('reports an interior hole, not only a tail', () => {
+    const project = withTracks([
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [
+          clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 4 }),
+          clip({ id: 'p_2', trackId: 'v_main', start: 9, end: 12 }),
+        ],
+      },
+    ]);
+    const coverage = idOf(critique(project, { minShotCount: 2 }), 'picture_coverage');
+    expect(coverage).toMatchObject({ status: 'fail' });
+    expect(coverage?.detail).toMatch(/4s–9s/);
+  });
+
+  it('only warns when nothing visual was asked for', () => {
+    expect(idOf(critique(musicOutrunsPicture()), 'picture_coverage')).toMatchObject({
+      status: 'warn',
+    });
+  });
+
+  it('tolerates a gap under a second and overlapping picture layers', () => {
+    const project = withTracks([
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 6 })],
+      },
+      {
+        id: 'v_b',
+        type: 'video',
+        clips: [clip({ id: 'p_2', trackId: 'v_b', start: 5, end: 9.9 })],
+      },
+      {
+        id: 'a_music',
+        type: 'audio',
+        clips: [
+          clip({ id: 'music', assetId: 'asset_music', trackId: 'a_music', start: 0, end: 10 }),
+        ],
+      },
+    ]);
+    expect(idOf(critique(project, { minShotCount: 2 }), 'picture_coverage')).toMatchObject({
+      status: 'pass',
+    });
+  });
+
+  it('skips a timeline with no picture at all — picture_present owns that', () => {
+    expect(idOf(critique(withTracks([])), 'picture_coverage')).toMatchObject({ status: 'skipped' });
   });
 });

@@ -42,6 +42,7 @@ export type CheckStatus = 'pass' | 'warn' | 'fail' | 'skipped';
 export type CheckId =
   | 'request_match'
   | 'picture_present'
+  | 'picture_coverage'
   | 'duration_target'
   | 'shot_count'
   | 'reframe_coverage'
@@ -377,13 +378,130 @@ function checkPicturePresent(project: Project, options: CritiqueOptions): Critic
     `The timeline has ${String(overlays)} overlay/caption clip${overlays === 1 ? '' : 's'} and ` +
     'no picture under them, so the whole thing renders as text on black. Place footage, a ' +
     'still, or a stock clip before this is a video.';
-  // A visual target — a platform, a duration, a shot count — means someone asked for a
-  // film. Failing then is the honest verdict; without one, say it and let the run decide.
-  const wantsPicture =
+  return check(
+    'picture_present',
+    'The edit has picture',
+    requestWantsPicture(options) ? 'fail' : 'warn',
+    detail,
+  );
+}
+
+/**
+ * Did someone ask for a film, as opposed to an audio-only or caption-only pass?
+ *
+ * A visual target — a platform, a duration, a shot count — means they did. Without one,
+ * the picture checks warn rather than fail: an audio pass is a legitimate thing to ask
+ * for and must not be failed for having no picture.
+ */
+function requestWantsPicture(options: CritiqueOptions): boolean {
+  return (
     options.targetPlatform !== undefined ||
     options.durationTargetSeconds !== undefined ||
-    options.minShotCount !== undefined;
-  return check('picture_present', 'The edit has picture', wantsPicture ? 'fail' : 'warn', detail);
+    options.minShotCount !== undefined
+  );
+}
+
+/** A merged, ascending list of the spans picture occupies. */
+function pictureSpans(project: Project): readonly { start: number; end: number }[] {
+  const sorted = [...pictureClips(project)]
+    .map((clip) => ({ start: clip.start, end: clip.end }))
+    .filter((span) => span.end > span.start)
+    .sort((left, right) => left.start - right.start);
+  const merged: { start: number; end: number }[] = [];
+  for (const span of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && span.start <= last.end) {
+      last.end = Math.max(last.end, span.end);
+      continue;
+    }
+    merged.push({ ...span });
+  }
+  return merged;
+}
+
+/**
+ * Gaps of at least a second, past which a hole in the picture reads as a missing shot
+ * rather than a deliberate beat of black. Same threshold and same reasoning as
+ * {@link DEAD_AIR_FRAMES}, stated in frames because every editorial threshold here is.
+ */
+const PICTURE_GAP_FRAMES = 30;
+
+/**
+ * Does picture actually cover the programme?
+ *
+ * `picture_present` (ADR 0144) asks whether ANY picture exists and is satisfied by one
+ * clip. Run 4c9b5f82 satisfied it with ten: a 36.1-second music bed with pictures over
+ * only its first 10.0 seconds, so 72% of the programme rendered as black with music
+ * playing. Every check in this battery passed or skipped, the run reported `completed`,
+ * and the only trace of the defect was the perceptual reviewer reporting the two black
+ * frames that happened to fall inside its ±2-frame window around the final cut — as a
+ * defect in that cut, rather than as the absence of 26 seconds of film.
+ *
+ * The programme is measured by {@link contentDuration} — picture AND sound, because a
+ * music bed that outruns the picture is exactly the case this catches. Overlays are
+ * excluded on both sides: they sit over the picture and cannot stand in for it.
+ *
+ * Deterministic and render-free, so unlike the perceptual reviewer it can be consulted
+ * BEFORE a run is allowed to call itself complete.
+ */
+function checkPictureCoverage(project: Project, options: CritiqueOptions): CriticCheck {
+  const spans = pictureSpans(project);
+  if (spans.length === 0) {
+    // `picture_present` owns "there is no picture at all" and says it better; a second
+    // check repeating it would double-count one defect.
+    return check(
+      'picture_coverage',
+      'Picture covers the programme',
+      'skipped',
+      'No picture clips, so there is no coverage to measure.',
+    );
+  }
+  const programme = contentDuration(project.timeline);
+  if (!(programme > 0)) {
+    return check(
+      'picture_coverage',
+      'Picture covers the programme',
+      'skipped',
+      'The programme has no duration to cover.',
+    );
+  }
+  const fps = Number.isFinite(project.fps) && project.fps > 0 ? project.fps : 30;
+  const threshold = PICTURE_GAP_FRAMES / fps;
+  const holes: { start: number; end: number }[] = [];
+  let cursor = 0;
+  for (const span of spans) {
+    if (span.start - cursor >= threshold) holes.push({ start: cursor, end: span.start });
+    cursor = Math.max(cursor, span.end);
+  }
+  if (programme - cursor >= threshold) holes.push({ start: cursor, end: programme });
+  const covered = spans.reduce(
+    (total, span) => total + (Math.min(span.end, programme) - Math.min(span.start, programme)),
+    0,
+  );
+  if (holes.length === 0) {
+    return check(
+      'picture_coverage',
+      'Picture covers the programme',
+      'pass',
+      `Picture covers ${round(covered)}s of the ${round(programme)}s programme.`,
+    );
+  }
+  const uncovered = holes.reduce((total, hole) => total + (hole.end - hole.start), 0);
+  const where = holes
+    .slice(0, 3)
+    .map((hole) => `${round(hole.start)}s–${round(hole.end)}s`)
+    .join(', ');
+  const detail =
+    `${round(uncovered)}s of the ${round(programme)}s programme has no picture under it ` +
+    `(${where}${holes.length > 3 ? ', …' : ''}) — that renders as black. ` +
+    'Extend the picture to the end of the programme, or trim the sound back to the ' +
+    'picture, so every moment that plays has something on screen.';
+  return check(
+    'picture_coverage',
+    'Picture covers the programme',
+    requestWantsPicture(options) ? 'fail' : 'warn',
+    detail,
+  );
 }
 
 function checkDurationTarget(timeline: Timeline, options: CritiqueOptions): CriticCheck {
@@ -1336,6 +1454,7 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
   const checks: CriticCheck[] = [
     checkRequestMatch(options),
     checkPicturePresent(project, options),
+    checkPictureCoverage(project, options),
     checkDurationTarget(timeline, options),
     checkShotCount(project, options),
     checkReframeCoverage(project),
