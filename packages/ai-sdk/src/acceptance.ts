@@ -92,8 +92,15 @@ const MAX_MEANINGFUL_SHOT_COUNT = 200;
 /**
  * Words that make a number a count of SHOTS. "moment" is here because it is what editors
  * actually say ("use 20+ of the best moments"), and in a cut request a moment is a shot.
+ *
+ * Stills are here for the same reason. Run 4c9b5f82's brief said **photos** — "approximately
+ * 61 hiking photos", "attempt to use all approximately 61 hiking photos" — forty times over
+ * 12,000 characters, and named no other kind of material. Not one of those was a shot noun,
+ * so the run's only checkable count was unreadable and `checkShotCount` reported `skipped`
+ * over a montage that used ten of the sixty-one. A photo placed on a timeline is a shot.
  */
-const SHOT_NOUNS = 'clips?|shots?|moments?|cuts?|scenes?|segments?|angles?';
+const SHOT_NOUNS =
+  'clips?|shots?|moments?|cuts?|scenes?|segments?|angles?|photos?|images?|pictures?|stills?';
 
 /** Time units that make a number a duration rather than a count. */
 const TIME_UNITS = 's|sec|secs|second|seconds|m|min|mins|minutes';
@@ -109,8 +116,15 @@ const TIME_UNITS = 's|sec|secs|second|seconds|m|min|mins|minutes';
  * clips". Taking the largest number would make the acceptance floor 120 and fail a cut of 80
  * that did everything asked. Marked floors win; unmarked ones are only consulted when the
  * brief states no floor at all.
+ *
+ * "all" marks a floor too — "use all 61 photos" is a requirement stated the way people
+ * actually state it, and run 4c9b5f82's brief said exactly that. A spurious "all" beside a
+ * small number is harmless because marked floors are reduced by `Math.max`; the only way to
+ * be wrong is a spuriously LARGE one, and {@link POOL_WORDS} already removes the case that
+ * produces those.
  */
-const FLOOR_MARKER = /\b(?:at least|no fewer than|minimum|min|at minimum)\b[^.\n]{0,24}$/;
+const FLOOR_MARKER =
+  /\b(?:at least|no fewer than|minimum|min|at minimum|use all|all of|every one of|all)\b[^.\n]{0,24}$/;
 
 /**
  * Words that make a number a size of the SEARCH POOL, not of the deliverable.

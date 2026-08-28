@@ -5,7 +5,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Project } from '@framepilot/timeline-schema';
 import { CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID } from '@framepilot/editor-core';
-import { critique, explicitDurationTargetSeconds, timelineDuration } from './critic.js';
+import {
+  critique,
+  explicitDurationTarget,
+  explicitDurationTargetSeconds,
+  timelineDuration,
+} from './critic.js';
 import { makeProject } from './__fixtures__/project.js';
 
 const clip = (over: Record<string, unknown>) => ({
@@ -75,7 +80,28 @@ describe('explicitDurationTargetSeconds', () => {
     ).toBeUndefined();
     expect(explicitDurationTargetSeconds('Create a video with 2 seconds per shot')).toBeUndefined();
     expect(explicitDurationTargetSeconds('Make it 4s each cut')).toBeUndefined();
-    expect(explicitDurationTargetSeconds('Build a reel, 1\u20132 minutes')).toBeUndefined();
+    // The far end alone is still never the target: 2 minutes is not what this asked for.
+    expect(explicitDurationTargetSeconds('Build a reel, 1\u20132 minutes')).not.toBe(120);
+  });
+
+  it('reads a stated range as an interval, not as nothing', () => {
+    // Run 4c9b5f82. `endsARange` refuses the far end, and in `20\u201335 seconds` only the far
+    // number carries the unit \u2014 so the near end was never matched and the whole range was
+    // dropped. The brief said its length as plainly as a brief can, and `duration_target`
+    // reported `skipped` over a 10-second answer.
+    expect(
+      explicitDurationTarget('**Duration:** Approximately 20\u201335 seconds, depending on music'),
+    ).toEqual({ seconds: 27.5, toleranceSeconds: 7.5 });
+    expect(explicitDurationTarget('Build a reel, 1\u20132 minutes')).toEqual({
+      seconds: 90,
+      toleranceSeconds: 30,
+    });
+  });
+
+  it('does not read a pacing range as the deliverable length', () => {
+    // The range reading must not undo the guard it sits beside: a per-clip figure is
+    // pacing whether it is stated as one number or as two.
+    expect(explicitDurationTarget('Build a montage at 0.3\u20130.6s per clip')).toBeUndefined();
   });
 
   it('still finds a real length stated after the pacing talk', () => {

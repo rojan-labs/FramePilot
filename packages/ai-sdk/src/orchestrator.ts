@@ -54,7 +54,7 @@ import {
   type CritiqueOptions,
   type CritiqueReport,
   critique,
-  explicitDurationTargetSeconds,
+  explicitDurationTarget,
   timelineDuration,
 } from './critic.js';
 import { describeOperation, describeToolCall } from './describe.js';
@@ -2723,8 +2723,12 @@ export class Orchestrator {
     // run's objective; the Critic reads the same answer so criterion and check cannot be
     // about two different requests.
     const objectiveText = deriveObjectiveText(input.userPrompt, input.history);
-    const durationTargetSeconds =
-      options.durationTargetSeconds ?? explicitDurationTargetSeconds(objectiveText);
+    // A request that stated a RANGE ("20–35 seconds") also stated its own tolerance; using
+    // the 2s default over the range's midpoint would fail a 34-second cut the brief allowed.
+    const stated = explicitDurationTarget(objectiveText);
+    const durationTargetSeconds = options.durationTargetSeconds ?? stated?.seconds;
+    const durationToleranceSeconds =
+      options.durationTargetSeconds === undefined ? stated?.toleranceSeconds : undefined;
     // The conditions the request stated in checkable terms (see `acceptance.ts`). The same
     // reading is recorded on the run's objective, so the criterion the ledger reports against
     // and the check that settles it can never be two different things.
@@ -2736,6 +2740,7 @@ export class Orchestrator {
       request: objectiveText,
       ...(producedChanges !== undefined ? { producedChanges } : {}),
       ...(durationTargetSeconds !== undefined ? { durationTargetSeconds } : {}),
+      ...(durationToleranceSeconds !== undefined ? { durationToleranceSeconds } : {}),
       ...(minShotCount !== undefined ? { minShotCount } : {}),
       ...(coverage !== undefined ? { coverage } : {}),
       ...(options.targetPlatform !== undefined ? { targetPlatform: options.targetPlatform } : {}),
