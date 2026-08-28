@@ -500,9 +500,24 @@ export class ReviewFindingQueue {
     return this.take();
   }
 
-  /** Messages from reviews that could not run, for the run's honest account. */
+  /**
+   * Messages from reviews that could not run, for the run's honest account.
+   *
+   * Deduplicated by message, in first-seen order, with a count when one message
+   * repeats. Every review in a turn shares one engine, so a single outage — an
+   * unreachable sidecar, a 5xx — fails every batch with the SAME text, and the
+   * run used to publish that identical sentence once per batch. Repeating one
+   * fact verbatim reads as several separate problems and buries the findings
+   * around it; the count keeps the scale visible without the repetition.
+   */
   public get reviewFailures(): readonly string[] {
-    return [...this.failures];
+    const counts = new Map<string, number>();
+    for (const failure of this.failures) {
+      counts.set(failure, (counts.get(failure) ?? 0) + 1);
+    }
+    return [...counts].map(([message, count]) =>
+      count === 1 ? message : `${message} (${String(count)} reviews)`,
+    );
   }
 
   /** Remember findings that were actually handed to the agent. */

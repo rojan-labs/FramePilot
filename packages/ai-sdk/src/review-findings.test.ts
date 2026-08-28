@@ -309,6 +309,32 @@ describe('ReviewFindingQueue', () => {
     expect(queue.hasPending).toBe(false);
   });
 
+  // One engine outage fails every batch in the turn with the identical message. The
+  // run must report that as one problem at a scale, not as N separate problems.
+  it('collapses the identical failure message and keeps its scale', async () => {
+    const queue = new ReviewFindingQueue();
+    const same =
+      'Temporal evidence engine rejected the batch (503): projects_root is not configured.';
+    // Distinct regions so no turn supersedes another: three real reviews, one outage.
+    for (const turn of [0, 1, 2]) {
+      queue.recordTurn(turn, region([`track_v${String(turn)}`], [`clip_${String(turn)}`]));
+      queue.track(turn, () => Promise.reject(new Error(same)));
+    }
+    await queue.drainAll();
+    expect(queue.reviewFailures).toEqual([`${same} (3 reviews)`]);
+  });
+
+  it('keeps distinct failure messages separate, in first-seen order', async () => {
+    const queue = new ReviewFindingQueue();
+    queue.recordTurn(0, region(['track_v1'], ['clip_a']));
+    queue.track(0, () => Promise.reject(new Error('first')));
+    await queue.drainAll();
+    queue.recordTurn(1, region(['track_v1'], ['clip_a']));
+    queue.track(1, () => Promise.reject(new Error('second')));
+    await queue.drainAll();
+    expect(queue.reviewFailures).toEqual(['first', 'second']);
+  });
+
   it('stringifies a non-Error rejection', async () => {
     const queue = new ReviewFindingQueue();
     queue.track(0, () => Promise.reject('sidecar gone'));
