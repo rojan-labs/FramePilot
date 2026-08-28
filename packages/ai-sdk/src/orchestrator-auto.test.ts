@@ -234,7 +234,9 @@ describe('Orchestrator.streamAuto', () => {
     expect(adds.map(({ start, end }) => Number(end) - Number(start))).toEqual([0.75, 1, 1.25]);
     // One classification call plus the agent's turns. Bounded rather than exact so a
     // harmless extra settle turn is not a failure, but a spin loop still is.
-    expect(provider.calls).toBeLessThanOrEqual(6);
+    // 7, not 6: the model's "done" now answers to the request's own stated conditions, and
+    // an unmet one buys exactly one bounded recovery turn before the run may stop.
+    expect(provider.calls).toBeLessThanOrEqual(7);
 
     const after = applyProjectPatch(beatProject, diff!.edit.patch as never);
     const restored = applyProjectPatch(

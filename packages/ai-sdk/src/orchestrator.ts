@@ -6334,6 +6334,22 @@ export class Orchestrator {
       ...over,
     });
 
+    /**
+     * What the request asked for that the timeline does not yet deliver.
+     *
+     * Only the checks that can FAIL — the ones read deterministically off the request by
+     * `acceptance.ts` and measured off the timeline by `critique`. Warnings are advisory by
+     * contract and must never hold a run open; a `fail` is an unmet condition the editor
+     * stated, and the run has no business calling itself finished while one stands.
+     *
+     * Cheap by construction: pure, render-free, and computed once, on the single turn where
+     * the model says it is done.
+     */
+    const acceptanceShortfall = (producedChanges: boolean): string[] =>
+      critique(working, self.critiqueOptions(input, agentOptions, producedChanges, evidence))
+        .checks.filter((check) => check.status === 'fail')
+        .map((check) => check.detail);
+
     const handlers: ConductorHandlers = {
       // R3 C4: draft the up-front plan (a read-only model call). The reducer seeds the
       // ledger + emits `plan`/`status('thinking')`; here we emit `status('planning')`
@@ -6674,7 +6690,14 @@ export class Orchestrator {
           }
           log.push(`Step ${index}: ${turn.text}`);
           yield emit.assistant(segmentId, turn.text);
-          return turnBase(index, emit.seq(), { done: true });
+          // The model has declared itself finished. Measure the conditions the REQUEST
+          // stated against the timeline as it actually is, so the reducer can tell a run
+          // that is done from one that has stopped. See `AgentTurnResult.acceptanceShortfall`.
+          const shortfall = acceptanceShortfall(state.cumulativeOps.length > 0);
+          return turnBase(index, emit.seq(), {
+            done: true,
+            ...(shortfall.length > 0 ? { acceptanceShortfall: shortfall } : {}),
+          });
         }
 
         const intent = turn.calls.map((c) => describeToolCall(c, names)).join(', ');
