@@ -450,6 +450,78 @@ export function summarizePinned(pinned: readonly PinnedEntity[]): string {
 }
 
 /**
+ * How many characters the media-bin block may occupy.
+ *
+ * A character budget rather than an asset count, for the reason the footage-map digest
+ * learned the same lesson: a count sized for long video shows a fraction of a library of
+ * stills. 61 photographs is a normal import and a small number of characters; ten hours of
+ * rushes is a small number of assets and a large number of characters. The budget bounds
+ * the thing that actually costs.
+ */
+const MEDIA_BIN_CHARS = 4000;
+
+/**
+ * The media bin, and which of it is already on the timeline.
+ *
+ * ## Why the bin is in the project view at all
+ *
+ * It was not, and on an import-heavy project that was the single most expensive omission
+ * in the prompt. `summarizeTimeline` describes the clips that have been PLACED; nothing
+ * described the material waiting to be placed. So a montage run had to spend a
+ * `list_assets` call to learn what it was editing — and, because the action log keeps
+ * payloads for only its two freshest entries, spend more calls recalling the same list
+ * later. Run `fc10301a` retrieved one unchanging list of 62 asset ids five times.
+ *
+ * The orchestrator's own comment states the rule this violated: "anything the run must not
+ * forget has to live in the briefing" — or, for project state, in the project view. Asset
+ * ids are precisely what a montage run must not forget.
+ *
+ * ## Why `placed` is the load-bearing column
+ *
+ * "Which of my 61 photos have I not used yet" is the question a montage asks on every
+ * turn, and it is not answerable from the bin or the timeline alone — it is the join. A
+ * run that can read it off its project view does not have to reconstruct it by diffing two
+ * tool results.
+ *
+ * Rides the `timeline` tier: it is factual project state, and it drops with the timeline
+ * under budget pressure — where `list_assets` remains available to answer on demand.
+ */
+export function summarizeMediaBin(project: Project): string {
+  const assets = project.assets;
+  if (assets.length === 0) return '';
+  const placed = new Set(
+    project.timeline.tracks.flatMap((track) => track.clips.map((clip) => clip.assetId)),
+  );
+  const unplaced = assets.filter((asset) => !placed.has(asset.id)).length;
+  // Nothing waiting to be placed means the timeline summary above is already the complete
+  // account of the project's material, and a second listing of the same ids is weight the
+  // grounding tiers could have spent on the cut itself. The block exists to answer "what
+  // is there still to place"; with no answer, it says nothing.
+  if (unplaced === 0) return '';
+  const head =
+    `Media bin — ${String(assets.length)} asset(s), ` +
+    `${String(assets.length - unplaced)} placed, ${String(unplaced)} not yet used:`;
+  const lines: string[] = [];
+  let used = head.length;
+  for (const [index, asset] of assets.entries()) {
+    const duration =
+      typeof asset.durationSeconds === 'number' ? ` ${round(asset.durationSeconds)}s` : '';
+    const line = `- ${asset.id} [${asset.kind}]${duration}${placed.has(asset.id) ? ' · placed' : ''}`;
+    if (used + line.length > MEDIA_BIN_CHARS) {
+      // Say what was left out and how to get it, never trail off. A run told "+37 more"
+      // with no route to them is a run that invents ids.
+      lines.push(
+        `- …and ${String(assets.length - index)} more — call list_assets to read them all`,
+      );
+      break;
+    }
+    lines.push(line);
+    used += line.length + 1;
+  }
+  return [head, ...lines].join('\n');
+}
+
+/**
  * Rough token estimate for budgeting (R2 B2). Uses the standard ≈4-chars-per-token
  * heuristic — deliberately dependency-free; an exact tokenizer is a §7-gated upgrade.
  * Conservative headroom in {@link ContextBudget} absorbs the heuristic's drift.
@@ -843,6 +915,12 @@ export function assembleContext(input: ContextInput): AssembledContext {
       ),
     },
   ];
+  // The bin sits directly under the timeline summary: together they are "what has been
+  // placed" and "what there is to place", which is the pair a montage reasons over.
+  const mediaBin = summarizeMediaBin(project);
+  if (mediaBin !== '') {
+    tiered.push({ tier: 'timeline', label: 'media bin', text: mediaBin });
+  }
   // The visual-index status line (MI6.2) sits with the timeline it describes, so the
   // model reads "what it can see" right next to "what is on the timeline".
   if (visualStatus !== '') {
