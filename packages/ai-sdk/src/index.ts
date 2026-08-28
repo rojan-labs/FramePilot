@@ -84,3 +84,4 @@ export * from './agent.js';
 export * from './run-controls.js';
 export * from './orchestrator.js';
 export * from './kernel/index.js';
+export * from './eval/mission-rubric.js';

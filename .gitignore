@@ -118,3 +118,12 @@ PERSONA.md
 
 # Private advisory/application material, never committed.
 advisories/
+
+# mission fixtures: real media, never committed (plan/system-mission)
+tests/fixtures/mission/**
+!tests/fixtures/mission/README.md
+!tests/fixtures/mission/fetch-fixtures.sh
+!tests/fixtures/mission/manifest.json
+!tests/fixtures/mission/projects/
+!tests/fixtures/mission/projects/**
+tests/fixtures/mission/projects/*.fp.json

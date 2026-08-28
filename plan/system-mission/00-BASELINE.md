@@ -111,3 +111,8 @@ the PLAN.md **SYSMISSION** snapshot.
 ## Discovered
 
 (Add defects found during measurement here as `- [ ] <one line> → phase N`.)
+- [ ] `POST /transcribe` on a video with no audio stream returns a 422 whose detail is the raw
+      ffmpeg banner + "Output file does not contain any stream" (`talk-1080p-98s.mp4`).
+      `/analyze-silence` already answers the same case with `{ranges: [], reason}`; transcribe
+      should probe for an audio stream first and return a typed "no audio track" outcome → Phase 5
+      (P5.4 error contracts) / Phase 8 (sidebar shows it in plain words).
