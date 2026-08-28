@@ -56,6 +56,21 @@ export const footageMapSchema = z.object({
   available: z.boolean(),
   reason: z.string().nullish(),
   backend: z.string().nullish(),
+  /**
+   * Which clock every `t0`/`t1` here is measured on. `'timeline'` means the times were
+   * projected onto the current edit; `'asset'` means they are the footage's own source
+   * seconds.
+   *
+   * Defaults to `'asset'` — the conservative truth — so an older engine that omits the
+   * field is never read as timeline time. A caller that sends no project document
+   * cannot be given timeline time and will always see `'asset'`.
+   */
+  timeBase: z.enum(['timeline', 'asset']).default('asset'),
+  /**
+   * Assets in the map that are not on the timeline. Their chapters keep source seconds
+   * even under `timeBase: 'timeline'`, because there is no position to project onto.
+   */
+  unplacedAssets: z.array(z.string()).default([]),
   /** Total footage duration in seconds. */
   durationSec: z.number().default(0),
   chapters: z.array(footageChapterSchema).default([]),
@@ -84,11 +99,22 @@ export const MAX_DIGEST_HIGHLIGHTS = 8;
 /** One-line summary trimmed to keep each chapter row compact in the prompt. */
 const MAX_CHAPTER_SUMMARY_CHARS = 120;
 
-/** `m:ss` for a timeline second, so chapter spans read like a video scrubber. */
+/**
+ * `m:ss.d` for a second, so chapter spans read like a video scrubber AND land inside a
+ * frame.
+ *
+ * ## Why tenths
+ *
+ * This digest is the model's default reading of the footage — it is present in every
+ * run, before any tool is called. Rounding it to whole seconds quantized every in-point
+ * the model could propose to ±0.5s, which at 24-30fps is 12-15 frames of slop on a cut
+ * planned straight from the map. One extra character per row buys that back.
+ */
 function clock(seconds: number): string {
-  const s = Math.max(0, Math.round(seconds));
-  const m = Math.floor(s / 60);
-  return `${m}:${String(s % 60).padStart(2, '0')}`;
+  const total = Math.max(0, seconds);
+  const m = Math.floor(total / 60);
+  const s = total - m * 60;
+  return `${m}:${s.toFixed(1).padStart(4, '0')}`;
 }
 
 function trim(text: string, max: number): string {
@@ -97,25 +123,81 @@ function trim(text: string, max: number): string {
 }
 
 /**
+ * One chapter row.
+ *
+ * A point span (`t0 === t1`) is a still photo: it occupies an instant, not a range, so
+ * `0:12.5–0:12.5` would be noise. It reads `at 0:12.5` instead.
+ */
+function chapterLine(c: FootageChapter): string {
+  const when = c.t1 > c.t0 ? `${clock(c.t0)}–${clock(c.t1)}` : `at ${clock(c.t0)}`;
+  const summary = c.summary.trim() !== '' ? ` — ${trim(c.summary, MAX_CHAPTER_SUMMARY_CHARS)}` : '';
+  return `• ${when} ${trim(c.title, MAX_CHAPTER_SUMMARY_CHARS)}${summary}`;
+}
+
+/** Stable order of the assets appearing in a chapter list, first-seen first. */
+function assetOrder(chapters: readonly FootageChapter[]): string[] {
+  const seen: string[] = [];
+  for (const c of chapters) {
+    const id = c.assetId ?? '';
+    if (id !== '' && !seen.includes(id)) seen.push(id);
+  }
+  return seen;
+}
+
+/**
  * Render a {@link FootageMap} into a compact, chapter-segmented digest for the model
  * context (plan FI3.3). Returns `undefined` when there is nothing worth injecting —
  * an unavailable map, an honest no-op (a `reason` with no chapters), or an empty map —
  * so the caller simply omits the block (honest-absent, never a fabricated map). The
  * digest is bounded: chapters/highlights past the caps collapse to a "+N more" line.
+ *
+ * ## What changed and why
+ *
+ * The block used to say only "in order" and print `m:ss`. It named neither the clock its
+ * times were on nor the asset each row belonged to. Both were load-bearing omissions:
+ * the per-run read sends no project document, so those times were the footage's own
+ * source seconds while `map_footage` documented timeline seconds — and on a 61-photo
+ * project every row rendered as an indistinguishable `0:00–0:00 Scene 1`.
  */
 export function summarizeFootageMap(map: FootageMap | undefined): string | undefined {
   if (!map || map.available !== true) return undefined;
   if (map.chapters.length === 0) return undefined;
   const lines: string[] = [];
   const total = map.durationSec > 0 ? ` (${clock(map.durationSec)} total)` : '';
-  lines.push(`Footage map${total} — the structure of what is IN the footage, in order:`);
+  lines.push(`Footage map${total} — the structure of what is IN the footage, in order.`);
+  lines.push(
+    map.timeBase === 'timeline'
+      ? 'Times are TIMELINE seconds — act on them directly.'
+      : "Times are each asset's OWN source seconds, not timeline positions.",
+  );
   if (map.summary.trim() !== '') lines.push(`Overview: ${trim(map.summary, 240)}`);
+
   const shown = map.chapters.slice(0, MAX_DIGEST_CHAPTERS);
-  for (const c of shown) {
-    const summary =
-      c.summary.trim() !== '' ? ` — ${trim(c.summary, MAX_CHAPTER_SUMMARY_CHARS)}` : '';
-    lines.push(`• ${clock(c.t0)}–${clock(c.t1)} ${c.title}${summary}`);
+  const assets = assetOrder(shown);
+  const unplaced = new Set(map.unplacedAssets);
+  if (assets.length > 1) {
+    // Grouped by footage: without this the model cannot tell one asset's rows from
+    // another's, which is exactly the failure mode on a project of similar photos.
+    for (const assetId of assets) {
+      const note =
+        map.timeBase === 'timeline' && unplaced.has(assetId)
+          ? ' — not on the timeline; its times are its own source seconds'
+          : '';
+      lines.push(`[${assetId}${note}]`);
+      for (const c of shown.filter((chapter) => chapter.assetId === assetId)) {
+        lines.push(chapterLine(c));
+      }
+    }
+    const ungrouped = shown.filter((c) => (c.assetId ?? '') === '');
+    for (const c of ungrouped) lines.push(chapterLine(c));
+  } else {
+    for (const c of shown) lines.push(chapterLine(c));
+    const only = assets[0];
+    if (only !== undefined && map.timeBase === 'timeline' && unplaced.has(only)) {
+      lines.push(`(${only} is not on the timeline; its times are its own source seconds.)`);
+    }
   }
+
   const remaining = map.chapters.length - shown.length;
   if (remaining > 0) {
     lines.push(

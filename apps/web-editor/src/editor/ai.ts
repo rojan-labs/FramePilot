@@ -65,10 +65,7 @@ const log = createLogger('web-editor:ai');
 import type { Project, Timeline, TranscriptWord } from '@framepilot/timeline-schema';
 import { getBridge } from './bridge.js';
 import { type BrowserAiConfig, loadBrowserAiConfig } from './aiConfigStorage.js';
-import {
-  readProjectUnderstanding,
-  type UnderstandingReads,
-} from './projectUnderstanding.js';
+import { readProjectUnderstanding, type UnderstandingReads } from './projectUnderstanding.js';
 import { createVisualIndexClient } from './visualIndex.js';
 import { createBrowserRunStoreIO } from './browser-run-store.js';
 import {
@@ -470,6 +467,12 @@ export class BrowserAiSession implements AiSession {
         summarizeFootageMap(
           await createVisualIndexClient(baseUrl).footageMap({
             projectId,
+            // The live edit rides along so chapter times come back in TIMELINE
+            // seconds. Without it the engine has nothing to project through and
+            // answers in each asset's own source seconds — which `map_footage`
+            // documents as timeline time. Projection is arithmetic over clips
+            // already in memory, so this stays cache-only and costs nothing.
+            project: input.project,
             cachedOnly: true,
             ...(twelveLabsKey ? { twelveLabsKey } : {}),
           }),
@@ -606,12 +609,14 @@ export class BrowserAiSession implements AiSession {
         // The model-routed entry point (ADR 0055): one classification call picks
         // chitchat/question/edit, then delegates to the matching sub-stream.
         const autoControls = this.editorRunControls(input, recorder);
-        yield* persist(this.orchestrator.streamAuto(context, options, {
-          agentOptions: input.agentOptions ?? {},
-          controls: autoControls.agent,
-          onLifecycleEvent: autoControls.onLifecycleEvent,
-          temporalEvidence: autoControls.temporalEvidence,
-        }));
+        yield* persist(
+          this.orchestrator.streamAuto(context, options, {
+            agentOptions: input.agentOptions ?? {},
+            controls: autoControls.agent,
+            onLifecycleEvent: autoControls.onLifecycleEvent,
+            temporalEvidence: autoControls.temporalEvidence,
+          }),
+        );
         return;
       }
       case 'chat':
@@ -626,20 +631,24 @@ export class BrowserAiSession implements AiSession {
         return;
       case 'edit':
         // `variations` (P13.1) is opt-in and edit-mode only — see `AiSessionInput.variations`.
-        yield* persist(this.orchestrator.streamEditorRun(
-          context,
-          options,
-          { route: 'edit', ...(input.variations ? { variations: true } : {}) },
-          this.editorRunControls(input, recorder),
-        ));
+        yield* persist(
+          this.orchestrator.streamEditorRun(
+            context,
+            options,
+            { route: 'edit', ...(input.variations ? { variations: true } : {}) },
+            this.editorRunControls(input, recorder),
+          ),
+        );
         return;
       case 'agent':
-        yield* persist(this.orchestrator.streamEditorRun(
-          context,
-          options,
-          { route: 'agent', agentOptions: input.agentOptions ?? {} },
-          this.editorRunControls(input, recorder),
-        ));
+        yield* persist(
+          this.orchestrator.streamEditorRun(
+            context,
+            options,
+            { route: 'agent', agentOptions: input.agentOptions ?? {} },
+            this.editorRunControls(input, recorder),
+          ),
+        );
         return;
     }
   }
@@ -664,65 +673,70 @@ export class BrowserAiSession implements AiSession {
     const target = this.lastBrowserRun;
     const recorder = this.lastRecorder;
     if (target === null || recorder === null) return;
-    this.decisionLane = this.decisionLane.then(async () => {
-      await recorder.flush();
-      const stored = await this.runStore.load(target.runId);
-      const snapshot = stored.snapshot;
-      if (snapshot === null || snapshot.projectId !== target.projectId) return;
-      const current = snapshot.patchDecisions.find((item) => item.patchId === patchId);
-      const nextState = decision === 'accepted' ? 'committed' : 'rejected';
-      if (current?.state === nextState) return;
-      if (current?.state !== 'pending') {
-        throw new Error(`Patch "${patchId}" is not pending review.`);
-      }
-      const occurredAt = Date.now();
-      const event = {
-        schemaVersion: RUN_PROTOCOL_SCHEMA_VERSION,
-        eventId: `${target.runId}:patch:${patchId}:${nextState}`,
-        runId: target.runId,
-        projectId: target.projectId,
-        sequence: (stored.events.at(-1)?.sequence ?? 0) + 1,
-        ...(projectRevision === undefined ? {} : { projectRevision }),
-        occurredAt,
-        kind: decision === 'accepted' ? 'run.patch_accepted' : 'run.patch_rejected',
-        payload: { patchId, decision },
-      } as const;
-      await this.runStore.append(event);
-      await this.runStore.saveSnapshot({
-        ...snapshot,
-        currentProjectRevision: projectRevision ?? snapshot.currentProjectRevision,
-        lastSequence: event.sequence,
-        updatedAt: occurredAt,
-        ...(decision === 'accepted'
-          ? {
-              outcome: {
-                kind: 'completed_with_changes' as const,
-                changed: true,
-                warnings: snapshot.outcome?.warnings ?? [],
-              },
-            }
-          : {}),
-        patchDecisions: snapshot.patchDecisions.map((item) =>
-          item.patchId === patchId
+    this.decisionLane = this.decisionLane
+      .then(async () => {
+        await recorder.flush();
+        const stored = await this.runStore.load(target.runId);
+        const snapshot = stored.snapshot;
+        if (snapshot === null || snapshot.projectId !== target.projectId) return;
+        const current = snapshot.patchDecisions.find((item) => item.patchId === patchId);
+        const nextState = decision === 'accepted' ? 'committed' : 'rejected';
+        if (current?.state === nextState) return;
+        if (current?.state !== 'pending') {
+          throw new Error(`Patch "${patchId}" is not pending review.`);
+        }
+        const occurredAt = Date.now();
+        const event = {
+          schemaVersion: RUN_PROTOCOL_SCHEMA_VERSION,
+          eventId: `${target.runId}:patch:${patchId}:${nextState}`,
+          runId: target.runId,
+          projectId: target.projectId,
+          sequence: (stored.events.at(-1)?.sequence ?? 0) + 1,
+          ...(projectRevision === undefined ? {} : { projectRevision }),
+          occurredAt,
+          kind: decision === 'accepted' ? 'run.patch_accepted' : 'run.patch_rejected',
+          payload: { patchId, decision },
+        } as const;
+        await this.runStore.append(event);
+        await this.runStore.saveSnapshot({
+          ...snapshot,
+          currentProjectRevision: projectRevision ?? snapshot.currentProjectRevision,
+          lastSequence: event.sequence,
+          updatedAt: occurredAt,
+          ...(decision === 'accepted'
             ? {
-                ...item,
-                state: nextState,
-                decidedAt: occurredAt,
-                ...(projectRevision === undefined ? {} : { projectRevision }),
+                outcome: {
+                  kind: 'completed_with_changes' as const,
+                  changed: true,
+                  warnings: snapshot.outcome?.warnings ?? [],
+                },
               }
-            : item,
-        ),
+            : {}),
+          patchDecisions: snapshot.patchDecisions.map((item) =>
+            item.patchId === patchId
+              ? {
+                  ...item,
+                  state: nextState,
+                  decidedAt: occurredAt,
+                  ...(projectRevision === undefined ? {} : { projectRevision }),
+                }
+              : item,
+          ),
+        });
+      })
+      .catch((error: unknown) => {
+        log.warn('browser durable patch decision failed', {
+          patchId,
+          decision,
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
-    }).catch((error: unknown) => {
-      log.warn('browser durable patch decision failed', {
-        patchId,
-        decision,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
   }
 
-  public recover(projectId: string, existingEvents: readonly AiEvent[]): AsyncIterable<AiEvent> | null {
+  public recover(
+    projectId: string,
+    existingEvents: readonly AiEvent[],
+  ): AsyncIterable<AiEvent> | null {
     const handle = loadBrowserRunHandle(projectId);
     return handle === null ? null : this.recoverBrowserRun(handle, existingEvents);
   }
@@ -750,14 +764,26 @@ export class BrowserAiSession implements AiSession {
         kind: 'run.terminal',
         payload: {
           status: 'failed',
-          outcome: { kind: 'interrupted', changed: false, warnings: [], source: 'process_restart', reason },
+          outcome: {
+            kind: 'interrupted',
+            changed: false,
+            warnings: [],
+            source: 'process_restart',
+            reason,
+          },
         },
       } as const;
       await this.runStore.append(terminal);
       snapshot = {
         ...snapshot,
         status: 'failed',
-        outcome: { kind: 'interrupted', changed: false, warnings: [], source: 'process_restart', reason },
+        outcome: {
+          kind: 'interrupted',
+          changed: false,
+          warnings: [],
+          source: 'process_restart',
+          reason,
+        },
         lastSequence: terminal.sequence,
         updatedAt: occurredAt,
       };

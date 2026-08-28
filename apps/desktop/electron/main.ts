@@ -2290,10 +2290,17 @@ function registerIpcHandlers(): void {
     // stall the run on a slow generative round-trip and bill for it. A cold project
     // simply gets no map block until the understanding panel or a `map_footage` call
     // warms it.
-    footageMapFor: async (projectId) =>
+    footageMapFor: async (project) =>
       summarizeFootageMap(
         await desktopVisualIndex.footageMap({
-          projectId,
+          projectId: project.id,
+          // The live edit rides along so the chapter times come back in TIMELINE
+          // seconds. Without it the engine has nothing to project through and falls
+          // back to each asset's own source seconds — which `map_footage` documents as
+          // timeline time, so every multi-asset run was reading boundaries that do not
+          // exist on the timeline. Projection is arithmetic over clips already in
+          // memory: `cachedOnly` still holds and nothing new is billed.
+          project: project as unknown as Record<string, unknown>,
           cachedOnly: true,
           ...visualIndexCredentials(),
         }),

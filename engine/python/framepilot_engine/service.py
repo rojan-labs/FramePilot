@@ -25,6 +25,7 @@ import logging
 import os
 import threading
 import time
+from collections.abc import Iterable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -1125,6 +1126,25 @@ class FootageHighlight(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class FootageTimeBase(StrEnum):
+    """Which clock a footage map's times are measured on.
+
+    WHY this is on the wire rather than implied: ``map_footage`` promised "timeline
+    seconds", but the projection needs a project document to project THROUGH. The
+    per-run context read sent none, so ``project_span_to_timeline`` returned nothing
+    and every chapter silently fell back to source seconds — labelled as timeline
+    time. On a single-asset project starting at 0 the two coincide, which is how it
+    survived; on any multi-asset project the model was reading boundaries that do not
+    exist on the timeline. The response now states its own clock and the digest
+    renders the label, so the two can never disagree silently again.
+    """
+
+    #: Projected onto the current edit through the supplied project document.
+    TIMELINE = "timeline"
+    #: The footage's own source seconds (asset-native).
+    ASSET = "asset"
+
+
 class FootageMapResponse(BaseModel):
     """Time-ordered structural digest of a project's footage (plan FI0.1/§4).
 
@@ -1140,6 +1160,27 @@ class FootageMapResponse(BaseModel):
     available: bool
     reason: str | None = None
     backend: str | None = None
+    time_base: FootageTimeBase = Field(
+        default=FootageTimeBase.ASSET,
+        alias="timeBase",
+        description=(
+            "Which clock every t0/t1 in this response is measured on. `timeline` means "
+            "the times were projected onto the current edit; `asset` means they are the "
+            "footage's own source seconds. A caller that sends no project document "
+            "CANNOT be given timeline time, and gets `asset` — the response says which "
+            "rather than leaving the reader to assume."
+        ),
+    )
+    unplaced_assets: list[str] = Field(
+        default_factory=list,
+        alias="unplacedAssets",
+        description=(
+            "Assets that are in the map but not on the timeline. Their chapters keep "
+            "their own source seconds even when `timeBase` is `timeline`, because there "
+            "is no timeline position to project onto — so a reader acting on those rows "
+            "must place the asset first. Listing them beats silently mixing two clocks."
+        ),
+    )
     duration_sec: float = Field(
         default=0.0, alias="durationSec", description="Total footage duration in seconds."
     )
@@ -3266,7 +3307,12 @@ def create_app(
             return FootageMapResponse(available=False, reason=str(exc))
 
         if served_assets == 0:
-            return FootageMapResponse(available=True, backend="twelvelabs", reason="not_indexed")
+            return FootageMapResponse(
+                available=True,
+                backend="twelvelabs",
+                reason="not_indexed",
+                time_base=_map_time_base(req, project_doc),
+            )
         if req.asset_time:
             # Group by footage, then by source time — asset-native times from different
             # videos would interleave meaninglessly if sorted on time alone.
@@ -3286,11 +3332,34 @@ def create_app(
         return FootageMapResponse(
             available=True,
             backend="twelvelabs",
+            time_base=_map_time_base(req, project_doc),
+            unplaced_assets=(
+                []
+                if req.asset_time or project_doc is None
+                else _unplaced_assets([c.asset_id for c in chapters if c.asset_id], clips_by_asset)
+            ),
             duration_sec=duration,
             chapters=chapters,
             highlights=highlights,
             summary=" ".join(summaries),
         )
+
+    def _map_time_base(req: FootageMapRequest, project_doc: Project | None) -> FootageTimeBase:
+        """Which clock this map's times will actually be on.
+
+        `assetTime` asks for source seconds outright. Without a project document
+        there is nothing to project THROUGH, so source seconds are all we can
+        honestly return — this is the case the per-run context read was silently in.
+        """
+        if req.asset_time or project_doc is None:
+            return FootageTimeBase.ASSET
+        return FootageTimeBase.TIMELINE
+
+    def _unplaced_assets(
+        asset_ids: Iterable[str], clips_by_asset: dict[str, list[Any]]
+    ) -> list[str]:
+        """The mapped assets that have no clip on the timeline, sorted."""
+        return sorted({a for a in asset_ids if not clips_by_asset.get(a)})
 
     def _builtin_chapters_for(
         store: BrainStore,
@@ -3359,7 +3428,12 @@ def create_app(
             return FootageMapResponse(available=False, reason=str(exc))
 
         if not chapters:
-            return FootageMapResponse(available=True, backend=backend, reason="not_indexed")
+            return FootageMapResponse(
+                available=True,
+                backend=backend,
+                reason="not_indexed",
+                time_base=_map_time_base(req, project_doc),
+            )
         if req.asset_time:
             chapters.sort(key=lambda c: (c.asset_id or "", c.t0, c.t1))
         else:
@@ -3374,6 +3448,12 @@ def create_app(
         return FootageMapResponse(
             available=True,
             backend=backend,
+            time_base=_map_time_base(req, project_doc),
+            unplaced_assets=(
+                []
+                if req.asset_time or project_doc is None
+                else _unplaced_assets([c.asset_id for c in chapters if c.asset_id], clips_by_asset)
+            ),
             duration_sec=duration,
             chapters=chapters,
             highlights=[],
