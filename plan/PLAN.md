@@ -13,6 +13,18 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-29, SYSMISSION — system mission plan):** `[ ]` **The end-to-end
+system mission — orchestration efficiency, structured context, prompt parity, reference
+video/image context, semantic editing ops with a bounded verify loop, worker/process
+lifecycle, a memory/resource audit, a CapCut-style quality-driven export (platform presets
+removed), a UI/UX interaction pass, and desktop e2e journeys — is planned, not started.**
+Brief: `PROMPT.md`. Plan: **`plan/system-mission/`** ([README](system-mission/README.md)
+index + status table, [USE-CASES](system-mission/USE-CASES.md) journey matrix, phases
+`00-BASELINE` → `10-FINAL-VERIFICATION`). Phase 0 (measure everything, change nothing) is
+the first thing to run; two `[!]` maintainer gates are flagged inside (P1.5 decision-memory
+persistence if the Memory Store shape must grow; P3.3 persisting reference profiles in the
+project file). Evidence lands in `docs/reports/system-mission/` and `reports/system-mission/`.
+
 **Status snapshot (2026-08-29, run `ea8e46ec` — the beat-grid evidence deadlock):** `[x]`
 **A beat-synced montage can no longer be deadlocked by the run's own beat evidence.** The
 brief said "evaluate multiple suitable tracks and select the strongest one"; the run did
