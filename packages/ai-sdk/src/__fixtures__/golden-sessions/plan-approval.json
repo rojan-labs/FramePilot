@@ -213,7 +213,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 22131,
+      "usedTokens": 22427,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -253,7 +253,7 @@
             "id": "s5",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1634,
+            "tokenEstimate": 1645,
             "included": true
           },
           {
@@ -274,7 +274,7 @@
             "id": "s8",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 18160,
+            "tokenEstimate": 18445,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -282,9 +282,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 22131,
+          "estimatedInputTokensBeforeSend": 22427,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 169677,
+          "estimatedRemainingCapacity": 169381,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -658,7 +658,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 22271,
+      "usedTokens": 22567,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -698,7 +698,7 @@
             "id": "s5",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1634,
+            "tokenEstimate": 1645,
             "included": true
           },
           {
@@ -719,7 +719,7 @@
             "id": "s8",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 18160,
+            "tokenEstimate": 18445,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -727,9 +727,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 22271,
+          "estimatedInputTokensBeforeSend": 22567,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 169537,
+          "estimatedRemainingCapacity": 169241,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -927,7 +927,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 16913,
+      "usedTokens": 17208,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -967,7 +967,7 @@
             "id": "s5",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1634,
+            "tokenEstimate": 1645,
             "included": true
           },
           {
@@ -988,7 +988,7 @@
             "id": "s8",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 12631,
+            "tokenEstimate": 12915,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -996,10 +996,10 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 16913,
+          "estimatedInputTokensBeforeSend": 17208,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 174895,
-          "toolSchemaTokensRebilled": 12631,
+          "estimatedRemainingCapacity": 174600,
+          "toolSchemaTokensRebilled": 12915,
           "calculationSource": "local_estimate"
         },
         "compaction": {

@@ -1,7 +1,7 @@
 ---
 name: cinematic-storytelling
 description: Shape visual scenes around point of view, anticipation, action, reaction, consequence, motif, and emotional contrast while preserving spatial clarity.
-tools: [map_footage, describe_footage, search_visual, get_timeline, add_clip, split_clip, trim_clip, move_clip, add_transition, render_preview]
+tools: [map_footage, describe_footage, search_visual, get_timeline, add_clip, add_clips, split_clip, trim_clip, move_clip, add_transition, render_preview]
 ---
 
 # Cinematic storytelling

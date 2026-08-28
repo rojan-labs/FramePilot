@@ -471,16 +471,24 @@ function requestWantsPicture(options: CritiqueOptions): boolean {
 }
 
 /**
- * Is this clip's source wider than it is tall, as measured (schema v21)?
+ * The ids of assets measured (schema v21) as wider than they are tall.
  *
- * False for an unmeasured asset by design: absent dimensions mean unknown, and treating
+ * A set built ONCE per check rather than a lookup per clip: the Critic runs at the end of
+ * every agent run, and a per-clip `assets.find` is O(clips × assets) — the exact shape
+ * `critic-scale.test.ts` exists to keep out.
+ *
+ * An unmeasured asset is absent by design. Absent dimensions mean unknown, and treating
  * unknown as landscape would fail runs over a shape nobody probed.
  */
-function isLandscapeSource(project: Project, assetId: string): boolean {
-  const media = project.assets.find((asset) => asset.id === assetId)?.media;
-  const width = media?.width;
-  const height = media?.height;
-  return typeof width === 'number' && typeof height === 'number' && width > height;
+function landscapeAssetIds(project: Project): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const asset of project.assets) {
+    const { width, height } = asset.media ?? {};
+    if (typeof width === 'number' && typeof height === 'number' && width > height) {
+      ids.add(asset.id);
+    }
+  }
+  return ids;
 }
 
 /** A merged, ascending list of the spans picture occupies. */
@@ -849,7 +857,8 @@ function checkReframeCoverage(project: Project): CriticCheck {
       );
     }
     // Measured landscape picture in a portrait frame, uncropped: not a risk, an outcome.
-    const landscape = picture.filter((clip) => isLandscapeSource(project, clip.assetId));
+    const landscapeIds = landscapeAssetIds(project);
+    const landscape = picture.filter((clip) => landscapeIds.has(clip.assetId));
     if (landscape.length > 0) {
       const named = landscape.slice(0, 3).map((clip) => clip.id);
       const rest = landscape.length - named.length;

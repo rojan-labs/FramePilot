@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 22024,
+      "usedTokens": 22320,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -148,7 +148,7 @@
             "id": "s5",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1634,
+            "tokenEstimate": 1645,
             "included": true
           },
           {
@@ -169,7 +169,7 @@
             "id": "s8",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 18160,
+            "tokenEstimate": 18445,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -177,9 +177,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 22024,
+          "estimatedInputTokensBeforeSend": 22320,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 849976,
+          "estimatedRemainingCapacity": 849680,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -263,7 +263,7 @@
             "id": "s5",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1634,
+            "tokenEstimate": 1645,
             "included": true
           },
           {
@@ -284,7 +284,7 @@
             "id": "s8",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 18160,
+            "tokenEstimate": 18445,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -292,7 +292,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 22024,
+          "estimatedInputTokensBeforeSend": 22320,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",

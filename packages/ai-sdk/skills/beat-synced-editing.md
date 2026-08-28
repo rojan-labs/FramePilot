@@ -1,7 +1,7 @@
 ---
 name: beat-synced-editing
 description: Build music-driven edits from detected onset evidence, scored visual opportunities, variable rhythm, motion continuity, and preview-based refinement rather than a fixed grid.
-tools: [detect_beats, map_footage, describe_footage, search_visual, read_edit_signals, get_timeline, get_clips, map_time, list_assets, add_clip, split_clip, trim_clip, set_clip_speed, add_transition, render_preview, verify_transitions]
+tools: [detect_beats, map_footage, describe_footage, search_visual, read_edit_signals, get_timeline, get_clips, map_time, list_assets, add_clip, add_clips, split_clip, trim_clip, set_clip_speed, add_transition, render_preview, verify_transitions]
 ---
 
 # Beat-synced editing
@@ -49,7 +49,9 @@ Choose the strongest visual moment near the most meaningful supported musical ev
 3. Map and inspect footage; produce multiple candidate moments with cited reasons.
 4. Score pairings and choose a whole-sequence arc, not one beat at a time.
 5. Plan section energy and shot-duration ranges; reject mechanical repetition.
-6. Build structural cuts, then restrained retiming/transitions.
+6. Build structural cuts with `add_clips` — a montage is a sequence, and placing it one
+   `add_clip` at a time spends the run's turns on bookkeeping instead of on the edit. Then
+   restrained retiming/transitions.
 7. Re-read the current timeline and preview representative sections plus the ending.
 
 ## Common mistakes
