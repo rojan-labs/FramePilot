@@ -46,6 +46,12 @@ package = [
 
 [tool.uv]
 package = false
+# moviepy 2.2.1 still caps pillow <12.0, but every Pillow release below 12.3
+# carries high-severity CVEs (Dependabot #140-#157: PSD/McIdas OOB writes,
+# FITS/JPEG2000 decompression bombs). moviepy's cap is precautionary, not a
+# known incompatibility, so we override it and gate the choice on the engine
+# test suite.
+override-dependencies = ["pillow>=12.3"]
 
 [tool.uv.sources]
 framepilot-engine = { workspace = true }

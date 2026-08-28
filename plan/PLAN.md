@@ -13,6 +13,60 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-28, high-severity dependency alerts):** `[x]` **The 59 open
+high-severity Dependabot alerts are down to 1, and the one that remains has no fix to take.**
+Fetched from the alerts API rather than the UI, so the fix targets resolved versions instead
+of advisory titles. Direct bumps: `electron` 32 → **39.8.10** (the alerts wanted 39.8.10 and
+32.x is long out of support), `electron-builder` 25 → **26.15**, `electron-updater` 6.3 →
+**6.8.9** (this is what moves `builder-util-runtime` to the patched 9.7.0), `vite` 5.4 →
+**6.4.3** in both `apps/web-editor` and `apps/desktop`, `next` 15.1.6 → **15.5.21**, and
+`pillow` >=10.3 → **>=12.3**. Eight transitive packages with no direct owner —
+`brace-expansion` (three majors live in the tree), `js-yaml` (two), `nanoid`, `fast-uri`,
+`ip-address`, `postcss`, `sharp`, `shell-quote` — are pinned through `pnpm.overrides`, keyed
+per major where the tree carries more than one so no package is forced across a major.
+
+Two things needed a judgment call rather than a version bump:
+
+- **Pillow could not be resolved cleanly.** `moviepy` 2.2.1 (latest) still caps
+  `pillow<12.0`, but every Pillow below 12.3 carries high-severity decoder bugs (alerts
+  #140–#157: OOB writes on the PSD and McIdas paths, FITS/JPEG2000 decompression bombs) that
+  are reachable from any still the engine opens. moviepy's cap reads as precautionary — it
+  names no incompatibility — so it is overridden via `[tool.uv] override-dependencies` in the
+  root `pyproject.toml`, with the reason in a comment there, and the choice is gated on the
+  engine suite: **2687 passed, 1 skipped, 0 failed** on Pillow 12.3.
+- **`electron-builder-squirrel-windows` had to become an explicit devDependency.** It was
+  arriving as an auto-installed optional peer pinned at 25.1.8, which held vulnerable
+  `app-builder-lib@25` and `builder-util-runtime@9.2.10` in the tree; `pnpm.overrides` does
+  not reach auto-installed peers. Declaring it at `^26.15.7` in `apps/desktop` is what clears
+  alerts #100 and #101. The repo only builds nsis and dmg, so nothing actually calls it.
+
+**`extract-zip` (#138, GHSA-jmr9-qjv8-65gv) stays open** — no patched version exists at any
+release. It arrives only under the `electron` npm package, which uses it at install time to
+unpack the checksum-verified Electron binary; it ships in nothing and never sees user media.
+Recorded as an accepted advisory in `SECURITY.md` so the next agent does not re-litigate it.
+
+Verification, desktop path first per the product focus: **the packaged desktop app boots on
+Electron 39** — renderer loads, sidecar spawns via `dev-uv`, `GET /health → 200`. Beyond
+that: engine 2687 pass, all 18 TS test tasks pass, `turbo run typecheck` 17/17, `turbo run
+lint` 17/17, `turbo run build` 10/10, Playwright e2e **83 passed** under Vite 6, and
+`pnpm license:scan` clean on the new packages. `pnpm audit --audit-level high` now reports
+the single `extract-zip` finding.
+
+One real defect surfaced while verifying and is fixed in the same change: `ai-sdk`'s
+`critic-scale.test.ts` guard was flaky. It compares the cost of critiquing ten times the
+project against a 25x ceiling, and it summed three timed repeats per size — which collects
+every scheduling hiccup instead of averaging them out, and a ratio is only as honest as its
+noisiest term. Reproduced on a 10-core machine under coverage plus 12-way CPU saturation:
+four consecutive runs measured 9.8x, 10.5x, 21.5x and **26.9x**, the last failing a suite
+that had found nothing wrong. It now keeps the FASTEST of five runs per size — contention
+and GC can only add time to a sample, never subtract it, so the minimum is the least
+contaminated one. Same load, same estimator: **11.8x, 13.5x, 14.8x, 16.3x**, all passing.
+`MAX_GROWTH` is deliberately left at 25 rather than tightened onto the new spread: the guard
+exists to catch a change in shape (the version it was written against measured 67x), not to
+police millisecond drift. ai-sdk coverage gate still green (3687 pass, 94.46%).
+
+**Last updated:** 2026-08-28
+
 **Status snapshot (2026-08-28, run `bfb5c75b` memory spike):** `[x]` **Sourced assets were
 throwing away the proxy the engine had just built for them.** A 50+ clip nature montage
 (`run.md` at the repo root, conversation `bfb5c75b`) spiked memory until the app had to be
@@ -8174,10 +8228,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                                                Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                                                a pre-existing local edit commenting out temperature forwarding, untouched here);
-                                                engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                                                **Last updated:** 2026-08-14
+                                                  Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                                                  a pre-existing local edit commenting out temperature forwarding, untouched here);
+                                                  engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                                                  **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 

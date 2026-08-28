@@ -17,6 +17,19 @@ The public repository uses GitHub-native security automation where practical:
 
 These checks are defense in depth. They do not replace review of Electron privileges, path containment, release credentials, media handling, or agent tool authority.
 
+### Accepted advisories
+
+One advisory is knowingly left open because no fixed release exists:
+
+- **`extract-zip` — GHSA-jmr9-qjv8-65gv (high, unvalidated symlink path traversal).** Every
+  published version is affected; there is no patched version to move to. It enters the tree
+  only as a dependency of the `electron` npm package, which uses it during `pnpm install` to
+  unpack the Electron binary it has just downloaded over HTTPS and checksum-verified. It is
+  not bundled into the shipped app, is never handed an archive from a user or from the
+  network at runtime, and never sees user media. The exposure is therefore a developer's own
+  install step against a trusted artifact. Revisit if `extract-zip` publishes a fix, or if
+  anything in the product starts extracting archives at runtime.
+
 ## Security guarantees
 
 ### Local file safety

@@ -26,10 +26,23 @@
  * survive the worst case is wide enough to pass the quadratic version it exists to catch.
  *
  * A ratio is invariant to all of it: the small and large runs pay the same instrumentation
- * and the same contention, so what is left is the shape. Measured after the fixes: **6.8x
- * clean, 8.5x under coverage** for ten times the project — sub-linear, because the fixed
- * costs stop being the whole story as the project grows. The version this was written
+ * and the same contention, so what is left is the shape. The version this was written
  * against measured **67x**.
+ *
+ * ## Why it keeps the FASTEST run and not the total
+ *
+ * A ratio is only as honest as its noisiest term, and summing repeats was collecting
+ * every hiccup rather than averaging them out. That flaked: on a 10-core machine under
+ * coverage plus 12-way CPU saturation, summing three repeats measured 9.8x, 10.5x, 21.5x
+ * and **26.9x** across four consecutive runs — the last one over the ceiling, failing a
+ * suite that had found nothing wrong. Keeping the fastest of five instead measured
+ * **11.8x, 13.5x, 14.8x, 16.3x** under that same load. A GC pause or a descheduled core
+ * can only ever ADD time to a sample, so the minimum is the one least contaminated by
+ * whatever else the machine is doing.
+ *
+ * Measured with that estimator: **8.4-9.1x clean, 10.0-10.6x under coverage** for ten
+ * times the project — sub-linear, because the fixed costs stop being the whole story as
+ * the project grows.
  */
 import { describe, expect, it } from 'vitest';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
@@ -44,16 +57,20 @@ const LARGE = { clips: 900, words: 9_000 };
 /**
  * Ten times the work may cost at most this much more.
  *
- * Linear is 10 and the measured figure is 6.8x (sub-linear: at the small size the fixed
- * costs — schema parse, one map walk — are a real share of the total). The ceiling is 25
- * rather than 10 because the small case is only a few milliseconds, so its measurement is
- * the noisy one. Quadratic is 100 and the version this was written against measured 67x,
- * so 25 fails it decisively while leaving three times the observed headroom.
+ * Linear is 10 and the measured figure is 8.4-9.1x clean (sub-linear: at the small size
+ * the fixed costs — schema parse, one map walk — are a real share of the total). The
+ * ceiling is 25 rather than 10 because the small case is only a couple of milliseconds,
+ * so its measurement is the noisy one, and because instrumentation and contention do not
+ * load both sizes equally: the worst seen under coverage plus deliberate 12-way CPU
+ * saturation is 16.3x. Quadratic is 100 and the version this was written against measured
+ * 67x, so 25 still fails it decisively. It is deliberately NOT tightened to sit against
+ * the observed spread — the guard exists to catch a change in shape, not to police
+ * millisecond drift.
  */
 const MAX_GROWTH = 25;
 
-/** Repeats per size, so a single scheduling hiccup cannot decide the verdict. */
-const REPEATS = 3;
+/** Timed runs per size. The fastest one is kept — see `costOf`. */
+const REPEATS = 5;
 
 function project({ clips, words }: { clips: number; words: number }): Project {
   const picture = Array.from({ length: clips }, (_, i) => ({
@@ -115,14 +132,27 @@ function project({ clips, words }: { clips: number; words: number }): Project {
   });
 }
 
-/** Total wall time for `REPEATS` critiques of one size, the fixture build excluded. */
+/**
+ * The cost of ONE critique at this size, taken as the fastest of `REPEATS` runs.
+ *
+ * The fastest run, not the total: a GC pause or a descheduled core can only ever ADD
+ * time to a sample, never subtract it, so the minimum is the sample least contaminated
+ * by whatever else the machine was doing. Summing the repeats does the opposite — it
+ * collects every hiccup across all of them, and one stall in one large-size repeat is
+ * enough to decide the verdict on its own. That is the flake this replaced: the ratio
+ * is only as honest as its noisiest term.
+ */
 function costOf(size: { clips: number; words: number }): number {
   const built = project(size);
   // One warm-up, so JIT compilation is not billed to whichever size runs first.
   critique(built, { producedChanges: true });
-  const started = performance.now();
-  for (let i = 0; i < REPEATS; i += 1) critique(built, { producedChanges: true });
-  return performance.now() - started;
+  let fastest = Infinity;
+  for (let i = 0; i < REPEATS; i += 1) {
+    const started = performance.now();
+    critique(built, { producedChanges: true });
+    fastest = Math.min(fastest, performance.now() - started);
+  }
+  return fastest;
 }
 
 describe('critique scales with the edit', () => {
