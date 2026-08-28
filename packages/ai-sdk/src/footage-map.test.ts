@@ -222,3 +222,31 @@ describe('summarizeFootageMap — telling one piece of footage from another', ()
     expect(summarizeFootageMap(map)!).toContain('1:14.3–1:18.9');
   });
 });
+
+describe('summarizeFootageMap — not cutting the same picture twice', () => {
+  it('marks chapters that look the same and says what the mark means', () => {
+    const map = footageMapSchema.parse({
+      available: true,
+      timeBase: 'timeline',
+      chapters: [
+        { ...chapter(0, 5, 'Ridge'), assetId: 'p1', similarGroup: 1 },
+        { ...chapter(5, 9, 'Summit'), assetId: 'p2' },
+        { ...chapter(9, 12, 'Ridge again'), assetId: 'p3', similarGroup: 1 },
+      ],
+    });
+    const digest = summarizeFootageMap(map)!;
+    expect(digest).toContain('Rows sharing a [~n] mark look the same');
+    expect(digest).toContain('Ridge [~1]');
+    expect(digest).toContain('Ridge again [~1]');
+    // The one with nothing like it carries no mark — a number that appears once is noise.
+    expect(digest.split('\n').find((l) => l.includes('Summit'))).not.toContain('[~');
+  });
+
+  it('says nothing about similarity when no chapter has a twin', () => {
+    const map = footageMapSchema.parse({
+      available: true,
+      chapters: [chapter(0, 5, 'Intro')],
+    });
+    expect(summarizeFootageMap(map)!).not.toContain('[~n]');
+  });
+});

@@ -29,6 +29,14 @@ export const footageChapterSchema = z.object({
   summary: z.string().default(''),
   /** Owning asset id — lets the UI group by footage and project onto the timeline when placed. */
   assetId: z.string().nullish(),
+  /**
+   * Chapters that LOOK the same share a group number; a chapter with nothing like it has
+   * none. Cutting two chapters from one group into the same edit repeats a shot.
+   *
+   * Derived from the perceptual hash already stored on every span, so it costs no extra
+   * analysis. Absent on chapters from a hosted generative backend, which supplies no hash.
+   */
+  similarGroup: z.number().nullish(),
 });
 
 /** One salient moment worth acting on (mirrors `FootageHighlight`). */
@@ -131,7 +139,10 @@ function trim(text: string, max: number): string {
 function chapterLine(c: FootageChapter): string {
   const when = c.t1 > c.t0 ? `${clock(c.t0)}–${clock(c.t1)}` : `at ${clock(c.t0)}`;
   const summary = c.summary.trim() !== '' ? ` — ${trim(c.summary, MAX_CHAPTER_SUMMARY_CHARS)}` : '';
-  return `• ${when} ${trim(c.title, MAX_CHAPTER_SUMMARY_CHARS)}${summary}`;
+  // Four characters that stop a montage repeating itself: rows sharing a mark are the
+  // same picture, so the model picks one of them rather than cutting both.
+  const similar = typeof c.similarGroup === 'number' ? ` [~${c.similarGroup}]` : '';
+  return `• ${when} ${trim(c.title, MAX_CHAPTER_SUMMARY_CHARS)}${similar}${summary}`;
 }
 
 /** Stable order of the assets appearing in a chapter list, first-seen first. */
@@ -171,6 +182,9 @@ export function summarizeFootageMap(map: FootageMap | undefined): string | undef
       : "Times are each asset's OWN source seconds, not timeline positions.",
   );
   if (map.summary.trim() !== '') lines.push(`Overview: ${trim(map.summary, 240)}`);
+  if (map.chapters.some((c) => typeof c.similarGroup === 'number')) {
+    lines.push('Rows sharing a [~n] mark look the same — use one, not both.');
+  }
 
   const shown = map.chapters.slice(0, MAX_DIGEST_CHAPTERS);
   const assets = assetOrder(shown);

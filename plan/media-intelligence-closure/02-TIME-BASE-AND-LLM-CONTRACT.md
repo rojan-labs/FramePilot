@@ -1,4 +1,4 @@
-# Phase 2 — Time base and the LLM-consumption contract `[ ]`
+# Phase 2 — Time base and the LLM-consumption contract `[x]` shipped 2026-08-28
 
 > **This phase outranks Phase 3.** A fast index the model reads in the wrong time
 > base produces fast wrong cuts. Correctness before speed.
@@ -11,7 +11,7 @@ picks between two photos, it can tell them apart.
 
 ---
 
-## 2.1 The auto-injected map carries asset seconds under a timeline label `[ ]`
+## 2.1 The auto-injected map carries asset seconds under a timeline label `[x]`
 
 `apps/desktop/electron/main.ts:2294` reads the per-run footage map with no `project`
 in the body. `_clips_by_asset` is therefore empty, `project_span_to_timeline` returns
@@ -44,7 +44,7 @@ the run-injected digest must place B's chapters at 30+, and must place them at 0
 `assetTime` is requested. Plus a golden-manifest regeneration for the context block
 (the digest text is token-counted — see `plan/…` golden manifests).
 
-## 2.2 The digest quantizes to whole seconds and drops the asset `[ ]`
+## 2.2 The digest quantizes to whole seconds and drops the asset `[x]`
 
 `footage-map.ts:clock()` renders `m:ss`. The always-present block is the model's
 default reading of the footage, and it is rounded to ±0.5 s before any tool is called.
@@ -68,7 +68,7 @@ usable and an unusable in-point.
 **Evidence.** A rendering test over a two-asset map and a photo-only map; the token
 delta measured against the existing golden manifests and recorded in the commit.
 
-## 2.3 One documented frame of reference across all three surfaces `[ ]`
+## 2.3 One documented frame of reference across all three surfaces `[x]`
 
 Today: `map_footage` says timeline, `search_visual`/`describe_footage` return asset
 seconds and say so, and the injected block says neither. The model is expected to
@@ -84,19 +84,19 @@ the same change.
 `describe_footage` on a chapter gets overlapping spans back, on a project whose second
 asset does not start at 0.
 
-## 2.4 What the index does not store that an editing agent needs `[ ]`
+## 2.4 What the index does not store that an editing agent needs `[x]` (duplicate signal only)
 
 Ordered by value per unit of cost, from the audit's gap list. **Only the first item is
 proposed for this phase**; the rest are recorded so the next agent sees the shape and
 does not re-derive it.
 
-| Signal                                 | Why an editor needs it                                                                                                                                                              | Cost                                                          | Proposal                                                                               |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| **Near-duplicate / similar take**      | Photo dumps and multi-take footage are the two cases where a montage repeats itself. `visual_spans.phash` **already exists and is already computed** and nothing reads it for this. | ~zero — a Hamming distance over stored ints                   | **Do it in this phase.** Expose a `similarTo: [assetId]` hint on chapters and packets. |
-| Shot quality (focus, exposure, shake)  | "Do not cut to the blurry one"                                                                                                                                                      | one extra ffmpeg pass per keyframe                            | Defer — measure the montage-quality gain first                                         |
-| Subject/person presence                | "cut to the wide of both of them"                                                                                                                                                   | a detector, i.e. a Capability Pack                            | Defer — `ADR 0114` already owns this boundary                                          |
-| Word-level speech alignment in packets | speech-aligned cutting                                                                                                                                                              | transcript already has word times; it is a join, not new data | Defer to a follow-up; cheap but not blocking                                           |
-| Camera motion (pan/tilt/static)        | b-roll suitability, punch-in choice                                                                                                                                                 | optical flow per span                                         | Defer                                                                                  |
+| Signal                                 | Why an editor needs it                                                                                                                                                              | Cost                                                          | Proposal                                                                                                                          |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **Near-duplicate / similar take**      | Photo dumps and multi-take footage are the two cases where a montage repeats itself. `visual_spans.phash` **already exists and is already computed** and nothing reads it for this. | ~zero — a Hamming distance over stored ints                   | **Shipped** as `FootageChapter.similarGroup` — union-find over the sampler's own threshold, singletons unmarked, rendered `[~n]`. |
+| Shot quality (focus, exposure, shake)  | "Do not cut to the blurry one"                                                                                                                                                      | one extra ffmpeg pass per keyframe                            | Defer — measure the montage-quality gain first                                                                                    |
+| Subject/person presence                | "cut to the wide of both of them"                                                                                                                                                   | a detector, i.e. a Capability Pack                            | Defer — `ADR 0114` already owns this boundary                                                                                     |
+| Word-level speech alignment in packets | speech-aligned cutting                                                                                                                                                              | transcript already has word times; it is a join, not new data | Defer to a follow-up; cheap but not blocking                                                                                      |
+| Camera motion (pan/tilt/static)        | b-roll suitability, punch-in choice                                                                                                                                                 | optical flow per span                                         | Defer                                                                                                                             |
 
 **Evidence for the duplicate signal.** The user's own `project_champadevi_hike`
 (60 photos of one hike) is the fixture: consecutive frames of the same scene must
@@ -112,3 +112,24 @@ group, and visibly different scenes must not.
   is no measured recall complaint.
 - **No change to `EvidencePacket`'s shape** beyond the duplicate hint. It is the one
   contract in this subsystem that is already honest about its units.
+
+---
+
+## What shipped, and what it cost
+
+- **2.1** Both per-run reads (desktop hub, browser session) send the live edit.
+  `FootageMapResponse` carries `timeBase` (defaulting to `asset` on both sides, so an
+  older engine is never read as having answered in timeline time) and `unplacedAssets`.
+- **2.2** `m:ss.d`, grouped by asset, stills rendered as `at 0:12.5`, clock stated.
+- **2.3** `map_footage`'s description and the `footage-intelligence` skill tell the model
+  to read `timeBase` and `unplacedAssets` before acting on a time.
+- **2.4** `similarGroup` only. The other four signals in the table above stay deferred
+  for the reasons given there.
+
+**Measured token cost:** the tool-schema block grew 17,648 to 17,740 (+92) for the
+`map_footage` description. The three frozen golden sets were regenerated and that diff
+is the measurement.
+
+**Still open, deliberately:** `describe_footage`/`search_visual` do not carry
+`similarGroup`. The map is where shot selection happens; adding it to every evidence
+packet would cost tokens on the retrieval path with no demonstrated consumer.

@@ -25,7 +25,7 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -67,7 +67,12 @@ from framepilot_engine.analysis.tiers import (
     analysis_params_hash,
     kinds_for,
 )
-from framepilot_engine.analysis.visual_sampler import SAMPLER_VERSION, VisualSpan
+from framepilot_engine.analysis.visual_sampler import (
+    DEFAULT_HAMMING_THRESHOLD,
+    SAMPLER_VERSION,
+    VisualSpan,
+    hamming,
+)
 from framepilot_engine.audio.asr import (
     DEFAULT_ASR_MODEL,
     AsrError,
@@ -730,6 +735,10 @@ MAX_VISUAL_SLICE = 10
 #: a run of them is a bad index, account, or network, and continuing would upload
 #: — and be billed for — every remaining asset just to fail identically.
 TL_CONSECUTIVE_FAILURE_LIMIT = 3
+#: Above this many spans the pairwise near-duplicate comparison behind
+#: `similarGroup` stops earning its cost, and the signal is omitted rather than
+#: approximated. Comfortably above a real photo dump or a multi-take shoot.
+_SIMILAR_GROUP_SPAN_CAP = 1200
 
 
 class VisualCaptionProviderPayload(BaseModel):
@@ -1105,6 +1114,17 @@ class FootageChapter(BaseModel):
         alias="assetId",
         description="Owning asset id. Set so the UI can label/group by footage and "
         "project onto the timeline when the asset is placed.",
+    )
+    similar_group: int | None = Field(
+        default=None,
+        alias="similarGroup",
+        description=(
+            "Chapters that LOOK the same share a group number; a chapter with nothing "
+            "like it has none. Cutting two chapters from one group into the same edit "
+            "repeats a shot — pick the best one per group. Derived from the perceptual "
+            "hash already stored on each span, so it costs no extra analysis; absent on "
+            "chapters from a hosted generative backend, which supplies no hash."
+        ),
     )
 
     model_config = {"populate_by_name": True}
@@ -3361,6 +3381,58 @@ def create_app(
         """The mapped assets that have no clip on the timeline, sorted."""
         return sorted({a for a in asset_ids if not clips_by_asset.get(a)})
 
+    def _similar_groups(spans: Sequence[VisualSpanRow]) -> dict[tuple[str, int], int]:
+        """Group spans that LOOK the same, keyed by ``(asset_id, scene_index)``.
+
+        WHY this is worth having: the two situations where a montage repeats itself are
+        a photo dump of one moment and a multi-take shoot, and nothing in the index told
+        the model which of its candidates were the same picture twice. The signal costs
+        no new analysis — every span already stores the dHash of its keyframe
+        (``visual_spans.phash``), computed at index time and, until now, read by nothing
+        for this. Two spans within :data:`DEFAULT_HAMMING_THRESHOLD` bits are the same
+        content; that is the same threshold the sampler uses to decide a span has not
+        drifted, reused rather than invented.
+
+        Singletons get no group — a number that only ever appears once is noise in the
+        prompt. Above :data:`_SIMILAR_GROUP_SPAN_CAP` spans the pairwise comparison stops
+        earning its cost, so the signal is omitted rather than approximated.
+        """
+        if len(spans) > _SIMILAR_GROUP_SPAN_CAP:
+            _log.debug(
+                "similar-group signal skipped: %d spans exceeds the %d cap",
+                len(spans),
+                _SIMILAR_GROUP_SPAN_CAP,
+            )
+            return {}
+        # Union-find over the near-duplicate relation, so A~B and B~C put all three
+        # together even when A and C are just past the threshold.
+        parent = list(range(len(spans)))
+
+        def find(i: int) -> int:
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        for i in range(len(spans)):
+            for j in range(i + 1, len(spans)):
+                if hamming(spans[i].phash, spans[j].phash) <= DEFAULT_HAMMING_THRESHOLD:
+                    parent[find(i)] = find(j)
+        members: dict[int, list[int]] = {}
+        for i in range(len(spans)):
+            members.setdefault(find(i), []).append(i)
+        groups: dict[tuple[str, int], int] = {}
+        # Numbered by first appearance so the same footage always reads the same way.
+        root_group: dict[int, int] = {}
+        for i, span in enumerate(spans):
+            root = find(i)
+            if len(members[root]) < 2:
+                continue
+            if root not in root_group:
+                root_group[root] = len(root_group) + 1
+            groups[(span.asset_id, span.scene_index)] = root_group[root]
+        return groups
+
     def _builtin_chapters_for(
         store: BrainStore,
         req: FootageMapRequest,
@@ -3387,6 +3459,7 @@ def create_app(
             for caption in store.list_visual_captions(req.asset_id)
             if is_informative_caption(caption.text)
         }
+        similar = _similar_groups(spans)
         chapters: list[FootageChapter] = []
         for span in spans:
             if req.asset_time:
@@ -3405,6 +3478,7 @@ def create_app(
                     title=caption or f"Scene {span.scene_index + 1}",
                     summary=caption or "",
                     asset_id=span.asset_id,
+                    similar_group=similar.get((span.asset_id, span.scene_index)),
                 )
             )
         return chapters
