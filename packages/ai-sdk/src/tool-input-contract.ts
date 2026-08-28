@@ -98,7 +98,8 @@ function assertColorGrade(value: Record<string, unknown>): void {
   if (type !== 'color_grade' && type !== 'lut') {
     throw new ToolInputContractError(
       'apply_color_grade',
-      `Unsupported color effect type "${type}". Use color_grade or lut.`,
+      `Unsupported color effect type "${type}". Use color_grade or lut. Position, scale ` +
+        'and rotation are not grades — they come from keyframes (add_keyframes, punch_in).',
     );
   }
   const params = record(value.params) ?? {};

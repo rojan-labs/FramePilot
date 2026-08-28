@@ -4,7 +4,11 @@
  * exercised; the resulting operations must pass the patch validator.
  */
 import { describe, expect, it } from 'vitest';
-import { validatePatch, type Operation } from '@framepilot/editor-core';
+import {
+  COLOR_GRADE_PARAMETER_CONTRACTS,
+  validatePatch,
+  type Operation,
+} from '@framepilot/editor-core';
 import { ZodError } from 'zod/v4';
 import { TOOL_REGISTRY, concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
 import type { ToolContext } from './tool-context.js';
@@ -787,6 +791,22 @@ describe('mutating tools — build valid operations', () => {
       params: { name: 'teal' },
     })[0] as Extract<Operation, { type: 'apply_color_grade' }>;
     expect(lut.effect).toMatchObject({ type: 'lut', params: { name: 'teal' } });
+  });
+
+  // GAP-017 (run `fc10301a`). Every grade parameter name and bound was enforced on both
+  // sides of the boundary and NONE was advertised: the description was "Apply a color
+  // grade to a clip." and `params` an untyped record, so a model could only learn the
+  // contract by guessing and being refused. That run loaded the color-grading playbook —
+  // which instructs this tool and speaks of keeping corrections "within ±0.3" — and
+  // applied no grade at all.
+  it('advertises every grade parameter and its real range, from the contract itself', () => {
+    const description = getTool('apply_color_grade')?.description ?? '';
+    for (const [name, { min, max }] of Object.entries(COLOR_GRADE_PARAMETER_CONTRACTS)) {
+      expect(description).toContain(`${name} (${String(min)}..${String(max)})`);
+    }
+    // The other kind, and where transforms actually come from.
+    expect(description).toContain('params.path');
+    expect(description).toMatch(/add_keyframes|punch_in/);
   });
 
   it('adjust_audio / add_transition / add_mask / track_object', () => {

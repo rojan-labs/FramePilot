@@ -238,6 +238,10 @@ class _PunchInArgs(BaseModel):
 class _ApplyColorGradeArgs(BaseModel):
     model_config = _STRICT
     clip_id: str = Field(alias="clipId")
+    # `transform` is accepted HERE and not advertised to the model — the same split
+    # `domain-tools/color.ts` makes. The renderer takes its transform from keyframes, never
+    # from a colour effect's params, so the arm can only fail; letting it parse is what
+    # buys the caller the explanation below instead of a generic enum error.
     type: Literal["color_grade", "lut", "transform"] | None = None
     params: dict[str, Any] | None = None
 
@@ -246,7 +250,10 @@ class _ApplyColorGradeArgs(BaseModel):
         grade_type = self.type or "color_grade"
         params = self.params or {}
         if grade_type == "transform":
-            raise ValueError("transform is not a color renderer operation; use color_grade or lut")
+            raise ValueError(
+                "transform is not a color renderer operation; use color_grade or lut. "
+                "Position, scale and rotation come from keyframes (add_keyframes, punch_in)."
+            )
         if grade_type == "lut":
             path = params.get("path")
             if not isinstance(path, str) or not path.strip():

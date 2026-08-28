@@ -204,6 +204,9 @@ class PunchInArgs(BaseModel):
 class ApplyColorGradeArgs(BaseModel):
     model_config = _STRICT
     clip_id: str = Field(alias="clipId")
+    # Accepted here, not advertised: `contract_overrides._ApplyColorGradeArgs` refuses it
+    # with the sentence that says where transforms actually come from. Mirrors
+    # `domain-tools/color.ts`.
     type: Literal["color_grade", "lut", "transform"] | None = None
     params: dict[str, Any] | None = None
 
@@ -1275,7 +1278,16 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "apply_color_grade": _spec(
         "apply_color_grade",
-        "Apply a color grade to a clip.",
+        # Mirrors `domain-tools/color.ts` — the two tool surfaces advertise one contract.
+        "Grade ONE clip. Two kinds: `color_grade` (the default) takes signed offsets "
+        "where 0 changes nothing — exposure (-5..5), contrast (-1..1), "
+        "saturation (-1..3), temperature (-1..1), tint (-1..1), shadows (-1..1), "
+        "highlights (-1..1). A value outside its range, or a name not on that list, is "
+        "refused rather than silently ignored, and every parameter you omit stays at 0, "
+        "so a correction can name only the axis it fixes. `lut` instead takes "
+        "params.path — a .cube file inside the project. There is no grade for position, "
+        "scale or rotation: those are keyframes (add_keyframes, punch_in). Grading is "
+        "per clip, so a whole-sequence look is one call per clip.",
         kind="mutate",
         input_model=ApplyColorGradeArgs,
         mutating=True,
