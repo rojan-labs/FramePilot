@@ -13,6 +13,24 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-29, run `ea8e46ec` — the beat-grid evidence deadlock):** `[x]`
+**A beat-synced montage can no longer be deadlocked by the run's own beat evidence.** The
+brief said "evaluate multiple suitable tracks and select the strongest one"; the run did
+exactly that, and the runtime could remember only one of the three — not reliably the one it
+placed. Every montage proposal after that was refused for not placing a track nobody had
+chosen, the model diagnosed it correctly and asked to re-analyse the placed music, and the
+stage policy refused: `detect_beats` is an `analysis` tool, closed once a run is executing,
+while `add_clips` — whose validation reads that very payload — stays open. Six proposals, one
+verbatim rejection, 35 minutes, $4.40, no picture on the timeline, and a closing notice that
+said no edits could be found.
+
+Beat evidence is now a per-asset ledger (concurrent writes commute), the grid resolves to the
+music actually under the picture, an ungrounded grid is measured rather than vetoed unless
+the run declared `hardSync`, a tool whose output a validator consumes may not be withheld
+from that validator's stage, an identical refusal no longer counts as progress, and a run
+that cannot act says what stopped it. See **ADR 0157** and
+**`plan/BEAT-GRID-EVIDENCE-DEADLOCK.md`**.
+
 **Status snapshot (2026-08-28, high-severity dependency alerts):** `[x]` **The 59 open
 high-severity Dependabot alerts are down to 1, and the one that remains has no fix to take.**
 Fetched from the alerts API rather than the UI, so the fix targets resolved versions instead
@@ -8684,11 +8702,51 @@ the review engine rejected both batches with the same 500. See ADR 0156.
 - [x] **One engine outage is reported once, with its count.** Every review in a turn shares
       one engine, so one outage published the identical warning once per batch — the user saw
       "Review could not run" twice in a row. `packages/ai-sdk/src/review-findings.ts`.
-- [ ] **Verify the recovered path end-to-end on desktop-scale media.** Restart the desktop
-      app on this fix and re-run the montage request against the same 61-photo project:
-      `detect_beats` must return a grid, the run must place shots, and the temporal review
-      must produce a verdict rather than a failure. Until then the fix is proven at the
-      route level (503 not 500, root handed over) but not against a full agent run.
+- [x] **Verified the recovered path against a full agent run.** Run `ea8e46ec` is that
+      re-run — the same 61-photo project, the same montage request, one day later.
+      `detect_beats` returned real grids for all three candidate tracks (53 / 91 / 119 onsets
+      at 152 / 162 / 172 BPM), so the sandbox-root fix is proven end to end at the agent
+      level and not only at the route. The run still placed no shots, for a completely
+      unrelated reason in the beat-grid guard — see the section below.
+
+## Discovered (2026-08-29) — the beat grid was holding the run to a track it never chose
+
+Root-caused from run `ea8e46ec` (`run.md`): 61 photos, the music placed, **0 shots placed**,
+35 minutes, $4.40. Six montage proposals refused with one byte-identical sentence, and the
+remedy the refusal implied was a tool the stage policy had closed. Full analysis,
+root-cause chain and reconciliation in **`plan/BEAT-GRID-EVIDENCE-DEADLOCK.md`**; the
+decision in **ADR 0157**.
+
+- [x] **Beat evidence is a ledger keyed by asset, not one last-writer-wins slot.**
+      `detect_beats` is a `pure_read` and runs in parallel, so a turn auditioning three
+      tracks had three concurrent writers on one field. Distinct keys commute.
+      `packages/ai-sdk/src/kernel/beat-grid/beat-evidence.ts`.
+- [x] **The grid resolves to the music under the picture.** "Which grid" is a fact about the
+      project and the proposal, resolved deterministically (placed bed → bed this proposal
+      places → ungrounded; ranked by placed duration then `assetId`), and only then handed to
+      the boundary rule.
+- [x] **An ungrounded grid is a measurement, not a veto.** Rejected only under `hardSync`,
+      where the remedy is a mutation every execution stage offers. No run that did not
+      declare hard sync can be permanently blocked by the grid.
+- [x] **A tool whose output a validator consumes is offered in that validator's stage.**
+      `VALIDATOR_INPUT_TOOL_NAMES` + `stageAllowsTool` in `kernel/stage-policy.ts`, asserted
+      in both directions so the carve-out cannot become a hole. The same correction this file
+      already made for `guidance`.
+- [x] **A retry is bounded by being a different attempt.** A turn refused with the exact
+      reason that refused the last one no longer earns the attempt's progress credit.
+      `kernel/conductor.ts`.
+- [x] **The run says what it could not do.** The stall notice names the standing refusal; a
+      run that landed some edits reports the ones it did not; a whole-turn rejection
+      re-settles its proposal cards as `failed` instead of leaving green ticks for clips that
+      never reached the timeline.
+- [x] **`picture_present` says which kind of nothing it found.** It counted every clip as an
+      overlay, so a music bed and no picture was reported as "1 overlay/caption clip … renders
+      as text on black" — naming a caption that did not exist. `packages/ai-sdk/src/critic.ts`.
+- [ ] **Re-run the montage on desktop against the same 61-photo project.** The fix is proven
+      through the real `streamAgent` (three tracks auditioned, one placed, the montage lands
+      on its onsets) and mutation-tested, but not yet against the live desktop sidecar and
+      real media. Confirm the clips land, the run reports its beat map, and the export path
+      produces the 9:16 file the brief asked for.
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)

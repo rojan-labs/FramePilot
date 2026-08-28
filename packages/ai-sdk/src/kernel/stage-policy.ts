@@ -22,6 +22,7 @@
  * spent eight turns doing reconnaissance. A tool that is absent cannot be called.
  */
 import { RUN_STAGES, type RunStage, isExecutionStage } from './working-state.js';
+import { BEAT_ANALYSIS_TOOL } from './beat-grid/beat-tool.js';
 import { type ToolRole, classifyTool } from '../tool-classification.js';
 import { getTool } from '../tool-registry.js';
 
@@ -153,6 +154,47 @@ export function settledStageFor(
 export function stageAllowsRole(stage: RunStage, role: ToolRole): boolean {
   if (!isExecutionStage(stage)) return true;
   return role !== 'analysis';
+}
+
+/**
+ * Tools whose STORED OUTPUT a runtime validator consumes when it judges a proposal.
+ *
+ * These may never be withheld from a stage in which that validator runs, and the reason is
+ * not politeness — it is that a run cannot satisfy a guard it is forbidden to feed.
+ *
+ * `detect_beats` is the case. The beat-grid rule (`kernel/beat-grid/`) validates every
+ * picture cut against the payload that tool returned, and `add_clips` — a mutation — is
+ * offered throughout `apply`. So from the first landed patch onwards a beat-backed run kept
+ * the tool whose output is CHECKED and lost the only sanctioned way to establish what it is
+ * checked against. In run `ea8e46ec` the model diagnosed its own situation exactly right —
+ * "the system's beat grid is tracking a different audio asset than what's actually placed on
+ * the timeline. Let me detect beats on the placed music" — and the runtime answered
+ * "detect_beats is unavailable this turn", twice, until the run died.
+ *
+ * This is the same defect this file already corrected for `guidance`, in the same words:
+ * "the moment a run landed its first clip, it kept the tools that demand a real catalog id
+ * and lost the only sanctioned way to learn one."
+ *
+ * The rule this exempts is "the evidence for the plan is already stored, so recall it
+ * instead of gathering again". That rule still holds for a re-analysis that IS redundant —
+ * `withheldCallOutcome`'s memo hit refuses it by name, `allFromCache` arms the
+ * action-recovery lockout, and the no-progress streak climbs either way. What it never
+ * justified was withholding the measurement a validator demands.
+ *
+ * Keep this set minimal. A tool belongs here only when a runtime check reads its output;
+ * `stage-policy.test.ts` asserts that property rather than trusting the list.
+ */
+export const VALIDATOR_INPUT_TOOL_NAMES: ReadonlySet<string> = new Set([BEAT_ANALYSIS_TOOL]);
+
+/**
+ * May a stage use this tool? {@link stageAllowsRole}, plus the validator-input exemption.
+ *
+ * Prefer this over {@link stageAllowsRole} at any call site that decides what a run may
+ * actually call — the role alone cannot express "the runtime will hold you to this".
+ */
+export function stageAllowsTool(stage: RunStage, name: string, mutates: boolean): boolean {
+  if (VALIDATOR_INPUT_TOOL_NAMES.has(name)) return true;
+  return stageAllowsRole(stage, toolRole(name, mutates));
 }
 
 /*

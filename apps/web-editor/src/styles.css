@@ -4196,9 +4196,10 @@ input[type='checkbox']:focus-visible {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-  /* Vertical padding is a half-step: the 28px controls already carry their own
-     air, and 8px on top of them made the strip taller than the ruler below it. */
-  padding: 3px 10px;
+  /* Vertical padding is a hairline: the 28px controls already carry their own air,
+     and every pixel here is one the timeline below does not get. The controls keep
+     their full 28px box — this trims the strip around them, not the hit targets. */
+  padding: 1px 10px;
   background: var(--bg-raised);
   border-bottom: 1px solid var(--line);
 }
@@ -5602,8 +5603,11 @@ input[type='checkbox']:focus-visible {
    clip is a tiny block; the bright window is the current viewport, draggable. */
 .minimap {
   position: relative;
-  height: 28px;
-  margin-top: 4px;
+  /* Navigation only — every clip is a 2px block and the bright window is the
+     viewport, so the strip needs to be legible, not tall. The height it does not
+     take is height the tracks do. */
+  height: 20px;
+  margin-top: 3px;
   border-top: 1px solid var(--border-subtle);
   /* Ordinary chrome (an abstract clip overview, not footage) — follows the
      theme like every other surface. --bg-canvas would stay dark even in

@@ -58,6 +58,17 @@ import {
   type BinSort,
   useMediaBinView,
 } from '../editor/useMediaBinView.js';
+import { useViewPreference } from '../editor/useViewPreference.js';
+
+/** Stable empty default, so an un-collapsed bin never mints a new array per render. */
+const EMPTY_IDS: readonly string[] = [];
+
+/** Accept only an array of strings — anything else falls back to "nothing collapsed". */
+function coerceIdList(raw: unknown): readonly string[] | undefined {
+  return Array.isArray(raw) && raw.every((id) => typeof id === 'string')
+    ? (raw as readonly string[])
+    : undefined;
+}
 import { FolderGlyph } from './FolderGlyph.js';
 import { Tooltip } from './Tooltip.js';
 import { Select, type SelectOption } from './Select.js';
@@ -621,7 +632,32 @@ export function MediaBin({
 }: MediaBinProps): JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  /**
+   * Which bin folders are folded shut — remembered between sessions.
+   *
+   * Persisted as an id array and used as a Set, the same shape `useTrackLayout` already
+   * uses for per-lane view state: ids are project-scoped, one global store holds them all,
+   * and an id from another project simply never matches a folder here. Collapsing a tree
+   * and finding it fully expanded on every open is the kind of small tax that makes a bin
+   * feel like it is not listening.
+   */
+  const [collapsedIds, setCollapsedIds] = useViewPreference<readonly string[]>(
+    'binCollapsedFolders',
+    EMPTY_IDS,
+    coerceIdList,
+  );
+  const collapsed = useMemo<ReadonlySet<string>>(() => new Set(collapsedIds), [collapsedIds]);
+  const setCollapsed = useCallback(
+    (update: (previous: ReadonlySet<string>) => ReadonlySet<string>): void => {
+      setCollapsedIds((previous) => {
+        const next = update(new Set(previous));
+        // Sorted so the stored value is stable: the same set of folders must not rewrite
+        // storage (and re-render) just because they were toggled in a different order.
+        return [...next].sort();
+      });
+    },
+    [setCollapsedIds],
+  );
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   /** True while OS files are being dragged over the bin (for the import overlay). */
   const [fileDragActive, setFileDragActive] = useState(false);

@@ -35,6 +35,17 @@ import { recommendTransitions } from './transition-recommendations.js';
 import { TRANSITION_DND_TYPE } from './transition-catalog.js';
 import { ICON_SIZE, Search, Sparkles, Star } from './icons.js';
 import { usePrefersReducedMotion } from './usePrefersReducedMotion.js';
+import { oneOf, useViewPreference } from '../editor/useViewPreference.js';
+
+const TRANSITION_DENSITY_IDS = ['compact', 'comfortable'] as const;
+type TransitionDensity = (typeof TRANSITION_DENSITY_IDS)[number];
+
+/**
+ * How big the transition tiles are — remembered between sessions, like the footage
+ * thumbnails' own size control already is (`useMediaBinView`). The two are the same kind of
+ * preference and had opposite behaviour.
+ */
+const coerceTransitionDensity = oneOf<TransitionDensity>(TRANSITION_DENSITY_IDS);
 
 export interface TransitionsPanelProps {
   readonly editor: UseEditor;
@@ -63,7 +74,11 @@ export function TransitionsPanel({
   const { selection, timeline } = editor.state;
   /** The tile under the pointer/focus — only one animates at a time. */
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [density, setDensity] = useState<'compact' | 'comfortable'>('comfortable');
+  const [density, setDensity] = useViewPreference<TransitionDensity>(
+    'transitionsDensity',
+    'comfortable',
+    coerceTransitionDensity,
+  );
 
   /** Which catalog ids are already on a cut somewhere, for the "in use" marker. */
   const appliedIds = useMemo(() => {

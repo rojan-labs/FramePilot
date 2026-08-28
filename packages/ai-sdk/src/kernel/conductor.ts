@@ -375,6 +375,21 @@ export interface ConductorState {
   /** Count + reasons of proposed ops the validator rejected (empty-run notice). */
   readonly rejectedOpCount: number;
   readonly rejectionReasons: readonly string[];
+  /**
+   * The reason the previous turn was rejected, so a VERBATIM repeat is not counted as
+   * progress.
+   *
+   * "A rejected op is a bounded retry" was the rule, and nothing bounded it. Run `ea8e46ec`
+   * proposed the same 61-clip montage six times over thirty minutes, was refused six times
+   * with one byte-identical sentence, and reset its own stall streak on every attempt
+   * because it had "attempted an edit". A retry that changes nothing about the proposal AND
+   * learns nothing new is the same nothing the stall guard exists to catch.
+   *
+   * Cleared by any applied edit, so a long multi-step edit that hits one bad step and
+   * recovers is untouched. Empty string means "no rejection stands" — always present, so
+   * every state literal carries it and none can silently forget to.
+   */
+  readonly lastRejectionReason: string;
   readonly cancelled: boolean;
   /** Integrity failure is terminal and distinct from creator cancellation. */
   readonly integrityFailed: boolean;
@@ -436,6 +451,7 @@ export function initialConductorState(turnRef: TurnRef): ConductorState {
     seenCallKeys: [],
     rejectedOpCount: 0,
     rejectionReasons: [],
+    lastRejectionReason: '',
     working: initialWorkingState({ runId: turnRef.turnId, request: '' }),
     recentIntents: [],
     noProgressStreak: 0,
@@ -809,6 +825,37 @@ function emptyRunMessage(rejectedOpCount: number, rejectionReasons: readonly str
   return `No edits were applied — ${rejectedOpCount} proposed change${plural} couldn't be applied to the timeline (${rejectionReasons.join('; ')}). Try rephrasing the request.`;
 }
 
+/** The honest partial-run explanation: some edits landed, others were refused. */
+function partialRunMessage(rejectedOpCount: number, rejectionReasons: readonly string[]): string {
+  const plural = rejectedOpCount === 1 ? '' : 's';
+  const why = rejectionReasons.length > 0 ? ` (${rejectionReasons.join('; ')})` : '';
+  return (
+    `Some of this edit did not land — ${rejectedOpCount} proposed change${plural} ` +
+    `couldn't be applied to the timeline${why}. What did apply is on the timeline and can ` +
+    'be undone.'
+  );
+}
+
+/**
+ * Why the run stopped, when it stopped because it stopped progressing.
+ *
+ * "No further edits could be found for this request" was said unconditionally, and in run
+ * `ea8e46ec` it was false: 61 edits were found, six times over, and refused six times by one
+ * internal rule. The editor was shown a stall and two self-check warnings about the SYMPTOM
+ * ("the cut uses 0 shots"), and nothing at all about the cause. A run that knows exactly why
+ * it could not act must say so — that is the difference between a report and a shrug.
+ */
+function stalledRunMessage(rejectionReasons: readonly string[]): string {
+  if (rejectionReasons.length === 0) {
+    return 'The run stopped making progress — no further edits could be found for this request.';
+  }
+  const plural = rejectionReasons.length === 1 ? '' : 's';
+  return (
+    `The run stopped making progress — its edits kept being refused (${rejectionReasons.length} ` +
+    `reason${plural}): ${rejectionReasons.join('; ')}.`
+  );
+}
+
 /**
  * The empty-run notice for a run that never even proposed an operation (R2) — it read,
  * analysed and reasoned, but the timeline is untouched. Worded so the creator knows the
@@ -960,6 +1007,15 @@ function finalize(state: ConductorState, em: Emitter, events: AiEvent[]): Conduc
     }
   }
   const alreadyExplained = events.some((e) => e.type === 'warning');
+  if (!state.cancelled && state.cumulativeOps.length > 0 && state.rejectedOpCount > 0) {
+    // A run that landed SOMETHING used to say nothing about what it could not land, because
+    // the only account of a refusal was gated on the run being completely empty. Run
+    // `ea8e46ec` landed two audio operations and was refused sixty-one picture clips six
+    // times over; the editor saw a stall notice and two warnings about the resulting
+    // timeline, and no word about the rule that produced it. A partial outcome the creator
+    // cannot distinguish from a complete one is the failure, not the partiality.
+    events.push(em.warning(partialRunMessage(state.rejectedOpCount, state.rejectionReasons)));
+  }
   if (!state.cancelled && state.cumulativeOps.length === 0) {
     if (state.rejectedOpCount > 0) {
       events.push(em.warning(emptyRunMessage(state.rejectedOpCount, state.rejectionReasons)));
@@ -1119,6 +1175,7 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
     seenCallKeys: [],
     rejectedOpCount: 0,
     rejectionReasons: [],
+    lastRejectionReason: '',
     cancelled: false,
     integrityFailed: false,
     log: [],
@@ -1639,6 +1696,8 @@ export function onTurnResult(
       recentIntents: [],
       recentOutputDeltas: [],
       actionRecoveryPending: false,
+      // An edit landed, so whatever was refused before is behind the run.
+      lastRejectionReason: '',
       seenCallKeys: mergeSeenKeys(state.seenCallKeys, r.callFacts),
     };
     if (cumulativeOps.length >= state.config.maxOpsPerRun) {
@@ -1673,7 +1732,17 @@ export function onTurnResult(
   // (a first-seen read/analysis — the raw material an edit is built from). Re-reading what
   // the run already has (served from the memo as non-novel) is neither: it changes nothing
   // and reveals nothing, so it cannot be progress.
-  const progressed = attemptedEdit || turnLearnedSomethingNew(r.callFacts, state.seenCallKeys);
+  // A retry is bounded by being a DIFFERENT attempt. A turn refused with the exact reason
+  // that refused the last one has changed nothing the runtime can see, so it does not earn
+  // the attempt's progress credit — it must learn something new to count. Compared on the
+  // rejection alone, never on the turn note, which carries every read result in the turn
+  // and would almost never repeat byte for byte.
+  const repeatedRejection =
+    rejected && r.rejection !== undefined && r.rejection === state.lastRejectionReason;
+
+  const progressed =
+    (attemptedEdit && !repeatedRejection) ||
+    turnLearnedSomethingNew(r.callFacts, state.seenCallKeys);
   const seenCallKeys = mergeSeenKeys(state.seenCallKeys, r.callFacts);
   // Convergence is the sole behavioral stop: a turn that made no progress increments the
   // streak, any progress resets it. Two provable non-progress turns in a row (or an exact
@@ -1835,6 +1904,10 @@ export function onTurnResult(
     researchStreak,
     recentOutputDeltas,
     actionRecoveryPending,
+    // Only a real rejection is remembered; a turn that landed nothing for any other reason
+    // (a pure read, an already-satisfied edit) must not make the NEXT rejection look like a
+    // repeat of it.
+    lastRejectionReason: rejected ? (r.rejection ?? '') : state.lastRejectionReason,
     seenCallKeys,
   };
   // An exact repeated read batch used to terminate HERE before the next turn could act.
@@ -1873,11 +1946,7 @@ export function onTurnResult(
   const converged = stallStreak >= STALL_CONFIRM_TURNS;
   if (state.noProgress.includes(r.signature) || converged) {
     if (converged) {
-      events.push(
-        em.notification(
-          'The run stopped making progress — no further edits could be found for this request.',
-        ),
-      );
+      events.push(em.notification(stalledRunMessage(rejectionReasons)));
     } else {
       // The exact-repeat arm used to end the run in silence. An editor watching saw a
       // tool card go green and the run settle `failed` in the same breath, with the

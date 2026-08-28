@@ -453,6 +453,16 @@ describe('picture_present', () => {
     const report = critique(musicOnly, { durationTargetSeconds: 30 });
     expect(idOf(report, 'picture_present')).toMatchObject({ status: 'fail' });
     expect(report.ok).toBe(false);
+    // And it says the RIGHT thing about it. The overlay count was `allClips(timeline)`, so
+    // in run `ea8e46ec` — a music bed and nothing else — the editor was told "1
+    // overlay/caption clip … the whole thing renders as text on black", naming a caption
+    // that did not exist and text that was never placed. The remedy for sound-with-no-
+    // picture is not the remedy for text-on-black, and the wrong sentence sends the editor
+    // after the wrong thing.
+    const detail = idOf(report, 'picture_present')?.detail ?? '';
+    expect(detail).toContain('sound but no picture');
+    expect(detail).not.toContain('overlay/caption');
+    expect(detail).not.toContain('text on black');
   });
 
   it('regression: the per-clip checks do not ask an audio clip for a reframe', () => {

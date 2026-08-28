@@ -308,3 +308,222 @@ describe('beat-grid enforcement in a real agent run', () => {
     expect(boundaries.some((time) => offGridBy(time) > 0.08)).toBe(true);
   });
 });
+
+/**
+ * Run `ea8e46ec`, replayed end to end.
+ *
+ * The brief said "evaluate multiple suitable tracks and select the strongest one". The run
+ * did exactly that: three `detect_beats` calls in ONE turn, then it placed the track it
+ * chose and cut sixty-one photos to it. `detect_beats` is a `pure_read`, so the three calls
+ * went through `mapBounded` and all three wrote the single `beatEvidence.current` slot; the
+ * survivor described a track the editor had not chosen. Every montage proposal after that
+ * was rejected for not placing an asset nobody wanted, the model's own attempt to fix it
+ * (re-analyse the placed track) was refused by the stage policy, and the run died after
+ * thirty-five minutes with no picture on the timeline.
+ */
+describe('a run that auditions several tracks before choosing one', () => {
+  /** Three candidate tracks with deliberately DIFFERENT grids, so the wrong one is visible. */
+  const CANDIDATES = {
+    asset_music_a: [0.17, 0.62, 1.07, 1.52, 1.97, 2.42, 2.87],
+    asset_music_b: [0.29, 0.81, 1.33, 1.85, 2.37, 2.89],
+    asset_music_c: ONSETS,
+  } as const;
+
+  /** The three tracks are in the bin; none is on the timeline yet. */
+  function auditionProject() {
+    const base = makeProject();
+    return {
+      ...base,
+      assets: [
+        ...base.assets,
+        ...Object.keys(CANDIDATES).map((id) => ({
+          id,
+          name: `${id}.mp3`,
+          path: `/media/${id}.mp3`,
+          kind: 'audio' as const,
+          durationSec: 10,
+        })),
+      ],
+      timeline: {
+        ...base.timeline,
+        tracks: [
+          ...base.timeline.tracks,
+          { id: 'video_2', name: 'Montage', type: 'video' as const, clips: [] },
+          { id: 'audio_1', name: 'Music', type: 'audio' as const, clips: [] },
+        ],
+      },
+    };
+  }
+
+  const auditionExecutor: HostToolExecutor = {
+    async run(call) {
+      if (call.name === 'detect_beats') {
+        const assetId = String((call.arguments as { assetId?: unknown }).assetId);
+        const beats = CANDIDATES[assetId as keyof typeof CANDIDATES];
+        return {
+          status: 'completed',
+          summary: `found ${String(beats.length)} beats`,
+          data: { assetId, bpm: 120, beats: beats.map((time) => ({ time, strength: 1 })) },
+        };
+      }
+      return { status: 'completed', summary: 'ok' };
+    },
+  };
+
+  /**
+   * Turn 1 analyses all three tracks at once. Turn 2 places the chosen bed (unless the
+   * scenario is the "music never placed" one). Turn 3 cuts the picture to the chosen grid.
+   */
+  class AuditionProvider implements AiProvider {
+    private index = 0;
+    public readonly name = 'mock' as const;
+    public constructor(
+      private readonly placeBed: boolean,
+      private readonly hardSync = false,
+    ) {}
+    public async complete(_request: AiCompletionRequest): Promise<AiResponse> {
+      this.index += 1;
+      if (this.index === 1) {
+        return {
+          text: 'Auditioning three tracks.',
+          toolCalls: Object.keys(CANDIDATES).map((assetId, i) => ({
+            id: `b${String(i)}`,
+            name: 'detect_beats',
+            arguments: { assetId, ...(this.hardSync ? { hardSync: true } : {}) },
+          })),
+        };
+      }
+      if (this.index === 2 && this.placeBed) {
+        return {
+          text: 'Track C has the strongest drive — placing it.',
+          toolCalls: [
+            {
+              id: 'bed',
+              name: 'add_clip',
+              arguments: {
+                trackId: 'audio_1',
+                assetId: 'asset_music_c',
+                start: 0,
+                end: 4,
+                sourceStart: 0,
+              },
+            },
+          ],
+        };
+      }
+      if (this.index <= 3) {
+        return {
+          text: 'Cutting the montage to its onsets.',
+          toolCalls: [
+            { start: 0, end: 1 },
+            { start: 1, end: 2 },
+            { start: 2, end: 3 },
+          ].map((cut, i) => ({
+            id: `c${String(i)}`,
+            name: 'add_clip',
+            arguments: {
+              trackId: 'video_2',
+              assetId: 'asset_1',
+              start: cut.start,
+              end: cut.end,
+              sourceStart: cut.start,
+            },
+          })),
+        };
+      }
+      return { text: 'Done.', toolCalls: [] };
+    }
+  }
+
+  async function runAudition(
+    placeBed: boolean,
+    hardSync = false,
+  ): Promise<{ events: AiEvent[]; notes: string[] }> {
+    const orchestrator = new Orchestrator(new AuditionProvider(placeBed, hardSync), {
+      executor: auditionExecutor,
+    });
+    const events: AiEvent[] = [];
+    for await (const event of orchestrator.streamAgent(
+      { project: auditionProject(), userPrompt: 'make me a beat-synced montage' },
+      opts,
+    )) {
+      events.push(event);
+    }
+    const notes = events.flatMap((event) => {
+      const record = event as unknown as Record<string, unknown>;
+      return ['note', 'text', 'message', 'summary', 'detail'].flatMap((key) =>
+        typeof record[key] === 'string' ? [record[key]] : [],
+      );
+    });
+    return { events, notes };
+  }
+
+  it('cuts to the track it PLACED, not to whichever analysis settled last', async () => {
+    const { events, notes } = await runAudition(true);
+
+    // The montage landed. This is the assertion the incident fails: six proposals, zero
+    // clips, thirty-five minutes.
+    const boundaries = appliedBoundaries(events);
+    expect(boundaries.length).toBeGreaterThan(0);
+    expect(notes.some((note) => note.includes('beat grid'))).toBe(false);
+    expect(notes.some((note) => note.includes('not on the timeline'))).toBe(false);
+
+    // And it is held to the grid of the track that is actually under the picture: every
+    // boundary sits on one of C's onsets, none of which belongs to A or B.
+    for (const time of boundaries) {
+      expect(offGridBy(time)).toBeLessThanOrEqual(0.5 * FRAME);
+    }
+    // Nothing was reported off-grid, because the run really was cut to the right music.
+    expect(notes.some((note) => note.includes('do not sit on a detected onset'))).toBe(false);
+  });
+
+  it('reports — never vetoes — a montage cut before any analysed track is placed', async () => {
+    const { events, notes } = await runAudition(false);
+    // The cuts land: the run never promised hard sync, and the only remedy for a veto here
+    // would be `detect_beats`, which every execution stage withholds.
+    expect(appliedBoundaries(events).length).toBeGreaterThan(0);
+    const measured = notes.find((note) => note.includes('not checked against any onset'));
+    expect(measured).toBeDefined();
+    // All three analysed tracks are named, so the model knows exactly what it must place.
+    for (const assetId of Object.keys(CANDIDATES)) expect(measured).toContain(assetId);
+  });
+
+  it('DOES refuse an ungrounded montage when the run declared hard sync', async () => {
+    const { events, notes } = await runAudition(false, true);
+    const rejection = notes.find((note) => note.includes('beat grid'));
+    expect(rejection).toBeDefined();
+    expect(rejection).toContain('hard sync');
+    // A real refusal: no picture reached the timeline.
+    expect(appliedBoundaries(events)).toHaveLength(0);
+  });
+
+  /**
+   * A tool card settles when its own call returns, which is before the turn gate runs. Run
+   * `ea8e46ec` therefore showed the editor sixty-one green "Added clip Video 1 · 0s–0.5s"
+   * rows — past tense — for clips that never reached the timeline, six times over. A run
+   * that reports work it did not do is worse than one that reports nothing.
+   */
+  it('settles the cards that proposed a rejected turn as failed, not as checkmarks', async () => {
+    const { events } = await runAudition(false, true);
+    // `reduceEvents` upserts by id, so the LAST status for each card is what the editor
+    // sees. Every card that proposed the refused montage must end red.
+    const finalStatus = new Map<string, string>();
+    for (const event of events) {
+      if (event.type === 'tool_call') finalStatus.set(event.id, event.status);
+    }
+    const cutCards = [...finalStatus.entries()].filter(([id]) => id.startsWith('c'));
+    expect(cutCards.length).toBeGreaterThan(0);
+    for (const [id, status] of cutCards) {
+      expect(status, `card ${id} claims success for a clip that never landed`).toBe('failed');
+    }
+  });
+
+  it('leaves the cards of a turn that APPLIED alone', async () => {
+    const { events } = await runAudition(true);
+    const finalStatus = new Map<string, string>();
+    for (const event of events) {
+      if (event.type === 'tool_call') finalStatus.set(event.id, event.status);
+    }
+    expect([...finalStatus.values()].every((status) => status === 'completed')).toBe(true);
+  });
+});

@@ -569,11 +569,12 @@ function deriveBeats(index: ProjectIndex, beats: unknown): BeatGrid | null {
 /**
  * The beat grid alone, in timeline time, for a project + raw `detect_beats` payload.
  *
- * Exposes {@link deriveBeats} for the one caller that needs the grid and nothing else: the
- * beat-boundary rule the agent runtime applies per turn
- * (`kernel/beat-grid/beat-alignment.ts`). Building the whole {@link SemanticTimelineIndex}
- * there would compute scenes, silences, music, transitions, loudness and chapters on every
- * turn of a beat-backed run to read one array off the end of it.
+ * Exposes {@link deriveBeats} for the one caller that needs the grid and nothing else:
+ * `kernel/beat-grid/beat-evidence.ts`, which asks it once per analysed track to work out
+ * which of them the picture is actually cut against. Building the whole
+ * {@link SemanticTimelineIndex} there would compute scenes, silences, music, transitions,
+ * loudness and chapters on every turn of a beat-backed run to read one array off the end
+ * of it.
  *
  * The underlying {@link indexFor} memoizes per project, so repeated calls against an
  * unchanged timeline re-walk nothing.

@@ -61,6 +61,28 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant can compare tracks and still cut to the one it chose.** Ask for a
+  beat-synced montage and the assistant will audition a few songs before picking the best —
+  which is what you want it to do. It could only remember one of them, and not reliably the
+  one it went with, so from then on every attempt to lay the pictures down was refused
+  against a song that was not in your edit. One run analysed three tracks, placed the third,
+  and then tried six times over half an hour to cut 61 hiking photos to it; it delivered a
+  timeline with music and no pictures at all, and told you only that it had "stopped making
+  progress". It now remembers every track it listened to, works out which one is actually
+  under the picture, and cuts to that.
+- **The assistant stops re-trying an edit that is being refused for the same reason.** A
+  refused edit used to count as forward motion no matter how many times the same refusal came
+  back, so a stuck run could keep going until it ran out of budget. An identical refusal now
+  ends the attempt, and the assistant tells you what refused it instead of saying nothing
+  could be found.
+- **Edits that did not land no longer look like edits that did.** When something the
+  assistant proposed is refused after the fact, the rows in the panel turn red instead of
+  staying as green ticks describing clips that never reached your timeline. And a run that
+  applied part of its work now says which part did not apply, rather than only mentioning it
+  when nothing at all applied.
+- **"There's no picture here" says which kind of nothing it found.** A timeline with music
+  and no footage was reported as captions over black, naming text that was never placed. It
+  now tells you it has sound and no picture — a different problem with a different fix.
 - **The assistant can hear the music again — and see its own edit.** The render engine
   sandboxes every file it touches against a projects folder it learns from
   `FRAMEPILOT_PROJECTS_ROOT`, and the desktop app — which works that folder out for itself

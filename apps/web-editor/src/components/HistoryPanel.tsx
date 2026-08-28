@@ -14,6 +14,7 @@
  * a relative timestamp make each edit legible at a glance.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { oneOf, useViewPreference } from '../editor/useViewPreference.js';
 import {
   applyProjectPatch,
   diffTimeline,
@@ -58,7 +59,16 @@ import {
 type Author = 'user' | 'agent';
 
 /** The three history filters. */
-type Filter = 'all' | 'user' | 'agent';
+const FILTER_IDS = ['all', 'user', 'agent'] as const;
+type Filter = (typeof FILTER_IDS)[number];
+
+/**
+ * Which authors the history reel shows — remembered between sessions.
+ *
+ * Someone reviewing what the agent did to their cut sets this to Agent and wants it to stay
+ * there; it is a lens on the same list, not a claim about the list.
+ */
+const coerceFilter = oneOf<Filter>(FILTER_IDS);
 
 export interface HistoryPanelProps {
   readonly editor: UseEditor;
@@ -343,7 +353,7 @@ export function HistoryPanel({
 }: HistoryPanelProps): JSX.Element | null {
   const history: EditHistory = editor.history;
   const { entries, cursor } = history;
-  const [filter, setFilter] = useState<Filter>('all');
+  const [filter, setFilter] = useViewPreference<Filter>('historyFilter', 'all', coerceFilter);
   const [hovered, setHovered] = useState<number | null>(null);
   // A stable "now" per open so relative times don't churn every render.
   const nowRef = useRef<number>(Date.now());
