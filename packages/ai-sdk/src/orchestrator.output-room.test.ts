@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AiCompletionRequest, AiProvider, AiResponse, ProviderChunk } from './providers/types.js';
-import { Orchestrator, callMemoKey, outputRoomFor } from './orchestrator.js';
+import { Orchestrator, callMemoKey, outputRoomFor, truncationRetryHint } from './orchestrator.js';
 import { makeProject } from './__fixtures__/project.js';
 
 /** A provider that records every request it is given and answers with plain text. */
@@ -70,5 +70,47 @@ describe('callMemoKey (P1.1c)', () => {
     expect(callMemoKey({ id: '1', name: 'detect_scenes', arguments: { assetId: 'a', threshold: 0.3 } })).not.toBe(
       callMemoKey({ id: '2', name: 'detect_scenes', arguments: { assetId: 'a', threshold: 0.4 } }),
     );
+  });
+});
+
+describe('truncated reply retry (P1.1e)', () => {
+  it('retries a cut-off reply with a message that says so and asks for smaller steps', async () => {
+    const requests: AiCompletionRequest[] = [];
+    let streams = 0;
+    const provider: AiProvider = {
+      name: 'openai-compatible',
+      modelId: 'claude-sonnet-5',
+      async complete(request): Promise<AiResponse> {
+        requests.push(request);
+        return { text: 'Done.', usage: { inputTokens: 1, outputTokens: 1 } };
+      },
+      async *stream(request): AsyncGenerator<ProviderChunk> {
+        requests.push(request);
+        streams += 1;
+        if (streams === 1 && request.tools && request.tools.length > 0) {
+          yield { type: 'text-delta', text: 'Rebuilding the 30 seconds as a 23-shot' };
+          yield { type: 'done', text: 'Rebuilding the 30 seconds as a 23-shot', truncated: true };
+          return;
+        }
+        yield { type: 'text-delta', text: 'Nothing more to do.' };
+        yield { type: 'done', text: 'Nothing more to do.' };
+      },
+    };
+    const orchestrator = new Orchestrator(provider);
+    const events = [];
+    for await (const event of orchestrator.streamAgent(
+      { project: makeProject(), userPrompt: 'tighten the whole thing' },
+      { conversationId: 'c', turnId: 't' },
+      {},
+    )) events.push(event);
+    const agentRequests = requests.filter((r) => r.tools && r.tools.length > 0);
+    expect(agentRequests.length).toBeGreaterThanOrEqual(2);
+    const retry = agentRequests[1]!;
+    const last = retry.messages.at(-1)!;
+    expect(last.role).toBe('user');
+    expect(last.content).toBe(truncationRetryHint());
+    expect(last.content).toContain('cut off');
+    // The first request carried no such hint.
+    expect(agentRequests[0]!.messages.at(-1)!.content).not.toContain('cut off');
   });
 });

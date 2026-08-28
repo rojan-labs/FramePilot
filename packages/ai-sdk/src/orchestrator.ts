@@ -511,6 +511,22 @@ function bankedSearchCount(working: RunWorkingState | undefined): number {
  *   judging the prose instead would retry finished two-word answers ("all done") and still
  *   miss a fragment that happens to end on a period.
  */
+/**
+ * The message appended to a retry after a cut-off reply. Exported for tests.
+ *
+ * WHY a message and not a silent retry: the model has no way to know its last reply was
+ * truncated — from its side the conversation simply continues — so an identical retry
+ * produces an identical, identically cut-off reply. Telling it, and asking for smaller
+ * steps, is what turns the second attempt into a different one.
+ */
+export function truncationRetryHint(): string {
+  return (
+    'Your previous reply was cut off before any tool call completed, so nothing was ' +
+    'applied. Do the same work in smaller pieces: make at most four tool calls now, ' +
+    'with short arguments, and continue with the rest on the next turn.'
+  );
+}
+
 export function unusableTurnReason(
   turn: { readonly text: string; readonly calls: readonly unknown[]; readonly truncated?: boolean },
   appliedOpsSoFar: number,
@@ -6973,6 +6989,14 @@ export class Orchestrator {
           attempt += 1
         ) {
           log.push(`Step ${index}: ${unusable} model response — retrying (attempt ${attempt}).`);
+          // A cut-off reply retried verbatim is cut off again at the same place (both
+          // montage baseline failures, plan/system-mission P1.1e). The retry says why the
+          // last attempt was unusable and asks for the same work in smaller pieces.
+          const retryPrompt = built();
+          const retryMessages =
+            unusable === 'truncated'
+              ? [...retryPrompt.messages, { role: 'user' as const, content: truncationRetryHint() }]
+              : retryPrompt.messages;
           // The attempt being replaced was still billed, so fold its usage in before it is
           // overwritten; the surviving attempt is folded in by the block below, once.
           if (turn.usage) {
@@ -6980,7 +7004,7 @@ export class Orchestrator {
             usageTokens += supersededCost.tokens;
             usageUsd += supersededCost.usd;
           }
-          turn = yield* streamOnce(attempt);
+          turn = yield* streamOnce(attempt, { ...retryPrompt, messages: retryMessages });
           modelCalls += 1;
           unusable = unusableTurnReason(turn, state.cumulativeOps.length, effect.stage);
         }

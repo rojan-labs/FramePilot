@@ -44,6 +44,9 @@ Landed so far:
 - **P1.3a — source-media facts block** (`summarizeSourceMedia`): file, dimensions,
   orientation vs the sequence, priced into the grounding allocation. Ledger: 5
   `recall_evidence` + 5 `describe_footage` requests for these facts.
+- **P1.1e — a cut-off reply is retried with a hint, not verbatim** (`truncationRetryHint`):
+  the retry says the last reply was cut off before any tool call and asks for at most four
+  short tool calls now. Ledger: five 8,192-token cut-offs, each retried identically.
 - Goldens (`golden-corpus`, `langchain-anthropic-sessions`, `streamAgent-golden`)
   regenerated after each; the diffs are the measured prompt/request deltas.
 **Done when:** p50 model calls per scenario ≤ baseline − (count of rows classified

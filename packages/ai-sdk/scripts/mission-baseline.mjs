@@ -162,7 +162,7 @@ async function runTurn({ project, prompt, history, scenarioId, turnIndex }) {
     createSessionContextDigester({ baseUrl: BASE_URL })(project.id).catch(() => undefined),
   ]);
   const rememberDecision = (note) => {
-    void createMemoryRecorder({ baseUrl: BASE_URL })({ projectId: project.id, title: note.title, body: note.body }).catch(() => undefined);
+    void createMemoryRecorder({ baseUrl: BASE_URL })({ projectId: project.id, tier: 'decisions', title: note.title, body: note.body }).catch(() => undefined);
   };
   const started = Date.now();
   const events = [];
