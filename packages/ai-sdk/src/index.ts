@@ -85,3 +85,5 @@ export * from './run-controls.js';
 export * from './orchestrator.js';
 export * from './kernel/index.js';
 export * from './eval/mission-rubric.js';
+export * from './references/role.js';
+export * from './references/profile.js';

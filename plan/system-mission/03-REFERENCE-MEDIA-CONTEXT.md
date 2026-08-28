@@ -1,4 +1,4 @@
-# Phase 3 — Reference videos and images as first-class AI context — `[ ]`
+# Phase 3 — Reference videos and images as first-class AI context — `[~]`
 
 > **Ships:** a user attaches reference videos and images in the AI sidebar; each is
 > analyzed **once** into a structured profile; the profile enters the P1.3 `memory`
@@ -37,7 +37,7 @@ sandbox does not widen.
 **Done when:** attach three videos and two images, see tiles, remove one, reload — tiles
 persist (session store).
 
-## P3.2 — Role classification — `[ ]`
+## P3.2 — Role classification — `[x]`
 
 **Touches:** new `packages/ai-sdk/src/references/role.ts` (pure). A reference has a
 `role`: `style` | `pacing` | `caption-style` | `color` | `brand-logo` | `thumbnail` |
@@ -49,7 +49,12 @@ role from the tile.
 **Done when:** the six fixture images and three videos get the expected roles from (a)/(b)
 alone in the table test; the model fallback is exercised by one test.
 
-## P3.3 — Reference profiles: analyze once, store, reuse — `[ ]` / `[!]` persistence
+Landed 2026-08-29: `references/role.ts` (`decideReferenceRole`, 13 table tests). Decision:
+no model fallback — an undecidable attachment is returned `ambiguous: true` with the
+`style` default, and the tile lets the editor change the role (P3.6). A per-turn model call
+to guess a purpose is exactly the kind of request this mission removes.
+
+## P3.3 — Reference profiles: analyze once, store, reuse — `[~]` (types + constraints landed; analysis route and cache next)
 
 **Touches:** new `packages/ai-sdk/src/references/profile.ts` (types + builder),
 sidecar route `POST /references/analyze` in `service.py` (reuses scene detection, beat
