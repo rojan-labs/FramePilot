@@ -360,7 +360,11 @@ select:focus-visible,
 }
 
 .toolbar {
-  min-height: 42px;
+  /* The strip is 28px of controls. 42px padded it out by seven pixels top and bottom —
+     `align-items: center` put the row in the middle of a box half again its own height,
+     and those fourteen pixels are timeline the editor never got to see. 32px keeps a
+     hairline around the controls without the controls themselves shrinking. */
+  min-height: 32px;
   padding-inline: 10px;
   background: var(--bg-surface);
   border-bottom-color: var(--border-default);
