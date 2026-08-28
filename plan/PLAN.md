@@ -48,6 +48,35 @@ correctly, and loosening them would have bought more turns to keep fetching.
 **Not yet measured.** The next run settles whether a run holding all 61 descriptions from
 turn one places all 61 photos, lands inside 20–35 seconds, and covers the bed.
 
+**Status snapshot (2026-08-28, run `fc10301a` gap analysis, round 8):** `[x]` **All 21 gaps
+closed.** The re-run of the 61-photo montage after ADR 0154. It placed 34 of 61 photos over
+0–24.079s of a 47.8s bed, applied no motion, transitions, grade or crop, and settled
+`failed` with 11 of 30 steps unspent. `TOOL_REPORT.md` holds the evidence per gap; the
+short account of what was actually wrong:
+
+- **The run was never told what "done" meant.** `acceptance.ts` derived "about 27.5s" and
+  "at least 61 shots" before turn one, `critic.ts` failed the run on exactly those, and
+  `briefing.ts` printed neither — the section was gated on the objective not being the
+  request echoed back, and a seeded objective always is. A test asserted the suppression.
+- **The spin guard killed it.** `turnSignature` hashed tool names and arguments only, so a
+  montage that must re-read the timeline between batches collided with itself; and the
+  exact-repeat arm ended runs in silence.
+- **Every applied patch wiped the run's timeline memory**, forcing that read. A turn now
+  carries the arrangement it just produced.
+- **`add_clip` was exempt from the frame grid** — the one authoring operation that was, and
+  the most common one. Fixing it exposed two seams where an ungridded value was compared
+  against a gridded timeline.
+- **Nothing carried an asset's shape**, so 34 landscape photos went into a 1080x1920 frame
+  against a brief reading "No black bars". Schema **v21** adds `media.width/height`; ADR
+  **0155**.
+- **Per-clip granularity made the brief unreachable**: 61 placements against a 30-step
+  budget. `add_clips` places a sequence in one patch.
+
+ADR **0155**. Skills, goldens and both tool surfaces re-recorded; the branch is
+`fix/run-gap-analysis-fc10301a`.
+
+**Not yet measured.** As with round 7, the next run settles whether these hold end to end.
+
 **Status snapshot (2026-08-28, media-intelligence closure):** a reported "footage map is
 never created for images" turned out to be photos being dispatched to a video-only hosted
 index, where one refusal froze the whole project's preparation at asset #1. Phase 1 of

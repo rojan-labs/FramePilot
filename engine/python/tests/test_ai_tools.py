@@ -649,13 +649,13 @@ def test_add_clips_matches_add_clip_placement_exactly(ctx: ToolContext) -> None:
 
 def test_add_clips_refuses_an_empty_batch(ctx: ToolContext) -> None:
     """Proposing nothing is not a placement; say so rather than settling with no ops."""
-    with pytest.raises(Exception):
+    with pytest.raises(ToolInputError):
         run_tool("add_clips", {"trackId": "v", "clips": []}, ctx)
 
 
 def test_add_clips_names_the_entry_that_is_wrong(ctx: ToolContext) -> None:
     """A batch rejected without saying WHICH of sixty entries was wrong cannot be fixed."""
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(ToolInputError) as excinfo:
         run_tool(
             "add_clips",
             {
