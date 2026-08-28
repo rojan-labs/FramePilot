@@ -43,6 +43,7 @@ const RUNS = Number(args.runs ?? 3);
 const ONLY = args.only ? new Set(String(args.only).split(',')) : null;
 const OUT = resolve(REPO, String(args.out ?? 'reports/system-mission/baseline-orchestration.json'));
 const LABEL = String(args.label ?? 'baseline');
+const DUMP_DIR = args['dump-events'] ? resolve(REPO, String(args['dump-events'] === true ? 'reports/system-mission/runs' : args['dump-events'])) : null;
 const BASE_URL = process.env.FRAMEPILOT_PYTHON_API_URL ?? 'http://127.0.0.1:8799';
 const FIXTURES = join(REPO, 'tests', 'fixtures', 'mission', 'projects');
 const providerName = process.env.FRAMEPILOT_AI_PROVIDER ?? 'deepseek';
@@ -256,6 +257,20 @@ for (const scenario of SCENARIOS) {
         turnRecords.push({ turnIndex, prompt: turn.prompt, crashed: String(error), wallMs: Date.now() - t0 });
         process.stdout.write(`   turn ${turnIndex + 1}: CRASH ${String(error).slice(0, 200)}\n`);
         break;
+      }
+      if (DUMP_DIR) {
+        mkdirSync(DUMP_DIR, { recursive: true });
+        const compact = outcome.events.map((e) => {
+          const { type } = e;
+          if (type === 'assistant_delta' || type === 'reasoning_delta') return null;
+          const c = { ...e };
+          if (c.manifest) c.manifest = { sections: c.manifest.sections.filter((x) => x.included).map((x) => ({ type: x.type, label: x.label, tokens: x.tokenEstimate })), usage: c.manifest.usage };
+          if (c.edit) c.edit = { valid: c.edit.validation?.valid, ops: c.edit.patch?.operations?.map((o) => o.type), text: String(c.edit.text ?? '').slice(0, 300) };
+          if (c.result !== undefined) c.result = String(JSON.stringify(c.result)).slice(0, 400);
+          if (c.input !== undefined) c.input = String(JSON.stringify(c.input)).slice(0, 300);
+          return c;
+        }).filter(Boolean);
+        writeFileSync(join(DUMP_DIR, `${LABEL}-${scenario.id}-r${run}-t${turnIndex + 1}.json`), JSON.stringify(compact, null, 1));
       }
       const score = scoreMissionScenario(turn.rubric, {
         before: project,

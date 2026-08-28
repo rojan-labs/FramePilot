@@ -92,7 +92,7 @@ assets, progress-report cadence and error vs actual. Also record where FFmpeg is
 from (`render/compiler.py`, MoviePy `write_videofile`) and with which codec args.
 **Done when:** numbers are in the report and the FFmpeg command line is captured verbatim.
 
-## P0.6 — UI/UX walkthrough — `[ ]`
+## P0.6 — UI/UX walkthrough — `[x]`
 
 Screenshots + notes for every surface `PROMPT.md` §14 lists, on the desktop app. For each
 finding: surface, what a professional tool does, what FramePilot does, severity
