@@ -60,6 +60,18 @@ Differences must be either removed or listed in `docs/architecture/system-map.md
 `transcribe` is local-only there — see ASR two-path note).
 **Done when:** a golden-per-host test exists and the only differences are documented ones.
 
+Finding (2026-08-29): desktop (`ai-stream.ts`) and web (`editor/ai.ts`) both inject
+`visualStatus`, `footageMap`, `sessionContext`, `userMemory`; the web path does **not**
+pass `carriedForward` (previous run's working state) — a refinement turn in the browser
+re-learns the footage. Desktop is the product; recorded as an intentional host difference
+in `docs/architecture/system-map.md` until the browser run store grows a ledger reader.
+P2.2 audit note: the six largest descriptions (`search_music`, `map_footage`, `ask_user`,
+`read_edit_signals`, `add_clip`, `add_track`) are dense ADR-derived contracts, not padding;
+the structural redundancy is the caption-style schema inlined three times (3 × 775 tokens)
+and `set_caption_style` re-listing the 45 template names that `discover_caption_styles`
+already returns. Those two are the P2.2 edits, sequenced after the Phase 1 after-measurement
+so the token delta attributes cleanly.
+
 ## P2.5 — Skill discovery surface — `[ ]`
 
 Skill descriptions are the only thing the model sees when choosing a skill and are
