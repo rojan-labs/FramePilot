@@ -87,7 +87,18 @@ describe('explicitCoverage', () => {
   // property directly rather than the implementation: whatever noun makes a number a shot
   // count must also make a line a whole-cut demand.
   it('every noun the shot-count reader accepts also anchors a coverage demand', () => {
-    for (const noun of ['clip', 'shot', 'moment', 'cut', 'scene', 'segment', 'photo', 'image', 'picture', 'still']) {
+    for (const noun of [
+      'clip',
+      'shot',
+      'moment',
+      'cut',
+      'scene',
+      'segment',
+      'photo',
+      'image',
+      'picture',
+      'still',
+    ]) {
       expect(explicitMinShotCount(`at least 12 ${noun}s`)).toBe(12);
       expect(explicitCoverage(`grade every ${noun}`)).toEqual(['grade']);
     }
@@ -107,9 +118,7 @@ describe('explicitCoverage', () => {
   // only the camera-move words meant the one kind of footage whose motion has to be
   // authored was the one kind whose motion requirement was invisible.
   it('reads motion asked for in the words a stills brief uses', () => {
-    expect(explicitCoverage('Do not apply the same animation to every image.')).toEqual([
-      'motion',
-    ]);
+    expect(explicitCoverage('Do not apply the same animation to every image.')).toEqual(['motion']);
     expect(explicitCoverage('Motion should follow the composition of each photo.')).toEqual([
       'motion',
     ]);
@@ -168,6 +177,16 @@ describe('asksForRenderedFile', () => {
     expect(asksForRenderedFile('**Deliverables**\n- the montage\n- a timeline report')).toBe(true);
     // The whole captured brief, unedited.
     expect(asksForRenderedFile(MONTAGE_BRIEF_FC10301A)).toBe(true);
+  });
+
+  it('reads a blank-line-heavy brief in linear time', () => {
+    // The heading reader used to allow `\s` (newline included) as a leading marker, which
+    // overlapped the `(?:^|\n)` it follows: a brief of many blank lines and no deliverable
+    // backtracked quadratically. The prompt is user text and this runs on every turn.
+    const blankLines = `${'\n'.repeat(20000)}deliverabl`;
+    const start = performance.now();
+    expect(asksForRenderedFile(blankLines)).toBe(false);
+    expect(performance.now() - start).toBeLessThan(1000);
   });
 
   it('is not fooled by the words used about something that is not a file', () => {

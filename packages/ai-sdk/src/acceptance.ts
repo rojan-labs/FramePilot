@@ -100,7 +100,8 @@ const MAX_MEANINGFUL_SHOT_COUNT = 200;
  * treatments it then omitted entirely (motion, grade, crop) were the three no check could
  * see. One list, two readers, and a test that asserts they stay one.
  */
-const PICTURE_NOUN_SOURCE = 'clips?|shots?|moments?|cuts?|scenes?|segments?|photos?|images?|pictures?|stills?';
+const PICTURE_NOUN_SOURCE =
+  'clips?|shots?|moments?|cuts?|scenes?|segments?|photos?|images?|pictures?|stills?';
 
 /**
  * Words that make a number a count of SHOTS. "moment" is here because it is what editors
@@ -369,9 +370,14 @@ const DELIVERABLE_FILE =
  * couple of lines of it. Precedent: {@link GENERATED_VOICEOVER} already reads the
  * scene-template field form (`**Voiceover:** …`) for the same reason — a structured brief
  * states its requirements as structure, and reading only prose misses them all.
+ *
+ * The leading marker class is horizontal-only (` \t\r`, not `\s`). A `\s` there also matches
+ * the newline the `(?:^|\n)` alternation just consumed, so every blank line in a brief is two
+ * ways to reach the same position — quadratic backtracking on a prompt the user writes, re-run
+ * on every turn's prompt build. Markdown heading marks never span lines, so nothing real is lost.
  */
 const DELIVERABLE_HEADING =
-  /(?:^|\n)[\s*_#>-]*(?:final )?deliverable[s]?\b[^\n]*(?:\n[^\n]*){0,3}?\b(mp4|mov|webm|file|video|reel|short|montage|edit)\b/;
+  /(?:^|\n)[ \t\r*_#>-]*(?:final )?deliverable[s]?\b[^\n]*(?:\n[^\n]*){0,3}?\b(mp4|mov|webm|file|video|reel|short|montage|edit)\b/;
 
 /** Does this request ask for a rendered or exported file as its deliverable? */
 export function asksForRenderedFile(prompt: string): boolean {
