@@ -149,9 +149,7 @@ def test_inspect_media_route(client: TestClient, media_factory: Callable[..., Pa
     assert resp.json()["streams"]
 
 
-def test_inspect_media_route_missing_file(
-    client: TestClient, projects_root: Path
-) -> None:
+def test_inspect_media_route_missing_file(client: TestClient, projects_root: Path) -> None:
     resp = client.post("/inspect-media", json={"input_path": str(projects_root / "no-such.mp4")})
     assert resp.status_code == 404
 
@@ -273,9 +271,7 @@ def _sandboxed_client_with_source(tmp_path: Path, name: str) -> tuple[TestClient
     return TestClient(create_app(Settings(projects_root=tmp_path))), src
 
 
-def _concurrency_probe(
-    monkeypatch: pytest.MonkeyPatch, hold: threading.Event
-) -> Callable[[], int]:
+def _concurrency_probe(monkeypatch: pytest.MonkeyPatch, hold: threading.Event) -> Callable[[], int]:
     """Make every derivation block on ``hold`` and report the peak overlap seen.
 
     The overlap is counted INSIDE the derivation, so it measures requests that actually
@@ -610,9 +606,7 @@ def test_asset_media_threads_configured_timeout_to_subprocesses(
     assert seen == {"inspect": 17.0, "waveform": 17.0, "thumbnails": 17.0}
 
 
-def test_asset_media_missing_file_returns_404(
-    client: TestClient, projects_root: Path
-) -> None:
+def test_asset_media_missing_file_returns_404(client: TestClient, projects_root: Path) -> None:
     resp = client.post("/asset-media", json={"input_path": str(projects_root / "no-such.mp4")})
     assert resp.status_code == 404
 
@@ -1905,3 +1899,91 @@ def test_asr_setup_preflight_rejected_for_unknown_origin() -> None:
         },
     )
     assert "access-control-allow-origin" not in resp.headers
+
+
+# An INLINE project document carries project-RELATIVE media paths, so it needs the
+# sandbox root just as much as an explicit `project_path` does. Before the fix the
+# inline branch fell back to `Path.cwd()`, which (a) silently resolved media against
+# wherever the process was launched and (b) raised an UNHANDLED FileNotFoundError once
+# that launch directory was replaced — surfacing to the agent as an opaque
+# "Analysis failed (500): Internal Server Error" instead of the actionable 503, and
+# stalling whole agent runs on a pure misconfiguration.
+INLINE_PROJECT_FIXTURE = {
+    "id": "inline-no-root",
+    "name": "Inline",
+    "assets": [{"id": "mus", "path": "song.mp3", "kind": "audio"}],
+    "timeline": {"tracks": []},
+}
+
+
+@pytest.mark.parametrize(
+    ("route", "body"),
+    [
+        ("/detect-beats", {"project": INLINE_PROJECT_FIXTURE}),
+        ("/detect-scenes", {"project": INLINE_PROJECT_FIXTURE}),
+        ("/analyze-silence", {"project": INLINE_PROJECT_FIXTURE}),
+        ("/transcribe", {"project": INLINE_PROJECT_FIXTURE}),
+        ("/asr/prepare-audio", {"project": INLINE_PROJECT_FIXTURE}),
+        ("/analyze", {"project": INLINE_PROJECT_FIXTURE, "assetId": "mus"}),
+    ],
+)
+def test_inline_project_routes_fail_closed_without_projects_root(
+    monkeypatch: pytest.MonkeyPatch, route: str, body: dict[str, object]
+) -> None:
+    monkeypatch.delenv("FRAMEPILOT_PROJECTS_ROOT", raising=False)
+    client = TestClient(create_app())
+    resp = client.post(route, json=body)
+    assert resp.status_code == 503, resp.text
+    detail = resp.json()["detail"]
+    assert "projects_root is not configured" in detail
+    assert "FRAMEPILOT_PROJECTS_ROOT" in detail
+
+
+def test_inline_project_fails_closed_before_asset_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The misconfiguration is reported even when the asset id is also wrong.
+
+    Guards the ordering: `Path.cwd()` used to run *before* the 404, so a
+    missing root masked every other diagnosis on the route.
+    """
+    monkeypatch.delenv("FRAMEPILOT_PROJECTS_ROOT", raising=False)
+    client = TestClient(create_app())
+    resp = client.post(
+        "/detect-beats", json={"project": INLINE_PROJECT_FIXTURE, "asset_id": "nope"}
+    )
+    assert resp.status_code == 503, resp.text
+
+
+def test_inline_project_still_400s_on_an_invalid_document(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed inline document is a CLIENT error, and stays one without a root."""
+    monkeypatch.delenv("FRAMEPILOT_PROJECTS_ROOT", raising=False)
+    client = TestClient(create_app())
+    resp = client.post("/detect-beats", json={"project": {"assets": []}})
+    assert resp.status_code == 400, resp.text
+    assert "Invalid inline project" in resp.json()["detail"]
+
+
+def test_inline_project_never_resolves_media_against_the_process_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The incident itself: an unusable CWD must not become a 500.
+
+    `Path.cwd()` raises `FileNotFoundError` when the launch directory has been
+    unlinked (a checkout/rebuild under a long-running sidecar is enough). While
+    the inline branch used it as a fallback base that error escaped the route as
+    a bare 500 "Internal Server Error", which is what the agent saw for every
+    analysis call. The base is the sandbox root or nothing, so `cwd` is never read.
+    """
+    monkeypatch.delenv("FRAMEPILOT_PROJECTS_ROOT", raising=False)
+
+    def _unlinked_cwd() -> Path:
+        raise FileNotFoundError(2, "No such file or directory")
+
+    monkeypatch.setattr(Path, "cwd", staticmethod(_unlinked_cwd))
+    client = TestClient(create_app())
+    resp = client.post("/detect-beats", json={"project": INLINE_PROJECT_FIXTURE})
+    assert resp.status_code == 503, resp.text
+    assert "projects_root is not configured" in resp.json()["detail"]
