@@ -312,8 +312,20 @@ def test_get_project_state(ctx: ToolContext, project: Project) -> None:
     assert result.kind == "read"
     expected = project.model_dump(by_alias=True)
     expected["history"] = []
-    expected["assets"] = [{k: v for k, v in a.items() if k != "media"} for a in expected["assets"]]
+    # The bin is a TALLY here, not a listing: `list_assets` returns the same array, and a
+    # run that calls both pays for the asset ids twice. Mirrors `tool-registry.ts`'s
+    # `assetTally` — the two tool surfaces must return the same shape.
+    expected.pop("assets", None)
+    by_kind: dict[str, int] = {}
+    for asset in project.assets:
+        by_kind[asset.kind] = by_kind.get(asset.kind, 0) + 1
+    expected["assetSummary"] = {
+        "total": len(project.assets),
+        "byKind": by_kind,
+        "note": "Asset ids are not listed here — call list_assets for them.",
+    }
     assert result.data == expected
+    assert "assets" not in result.data
 
 
 def test_get_timeline(ctx: ToolContext, project: Project) -> None:
@@ -468,7 +480,12 @@ def test_asset_reads_strip_engine_derived_render_media(project: Project) -> None
         }
     ]
     state = run_tool("get_project_state", {}, ctx).data
-    assert state["assets"] == listed
+    # The bin is a tally here, not a listing (see test_get_project_state) — but the
+    # stripping still has to hold, which the `peaks` assertion proves over the whole
+    # payload.
+    assert "assets" not in state
+    assert state["assetSummary"]["total"] == 1
+    assert state["assetSummary"]["byKind"] == {"video": 1}
     assert state["history"] == []
     # The stored project keeps its media — only the model-facing copy drops it.
     assert project.assets[0].media is not None

@@ -174,12 +174,19 @@ describe('tool registry — shape', () => {
 
 describe('read tools', () => {
   it('return project data from context', () => {
-    // Not identity: the project is projected for the model (assets lose `media`, and
-    // editor-only undo history never enters the result/evidence/WAL path).
+    // Not identity: the project is projected for the model (editor-only undo history
+    // never enters the result/evidence/WAL path), and the bin is a TALLY rather than a
+    // listing — `list_assets` returns the same array, and a run that calls both pays for
+    // the ids twice (GAP-018).
+    const { assets: _assets, ...withoutAssets } = ctx.project;
     expect(getTool('get_project_state')?.read?.({}, ctx)).toEqual({
-      ...ctx.project,
-      assets: ctx.project.assets.map(({ media: _media, ...rest }) => rest),
+      ...withoutAssets,
       history: [],
+      assetSummary: {
+        total: 1,
+        byKind: { video: 1 },
+        note: 'Asset ids are not listed here — call list_assets for them.',
+      },
     });
     expect(getTool('get_timeline')?.read?.({}, ctx)).toBe(ctx.project.timeline);
     expect(getTool('get_transcript')?.read?.({}, ctx)).toBe(ctx.project.transcript);
@@ -372,10 +379,14 @@ describe('read tools', () => {
     ]);
 
     const state = getTool('get_project_state')?.read?.({}, mediaCtx) as {
-      assets: unknown[];
+      assets?: unknown[];
+      assetSummary: { total: number; byKind: Record<string, number> };
       history: unknown;
     };
-    expect(state.assets).toEqual(bin.assets);
+    // The bin is a tally here, not a listing (GAP-018) — but the stripping still has to
+    // hold, which is what the `peaks` assertion below proves against the whole payload.
+    expect(state.assets).toBeUndefined();
+    expect(state.assetSummary).toMatchObject({ total: 1, byKind: { video: 1 } });
     expect(state.history).toEqual([]);
     // The stored project keeps its media — only the model-facing copy drops it.
     expect(project.assets[0]?.media?.peaks).toHaveLength(3);

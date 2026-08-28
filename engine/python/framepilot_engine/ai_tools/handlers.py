@@ -718,7 +718,20 @@ def get_project_state(args: Any, ctx: ToolContext) -> dict[str, Any]:
     # model reasoning material. Keep this projection aligned with model-view.ts; a live
     # project history previously inflated one tool result to 116 MB.
     dumped["history"] = []
-    dumped["assets"] = [_model_asset(a) for a in ctx.project.assets]
+    # The bin comes back as a TALLY, not a listing — `list_assets` returns the same array,
+    # and a run that calls both pays for the asset ids twice and files two evidence
+    # handles for one fact. What this tool adds over `list_assets` is everything else:
+    # fps, resolution, the timeline, the transcript, markers, memory. Mirrors
+    # `tool-registry.ts`'s `assetTally`; the two surfaces must return the same shape.
+    dumped.pop("assets", None)
+    by_kind: dict[str, int] = {}
+    for asset in ctx.project.assets:
+        by_kind[asset.kind] = by_kind.get(asset.kind, 0) + 1
+    dumped["assetSummary"] = {
+        "total": len(ctx.project.assets),
+        "byKind": by_kind,
+        "note": "Asset ids are not listed here — call list_assets for them.",
+    }
     return dumped
 
 
