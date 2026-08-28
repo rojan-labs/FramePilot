@@ -130,4 +130,18 @@ the PLAN.md **SYSMISSION** snapshot.
       app. Fixed at the root: `electron/env.ts` (`parseDotEnv`/`applyDotEnv`, process env
       wins, table-tested), `main.ts` uses `loadDotEnvFile`. Found while building
       `tests/e2e-desktop` (P9.0 pulled forward because P0.4/P0.6 need the desktop host).
+- [ ] **A split can leave a zero-length clip that cannot be deleted.** Montage ledger: after
+      `ripple_delete 122.5–134.675` the right half `clip_005__r` exists with end ≤ start;
+      `delete_clip` on it is rejected with "delete_range.end must be greater than start" —
+      four model requests spent on it. Either the split must not create it or delete must
+      accept it → Phase 4 (editor-core `timeline-engineer`).
+- [ ] **A tool withheld by stage policy is still offered in the schema list.** `get_frame`
+      is in `apply`-stage tool schemas but every call answers "unavailable this turn"; the
+      model retried it in five separate requests (~110k prompt tokens). → Phase 1 P1.1.
+- [ ] **`map_footage` / `describe_footage` are offered on projects with no visual index**, so
+      the model spends a request per asset learning "not indexed". → Phase 1 P1.3 (index
+      status as structured state) / P2 (tool descriptions).
+- [ ] **Baseline counters:** `tool_call` events carry a `running` and a terminal row; the
+      first baseline JSON (montage r1–r3, podcast) counted both — tools/repeats there are 2×.
+      Fixed in the script; the report uses the ledger run's corrected counts.
 

@@ -34,6 +34,7 @@ for (const e of events) {
   }
   if (e.type === 'reasoning') current.reasoning += (e.summaries ?? []).join(' / ').slice(0, 200);
   if (e.type === 'assistant_message') current.text += String(e.text ?? '').slice(0, 200);
+  if (e.type === 'tool_call' && e.status === 'running') continue;
   if (e.type === 'tool_call') { const t = { name: e.toolName, status: e.status, args: e.argsSummary ?? '', input: '', ms: e.runtimeMs ?? null, id: e.id }; current.tools.push(t); lastToolByCallId.set(e.id, t); }
   if (e.type === 'tool_result') { const t = lastToolByCallId.get(e.toolCallId); if (t) { t.input = String(e.input ?? '').slice(0, 160); t.result = String(e.summary ?? e.result ?? '').slice(0, 120); } }
   if (e.type === 'diff') current.edits.push(`${e.edit?.valid ? 'valid' : 'INVALID'}:${(e.edit?.ops ?? []).join('+')}`);

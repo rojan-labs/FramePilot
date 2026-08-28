@@ -64,6 +64,33 @@ Per-tool schema cost (top): `set_caption_style` 1,145 · `auto_emphasize_caption
 each · 0 valid diffs · final status `failed` ("model returned an empty response … on every
 attempt") · rubric 0.25. `reports/system-mission/smoke.json`.
 
+### Call ledger — montage, dumped run (44 requests, 86 tool calls, 7 diffs, 27 ops, 1,485 s, $2.04, rubric 1.0)
+
+`reports/system-mission/runs/ledger-montage-30s-r1-t1.json`, rendered by
+`scripts/mission-ledger.mjs`. Every request carried 20–25k tokens (system 2–5k, skill
+1.6k, tool schemas 12.9–18.5k depending on stage). Classification of the 44 requests:
+
+| # | What the request did | Why it existed | Class |
+| --- | --- | --- | --- |
+| 1 | `load_skill` ×2 | the model chose playbooks the classifier already knew | **deterministic** — attach skills chosen by the classifier; no model turn |
+| 2, 4 | `map_footage`, `describe_footage` ×5 → "not indexed / no visual evidence" | the model asked for intelligence the project does not have | **structured state** — index status per asset in the P1.3 block; tools hidden when nothing is indexed |
+| 3 | `detect_scenes` ×7 (serial, 0.15 s each from brain) + `get_transcript` | first look at the footage | **deterministic prefetch** — scene/beat/silence facts for placed assets computed before the first call |
+| 5, 7 | `get_frame` ×5 at 640 px, then ×6 at the same timestamps at 480 px | look at the footage | keep one; **cache** by (time, ≤dimension) — 11 renders ≈ 50 s |
+| 6, 8, 12, 27, 30, 34, 36, 43 | `list_assets` / `get_clips` / `get_clip` | re-read the timeline after every edit | **structured state** — timeline block refreshed per edit; zero calls |
+| 9 | `delete_clips` → "would wipe existing work" | wipe guard refused a rebuild | keep guard; the model then spent 3 requests routing around it |
+| 11, 13, 14, 18, 21 | output hit 8,192 with a partial tool batch (`__partial`) | no `maxTokens` on the wire | **fixed (P1.1a)** — 5 requests, ~7.5 min, ≈$0.60 |
+| 13 ×2, 16 | `trim_clip` "invalid source range", `delete_clips` "end must be greater than start" | timeline-domain times passed as source times; a zero-length clip | contract clarity (Phase 2) + **defect**: degenerate clip (below) |
+| 15, 22, 23, 32, 37, 38, 40 | `recall_evidence` ×7, five of them the same `ev_14` "orientation aspect letterbox" | the asset orientation fact was not in context | **structured state** — asset dimensions/orientation are project facts |
+| 19, 23, 25 | `delete_clip clip_005__r` rejected ×4 | a split left a zero-length right half that cannot be deleted | **defect** (editor-core) |
+| 29, 33, 39, 41, 42 | `get_frame` → "unavailable this turn" ×7 across 5 requests | the tool is in the schema list but withheld by stage policy | **remove from schemas when withheld** — 5 requests × 22k tokens for nothing |
+| 10, 19, 26, 28, 35 | the actual edits (ripple_delete, add_clips ×9, add_clip music, set_clip_crop ×8) | the work | **keep** — 5 of 44 requests did the editing |
+| 44 | closing summary, 5.3k output tokens | narration | keep, cap length |
+
+**Reading:** 5 requests did the work; 5 were truncation losses (now fixed); ~20 were the
+model re-reading state it had just changed or recalling facts about assets; 5 were calls to
+a tool that was listed but withheld; 3 were routing around the wipe guard. Removing the
+structured-state and withheld-tool classes alone is ~25 of 44 requests.
+
 ### Full baseline
 
 _(filled in when `baseline-orchestration.json` completes — per-scenario p50 calls,

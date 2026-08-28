@@ -171,7 +171,8 @@ async function runTurn({ project, prompt, history, scenarioId, turnIndex }) {
   }
   const wallMs = Date.now() - started;
   const turns = capture.captured();
-  const toolCalls = events.filter((e) => e.type === 'tool_call');
+  // A tool call emits one `running` row and one terminal row; count the terminal one.
+  const toolCalls = events.filter((e) => e.type === 'tool_call' && e.status !== 'running');
   // Identity = tool name + the actual input the tool ran with (tool_result carries it);
   // argsSummary is a display label and is constant for some tools ("Reframing").
   const inputById = new Map(events.filter((e) => e.type === 'tool_result').map((e) => [e.toolCallId, JSON.stringify(e.input ?? null)]));
