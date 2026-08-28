@@ -50,9 +50,22 @@ Electron 39** — renderer loads, sidecar spawns via `dev-uv`, `GET /health → 
 that: engine 2687 pass, all 18 TS test tasks pass, `turbo run typecheck` 17/17, `turbo run
 lint` 17/17, `turbo run build` 10/10, Playwright e2e **83 passed** under Vite 6, and
 `pnpm license:scan` clean on the new packages. `pnpm audit --audit-level high` now reports
-the single `extract-zip` finding. Note for whoever hits it next: `pnpm lint` at full turbo
-concurrency OOMs the linter on this tree regardless of these changes; `--concurrency=1` is
-green. **Last updated:** 2026-08-28
+the single `extract-zip` finding.
+
+One real defect surfaced while verifying and is fixed in the same change: `ai-sdk`'s
+`critic-scale.test.ts` guard was flaky. It compares the cost of critiquing ten times the
+project against a 25x ceiling, and it summed three timed repeats per size — which collects
+every scheduling hiccup instead of averaging them out, and a ratio is only as honest as its
+noisiest term. Reproduced on a 10-core machine under coverage plus 12-way CPU saturation:
+four consecutive runs measured 9.8x, 10.5x, 21.5x and **26.9x**, the last failing a suite
+that had found nothing wrong. It now keeps the FASTEST of five runs per size — contention
+and GC can only add time to a sample, never subtract it, so the minimum is the least
+contaminated one. Same load, same estimator: **11.8x, 13.5x, 14.8x, 16.3x**, all passing.
+`MAX_GROWTH` is deliberately left at 25 rather than tightened onto the new spread: the guard
+exists to catch a change in shape (the version it was written against measured 67x), not to
+police millisecond drift. ai-sdk coverage gate still green (3687 pass, 94.46%).
+
+**Last updated:** 2026-08-28
 
 **Status snapshot (2026-08-28, run `bfb5c75b` memory spike):** `[x]` **Sourced assets were
 throwing away the proxy the engine had just built for them.** A 50+ clip nature montage
@@ -8215,10 +8228,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                                                Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                                                a pre-existing local edit commenting out temperature forwarding, untouched here);
-                                                engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                                                **Last updated:** 2026-08-14
+                                                  Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                                                  a pre-existing local edit commenting out temperature forwarding, untouched here);
+                                                  engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                                                  **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 
