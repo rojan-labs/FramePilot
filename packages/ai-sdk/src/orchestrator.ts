@@ -3916,15 +3916,34 @@ export class Orchestrator {
           rejectedOpCount: ops.length,
         };
       }
-      const note = summarizeOperations(ops, names, call);
-      orchestratorLog.action('tool produced ops', { tool: call.name, opCount: ops.length, note });
+      // The NORMALIZED operations, not the raw ones the tool built.
+      //
+      // `assembleEdit` quantizes to the frame grid before it validates and applies, so the
+      // working copy this call hands to the next one already holds the snapped times. The
+      // raw ops were returned anyway, and the run accumulated numbers it had never
+      // validated and that did not describe its own working copy. While `add_clip` was
+      // exempt from the grid the two happened to be equal and nothing showed; the moment
+      // it was not, a turn placing abutting clips rejected its own second call — the model
+      // had computed `0.75` from the ungridded beat, clip one's end had already snapped to
+      // 0.7667, and 0.75 now overlapped it. Both would have snapped to the same frame; the
+      // seam was between raw and normalized, not between the two clips.
+      //
+      // One set of numbers, from here to the turn's patch to the ledger. `quantizePatch`
+      // is idempotent, so re-normalizing at turn end is a no-op.
+      const normalized = [...probe.patch.operations];
+      const note = summarizeOperations(normalized, names, call);
+      orchestratorLog.action('tool produced ops', {
+        tool: call.name,
+        opCount: normalized.length,
+        note,
+      });
       // Invalidate what this patch actually changed — the ARRANGEMENT — and nothing more
       // (§3.7). This used to be a blanket `clear()`, which threw away the transcript and
       // the footage map every time a cut landed, forcing the run to buy its own
       // reconnaissance again. A ripple delete cannot change the words that were spoken.
-      host.evidence?.invalidate(ops.map((op) => op.type));
+      host.evidence?.invalidate(normalized.map((op) => op.type));
       return {
-        ops,
+        ops: normalized,
         note,
         summary: note,
         status: 'completed',
