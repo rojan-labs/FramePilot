@@ -153,3 +153,24 @@ def test_an_unindexed_project_still_states_its_clock(tmp_path: Path) -> None:
     body = _map(_client(tmp_path), project=_project(place_b=False))
     assert body["reason"] == "not_indexed"
     assert body["timeBase"] == "timeline"
+
+
+def test_the_map_reports_how_much_of_the_project_it_was_built_from(tmp_path: Path) -> None:
+    """A map is usable long before preparation finishes — say so, or a partial map
+    reads as the whole of the footage and the agent concludes there is nothing else."""
+    _seed(tmp_path)
+    with open_brain(tmp_path, "p1") as store:
+        # A third asset the index has not reached yet.
+        store.upsert_asset(
+            "asset_c", path="asset_c.mp4", content_sha256="sha-c", probe=_probe("asset_c")
+        )
+    body = _map(_client(tmp_path), project=_project(place_b=True))
+    assert body["coverage"] == {"prepared": 2, "total": 3}
+
+
+def test_coverage_is_reported_even_when_nothing_is_indexed(tmp_path: Path) -> None:
+    with open_brain(tmp_path, "p1") as store:
+        store.upsert_asset("asset_a", path="a.mp4", content_sha256="sha", probe=_probe("a.mp4"))
+    body = _map(_client(tmp_path), project=_project(place_b=False))
+    assert body["reason"] == "not_indexed"
+    assert body["coverage"] == {"prepared": 0, "total": 1}

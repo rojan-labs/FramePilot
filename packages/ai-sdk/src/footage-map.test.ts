@@ -250,3 +250,29 @@ describe('summarizeFootageMap — not cutting the same picture twice', () => {
     expect(summarizeFootageMap(map)!).not.toContain('[~n]');
   });
 });
+
+describe('summarizeFootageMap — a partial map is not thin footage', () => {
+  it('says how much of the project the map was built from while preparation runs', () => {
+    const map = footageMapSchema.parse({
+      available: true,
+      timeBase: 'timeline',
+      coverage: { prepared: 12, total: 61 },
+      chapters: [chapter(0, 5, 'Intro')],
+    });
+    expect(summarizeFootageMap(map)!).toContain('Built from 12 of 61 assets prepared so far');
+  });
+
+  it('stays quiet once everything is prepared', () => {
+    const map = footageMapSchema.parse({
+      available: true,
+      coverage: { prepared: 61, total: 61 },
+      chapters: [chapter(0, 5, 'Intro')],
+    });
+    expect(summarizeFootageMap(map)!).not.toContain('prepared so far');
+  });
+
+  it('stays quiet when the engine reports no coverage at all', () => {
+    const map = footageMapSchema.parse({ available: true, chapters: [chapter(0, 5, 'Intro')] });
+    expect(summarizeFootageMap(map)!).not.toContain('prepared so far');
+  });
+});

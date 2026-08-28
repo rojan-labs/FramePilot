@@ -75,6 +75,14 @@ export const footageMapSchema = z.object({
    */
   timeBase: z.enum(['timeline', 'asset']).default('asset'),
   /**
+   * How much of the project this map was built from.
+   *
+   * The map has always been progressive — it derives from whatever spans exist, so a
+   * 10%-prepared project already returns a real 10% map. Nothing said so, which left
+   * every reader unable to tell a thin map from thin footage.
+   */
+  coverage: z.object({ prepared: z.number(), total: z.number() }).nullish(),
+  /**
    * Assets in the map that are not on the timeline. Their chapters keep source seconds
    * even under `timeBase: 'timeline'`, because there is no position to project onto.
    */
@@ -181,6 +189,14 @@ export function summarizeFootageMap(map: FootageMap | undefined): string | undef
       ? 'Times are TIMELINE seconds — act on them directly.'
       : "Times are each asset's OWN source seconds, not timeline positions.",
   );
+  const coverage = map.coverage;
+  if (coverage && coverage.total > 0 && coverage.prepared < coverage.total) {
+    // Without this the model reads a partial map as the whole of the footage and
+    // concludes there is nothing else to cut to.
+    lines.push(
+      `Built from ${coverage.prepared} of ${coverage.total} assets prepared so far — the rest is still being read, not absent.`,
+    );
+  }
   if (map.summary.trim() !== '') lines.push(`Overview: ${trim(map.summary, 240)}`);
   if (map.chapters.some((c) => typeof c.similarGroup === 'number')) {
     lines.push('Rows sharing a [~n] mark look the same — use one, not both.');

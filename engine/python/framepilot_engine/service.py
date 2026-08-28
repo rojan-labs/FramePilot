@@ -1146,6 +1146,20 @@ class FootageHighlight(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class FootageMapCoverage(BaseModel):
+    """How much of a project a footage map was built from (plan phase 3.5).
+
+    The map has always been progressive — it derives from whatever spans exist, so a
+    10%-prepared project already returns a real 10% map. Nothing said so, which left
+    every reader unable to tell a thin map from thin footage.
+    """
+
+    prepared: int = Field(description="Assets whose understanding is ready.")
+    total: int = Field(description="Assets in the project eligible for understanding.")
+
+    model_config = {"populate_by_name": True}
+
+
 class FootageTimeBase(StrEnum):
     """Which clock a footage map's times are measured on.
 
@@ -1189,6 +1203,15 @@ class FootageMapResponse(BaseModel):
             "footage's own source seconds. A caller that sends no project document "
             "CANNOT be given timeline time, and gets `asset` — the response says which "
             "rather than leaving the reader to assume."
+        ),
+    )
+    coverage: FootageMapCoverage | None = Field(
+        default=None,
+        description=(
+            "How much of the project this map is built from. A map is USABLE long before "
+            "preparation finishes — it derives from whatever spans exist — so this is the "
+            "difference between 'the footage contains nothing else' and 'the rest has not "
+            "been read yet'. Absent when coverage could not be determined."
         ),
     )
     unplaced_assets: list[str] = Field(
@@ -3193,8 +3216,10 @@ def create_app(
         chapters: list[FootageChapter] = []
         highlights: list[FootageHighlight] = []
         summaries: list[str] = []
+        coverage: FootageMapCoverage | None = None
         try:
             with open_brain(resolved_root, req.project_id) as store:
+                coverage = _map_coverage(store)
                 index_id = read_index_id(store)
                 # Every asset the brain has ever mapped to a TwelveLabs video — the
                 # `tl:video` rows persist even if the live index is gone, so they still
@@ -3332,6 +3357,7 @@ def create_app(
                 backend="twelvelabs",
                 reason="not_indexed",
                 time_base=_map_time_base(req, project_doc),
+                coverage=coverage,
             )
         if req.asset_time:
             # Group by footage, then by source time — asset-native times from different
@@ -3353,6 +3379,7 @@ def create_app(
             available=True,
             backend="twelvelabs",
             time_base=_map_time_base(req, project_doc),
+            coverage=coverage,
             unplaced_assets=(
                 []
                 if req.asset_time or project_doc is None
@@ -3363,6 +3390,16 @@ def create_app(
             highlights=highlights,
             summary=" ".join(summaries),
         )
+
+    def _map_coverage(store: BrainStore) -> FootageMapCoverage:
+        """How much of this project's footage the map could have been built from.
+
+        The union of both backends, exactly as `GET /brain/visual/status` counts it —
+        one definition of "prepared", not two that can disagree.
+        """
+        prepared = set(video_to_asset_map(store).values()) | store.visual_indexed_asset_ids()
+        total = sum(1 for a in store.list_assets() if _asset_is_visual(a))
+        return FootageMapCoverage(prepared=len(prepared), total=total)
 
     def _map_time_base(req: FootageMapRequest, project_doc: Project | None) -> FootageTimeBase:
         """Which clock this map's times will actually be on.
@@ -3494,8 +3531,10 @@ def create_app(
         empty list beats a fabricated one. Honest-absent when nothing is indexed.
         """
         clips_by_asset = _clips_by_asset(project_doc)
+        coverage: FootageMapCoverage | None = None
         try:
             with open_brain(resolved_root, req.project_id) as store:
+                coverage = _map_coverage(store)
                 backend = VisualVectorStore(store).backend()
                 chapters = _builtin_chapters_for(store, req, clips_by_asset)
         except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
@@ -3507,6 +3546,7 @@ def create_app(
                 backend=backend,
                 reason="not_indexed",
                 time_base=_map_time_base(req, project_doc),
+                coverage=coverage,
             )
         if req.asset_time:
             chapters.sort(key=lambda c: (c.asset_id or "", c.t0, c.t1))
@@ -3523,6 +3563,7 @@ def create_app(
             available=True,
             backend=backend,
             time_base=_map_time_base(req, project_doc),
+            coverage=coverage,
             unplaced_assets=(
                 []
                 if req.asset_time or project_doc is None
