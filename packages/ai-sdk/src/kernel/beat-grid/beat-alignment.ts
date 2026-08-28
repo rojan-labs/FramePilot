@@ -92,12 +92,14 @@
  * the editor placed a different one, and every montage proposal after that was refused for
  * not placing an asset nobody had chosen. The run had never declared `hardSync`; it was held
  * to a promise it never made, and the tool that could have changed the runtime's mind
- * (`detect_beats`) is an `analysis` tool the execution stages withhold. Six proposals, one
- * verbatim rejection, 35 minutes, no picture on the timeline.
+ * (`detect_beats`) was an `analysis` tool the execution stages withheld — six proposals, one
+ * verbatim rejection, 35 minutes, no picture on the timeline. (That second half is now fixed
+ * on its own terms: see `kernel/stage-policy.ts#VALIDATOR_INPUT_TOOL_NAMES`, which is what
+ * keeps a refusal from ever again naming a remedy the run is forbidden to reach.)
  *
- * A rejection whose only remedy the run is forbidden to reach is not a guarantee, it is a
- * dead end. So: report by default; reject when — and only when — the run declared hard sync,
- * where the remedy (place the analyzed bed) is a mutation every execution stage offers.
+ * The rule stands regardless. A veto is a guarantee the run asked for, not a house style, so:
+ * report by default; reject when — and only when — the run declared hard sync, where the
+ * remedy (place the analyzed bed) is a mutation every execution stage offers.
  */
 import { createLogger } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
@@ -297,9 +299,9 @@ export function alignBeatBackedBoundaries(
           `onset — but ${reason}`,
       };
     }
-    // No declaration: the cuts stand, and the state goes to the model as a measurement. A
-    // rejection here would be a veto whose only remedy is `detect_beats`, which every
-    // execution stage withholds — see the module doc.
+    // No declaration: the cuts stand, and the state goes to the model as a measurement.
+    // Refusing here would hold the run to a style it never chose — the same mistake the
+    // off-grid branch below stopped making, and the one that deadlocked `ea8e46ec`.
     log.action('alignBeatBackedBoundaries → ungrounded grid reported, cuts left as proposed', {
       analyzed: resolved.analyzedAssetIds.length,
     });
