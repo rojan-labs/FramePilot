@@ -1,4 +1,4 @@
-# Phase 2 — Prompt audit and parity — `[ ]`
+# Phase 2 — Prompt audit and parity — `[~]`
 
 > **Ships:** every model-facing text audited against a checklist, shortened where it
 > can be, moved into code where it should be; one source of truth per prompt, tool
@@ -11,7 +11,7 @@ Golden manifests track prompt text (`packages/ai-sdk/src/__snapshots__`, three r
 commands — see `AGENTS.md`). Every change here regenerates them, and **the golden diff
 is the measured token delta** that goes in the report.
 
-## P2.1 — Inventory — `[ ]`
+## P2.1 — Inventory — `[x]`
 
 List every model-facing string: `prompts.ts`, context-builder blocks, tool `description`
 fields in `domain-tools/*`, `autonomous-tools.manifest.json`, skill descriptions and
