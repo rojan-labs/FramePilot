@@ -247,6 +247,62 @@ describe('resolveBeatGrid', () => {
     });
   });
 
+  it('survives a malformed payload without throwing or fabricating a grid', () => {
+    // The payload comes off a host tool over a process boundary. Nothing about its shape is
+    // guaranteed, and a grid rule that throws takes the whole turn with it.
+    const evidence = createBeatEvidence();
+    const hostile: readonly unknown[] = [
+      null,
+      undefined,
+      42,
+      'not a payload',
+      {},
+      { assetId: 'music_a' },
+      { assetId: 'music_a', beats: 'not an array' },
+      { assetId: '', beats: [{ time: 1 }] },
+      { assetId: 'music_a', beats: [null, 1, { time: 'x' }, { time: NaN }, { time: -1 }] },
+    ];
+    for (const payload of hostile) {
+      expect(() => recordBeatAnalysis(evidence, payload, false)).not.toThrow();
+    }
+    // Nothing usable came out of any of it, so the grid has no opinion — it does not invent
+    // one, and it does not veto over one it does not have.
+    expect(resolveBeatGrid(projectWithBeds([]), evidence, [])).toEqual({ kind: 'none' });
+  });
+
+  it('drops non-finite and negative onset times rather than cutting to them', () => {
+    expect(
+      readOnsetTimes({ beats: [{ time: 1 }, { time: -1 }, { time: NaN }, { time: Infinity }, {}] }),
+    ).toEqual([1]);
+  });
+
+  it('goes ungrounded — not stale — when the analysed bed is removed mid-run', () => {
+    // The run analysed a track, then deleted it and placed another. The grid must not keep
+    // holding the picture to music that is no longer in the edit.
+    const evidence = createBeatEvidence();
+    recordBeatAnalysis(evidence, rawBeats('music_removed', [1, 2]), false);
+    expect(resolveBeatGrid(projectWithBeds([['music_other', 0, 20]]), evidence, [])).toEqual({
+      kind: 'ungrounded',
+      analyzedAssetIds: ['music_removed'],
+    });
+  });
+
+  it('resolves a full-length track against a full-length montage', () => {
+    // Ten minutes at 172 BPM is ~1720 onsets, and a real montage is hundreds of clips. The
+    // resolution walks every analysed asset and the rule scans the grid per boundary, so the
+    // shape of a REAL job belongs in the suite rather than a three-onset fixture.
+    const onsets = Array.from({ length: 1720 }, (_, i) => (i * 60) / 172);
+    const evidence = createBeatEvidence();
+    recordBeatAnalysis(evidence, rawBeats('music_long', onsets), false);
+    const project = projectWithBeds([['music_long', 0, 600]]);
+    const resolved = resolveBeatGrid(project, evidence, []);
+    expect(resolved).toMatchObject({ kind: 'grid', assetId: 'music_long', source: 'timeline' });
+    if (resolved.kind !== 'grid') return;
+    expect(resolved.times).toHaveLength(onsets.length);
+    // Sorted and unique, which is what makes "nearest onset" well defined.
+    expect(resolved.times.every((t, i) => i === 0 || t > resolved.times[i - 1]!)).toBe(true);
+  });
+
   it('ignores onsets outside a proposed placement’s trimmed source window', () => {
     const evidence = createBeatEvidence();
     recordBeatAnalysis(evidence, rawBeats('music_a', [0.5, 3.0, 4.5, 40]), false);
