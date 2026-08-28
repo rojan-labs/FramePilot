@@ -350,9 +350,33 @@ export function explicitCoverage(prompt: string): readonly CoverageTreatment[] {
 const DELIVERABLE_FILE =
   /\b(render(?:ed|ing)?|export(?:ed|ing)?|deliver(?:ed|able)?)\b[^.\n]{0,60}\b(mp4|mov|webm|file|video|deliverable)\b|\b(mp4|mov|webm|file|deliverable)\b[^.\n]{0,40}\b(render(?:ed|ing)?|export(?:ed|ing)?)\b/;
 
+/**
+ * The same request, written as a SECTION rather than a sentence.
+ *
+ * A long brief does not say "produce a rendered MP4" mid-paragraph; it ends with a heading
+ * and puts the deliverable under it:
+ *
+ *     # FINAL DELIVERABLE
+ *
+ *     Create the finished Instagram Reel.
+ *
+ * {@link DELIVERABLE_FILE} bounds its gap with `[^.\n]{0,60}`, which cannot cross the
+ * newline, so run `fc10301a`'s brief — whose closing section is exactly the above — read as
+ * asking for no file at all. The run never attempted an export, never said it could not,
+ * and handed back a timeline against a request for a video.
+ *
+ * The heading is required to BE a deliverable heading, and the noun has to appear within a
+ * couple of lines of it. Precedent: {@link GENERATED_VOICEOVER} already reads the
+ * scene-template field form (`**Voiceover:** …`) for the same reason — a structured brief
+ * states its requirements as structure, and reading only prose misses them all.
+ */
+const DELIVERABLE_HEADING =
+  /(?:^|\n)[\s*_#>-]*(?:final )?deliverable[s]?\b[^\n]*(?:\n[^\n]*){0,3}?\b(mp4|mov|webm|file|video|reel|short|montage|edit)\b/;
+
 /** Does this request ask for a rendered or exported file as its deliverable? */
 export function asksForRenderedFile(prompt: string): boolean {
-  return DELIVERABLE_FILE.test(prompt.toLowerCase());
+  const normalized = prompt.toLowerCase();
+  return DELIVERABLE_FILE.test(normalized) || DELIVERABLE_HEADING.test(normalized);
 }
 
 /** The narration nouns editors use, in both spellings. */

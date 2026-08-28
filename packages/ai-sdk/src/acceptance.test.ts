@@ -157,10 +157,25 @@ describe('asksForRenderedFile', () => {
     expect(asksForRenderedFile('render out a mov file')).toBe(true);
   });
 
+  // GAP-021 (run `fc10301a`). A long brief states its deliverable as a SECTION, not a
+  // sentence — and the inline reader bounds its gap with `[^.\n]{0,60}`, which cannot
+  // cross the newline between the heading and the noun under it. That run asked for a
+  // finished Reel, was never told the panel cannot export, and got a timeline.
+  it('recognises a deliverable stated as a heading with the noun on the next line', () => {
+    expect(asksForRenderedFile('# FINAL DELIVERABLE\n\nCreate the finished Instagram Reel.')).toBe(
+      true,
+    );
+    expect(asksForRenderedFile('**Deliverables**\n- the montage\n- a timeline report')).toBe(true);
+    // The whole captured brief, unedited.
+    expect(asksForRenderedFile(MONTAGE_BRIEF_FC10301A)).toBe(true);
+  });
+
   it('is not fooled by the words used about something that is not a file', () => {
     expect(asksForRenderedFile('render the captions legible')).toBe(false);
     expect(asksForRenderedFile('make it 30 seconds and punchy')).toBe(false);
     expect(asksForRenderedFile('export settings should be 9:16')).toBe(false);
+    // A deliverable heading that names no artefact is not a request for a file.
+    expect(asksForRenderedFile('# Deliverable\n\nMake it tighter and punchier.')).toBe(false);
   });
 });
 
