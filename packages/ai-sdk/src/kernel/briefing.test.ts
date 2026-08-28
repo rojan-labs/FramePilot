@@ -159,11 +159,37 @@ describe('buildStateBriefing', () => {
     });
     const text = buildStateBriefing(state);
     expect(text).toContain('5 tracks, 87 clips');
+    // Every acceptance criterion here IS the request, so the section has nothing to say.
     expect(text).not.toContain('WHAT DONE LOOKS LIKE');
     expect(text).not.toContain('DECIDED');
     expect(text).not.toContain('OBJECTIVES');
     // One mention of the request in the whole briefing is one too many: the request is
     // already its own section of the prompt.
+    expect(text).not.toContain(request);
+  });
+
+  // GAP-001 (run `fc10301a`). The suppression above is about the request said back, and
+  // nothing else. A criterion the Critic will actually settle the run against is not the
+  // request said back — it is the only statement of what "done" means that the model ever
+  // gets, and it was being dropped alongside the echoes because the section hung on the
+  // outcome rather than on its own contents.
+  it('shows checkable acceptance criteria even when the outcome is only the request echoed', () => {
+    const request = 'Turn my 61 hiking photos into a 20-35 second beat-synced reel';
+    let state = initialWorkingState({ runId: 'run_1', request, projectRevision: 0 });
+    state = setObjective(state, {
+      outcome: request,
+      acceptance: [
+        { description: request },
+        { description: 'The finished sequence runs about 27.5s.' },
+        { description: 'The cut uses at least 61 distinct shots.' },
+      ],
+      provisional: true,
+    });
+    const text = buildStateBriefing(state);
+    expect(text).toContain('WHAT DONE LOOKS LIKE');
+    expect(text).toContain('The finished sequence runs about 27.5s.');
+    expect(text).toContain('The cut uses at least 61 distinct shots.');
+    // The echo is still filtered — per criterion, which is where the filter belongs.
     expect(text).not.toContain(request);
   });
 
@@ -193,7 +219,9 @@ describe('buildStateBriefing', () => {
         scope: 'timeline_dependent',
       }),
     );
-    expect(text).not.toContain('WHAT DONE LOOKS LIKE');
+    // The real criterion survives (GAP-001); the 10,000-token request does not.
+    expect(text).toContain('WHAT DONE LOOKS LIKE');
+    expect(text).toContain('Runtime is 30s ± 2s');
     expect(text).not.toContain('OBJECTIVES');
     expect(text).not.toContain('DECIDED');
     expect(text).not.toContain('unit conversion error');
