@@ -6539,11 +6539,12 @@ export class Orchestrator {
      */
     const asksForFile = asksForRenderedFile(input.userPrompt);
     /**
-     * The last applying turn's off-grid measurement, for the completion account.
+     * The last applying turn's beat-grid measurement, for the completion account.
      *
-     * A cut a few frames off the beat is ordinary editing, not a failure — but the editor
-     * should still be told, in the same breath as the edits themselves, rather than finding
-     * out by watching it.
+     * A cut a few frames off the beat is ordinary editing, not a failure — and a montage cut
+     * before the music is placed is a decision, not a defect — but the editor should be told
+     * either way, in the same breath as the edits themselves, rather than finding out by
+     * watching it.
      */
     let offGridNote: string | undefined;
     /**
@@ -7470,8 +7471,10 @@ export function agentCompletionReport(args: {
    */
   contentEvidence?: boolean;
   /**
-   * Interior cuts the run left deliberately off the detected beat grid, as measured. Present
-   * only when the run analyzed beats and did not declare hard sync.
+   * What the beat grid measured and did not enforce: interior cuts the run left deliberately
+   * off the detected onsets, or — when none of the analyzed music is placed — that the cuts
+   * were checked against nothing at all. Present only when the run analyzed beats and did
+   * not declare hard sync; the two never co-occur, since an unchecked cut has no distance.
    */
   offGrid?: string;
   /**

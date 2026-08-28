@@ -434,8 +434,8 @@ function checkPicturePresent(project: Project, options: CritiqueOptions): Critic
       `${String(picture.length)} picture clip${picture.length === 1 ? '' : 's'} on the timeline.`,
     );
   }
-  const overlays = allClips(timeline).length;
-  if (overlays === 0) {
+  const clips = allClips(timeline);
+  if (clips.length === 0) {
     return check(
       'picture_present',
       'The edit has picture',
@@ -443,10 +443,20 @@ function checkPicturePresent(project: Project, options: CritiqueOptions): Critic
       'The timeline is empty, so there is nothing to judge.',
     );
   }
+  // WHICH kind of nothing, because the remedy is different and the wrong sentence sends the
+  // editor after the wrong thing. This counted EVERY clip as an overlay, so in run
+  // `ea8e46ec` — a music bed on an audio track and no picture at all — the panel reported
+  // "1 overlay/caption clip … the whole thing renders as text on black", naming a caption
+  // that did not exist and text that was never placed.
+  const overlays = clips.filter((clip) => isOverlayClip(clip)).length;
   const detail =
-    `The timeline has ${String(overlays)} overlay/caption clip${overlays === 1 ? '' : 's'} and ` +
-    'no picture under them, so the whole thing renders as text on black. Place footage, a ' +
-    'still, or a stock clip before this is a video.';
+    overlays > 0
+      ? `The timeline has ${String(overlays)} overlay/caption clip${overlays === 1 ? '' : 's'} ` +
+        'and no picture under them, so the whole thing renders as text on black. Place ' +
+        'footage, a still, or a stock clip before this is a video.'
+      : 'The timeline has sound but no picture at all, so it renders as a black frame for ' +
+        'its whole length. Place footage, stills, or a stock clip on a video track before ' +
+        'this is a video.';
   return check(
     'picture_present',
     'The edit has picture',
