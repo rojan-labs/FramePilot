@@ -681,17 +681,14 @@ function registerIpcHandlers(): void {
    * instead of two.
    */
   const cachedDerive = (request: { thumbnails: number; proxy: boolean }) =>
-    cacheDerivedMedia(
-      async (absolutePath: string) => {
-        const derived = await importAssetViaSidecar(
-          engineBaseUrl,
-          { inputPath: absolutePath, ...request },
-          electronFetch,
-        );
-        return derived.ok ? derived : null;
-      },
-      { projectsRoot },
-    );
+    cacheDerivedMedia(async (absolutePath: string) => {
+      const derived = await importAssetViaSidecar(
+        engineBaseUrl,
+        { inputPath: absolutePath, ...request },
+        electronFetch,
+      );
+      return derived.ok ? derived : null;
+    }, { projectsRoot });
 
   const musicService = new MusicService({
     projectsRoot,
