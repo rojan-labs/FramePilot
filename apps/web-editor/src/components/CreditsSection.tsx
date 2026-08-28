@@ -122,46 +122,67 @@ export function CreditsSection({ assets }: CreditsSectionProps): JSX.Element {
 
   if (required.length === 0 && suggested.length === 0) {
     return (
-      <section className="export-credits" aria-labelledby="export-credits-heading">
+      <section
+        className="export-credits export-credits--empty"
+        aria-labelledby="export-credits-heading"
+      >
         <h3 id="export-credits-heading">Credits</h3>
         <p className="export-credits-empty">Nothing in this project requires credit.</p>
       </section>
     );
   }
 
+  // Open when a licence actually obliges a credit, collapsed when the list is
+  // only courtesy suggestions. Credits are the longest thing in the export
+  // popover and the only part that grows without bound with the project, so a
+  // twenty-track montage used to bury every control under it — but a *required*
+  // credit is a licence term, and hiding that behind a click would be the wrong
+  // default in the one place the obligation is meant to be unmissable.
   return (
-    <section className="export-credits" aria-labelledby="export-credits-heading">
-      <h3 id="export-credits-heading">Credits</h3>
+    <details
+      className="export-credits export-disclosure"
+      open={required.length > 0}
+      aria-labelledby="export-credits-heading"
+    >
+      <summary>
+        <span id="export-credits-heading" className="export-section-head">
+          Credits
+        </span>
+        <span className="export-disclosure-meta">
+          {required.length > 0 ? `${required.length} required` : `${suggested.length} suggested`}
+        </span>
+      </summary>
+      <div className="export-disclosure-body">
+        {required.length > 0 ? (
+          <CreditGroup
+            rows={required}
+            text={creditsText(assets)}
+            note={
+              required.length === 1
+                ? '1 track in this project requires credit. Paste this into your video description.'
+                : `${required.length} tracks in this project require credit. Paste these into your video description.`
+            }
+            copyLabel="Copy all credits"
+            copyAriaLabel="Copy required credits"
+          />
+        ) : (
+          // Said out loud rather than left as an absence: with only Pexels media in
+          // the project, "do I owe anyone a credit?" still has an answer.
+          <p className="export-credits-empty">Nothing in this project requires credit.</p>
+        )}
 
-      {required.length > 0 ? (
-        <CreditGroup
-          rows={required}
-          text={creditsText(assets)}
-          note={
-            required.length === 1
-              ? '1 track in this project requires credit. Paste this into your video description.'
-              : `${required.length} tracks in this project require credit. Paste these into your video description.`
-          }
-          copyLabel="Copy all credits"
-          copyAriaLabel="Copy required credits"
-        />
-      ) : (
-        // Said out loud rather than left as an absence: with only Pexels media in
-        // the project, "do I owe anyone a credit?" still has an answer.
-        <p className="export-credits-empty">Nothing in this project requires credit.</p>
-      )}
-
-      {suggested.length > 0 ? (
-        <CreditGroup
-          rows={suggested}
-          text={suggestedCreditsText(assets)}
-          heading="Suggested credits"
-          note="Not required by the licence, but appreciated by the creators."
-          copyLabel="Copy suggested credits"
-          copyAriaLabel="Copy suggested credits"
-        />
-      ) : null}
-    </section>
+        {suggested.length > 0 ? (
+          <CreditGroup
+            rows={suggested}
+            text={suggestedCreditsText(assets)}
+            heading="Suggested credits"
+            note="Not required by the licence, but appreciated by the creators."
+            copyLabel="Copy suggested credits"
+            copyAriaLabel="Copy suggested credits"
+          />
+        ) : null}
+      </div>
+    </details>
   );
 }
 

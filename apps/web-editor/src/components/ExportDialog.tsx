@@ -70,13 +70,34 @@ const EQ_OPTIONS = [
  * introducing shared build tooling across the TS/Python boundary for five
  * string/dimension pairs isn't worth the complexity yet.
  */
-export const EXPORT_PRESETS: readonly { id: string; label: string }[] = [
-  { id: 'reels', label: 'Instagram Reels (9:16)' },
-  { id: 'tiktok', label: 'TikTok (9:16)' },
-  { id: 'shorts', label: 'YouTube Shorts (9:16)' },
-  { id: 'youtube', label: 'YouTube (16:9)' },
-  { id: 'square', label: 'Square (1:1)' },
+export const EXPORT_PRESETS: readonly {
+  id: string;
+  label: string;
+  width: number;
+  height: number;
+  fps: number;
+}[] = [
+  { id: 'reels', label: 'Instagram Reels (9:16)', width: 1080, height: 1920, fps: 30 },
+  { id: 'tiktok', label: 'TikTok (9:16)', width: 1080, height: 1920, fps: 30 },
+  { id: 'shorts', label: 'YouTube Shorts (9:16)', width: 1080, height: 1920, fps: 30 },
+  { id: 'youtube', label: 'YouTube (16:9)', width: 1920, height: 1080, fps: 30 },
+  { id: 'square', label: 'Square (1:1)', width: 1080, height: 1080, fps: 30 },
 ];
+
+/**
+ * What the chosen preset actually produces, in one line under the picker.
+ *
+ * The preset labels name a platform and an aspect ratio; neither answers "what
+ * file do I get?". Printing the real numbers the engine will render at turns the
+ * dropdown from a name you have to trust into a choice you can check — and it is
+ * the same `width`/`height`/`fps` the engine's `render/presets.py` carries, so a
+ * drift between the two mirrors becomes visible instead of silent.
+ */
+function presetSummary(presetId: string): string {
+  const found = EXPORT_PRESETS.find((p) => p.id === presetId);
+  if (!found) return '';
+  return `${found.width} × ${found.height} · ${found.fps} fps · MP4 (H.264)`;
+}
 
 export interface ExportDialogProps {
   /**
@@ -260,6 +281,53 @@ export function ExportDialog({ ensureSaved, onReveal, assets }: ExportDialogProp
     phase.kind === 'queued' || phase.kind === 'running' || phase.kind === 'cancelling';
   const desktop = isDesktop();
 
+  // How many audio processors are engaged. The Audio section is collapsed by
+  // default — most exports never touch it — so its summary has to say what is
+  // hidden underneath, or collapsing it would just hide state the user set.
+  const audioCount =
+    (loudness ? 1 : 0) +
+    (eq ? 1 : 0) +
+    (denoise ? 1 : 0) +
+    (limiter ? 1 : 0) +
+    (compression ? 1 : 0);
+
+  /**
+   * The one live status line, rendered in the footer beside the buttons.
+   *
+   * It used to sit at the bottom of the scrolling options list, which put the
+   * answer to "is it still going?" below the fold on any project with credits.
+   * Exactly one element carries `role="status"`/`role="alert"` at a time, so a
+   * screen reader gets one announcement per transition, not a queue of them.
+   */
+  const status: JSX.Element | null =
+    phase.kind === 'queued' ? (
+      <p className="export-status" role="status">
+        Queued — waiting for the render engine…
+      </p>
+    ) : phase.kind === 'running' ? (
+      <p className="export-status" role="status">
+        Rendering and validating the output…
+      </p>
+    ) : phase.kind === 'cancelling' ? (
+      <p className="export-status" role="status">
+        Cancelling…
+      </p>
+    ) : phase.kind === 'done' ? (
+      phase.savedPath ? (
+        <p className="export-status export-status--ok" role="status">
+          Saved to <code>{phase.savedPath}</code>.
+        </p>
+      ) : (
+        <p className="export-status export-status--ok" role="status">
+          Exported. Choose &ldquo;Save As&hellip;&rdquo; to save the video.
+        </p>
+      )
+    ) : phase.kind === 'error' ? (
+      <p className="export-status export-status--error" role="alert">
+        {phase.message}
+      </p>
+    ) : null;
+
   return (
     <div className="export-menu" ref={rootRef}>
       {/* Placed BELOW its trigger: this control lives in the topbar, where a
@@ -289,10 +357,13 @@ export function ExportDialog({ ensureSaved, onReveal, assets }: ExportDialogProp
               title="Close (Esc)"
               onClick={onClose}
             >
-              <X size={ICON_SIZE.md} aria-hidden="true" />
+              <X size={ICON_SIZE.sm} aria-hidden="true" />
             </button>
           </header>
 
+          {/* The ONLY scrolling region. The footer below is a sibling, not a
+              child, so the Export button is reachable at any body length —
+              a project with a long credits list used to push it off-screen. */}
           <div className="export-body">
             {!desktop && (
               <p className="export-note" role="note">
@@ -301,154 +372,146 @@ export function ExportDialog({ ensureSaved, onReveal, assets }: ExportDialogProp
               </p>
             )}
 
-            <div className="export-field">
-              <span>Preset</span>
-              <Select
-                label="Export preset"
-                value={preset}
-                disabled={exporting}
-                onChange={setPreset}
-                options={EXPORT_PRESETS.map((p) => ({ value: p.id, label: p.label }))}
-              />
-            </div>
+            <section className="export-section">
+              <h3 className="export-section-head">Format</h3>
+              <div className="export-field">
+                <span>Preset</span>
+                <Select
+                  label="Export preset"
+                  value={preset}
+                  disabled={exporting}
+                  onChange={setPreset}
+                  options={EXPORT_PRESETS.map((p) => ({ value: p.id, label: p.label }))}
+                />
+                <p className="export-field-hint">{presetSummary(preset)}</p>
+              </div>
 
-            <Checkbox checked={burnCaptions} disabled={exporting} onChange={setBurnCaptions}>
-              Burn captions into the video
-            </Checkbox>
+              <Checkbox checked={burnCaptions} disabled={exporting} onChange={setBurnCaptions}>
+                Burn captions into the video
+              </Checkbox>
+            </section>
 
-            <div className="export-field">
-              <span>Loudness</span>
-              <Select
-                label="Loudness preset"
-                value={loudness}
-                disabled={exporting}
-                onChange={setLoudness}
-                options={LOUDNESS_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-              />
-            </div>
+            {/* Collapsed by default: five audio controls that most exports leave
+                alone were, open, the bulk of this popover's height. */}
+            <details className="export-section export-disclosure">
+              <summary>
+                <span className="export-section-head">Audio</span>
+                <span className="export-disclosure-meta">
+                  {audioCount === 0
+                    ? 'Unprocessed'
+                    : `${audioCount} ${audioCount === 1 ? 'filter' : 'filters'} on`}
+                </span>
+              </summary>
+              <div className="export-disclosure-body">
+                <div className="export-field">
+                  <span>Loudness</span>
+                  <Select
+                    label="Loudness preset"
+                    value={loudness}
+                    disabled={exporting}
+                    onChange={setLoudness}
+                    options={LOUDNESS_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                  />
+                </div>
 
-            <Checkbox
-              ariaLabel="Reduce background noise"
-              checked={denoise}
-              disabled={exporting}
-              onChange={setDenoise}
-            >
-              Reduce background noise
-            </Checkbox>
+                <div className="export-field">
+                  <span>EQ</span>
+                  <Select
+                    label="EQ preset"
+                    value={eq}
+                    disabled={exporting}
+                    onChange={setEq}
+                    options={EQ_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                  />
+                </div>
 
-            <Checkbox
-              ariaLabel="Apply limiter"
-              checked={limiter}
-              disabled={exporting}
-              onChange={setLimiter}
-            >
-              Apply brick-wall limiter
-            </Checkbox>
+                <Checkbox
+                  ariaLabel="Reduce background noise"
+                  checked={denoise}
+                  disabled={exporting}
+                  onChange={setDenoise}
+                >
+                  Reduce background noise
+                </Checkbox>
 
-            <div className="export-field">
-              <span>EQ</span>
-              <Select
-                label="EQ preset"
-                value={eq}
-                disabled={exporting}
-                onChange={setEq}
-                options={EQ_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-              />
-            </div>
+                <Checkbox
+                  ariaLabel="Apply limiter"
+                  checked={limiter}
+                  disabled={exporting}
+                  onChange={setLimiter}
+                >
+                  Apply brick-wall limiter
+                </Checkbox>
 
-            <Checkbox
-              ariaLabel="Apply voice compression"
-              checked={compression}
-              disabled={exporting}
-              onChange={setCompression}
-            >
-              Even out volume (voice compression)
-            </Checkbox>
+                <Checkbox
+                  ariaLabel="Apply voice compression"
+                  checked={compression}
+                  disabled={exporting}
+                  onChange={setCompression}
+                >
+                  Even out volume (voice compression)
+                </Checkbox>
+              </div>
+            </details>
 
             <CreditsSection assets={assets} />
-
-            {phase.kind === 'queued' && (
-              <p className="export-status" role="status">
-                Queued — waiting for the render engine to pick this up…
-              </p>
-            )}
-            {phase.kind === 'running' && (
-              <p className="export-status" role="status">
-                Rendering… this runs the deterministic engine and validates the output.
-              </p>
-            )}
-            {phase.kind === 'cancelling' && (
-              <p className="export-status" role="status">
-                Cancelling…
-              </p>
-            )}
-            {phase.kind === 'done' &&
-              (phase.savedPath ? (
-                <p className="export-status export-status--ok" role="status">
-                  Saved to <code>{phase.savedPath}</code>.
-                </p>
-              ) : (
-                <p className="export-status export-status--ok" role="status">
-                  Exported. Choose &ldquo;Save As&hellip;&rdquo; to save the video.
-                </p>
-              ))}
-            {phase.kind === 'error' && (
-              <p className="export-status export-status--error" role="alert">
-                {phase.message}
-              </p>
-            )}
           </div>
 
+          {/* Pinned. Carries the live status too, so progress is legible without
+              scrolling back down through the options. */}
           <footer className="export-foot">
-            {phase.kind === 'done' ? (
-              <>
-                {!phase.savedPath && (
-                  <Button variant="ghost" type="button" onClick={() => void retrySaveAs()}>
-                    Save As…
-                  </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  type="button"
-                  onClick={() => onReveal(phase.savedPath ?? phase.outputPath)}
-                >
-                  Reveal in folder
-                </Button>
-                <Button variant="primary" type="button" onClick={onClose}>
-                  Done
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button variant="ghost" type="button" onClick={onClose}>
-                  Close
-                </Button>
-                {exporting && (
+            {status}
+            <div className="export-foot-actions">
+              {phase.kind === 'done' ? (
+                <>
+                  {!phase.savedPath && (
+                    <Button variant="ghost" type="button" onClick={() => void retrySaveAs()}>
+                      Save As…
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     type="button"
-                    onClick={cancelExport}
-                    disabled={phase.kind === 'cancelling'}
+                    onClick={() => onReveal(phase.savedPath ?? phase.outputPath)}
                   >
-                    Cancel export
+                    Reveal in folder
                   </Button>
-                )}
-                <Button
-                  variant="primary"
-                  type="button"
-                  onClick={() => void run()}
-                  disabled={exporting || !desktop}
-                >
-                  {phase.kind === 'queued' && 'Queued…'}
-                  {phase.kind === 'running' && 'Exporting…'}
-                  {phase.kind === 'cancelling' && 'Cancelling…'}
-                  {phase.kind !== 'queued' &&
-                    phase.kind !== 'running' &&
-                    phase.kind !== 'cancelling' &&
-                    'Export'}
-                </Button>
-              </>
-            )}
+                  <Button variant="primary" type="button" onClick={onClose}>
+                    Done
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button variant="ghost" type="button" onClick={onClose}>
+                    Close
+                  </Button>
+                  {exporting && (
+                    <Button
+                      variant="ghost"
+                      type="button"
+                      onClick={cancelExport}
+                      disabled={phase.kind === 'cancelling'}
+                    >
+                      Cancel export
+                    </Button>
+                  )}
+                  <Button
+                    variant="primary"
+                    type="button"
+                    onClick={() => void run()}
+                    disabled={exporting || !desktop}
+                  >
+                    {phase.kind === 'queued' && 'Queued…'}
+                    {phase.kind === 'running' && 'Exporting…'}
+                    {phase.kind === 'cancelling' && 'Cancelling…'}
+                    {phase.kind !== 'queued' &&
+                      phase.kind !== 'running' &&
+                      phase.kind !== 'cancelling' &&
+                      'Export'}
+                  </Button>
+                </>
+              )}
+            </div>
           </footer>
         </div>
       )}

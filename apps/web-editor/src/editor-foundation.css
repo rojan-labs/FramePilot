@@ -166,16 +166,19 @@ body {
  *
  * The gutter MUST be at least as wide as the row it holds, and the row is sized by
  * the hit targets below, not by the 14/16px in `styles.css`:
- *   6 (padding) + 24 (collapse) + 4 + 18 (glyph) + 4 + [4 × 24 + 3 × 2] (controls,
- *   `.track-controls` gap tightened to 2px) + 6 (padding) = 164px.
+ *   6 (padding) + 24 (collapse) + 2 + 18 (glyph) + 2 + [4 × 24] (controls, gap 0)
+ *   + 6 (padding) = 154px.
  * At 152px every header overflowed by 12px and the last control — the lock — was drawn
  * past the column edge, underneath the lanes column that paints over it, so the header
  * ended in a clipped, broken-looking edge with the lock half-swallowed by the first clip.
- * Widening is the fix: shrinking the controls back would undo the accessible hit target
- * this block exists to provide. Keep this ≥ the arithmetic above.
+ * Keep this ≥ the arithmetic above — but no wider: the surplus does not pad the row,
+ * it opens as one dead gap between the glyph and the right-clustered flags (the
+ * controls are `margin-left: auto`), which is what made the gutter read as loose.
+ * Shrinking the controls instead would undo the accessible hit target this block
+ * exists to provide, so the slack comes out of the column, not the buttons.
  * ---------------------------------------------------------------------- */
 .timeline-grid {
-  grid-template-columns: 176px minmax(0, 1fr);
+  grid-template-columns: 156px minmax(0, 1fr);
 }
 
 .track-head {

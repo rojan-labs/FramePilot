@@ -8174,10 +8174,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                                              Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                                              a pre-existing local edit commenting out temperature forwarding, untouched here);
-                                              engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                                              **Last updated:** 2026-08-14
+                                                Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                                                a pre-existing local edit commenting out temperature forwarding, untouched here);
+                                                engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                                                **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 
@@ -8575,6 +8575,37 @@ were reproduced against that real project, not a fixture.
       patch path had no arm for memory at all. P5.3's behavioural half is held back with its
       reasoning and trigger recorded; the cost it would save is now reported as
       `ContextManifest.usage.toolSchemaTokensRebilled`.
+
+## Discovered (2026-08-28) — Editor chrome density + export/history panel UX
+
+- [x] **One control size across the timeline tool row.** The row mixed 32px `.icon-btn`
+      boxes holding 18px glyphs with 20px `.timeline-tool` boxes holding 16px glyphs, so
+      the left and right halves read as different toolbars and the taller half set the
+      row height. Both now use the library rail's proportion (16px glyph, 28px square)
+      and the row's vertical padding is a half-step. `apps/web-editor/src/components/Toolbar.tsx`,
+      `styles.css`.
+- [x] **Track gutter tightened.** `editor-foundation.css` widened the header column to
+      176px to fit 24px hit targets, but the surplus over the 154px the row actually needs
+      did not pad the row — the flags are `margin-left: auto`, so it opened as one dead gap
+      between the type glyph and the flag cluster. Column is 156px; the 24px hit targets
+      (the accessibility contract that block exists for) are untouched.
+- [x] **Export popover restructured: header / scrolling body / pinned action bar.** The
+      popover itself was the scroller, so the Export button scrolled away below a credits
+      list. The body is now the only scrolling region, the footer is a sibling, and the live
+      status moved into the footer (one `role="status"` at a time). Options grouped into
+      Format / Audio / Credits; Audio and a populated Credits list are `<details>` that state
+      what they hide; the preset states its real output (`1080 × 1920 · 30 fps · MP4 (H.264)`)
+      from the same width/height/fps the engine's `render/presets.py` carries.
+- [x] **History panel: the reel is scannable again.** An agent patch's `reason` is a
+      narration that routinely runs to paragraphs; printed whole, one row was taller than the
+      panel. Reasons clamp to three lines behind a "More" (folded by character count, so the
+      decision is pure and width-independent), filters carry counts, the header states the
+      cursor position and the undone tail, the current row is labelled, and an author filter
+      that matches nothing says so with a way back.
+- [x] **Timeline minimap draws on the first paint.** It measured its own width only from
+      `onPointerDown`, so it mounted at width 0 and rendered as an empty bar until clicked —
+      a navigation aid you had to use blind. Measures in a layout effect and tracks resizes
+      via `ResizeObserver`. Regression test in `TimelineView.viewlayout.test.tsx`.
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)

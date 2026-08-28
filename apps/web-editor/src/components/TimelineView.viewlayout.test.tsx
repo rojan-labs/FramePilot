@@ -194,6 +194,34 @@ describe('TimelineView — minimap overview (M2b-2)', () => {
     expect(screen.getByLabelText('Timeline overview')).toBeDefined();
   });
 
+  it('draws its blocks on the first paint, before any click', () => {
+    // Regression: the strip measured its own width only from `onPointerDown`, so
+    // it mounted at width 0 — every block and the viewport window computed to
+    // zero px and the map rendered as an empty bar until the user clicked it.
+    // jsdom reports 0 for every rect, so give the strip a real width the way the
+    // browser would and assert the geometry lands WITHOUT any pointer event.
+    const rect = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element): DOMRect {
+      const width = this.classList.contains('minimap') ? 300 : 0;
+      return { ...rect.call(this), width, left: 0, right: width } as DOMRect;
+    };
+    try {
+      renderTimeline();
+      const minimap = screen.getByLabelText('Timeline overview');
+      const blocks = minimap.querySelectorAll('.mm-block');
+      expect(blocks.length).toBe(2); // one clip on each of the two lanes
+      for (const block of blocks) {
+        expect(Number.parseFloat((block as HTMLElement).style.width)).toBeGreaterThan(0);
+      }
+      // The viewport window is mounted and placed. Its *width* stays 0 here
+      // because jsdom gives the lane scroller no `clientWidth` to derive the
+      // visible fraction from — a jsdom limit, not the mount-measure bug.
+      expect(minimap.querySelector('.mm-view')).not.toBeNull();
+    } finally {
+      Element.prototype.getBoundingClientRect = rect;
+    }
+  });
+
   it('is keyboard-operable as a slider without throwing', () => {
     renderTimeline();
     const minimap = screen.getByLabelText('Timeline overview');

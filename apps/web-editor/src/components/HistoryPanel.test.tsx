@@ -57,6 +57,20 @@ const agentTrim = (): Patch => ({
   operations: [{ type: 'trim_clip', clipId: 'c1', start: 0, end: 1 }],
 });
 
+/** The agent's narration on a real run runs to paragraphs; this is one. */
+const LONG_REASON =
+  'I have strong music candidates and the best fit is a symphonic dubstep track ' +
+  'with clear beats, percussion, drops and builds, so I am bringing it in and ' +
+  'starting to build the visual library around its beat structure before I place ' +
+  'a single cut on the timeline.';
+
+const agentLongReasonTrim = (): Patch => ({
+  patchId: 'agent_long' as Patch['patchId'],
+  createdBy: 'agent',
+  reason: LONG_REASON,
+  operations: [{ type: 'trim_clip', clipId: 'c1', start: 0, end: 3 }],
+});
+
 function Host(): JSX.Element {
   const editor = useEditor(clipTimeline, { assetIds: ['a'] });
   return (
@@ -73,6 +87,9 @@ function Host(): JSX.Element {
       <button type="button" onClick={() => editor.applyPatch(agentTrim())}>
         agent-edit
       </button>
+      <button type="button" onClick={() => editor.applyPatch(agentLongReasonTrim())}>
+        agent-long-edit
+      </button>
       <span aria-label="clip end">{editor.state.timeline.tracks[0]!.clips[0]!.end}</span>
       <HistoryPanel editor={editor} project={baseProject} open onClose={() => {}} />
     </div>
@@ -83,6 +100,59 @@ describe('HistoryPanel', () => {
   it('shows the empty state before any edit', () => {
     render(<Host />);
     expect(screen.getByText('No edits yet')).toBeDefined();
+    // The header says the same thing in its own words, not a duplicate string.
+    expect(screen.getByText('Nothing recorded yet')).toBeDefined();
+  });
+
+  it('folds a long AI reason behind More and reveals it on demand', () => {
+    render(<Host />);
+    fireEvent.click(screen.getByRole('button', { name: 'agent-long-edit' }));
+    const reason = screen.getByText(LONG_REASON);
+    // Rendered in full (so it stays copyable and searchable) but clamped by CSS
+    // until asked for — the flag the stylesheet keys off is on the element.
+    expect(reason.getAttribute('data-clamped')).toBe('true');
+    const more = screen.getByRole('button', { name: 'More' });
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(more);
+    expect(screen.getByText(LONG_REASON).getAttribute('data-clamped')).toBe('false');
+    expect(screen.getByRole('button', { name: 'Less' })).toBeDefined();
+  });
+
+  it('leaves a short AI reason unfolded, with no More control', () => {
+    render(<Host />);
+    fireEvent.click(screen.getByRole('button', { name: 'agent-edit' }));
+    expect(screen.getByText('Tightened the intro').getAttribute('data-clamped')).toBe('false');
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+  });
+
+  it('counts each filter and keeps the chips queryable by their bare name', () => {
+    render(<Host />);
+    fireEvent.click(screen.getByRole('button', { name: 'user-edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'agent-edit' }));
+    // The count is decoration: the accessible name is still the plain word.
+    expect(screen.getByRole('button', { name: 'All' }).textContent).toContain('2');
+    expect(screen.getByRole('button', { name: 'You' }).textContent).toContain('1');
+    expect(screen.getByRole('button', { name: 'AI' }).textContent).toContain('1');
+    // Position line: two edits, cursor at the end.
+    expect(screen.getByText('2 edits · at the latest')).toBeDefined();
+  });
+
+  it('explains an author filter that matches nothing, and offers a way back', () => {
+    render(<Host />);
+    fireEvent.click(screen.getByRole('button', { name: 'user-edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }));
+    expect(screen.getByText(/No edits by the AI yet/)).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Show all' }));
+    expect(screen.queryByText(/No edits by the AI yet/)).toBeNull();
+    expect(screen.getByText('Trimmed clip')).toBeDefined();
+  });
+
+  it('reports the undone tail after stepping back', () => {
+    render(<Host />);
+    fireEvent.click(screen.getByRole('button', { name: 'user-edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'agent-edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(screen.getByText('Step 1 of 2 · 1 undone')).toBeDefined();
   });
 
   it('lists an edit with a human label, the origin node, and the You badge', () => {
