@@ -47,6 +47,26 @@ export function twelveLabsKey(config: AiConfig): string | undefined {
 }
 
 /**
+ * The understanding credentials for a config, in the shape every request wants.
+ *
+ * Four call sites assembled this by hand and one of them got it wrong: the renderer
+ * withheld the on-device key whenever a TwelveLabs key existed, so stills — which
+ * TwelveLabs cannot index — had no backend at all. One helper, one policy.
+ */
+export function understandingCredentials(config: AiConfig): {
+  twelveLabsKey?: string;
+  nvidiaKeys?: string;
+} {
+  const hosted = twelveLabsKey(config);
+  const onDevice = nvidiaEmbeddingsKeys(config);
+  return {
+    ...(hosted ? { twelveLabsKey: hosted } : {}),
+    // Always sent, never gated on the hosted key: the engine routes stills here.
+    ...(onDevice ? { nvidiaKeys: onDevice } : {}),
+  };
+}
+
+/**
  * Background warming is automatic whenever a media-understanding backend is
  * configured. The old `embeddingsAutoIndex` preference is migration-only and is
  * intentionally ignored: semantic tools also prepare media lazily on first need.
@@ -88,11 +108,7 @@ export async function autoIndexImportedAssets(
     request: {
       projectId: input.projectId,
       assetIds: input.assetIds,
-      ...(tlKey ? { twelveLabsKey: tlKey } : {}),
-      // Sent alongside the hosted key: stills are routed to the on-device
-      // embedder because TwelveLabs cannot index a photo (see the engine's
-      // `_asset_is_still_image`), and that route needs this key.
-      ...(nvidiaKeys ? { nvidiaKeys } : {}),
+      ...understandingCredentials(input.config),
     },
   });
   log.action('media warmup → done', {
@@ -122,15 +138,12 @@ export interface EnsureProjectMediaUnderstandingInput {
 export async function ensureProjectMediaUnderstanding(
   input: EnsureProjectMediaUnderstandingInput,
 ): Promise<EnsureMediaUnderstandingResult> {
-  const tlKey = twelveLabsKey(input.config);
-  const nvidiaKeys = nvidiaEmbeddingsKeys(input.config);
   return ensureMediaUnderstanding({
     client: input.client ?? createVisualIndexClient(),
     projectId: input.project.id,
     project: input.project as unknown as Record<string, unknown>,
     ...(input.assetIds ? { assetIds: input.assetIds } : {}),
-    ...(tlKey ? { twelveLabsKey: tlKey } : {}),
-    ...(nvidiaKeys ? { nvidiaKeys } : {}),
+    ...understandingCredentials(input.config),
     ...(input.refresh ? { refresh: true } : {}),
     ...(input.signal ? { signal: input.signal } : {}),
     ...(input.onEvent ? { onEvent: input.onEvent } : {}),

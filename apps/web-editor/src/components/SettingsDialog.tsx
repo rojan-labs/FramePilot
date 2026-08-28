@@ -43,6 +43,7 @@ import {
   createVisualIndexClient,
   nvidiaEmbeddingsKeys,
   twelveLabsKey,
+  understandingCredentials,
 } from '../editor/visualIndex.js';
 import { useAiConfig } from '../editor/useAiConfig.js';
 import { onStockQuotaChanged, stockQuota, type StockQuotaSnapshot } from '../editor/bridge.js';
@@ -838,15 +839,9 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
     if (!projectId || retrying) return;
     setRetrying(true);
     try {
-      const hosted = twelveLabsKey(config);
-      const onDevice = nvidiaEmbeddingsKeys(config);
       await runVisualIndexLoop({
         client,
-        request: {
-          projectId,
-          ...(hosted ? { twelveLabsKey: hosted } : {}),
-          ...(onDevice ? { nvidiaKeys: onDevice } : {}),
-        },
+        request: { projectId, ...understandingCredentials(config) },
       });
     } finally {
       setRetrying(false);

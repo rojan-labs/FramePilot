@@ -1,4 +1,4 @@
-# 05 — Removals, deferrals, and risk
+# 05 — Removals, deferrals, and risk `[x]` closed 2026-08-28
 
 ---
 
@@ -7,30 +7,31 @@
 Each entry names the blast radius. Nothing here is removed on the strength of this
 document alone — each is its own reviewable change with its own tests.
 
-### 1.1 The `index_media` agent tool — recommend removal
+### 1.1 The `index_media` agent tool — **NOT removed; the audit was wrong**
 
-`packages/ai-sdk/src/domain-tools/media.ts` exposes `index_media` to the model, whose
-description is _"Build (or finish) the visual index… Call it when a visual search
-reports the footage is not indexed yet."_
+The audit recommended removing it on the grounds that it "costs prompt tokens in every
+run's tool list, invites the model to spend a turn on plumbing, and can start an
+expensive hosted run the user never asked for".
 
-The product's stated contract, enforced by an e2e test, is that **there is no manual
-indexing step**: `ensureMediaUnderstanding` prepares media on first semantic need and
-joins duplicate requests. `index_media` is that manual step, re-introduced on the model
-side. It costs prompt tokens in every run's tool list, invites the model to spend a
-turn on plumbing, and can start an expensive hosted run the user never asked for.
+**That premise is false.** `index_media` is in `IMPLICIT_ONLY_TOOL_NAMES`
+(`packages/ai-sdk/src/tool-scope.ts:44`) and is withheld from every model-facing scope by
+`Orchestrator#agentTools`. It is not in the model's tool list, it costs no prompt tokens,
+and no model can call it. It is the app's own lifecycle driver — `sidecar-executor`,
+`autoIndexImportedAssets`, and the MCP surface external agents drive
+(`packages/mcp-server/src/analysis-client.ts`) all depend on it. Removing it would break
+the MCP surface and the indexing path itself.
 
-**Blast radius.** `sidecar-executor.ts:runIndexMediaLoop`, the tool registry, the
-golden token manifests (removal _reduces_ them — the diff is the measured saving), the
-`autonomous-tool-router` route table, and any skill in `packages/ai-sdk/skills/` that
-names it. **Check first:** whether any skill instructs the model to call it after a
-`not_indexed` reason; if so, the skill changes in the same commit to rely on the
-implicit ensure instead.
+The audit read the tool's _registration_ and its description text and inferred
+visibility. That is precisely the trap **ADR 0127** documents, about this exact tool:
+_"`validateSkillTools` tested for registration, which `index_media` passes."_ Recorded
+here rather than quietly dropped, because the next reader deserves to know the claim was
+checked and found wrong.
 
-**Risk if wrong:** a run that hits `not_indexed` and cannot self-heal. Mitigated by
-making `search_visual`/`describe_footage` trigger the ensure gate before answering
-`not_indexed` — which they are already positioned to do.
+**What is real, and was left alone:** its _description_ is written as if a model would
+read it ("Call it when a visual search reports the footage is not indexed yet"). Nothing
+reads it. Not worth a change on its own; fold it into the next prompt-surface pass.
 
-### 1.2 The legacy `/tasks` arm in `TwelveLabsClient.get_task` — remove after a window
+### 1.2 The legacy `/tasks` arm in `TwelveLabsClient.get_task` — **deferred, still load-bearing**
 
 `brain/twelvelabs.py:get_task` falls back to `self._sdk.tasks.retrieve(task_id)` for
 mappings persisted before FramePilot adopted the asset workflow. It is a second polling
@@ -42,23 +43,25 @@ prefix. Across the user's 43 projects the only surviving hosted mappings
 there. **Do not remove yet.** Remove once a re-index has rewritten them, or add a
 one-time rewrite that re-resolves those ids and drops the arm in the same change.
 
-### 1.3 The unused `phash` consumer gap — not a removal, a completion
+### 1.3 The unused `phash` consumer gap — **completed in Phase 2**
 
 `visual_spans.phash` is computed and stored on every span and read by nothing. Either
 it earns its column via the near-duplicate signal in Phase 2 §2.4, or it is dropped.
 Storing a signal nobody reads is the same maintenance cost as a dead path.
-**Recommendation: complete it, do not remove it** — it is the cheapest quality signal
-available and the data is already there.
+**Completed, not removed:** `FootageChapter.similarGroup` (Phase 2 §2.4) reads it to tell
+the model which of its candidates are the same picture twice. The column earns its keep.
 
-### 1.4 Two implementations of "which keys do we send"
+### 1.4 Two implementations of "which keys do we send" — **done**
 
-Phase 1 collapsed the renderer's `!tlKey && nvidiaKeys` rule into the desktop's
-"send both". What remains is that `apps/desktop/electron/main.ts:visualIndexCredentials`
-and `apps/web-editor/src/editor/visualIndex.ts` still each construct the credential
-object independently. One helper, one policy. Small, safe, do it with Phase 3 when both
-files are open anyway.
+Phase 1 collapsed the renderer's `!tlKey && nvidiaKeys` rule into the desktop's "send
+both". Four call sites still assembled the credential object by hand, and one of them was
+the bug. `understandingCredentials(config)` in `apps/web-editor/src/editor/visualIndex.ts`
+is now the single policy, used by the import warm-up, the ensure gate, and the panel's
+retry. `apps/desktop/electron/main.ts:visualIndexCredentials` stays separate — it also
+resolves the caption provider from main-process-only config, so folding it in would drag
+renderer code across the process boundary for no gain.
 
-### 1.5 An unclosed `httpx.Client` per resolution
+### 1.5 An unclosed `httpx.Client` per resolution — **done**
 
 `resolve_visual_embedder` constructs `httpx.Client()` and never closes it; the same
 holds for the captioner resolution. Both are called per request on the built-in route,
@@ -67,6 +70,11 @@ still-image resolution **lazy** so a video-only project does not pay for one, bu
 underlying pattern is unchanged. Not a removal — a lifecycle fix: resolve once per
 process and reuse, or close in a `finally`. **Do it with Phase 3**, where concurrency
 multiplies the leak by the concurrency limit.
+
+**Shipped.** Both `visual_embed` and `captioner` now hold one lazily-created
+process-wide `httpx.Client` behind a lock, used whenever a caller does not inject its
+own. This also earns back most of the point of issuing embedding requests together:
+a shared client is what makes connection reuse possible.
 
 ### 1.6 Not a removal candidate, despite appearances
 
@@ -120,3 +128,19 @@ recovers on its next run with no user action.
 be preserved by every phase: the `tl:map` cache is keyed on content hash and served
 before any live fetch, and the per-run context read passes `cachedOnly: true` so a cold
 project never turns a background context assembly into a billed Pegasus call.
+
+---
+
+## 5. Outcome
+
+| Candidate                            | Outcome                                                                                                                                   |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `index_media` agent tool             | **Not removed.** The audit's premise was wrong — it is already model-invisible and is the app's own lifecycle driver. Corrected above.    |
+| Legacy `/tasks` polling arm          | **Deferred.** Still load-bearing: the only surviving hosted mappings on this machine carry bare task ids. Needs a one-time rewrite first. |
+| Unused `phash`                       | **Completed, not removed** — Phase 2's `similarGroup`.                                                                                    |
+| Duplicated credential assembly       | **Removed** — one `understandingCredentials` helper.                                                                                      |
+| Leaked `httpx.Client` per resolution | **Fixed** — one shared client per process, in both the embedder and the captioner.                                                        |
+
+Two of five were real removals, one was a completion, one was correctly deferred, and one
+was a bad call caught before it broke the MCP surface. Writing the wrong one down and then
+checking it is the process working, not a failure of it.

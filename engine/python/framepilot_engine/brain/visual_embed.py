@@ -387,6 +387,25 @@ class VisualEmbedClient:
         return vectors
 
 
+#: One HTTP client per process, shared by every resolution that does not inject its own.
+#: `resolve_visual_embedder` used to construct an `httpx.Client()` per call and never
+#: close it, which leaked a client (and its pool) per index slice — multiplied by the
+#: concurrency limit once slices started preparing several assets at once. A shared
+#: client is also what makes connection reuse possible, which is most of the point of
+#: issuing embedding requests together.
+_shared_http: httpx.Client | None = None
+_shared_http_lock = threading.Lock()
+
+
+def _default_http() -> httpx.Client:
+    """The process-wide embedding HTTP client, created on first use."""
+    global _shared_http
+    with _shared_http_lock:
+        if _shared_http is None:
+            _shared_http = httpx.Client()
+        return _shared_http
+
+
 def resolve_visual_embedder(
     keys_raw: str | None,
     *,
@@ -407,7 +426,7 @@ def resolve_visual_embedder(
         return VisualEmbedderResolution(client=None, reason=NO_API_KEY_REASON)
     client = VisualEmbedClient(
         KeyRing(keys),
-        http=http if http is not None else httpx.Client(),
+        http=http if http is not None else _default_http(),
         now=now,
     )
     return VisualEmbedderResolution(client=client)
