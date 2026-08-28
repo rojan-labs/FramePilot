@@ -117,10 +117,14 @@ describe('MusicService', () => {
   function make(overrides: Partial<MusicServiceOptions> = {}): MusicService {
     return new MusicService({
       projectsRoot,
+      // The sidecar client's REAL shape: duration/kind flat, derived media nested.
+      // This stub used to restate it flat, which mirrored the service's own mistake
+      // and made the `media?.peaks` assertion below pass against a broken read.
       deriveAssetMedia: async () => ({
+        ok: true,
+        kind: 'audio',
         durationSeconds: 90,
-        peaks: [0.1, 0.2],
-        peaksPerSecond: 10,
+        media: { peaks: [0.1, 0.2], peaksPerSecond: 10 },
       }),
       onProgress: (message) => progress.push(message),
       ...overrides,
@@ -371,6 +375,8 @@ describe('MusicService', () => {
       expect(result.asset.relativePath).toBe('media/demo/Calm_Bed.mp3');
       expect(result.asset.kind).toBe('audio');
       expect(result.asset.media?.peaks).toEqual([0.1, 0.2]);
+      expect(result.asset.media?.peaksPerSecond).toBe(10);
+      expect(result.asset.durationSeconds).toBe(90);
       // The credit is built in MAIN from what the provider returned, so it
       // cannot depend on a search row still being on screen.
       expect(result.asset.source.attributionRequired).toBe(true);

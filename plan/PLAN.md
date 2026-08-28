@@ -13,6 +13,44 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-28, run `bfb5c75b` memory spike):** `[x]` **Sourced assets were
+throwing away the proxy the engine had just built for them.** A 50+ clip nature montage
+(`run.md` at the repo root, conversation `bfb5c75b`) spiked memory until the app had to be
+force-quit. The cause was not the timeline: that project's history commits cleanly, 123 ops
+collapsing to 45 inverse ops, and the saved file is 268 KB. It was that every one of the 55
+sourced assets carried `media: {proxyPath: null, peaks: null, thumbnailPaths: null}` — while
+all 54 proxies existed on disk. `StockService.materialize` and `MusicService.materialize`
+read `derived.proxyPath` / `.peaks` / `.thumbnailPaths` off the top level of
+`importAssetViaSidecar`'s result, which has always nested them under `media`. Every field is
+optional, so both flat shapes were structurally assignable and the compiler was silent; the
+stock test cast its stub `as never` and the music test's stub restated the same flat mistake,
+so the suite agreed with the bug. Verified live against the sidecar with the run's own
+184 MB 4K source: `derived.proxyPath` is `undefined`, `derived.media.proxyPath` is
+`.framepilot-derived/25e69ad7b4bc/proxy.mp4`. Consequence: `webCodecsPreviewEligible`
+returns false for any clip without a proxy and `previewMediaSrc` falls back to the original,
+so the editor previewed **1,523.5 MB of 4K originals where 63.2 MB of proxies existed**
+(24x; a 184.2 MB source has a 4.5 MB proxy), ran the client-side `<video>`→canvas capture
+pool over 4K files for every filmstrip, and re-decoded audio in the renderer for waveforms.
+Both services now bind to a named `DerivedAssetMedia` type so the drift is a compile error;
+the stock stub is typed instead of cast. Verification: 502 desktop tests pass, the new
+regression test fails on the old read, desktop lint + typecheck clean.
+
+**Discovered, NOT fixed here** (separate concerns; do not bundle):
+
+- [ ] `enrolStockAsset` (`apps/desktop/electron/main.ts`) fires `runVisualIndexLoop`
+  fire-and-forget, once per `add_stock`, with no concurrency bound, no dedupe across the
+  warm+serial double call, and no abort signal. A 42-download turn starts 42+ uncancellable
+  loops that contend on the engine's per-project index lock while occupying anyio threadpool
+  threads. Needs a bound and a signal.
+- [ ] `/asset-media` has no concurrency gate, unlike `/render/temporal-evidence`'s
+  `_temporal_evidence_gate = asyncio.Semaphore(1)` ("the resource it protects is the
+  machine's memory"). It spawns a probe, a full waveform decode, five thumbnail extractions
+  and a 4K proxy transcode per call, and the agent warms downloads four at a time. Same
+  class as the 2026-08-13 leaked-reader incident (128 stalled processes / 51 GB).
+- [ ] Derivation runs twice per sourced asset — once in the orchestrator's concurrent warm
+  pass, once in the serial commit that hits the dedupe path. In this run the dedupe calls
+  still cost 1.5–3.2s each.
+
 **Status snapshot (2026-08-28, photo-montage run gap analysis, round 6):** `[x]` **All six
 closed in code; the re-run is what settles them.** Run `4c9b5f82` answered a 61-photo,
 "20–35 second" brief with ten photos over the first 10.0s of a 36.1s music bed — 72% of the

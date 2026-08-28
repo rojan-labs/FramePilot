@@ -17,6 +17,22 @@
  */
 import type { ImportAssetRequest, ImportAssetResult } from '../ipc/contract.js';
 
+/**
+ * A SUCCESSFUL derivation, as {@link importAssetViaSidecar} actually resolves it —
+ * duration and kind at the top level, the derived media (proxy, thumbnails, peaks)
+ * nested under `media`.
+ *
+ * WHY this is a named type rather than each caller restating the shape: the sourcing
+ * services used to declare their own FLAT option shape (`{ proxyPath, peaks,
+ * thumbnailPaths }`). Every optional field made that shape structurally assignable
+ * from this one, so the compiler was silent while `derived.proxyPath` read `undefined`
+ * forever. The engine transcoded a 540p proxy, wrote it to disk, and the desktop stored
+ * `proxyPath: null` — so a montage built from 55 sourced clips previewed against 1.5 GB
+ * of 4K originals with 63 MB of proxies sitting unused beside them. Binding both callers
+ * to this exact type is what makes that drift a compile error instead of a memory spike.
+ */
+export type DerivedAssetMedia = Extract<ImportAssetResult, { ok: true }>;
+
 /** Default thumbnail-frame count when the request omits one. */
 const DEFAULT_THUMBNAILS = 5;
 

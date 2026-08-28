@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StockItem, StockProvider, StockSearchPage } from '@framepilot/ai-sdk';
 import { STOCK_DOWNLOAD_STALL_MS, StockProviderError } from '@framepilot/ai-sdk';
-import { StockService } from './stock-service.js';
+import { StockService, type StockServiceOptions } from './stock-service.js';
 import { StockQuotaStore } from './stock-quota.js';
 
 const PROJECT_ID = 'proj_1';
@@ -157,7 +157,10 @@ function makeService(
     fetchImpl?: unknown;
     quota?: StockQuotaStore;
     apiKey?: string | undefined;
-    derive?: unknown;
+    // Typed, NOT `unknown`-then-`as never`: the cast is what let a stub restate the
+    // derived-media shape flat and agree with a service that read it flat, while the
+    // real sidecar client had always nested it under `media`.
+    derive?: StockServiceOptions['deriveAssetMedia'];
     onProgress?: (message: never) => void;
   } = {},
 ): StockService {
@@ -167,7 +170,7 @@ function makeService(
     quota: options.quota ?? makeQuota(),
     ...(options.provider ? { provider: options.provider } : {}),
     fetchImpl: (options.fetchImpl ?? vi.fn()) as never,
-    deriveAssetMedia: (options.derive ?? (async () => null)) as never,
+    deriveAssetMedia: options.derive ?? (async () => null),
     ...(options.onProgress ? { onProgress: options.onProgress as never } : {}),
   });
 }
@@ -502,7 +505,7 @@ describe('download', () => {
       fetchImpl,
       // A provider that served an MJPEG under a .jpg name has not changed what
       // the file is; the engine reads the container and wins.
-      derive: async () => ({ kind: 'video', durationSeconds: 4 }),
+      derive: async () => ({ ok: true, kind: 'video', durationSeconds: 4, media: {} }),
     });
     await service.search({ text: 'q', kind: 'photo' });
     const result = await service.download({
@@ -512,6 +515,69 @@ describe('download', () => {
     });
     if (!result.ok) throw new Error('expected ok');
     expect(result.asset.kind).toBe('video');
+  });
+
+  it('carries the derived proxy, thumbnails and peaks onto the asset', async () => {
+    // The regression this file exists to prevent. The engine transcodes a 540p proxy
+    // (a 184 MB 4K source becomes ~4.5 MB), extracts a filmstrip and a waveform — and
+    // the desktop used to read all three off the wrong nesting level, store
+    // `proxyPath: null`, and leave the editor previewing the raw original. A montage of
+    // 55 sourced clips meant 1.5 GB of 4K where 63 MB of proxies already existed on
+    // disk, which is what spiked memory until the app had to be force-quit.
+    const fetchImpl = vi.fn().mockImplementation(() => bytesResponse(body));
+    const service = makeService({
+      provider: stubProvider(page([VIDEO_ITEM])),
+      fetchImpl,
+      derive: async () => ({
+        ok: true,
+        kind: 'video',
+        durationSeconds: 23.4,
+        media: {
+          proxyPath: '.framepilot-derived/d2d07e43afff/proxy.mp4',
+          thumbnailPaths: ['.framepilot-derived/30679517a668/thumbs/thumb_000.png'],
+          peaks: [0.1, 0.9],
+          peaksPerSecond: 17,
+        },
+      }),
+    });
+    await service.search({ text: 'q', kind: 'video' });
+    const result = await service.download({
+      projectId: PROJECT_ID,
+      remoteId: VIDEO_ITEM.remoteId,
+      operationId: 'op1',
+    });
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.asset.media).toEqual({
+      proxyPath: '.framepilot-derived/d2d07e43afff/proxy.mp4',
+      thumbnailPaths: ['.framepilot-derived/30679517a668/thumbs/thumb_000.png'],
+      peaks: [0.1, 0.9],
+      peaksPerSecond: 17,
+    });
+  });
+
+  it('reports absent derived media as null rather than inventing paths', async () => {
+    // Honest degradation: the engine skips a proxy for a source past the duration cap,
+    // and a silent video has no peaks. Those must read as null, not as a missing field
+    // the renderer would treat as "not probed yet" and re-derive forever.
+    const fetchImpl = vi.fn().mockImplementation(() => bytesResponse(body));
+    const service = makeService({
+      provider: stubProvider(page([VIDEO_ITEM])),
+      fetchImpl,
+      derive: async () => ({ ok: true, kind: 'video', durationSeconds: 23.4, media: {} }),
+    });
+    await service.search({ text: 'q', kind: 'video' });
+    const result = await service.download({
+      projectId: PROJECT_ID,
+      remoteId: VIDEO_ITEM.remoteId,
+      operationId: 'op1',
+    });
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.asset.media).toEqual({
+      proxyPath: null,
+      thumbnailPaths: null,
+      peaks: null,
+      peaksPerSecond: null,
+    });
   });
 
   it('still adds the asset when derivation fails', async () => {
