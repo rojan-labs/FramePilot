@@ -496,4 +496,34 @@ describe('a run that auditions several tracks before choosing one', () => {
     // A real refusal: no picture reached the timeline.
     expect(appliedBoundaries(events)).toHaveLength(0);
   });
+
+  /**
+   * A tool card settles when its own call returns, which is before the turn gate runs. Run
+   * `ea8e46ec` therefore showed the editor sixty-one green "Added clip Video 1 · 0s–0.5s"
+   * rows — past tense — for clips that never reached the timeline, six times over. A run
+   * that reports work it did not do is worse than one that reports nothing.
+   */
+  it('settles the cards that proposed a rejected turn as failed, not as checkmarks', async () => {
+    const { events } = await runAudition(false, true);
+    // `reduceEvents` upserts by id, so the LAST status for each card is what the editor
+    // sees. Every card that proposed the refused montage must end red.
+    const finalStatus = new Map<string, string>();
+    for (const event of events) {
+      if (event.type === 'tool_call') finalStatus.set(event.id, event.status);
+    }
+    const cutCards = [...finalStatus.entries()].filter(([id]) => id.startsWith('c'));
+    expect(cutCards.length).toBeGreaterThan(0);
+    for (const [id, status] of cutCards) {
+      expect(status, `card ${id} claims success for a clip that never landed`).toBe('failed');
+    }
+  });
+
+  it('leaves the cards of a turn that APPLIED alone', async () => {
+    const { events } = await runAudition(true);
+    const finalStatus = new Map<string, string>();
+    for (const event of events) {
+      if (event.type === 'tool_call') finalStatus.set(event.id, event.status);
+    }
+    expect([...finalStatus.values()].every((status) => status === 'completed')).toBe(true);
+  });
 });

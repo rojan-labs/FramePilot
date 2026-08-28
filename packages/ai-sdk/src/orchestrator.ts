@@ -5054,6 +5054,17 @@ export class Orchestrator {
        * attach as real image content. Empty on every turn that did not look at a frame.
        */
       frames: AiImage[];
+      /**
+       * The cards of the calls that PROPOSED this turn's operations, so a whole-turn
+       * rejection can settle them honestly (see `settleProposalCards`).
+       *
+       * A tool card is settled the moment its own call returns, which is before the turn
+       * gate runs — necessarily, because the card is what makes the run watchable. So a
+       * turn the gate then rejects leaves a wall of green checkmarks behind it: run
+       * `ea8e46ec` showed the editor sixty-one "Added clip Video 1 · 0s–0.5s" rows, in the
+       * past tense, for clips that never reached the timeline, six times over.
+       */
+      proposalCards: { id: string; name: string }[];
     }
   > {
     const turnOps: AnyOperation[] = [];
@@ -5067,6 +5078,7 @@ export class Orchestrator {
     // empty-run notice is built from these when the whole run lands nothing.
     let rejectedOpCount = 0;
     const rejectionNotes: string[] = [];
+    const proposalCards: { id: string; name: string }[] = [];
     // The turn's speculative working copy: each validated mutating call advances it,
     // so the NEXT call is validated against the timeline as it will actually exist
     // (a second overlay landing on an occupied range fails ITS card immediately, and
@@ -5256,6 +5268,7 @@ export class Orchestrator {
         // rejected (e.g. a trim that overlaps its neighbour), so a run could show a
         // wall of "Trimmed clip" rows yet produce an EMPTY combined diff with nothing
         // to apply. Actions now reflect what actually landed.
+        if (outcome.ops.length > 0) proposalCards.push({ id: call.id, name: call.name });
         turnOps.push(...outcome.ops);
         notes.push(outcome.note);
         turnStatuses.push(outcome.status);
@@ -5337,6 +5350,7 @@ export class Orchestrator {
       rejectionNotes,
       callFacts,
       frames,
+      proposalCards,
     };
   }
 
@@ -7052,6 +7066,7 @@ export class Orchestrator {
           rejectionNotes,
           callFacts,
           frames,
+          proposalCards,
         } = yield* self.executeToolCalls(
           emit,
           turn.calls,
@@ -7114,6 +7129,7 @@ export class Orchestrator {
 
         // Blast-radius bound: the reducer emits the `failed` step + warning.
         if (turnOps.length > maxOpsPerTurn) {
+          yield* settleProposalCards(emit, proposalCards);
           return turnBase(index, emit.seq(), {
             ...common,
             anyToolFailed,
@@ -7132,6 +7148,15 @@ export class Orchestrator {
           appliedPatchIds,
           beatEvidence,
         });
+        // A whole-turn rejection un-settles the cards that proposed it. Not a cosmetic
+        // detail: those cards are the editor's only live account of the run, and past-tense
+        // green rows for edits that never reached the timeline is the difference between
+        // watching a run and being told a story about one.
+        //
+        // `satisfied` is deliberately excluded — a turn that landed nothing because the
+        // timeline already said what it asked for did not fail, and marking it failed is
+        // the same lie in the other direction.
+        if (applied.rejection !== undefined) yield* settleProposalCards(emit, proposalCards);
         if (applied.offGrid) offGridNote = applied.offGrid;
         const describedActions: DescribedAction[] = [];
         const workingBefore = working;
@@ -7380,6 +7405,27 @@ export class Orchestrator {
   ): ConductorHandlers {
     return this.agentRun(input, options, agentOptions).handlers;
   }
+}
+
+/**
+ * Re-settle the cards of the calls that proposed a rejected turn's operations as `failed`.
+ *
+ * A tool card is settled when its own call returns, which is necessarily BEFORE the turn
+ * gate runs — the card is what makes a streaming run watchable, and deferring every card
+ * until after the gate would leave the editor staring at nothing for the length of a turn.
+ * The consequence is that a turn the gate rejects leaves behind a wall of green checkmarks
+ * for work that never landed. In run `ea8e46ec` that was sixty-one "Added clip Video 1 ·
+ * 0s–0.5s" rows, in the past tense, six times over, for a timeline that ended with no
+ * picture on it at all.
+ *
+ * `reduceEvents` upserts tool cards by id, carrying the original start time and result
+ * popup forward, so a second settle updates the card in place rather than adding a row.
+ */
+function* settleProposalCards(
+  emit: ReturnType<typeof createTurnEmitter>,
+  cards: readonly { readonly id: string; readonly name: string }[],
+): Generator<AiEvent> {
+  for (const card of cards) yield emit.toolCall(card.id, card.name, 'failed');
 }
 
 /**
