@@ -63,6 +63,31 @@ test.describe('view preferences persist across a reload', () => {
     );
   });
 
+  test('folding a bin folder records it, so it reopens folded', async ({ page }) => {
+    await openEditor(page);
+    await page.getByRole('button', { name: 'new folder' }).click();
+    await page.getByLabel('folder name').fill('Shots');
+    await page.getByLabel('folder name').press('Enter');
+
+    const fold = page.getByRole('button', { name: 'Collapse Shots' });
+    await expect(fold).toHaveAttribute('aria-expanded', 'true');
+    await fold.click();
+    await expect(page.getByRole('button', { name: 'Expand Shots' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+
+    // Asserted at the store rather than across a reload: `?demo` re-seeds the fixed demo
+    // project on every load, so the FOLDER itself does not survive here and there would be
+    // nothing left to be folded. What this pins is the half the app owns — the fold is
+    // recorded against the folder's id. `useViewPreference.test.ts` pins the read-back.
+    const stored = await page.evaluate(() =>
+      localStorage.getItem('framepilot.view.binCollapsedFolders'),
+    );
+    expect(stored).toBeTruthy();
+    expect(JSON.parse(stored ?? '[]')).toHaveLength(1);
+  });
+
   test('the rail widths and the timeline dock height survive', async ({ page }) => {
     await openEditor(page);
     // Set them through the same storage the app writes, then prove the app READS
