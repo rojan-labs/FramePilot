@@ -1090,7 +1090,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "notification",
-      "text": "Deterministic self-check: All checks passed."
+      "text": "Deterministic self-check: Passed with 1 warning(s)."
     },
     {
       "id": "turn_golden:notice:15",

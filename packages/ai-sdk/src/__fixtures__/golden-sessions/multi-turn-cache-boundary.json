@@ -1074,7 +1074,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "notification",
-      "text": "Deterministic self-check: All checks passed."
+      "text": "Deterministic self-check: Passed with 1 warning(s)."
     },
     {
       "id": "turn_golden:run-state",
@@ -1181,7 +1181,7 @@
             "criterion": "tighten the intro and the outro",
             "passed": true,
             "atRevision": 2,
-            "detail": "All checks passed."
+            "detail": "Passed with 1 warning(s)."
           }
         ],
         "nextAction": null,
