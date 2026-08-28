@@ -28,6 +28,14 @@ const FrameEvidenceRequestSchema = RequestBaseSchema.extend({
   kind: z.literal('frame'),
   atFrame: frame,
   metrics: z.array(z.enum(['luma', 'black_ratio', 'perceptual_hash'])).min(1),
+  /**
+   * What this frame's measurements must SATISFY, as opposed to merely report.
+   *
+   * A frame request without it gathers numbers and asserts nothing — which is what the
+   * representative opening/midpoint/ending probes did. Optional so an existing recorded
+   * request stays valid and so a caller that genuinely only wants a measurement can say so.
+   */
+  checks: z.array(z.enum(['black_frames'])).min(1).optional(),
 }).strict();
 
 const RangeEvidenceRequestSchema = RequestBaseSchema.extend({
@@ -384,14 +392,25 @@ function issuesFor(request: TemporalEvidenceRequest, result: TemporalEvidenceRes
   if (request.kind !== result.kind)
     return [`Expected ${request.kind} evidence, received ${result.kind}.`];
   const contractIssues: string[] = [];
-  if (
-    request.kind === 'frame' &&
-    result.kind === 'frame' &&
-    result.sample.frame !== request.atFrame
-  ) {
-    contractIssues.push(
-      `Frame result ${result.sample.frame} does not match requested frame ${request.atFrame}.`,
-    );
+  if (request.kind === 'frame' && result.kind === 'frame') {
+    if (result.sample.frame !== request.atFrame) {
+      contractIssues.push(
+        `Frame result ${result.sample.frame} does not match requested frame ${request.atFrame}.`,
+      );
+    }
+    // The probe aimed at "is there a film here" used to be the only probe that asserted
+    // nothing. Run 4c9b5f82's programme was black from 10.0s to its end at 36.1s; the
+    // midpoint frame (541) and the ending frame (1083) were both sampled, both came back
+    // with `blackRatio: 1`, and both were checked only for having the right frame number on
+    // them. The one finding the run reported was the two black frames that happened to fall
+    // inside a +-2-frame range window around the final cut — which reads as a defect in
+    // that cut rather than as twenty-six seconds of nothing.
+    if (
+      request.checks?.includes('black_frames') &&
+      result.sample.blackRatio >= BLACK_FRAME.reviewFrameRatio.value
+    ) {
+      contractIssues.push(`${request.reason} is black (frame ${request.atFrame}).`);
+    }
   }
   if (request.kind === 'range' && result.kind === 'range') {
     const returnedFrames = new Set(result.samples.map((sample) => sample.frame));
@@ -673,6 +692,9 @@ function representativeFrameRequests(
     kind: 'frame',
     atFrame,
     metrics: ['luma', 'black_ratio', 'perceptual_hash'],
+    // These three frames are the run's answer to "is there a film here at all", so they
+    // assert on the black ratio they already measure rather than reporting it and stopping.
+    checks: ['black_frames'],
     reason:
       index === 0
         ? 'Program opening'
