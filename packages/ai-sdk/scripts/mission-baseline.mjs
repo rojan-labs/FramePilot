@@ -33,6 +33,11 @@ const {
   createProviderFromConfig,
   resolveProviderConfig,
   createSidecarExecutor,
+  createVisualStatusDigester,
+  createSessionContextDigester,
+  createMemoryRecorder,
+  VisualIndexClient,
+  summarizeFootageMap,
   scoreMissionScenario,
   summarizeRunMetrics,
   pictureClips,
@@ -147,6 +152,18 @@ async function runTurn({ project, prompt, history, scenarioId, turnIndex }) {
   const capture = new BaselineCaptureProvider(provider);
   const executor = createSidecarExecutor({ baseUrl: BASE_URL });
   const orchestrator = new Orchestrator(capture, { executor });
+  // Same context inputs the desktop host injects (apps/desktop/electron/main.ts hub
+  // options): visual-index status, cached footage map, session narrative — so the
+  // harness measures the desktop path, not a poorer one.
+  const visualIndex = new VisualIndexClient({ baseUrl: BASE_URL });
+  const [visualStatus, footageMap, sessionContext] = await Promise.all([
+    createVisualStatusDigester({ baseUrl: BASE_URL })(project.id, orchestrator.canSeeFrames()).catch(() => undefined),
+    visualIndex.footageMap({ projectId: project.id, project, cachedOnly: true }).then(summarizeFootageMap).catch(() => undefined),
+    createSessionContextDigester({ baseUrl: BASE_URL })(project.id).catch(() => undefined),
+  ]);
+  const rememberDecision = (note) => {
+    void createMemoryRecorder({ baseUrl: BASE_URL })({ projectId: project.id, title: note.title, body: note.body }).catch(() => undefined);
+  };
   const started = Date.now();
   const events = [];
   const controller = new AbortController();
@@ -155,9 +172,17 @@ async function runTurn({ project, prompt, history, scenarioId, turnIndex }) {
   let assistantText = '';
   try {
     for await (const event of orchestrator.streamAgent(
-      { project, userPrompt: prompt, history },
+      {
+        project,
+        userPrompt: prompt,
+        history,
+        ...(visualStatus ? { visualStatus } : {}),
+        ...(footageMap ? { footageMap } : {}),
+        ...(sessionContext ? { sessionContext } : {}),
+      },
       { conversationId: `mission-${scenarioId}`, turnId: `mission-${scenarioId}-t${turnIndex}`, signal: controller.signal },
       {},
+      { rememberDecision },
     )) {
       events.push(event);
       if (event.type === 'diff' && event.edit.validation.valid) {

@@ -35,3 +35,11 @@ Measured on `mission-montage` run 1 (35 calls, 1.07M prompt tokens, $1.29, 924 s
    distinct failure with a "split the step" continuation instead of a blind retry.
    Evidence: `baseline-orchestration.json` montage r2/r3 calls 9–10 end in
    `→8192 ~90 s` pairs; smoke.json likewise.
+8. **A single `get_frame` on a 4K source costs 4–6 s in the sidecar** (`/render/frame`
+   decodes the camera master); five looks per request ≈ 25 s of wall. Reads are already
+   concurrent (pool 4, `concurrencySafe`), so the cost is per-frame decode. Lead for
+   Phase 6/7: grab from the proxy (already derived at import) when the look is ≤ 640 px.
+9. **Harness caveat:** the desktop host passes `visualStatus` and `footageMap` into
+   `ContextInput` (fetched from the brain); the mission harness did not on the first
+   baseline, so `map_footage`/`describe_footage` "not indexed" requests may be fewer on
+   desktop. Fixed in the harness before the after-measurement (same method both sides).
