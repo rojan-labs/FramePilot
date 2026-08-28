@@ -26,6 +26,7 @@
  * untouched because they are evidence or exact prior state, not new edit decisions.
  */
 import type { AnyOperation, Patch } from './patch.js';
+import type { AddClipOp } from './operations.js';
 import type { Effect, EffectLayer, Keyframe } from '@framepilot/timeline-schema';
 
 export type FrameRounding = 'nearest' | 'floor' | 'ceil';
@@ -150,9 +151,8 @@ function snapEffectLayer(layer: EffectLayer, fps: number): EffectLayer {
  * Normalize one AI-authored operation to project-frame boundaries.
  *
  * Snapshot operations (`restore_*`, seeded `add_layer`) and source observations
- * (`set_transcript`, caption cue words, speed-ramp source points, coupled add-clip
- * ranges) deliberately pass through unchanged. Their values describe exact prior
- * state, provider evidence, or two time domains that require more context.
+ * (`set_transcript`, caption cue words, speed-ramp source points) deliberately pass
+ * through unchanged. Their values describe exact prior state or provider evidence.
  */
 export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperation {
   switch (op.type) {
@@ -242,6 +242,8 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
       };
     case 'add_marker':
       return { ...op, time: snapSecondsToFrame(op.time, fps) };
+    case 'add_clip':
+      return snapAddClip(op, fps);
     case 'add_asset':
     case 'remove_asset':
     case 'move_asset':
@@ -249,7 +251,6 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
     case 'rename_folder':
     case 'move_folder':
     case 'delete_folder':
-    case 'add_clip':
     case 'set_clip_source_range':
     case 'set_clip_media':
     case 'set_transcript':
@@ -276,6 +277,46 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
     case 'restore_clips':
       return op;
   }
+}
+
+/**
+ * Snap the SEQUENCE edit points of an `add_clip`, carrying its source range with them.
+ *
+ * `add_clip` was the one authoring operation exempt from the grid, and it is by a wide
+ * margin the most common one. The exemption was deliberate — the docstring above used to
+ * call the ranges "coupled … two time domains that require more context" — and the reason
+ * is real: `start`/`end` are sequence time while `sourceStart`/`sourceEnd` are source
+ * time, and moving one without the other changes the clip's speed.
+ *
+ * But the conclusion did not follow. Snapping the sequence points and RESCALING the source
+ * range by the same factor preserves the coupling exactly, and leaves `sourceStart` — the
+ * frame the viewer actually sees first — untouched. What the exemption cost instead was
+ * every cut in the product: run `fc10301a` asked in so many words for "exact frame-aligned
+ * cuts" at 30fps and placed thirty-four clips at 16.277s, 18.042s, 20.573s, 24.079s. Not
+ * one of them is a frame boundary; the nearest are 10–23ms away, which is ten to twenty
+ * times `compiler.py`'s `_CUT_ADJACENCY_TOLERANCE`. Every neighbouring operation —
+ * `trim_clip`, `split_clip`, `move_clip`, `add_transition`, `add_marker` — was already
+ * snapped, so an agent could not place a clip and then trim it without the two disagreeing.
+ *
+ * A still is the easy case and the common one: its source range equals its sequence
+ * duration, the scale factor is 1, and both domains move together.
+ *
+ * Degenerate inputs pass through rather than being repaired here: a zero-length or
+ * non-finite range has no speed to preserve, and turning invalid intent into a valid edit
+ * before validation sees it is exactly what `add_transition`'s guard above refuses to do.
+ */
+function snapAddClip(op: AddClipOp, fps: number): AddClipOp {
+  const start = snapSecondsToFrame(op.start, fps);
+  const end = snapSecondsToFrame(op.end, fps);
+  const sequence = op.end - op.start;
+  const source = op.sourceEnd - op.sourceStart;
+  if (!Number.isFinite(sequence) || sequence <= 0 || !Number.isFinite(source)) {
+    return { ...op, start, end };
+  }
+  // The clip's speed, preserved exactly: one second of sequence consumes `speed` seconds
+  // of source, and that ratio must survive a sub-frame nudge of the out-point.
+  const speed = source / sequence;
+  return { ...op, start, end, sourceEnd: op.sourceStart + (end - start) * speed };
 }
 
 /** Normalize a complete proposed patch before identity and validation are computed. */

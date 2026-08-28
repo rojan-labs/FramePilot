@@ -69,7 +69,15 @@ describe('AI operation normalization', () => {
     expect(operations[2]).toMatchObject({ start: frameTime(1), end: frameTime(4) });
     expect(operations[3]).toMatchObject({ start: frameTime(1), end: frameTime(4) });
     expect(operations[4]).toMatchObject({ toStart: frameTime(1) });
-    expect(operations[5]).toBe(addClip);
+    // GAP-005: `add_clip` was the one authoring operation exempt from the grid, and it is
+    // the most common one in the product. Its SEQUENCE points snap like every other edit
+    // point, and the source range rides along at the same speed.
+    expect(operations[5]).toMatchObject({
+      start: frameTime(1),
+      end: frameTime(31),
+      sourceStart: 0.049,
+      sourceEnd: 0.049 + (frameTime(31) - frameTime(1)),
+    });
     expect(operations[6]).toMatchObject({ start: frameTime(1), end: 1 });
     expect(operations[7]).toMatchObject({ start: frameTime(1), end: 1 });
     expect(operations[8]).toMatchObject({ time: frameTime(1) });
@@ -197,6 +205,75 @@ describe('AI operation normalization', () => {
     expect(normalizeOperationTime(seededLayer, fps)).toBe(seededLayer);
   });
 
+  // GAP-005 (run `fc10301a`). That run was asked in so many words for "exact frame-aligned
+  // cuts" at 30fps and placed thirty-four clips at 16.277s, 18.042s, 20.573s, 24.079s —
+  // none of them a frame boundary, the nearest 10-23ms away. Every neighbouring operation
+  // was already snapped, so an agent could not place a clip and then trim it without the
+  // two disagreeing.
+  describe('add_clip on the frame grid', () => {
+    const addClip = (over: Record<string, unknown>) =>
+      asOperation({
+        type: 'add_clip',
+        trackId: 'v',
+        assetId: 'a',
+        start: 0,
+        end: 1,
+        sourceStart: 0,
+        sourceEnd: 1,
+        ...over,
+      });
+
+    it('snaps the beat-derived cut points from the captured run', () => {
+      for (const at of [16.277, 18.042, 20.573, 24.079]) {
+        const snapped = normalizeOperationTime(addClip({ start: at, end: at + 0.5 }), fps) as {
+          start: number;
+        };
+        // A frame boundary at 30fps is a multiple of 1/30 — assert the property, not a
+        // hand-computed constant.
+        expect(Number.isInteger(Math.round(snapped.start * fps * 1e6) / 1e6)).toBe(true);
+        expect(snapped.start * fps).toBeCloseTo(Math.round(snapped.start * fps), 9);
+      }
+    });
+
+    it('keeps a still exactly as long in source as it is on the timeline', () => {
+      // The common case: a photo placed for 0.57s consumes 0.57s of its (synthetic)
+      // source. Both domains must move together or the clip acquires a speed.
+      const snapped = normalizeOperationTime(
+        addClip({ start: 1.5, end: 2.07, sourceStart: 0, sourceEnd: 0.5699999999999998 }),
+        fps,
+      ) as { start: number; end: number; sourceStart: number; sourceEnd: number };
+      expect(snapped.end - snapped.start).toBeCloseTo(snapped.sourceEnd - snapped.sourceStart, 9);
+    });
+
+    it('preserves the clip speed when the out-point moves a fraction of a frame', () => {
+      // A half-speed clip: two seconds of source over four of sequence.
+      const snapped = normalizeOperationTime(
+        addClip({ start: 0.049, end: 4.049, sourceStart: 10, sourceEnd: 12 }),
+        fps,
+      ) as { start: number; end: number; sourceStart: number; sourceEnd: number };
+      const speed = (snapped.sourceEnd - snapped.sourceStart) / (snapped.end - snapped.start);
+      expect(speed).toBeCloseTo(0.5, 9);
+      // The in-point is the frame the viewer sees first; it is not moved.
+      expect(snapped.sourceStart).toBe(10);
+    });
+
+    it('is idempotent, so applyUserPatch and commitProjectPatch agree', () => {
+      const once = normalizeOperationTime(addClip({ start: 16.277, end: 16.672 }), fps);
+      expect(normalizeOperationTime(once, fps)).toEqual(once);
+    });
+
+    it('passes a degenerate range through rather than repairing it before validation', () => {
+      // Zero-length has no speed to preserve, and turning invalid intent into a valid edit
+      // before the validator sees it is what `add_transition`'s guard refuses to do.
+      const zero = normalizeOperationTime(
+        addClip({ start: 1, end: 1, sourceStart: 3, sourceEnd: 3 }),
+        fps,
+      ) as { sourceStart: number; sourceEnd: number };
+      expect(zero.sourceEnd).toBe(3);
+      expect(zero.sourceStart).toBe(3);
+    });
+  });
+
   it('leaves observations, snapshots and non-time edits byte-identical', () => {
     const unchangedTypes = [
       'add_asset',
@@ -206,7 +283,8 @@ describe('AI operation normalization', () => {
       'rename_folder',
       'move_folder',
       'delete_folder',
-      'add_clip',
+      // `add_clip` was here. It is now snapped like every other authoring operation —
+      // see the sequence-range case above.
       'set_clip_source_range',
       'set_clip_media',
       'set_transcript',
