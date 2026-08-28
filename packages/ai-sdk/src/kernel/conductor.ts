@@ -1514,6 +1514,21 @@ export function onTurnResult(
     // saying it is done — and the revision bump invalidates the arrangement facts while
     // leaving the transcript, footage map and committed decisions untouched.
     const revisionBefore = state.working.currentProjectRevision;
+    // One per applied patch, and deliberately NOT `project.timeline.revision`.
+    //
+    // That field is tempting — it is the project's own counter and it is what
+    // `get_timeline` reports — but it bumps only when an operation changes the
+    // source↔sequence MAPPING (`applyOperation`, ADR 0076). A colour grade, an audio gain
+    // change, a track rename and a blend-mode change all leave it exactly where it was.
+    // This counter drives `onProjectRevisionChanged`, which invalidates every
+    // timeline-dependent fact and evidence handle the run holds — and a grade absolutely
+    // does stale a `get_clips` payload. Keying invalidation to a mapping counter would
+    // leave the run reasoning from evidence its own edit had just outdated.
+    //
+    // The host's document revision (`PatchCommitOutcome.revision`) is a third counter
+    // again, counting everything written to the open project, the user's edits included.
+    // Three numbers, three questions; see that field's note for why they must not be
+    // conflated.
     const revisionAfter = revisionBefore + 1;
     const decisionId =
       state.working.plan.decisionIds[

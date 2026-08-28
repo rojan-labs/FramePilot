@@ -795,6 +795,25 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     );
   });
 
+  // GAP-019. This counter looks like it should be `project.timeline.revision` and must
+  // not be: that field bumps only when an operation changes the source↔sequence MAPPING
+  // (ADR 0076), so a colour grade, an audio gain change or a blend-mode change leave it
+  // exactly where it was. It drives `onProjectRevisionChanged`, which invalidates every
+  // timeline-dependent fact the run holds — and a grade does stale a `get_clips` payload.
+  it('counts every applied patch, including one that changes no timing', () => {
+    const graded = onEffectResult(
+      started(),
+      turn({
+        applied: true,
+        turnOpCount: 1,
+        appliedOps: [
+          { type: 'apply_color_grade', clipId: 'clip_a', effect: { id: 'g', type: 'color_grade', params: {}, keyframes: [] } },
+        ] as never,
+      }),
+    ).state;
+    expect(graded.working.currentProjectRevision).toBe(1);
+  });
+
   it('replaces the previous arrangement rather than stacking them', () => {
     const first = onEffectResult(
       started(),

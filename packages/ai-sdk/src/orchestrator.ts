@@ -1086,7 +1086,11 @@ const SIGNATURE_PREFIX_CHARS = MAX_IDENTITY_KEY_CHARS - IDENTITY_PREFIX_RESERVE_
  * whole rule:
  *
  * - A read or inspection is a question, and its answer changes when the timeline does.
- *   Asking it again at a new revision is new work, so the revision belongs in its identity.
+ *   Asking it again after the run has landed more work is new work, so the run's applied-
+ *   work counter belongs in its identity. Deliberately that counter and not
+ *   `project.timeline.revision`: the latter bumps only when an operation changes the
+ *   source↔sequence mapping, so a grade or a gain change would leave two genuinely
+ *   different `get_clips` answers sharing one signature — the very collision this is for.
  * - A `load_skill` or a `detect_beats` answers the same at every revision, so stamping one
  *   would defeat the guard for the run it was built for — the model asking one unchanging
  *   question forever.
@@ -4434,7 +4438,9 @@ export class Orchestrator {
         outputDelta === undefined
           ? []
           : [...recentOutputDeltas, outputDelta].slice(-diminishingTurns);
-      const signature = turnSignature(calls, working.timeline.revision ?? 0);
+      // The run's applied-work counter. The legacy loop keeps no ledger, so the number of
+      // operations it has landed is the same monotonic fact by another name.
+      const signature = turnSignature(calls, cumulativeOps.length);
       if (noProgressSignatures.has(signature) || stallStreak >= STALL_CONFIRM_TURNS) {
         break;
       }
@@ -6960,10 +6966,9 @@ export class Orchestrator {
         // C2: the turn's calls are now known — announce the specific, honest status for
         // what they're about to do before running them (never per-call, just once here).
         yield emit.status(statusForToolCalls(turn.calls));
-        // The AUTHORITATIVE structural counter (`TimelineSchema.revision`, schema v12),
-        // not the ledger's own, and read BEFORE this turn's calls run — the signature
-        // describes "these calls, asked against this arrangement".
-        const signature = turnSignature(turn.calls, working.timeline.revision ?? 0);
+        // The run's own applied-work counter, read BEFORE this turn's calls run — the
+        // signature describes "these calls, asked against this arrangement".
+        const signature = turnSignature(turn.calls, taskMemory?.currentProjectRevision ?? 0);
         /* v8 ignore next 5 -- taskMemory is always defined on the live path (see the effect.working guard above), so the `undefined` side never runs. */
         const decisionId = taskMemory
           ? taskMemory.plan.decisionIds[Math.min(stepIdx, taskMemory.plan.decisionIds.length - 1)]
