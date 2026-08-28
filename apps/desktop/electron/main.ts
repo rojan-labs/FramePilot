@@ -185,7 +185,11 @@ import { MusicService } from './media/music-service.js';
 import { StockService, isStockKind } from './media/stock-service.js';
 
 import { StockQuotaStore } from './media/stock-quota.js';
-import { musicErrorMessage, stockErrorMessage } from '@framepilot/ai-sdk';
+import {
+  localMusicAssetRefusal,
+  musicErrorMessage,
+  stockErrorMessage,
+} from '@framepilot/ai-sdk';
 import { createStockHost } from './ai/stock-host.js';
 import { agentSearchFailureSummary } from './ai/search-failure-summary.js';
 import { LocalTelemetry, telemetryEnabledFromEnv } from './telemetry/telemetry.js';
@@ -1976,6 +1980,12 @@ function registerIpcHandlers(): void {
         summary: 'add_music needs the remoteId of a track from search_music.',
       };
     }
+    // The id `add_music` MINTS is a plausible thing for a later turn to hand back to it,
+    // and it was not accepted — the id went to the network and came back `unknown_track`,
+    // whose advice ("search again") is the one recovery that cannot work for a track
+    // already on disk. See `localMusicAssetRefusal` for the full account.
+    const localRefusal = localMusicAssetRefusal(project.assets, remoteId);
+    if (localRefusal) return { status: 'failed', summary: localRefusal };
     const result = await musicService.download({
       projectId: project.id,
       remoteId,
