@@ -41,6 +41,7 @@ import { createLogger } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
 import type { AnyOperation } from '@framepilot/editor-core';
 import { beatGridFor } from '../semantic-index/semantic-index.js';
+export { BEAT_ANALYSIS_TOOL } from './beat-tool.js';
 
 const log = createLogger('ai-sdk:kernel:beat-evidence');
 

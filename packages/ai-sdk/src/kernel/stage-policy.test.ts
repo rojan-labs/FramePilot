@@ -7,13 +7,16 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  VALIDATOR_INPUT_TOOL_NAMES,
   settledStageFor,
   stageAdvanceFor,
   stageAllowsRole,
+  stageAllowsTool,
   toolRole,
 } from './stage-policy.js';
 import { TOOL_REGISTRY, getTool } from '../tool-registry.js';
-import { RUN_STAGES } from './working-state.js';
+import { RUN_STAGES, isExecutionStage } from './working-state.js';
+import { BEAT_ANALYSIS_TOOL } from './beat-grid/beat-tool.js';
 
 describe('toolRole', () => {
   it('separates reading the arrangement from reading the content', () => {
@@ -124,6 +127,52 @@ describe('the locked plan is actually closed to re-analysis', () => {
   it('leaves every role open while the run is still planning', () => {
     for (const stage of ['interpret', 'inspect', 'analyze', 'plan'] as const) {
       expect(stageAllowsRole(stage, toolRole('detect_beats', false))).toBe(true);
+    }
+  });
+
+  /**
+   * The invariant behind run `ea8e46ec`, asserted against what the runtime ACTUALLY
+   * validates rather than against a hand-written list.
+   *
+   * A guard that reads a tool's stored output and refuses a proposal over it is a contract
+   * with the run. If the stage policy can run that guard while withholding the tool, the
+   * contract is unkeepable: the run is refused, told what would satisfy the refusal, and
+   * forbidden to do it. `ea8e46ec` spent 35 minutes there.
+   *
+   * `VALIDATOR_CONSUMED_TOOL_NAMES` is derived from the guards themselves, so a new
+   * validator input fails here until the policy admits it.
+   */
+  it('never withholds a tool whose output a runtime validator judges proposals against', () => {
+    // The beat-grid rule reads this tool's payload and refuses proposals over it, so the
+    // policy must offer it wherever that rule runs — which is every stage.
+    expect(VALIDATOR_INPUT_TOOL_NAMES.has(BEAT_ANALYSIS_TOOL)).toBe(true);
+    for (const name of VALIDATOR_INPUT_TOOL_NAMES) {
+      const spec = getTool(name);
+      expect(spec, `${name} must be a registered tool`).toBeDefined();
+      for (const stage of RUN_STAGES) {
+        expect(
+          stageAllowsTool(stage, name, spec?.mutates === true),
+          `${name} feeds a runtime validator but is withheld in "${stage}"`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('exempts only the validator inputs — every other analysis tool still closes', () => {
+    const analysisTools = TOOL_REGISTRY.filter(
+      (tool) => toolRole(tool.name, tool.mutates) === 'analysis',
+    );
+    // The carve-out must not become a hole: the reconnaissance lockout is the whole point
+    // of the execution stages, and only the tools a guard actually reads may step past it.
+    expect(analysisTools.length).toBeGreaterThan(VALIDATOR_INPUT_TOOL_NAMES.size);
+    for (const tool of analysisTools) {
+      if (VALIDATOR_INPUT_TOOL_NAMES.has(tool.name)) continue;
+      for (const stage of RUN_STAGES.filter(isExecutionStage)) {
+        expect(
+          stageAllowsTool(stage, tool.name, tool.mutates),
+          `${tool.name} is not a validator input and must stay withheld in "${stage}"`,
+        ).toBe(false);
+      }
     }
   });
 });

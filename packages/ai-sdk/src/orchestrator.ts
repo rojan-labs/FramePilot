@@ -102,7 +102,7 @@ import {
 } from './kernel/conductor.js';
 import { type AnalysisBudget, createAnalysisBudget } from './kernel/cost/analysis-caps.js';
 import { estimateUsd } from './kernel/cost/cost-meter.js';
-import { stageAllowsRole, toolRole } from './kernel/stage-policy.js';
+import { stageAllowsTool, toolRole } from './kernel/stage-policy.js';
 import { classifyTool, isCatalogueSearch } from './tool-classification.js';
 import { deriveObjectiveText } from './kernel/continuation.js';
 import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
@@ -110,6 +110,7 @@ import { buildStateBriefing, distil } from './kernel/briefing.js';
 import { createNarrationFilter } from './kernel/narration.js';
 import { alignBeatBackedBoundaries } from './kernel/beat-grid/beat-alignment.js';
 import {
+  BEAT_ANALYSIS_TOOL,
   type BeatEvidence,
   createBeatEvidence,
   hasBeatEvidence,
@@ -3084,7 +3085,7 @@ export class Orchestrator {
       // project can always search) and released by the first successful placement.
       if (scope === 'commit-only' && isCatalogueSearch(tool.name)) return false;
       if (questionScope !== undefined && !questionScope.has(tool.name)) return false;
-      return stage === undefined || stageAllowsRole(stage, toolRole(tool.name, tool.mutates));
+      return stage === undefined || stageAllowsTool(stage, tool.name, tool.mutates);
     });
   }
 
@@ -3519,7 +3520,7 @@ export class Orchestrator {
       // that track. An analysis of a DIFFERENT track is a separate fact and is kept
       // alongside — auditioning candidate tracks is what a music brief asks for, and the
       // old single slot could remember exactly one of them.
-      if (call.name === 'detect_beats' && outcome.status === 'completed' && host.beatEvidence) {
+      if (call.name === BEAT_ANALYSIS_TOOL && outcome.status === 'completed' && host.beatEvidence) {
         recordBeatAnalysis(
           host.beatEvidence,
           outcome.data,
