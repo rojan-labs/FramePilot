@@ -659,6 +659,23 @@ export interface AgentTurnResult {
   readonly appliedOps: readonly AnyOperation[];
   /** Pre-described applied ops for the reducer's `timeline_action` cards. */
   readonly describedActions: readonly DescribedAction[];
+  /**
+   * The arrangement as it stands AFTER this turn's patch, in one line.
+   *
+   * Present only on a turn that applied something. Recorded as a `timeline_dependent`
+   * fact, which means it replaces the previous one rather than accumulating —
+   * `onProjectRevisionChanged` has just dropped it.
+   *
+   * WHY: applying a patch invalidates every timeline fact the run held, correctly, because
+   * a cut moves the ids and positions the next patch is written against. But the run
+   * AUTHORED that cut and is handed the resulting project, so making it call
+   * `get_timeline` to learn what it just did is asking it to pay for knowledge it already
+   * has. Run `fc10301a` alternated apply / re-read for its entire second half — roughly
+   * 40% of its model calls — and the re-read is also what collided with the spin guard.
+   *
+   * Computed from the post-apply project by the caller, never from the model's prose.
+   */
+  readonly arrangement?: string;
   /** Stable signature of the turn's tool calls, for the no-progress guard. */
   readonly signature: string;
   /**
@@ -1506,7 +1523,17 @@ export function onTurnResult(
       objective.id.endsWith(`_${Math.min(r.planStepIndex + 1, state.working.objectives.length)}`),
     )?.id;
     const planId = state.working.plan.id!;
-    const advancedWorking = onProjectRevisionChanged(state.working, revisionAfter);
+    const revised = onProjectRevisionChanged(state.working, revisionAfter);
+    // Immediately after the invalidation, and only there: the run's own account of the
+    // timeline it just produced, standing in for the `get_timeline` it would otherwise
+    // have to spend a turn on. See `AgentTurnResult.arrangement`.
+    const advancedWorking = r.arrangement
+      ? recordFact(revised, {
+          kind: 'project',
+          statement: r.arrangement,
+          scope: 'timeline_dependent',
+        })
+      : revised;
     const working = r.describedActions.reduce(
       (ledger, action, index) =>
         recordOperation(ledger, {

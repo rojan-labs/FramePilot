@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import {
   Orchestrator,
   ToolInvocationError,
+  arrangementLine,
   callNoveltyKey,
   evidencePayload,
   AGENT_LOG_CLEAR_THRESHOLD_TOKENS,
@@ -816,6 +817,16 @@ describe('agent auto-repair (C3) and plan ledger (C4)', () => {
   // that never ran — it cost a large-model call, and "why didn't it fix the duration?" is
   // the one diagnostic question worth asking about a failed run. It used to be
   // unanswerable: every terminating branch returned `null` and recorded nothing.
+  // GAP-003. The sentence a run would otherwise spend a turn on `get_timeline` to learn.
+  it('states the arrangement it just made in the terms get_timeline would have used', () => {
+    const line = arrangementLine(makeProject());
+    expect(line).toMatch(/^Timeline now: sequence 10s, 2 tracks, 2 clips — /);
+    expect(line).toContain('video_1 [video] 2 clips 0–10s');
+    // An empty track is named, not omitted: a run needs to know it exists and is free,
+    // which is exactly the question a missing row leaves it guessing at.
+    expect(line).toContain('audio_1 [audio] empty');
+  });
+
   // GAP-007 (run `fc10301a`). The run shipped a timeline whose last 23.7 of 47.8 seconds
   // were black under a music bed, its repair pass produced nothing, and `picture_coverage`
   // was not even in the fixable set. The fix needs no model: the Critic holds both numbers.

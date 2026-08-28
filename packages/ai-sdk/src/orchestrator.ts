@@ -1450,6 +1450,40 @@ const VISUAL_DIGEST_MAX_PACKETS = 24;
 
 const baseName = (p: string): string => p.split(/[\\/]/).pop() || p;
 const round2 = (n: number): string => (Math.round(n * 100) / 100).toString();
+
+/**
+ * The arrangement in one line, computed from a project rather than read back from a tool.
+ *
+ * This is the sentence `get_timeline` would have produced, and it exists so a run that
+ * just applied a patch does not have to spend a turn asking what it did. The revision
+ * bump correctly invalidates every timeline fact the run held (a cut moves the ids the
+ * next patch is written against) — but the run authored that cut and is handed the
+ * resulting project, so the knowledge is already in hand and only the bookkeeping said
+ * otherwise. Run `fc10301a` alternated apply / re-read for its entire second half.
+ *
+ * Deliberately the same shape as `get_timeline_summary`'s digest — sequence length, track
+ * and clip counts, then a row per track with its span — so a run that reads the tool and a
+ * run that reads this fact hold the timeline in the same terms.
+ *
+ * Bounded by construction: one row per track, and a project has few of those.
+ */
+export function arrangementLine(project: Project): string {
+  const tracks = project.timeline.tracks;
+  const clipCount = tracks.reduce((total, track) => total + track.clips.length, 0);
+  const end = tracks.reduce(
+    (max, track) => track.clips.reduce((m, clip) => Math.max(m, clip.end), max),
+    0,
+  );
+  const rows = tracks
+    .map((track) => {
+      if (track.clips.length === 0) return `${track.id} [${track.type}] empty`;
+      const first = track.clips.reduce((m, c) => Math.min(m, c.start), Infinity);
+      const last = track.clips.reduce((m, c) => Math.max(m, c.end), 0);
+      return `${track.id} [${track.type}] ${String(track.clips.length)} clips ${round2(first)}–${round2(last)}s`;
+    })
+    .join('; ');
+  return `Timeline now: sequence ${round2(end)}s, ${String(tracks.length)} tracks, ${String(clipCount)} clips — ${rows}`;
+}
 const round3 = (n: number): string => (Math.round(n * 1000) / 1000).toString();
 const round4 = (n: number): string => (Math.round(n * 10_000) / 10_000).toString();
 
@@ -7076,6 +7110,9 @@ export class Orchestrator {
           turnPlacementCount: placementCount(turnOps),
           applied: applied.applied,
           appliedOps: applied.applied ? [...turnOps] : [],
+          // The timeline the run just made, so the next turn does not have to ask.
+          // See `AgentTurnResult.arrangement` and `arrangementLine`.
+          ...(applied.applied ? { arrangement: arrangementLine(working) } : {}),
           describedActions,
           note: applied.record.note,
           ...(applied.edit ? { patchId: applied.edit.patch.patchId } : {}),

@@ -454,7 +454,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_parity"
         },
-        "version": 5,
+        "version": 6,
         "objective": {
           "request": "tighten the intro",
           "outcome": "tighten the intro",
@@ -471,7 +471,17 @@
           "interpret"
         ],
         "stageEnteredAtTurn": 1,
-        "facts": [],
+        "facts": [
+          {
+            "id": "fact_1",
+            "kind": "project",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+            "evidenceIds": [],
+            "scope": "timeline_dependent",
+            "observedAtRevision": 1,
+            "stage": "inspect"
+          }
+        ],
         "decisions": [
           {
             "id": "decision_1",
@@ -553,7 +563,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 21768,
+      "usedTokens": 21802,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -589,7 +599,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 313,
+            "tokenEstimate": 347,
             "included": true,
             "cacheSide": "per_turn"
           },
@@ -605,9 +615,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21768,
+          "estimatedInputTokensBeforeSend": 21802,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 850232,
+          "estimatedRemainingCapacity": 850198,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -622,7 +632,7 @@
           "projectRevision": 1,
           "objectiveKnown": true,
           "committedDecisions": 1,
-          "facts": 0,
+          "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
           "nextAction": "Continue inspect: read only what the objective still needs."
@@ -689,7 +699,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 313,
+            "tokenEstimate": 347,
             "included": true,
             "cacheSide": "per_turn"
           },
@@ -705,7 +715,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21768,
+          "estimatedInputTokensBeforeSend": 21802,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 0,
@@ -725,7 +735,7 @@
           "projectRevision": 1,
           "objectiveKnown": true,
           "committedDecisions": 1,
-          "facts": 0,
+          "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
           "nextAction": "Continue inspect: read only what the objective still needs."
@@ -754,7 +764,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_parity"
         },
-        "version": 5,
+        "version": 6,
         "objective": {
           "request": "tighten the intro",
           "outcome": "tighten the intro",
@@ -771,7 +781,17 @@
           "interpret"
         ],
         "stageEnteredAtTurn": 1,
-        "facts": [],
+        "facts": [
+          {
+            "id": "fact_1",
+            "kind": "project",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+            "evidenceIds": [],
+            "scope": "timeline_dependent",
+            "observedAtRevision": 1,
+            "stage": "inspect"
+          }
+        ],
         "decisions": [
           {
             "id": "decision_1",
@@ -860,7 +880,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_parity"
         },
-        "version": 12,
+        "version": 13,
         "objective": {
           "request": "tighten the intro",
           "outcome": "tighten the intro",
@@ -883,7 +903,17 @@
           "verify"
         ],
         "stageEnteredAtTurn": 2,
-        "facts": [],
+        "facts": [
+          {
+            "id": "fact_1",
+            "kind": "project",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+            "evidenceIds": [],
+            "scope": "timeline_dependent",
+            "observedAtRevision": 1,
+            "stage": "inspect"
+          }
+        ],
         "decisions": [
           {
             "id": "decision_1",

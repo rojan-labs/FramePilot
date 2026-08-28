@@ -474,7 +474,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": true,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 1,
+            "scope": "timeline_dependent",
+            "stage": "inspect",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -534,7 +544,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "inspect",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 5,
+        "version": 6,
       },
     },
     {
@@ -568,7 +578,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "memory": {
           "committedDecisions": 1,
           "evidenceHandles": 0,
-          "facts": 0,
+          "facts": 1,
           "nextAction": "Continue inspect: read only what the objective still needs.",
           "objectiveKnown": true,
           "projectRevision": 1,
@@ -609,7 +619,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s4",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 326,
+            "tokenEstimate": 360,
             "type": "latest_user_message",
           },
           {
@@ -623,8 +633,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 21781,
-          "estimatedRemainingCapacity": 170027,
+          "estimatedInputTokensBeforeSend": 21815,
+          "estimatedRemainingCapacity": 169993,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -634,7 +644,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 21781,
+      "usedTokens": 21815,
     },
     {
       "chunk": "done",
@@ -697,7 +707,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": true,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 1,
+            "scope": "timeline_dependent",
+            "stage": "inspect",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -761,7 +781,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "inspect",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 6,
+        "version": 7,
       },
     },
     {
@@ -795,7 +815,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "memory": {
           "committedDecisions": 1,
           "evidenceHandles": 0,
-          "facts": 0,
+          "facts": 1,
           "nextAction": "3s of the 10s programme has no picture under it (0s–3s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen. Timeline is 10s but the target is 1s (off by 9s).",
           "objectiveKnown": true,
           "projectRevision": 1,
@@ -836,7 +856,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s4",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 554,
+            "tokenEstimate": 588,
             "type": "latest_user_message",
           },
           {
@@ -850,8 +870,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 16572,
-          "estimatedRemainingCapacity": 175236,
+          "estimatedInputTokensBeforeSend": 16606,
+          "estimatedRemainingCapacity": 175202,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -861,7 +881,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 16572,
+      "usedTokens": 16606,
     },
     {
       "conversationId": "conv_1",
@@ -1066,7 +1086,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": true,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 2,
+            "scope": "timeline_dependent",
+            "stage": "inspect",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -1144,7 +1174,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "inspect",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 8,
+        "version": 10,
       },
     },
     {
@@ -1178,7 +1208,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "memory": {
           "committedDecisions": 1,
           "evidenceHandles": 0,
-          "facts": 0,
+          "facts": 1,
           "nextAction": "3s of the 10s programme has no picture under it (0s–3s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen. Timeline is 10s but the target is 1s (off by 9s).",
           "objectiveKnown": true,
           "projectRevision": 2,
@@ -1219,7 +1249,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s4",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 395,
+            "tokenEstimate": 429,
             "type": "latest_user_message",
           },
           {
@@ -1233,8 +1263,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 21850,
-          "estimatedRemainingCapacity": 169958,
+          "estimatedInputTokensBeforeSend": 21884,
+          "estimatedRemainingCapacity": 169924,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -1244,7 +1274,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 21850,
+      "usedTokens": 21884,
     },
     {
       "conversationId": "conv_1",
@@ -1298,7 +1328,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": true,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 2,
+            "scope": "timeline_dependent",
+            "stage": "inspect",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -1376,7 +1416,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "inspect",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 8,
+        "version": 10,
       },
     },
     {
@@ -1447,7 +1487,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": false,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 2,
+            "scope": "timeline_dependent",
+            "stage": "inspect",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -1456,7 +1506,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "integrity": {
           "diagnostics": [
             {
-              "atVersion": 14,
+              "atVersion": 16,
               "blocking": true,
               "code": "VERIFICATION_INCONCLUSIVE",
               "message": "Verification found: Deterministic acceptance checks still fail — 2 check(s) failed.",
@@ -1541,7 +1591,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "passed": false,
           },
         ],
-        "version": 15,
+        "version": 17,
       },
     },
     {
@@ -4058,7 +4108,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": true,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 1,
+            "scope": "timeline_dependent",
+            "stage": "inspect",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -4118,7 +4178,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "inspect",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 5,
+        "version": 6,
       },
     },
     {
@@ -4152,7 +4212,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "memory": {
           "committedDecisions": 1,
           "evidenceHandles": 0,
-          "facts": 0,
+          "facts": 1,
           "nextAction": "Continue inspect: read only what the objective still needs.",
           "objectiveKnown": true,
           "projectRevision": 1,
@@ -4193,7 +4253,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s4",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 313,
+            "tokenEstimate": 347,
             "type": "latest_user_message",
           },
           {
@@ -4207,8 +4267,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 21768,
-          "estimatedRemainingCapacity": 170040,
+          "estimatedInputTokensBeforeSend": 21802,
+          "estimatedRemainingCapacity": 170006,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -4218,7 +4278,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 21768,
+      "usedTokens": 21802,
     },
     {
       "chunk": "done",
@@ -4273,7 +4333,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": true,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 1,
+            "scope": "timeline_dependent",
+            "stage": "inspect",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -4333,7 +4403,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "inspect",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 5,
+        "version": 6,
       },
     },
     {
@@ -4385,7 +4455,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": true,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 1,
+            "scope": "timeline_dependent",
+            "stage": "inspect",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -4453,7 +4533,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "passed": true,
           },
         ],
-        "version": 12,
+        "version": 13,
       },
     },
     {
@@ -4883,7 +4963,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": true,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 1,
+            "scope": "timeline_dependent",
+            "stage": "inspect",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -4943,7 +5033,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "inspect",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 5,
+        "version": 6,
       },
     },
     {
@@ -4977,7 +5067,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "memory": {
           "committedDecisions": 1,
           "evidenceHandles": 0,
-          "facts": 0,
+          "facts": 1,
           "nextAction": "Continue inspect: read only what the objective still needs.",
           "objectiveKnown": true,
           "projectRevision": 1,
@@ -5018,7 +5108,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s4",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 313,
+            "tokenEstimate": 347,
             "type": "latest_user_message",
           },
           {
@@ -5032,8 +5122,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 21768,
-          "estimatedRemainingCapacity": 170040,
+          "estimatedInputTokensBeforeSend": 21802,
+          "estimatedRemainingCapacity": 170006,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -5043,7 +5133,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 21768,
+      "usedTokens": 21802,
     },
     {
       "chunk": "done",
@@ -5098,7 +5188,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": true,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 1,
+            "scope": "timeline_dependent",
+            "stage": "inspect",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -5158,7 +5258,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "inspect",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 5,
+        "version": 6,
       },
     },
     {
@@ -5210,7 +5310,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": true,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 1,
+            "scope": "timeline_dependent",
+            "stage": "inspect",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -5278,7 +5388,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "passed": true,
           },
         ],
-        "version": 12,
+        "version": 13,
       },
     },
     {
@@ -5699,7 +5809,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": true,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 1,
+            "scope": "timeline_dependent",
+            "stage": "inspect",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -5759,7 +5879,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "inspect",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 5,
+        "version": 6,
       },
     },
     {
@@ -5811,7 +5931,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": true,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 1,
+            "scope": "timeline_dependent",
+            "stage": "inspect",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -5879,7 +6009,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "passed": true,
           },
         ],
-        "version": 12,
+        "version": 13,
       },
     },
     {
@@ -6911,7 +7041,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": true,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 1,
+            "scope": "timeline_dependent",
+            "stage": "inspect",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -6978,7 +7118,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "inspect",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 5,
+        "version": 6,
       },
     },
     {
@@ -7012,7 +7152,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "memory": {
           "committedDecisions": 2,
           "evidenceHandles": 0,
-          "facts": 0,
+          "facts": 1,
           "nextAction": "Continue inspect: Trim the intro",
           "objectiveKnown": true,
           "projectRevision": 1,
@@ -7053,7 +7193,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s4",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 388,
+            "tokenEstimate": 422,
             "type": "latest_user_message",
           },
           {
@@ -7067,8 +7207,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 21861,
-          "estimatedRemainingCapacity": 169947,
+          "estimatedInputTokensBeforeSend": 21895,
+          "estimatedRemainingCapacity": 169913,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -7078,7 +7218,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 21861,
+      "usedTokens": 21895,
     },
     {
       "chunk": "done",
@@ -7149,7 +7289,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": true,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 1,
+            "scope": "timeline_dependent",
+            "stage": "inspect",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -7220,7 +7370,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "inspect",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 6,
+        "version": 7,
       },
     },
     {
@@ -7254,7 +7404,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "memory": {
           "committedDecisions": 2,
           "evidenceHandles": 0,
-          "facts": 0,
+          "facts": 1,
           "nextAction": "Wrap up",
           "objectiveKnown": true,
           "projectRevision": 1,
@@ -7295,7 +7445,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s4",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 557,
+            "tokenEstimate": 592,
             "type": "latest_user_message",
           },
           {
@@ -7309,8 +7459,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 16593,
-          "estimatedRemainingCapacity": 175215,
+          "estimatedInputTokensBeforeSend": 16628,
+          "estimatedRemainingCapacity": 175180,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -7320,7 +7470,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 16593,
+      "usedTokens": 16628,
     },
     {
       "chunk": "done",
@@ -7383,7 +7533,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": true,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 1,
+            "scope": "timeline_dependent",
+            "stage": "inspect",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -7454,7 +7614,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "inspect",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 6,
+        "version": 7,
       },
     },
     {
@@ -7525,7 +7685,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": false,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 1,
+            "scope": "timeline_dependent",
+            "stage": "inspect",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -7534,7 +7704,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "integrity": {
           "diagnostics": [
             {
-              "atVersion": 13,
+              "atVersion": 14,
               "blocking": true,
               "code": "VERIFICATION_INCONCLUSIVE",
               "message": "Verification found: The committed plan still has incomplete deliverables.",
@@ -7619,7 +7789,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "passed": false,
           },
         ],
-        "version": 14,
+        "version": 15,
       },
     },
     {
@@ -9509,7 +9679,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": true,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 1,
+            "scope": "timeline_dependent",
+            "stage": "apply",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -9569,7 +9749,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "apply",
         "stageEnteredAtTurn": 2,
         "verifications": [],
-        "version": 10,
+        "version": 11,
       },
     },
     {
@@ -9603,7 +9783,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "memory": {
           "committedDecisions": 1,
           "evidenceHandles": 0,
-          "facts": 0,
+          "facts": 1,
           "nextAction": "Continue apply: apply the committed plan.",
           "objectiveKnown": true,
           "projectRevision": 1,
@@ -9644,7 +9824,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s4",
             "included": true,
             "label": "user request",
-            "tokenEstimate": 334,
+            "tokenEstimate": 369,
             "type": "latest_user_message",
           },
           {
@@ -9658,8 +9838,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 18534,
-          "estimatedRemainingCapacity": 173274,
+          "estimatedInputTokensBeforeSend": 18569,
+          "estimatedRemainingCapacity": 173239,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -9669,7 +9849,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 18534,
+      "usedTokens": 18569,
     },
     {
       "chunk": "done",
@@ -9727,7 +9907,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": true,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 1,
+            "scope": "timeline_dependent",
+            "stage": "apply",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -9787,7 +9977,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "apply",
         "stageEnteredAtTurn": 2,
         "verifications": [],
-        "version": 10,
+        "version": 11,
       },
     },
     {
@@ -9839,7 +10029,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "execution": {
           "authorized": true,
         },
-        "facts": [],
+        "facts": [
+          {
+            "evidenceIds": [],
+            "id": "fact_1",
+            "kind": "project",
+            "observedAtRevision": 1,
+            "scope": "timeline_dependent",
+            "stage": "apply",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+          },
+        ],
         "identity": {
           "attemptId": "turn_1",
           "conversationId": "conv_1",
@@ -9907,7 +10107,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "passed": true,
           },
         ],
-        "version": 14,
+        "version": 15,
       },
     },
     {

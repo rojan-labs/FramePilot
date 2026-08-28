@@ -641,7 +641,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 10,
+        "version": 11,
         "objective": {
           "request": "tighten the intro using your pacing playbook",
           "outcome": "tighten the intro using your pacing playbook",
@@ -672,6 +672,15 @@
             "scope": "revision_independent",
             "observedAtRevision": 0,
             "stage": "analyze"
+          },
+          {
+            "id": "fact_2",
+            "kind": "project",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+            "evidenceIds": [],
+            "scope": "timeline_dependent",
+            "observedAtRevision": 1,
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -763,7 +772,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 18696,
+      "usedTokens": 18721,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -799,7 +808,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 489,
+            "tokenEstimate": 514,
             "included": true,
             "cacheSide": "per_turn"
           },
@@ -815,9 +824,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 18696,
+          "estimatedInputTokensBeforeSend": 18721,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 173112,
+          "estimatedRemainingCapacity": 173087,
           "toolSchemaTokensRebilled": 14541,
           "calculationSource": "local_estimate"
         },
@@ -832,7 +841,7 @@
           "projectRevision": 1,
           "objectiveKnown": true,
           "committedDecisions": 1,
-          "facts": 1,
+          "facts": 2,
           "evidenceHandles": 1,
           "remainingObjectives": 1,
           "nextAction": "Continue apply: apply the committed plan."
@@ -879,7 +888,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 10,
+        "version": 11,
         "objective": {
           "request": "tighten the intro using your pacing playbook",
           "outcome": "tighten the intro using your pacing playbook",
@@ -910,6 +919,15 @@
             "scope": "revision_independent",
             "observedAtRevision": 0,
             "stage": "analyze"
+          },
+          {
+            "id": "fact_2",
+            "kind": "project",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+            "evidenceIds": [],
+            "scope": "timeline_dependent",
+            "observedAtRevision": 1,
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -1008,7 +1026,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 14,
+        "version": 15,
         "objective": {
           "request": "tighten the intro using your pacing playbook",
           "outcome": "tighten the intro using your pacing playbook",
@@ -1042,6 +1060,15 @@
             "scope": "revision_independent",
             "observedAtRevision": 0,
             "stage": "analyze"
+          },
+          {
+            "id": "fact_2",
+            "kind": "project",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+            "evidenceIds": [],
+            "scope": "timeline_dependent",
+            "observedAtRevision": 1,
+            "stage": "apply"
           }
         ],
         "decisions": [

@@ -774,6 +774,44 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     expect(state.planSteps[0]).toMatchObject({ status: 'failed', detail: 'overlaps neighbour' });
   });
 
+  // GAP-003 (run `fc10301a`). Applying a patch correctly invalidates every timeline fact
+  // the run held — a cut moves the ids the next patch is written against. But the run
+  // AUTHORED that cut and is handed the resulting project, so making it call get_timeline
+  // to learn what it just did is asking it to pay for knowledge it already has. That run
+  // alternated apply / re-read for its whole second half, and the re-read is also what
+  // collided with the spin guard.
+  it('records the arrangement it just made, so the next turn need not re-read it', () => {
+    const { state } = onEffectResult(
+      started(),
+      turn({
+        applied: true,
+        appliedOps: ops(1),
+        turnOpCount: 1,
+        arrangement: 'Timeline now: sequence 24.08s, 3 tracks, 35 clips — layer_video_3 …',
+      }),
+    );
+    expect(state.working.facts.map((f) => f.statement)).toContain(
+      'Timeline now: sequence 24.08s, 3 tracks, 35 clips — layer_video_3 …',
+    );
+  });
+
+  it('replaces the previous arrangement rather than stacking them', () => {
+    const first = onEffectResult(
+      started(),
+      turn({ applied: true, appliedOps: ops(1), turnOpCount: 1, arrangement: 'Timeline now: A' }),
+    ).state;
+    const second = onEffectResult(
+      first,
+      turn({ applied: true, appliedOps: ops(1), turnOpCount: 1, arrangement: 'Timeline now: B' }),
+    ).state;
+    const arrangements = second.working.facts
+      .map((f) => f.statement)
+      .filter((t) => t.startsWith('Timeline now:'));
+    // The revision bump drops the stale one immediately before the new one is recorded,
+    // so "replace" needs no special case — it falls out of the existing invalidation.
+    expect(arrangements).toEqual(['Timeline now: B']);
+  });
+
   it('stops a rejected turn that exactly repeats a no-progress signature', () => {
     const s = started({ noProgress: ['sig'] });
     const { effects } = onEffectResult(
