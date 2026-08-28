@@ -178,6 +178,7 @@ from framepilot_engine.brain.visual_embed import (
     VisualEmbedError,
     resolve_visual_embedder,
 )
+from framepilot_engine.brain.visual_outcomes import failed_outcomes, record_asset_outcome
 from framepilot_engine.brain.visual_search import (
     EvidencePacket,
     build_evidence_packets,
@@ -918,6 +919,17 @@ class VisualJobStatus(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class VisualAssetFailure(BaseModel):
+    """One asset the last preparation attempt could not handle, and why."""
+
+    asset_id: str = Field(alias="assetId")
+    reason: str | None = Field(
+        default=None, description="The provider's or the engine's own wording."
+    )
+
+    model_config = {"populate_by_name": True}
+
+
 class VisualStatusResponse(BaseModel):
     """Visual-index coverage/health for ``GET /brain/visual/status`` (plan MI4.3).
 
@@ -934,6 +946,15 @@ class VisualStatusResponse(BaseModel):
     counts: dict[str, int] = Field(default_factory=dict)
     indexed_assets: int = Field(default=0, alias="indexedAssets")
     total_assets: int = Field(default=0, alias="totalAssets")
+    failures: list[VisualAssetFailure] = Field(
+        default_factory=list,
+        description=(
+            "Assets whose last preparation attempt failed, for their current bytes. "
+            "Without this a job that prepared NOTHING still reported `done` and the "
+            "project was silently unsearchable — the reasons lived only in a sidecar log "
+            "line the user never sees. Empty is the normal case."
+        ),
+    )
     key_configured: bool = Field(default=False, alias="keyConfigured")
     last_job: VisualJobStatus | None = Field(default=None, alias="lastJob")
 
@@ -2443,6 +2464,13 @@ def create_app(
             job_id, kind=VISUAL_JOB_KIND, payload={"assetIds": asset_ids, "cursor": 0}
         )
 
+    def _asset_failures(store: BrainStore) -> list[VisualAssetFailure]:
+        """Assets whose last preparation attempt failed, for their current bytes."""
+        return [
+            VisualAssetFailure(asset_id=record.asset_id, reason=record.reason)
+            for record in failed_outcomes(store)
+        ]
+
     def _last_visual_job(store: BrainStore) -> VisualJobStatus | None:
         """The most recent visual-index job's journaled state (plan MI4.3)."""
         jobs = [j for j in store.list_jobs() if j.kind == VISUAL_JOB_KIND]
@@ -2532,6 +2560,37 @@ def create_app(
                 break
             advanced += 1
         return items, advanced, stop_reason
+
+    def _journal_outcomes(
+        items: Sequence[VisualIndexItem], *, resolved_root: Path, project_id: str
+    ) -> None:
+        """Persist what happened to each asset, so a failure outlives the response.
+
+        Before this, ``VisualIndexItem`` was returned once over HTTP and dropped — which
+        is how a real 55-asset project came to hold ~100 ``done`` jobs, zero index rows,
+        and no record anywhere of why. Best-effort: journalling an outcome must never
+        fail the slice that produced it.
+        """
+        if not items:
+            return
+        try:
+            with open_brain(resolved_root, project_id) as store:
+                for item in items:
+                    asset = store.get_asset(item.asset_id)
+                    content_hash = asset.content_sha256 if asset is not None else None
+                    if content_hash is None:
+                        continue
+                    record_asset_outcome(
+                        store,
+                        item.asset_id,
+                        content_hash=content_hash,
+                        ok=item.ok,
+                        reason=item.reason,
+                        indexed=item.indexed,
+                        captioned=item.captioned,
+                    )
+        except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
+            _log.warning("could not journal per-asset outcomes: %s", exc)
 
     def _tl_still_image_item(
         store: BrainStore,
@@ -2688,6 +2747,14 @@ def create_app(
                     advanced=True,
                 )
             if _asset_is_still_image(asset):
+                # The routing decision the reported defect turned on. Logged per asset so
+                # the next instance of this class of failure is diagnosable from the log
+                # alone, without reading the source.
+                _log.debug(
+                    "visual index route: asset=%s kind=still → on-device (TwelveLabs "
+                    "cannot index a photo)",
+                    asset_id,
+                )
                 embed_res, still_captioner, still_caption_model = _still_backend()
                 return _AssetOutcome(
                     item=_tl_still_image_item(
@@ -2767,6 +2834,7 @@ def create_app(
         except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
             return VisualIndexResponse(available=False, reason=str(exc))
         indexed = sum(item.indexed for item in items)
+        _journal_outcomes(items, resolved_root=resolved_root, project_id=req.project_id)
         # A RUN of refusals is a bad index, account, or network — not a bad file — and
         # continuing would upload (and bill for) every remaining asset just to fail
         # identically. Counted over the committed prefix and carried on the job, because
@@ -2810,13 +2878,16 @@ def create_app(
             return VisualIndexResponse(available=False, reason=f"cursor not persisted: {exc}")
 
         _log.info(
-            "ACT twelvelabs index: project=%s job=%s cursor=%d/%d done=%s indexed=%d",
+            "ACT twelvelabs index: project=%s job=%s cursor=%d/%d done=%s indexed=%d "
+            "failed=%d stopped=%s",
             req.project_id,
             job.id,
             new_cursor,
             total,
             done,
             indexed,
+            sum(1 for item in items if not item.ok),
+            stop_reason or "-",
         )
         return VisualIndexResponse(
             available=True,
@@ -2855,6 +2926,11 @@ def create_app(
             # TwelveLabs backend: when a key is configured, delegate understanding to
             # the hosted index instead of the built-in NVIDIA-embed pipeline.
             tl = resolve_twelvelabs(req.twelve_labs_key or settings.twelvelabs_api_key)
+            _log.info(
+                "ACT visual index backend: project=%s backend=%s",
+                req.project_id,
+                "twelvelabs" if tl.client is not None else "builtin",
+            )
             if tl.client is not None:
                 return _tl_index_slice(tl.client, req, root.resolve())
             embedder_res = resolve_visual_embedder(
@@ -2957,6 +3033,7 @@ def create_app(
                 )
             except (BrainError, BrainSchemaError, PathTraversalError, OSError, FFmpegError) as exc:
                 return VisualIndexResponse(available=False, reason=str(exc))
+            _journal_outcomes(items, resolved_root=resolved_root, project_id=req.project_id)
             indexed = sum(item.indexed for item in items)
             captioned = sum(item.captioned for item in items)
 
@@ -2993,7 +3070,8 @@ def create_app(
                 return VisualIndexResponse(available=False, reason=f"cursor not persisted: {exc}")
 
             _log.info(
-                "ACT visual index: project=%s job=%s cursor=%d/%d done=%s indexed=%d captioned=%d",
+                "ACT visual index: project=%s job=%s cursor=%d/%d done=%s indexed=%d "
+                "captioned=%d failed=%d stopped=%s",
                 req.project_id,
                 job.id,
                 new_cursor,
@@ -3001,6 +3079,8 @@ def create_app(
                 done,
                 indexed,
                 captioned,
+                sum(1 for item in items if not item.ok),
+                exhausted or "-",
             )
             return VisualIndexResponse(
                 available=True,
@@ -3102,10 +3182,12 @@ def create_app(
                         counts={"videos": len(hosted), "images": len(builtin - hosted)},
                         indexed_assets=indexed,
                         total_assets=total_assets,
+                        failures=_asset_failures(store),
                         key_configured=env_tl_key,
                         last_job=last_job,
                     )
                 counts = store.visual_index_counts()
+                failures = _asset_failures(store)
                 backend = VisualVectorStore(store).backend()
         except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
             return VisualStatusResponse(
@@ -3120,6 +3202,7 @@ def create_app(
             counts=counts,
             indexed_assets=counts["assets"],
             total_assets=total_assets,
+            failures=failures,
             key_configured=nvidia_key_configured,
             last_job=last_job,
         )
@@ -3360,6 +3443,11 @@ def create_app(
                     if pegasus is None:
                         # No cache and no live index to fetch from — skip this asset
                         # rather than charge for or fabricate a map.
+                        _log.debug(
+                            "footage-map: asset=%s not served (no cache, fetch=%s)",
+                            asset_id,
+                            can_fetch and not req.cached_only,
+                        )
                         continue
                     served_assets += 1
                     tl_chapters, tl_highlights, gist = pegasus

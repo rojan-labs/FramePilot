@@ -24,6 +24,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **When a file can't be prepared, you can now see which one and why.** Media
+  intelligence used to report a clean "done" even when it had prepared nothing at all —
+  the reasons existed for the length of one request and were then thrown away, so a
+  project could be quietly unsearchable with nothing on screen to say so. Failures are
+  now remembered per file, named in Settings → AI → Media intelligence, and offered a
+  retry that only re-does the ones that failed. A run that stops making progress says
+  "hasn't advanced since 14:32" instead of showing a progress badge forever, and a
+  rejected key says it was rejected. There is still no manual indexing step.
+- **The on-device embeddings note was wrong about what leaves your machine.** It said
+  only the request leaves, never the media. Sampled frames are sent to NVIDIA to be
+  embedded — your source files are not — and the wording now says so.
+
 - **Projects made of photos are understood again.** Adding still images to a project
   left media intelligence stuck at "0 of 61 assets prepared" with no footage map, no
   matter how long you waited. Photos were being sent to TwelveLabs, whose index only

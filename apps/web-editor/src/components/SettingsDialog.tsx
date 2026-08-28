@@ -28,6 +28,7 @@ import {
   type LocalAsrStatus,
   type UserAsrProviderName,
   type UserPreferenceKey,
+  runVisualIndexLoop,
   type VisualStatusResponse,
 } from '@framepilot/ai-sdk';
 import {
@@ -668,56 +669,139 @@ function AsrSettings(): JSX.Element {
 
 type MediaStatusState = VisualStatusResponse | 'loading' | 'error' | 'no-project';
 
+/** How many failing assets to name inline before collapsing to a count. */
+const MAX_LISTED_FAILURES = 3;
+
 type CoverageTone = 'idle' | 'running' | 'completed' | 'warning';
 
+/** What the panel can offer to do about the state it is showing. */
+type CoverageRecovery = 'retry' | 'retry-failed' | 'fix-key' | undefined;
+
+interface CoverageView {
+  readonly statusText: string;
+  readonly tone: CoverageTone;
+  readonly recovery: CoverageRecovery;
+  /** Assets to name under the row, when there is something to name. */
+  readonly failures: VisualStatusResponse['failures'];
+}
+
 /**
- * Turn a `/brain/visual/status` reading into an honest badge + sentence.
+ * A preparation job is "stalled" once it has not advanced for this long while still
+ * claiming to run. Generously above the engine's own per-slice polling budget (30s), so
+ * a slow upload is never mistaken for a stuck one.
+ */
+const STALLED_AFTER_MS = 5 * 60 * 1000;
+
+/**
+ * Turn a `/brain/visual/status` reading into an honest badge, sentence, and offer.
  *
  * ## Why this is not `indexed < total ? 'running' : 'completed'`
  *
  * That is what it used to be, and it is how the reported defect stayed invisible:
- * a preparation job that had already given up — three retries, every one stopped
- * by the same provider error — rendered as a blue "running" badge reading
- * `0/61 assets prepared · 0%`, forever. Nothing on the panel said the work had
- * stopped, why, or what to do. So the badge now follows the JOB's own state, and
- * a stopped job shows its reason. `totalAssets === 0` is its own case too: an
- * empty project is idle, not perpetually mid-run.
+ * a preparation job that had already given up — three retries, every one stopped by the
+ * same provider error — rendered as a blue "running" badge reading
+ * `0/61 assets prepared · 0%`, forever. Nothing said the work had stopped, why, or what
+ * to do about it. The badge follows the JOB's own state now, a stopped job shows its
+ * reason, and the states that a person can act on offer the action.
+ *
+ * ## Why "retry" is not an "Index now" button
+ *
+ * The product's contract is that there is no manual indexing step, and an e2e test holds
+ * that line. Recovery is therefore always framed as recovery from a NAMED failure — it
+ * appears only when something actually failed or stalled, it says what it will retry, and
+ * it disappears the moment there is nothing to retry.
  */
-function describeCoverage(status: VisualStatusResponse): {
-  statusText: string;
-  tone: CoverageTone;
-} {
+function describeCoverage(status: VisualStatusResponse, now: number): CoverageView {
+  const none: CoverageView['failures'] = [];
   if (!status.available) {
     return {
       statusText: `Media understanding unavailable${status.reason ? `: ${status.reason}` : '.'}`,
       tone: 'warning',
+      recovery: undefined,
+      failures: none,
     };
   }
   const prepared = `${status.indexedAssets}/${status.totalAssets} assets prepared`;
-  if (status.totalAssets > 0 && status.indexedAssets >= status.totalAssets) {
-    return { statusText: `${prepared}.`, tone: 'completed' };
-  }
+  const failures = status.failures;
   const job = status.lastJob;
+
+  if (job?.error === 'invalid_api_key') {
+    return {
+      statusText: 'That key was rejected. Media understanding is paused until it is replaced.',
+      tone: 'warning',
+      recovery: 'fix-key',
+      failures: none,
+    };
+  }
+
+  const finished = status.indexedAssets + failures.length >= status.totalAssets;
+  if (status.totalAssets > 0 && failures.length > 0 && finished) {
+    // Partial: preparation ran to the end of the worklist and some assets could not be
+    // prepared. Silent before this — the reasons never left the sidecar's log.
+    return {
+      statusText: `${prepared}. ${failures.length} could not be prepared.`,
+      tone: 'warning',
+      recovery: 'retry-failed',
+      failures,
+    };
+  }
+  if (status.totalAssets > 0 && status.indexedAssets >= status.totalAssets) {
+    return { statusText: `${prepared}.`, tone: 'completed', recovery: undefined, failures: none };
+  }
   if (job && (job.state === 'failed' || job.state === 'interrupted')) {
-    // `cancelled by user` is the engine's own wording for a deliberate stop; it is
-    // not a fault, so it must not read like one.
+    // `cancelled by user` is the engine's own wording for a deliberate stop; it is not a
+    // fault, so it must not read like one.
     const cancelled = (job.error ?? '').includes('cancelled by user');
     return {
       statusText: cancelled
         ? `${prepared}. Preparation was cancelled — it resumes on the next semantic request.`
-        : `${prepared}. Preparation stopped${job.error ? `: ${job.error}` : '.'} It retries on the next semantic request.`,
+        : `${prepared}. Preparation stopped${job.error ? `: ${job.error}` : '.'}`,
       tone: cancelled ? 'idle' : 'warning',
+      recovery: cancelled ? undefined : 'retry',
+      failures,
     };
   }
   if (job?.state === 'running') {
-    return { statusText: `${prepared} · ${Math.round(job.progress * 100)}%.`, tone: 'running' };
+    const idleMs = now - Date.parse(job.updatedAt);
+    if (Number.isFinite(idleMs) && idleMs > STALLED_AFTER_MS) {
+      // Claims to be running, but nothing has moved. The defect's exact shape, caught
+      // even when the engine never got to mark the job failed.
+      const since = new Date(job.updatedAt).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      return {
+        statusText: `${prepared}. Preparation has not advanced since ${since}.`,
+        tone: 'warning',
+        recovery: 'retry',
+        failures,
+      };
+    }
+    // Say what it is waiting on. A percentage alone cannot distinguish slow from broken.
+    const waiting =
+      status.backend === 'twelvelabs'
+        ? `uploading to TwelveLabs (${job.cursor}/${job.total})`
+        : `embedding frames (${job.cursor}/${job.total})`;
+    return {
+      statusText: `${prepared} · ${Math.round(job.progress * 100)}% — ${waiting}.`,
+      tone: 'running',
+      recovery: undefined,
+      failures: none,
+    };
   }
   if (status.totalAssets === 0) {
-    return { statusText: 'No media to prepare yet.', tone: 'idle' };
+    return {
+      statusText: 'No media to prepare yet.',
+      tone: 'idle',
+      recovery: undefined,
+      failures: none,
+    };
   }
   return {
     statusText: `${prepared}. Preparation starts on import or first semantic need.`,
     tone: 'idle',
+    recovery: undefined,
+    failures: none,
   };
 }
 
@@ -742,6 +826,34 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
     return () => window.clearInterval(timer);
   }, [projectId, refresh]);
 
+  const [retrying, setRetrying] = useState(false);
+  /**
+   * Recover from a NAMED failure. Not an "Index now" button: preparation is automatic,
+   * and this only ever appears next to a state that has already gone wrong. It starts a
+   * fresh job over the whole worklist, and the assets that already succeeded are a cheap
+   * no-op for it (`existing_visual_span_keys`), so retrying three failures does not
+   * re-pay for the fifty-eight that worked.
+   */
+  const retry = useCallback(async (): Promise<void> => {
+    if (!projectId || retrying) return;
+    setRetrying(true);
+    try {
+      const hosted = twelveLabsKey(config);
+      const onDevice = nvidiaEmbeddingsKeys(config);
+      await runVisualIndexLoop({
+        client,
+        request: {
+          projectId,
+          ...(hosted ? { twelveLabsKey: hosted } : {}),
+          ...(onDevice ? { nvidiaKeys: onDevice } : {}),
+        },
+      });
+    } finally {
+      setRetrying(false);
+      await refresh();
+    }
+  }, [client, config, projectId, refresh, retrying]);
+
   // Two backends can be configured at once, and the engine resolves TwelveLabs FIRST
   // (`service.py` checks `resolve_twelvelabs` before `resolve_visual_embedder`), so the
   // badge has to name the one that will actually run rather than the one most recently
@@ -752,7 +864,9 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
   const keyConfigured = hostedKey || onDeviceKey;
   const activeBackend = hostedKey ? 'TwelveLabs' : onDeviceKey ? 'On-device' : undefined;
   let statusText = 'Open a project to see media-understanding coverage.';
-  let tone: 'idle' | 'running' | 'completed' | 'warning' = 'idle';
+  let tone: CoverageTone = 'idle';
+  let recovery: CoverageRecovery;
+  let failures: CoverageView['failures'] = [];
   if (status === 'loading') {
     statusText = 'Checking media understanding…';
     tone = 'running';
@@ -761,7 +875,7 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
       'The media engine is currently unreachable. Cached/local editing remains available.';
     tone = 'warning';
   } else if (typeof status === 'object') {
-    ({ statusText, tone } = describeCoverage(status));
+    ({ statusText, tone, recovery, failures } = describeCoverage(status, Date.now()));
   }
 
   return (
@@ -803,9 +917,10 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
           onChange={(event) => setNvidiaEmbeddings(event.target.value || null)}
         />
         <span className="setting-hint">
-          NVIDIA API key(s) for visual embeddings, comma-separated. Footage is indexed and searched
-          on this machine — only the embedding request leaves it, never the media. Used when no
-          TwelveLabs key is set, and always for still photos, which the hosted service cannot index.
+          NVIDIA API key(s) for visual embeddings, comma-separated. Sampled frames are sent to
+          NVIDIA to be embedded; your source files never leave this machine, and search runs here.
+          Used when no TwelveLabs key is set, and always for still photos, which the hosted service
+          cannot index. Extra keys share the work as well as covering for each other.
         </span>
       </div>
       <div className="setting-row">
@@ -824,10 +939,43 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
         <div className="setting-text">
           <span className="setting-label">Project coverage</span>
           <span className="setting-hint">{statusText}</span>
+          {failures.length > 0 ? (
+            // Named, not counted. "3 could not be prepared" is the difference between a
+            // user who can go look at three files and one who can only re-run and hope.
+            <span className="setting-hint">
+              {failures
+                .slice(0, MAX_LISTED_FAILURES)
+                .map(
+                  (failure) => `${failure.assetId}${failure.reason ? ` — ${failure.reason}` : ''}`,
+                )
+                .join(' · ')}
+              {failures.length > MAX_LISTED_FAILURES
+                ? ` · +${failures.length - MAX_LISTED_FAILURES} more`
+                : ''}
+            </span>
+          ) : null}
         </div>
-        <span className="ai-tone" data-tone={tone}>
-          {tone}
-        </span>
+        <div className="setting-inline-actions">
+          {recovery !== undefined ? (
+            <Button
+              type="button"
+              data-variant="secondary"
+              onClick={() => void retry()}
+              disabled={retrying}
+            >
+              {retrying
+                ? 'Retrying…'
+                : recovery === 'retry-failed'
+                  ? `Retry ${failures.length} failed`
+                  : recovery === 'fix-key'
+                    ? 'Replace key'
+                    : 'Retry preparation'}
+            </Button>
+          ) : null}
+          <span className="ai-tone" data-tone={tone}>
+            {tone}
+          </span>
+        </div>
       </div>
       {hostedKey && onDeviceKey ? (
         <p className="setting-hint setting-note">

@@ -341,11 +341,122 @@ describe('SettingsDialog', () => {
           progress: 0.33,
           cursor: 1,
           total: 3,
-          updatedAt: '2026-07-18T00:00:00Z',
+          // Fresh: a job whose last advance is old reads as stalled, which is a
+          // different row (see the stalled test below).
+          updatedAt: new Date().toISOString(),
         },
       });
       openAiForProject('p1');
-      await waitFor(() => expect(screen.getByText(/0\/3 assets prepared · 33%/)).toBeTruthy());
+      // A percentage alone cannot distinguish slow from broken, so the row names what
+      // the wait is actually on.
+      await waitFor(() =>
+        expect(
+          screen.getByText(/0\/3 assets prepared · 33% — embedding frames \(1\/3\)/),
+        ).toBeTruthy(),
+      );
+    });
+
+    it('names the hosted backend when that is what the wait is on', async () => {
+      stubVisualFetch({
+        available: true,
+        backend: 'twelvelabs',
+        counts: { videos: 1 },
+        indexedAssets: 1,
+        totalAssets: 4,
+        keyConfigured: true,
+        lastJob: {
+          jobId: 'job-1',
+          state: 'running',
+          progress: 0.25,
+          cursor: 1,
+          total: 4,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      openAiForProject('p1');
+      await waitFor(() =>
+        expect(screen.getByText(/uploading to TwelveLabs \(1\/4\)/)).toBeTruthy(),
+      );
+    });
+
+    it('names the assets that could not be prepared, and offers to retry just those', async () => {
+      // Per-asset reasons used to live only in a sidecar log line nobody sees, so a
+      // partly-prepared project looked identical to a fully-prepared one.
+      stubVisualFetch({
+        available: true,
+        backend: 'sqlite-vec',
+        counts: { assets: 2 },
+        indexedAssets: 2,
+        totalAssets: 3,
+        keyConfigured: true,
+        failures: [{ assetId: 'broken_clip', reason: 'ffmpeg produced no frame' }],
+      });
+      openAiForProject('p1');
+      await waitFor(() => expect(screen.getByText(/1 could not be prepared/)).toBeTruthy());
+      expect(screen.getByText(/broken_clip — ffmpeg produced no frame/)).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Retry 1 failed' })).toBeTruthy();
+    });
+
+    it('calls a job that has not advanced in a long time stalled, not running', async () => {
+      // The reported defect's exact shape, caught even when the engine never got to mark
+      // the job failed: `running` at 0%, for six minutes, three times over.
+      stubVisualFetch({
+        available: true,
+        backend: 'twelvelabs',
+        counts: { videos: 0 },
+        indexedAssets: 0,
+        totalAssets: 61,
+        keyConfigured: true,
+        lastJob: {
+          jobId: 'job-1',
+          state: 'running',
+          progress: 0,
+          cursor: 0,
+          total: 61,
+          updatedAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+        },
+      });
+      openAiForProject('p1');
+      await waitFor(() => expect(screen.getByText(/has not advanced since/)).toBeTruthy());
+      expect(screen.getByRole('button', { name: 'Retry preparation' })).toBeTruthy();
+    });
+
+    it('says a rejected key is rejected and points at the field', async () => {
+      stubVisualFetch({
+        available: true,
+        backend: 'twelvelabs',
+        counts: {},
+        indexedAssets: 0,
+        totalAssets: 4,
+        keyConfigured: true,
+        lastJob: {
+          jobId: 'job-1',
+          state: 'failed',
+          progress: 0,
+          error: 'invalid_api_key',
+          cursor: 0,
+          total: 4,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      openAiForProject('p1');
+      await waitFor(() => expect(screen.getByText(/That key was rejected/)).toBeTruthy());
+    });
+
+    it('offers no recovery action when nothing has gone wrong', async () => {
+      // The product's contract is that there is no manual indexing step. Recovery is
+      // recovery from a NAMED failure, never a general "Index now".
+      stubVisualFetch({
+        available: true,
+        backend: 'sqlite-vec',
+        counts: { assets: 4 },
+        indexedAssets: 4,
+        totalAssets: 4,
+        keyConfigured: true,
+      });
+      openAiForProject('p1');
+      await waitFor(() => expect(screen.getByText(/4\/4 assets prepared/)).toBeTruthy());
+      expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull();
     });
 
     it('reports a stopped preparation job as a failure, never as progress', async () => {

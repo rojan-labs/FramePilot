@@ -66,6 +66,10 @@ test.describe('media intelligence settings: browser surface + honest-unavailable
     // re-add from quietly reintroducing a workflow the product decided against.
     await expect(dialog.getByRole('button', { name: 'Index now' })).toHaveCount(0);
     await expect(dialog.getByRole('switch', { name: 'Auto-index imported media' })).toHaveCount(0);
+    // The panel CAN offer to retry, but only ever next to a named failure. On a healthy
+    // project there is nothing that has gone wrong, so there is nothing to offer — which
+    // is the line between recovery and a manual indexing step sneaking back in.
+    await expect(dialog.getByRole('button', { name: /Retry/ })).toHaveCount(0);
   });
 
   test('with no key, the panel is truthful about what is unavailable', async ({ page }) => {
@@ -76,7 +80,9 @@ test.describe('media intelligence settings: browser surface + honest-unavailable
     // understanding backend is off and name what still works, rather than implying
     // footage is understood — the never-claim-a-fake-result invariant.
     await expect(panel.getByText('Local facts only')).toBeVisible();
-    await expect(panel.getByText(/remain available without a media-understanding key/)).toBeVisible();
+    await expect(
+      panel.getByText(/remain available without a media-understanding key/),
+    ).toBeVisible();
   });
 
   test('a configured key flips the reported state, and the value round-trips', async ({ page }) => {
