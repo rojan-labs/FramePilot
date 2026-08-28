@@ -1778,7 +1778,20 @@
           "object"
         ],
         "additionalProperties": false,
-        "properties": {}
+        "properties": {
+          "end": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "start": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          }
+        }
       }
     },
     "get_timeline_map": {

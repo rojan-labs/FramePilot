@@ -165,12 +165,41 @@ const transcriptWindowSchema = z
   .object({ start: seconds.optional(), end: seconds.optional() })
   .strict();
 
+// `get_timeline` window (all optional): only clips overlapping [start, end) are returned.
+// No args keeps the full-timeline behavior.
+const timelineWindowSchema = z
+  .object({ start: seconds.optional(), end: seconds.optional() })
+  .strict();
+
 const trimSchema = z.object({ clipId: z.string(), start: seconds, end: seconds }).strict();
 export const TIMELINE_TOOLS: readonly ToolSpec[] = [
   readTool(
-    { name: 'get_timeline', description: 'Return the current timeline (tracks/clips).' },
-    noArgs,
-    (_args, ctx) => ctx.project.timeline,
+    {
+      name: 'get_timeline',
+      description:
+        'Return the current timeline (tracks/clips). Pass start/end (timeline seconds) to ' +
+        'read only the clips playing in that window — on a long sequence, read sections ' +
+        'rather than dumping every clip.',
+    },
+    // The same window `get_transcript` takes, for the same reason and in the same words.
+    // Run 4c9b5f82 asked for `{start: 0, end: 50}` and then `{start: 0, end: 37}`, was told
+    // `Unrecognized keys: "start", "end"` both times, and spent two of its seventeen model
+    // calls learning that a read it had every reason to expect does not exist. A window on
+    // a long timeline is the obvious ask; refusing it taught nothing and cost two turns.
+    timelineWindowSchema,
+    (a, ctx) => {
+      const timeline = ctx.project.timeline;
+      if (a.start === undefined && a.end === undefined) return timeline;
+      const start = a.start ?? Number.NEGATIVE_INFINITY;
+      const end = a.end ?? Number.POSITIVE_INFINITY;
+      return {
+        ...timeline,
+        tracks: timeline.tracks.map((track) => ({
+          ...track,
+          clips: track.clips.filter((clip) => clip.end > start && clip.start < end),
+        })),
+      };
+    },
   ),
   readTool(
     {

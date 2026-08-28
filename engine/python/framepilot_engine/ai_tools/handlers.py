@@ -56,6 +56,7 @@ from framepilot_engine.ai_tools.registry import (
     SetTrackCaptionStyleArgs,
     SetTrackFlagsArgs,
     SplitClipArgs,
+    TimelineWindowArgs,
     TrackObjectArgs,
     TranscriptWindowArgs,
     TrimClipArgs,
@@ -794,8 +795,23 @@ def discover_caption_styles(args: DiscoverCaptionStylesArgs, ctx: ToolContext) -
     }
 
 
-def get_timeline(args: Any, ctx: ToolContext) -> dict[str, Any]:
-    return ctx.project.timeline.model_dump(by_alias=True)
+def get_timeline(args: TimelineWindowArgs, ctx: ToolContext) -> dict[str, Any]:
+    """The timeline, optionally windowed to clips overlapping ``[start, end)``."""
+    timeline = ctx.project.timeline.model_dump(by_alias=True)
+    if args.start is None and args.end is None:
+        return timeline
+    start = args.start if args.start is not None else float("-inf")
+    end = args.end if args.end is not None else float("inf")
+    timeline["tracks"] = [
+        {
+            **track,
+            "clips": [
+                clip for clip in track["clips"] if clip["end"] > start and clip["start"] < end
+            ],
+        }
+        for track in timeline["tracks"]
+    ]
+    return timeline
 
 
 def get_transcript(args: TranscriptWindowArgs, ctx: ToolContext) -> list[dict[str, Any]]:

@@ -320,13 +320,14 @@ describe('MusicService', () => {
     });
 
     it('says the track is unknown rather than blaming the provider', async () => {
-      // The renderer asked about a track this process never saw — its results
-      // are from a previous run. Reporting an outage would send the user to
-      // check a service that is fine.
+      // The caller asked about a track this process never saw — its results are
+      // from a previous run. Reporting an outage would send the user to check a
+      // service that is fine, and it told the AGENT to "try again shortly", which
+      // is the one thing that cannot work: run 4c9b5f82 retried three times.
       const result = await make().preview('never-seen');
       expect(result).toEqual({
         ok: false,
-        error: 'provider_unavailable',
+        error: 'unknown_track',
         detail: 'unknown track',
       });
     });

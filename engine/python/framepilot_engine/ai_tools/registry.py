@@ -433,6 +433,18 @@ class RecallEvidenceArgs(BaseModel):
     offset: int | None = Field(default=None, ge=0)
 
 
+class TimelineWindowArgs(BaseModel):
+    """Optional timeline window (mirrors the TS ``timelineWindowSchema``).
+
+    Only clips overlapping ``[start, end)`` are returned; omit both to read the
+    whole timeline.
+    """
+
+    model_config = _STRICT
+    start: float | None = Field(default=None, ge=0.0)
+    end: float | None = Field(default=None, ge=0.0)
+
+
 class TranscriptWindowArgs(BaseModel):
     """Optional transcript window (mirrors the TS ``transcriptWindowSchema``).
 
@@ -973,7 +985,12 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         kind="read",
     ),
     "get_timeline": _spec(
-        "get_timeline", "Return the current timeline (tracks/clips).", kind="read"
+        "get_timeline",
+        "Return the current timeline (tracks/clips). Pass start/end (timeline seconds) "
+        "to read only the clips playing in that window — on a long sequence, read "
+        "sections rather than dumping every clip.",
+        kind="read",
+        input_model=TimelineWindowArgs,
     ),
     "get_transcript": _spec(
         "get_transcript",

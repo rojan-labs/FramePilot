@@ -86,6 +86,8 @@ function errorMessage(code: MusicErrorCodeWire, detail?: string): string {
         : 'Too many searches in a row. Try again in a moment.';
     case 'provider_unavailable':
       return 'The music provider is not responding. Try again shortly.';
+    case 'unknown_track':
+      return 'That track is no longer available in these results. Search again.';
     case 'offline':
       return 'No network connection.';
     case 'timeout':
