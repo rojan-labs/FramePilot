@@ -22,6 +22,7 @@ import { useEditor } from '../editor/useEditor.js';
 import { useEditorShortcuts } from '../editor/useShortcuts.js';
 import type { Tool } from '../editor/shortcuts.js';
 import { type RailSide, useRailLayout } from '../editor/useRailLayout.js';
+import { oneOf, useViewPreference } from '../editor/useViewPreference.js';
 import { useEditMode } from '../editor/useEditMode.js';
 import { useTrackLayout } from '../editor/useTrackLayout.js';
 import { assetIdsOf } from '../editor/project.js';
@@ -118,8 +119,32 @@ export interface EditorProps {
   readonly onCloseTranscription?: () => void;
 }
 
-type LeftTab = 'media' | 'effects' | 'transitions' | 'overlays' | 'captions' | 'sounds' | 'stock';
-type RightTab = 'ai' | 'inspector';
+const LEFT_TAB_IDS = [
+  'media',
+  'effects',
+  'transitions',
+  'overlays',
+  'captions',
+  'sounds',
+  'stock',
+] as const;
+const RIGHT_TAB_IDS = ['ai', 'inspector'] as const;
+
+type LeftTab = (typeof LEFT_TAB_IDS)[number];
+type RightTab = (typeof RIGHT_TAB_IDS)[number];
+type MonitorTab = 'program' | 'source';
+
+/**
+ * Which panel each rail is showing — remembered between sessions.
+ *
+ * These reset to Assets/AI/Program on every open until now, which an e2e reload proved
+ * directly: set the left rail to Effects, reload, and it is back on Assets. The rails'
+ * WIDTHS were persisted all along (`useRailLayout`), so the workspace came back the right
+ * shape showing the wrong things.
+ *
+ * Coerced against the id lists above rather than a hand-written copy, so a renamed or
+ * retired tab falls back to the default instead of selecting a panel that no longer exists.
+ */
 
 const LEFT_TABS: readonly { id: LeftTab; label: string; icon: LucideIcon }[] = [
   { id: 'media', label: 'Assets', icon: Folder },
@@ -144,6 +169,25 @@ const DESKTOP_ONLY_TABS: ReadonlySet<LeftTab> = new Set<LeftTab>(['sounds', 'sto
  */
 function visibleLeftTabs(): readonly { id: LeftTab; label: string; icon: LucideIcon }[] {
   return isDesktop() ? LEFT_TABS : LEFT_TABS.filter((tab) => !DESKTOP_ONLY_TABS.has(tab.id));
+}
+
+const isLeftTab = oneOf<LeftTab>(LEFT_TAB_IDS);
+const coerceRightTab = oneOf<RightTab>(RIGHT_TAB_IDS);
+
+/**
+ * Restore a left tab only if THIS build actually renders it.
+ *
+ * Sounds and Stock are absent in a browser build (see {@link visibleLeftTabs}), and the
+ * same person's preference travels between the two: set the rail to Stock on desktop, open
+ * the web build, and a bare id check would select a panel with no tab to match it — a rail
+ * showing something the tab strip says is not there. Checked at call time because
+ * `isDesktop()` is a runtime fact, and only ever on the stored value, so the default is
+ * untouched.
+ */
+function coerceLeftTab(raw: unknown): LeftTab | undefined {
+  const tab = isLeftTab(raw);
+  if (tab === undefined) return undefined;
+  return isDesktop() || !DESKTOP_ONLY_TABS.has(tab) ? tab : undefined;
 }
 
 const RIGHT_TABS: readonly { id: RightTab; label: string; icon: LucideIcon }[] = [
@@ -218,8 +262,12 @@ export function Editor({
     skipProjectLift.current = true;
     editor.replaceAuthoritativeProject(project);
   }, [editor.replaceAuthoritativeProject, project, projectSyncNonce]);
-  const [leftTab, setLeftTab] = useState<LeftTab>('media');
-  const [monitorTab, setMonitorTab] = useState<'program' | 'source'>('program');
+  const [leftTab, setLeftTab] = useViewPreference<LeftTab>('leftTab', 'media', coerceLeftTab);
+  // NOT persisted, deliberately. Program/Source is a mode the interaction drives — clicking
+  // an asset switches to Source by itself — not a layout preference. Restoring "Source" on
+  // open, with no asset loaded, reopens the editor onto an empty monitor: a worse first
+  // frame than the edit you were working on.
+  const [monitorTab, setMonitorTab] = useState<MonitorTab>('program');
   const [monitorHeaderControlsHost, setMonitorHeaderControlsHost] = useState<HTMLDivElement | null>(
     null,
   );
@@ -297,7 +345,7 @@ export function Editor({
     setSourceAsset(asset);
     setMonitorTab('source');
   }, []);
-  const [rightTab, setRightTab] = useState<RightTab>('ai');
+  const [rightTab, setRightTab] = useViewPreference<RightTab>('rightTab', 'ai', coerceRightTab);
   const dockLayout = useDockHeight();
 
   // Mirror live editable slices upward without turning restart serialization into

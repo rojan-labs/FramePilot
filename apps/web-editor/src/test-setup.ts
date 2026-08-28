@@ -6,7 +6,7 @@
  * `v8 ignore`d (verified manually / in e2e), so stubbing them to no-ops keeps
  * the unit suite focused on the deterministic store/selector logic.
  */
-import { beforeAll } from 'vitest';
+import { beforeAll, beforeEach } from 'vitest';
 
 /**
  * `PointerEvent` polyfill — jsdom does not implement it.
@@ -122,4 +122,27 @@ beforeAll(() => {
   // `vi.unstubAllGlobals()` — a test that needs a different response stubs `fetch`
   // itself, which reverts back to this default afterward.
   globalThis.fetch = (async () => ({ ok: false }) as Response) as typeof fetch;
+});
+
+/**
+ * A fresh `localStorage` for every test.
+ *
+ * jsdom gives the whole file one storage object, so a preference written by one test is
+ * still there for the next — and the editor persists a growing number of them (rail tabs,
+ * thumbnail size, rail widths, dock height, track lanes, edit mode). That coupling makes
+ * suites order-dependent in the least obvious way: `Editor.test.tsx`'s Source-monitor tests
+ * began failing not because the monitor changed but because an EARLIER test had switched
+ * the left rail off Media, so the asset the later test clicks was no longer rendered.
+ *
+ * Cleared per test rather than per file, because the leak is between tests. A test that
+ * wants a preference pre-set writes it in its own body, which is also where a reader will
+ * look for it.
+ */
+beforeEach(() => {
+  try {
+    localStorage.clear();
+    sessionStorage.clear();
+  } catch {
+    /* storage unavailable in this environment — nothing to isolate */
+  }
 });
