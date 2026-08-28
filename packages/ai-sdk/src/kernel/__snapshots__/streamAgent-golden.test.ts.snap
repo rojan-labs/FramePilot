@@ -6945,8 +6945,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
               "id": "criterion_1",
             },
           ],
-          "outcome": "tighten the intro",
-          "provisional": true,
+          "outcome": "Plan: Trim the intro; Wrap up",
+          "provisional": false,
           "request": "tighten the intro",
         },
         "objectives": [
@@ -6979,7 +6979,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "interpret",
         "stageEnteredAtTurn": 0,
         "verifications": [],
-        "version": 2,
+        "version": 3,
       },
     },
     {
@@ -7070,7 +7070,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 2118,
+            "tokenEstimate": 2125,
             "type": "system",
           },
           {
@@ -7084,8 +7084,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 22417,
-          "estimatedRemainingCapacity": 169391,
+          "estimatedInputTokensBeforeSend": 22424,
+          "estimatedRemainingCapacity": 169384,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -7094,7 +7094,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 22417,
+      "usedTokens": 22424,
     },
     {
       "conversationId": "conv_1",
@@ -7375,8 +7375,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
               "id": "criterion_1",
             },
           ],
-          "outcome": "tighten the intro",
-          "provisional": true,
+          "outcome": "Plan: Trim the intro; Wrap up",
+          "provisional": false,
           "request": "tighten the intro",
         },
         "objectives": [
@@ -7424,7 +7424,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "inspect",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 6,
+        "version": 7,
       },
     },
     {
@@ -7516,7 +7516,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 2256,
+            "tokenEstimate": 2264,
             "type": "system",
           },
           {
@@ -7530,8 +7530,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 22555,
-          "estimatedRemainingCapacity": 169253,
+          "estimatedInputTokensBeforeSend": 22563,
+          "estimatedRemainingCapacity": 169245,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -7541,7 +7541,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 22555,
+      "usedTokens": 22563,
     },
     {
       "chunk": "done",
@@ -7644,8 +7644,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
               "id": "criterion_1",
             },
           ],
-          "outcome": "tighten the intro",
-          "provisional": true,
+          "outcome": "Plan: Trim the intro; Wrap up",
+          "provisional": false,
           "request": "tighten the intro",
         },
         "objectives": [
@@ -7693,7 +7693,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "inspect",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 7,
+        "version": 8,
       },
     },
     {
@@ -7785,7 +7785,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s7",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 2426,
+            "tokenEstimate": 2433,
             "type": "system",
           },
           {
@@ -7799,8 +7799,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 17195,
-          "estimatedRemainingCapacity": 174613,
+          "estimatedInputTokensBeforeSend": 17202,
+          "estimatedRemainingCapacity": 174606,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -7810,7 +7810,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 17195,
+      "usedTokens": 17202,
     },
     {
       "chunk": "done",
@@ -7905,8 +7905,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
               "id": "criterion_1",
             },
           ],
-          "outcome": "tighten the intro",
-          "provisional": true,
+          "outcome": "Plan: Trim the intro; Wrap up",
+          "provisional": false,
           "request": "tighten the intro",
         },
         "objectives": [
@@ -7954,7 +7954,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "stage": "inspect",
         "stageEnteredAtTurn": 1,
         "verifications": [],
-        "version": 7,
+        "version": 8,
       },
     },
     {
@@ -8044,7 +8044,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "integrity": {
           "diagnostics": [
             {
-              "atVersion": 14,
+              "atVersion": 15,
               "blocking": true,
               "code": "VERIFICATION_INCONCLUSIVE",
               "message": "Verification found: The committed plan still has incomplete deliverables.",
@@ -8065,8 +8065,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
               "id": "criterion_1",
             },
           ],
-          "outcome": "tighten the intro",
-          "provisional": true,
+          "outcome": "Plan: Trim the intro; Wrap up",
+          "provisional": false,
           "request": "tighten the intro",
         },
         "objectives": [
@@ -8129,7 +8129,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "passed": false,
           },
         ],
-        "version": 15,
+        "version": 16,
       },
     },
     {

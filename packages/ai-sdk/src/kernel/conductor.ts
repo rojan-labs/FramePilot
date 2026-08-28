@@ -77,6 +77,7 @@ import {
   recordHostRefusal,
   recordOperation,
   recordVerification,
+  isRequestEcho,
   setObjective,
   setExecutionAuthorization,
   setNextAction,
@@ -1167,6 +1168,40 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
 // split-emitter contract (§7.4) that keeps event ids byte-identical across the
 // control/execution boundary.
 
+/**
+ * The run's own reading of the request, drawn from the plan it just drafted — or
+ * `undefined` when the plan says nothing the request did not.
+ *
+ * A drafted plan is the one place in the run where the model states what it believes the
+ * request means BEFORE acting on it. That is what an objective's `outcome` is for, and
+ * until now the field held a bounded copy of the request forever, which
+ * `buildStateBriefing` then had to suppress as noise.
+ *
+ * Rejects a single step that echoes the request, because that is the seed arriving by
+ * another route. Bounded, because this is stored and streamed on every turn.
+ */
+function planInterpretation(
+  state: RunWorkingState,
+  labels: readonly string[],
+): string | undefined {
+  if (!state.objective.provisional) return undefined;
+  const steps = labels.map((label) => label.trim()).filter(Boolean);
+  if (steps.length === 0) return undefined;
+  if (steps.every((step) => isRequestEcho(step, state.objective.request))) return undefined;
+  const joined = `Plan: ${steps.join('; ')}`;
+  return joined.length > PLAN_INTERPRETATION_CHARS
+    ? `${joined.slice(0, PLAN_INTERPRETATION_CHARS).trimEnd()}…`
+    : joined;
+}
+
+/**
+ * How much of a drafted plan is kept as the run's outcome.
+ *
+ * Twice {@link REQUEST_ECHO_CHARS}: a real interpretation earns more room than the request
+ * said back, and a twelve-step plan still has to fit in a state serialized every turn.
+ */
+const PLAN_INTERPRETATION_CHARS = 360;
+
 export function onDraftPlanResult(
   state: ConductorState,
   r: DraftPlanResult,
@@ -1180,7 +1215,25 @@ export function onDraftPlanResult(
     ledgerLength = planSteps.length;
     events.push(em.plan([...planSteps]));
   }
-  const working = commitExecutionPlan(state.working, r.labels, 0);
+  // The missing caller. `setObjective` is written to yield a provisional outcome — the
+  // request read back — to "the first real interpretation", and `acceptance.ts` records
+  // that nothing ever produced one: it "had exactly one caller, the seed itself". A
+  // drafted plan IS an interpretation. It is the model saying, in its own words and before
+  // it touches anything, what this request means it should do — which is the whole content
+  // of an outcome.
+  //
+  // Only a plan that says something new is taken. One step that is the request echoed back
+  // is the request echoed back however it arrived, and storing it as an interpretation
+  // would put a second copy of the brief in a state that is persisted and streamed every
+  // turn — the exact duplication `requestEcho` exists to stop.
+  const interpretation = planInterpretation(state.working, r.labels);
+  const interpreted = interpretation
+    ? setObjective(state.working, {
+        outcome: interpretation,
+        acceptance: state.working.objective.acceptance,
+      })
+    : state.working;
+  const working = commitExecutionPlan(interpreted, r.labels, 0);
   if (working.plan.status !== 'committed') {
     // `commitExecutionPlan` only ever leaves `plan.status` un-committed via its own
     // `addDiagnostic` call, which always pushes a diagnostic before returning — so

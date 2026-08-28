@@ -318,6 +318,31 @@ describe('onEffectResult — draft_plan fold', () => {
     ]);
   });
 
+  // GAP-015 (run `fc10301a`). `setObjective` is written to yield a provisional outcome —
+  // the request read back — to "the first real interpretation", and `acceptance.ts` records
+  // that nothing ever produced one: it "had exactly one caller, the seed itself". So a
+  // 12,000-character brief with ten enumerated deliverables became one objective, one
+  // decision and one criterion, all of them the brief; `buildStateBriefing` then suppressed
+  // every one of them as noise, and the model was shown a STAGE line and nothing else.
+  it('takes the drafted plan as the run’s own reading of the request', () => {
+    const s = onCommand(idle, command({ planFirst: true })).state;
+    expect(s.working.objective.provisional).toBe(true);
+    const { state } = onEffectResult(s, draftPlan({ labels: ['Trim', 'Wrap up'] }));
+    expect(state.working.objective.provisional).toBe(false);
+    expect(state.working.objective.outcome).toBe('Plan: Trim; Wrap up');
+  });
+
+  it('does not take a plan that is only the request said back', () => {
+    // The seed arriving by another route. Storing it as an interpretation would put a
+    // second copy of the brief in a state persisted and streamed every turn. The label
+    // below is `input.userPrompt` verbatim — that is what makes it an echo.
+    const s = onCommand(idle, command({ planFirst: true })).state;
+    expect(s.working.objective.request).toBe(input.userPrompt);
+    const { state } = onEffectResult(s, draftPlan({ labels: [input.userPrompt] }));
+    expect(state.working.objective.provisional).toBe(true);
+    expect(state.working.objective.outcome).not.toContain('Plan:');
+  });
+
   it('an empty drafted plan cannot commit and pauses the run for integrity review (RSI1)', () => {
     // A planFirst run whose drafted plan has zero usable steps has nothing to authorize
     // execution against — `commitExecutionPlan` refuses to commit it, which is a genuine
