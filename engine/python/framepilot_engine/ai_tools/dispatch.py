@@ -114,6 +114,7 @@ _HANDLERS: dict[str, Callable[[Any, ToolContext], Any]] = {
     "remove_track": handlers.remove_track,
     "move_track": handlers.move_track,
     "add_clip": handlers.add_clip,
+    "add_clips": handlers.add_clips,
     "add_text_layer": handlers.add_text_layer,
     "add_caption_layer": handlers.add_caption_layer,
     "add_keyframes": handlers.add_keyframes,

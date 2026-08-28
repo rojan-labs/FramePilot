@@ -115,6 +115,17 @@ class MoveClipArgs(BaseModel):
     to_start: float = Field(alias="toStart", ge=0.0)
 
 
+class AddClipEntry(BaseModel):
+    """One placement inside an ``add_clips`` batch — ``add_clip`` minus the track id."""
+
+    model_config = _STRICT
+    asset_id: str = Field(alias="assetId")
+    start: float = Field(ge=0.0)
+    end: float = Field(ge=0.0)
+    source_start: float = Field(default=0.0, alias="sourceStart", ge=0.0)
+    source_end: float | None = Field(default=None, alias="sourceEnd", ge=0.0)
+
+
 class AddClipArgs(BaseModel):
     model_config = _STRICT
     track_id: str = Field(alias="trackId")
@@ -126,6 +137,19 @@ class AddClipArgs(BaseModel):
     # source end from the timeline span so untrusted model arithmetic cannot violate
     # the clip speed/duration invariant.
     source_end: float | None = Field(default=None, alias="sourceEnd", ge=0.0)
+
+
+class AddClipsArgs(BaseModel):
+    """Place many assets on ONE track in a single call (mirrors the TS ``add_clips``).
+
+    Each entry follows ``add_clip``'s rules exactly, including the derived ``sourceEnd``;
+    the batch exists so laying out a sequence costs one call and one undo rather than one
+    of each per shot.
+    """
+
+    model_config = _STRICT
+    track_id: str = Field(alias="trackId")
+    clips: list[AddClipEntry] = Field(min_length=1)
 
 
 class AddTrackArgs(BaseModel):
@@ -1235,6 +1259,21 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "track whose range is free — clips on one track can never overlap.",
         kind="mutate",
         input_model=AddClipArgs,
+        mutating=True,
+    ),
+    "add_clips": _spec(
+        "add_clips",
+        # Mirrors `domain-tools/timeline.ts` — the two tool surfaces advertise one contract.
+        "Place MANY assets on one track in a single call — the same placement as "
+        "add_clip, once per entry, in one reversible patch and one undo. Use this "
+        "whenever you are laying out a sequence rather than fixing one shot: a montage, "
+        "a b-roll pass, a set of photos on a beat grid. Entries are { assetId, start, "
+        "end, sourceStart? } and follow add_clip's rules exactly — timeline seconds, "
+        "real asset ids, no overlaps on the track, and sourceEnd derived for you. The "
+        "whole call is validated together, so if any one entry is rejected none of them "
+        "land and the reason names the entry: fix that one and send the batch again.",
+        kind="mutate",
+        input_model=AddClipsArgs,
         mutating=True,
     ),
     "add_text_layer": _spec(

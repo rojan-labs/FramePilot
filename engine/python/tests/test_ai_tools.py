@@ -76,6 +76,7 @@ _EXPECTED_FLAGS: dict[str, tuple[bool, bool]] = {
     "remove_track": (True, True),
     "move_track": (True, True),
     "add_clip": (True, True),
+    "add_clips": (True, True),
     "add_text_layer": (True, True),
     "add_caption_layer": (True, True),
     "add_keyframes": (True, True),
@@ -601,6 +602,73 @@ def test_add_clip(ctx: ToolContext, project: Project) -> None:
     assert result.operations is not None
     assert result.operations[0]["sourceStart"] == 0.0
     assert result.operations[0]["sourceEnd"] == pytest.approx(0.46)
+
+
+def test_add_clips_places_a_sequence_in_one_patch(ctx: ToolContext, project: Project) -> None:
+    """GAP-004: laying out a sequence should cost one call, not one per shot.
+
+    Run ``fc10301a`` needed 61 placements against a 30-step budget and managed 34, with a
+    timeline re-read between every batch. Per-clip granularity is right for fixing one shot
+    and wrong for building a montage.
+    """
+    result = run_tool(
+        "add_clips",
+        {
+            "trackId": "v",
+            "clips": [
+                {"assetId": "asset_001", "start": 10.0, "end": 11.0},
+                # A legacy caller's sourceEnd is ignored here exactly as it is in add_clip.
+                {"assetId": "asset_001", "start": 11.0, "end": 11.5, "sourceStart": 2.0,
+                 "sourceEnd": 5.0},
+            ],
+        },
+        ctx,
+    )
+    _assert_patch_ok(result, project)
+    assert result.operations is not None
+    assert len(result.operations) == 2
+    assert result.operations[0]["sourceEnd"] == pytest.approx(1.0)
+    assert result.operations[1]["sourceStart"] == pytest.approx(2.0)
+    assert result.operations[1]["sourceEnd"] == pytest.approx(2.5)
+
+
+def test_add_clips_matches_add_clip_placement_exactly(ctx: ToolContext) -> None:
+    """A batch that placed clips by different rules would be worse than no batch."""
+    batched = run_tool(
+        "add_clips",
+        {"trackId": "v", "clips": [{"assetId": "asset_001", "start": 10.0, "end": 10.46}]},
+        ctx,
+    )
+    single = run_tool(
+        "add_clip",
+        {"trackId": "v", "assetId": "asset_001", "start": 10.0, "end": 10.46},
+        ctx,
+    )
+    assert batched.operations == single.operations
+
+
+def test_add_clips_refuses_an_empty_batch(ctx: ToolContext) -> None:
+    """Proposing nothing is not a placement; say so rather than settling with no ops."""
+    with pytest.raises(Exception):
+        run_tool("add_clips", {"trackId": "v", "clips": []}, ctx)
+
+
+def test_add_clips_names_the_entry_that_is_wrong(ctx: ToolContext) -> None:
+    """A batch rejected without saying WHICH of sixty entries was wrong cannot be fixed."""
+    with pytest.raises(Exception) as excinfo:
+        run_tool(
+            "add_clips",
+            {
+                "trackId": "v",
+                "clips": [
+                    {"assetId": "asset_001", "start": 0.0, "end": 1.0},
+                    {"assetId": "asset_001", "start": 2.0, "end": 2.0},
+                ],
+            },
+            ctx,
+        )
+    # Pydantic reports the failing index in the error location.
+    assert "1" in str(excinfo.value)
 
 
 # NOTE: the layer ops (add_layer/remove_layer/move_layer) are applied by the TS host

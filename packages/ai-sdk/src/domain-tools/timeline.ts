@@ -23,6 +23,7 @@ import {
   mapSourceTime,
   mapTranscript,
 } from '@framepilot/editor-core';
+import type { Operation } from '@framepilot/editor-core';
 import { secondsToFrame } from '../frame-time.js';
 import { readEditSignals } from '../proposers/edit-signals.js';
 import type { ToolSpec } from '../tool-registry.js';
@@ -172,6 +173,33 @@ const timelineWindowSchema = z
   .strict();
 
 const trimSchema = z.object({ clipId: z.string(), start: seconds, end: seconds }).strict();
+/**
+ * One placement, built the same way whether it arrived alone or in a batch.
+ *
+ * `sourceEnd` is derived rather than accepted: `add_clip` has no speed argument, so the
+ * timeline span is the one authoritative duration and a caller-supplied source range could
+ * only ever disagree with it. Shared by `add_clip` and `add_clips` so the two can never
+ * drift — a batch that placed clips by slightly different rules than the singular tool
+ * would be worse than no batch at all.
+ */
+function addClipOperation(clip: {
+  readonly trackId: string;
+  readonly assetId: string;
+  readonly start: number;
+  readonly end: number;
+  readonly sourceStart: number;
+}): Operation {
+  return {
+    type: 'add_clip',
+    trackId: clip.trackId,
+    assetId: clip.assetId,
+    start: clip.start,
+    end: clip.end,
+    sourceStart: clip.sourceStart,
+    sourceEnd: clip.sourceStart + (clip.end - clip.start),
+  };
+}
+
 export const TIMELINE_TOOLS: readonly ToolSpec[] = [
   readTool(
     {
@@ -661,17 +689,40 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         sourceEnd: seconds.optional(),
       })
       .strict(),
-    (a) => [
-      {
-        type: 'add_clip',
-        trackId: a.trackId,
-        assetId: a.assetId,
-        start: a.start,
-        end: a.end,
-        sourceStart: a.sourceStart,
-        sourceEnd: a.sourceStart + (a.end - a.start),
-      },
-    ],
+    (a) => [addClipOperation(a)],
+  ),
+  mutateTool(
+    {
+      name: 'add_clips',
+      description:
+        'Place MANY assets on one track in a single call — the same placement as ' +
+        'add_clip, once per entry, in one reversible patch and one undo. Use this ' +
+        'whenever you are laying out a sequence rather than fixing one shot: a montage, ' +
+        'a b-roll pass, a set of photos on a beat grid. Entries are { assetId, start, ' +
+        'end, sourceStart? } and follow add_clip’s rules exactly — timeline seconds, ' +
+        'real asset ids, no overlaps on the track, and sourceEnd derived for you. The ' +
+        'whole call is validated together, so if any one entry is rejected none of them ' +
+        'land and the reason names the entry: fix that one and send the batch again.',
+    },
+    z
+      .object({
+        trackId: z.string(),
+        clips: z
+          .array(
+            z
+              .object({
+                assetId: z.string(),
+                start: seconds,
+                end: seconds,
+                sourceStart: seconds.default(0),
+                sourceEnd: seconds.optional(),
+              })
+              .strict(),
+          )
+          .min(1),
+      })
+      .strict(),
+    (a) => a.clips.map((clip) => addClipOperation({ ...clip, trackId: a.trackId })),
   ),
   mutateTool(
     {

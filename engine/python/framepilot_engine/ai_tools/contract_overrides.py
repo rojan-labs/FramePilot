@@ -70,6 +70,34 @@ class _AddClipArgs(BaseModel):
         return self
 
 
+class _AddClipEntry(BaseModel):
+    """One placement inside an ``add_clips`` batch — ``_AddClipArgs`` minus the track id.
+
+    The ordering rule is repeated rather than shared because it must fail per ENTRY: a
+    batch rejected without saying which of sixty entries was wrong is a batch the model
+    cannot fix.
+    """
+
+    model_config = _STRICT
+    asset_id: str = Field(alias="assetId")
+    start: float = Field(ge=0.0)
+    end: float = Field(ge=0.0)
+    source_start: float = Field(default=0.0, alias="sourceStart", ge=0.0)
+    source_end: float | None = Field(default=None, alias="sourceEnd", ge=0.0)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> _AddClipEntry:
+        if self.end <= self.start:
+            raise ValueError("end must be greater than start")
+        return self
+
+
+class _AddClipsArgs(BaseModel):
+    model_config = _STRICT
+    track_id: str = Field(alias="trackId")
+    clips: list[_AddClipEntry] = Field(min_length=1)
+
+
 class _AddTrackArgs(BaseModel):
     model_config = _STRICT
     # TS: `type: z.enum([...]).default('overlay')` — the advisory role, not a content limit.
@@ -484,6 +512,7 @@ class _AutoEmphasizeCaptionsArgs(BaseModel):
 _MODEL_OVERRIDES: dict[str, type[BaseModel]] = {
     "add_asset": _AddAssetArgs,
     "add_clip": _AddClipArgs,
+    "add_clips": _AddClipsArgs,
     "add_track": _AddTrackArgs,
     "get_transcript": _WindowArgs,
     "get_mapped_transcript": _WindowArgs,

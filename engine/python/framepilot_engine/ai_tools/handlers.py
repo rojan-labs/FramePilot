@@ -25,6 +25,7 @@ from framepilot_engine.ai_tools.registry import (
     AddAssetArgs,
     AddCaptionLayerArgs,
     AddClipArgs,
+    AddClipsArgs,
     AddKeyframesArgs,
     AddMarkerArgs,
     AddMaskArgs,
@@ -267,6 +268,27 @@ def add_clip(args: AddClipArgs, ctx: ToolContext) -> Operations:
             "sourceStart": args.source_start,
             "sourceEnd": source_end,
         }
+    ]
+
+
+def add_clips(args: AddClipsArgs, ctx: ToolContext) -> Operations:
+    """Every entry through the same derivation ``add_clip`` uses, in one patch.
+
+    A batch that placed clips by even slightly different rules than the singular tool
+    would be worse than no batch at all, so the source end is derived here exactly as it
+    is there and nothing else differs.
+    """
+    return [
+        {
+            "type": "add_clip",
+            "trackId": args.track_id,
+            "assetId": clip.asset_id,
+            "start": clip.start,
+            "end": clip.end,
+            "sourceStart": clip.source_start,
+            "sourceEnd": clip.source_start + (clip.end - clip.start),
+        }
+        for clip in args.clips
     ]
 
 

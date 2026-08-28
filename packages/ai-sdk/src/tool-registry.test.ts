@@ -891,6 +891,57 @@ describe('mutating tools — build valid operations', () => {
     expect(description).toMatch(/add_keyframes|punch_in/);
   });
 
+  // GAP-004 (run `fc10301a`). Laying out 61 photos meant 61 `add_clip` calls against a
+  // 30-step budget, interleaved with a re-read per batch. The run managed 34 in four apply
+  // turns and the batches decayed 12 → 9 → 8 → 5 as reasoning ate the output reservation.
+  // Per-clip granularity is right for fixing one shot and wrong for building a sequence.
+  it('add_clips places a whole sequence in one patch, by add_clip’s rules', () => {
+    const batch = build('add_clips', {
+      trackId: 'video_1',
+      clips: [
+        { assetId: 'asset_1', start: 0, end: 1.5 },
+        { assetId: 'asset_1', start: 1.5, end: 2, sourceStart: 4 },
+      ],
+    });
+    expect(batch).toEqual([
+      {
+        type: 'add_clip',
+        trackId: 'video_1',
+        assetId: 'asset_1',
+        start: 0,
+        end: 1.5,
+        sourceStart: 0,
+        sourceEnd: 1.5,
+      },
+      {
+        type: 'add_clip',
+        trackId: 'video_1',
+        assetId: 'asset_1',
+        start: 1.5,
+        end: 2,
+        sourceStart: 4,
+        // Derived from the timeline span, exactly as the singular tool derives it — a
+        // batch that placed clips by different rules would be worse than no batch.
+        sourceEnd: 4.5,
+      },
+    ]);
+  });
+
+  it('add_clips produces exactly what the same placements would through add_clip', () => {
+    const placements = [
+      { assetId: 'asset_1', start: 0, end: 1 },
+      { assetId: 'asset_1', start: 1, end: 2.25, sourceStart: 3 },
+      { assetId: 'asset_1', start: 2.25, end: 3 },
+    ];
+    expect(build('add_clips', { trackId: 'video_1', clips: placements })).toEqual(
+      placements.flatMap((clip) => build('add_clip', { trackId: 'video_1', ...clip })),
+    );
+  });
+
+  it('add_clips refuses an empty batch rather than proposing nothing', () => {
+    expect(() => build('add_clips', { trackId: 'video_1', clips: [] })).toThrow();
+  });
+
   it('adjust_audio / add_transition / add_mask / track_object', () => {
     expect(build('adjust_audio', { clipId: 'clip_a', gainDb: -3 })[0]).toEqual({
       type: 'adjust_audio',
