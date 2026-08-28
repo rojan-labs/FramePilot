@@ -158,15 +158,13 @@ interface Boundary {
  * about the same state; only the surrounding verb changes.
  */
 function ungroundedReason(analyzedAssetIds: readonly string[]): string {
+  const one = analyzedAssetIds.length === 1;
   const named = analyzedAssetIds.map((id) => `"${id}"`).join(', ');
-  const subject = analyzedAssetIds.length === 1 ? 'audio asset' : 'audio assets';
   return (
-    `this step cuts to detected beats, but the analyzed ${subject} ${named} ` +
-    `${analyzedAssetIds.length === 1 ? 'is' : 'are'} not on the timeline and this proposal ` +
-    'does not place ' +
-    `${analyzedAssetIds.length === 1 ? 'it' : 'any of them'}, so no boundary can be checked ` +
-    'against a real onset. Put the music you are cutting to on an audio track, or run ' +
-    'detect_beats on the music that IS on the timeline.'
+    `the analyzed audio ${one ? 'asset' : 'assets'} ${named} ${one ? 'is' : 'are'} not on ` +
+    `the timeline and this proposal does not place ${one ? 'it' : 'any of them'}, so no ` +
+    'boundary can be checked against a real onset. Put the music you are cutting to on an ' +
+    'audio track, or run detect_beats on the music that IS on the timeline.'
   );
 }
 
@@ -294,7 +292,9 @@ export function alignBeatBackedBoundaries(
       });
       return {
         ok: false,
-        error: `you declared hard sync, so ${reason}`,
+        error:
+          'you declared hard sync, so every interior picture cut must land on a detected ' +
+          `onset — but ${reason}`,
       };
     }
     // No declaration: the cuts stand, and the state goes to the model as a measurement. A
@@ -307,7 +307,9 @@ export function alignBeatBackedBoundaries(
       ok: true,
       operations,
       snapped: 0,
-      ungrounded: `These cuts were not checked against any onset: ${reason}`,
+      ungrounded:
+        `These cuts were not checked against any onset — ${reason} They were left exactly ` +
+        'as you placed them.',
     };
   }
   const grid = resolved.times;
