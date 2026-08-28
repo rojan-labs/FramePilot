@@ -816,6 +816,69 @@ describe('agent auto-repair (C3) and plan ledger (C4)', () => {
   // that never ran — it cost a large-model call, and "why didn't it fix the duration?" is
   // the one diagnostic question worth asking about a failed run. It used to be
   // unanswerable: every terminating branch returned `null` and recorded nothing.
+  // GAP-007 (run `fc10301a`). The run shipped a timeline whose last 23.7 of 47.8 seconds
+  // were black under a music bed, its repair pass produced nothing, and `picture_coverage`
+  // was not even in the fixable set. The fix needs no model: the Critic holds both numbers.
+  it('trims a bed that outruns the picture without asking the model', async () => {
+    const project = makeProject({
+      assets: [
+        { id: 'asset_1', path: 'media/a.jpeg', kind: 'image', durationSeconds: 5 },
+        { id: 'asset_music', path: 'media/m.mp3', kind: 'audio', durationSeconds: 40 },
+      ],
+      timeline: {
+        tracks: [
+          {
+            id: 'video_1',
+            type: 'video',
+            clips: [
+              {
+                id: 'p_1',
+                assetId: 'asset_1',
+                trackId: 'video_1',
+                start: 0,
+                end: 4,
+                sourceStart: 0,
+                sourceEnd: 4,
+                effects: [],
+                keyframes: [],
+              },
+            ],
+          },
+          {
+            id: 'audio_1',
+            type: 'audio',
+            clips: [
+              {
+                id: 'bed',
+                assetId: 'asset_music',
+                trackId: 'audio_1',
+                start: 0,
+                end: 30,
+                sourceStart: 0,
+                sourceEnd: 30,
+                effects: [],
+                keyframes: [],
+              },
+            ],
+          },
+        ],
+      },
+    } as never);
+    // The model edits once and stops. It is never asked to repair — and the scripted
+    // provider has nothing further to give, which is the point: the fix is arithmetic.
+    const provider = new ScriptedProvider([
+      { text: 'edit', toolCalls: [call('adjust_audio', { clipId: 'bed', gainDb: -2 })] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const run = await new Orchestrator(provider).agent(
+      { project, userPrompt: 'a 4 second reel from at least 1 shot' },
+      { durationTargetSeconds: 4, maxSteps: 2 },
+    );
+    const trim = run.result.patch.operations.find((o) => o.type === 'trim_clip');
+    expect(trim).toMatchObject({ clipId: 'bed', end: 4 });
+    expect(run.steps.some((s) => s.note.startsWith('Repair pass:'))).toBe(true);
+  });
+
   it('records the repair turn when the model declines (no tool calls in the repair turn)', async () => {
     const provider = new ScriptedProvider([
       { text: 'edit', toolCalls: [call('adjust_audio', { clipId: 'clip_a', gainDb: -2 })] },

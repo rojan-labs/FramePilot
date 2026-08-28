@@ -55,6 +55,7 @@ import {
   type CritiqueReport,
   critique,
   explicitDurationTarget,
+  repairTrailingSoundOverrun,
   timelineDuration,
 } from './critic.js';
 import { describeOperation, describeToolCall } from './describe.js';
@@ -687,6 +688,15 @@ const FIXABLE_CHECKS = new Set<string>([
   'audio_clipping',
   'word_severed',
   'transition_fit',
+  // Run `fc10301a` shipped a timeline whose last 23.7 of 47.8 seconds were black, and the
+  // repair pass never looked at it: the set covered the checks that were cheap to wire,
+  // not the ones that describe what the viewer sees. `picture_coverage` is the most
+  // user-visible failure the Critic can report and its trailing-hole case has a
+  // deterministic fix (`repairTrailingSoundOverrun`), which runs before the model is
+  // asked. `reframe_coverage` is a mix of reframed and unreframed picture — the model
+  // knows which clips are missing a crop because the detail text names them.
+  'picture_coverage',
+  'reframe_coverage',
 ]);
 
 /**
@@ -3915,6 +3925,12 @@ export class Orchestrator {
     working: Project;
     log: readonly string[];
     report: CritiqueReport;
+    /**
+     * The same options the report was produced with, so a deterministic repair settles the
+     * SAME question the check that failed asked. Recomputing them here would let the two
+     * drift — the repair could refuse a trim the check demanded, or make one it did not.
+     */
+    critiqueOptions: CritiqueOptions;
     stepIndex: number;
     appliedPatchIds: Set<string>;
     /** This run's beat payload, so a repair is held to the grid like any other turn. */
@@ -3970,6 +3986,42 @@ export class Orchestrator {
     // The only branch that returns before a model call is made: nothing failed that this
     // pass knows how to fix, so there is no spend and nothing to report.
     if (fixable.length === 0) return null;
+
+    // Some failures have an answer the Critic can compute, and asking a model for those is
+    // strictly worse: it costs a large-model call, it can decline, and it can propose
+    // something else. Run `fc10301a` failed on 23.7 seconds of black under a music bed
+    // that outran the picture — two numbers and a trim — and its repair pass produced
+    // nothing at all. Try the arithmetic first; fall through to the model for the rest.
+    const deterministic = repairTrailingSoundOverrun(args.working, args.critiqueOptions);
+    if (deterministic.length > 0) {
+      const edit = assembleEdit(args.working, [...deterministic], 'Repair pass', 'agent');
+      if (edit.validation.valid) {
+        const names = projectNames(args.working);
+        const note = deterministic
+          .map((op) => describeOperation(op, names))
+          .map((d) => `${d.action}${d.detail ? ` ${d.detail}` : ''}`)
+          .join('; ');
+        return {
+          step: {
+            index: args.stepIndex,
+            rationale: 'Trimmed the sound back to where the picture ends.',
+            toolCalls: ['trim_clip'],
+            applied: true,
+            // Prefixed like every other repair record, so a reader (and the two tests
+            // that look for one) sees repair turns under one name whatever produced them.
+            note: `Repair pass: ${note}`,
+          },
+          working: applyProjectPatch(args.working, edit.patch),
+          ops: [...deterministic],
+          outcome: { kind: 'applied', opCount: deterministic.length, note },
+        };
+      }
+      // The computed trim did not validate — say so rather than applying nothing in
+      // silence, then let the model try.
+      orchestratorLog.warn('deterministic picture-coverage repair failed validation', {
+        issues: edit.validation.issues,
+      });
+    }
 
     const instruction = repairPassInstruction(fixable.map((c) => `${c.label}: ${c.detail}`));
     const messages = [
@@ -4343,6 +4395,12 @@ export class Orchestrator {
         working,
         log,
         report,
+        critiqueOptions: this.critiqueOptions(
+          input,
+          options,
+          cumulativeOps.length > 0,
+          evidence,
+        ),
         stepIndex: steps.length + 1,
         appliedPatchIds,
         rawBeats: beatEvidence.current,
@@ -7020,12 +7078,16 @@ export class Orchestrator {
         // Critiquing a timeline the authoritative project never received would grade the
         // run's private copy and report the verdict as if it were the user's.
         await reconcileHostVerdicts();
-        let report = critique(
-          working,
-          // P4.3: the run's evidence, so the critic reviews with what the run learned
-          // rather than with a thinner view than its own planner had.
-          self.critiqueOptions(input, agentOptions, state.cumulativeOps.length > 0, evidence),
+        // P4.3: the run's evidence, so the critic reviews with what the run learned
+        // rather than with a thinner view than its own planner had. Held in a variable so
+        // the repair pass settles against the SAME reading the checks were run with.
+        const verifyOptions = self.critiqueOptions(
+          input,
+          agentOptions,
+          state.cumulativeOps.length > 0,
+          evidence,
         );
+        let report = critique(working, verifyOptions);
         const repairOps: AnyOperation[] = [];
         let repairOutcome: RepairOutcome | undefined;
         if ((agentOptions.autoRepair ?? true) && !report.ok) {
@@ -7034,6 +7096,7 @@ export class Orchestrator {
             working,
             log,
             report,
+            critiqueOptions: verifyOptions,
             stepIndex: state.planSteps.length + 1,
             appliedPatchIds,
             rawBeats: beatEvidence.current,

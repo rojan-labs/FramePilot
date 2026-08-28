@@ -4,11 +4,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { Project } from '@framepilot/timeline-schema';
-import { CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID } from '@framepilot/editor-core';
+import { CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID, applyProjectPatch } from '@framepilot/editor-core';
 import {
   critique,
   explicitDurationTarget,
   explicitDurationTargetSeconds,
+  repairTrailingSoundOverrun,
   timelineDuration,
 } from './critic.js';
 import { checkableAcceptance } from './acceptance.js';
@@ -759,6 +760,90 @@ describe('picture_coverage', () => {
     expect(coverage?.detail).toMatch(/26\.099s of the 36\.107s programme has no picture/);
     expect(coverage?.detail).toMatch(/10\.008s–36\.107s/);
     expect(report.ok).toBe(false);
+  });
+
+  // GAP-007 (run `fc10301a`). The most user-visible failure the Critic can report was
+  // absent from `FIXABLE_CHECKS`, so a timeline whose last 23.7 of 47.8 seconds were black
+  // went to the editor unrepaired — over a fix that is two numbers and a trim.
+  describe('repairTrailingSoundOverrun', () => {
+    it('trims the bed back to where the picture ends', () => {
+      const project = musicOutrunsPicture();
+      const ops = repairTrailingSoundOverrun(project, { minShotCount: 61 });
+      expect(ops).toEqual([
+        { type: 'trim_clip', clipId: 'music', start: 0, end: 10.008 },
+      ]);
+    });
+
+    it('refuses an interior hole — that needs picture, not a trim', () => {
+      const project = withTracks([
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [
+            clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 4 }),
+            clip({ id: 'p_2', trackId: 'v_main', start: 9, end: 12 }),
+          ],
+        },
+      ]);
+      expect(repairTrailingSoundOverrun(project, { minShotCount: 2 })).toEqual([]);
+    });
+
+    it('refuses when nothing visual was asked for — sound over no picture is the deliverable', () => {
+      expect(repairTrailingSoundOverrun(musicOutrunsPicture(), {})).toEqual([]);
+    });
+
+    it('does nothing when the picture already covers the programme', () => {
+      const project = withTracks([
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 6 })],
+        },
+      ]);
+      expect(repairTrailingSoundOverrun(project, { minShotCount: 1 })).toEqual([]);
+    });
+
+    it('leaves a bed that starts after the picture ends for a human', () => {
+      // Trimming it back would invert the clip; removing it is a bigger decision than a
+      // repair pass is allowed to make on its own.
+      const project = withTracks(
+        [
+          {
+            id: 'v_main',
+            type: 'video',
+            clips: [clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 4 })],
+          },
+          {
+            id: 'a_music',
+            type: 'audio',
+            clips: [
+              clip({ id: 'music', assetId: 'asset_music', trackId: 'a_music', start: 8, end: 20 }),
+            ],
+          },
+        ],
+        {
+          assets: [
+            { id: 'asset_1', path: 'media/a.jpeg', kind: 'image', durationSeconds: 5 },
+            { id: 'asset_music', path: 'media/m.mp3', kind: 'audio', durationSeconds: 47.8 },
+          ] as Project['assets'],
+        },
+      );
+      expect(repairTrailingSoundOverrun(project, { minShotCount: 1 })).toEqual([]);
+    });
+
+    it('closes the hole it was given — the check passes on the repaired timeline', () => {
+      const project = musicOutrunsPicture();
+      const ops = repairTrailingSoundOverrun(project, { minShotCount: 61 });
+      const repaired = applyProjectPatch(project, {
+        patchId: 'p' as never,
+        createdBy: 'agent',
+        reason: 'test',
+        operations: [...ops],
+      });
+      expect(idOf(critique(repaired, { minShotCount: 61 }), 'picture_coverage')).toMatchObject({
+        status: 'pass',
+      });
+    });
   });
 
   it('is what picture_present cannot ask: that check passes the same timeline', () => {

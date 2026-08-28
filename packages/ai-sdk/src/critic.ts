@@ -25,6 +25,7 @@ import {
   mapTranscript,
 } from '@framepilot/editor-core';
 import type { Clip, Effect, Project, Timeline } from '@framepilot/timeline-schema';
+import type { AnyOperation } from '@framepilot/editor-core';
 import {
   COVERAGE_LABEL,
   mentionsUnreadableShotCount,
@@ -569,6 +570,80 @@ function checkPictureCoverage(project: Project, options: CritiqueOptions): Criti
     'Picture covers the programme',
     requestWantsPicture(options) ? 'fail' : 'warn',
     detail,
+  );
+}
+
+/**
+ * The one repair for a picture-coverage failure that needs no judgement: trim the sound
+ * back to where the picture stops.
+ *
+ * ## Why this is deterministic rather than a model call
+ *
+ * `checkPictureCoverage` reports a HOLE, and most holes need an editorial decision — what
+ * picture goes in the gap. One shape does not: a programme whose picture ends and whose
+ * SOUND keeps running past it. There is nothing to decide there. Either the bed was placed
+ * at its full length before the picture was built (which is what run `fc10301a` did on
+ * turn five, laying a 47.8-second track under a cut that reached 24.079s), or the picture
+ * was trimmed and the bed was not. Both are the same repair, and the check's own detail
+ * text already names it: "trim the sound back to the picture".
+ *
+ * Asking a model to make this edit is worse than making it: it costs a large-model call,
+ * it can decline (run `fc10301a`'s repair pass produced nothing), and it can propose
+ * something else entirely. The Critic knows the two numbers.
+ *
+ * ## What it refuses to touch
+ *
+ * - **An interior hole.** Picture that stops and starts again needs picture, not a trim,
+ *   and shortening the bed would not close it.
+ * - **A request that did not ask for a film.** `requestWantsPicture` is false for an
+ *   audio-only or caption-only pass, where sound outrunning picture is the deliverable.
+ * - **Sound that ends inside the picture.** Nothing to trim.
+ * - **A clip whose trim would invert it.** A bed starting after the picture ends cannot be
+ *   trimmed back into a valid range, so it is left for a human.
+ *
+ * The operations it returns are ordinary `trim_clip`s: validated, frame-quantized and
+ * invertible like any other edit, and they appear in the run's diff as a repair turn.
+ *
+ * @param project - The project as the self-check found it.
+ * @param options - The same critique options the checks were run with.
+ * @returns Trim operations closing the trailing hole, or `[]` when this is not that shape.
+ */
+export function repairTrailingSoundOverrun(
+  project: Project,
+  options: CritiqueOptions,
+): readonly AnyOperation[] {
+  if (!requestWantsPicture(options)) return [];
+  const spans = pictureSpans(project);
+  if (spans.length === 0) return [];
+  const programme = contentDuration(project.timeline);
+  const fps = Number.isFinite(project.fps) && project.fps > 0 ? project.fps : 30;
+  const threshold = PICTURE_GAP_FRAMES / fps;
+  // The picture must be CONTINUOUS to its end: an interior hole is a different defect and
+  // trimming the sound would leave it exactly where it was.
+  let cursor = 0;
+  for (const span of spans) {
+    if (span.start - cursor >= threshold) return [];
+    cursor = Math.max(cursor, span.end);
+  }
+  if (programme - cursor < threshold) return [];
+  const pictureEnd = cursor;
+  const audioAssetIds = new Set(
+    project.assets.filter((asset) => asset.kind === 'audio').map((asset) => asset.id),
+  );
+  const overrunning = allClips(project.timeline).filter(
+    (clip) =>
+      !isOverlayClip(clip) && audioAssetIds.has(clip.assetId) && clip.end > pictureEnd,
+  );
+  // Every clip past the picture must be sound. If any picture clip ends beyond
+  // `pictureEnd` the span merge above was wrong, and if something else runs past it this
+  // is not the shape this repair is for.
+  if (overrunning.length === 0) return [];
+  return overrunning.flatMap((clip) =>
+    // A bed that starts at or after the picture ends cannot be trimmed into a valid range.
+    // Removing it outright is a bigger decision than this repair is allowed to make.
+    clip.start >= pictureEnd
+      ? []
+      : [{ type: 'trim_clip' as const, clipId: clip.id, start: clip.start, end: pictureEnd }],
   );
 }
 
