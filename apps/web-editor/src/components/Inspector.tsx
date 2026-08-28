@@ -57,6 +57,7 @@ import { BlendModePanel } from './inspector/sections/BlendSection.js';
 import { TransitionPanel } from './inspector/sections/TransitionSection.js';
 import { TextOverlayInspector } from './inspector/sections/TextSection.js';
 import { TransformPanel } from './inspector/sections/TransformSection.js';
+import { oneOf, useViewPreference } from '../editor/useViewPreference.js';
 import './Inspector.css';
 
 export interface InspectorProps {
@@ -68,14 +69,28 @@ export interface InspectorProps {
   readonly onClearEffectLayers?: () => void;
 }
 
-type InspectorTabId =
-  | 'basic'
-  | 'text'
-  | 'audio'
-  | 'color'
-  | 'mask'
-  | 'transition'
-  | 'effects';
+const INSPECTOR_TAB_IDS = [
+  'basic',
+  'text',
+  'audio',
+  'color',
+  'mask',
+  'transition',
+  'effects',
+] as const;
+
+type InspectorTabId = (typeof INSPECTOR_TAB_IDS)[number];
+
+/**
+ * The tab the Inspector opens on — remembered between sessions.
+ *
+ * "Preferred" is the right word: the Inspector still follows the SELECTION first (a
+ * transition selects the Transition tab, a caption the Text tab), so this only decides
+ * where an ordinary clip lands. Someone grading a cut lives in Color and someone mixing
+ * lives in Audio, and sending both back to Basic on every open is a click each of them
+ * pays forever.
+ */
+const coerceInspectorTab = oneOf<InspectorTabId>(INSPECTOR_TAB_IDS);
 
 interface InspectorTab {
   readonly id: InspectorTabId;
@@ -170,7 +185,11 @@ export function Inspector({
   );
   const sectionState = useSectionState();
 
-  const [preferredTab, setPreferredTab] = useState<InspectorTabId>('basic');
+  const [preferredTab, setPreferredTab] = useViewPreference<InspectorTabId>(
+    'inspectorTab',
+    'basic',
+    coerceInspectorTab,
+  );
   const [copied, setCopied] = useState<ClipProperties | null>(null);
   const [maskShape, setMaskShape] = useState<MaskShapeName>('ellipse');
   const [maskFeather, setMaskFeather] = useState(0);
