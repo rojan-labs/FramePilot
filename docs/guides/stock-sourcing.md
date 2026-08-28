@@ -90,6 +90,19 @@ FramePilot downloads the smallest rendition that still covers your project's
 resolution — a 1080p project gets the 1080p version, not the 4K one. That's
 usually the difference between a 24 MB download and a 400 MB one.
 
+### What gets built alongside the download
+
+Every downloaded clip is also given a **preview proxy** — a small 540p copy — plus a
+filmstrip and, for anything with sound, a waveform. The proxy is what the editor
+scrubs and plays; exports always render from the original file, so nothing you ship
+loses quality. The difference is large: a 55-clip montage sourced at 4K is about
+1.5 GB of originals against roughly 63 MB of proxies, and it is the proxies that
+decide whether scrubbing stays smooth or the app runs out of memory.
+
+This is automatic and there is nothing to turn on. If a proxy can't be built (a very
+long source, or the engine isn't running), the clip still lands and previews from the
+original — slower, but never blocked.
+
 ### "There's already footage at the playhead"
 
 Stock media can't yet sit **on top of** existing footage, so **Add** is disabled

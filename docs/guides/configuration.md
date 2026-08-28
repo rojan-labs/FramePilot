@@ -168,17 +168,18 @@ Packaged builds stage media binaries and inject their paths into the sidecar env
 
 ## Project storage and safety budgets
 
-| Variable                                 | Default or behavior             | Purpose                                                                                                                                    |
-| ---------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `FRAMEPILOT_PROJECTS_ROOT`               | OS/application project location | Sandbox root for project and accepted media operations.                                                                                    |
-| `FRAMEPILOT_RENDER_TIMEOUT_SECONDS`      | `900`                           | Maximum duration of one render job.                                                                                                        |
-| `FRAMEPILOT_ASSET_MEDIA_TIMEOUT_SECONDS` | `60`                            | Probe and derived-media subprocess budget.                                                                                                 |
-| `FRAMEPILOT_PROXY_TIMEOUT_SECONDS`       | `300`                           | Preview proxy transcode budget.                                                                                                            |
-| `FRAMEPILOT_PROXY_MAX_DURATION_SECONDS`  | `900`                           | Sources longer than this skip synchronous proxy generation.                                                                                |
-| `FRAMEPILOT_AI_MAX_TOKENS`               | `8192`                          | Request token budget used by orchestration.                                                                                                |
-| `FRAMEPILOT_MAX_TOOL_CONCURRENCY`        | `4`                             | Maximum parallel concurrency-safe read or analysis tools in one turn.                                                                      |
-| `FRAMEPILOT_MAX_REVIEW_CONCURRENCY`      | `1`                             | Perceptual reviews in flight at once (ADR 0123). Each is a real frame batch at project resolution, so this multiplies memory, not latency. |
-| `FRAMEPILOT_SOUL_ROOT`                   | `~/.framepilot`                 | Cross-project working-style memory root.                                                                                                   |
+| Variable                                 | Default or behavior             | Purpose                                                                                                                                                                          |
+| ---------------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FRAMEPILOT_PROJECTS_ROOT`               | OS/application project location | Sandbox root for project and accepted media operations.                                                                                                                          |
+| `FRAMEPILOT_RENDER_TIMEOUT_SECONDS`      | `900`                           | Maximum duration of one render job.                                                                                                                                              |
+| `FRAMEPILOT_ASSET_MEDIA_TIMEOUT_SECONDS` | `60`                            | Probe and derived-media subprocess budget.                                                                                                                                       |
+| `FRAMEPILOT_ASSET_MEDIA_CONCURRENCY`     | `2`                             | Derivations in flight at once. Each is a probe, a waveform decode, thumbnails and a proxy transcode of the original, so this bounds memory, not latency. `1` is strictly serial. |
+| `FRAMEPILOT_PROXY_TIMEOUT_SECONDS`       | `300`                           | Preview proxy transcode budget.                                                                                                                                                  |
+| `FRAMEPILOT_PROXY_MAX_DURATION_SECONDS`  | `900`                           | Sources longer than this skip synchronous proxy generation.                                                                                                                      |
+| `FRAMEPILOT_AI_MAX_TOKENS`               | `8192`                          | Request token budget used by orchestration.                                                                                                                                      |
+| `FRAMEPILOT_MAX_TOOL_CONCURRENCY`        | `4`                             | Maximum parallel concurrency-safe read or analysis tools in one turn.                                                                                                            |
+| `FRAMEPILOT_MAX_REVIEW_CONCURRENCY`      | `1`                             | Perceptual reviews in flight at once (ADR 0123). Each is a real frame batch at project resolution, so this multiplies memory, not latency.                                       |
+| `FRAMEPILOT_SOUL_ROOT`                   | `~/.framepilot`                 | Cross-project working-style memory root.                                                                                                                                         |
 
 Timeouts, token budgets, concurrency limits, and project-root containment are correctness and
 security controls. Do not silently ignore invalid values or replace them with an unbounded

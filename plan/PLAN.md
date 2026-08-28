@@ -13,6 +13,65 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-28, run `bfb5c75b` memory spike):** `[x]` **Sourced assets were
+throwing away the proxy the engine had just built for them.** A 50+ clip nature montage
+(`run.md` at the repo root, conversation `bfb5c75b`) spiked memory until the app had to be
+force-quit. The cause was not the timeline: that project's history commits cleanly, 123 ops
+collapsing to 45 inverse ops, and the saved file is 268 KB. It was that every one of the 55
+sourced assets carried `media: {proxyPath: null, peaks: null, thumbnailPaths: null}` — while
+all 54 proxies existed on disk. `StockService.materialize` and `MusicService.materialize`
+read `derived.proxyPath` / `.peaks` / `.thumbnailPaths` off the top level of
+`importAssetViaSidecar`'s result, which has always nested them under `media`. Every field is
+optional, so both flat shapes were structurally assignable and the compiler was silent; the
+stock test cast its stub `as never` and the music test's stub restated the same flat mistake,
+so the suite agreed with the bug. Verified live against the sidecar with the run's own
+184 MB 4K source: `derived.proxyPath` is `undefined`, `derived.media.proxyPath` is
+`.framepilot-derived/25e69ad7b4bc/proxy.mp4`. Consequence: `webCodecsPreviewEligible`
+returns false for any clip without a proxy and `previewMediaSrc` falls back to the original,
+so the editor previewed **1,523.5 MB of 4K originals where 63.2 MB of proxies existed**
+(24x; a 184.2 MB source has a 4.5 MB proxy), ran the client-side `<video>`→canvas capture
+pool over 4K files for every filmstrip, and re-decoded audio in the renderer for waveforms.
+Both services now bind to a named `DerivedAssetMedia` type so the drift is a compile error;
+the stock stub is typed instead of cast. Verification: 502 desktop tests pass, the new
+regression test fails on the old read, desktop lint + typecheck clean.
+
+**The three acquisition-path bounds the same run exposed** — `[x]` all fixed, all measured:
+
+- [x] **`/asset-media` had no concurrency gate.** One call is an ffprobe, a full waveform
+      decode, five thumbnail extractions and a proxy transcode of the ORIGINAL 4K source; the
+      route's only bound was arrival rate, and each caller held one of Starlette's 40 threadpool
+      slots while it ran. Now gated by `settings.asset_media_concurrency`
+      (`FRAMEPILOT_ASSET_MEDIA_CONCURRENCY`, default 2), acquired in the event loop with the
+      body moved to `run_in_threadpool` — so a queued caller costs nothing while it waits.
+      Same shape as `_temporal_evidence_gate`. **Measured on six and twelve real 4K sources,
+      peak RSS of the sidecar and every ffmpeg child:**
+
+  | concurrent callers | ungated peak | gated (2) peak | ungated wall | gated wall |
+  | ------------------ | -----------: | -------------: | -----------: | ---------: |
+  | 6                  |     1,399 MB |         956 MB |        30.6s |      34.7s |
+  | 12                 |     2,583 MB |         970 MB |        65.5s |      68.5s |
+
+  Ungated peak grows with arrivals; gated it is flat (956 → 970 MB) for ~5% wall time.
+  That flatness is the fix: the captured run's 42 arrivals had nothing holding them back.
+
+- [x] **`enrolStockAsset` started one uncancellable index loop per `add_stock`.** No dedupe
+      (the warm pass and the serial commit both enrolled, and a bin-dedupe hit enrolled again),
+      no bound, no signal. `/brain/visual/index` takes `assetIds` as a LIST and paces its own
+      slices behind a per-project lock, so N single-asset loops could only queue on that lock —
+      each holding a threadpool slot while it waited, starving the render/analysis/asset-media
+      calls the same run depended on. New `electron/ai/asset-enrolment.ts`: one batch in flight
+      per project, ids arriving during a batch fold into the next, nothing enrolled twice,
+      bounded project memory, and an abort signal fired from `before-quit`.
+
+- [x] **Derivation ran twice per sourced asset.** ADR 0150 acquires concurrently and commits
+      serially, resting on the promise that the second call "hits the dedupe path at zero bytes
+      and returns immediately" — but `materialize` derives on both passes, so zero bytes were
+      downloaded and a full derivation was paid for anyway (1.5–3.2s per dedupe call in the
+      captured run). New `electron/media/derived-media-cache.ts` memoizes per derive-request
+      shape, validating BOTH that the source is unchanged (size + mtime) and that every artefact
+      the cached result names is still on disk — so clearing `.framepilot-derived` re-derives
+      instead of handing back a path that resolves to nothing. Failures are never cached.
+
 **Status snapshot (2026-08-28, photo-montage run gap analysis, round 6):** `[x]` **All six
 closed in code; the re-run is what settles them.** Run `4c9b5f82` answered a 61-photo,
 "20–35 second" brief with ten photos over the first 10.0s of a 36.1s music bed — 72% of the
@@ -2357,7 +2416,7 @@ lint clean. No schema change; `validate→apply→record` untouched.
 prepared · 0%` with a "running" badge and never produced a footage map. Diagnosed
 against the user's own brain databases, not a synthetic repro: **still photos were
 dispatched to TwelveLabs, whose index is a video/audio index**, and the resulting
-`404 resource_not_exists` broke the hosted slice *without advancing the job cursor*,
+`404 resource_not_exists` broke the hosted slice _without advancing the job cursor_,
 so every retry re-hit photo #1 forever while the job journalled itself `running`.
 `[x]` **Phase 1 (preparation correctness) shipped** — stills route to the on-device
 embedder (maintainer decision, per-asset capability routing), a refused asset advances
@@ -8115,10 +8174,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                                            Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                                            a pre-existing local edit commenting out temperature forwarding, untouched here);
-                                            engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                                            **Last updated:** 2026-08-14
+                                              Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                                              a pre-existing local edit commenting out temperature forwarding, untouched here);
+                                              engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                                              **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 

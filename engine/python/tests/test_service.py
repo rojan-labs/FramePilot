@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
@@ -10,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from framepilot_engine.audio.asr import AsrSetupTracker, ModelDownload
@@ -269,6 +271,114 @@ def _sandboxed_client_with_source(tmp_path: Path, name: str) -> tuple[TestClient
     src = tmp_path / name
     src.write_bytes(b"fake media bytes")
     return TestClient(create_app(Settings(projects_root=tmp_path))), src
+
+
+def _concurrency_probe(
+    monkeypatch: pytest.MonkeyPatch, hold: threading.Event
+) -> Callable[[], int]:
+    """Make every derivation block on ``hold`` and report the peak overlap seen.
+
+    The overlap is counted INSIDE the derivation, so it measures requests that actually
+    reached ffmpeg — not requests that merely arrived. A gate that only delayed
+    responses while still running the work would read as no gate at all here.
+    """
+    import framepilot_engine.service as service_module
+
+    lock = threading.Lock()
+    live = 0
+    peak = 0
+
+    def _blocking_inspect(_p: Path, *, timeout: float | None = None) -> object:
+        nonlocal live, peak
+        with lock:
+            live += 1
+            peak = max(peak, live)
+        try:
+            hold.wait(timeout=10)
+        finally:
+            with lock:
+                live -= 1
+        raise FileNotFoundError("probe stops here; the gate is what is under test")
+
+    monkeypatch.setattr(service_module, "inspect_media", _blocking_inspect)
+    return lambda: peak
+
+
+def _asset_media_endpoint(app: Any) -> Callable[..., Any]:
+    """The `/asset-media` handler itself.
+
+    Driven directly rather than through ``TestClient``: that client dispatches every
+    request through one blocking portal from a caller thread, so what it would measure
+    is the portal's threading, not this route's gate.
+    """
+    from fastapi.routing import APIRoute
+
+    for route in app.routes:
+        if isinstance(route, APIRoute) and route.path == "/asset-media":
+            return route.endpoint
+    raise AssertionError("asset-media route is not registered")
+
+
+async def _gathered_asset_media(
+    app: Any, source: Path, callers: int, hold: threading.Event, peak: Callable[[], int]
+) -> tuple[int, list[Any]]:
+    """Fire `callers` derivations at once; return the peak overlap while they were held."""
+    from framepilot_engine.service import AssetMediaRequest
+
+    endpoint = _asset_media_endpoint(app)
+    request = AssetMediaRequest(input_path=str(source))
+    tasks = [asyncio.create_task(endpoint(request)) for _ in range(callers)]
+    # Let the admitted callers pile up against the gate before releasing them, so the
+    # peak is a real measurement rather than an artefact of how fast they were served.
+    await asyncio.sleep(0.3)
+    observed = peak()
+    hold.set()
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    return observed, results
+
+
+@pytest.mark.asyncio
+async def test_asset_media_admits_only_as_many_derivations_as_the_gate_allows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Six callers at once must not become six simultaneous ffmpeg pipelines.
+
+    Ungated, this route's only bound was arrival rate: the desktop agent warms four
+    sourcing downloads at a time and a human can drop in dozens of files, and each one
+    held a Starlette threadpool slot AND an ffmpeg process against the same cores and
+    the same memory.
+    """
+    hold = threading.Event()
+    peak = _concurrency_probe(monkeypatch, hold)
+    src = tmp_path / "vid.mp4"
+    src.write_bytes(b"fake media bytes")
+    app = create_app(Settings(projects_root=tmp_path, asset_media_concurrency=2))
+
+    observed, results = await _gathered_asset_media(app, src, 6, hold, peak)
+
+    assert observed == 2
+    assert peak() == 2
+    # The gate queues, it never sheds: every caller is still served.
+    assert len(results) == 6
+    assert all(isinstance(r, HTTPException) and r.status_code == 404 for r in results)
+
+
+@pytest.mark.asyncio
+async def test_asset_media_concurrency_of_one_serializes_derivations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`FRAMEPILOT_ASSET_MEDIA_CONCURRENCY=1` restores strictly-serial derivation."""
+    hold = threading.Event()
+    peak = _concurrency_probe(monkeypatch, hold)
+    src = tmp_path / "vid.mp4"
+    src.write_bytes(b"fake media bytes")
+    app = create_app(Settings(projects_root=tmp_path, asset_media_concurrency=1))
+
+    observed, results = await _gathered_asset_media(app, src, 4, hold, peak)
+
+    assert observed == 1
+    assert peak() == 1
+    assert len(results) == 4
 
 
 def test_asset_media_video_returns_relative_thumbnail_paths(

@@ -16,6 +16,37 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Downloading a lot of footage at once no longer takes the machine with it.** Building a
+  montage means the assistant may fetch dozens of clips in a few minutes, and each one has
+  preview media built for it. Nothing bounded how many of those ran together, so a big run
+  could have a dozen 4K jobs going at once — peak memory grew with every extra clip
+  (1.4 GB at six at once, 2.6 GB at twelve). They are now queued: memory stays flat
+  (about 1 GB whether six or twelve arrive together) and the work finishes in about the
+  same time, because the queue was never what made it slow.
+
+- **Clips are no longer prepared twice.** The assistant fetches a turn's footage in
+  parallel and then places it in order, and the second pass was re-doing the full
+  preparation of files it had just prepared — seconds per clip, for nothing. It now reuses
+  the first pass's work, and re-checks the files are still there before trusting it.
+
+- **Indexing new footage no longer stalls everything else.** Each downloaded clip started
+  its own background indexing job. Forty clips meant forty jobs queued behind each other,
+  crowding out the rendering and preview work the same edit needed. They are now batched
+  into one job per project, nothing is indexed twice, and quitting the app stops them.
+
+- **Sourced footage previews from its small proxy again, instead of the raw 4K original.**
+  Every clip the Stock panel or the assistant downloaded was stored as if FramePilot had
+  never built a preview proxy, filmstrip, or waveform for it — even though it had, and the
+  files were sitting on disk. So the editor previewed and scrubbed the untouched originals.
+  On a montage of 55 sourced clips that is about **1.5 GB of 4K where 63 MB of proxies
+  already existed** (a 184 MB source has a 4.5 MB proxy), which is enough to spike memory
+  until the app has to be force-quit — reported on a 50+ clip music montage. Clips now keep
+  what was derived for them: proxies for playback, filmstrips on the timeline, waveforms on
+  audio. Exports were never affected; they always render from the original.
+  (`apps/desktop/electron/media/stock-service.ts`,
+  `apps/desktop/electron/media/music-service.ts`,
+  `apps/desktop/electron/media/asset-media-client.ts`)
+
 - **Vertical edits no longer arrive letterboxed without warning.** FramePilot renders a
   clip by fitting it inside the frame, so a landscape photo or video placed in a 9:16
   project shows black bars above and below unless you crop it. Nothing knew the shape of

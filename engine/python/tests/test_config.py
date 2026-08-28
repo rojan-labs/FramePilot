@@ -100,6 +100,20 @@ def test_asset_media_timeout_env_override() -> None:
     assert settings.asset_media_timeout_seconds == 30
 
 
+def test_asset_media_concurrency_env_override() -> None:
+    settings = Settings.from_env({"FRAMEPILOT_ASSET_MEDIA_CONCURRENCY": "1"})
+    assert settings.asset_media_concurrency == 1
+
+
+def test_asset_media_concurrency_defaults_to_a_bound_not_to_unbounded() -> None:
+    # The defect this default exists for: the route had NO bound, so its concurrency was
+    # whatever the arrival rate happened to be. An empty value must fall back to the
+    # bound, never to "no gate".
+    assert Settings.from_env({}).asset_media_concurrency == 2
+    blank = Settings.from_env({"FRAMEPILOT_ASSET_MEDIA_CONCURRENCY": ""})
+    assert blank.asset_media_concurrency == 2
+
+
 def test_soul_root_defaults_to_unset_so_the_home_default_applies() -> None:
     # Unset means "use ~/.framepilot/soul" (resolved at call time), not "no soul".
     assert Settings.from_env({}).soul_root is None

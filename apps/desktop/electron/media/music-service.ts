@@ -46,6 +46,7 @@ import type {
   MusicTrackWire,
 } from '../ipc/contract.js';
 import { dedupeName, mediaRelativeDir, safeFileName } from '../projects/media-import.js';
+import type { DerivedAssetMedia } from './asset-media-client.js';
 
 const log = createLogger('desktop:music');
 
@@ -103,13 +104,7 @@ export interface MusicServiceOptions {
   /** Absolute path of the projects root; every write is resolved inside it. */
   readonly projectsRoot: string;
   /** Derive duration/peaks/proxy for a downloaded file. Failure is non-fatal. */
-  readonly deriveAssetMedia: (absolutePath: string) => Promise<{
-    durationSeconds?: number | null;
-    peaks?: number[] | null;
-    peaksPerSecond?: number | null;
-    proxyPath?: string | null;
-    thumbnailPaths?: string[] | null;
-  } | null>;
+  readonly deriveAssetMedia: (absolutePath: string) => Promise<DerivedAssetMedia | null>;
   /** Injected for tests. Defaults to the real Openverse adapter. */
   readonly provider?: MusicProvider;
   /** Injected for tests; used only for preview and download bytes. */
@@ -617,17 +612,21 @@ export class MusicService {
     // A missing waveform is a degraded timeline row; a missing asset is a lost
     // download. So derivation failure never fails the add.
     const derived = await this.options.deriveAssetMedia(absolutePath).catch(() => null);
+    // The derived media lives under `media` — see `DerivedAssetMedia`. Read off `derived`
+    // itself it compiled, read `undefined`, and stored `peaks: null` for every sourced
+    // track, so the timeline drew a skeleton waveform over a real, already-derived one.
+    const derivedMedia = derived?.media;
 
     return {
       relativePath,
       kind: 'audio',
       durationSeconds: derived?.durationSeconds ?? track.durationSeconds,
-      media: derived
+      media: derivedMedia
         ? {
-            proxyPath: derived.proxyPath ?? null,
-            peaks: derived.peaks ?? null,
-            peaksPerSecond: derived.peaksPerSecond ?? null,
-            thumbnailPaths: derived.thumbnailPaths ?? null,
+            proxyPath: derivedMedia.proxyPath ?? null,
+            peaks: derivedMedia.peaks ?? null,
+            peaksPerSecond: derivedMedia.peaksPerSecond ?? null,
+            thumbnailPaths: derivedMedia.thumbnailPaths ?? null,
           }
         : null,
       source: {
