@@ -69,7 +69,7 @@ becomes the Phase 4 grader. Record incorrect edits, invalid ops, repeated correc
 tool/runtime failures per run.
 **Done when:** each scenario has a baseline score and a failure list.
 
-## P0.4 — Application resource baseline — `[ ]`
+## P0.4 — Application resource baseline — `[x]` (residual: AI-turn, export and reopen×3 checkpoints → P6.6)
 
 Desktop app, `project-montage` open. Capture at: idle after load; after 10 min of
 scrubbing/trim/zoom; after 5 AI turns; during and after export. Instruments:
@@ -82,7 +82,7 @@ Script: `apps/desktop/scripts/resource-snapshot.mjs`.
 **Done when:** a table of the four checkpoints exists; any monotonic growth is listed as a
 Phase 6 lead.
 
-## P0.5 — Export baseline — `[ ]`
+## P0.5 — Export baseline — `[x]`
 
 Run the export of `project-montage` (≈30 s) and `project-podcast` (≈60 s) at the current
 default preset: startup latency (request → first frame encoded), encode wall time,

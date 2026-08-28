@@ -172,7 +172,10 @@ async function runTurn({ project, prompt, history, scenarioId, turnIndex }) {
   const wallMs = Date.now() - started;
   const turns = capture.captured();
   const toolCalls = events.filter((e) => e.type === 'tool_call');
-  const toolKey = (e) => `${e.toolName}|${e.argsSummary ?? ''}`;
+  // Identity = tool name + the actual input the tool ran with (tool_result carries it);
+  // argsSummary is a display label and is constant for some tools ("Reframing").
+  const inputById = new Map(events.filter((e) => e.type === 'tool_result').map((e) => [e.toolCallId, JSON.stringify(e.input ?? null)]));
+  const toolKey = (e) => `${e.toolName}|${inputById.get(e.id) ?? inputById.get(e.toolCallId) ?? e.argsSummary ?? ''}`;
   const seen = new Map();
   for (const t of toolCalls) seen.set(toolKey(t), (seen.get(toolKey(t)) ?? 0) + 1);
   const repeatedToolCalls = [...seen.values()].filter((n) => n > 1).reduce((s, n) => s + n - 1, 0);

@@ -1,0 +1,2307 @@
+{
+  "generatedAt": "2026-08-28T22:00:27.629Z",
+  "sessionMinutes": 10,
+  "snapshots": [
+    {
+      "label": "idle-after-load",
+      "atMs": 8063,
+      "main": {
+        "rssMb": 166.6,
+        "heapUsedMb": 29.3,
+        "externalMb": 50.1,
+        "openFiles": 130
+      },
+      "renderer": {
+        "jsHeapUsedMb": 34.1,
+        "jsHeapTotalMb": 39.2,
+        "nodes": 1929,
+        "listeners": 816,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 143,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 35.3,
+          "cpu": 0.4,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 389.2,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 13.5,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 36.7,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 23,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 640.7,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-10",
+      "atMs": 24931,
+      "main": {
+        "rssMb": 238,
+        "heapUsedMb": 29.9,
+        "externalMb": 31.4,
+        "openFiles": 126
+      },
+      "renderer": {
+        "jsHeapUsedMb": 42.7,
+        "jsHeapTotalMb": 71.7,
+        "nodes": 2918,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 127.2,
+          "cpu": 23.2,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 34.1,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 815.2,
+          "cpu": 68.5,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.4,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 36.7,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.2,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1044.8,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-20",
+      "atMs": 40699,
+      "main": {
+        "rssMb": 229.6,
+        "heapUsedMb": 29.4,
+        "externalMb": 3.8,
+        "openFiles": 126
+      },
+      "renderer": {
+        "jsHeapUsedMb": 42.8,
+        "jsHeapTotalMb": 84.2,
+        "nodes": 2918,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 129.1,
+          "cpu": 22.1,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 34.9,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 845.2,
+          "cpu": 74.7,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.5,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 36.7,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1077.7,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-30",
+      "atMs": 56564,
+      "main": {
+        "rssMb": 229.9,
+        "heapUsedMb": 29.5,
+        "externalMb": 3.8,
+        "openFiles": 126
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.3,
+        "jsHeapTotalMb": 85.2,
+        "nodes": 2913,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 130.8,
+          "cpu": 22.9,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 34.9,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 847,
+          "cpu": 59.7,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.5,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 36.7,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1081.2,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-40",
+      "atMs": 72370,
+      "main": {
+        "rssMb": 233,
+        "heapUsedMb": 29.2,
+        "externalMb": 3.8,
+        "openFiles": 126
+      },
+      "renderer": {
+        "jsHeapUsedMb": 48.1,
+        "jsHeapTotalMb": 85.7,
+        "nodes": 2966,
+        "listeners": 935,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 130.9,
+          "cpu": 21.5,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 41.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 850.5,
+          "cpu": 56.4,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1092.6,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-50",
+      "atMs": 88143,
+      "main": {
+        "rssMb": 233.1,
+        "heapUsedMb": 29.7,
+        "externalMb": 3.8,
+        "openFiles": 126
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.4,
+        "jsHeapTotalMb": 85.5,
+        "nodes": 2919,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 132,
+          "cpu": 21,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 41.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 851.2,
+          "cpu": 69.8,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1094.4,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-60",
+      "atMs": 103935,
+      "main": {
+        "rssMb": 233.6,
+        "heapUsedMb": 29.5,
+        "externalMb": 3.8,
+        "openFiles": 126
+      },
+      "renderer": {
+        "jsHeapUsedMb": 48.3,
+        "jsHeapTotalMb": 86,
+        "nodes": 2966,
+        "listeners": 935,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 132.8,
+          "cpu": 21.8,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 41.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 853.3,
+          "cpu": 55.3,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1097.3,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-70",
+      "atMs": 119803,
+      "main": {
+        "rssMb": 234.6,
+        "heapUsedMb": 29.3,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.7,
+        "jsHeapTotalMb": 86,
+        "nodes": 2918,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 134.8,
+          "cpu": 21.8,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 41.7,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 854.5,
+          "cpu": 68.4,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1100.6,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-80",
+      "atMs": 135595,
+      "main": {
+        "rssMb": 234.6,
+        "heapUsedMb": 29.8,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 48.2,
+        "jsHeapTotalMb": 85.5,
+        "nodes": 2965,
+        "listeners": 935,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 135.6,
+          "cpu": 21.5,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 41.7,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 857,
+          "cpu": 53.4,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1103.9,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-90",
+      "atMs": 151525,
+      "main": {
+        "rssMb": 234.6,
+        "heapUsedMb": 29.6,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.8,
+        "jsHeapTotalMb": 85.5,
+        "nodes": 2914,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 136.4,
+          "cpu": 22,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 41.7,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 858.1,
+          "cpu": 66.4,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1105.8,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-100",
+      "atMs": 167346,
+      "main": {
+        "rssMb": 234.7,
+        "heapUsedMb": 29.4,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.7,
+        "jsHeapTotalMb": 87,
+        "nodes": 2919,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 138.1,
+          "cpu": 23.1,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 41.7,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 859.1,
+          "cpu": 62.9,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1108.5,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-110",
+      "atMs": 183179,
+      "main": {
+        "rssMb": 234.9,
+        "heapUsedMb": 29.9,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.7,
+        "jsHeapTotalMb": 86.7,
+        "nodes": 2918,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 138.4,
+          "cpu": 21.6,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 42.2,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 859.2,
+          "cpu": 69.4,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1109.4,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-120",
+      "atMs": 198973,
+      "main": {
+        "rssMb": 235,
+        "heapUsedMb": 29.7,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.8,
+        "jsHeapTotalMb": 86.7,
+        "nodes": 2917,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 139.4,
+          "cpu": 21.3,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 42.2,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 859.8,
+          "cpu": 70.9,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1111,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-130",
+      "atMs": 214743,
+      "main": {
+        "rssMb": 235.2,
+        "heapUsedMb": 29.5,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.8,
+        "jsHeapTotalMb": 86.2,
+        "nodes": 2918,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 139.8,
+          "cpu": 21.3,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 42.2,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 859.7,
+          "cpu": 71.5,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1111.3,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-140",
+      "atMs": 230503,
+      "main": {
+        "rssMb": 235.2,
+        "heapUsedMb": 30,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 48.2,
+        "jsHeapTotalMb": 86.7,
+        "nodes": 2964,
+        "listeners": 935,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 140.2,
+          "cpu": 21.7,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 42.2,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 859.7,
+          "cpu": 55.6,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1111.7,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-150",
+      "atMs": 246352,
+      "main": {
+        "rssMb": 235.3,
+        "heapUsedMb": 29.8,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.7,
+        "jsHeapTotalMb": 86.5,
+        "nodes": 2918,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 141.6,
+          "cpu": 22.6,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 42.2,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 862.9,
+          "cpu": 73.6,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1116.3,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-160",
+      "atMs": 262230,
+      "main": {
+        "rssMb": 235.4,
+        "heapUsedMb": 29.6,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.8,
+        "jsHeapTotalMb": 86.5,
+        "nodes": 2919,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 141.8,
+          "cpu": 23.4,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 42.2,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 862.7,
+          "cpu": 63.2,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1116.3,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-170",
+      "atMs": 278096,
+      "main": {
+        "rssMb": 235.5,
+        "heapUsedMb": 30.1,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.8,
+        "jsHeapTotalMb": 87.2,
+        "nodes": 2918,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 143.6,
+          "cpu": 23.9,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 42.2,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 863.5,
+          "cpu": 63.8,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1118.9,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-180",
+      "atMs": 293939,
+      "main": {
+        "rssMb": 235.6,
+        "heapUsedMb": 29.8,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 86.5,
+        "nodes": 2919,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 144,
+          "cpu": 21.3,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 42.2,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 863.4,
+          "cpu": 70,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1119.2,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-190",
+      "atMs": 309812,
+      "main": {
+        "rssMb": 235.8,
+        "heapUsedMb": 29.6,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 86.5,
+        "nodes": 2918,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 145.2,
+          "cpu": 21.1,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 42.2,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 864.3,
+          "cpu": 71.3,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1121.3,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-200",
+      "atMs": 325730,
+      "main": {
+        "rssMb": 235.9,
+        "heapUsedMb": 30.1,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 93.5,
+        "nodes": 2919,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 145.9,
+          "cpu": 22.1,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 42.2,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 871.6,
+          "cpu": 70.4,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1129.3,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-210",
+      "atMs": 341681,
+      "main": {
+        "rssMb": 236,
+        "heapUsedMb": 29.9,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 93.5,
+        "nodes": 2919,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 146.8,
+          "cpu": 22.6,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 42.2,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 872.1,
+          "cpu": 63.2,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1130.7,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-220",
+      "atMs": 357623,
+      "main": {
+        "rssMb": 236.2,
+        "heapUsedMb": 29.7,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 93.2,
+        "nodes": 2917,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 146.9,
+          "cpu": 22.7,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 42.2,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 872.2,
+          "cpu": 68.2,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1130.9,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-230",
+      "atMs": 373544,
+      "main": {
+        "rssMb": 236.3,
+        "heapUsedMb": 30.2,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 93.2,
+        "nodes": 2918,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 148.9,
+          "cpu": 21.4,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 42.2,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 869.8,
+          "cpu": 68.8,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1130.5,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-240",
+      "atMs": 389438,
+      "main": {
+        "rssMb": 236.3,
+        "heapUsedMb": 30,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 93.2,
+        "nodes": 2919,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 148.3,
+          "cpu": 21.7,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 42.2,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 869.4,
+          "cpu": 69.9,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1129.5,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-250",
+      "atMs": 405456,
+      "main": {
+        "rssMb": 236.4,
+        "heapUsedMb": 29.8,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 93.2,
+        "nodes": 2919,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 151,
+          "cpu": 21.7,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 42.2,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 870.7,
+          "cpu": 69.8,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.7,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.6,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.3,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 1133.5,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-260",
+      "atMs": 421639,
+      "main": {
+        "rssMb": 150.7,
+        "heapUsedMb": 30.2,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 93,
+        "nodes": 2918,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 120,
+          "cpu": 23.6,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 42,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 512.8,
+          "cpu": 63.2,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.6,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.4,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19.1,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 743.9,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-270",
+      "atMs": 437563,
+      "main": {
+        "rssMb": 150.4,
+        "heapUsedMb": 30,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 44,
+        "jsHeapTotalMb": 93.5,
+        "nodes": 2919,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 122.1,
+          "cpu": 24.3,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 42,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 526,
+          "cpu": 63.5,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.6,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.4,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 759.1,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-280",
+      "atMs": 454168,
+      "main": {
+        "rssMb": 121.7,
+        "heapUsedMb": 29.8,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 93.5,
+        "nodes": 2918,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 108,
+          "cpu": 29.9,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 36,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 392.8,
+          "cpu": 62.4,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.4,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 605.2,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-290",
+      "atMs": 471063,
+      "main": {
+        "rssMb": 122,
+        "heapUsedMb": 30.3,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 48.7,
+        "jsHeapTotalMb": 93.2,
+        "nodes": 2967,
+        "listeners": 935,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 109.8,
+          "cpu": 20.6,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 35.9,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 401.1,
+          "cpu": 67.1,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.4,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 615.2,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-300",
+      "atMs": 487009,
+      "main": {
+        "rssMb": 122.6,
+        "heapUsedMb": 30.1,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 93.5,
+        "nodes": 2919,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 113.3,
+          "cpu": 23.1,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 35.9,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 410.4,
+          "cpu": 64.6,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.4,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 628,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-310",
+      "atMs": 503036,
+      "main": {
+        "rssMb": 122.9,
+        "heapUsedMb": 29.9,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 93,
+        "nodes": 2918,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 113.5,
+          "cpu": 22.3,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 36,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 410.4,
+          "cpu": 72.2,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.4,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 628.3,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-320",
+      "atMs": 519082,
+      "main": {
+        "rssMb": 123.2,
+        "heapUsedMb": 30.4,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 93,
+        "nodes": 2919,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 114.2,
+          "cpu": 21.9,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 36,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 410.5,
+          "cpu": 69.3,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.4,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.1,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 629.2,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-330",
+      "atMs": 535040,
+      "main": {
+        "rssMb": 123.3,
+        "heapUsedMb": 30.1,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 93.7,
+        "nodes": 2919,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 115,
+          "cpu": 23.4,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 36,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 410.8,
+          "cpu": 63.5,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.4,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.1,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 630.3,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-340",
+      "atMs": 551024,
+      "main": {
+        "rssMb": 123.4,
+        "heapUsedMb": 29.9,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 94,
+        "nodes": 2919,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 117,
+          "cpu": 21.2,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 36,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 411.7,
+          "cpu": 69.4,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.4,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.1,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 633.2,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-350",
+      "atMs": 567029,
+      "main": {
+        "rssMb": 123.4,
+        "heapUsedMb": 30.4,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 93.2,
+        "nodes": 2918,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 117.3,
+          "cpu": 21.7,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 36,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 411.5,
+          "cpu": 68.8,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.4,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.1,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 633.3,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-360",
+      "atMs": 583006,
+      "main": {
+        "rssMb": 123.6,
+        "heapUsedMb": 30.2,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 93.7,
+        "nodes": 2919,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 117.5,
+          "cpu": 22.9,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 36,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 411.8,
+          "cpu": 71.4,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.4,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.1,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 633.8,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "session-loop-370",
+      "atMs": 599040,
+      "main": {
+        "rssMb": 123.7,
+        "heapUsedMb": 30.7,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 95.2,
+        "nodes": 2919,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 118.5,
+          "cpu": 21.8,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 36,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 422.5,
+          "cpu": 70.3,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.4,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.1,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 645.5,
+      "ffmpegCount": 0
+    },
+    {
+      "label": "after-session-10min-376loops",
+      "atMs": 608701,
+      "main": {
+        "rssMb": 123.8,
+        "heapUsedMb": 30.3,
+        "externalMb": 3.8,
+        "openFiles": 128
+      },
+      "renderer": {
+        "jsHeapUsedMb": 43.9,
+        "jsHeapTotalMb": 96,
+        "nodes": 2919,
+        "listeners": 933,
+        "documents": 1,
+        "frames": 1,
+        "layoutCount": 0
+      },
+      "children": [
+        {
+          "pid": 86889,
+          "rssMb": 119.3,
+          "cpu": 21.9,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86891,
+          "rssMb": 36,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86894,
+          "rssMb": 423.1,
+          "cpu": 69.6,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86956,
+          "rssMb": 12.4,
+          "cpu": 0,
+          "cmd": "uv run framepilot serve --host 127.0.0.1 --port 8798"
+        },
+        {
+          "pid": 86969,
+          "rssMb": 37.1,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/node_modules/.pnpm/electron@39.8.10/node_modules/"
+        },
+        {
+          "pid": 86958,
+          "rssMb": 19,
+          "cpu": 0,
+          "cmd": "/Users/rjach/Stuffs/FramePilot/.venv/bin/python3 /Users/rjach/Stuffs/FramePilot/"
+        }
+      ],
+      "childRssMb": 646.9,
+      "ffmpegCount": 0
+    }
+  ]
+}

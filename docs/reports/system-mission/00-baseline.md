@@ -81,7 +81,23 @@ Instrument: `tests/e2e-desktop/specs/resource-baseline.spec.ts` (real Electron a
 sidecar, 10-minute scripted session, reopen ×3). Output:
 `reports/system-mission/baseline-resources.json`.
 
-_(table filled in when the run completes)_
+| Checkpoint | Main RSS | Main heap | Main open files | Renderer JS heap used/total | DOM nodes | Listeners | Children RSS (renderer+GPU+sidecar) | ffmpeg |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| idle after load (8 s) | 167 MB | 29 MB | 130 | 34 / 39 MB | 1,929 | 816 | 641 MB (6 procs) | 0 |
+| loop 10 (24 s) | 238 MB | 30 MB | 126 | 43 / 72 MB | 2,918 | 933 | 1,045 MB | 0 |
+| loop 250 (405 s) | 236 MB | 30 MB | 128 | 44 / 93 MB | 2,919 | 933 | 1,134 MB | 0 |
+| loop 260 (421 s) | 151 MB | 30 MB | 128 | 44 / 93 MB | 2,918 | 933 | 744 MB | 0 |
+| after 10 min, 376 loops | 124 MB | 30 MB | 128 | 44 / 96 MB | 2,919 | 933 | 647 MB | 0 |
+
+Reading: after the first loop's warm-up (thumbnails, waveform, preview decode) every
+renderer metric is flat for nine minutes — heap used 43.7–44.0 MB, nodes 2,913–2,967,
+listeners 933–935, documents 1. Main RSS and the renderer/GPU helpers fall by ~45% around
+loop 260 (memory-pressure release), never climb back. Nothing in this session type
+(select / seek / play-pause / wheel / tab switches) leaks. **Not covered:** AI turns
+(`MISSION_AI=1` requires a provider in the app's config), export, and close/reopen ×3 —
+the reopen step failed because the launch screen is not reachable after ⌘W + reload
+(project auto-restores); P6.6 reopens through the bridge instead. Largest child: the
+renderer at 423 MB RSS.
 
 Sidecar idle (uv wrapper + python), before any work: 19.9 MB RSS wrapper, 1 child, 15
 open files.
