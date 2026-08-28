@@ -16,6 +16,7 @@
 import { createLogger } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
 import { toModelProject } from './model-view.js';
+import { compactFootageChapters, footageMapSchema } from './footage-map.js';
 import { indexFor } from './project-index.js';
 import type { AiImage, ToolCall } from './providers/types.js';
 import type { HostExecutionContext, HostToolExecutor, HostToolOutcome } from './tool-executor.js';
@@ -735,8 +736,28 @@ export function unwrapFootageMap(data: unknown): HostToolOutcome {
       typeof record.reason === 'string' ? record.reason : 'footage-map response was malformed';
     return { status: 'failed', summary: `"map_footage" failed: ${reason}`, data: reason };
   }
-  const chapters = Array.isArray(record.chapters) ? record.chapters : [];
-  const highlights = Array.isArray(record.highlights) ? record.highlights : [];
+  // Through the CONTRACT, not past it. `footageMapSchema` is what every other reader of a
+  // footage map goes through — the context digest, the understanding panel — and it is
+  // where a chapter whose summary merely repeats its title is normalised to one sentence.
+  // This settle forwarded the wire record verbatim instead, so the model was the one
+  // reader getting the un-normalised map: on run `accd014d` that was 28,264 characters
+  // where the contract says 15,855, and `recall_evidence` returns 16,000 per call. The
+  // difference was a second model turn, and the run had two left.
+  //
+  // `safeParse`, not `parse`: a response shape the schema does not yet know must still
+  // reach the model, exactly as it did before. Normalisation is an improvement on the
+  // payload, never a gate on it.
+  const parsed = footageMapSchema.safeParse(record);
+  const chapters = parsed.success
+    ? compactFootageChapters(parsed.data.chapters)
+    : Array.isArray(record.chapters)
+      ? record.chapters
+      : [];
+  const highlights = parsed.success
+    ? parsed.data.highlights
+    : Array.isArray(record.highlights)
+      ? record.highlights
+      : [];
   const backend = typeof record.backend === 'string' ? record.backend : null;
   const summary = typeof record.summary === 'string' ? record.summary : '';
   const durationSec = typeof record.durationSec === 'number' ? record.durationSec : 0;
