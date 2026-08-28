@@ -810,6 +810,54 @@ describe('standingAgainstAcceptance', () => {
   });
 });
 
+// GAP-009 (run `fc10301a`). This check used to say, in its own docstring, that "the
+// project does not carry each asset's pixel dimensions" — true until schema v21 added
+// them. With the sources measured, uncropped landscape picture in a portrait frame is not
+// a risk to warn about: it is what the render will produce.
+describe('reframe_coverage with measured sources', () => {
+  const portraitProjectOf = (media: Record<string, unknown> | undefined) =>
+    withTracks(
+      [
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [
+            clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 2 }),
+            clip({ id: 'p_2', trackId: 'v_main', start: 2, end: 4 }),
+          ],
+        },
+      ],
+      {
+        resolution: { width: 1080, height: 1920 },
+        assets: [
+          { id: 'asset_1', path: 'media/a.jpeg', kind: 'image', durationSeconds: 5, ...(media ? { media } : {}) },
+        ] as Project['assets'],
+      },
+    );
+
+  it('fails an uncropped landscape source in a portrait frame, and names the clips', () => {
+    const report = critique(portraitProjectOf({ width: 4032, height: 3024 }), { minShotCount: 2 });
+    const reframe = idOf(report, 'reframe_coverage');
+    expect(reframe).toMatchObject({ status: 'fail' });
+    expect(reframe?.detail).toMatch(/2 of 2 picture clips use a landscape source/);
+    expect(reframe?.detail).toContain('p_1, p_2');
+    expect(report.ok).toBe(false);
+  });
+
+  it('says nothing when the source is already portrait', () => {
+    expect(
+      idOf(critique(portraitProjectOf({ width: 1080, height: 1920 }), { minShotCount: 2 }), 'reframe_coverage'),
+    ).toMatchObject({ status: 'warn' });
+  });
+
+  it('keeps the old warning when nothing was measured', () => {
+    // Absent dimensions mean unknown. Failing a run over a shape nobody probed would be
+    // worse than the gap this closes.
+    expect(idOf(critique(portraitProjectOf(undefined), { minShotCount: 2 }), 'reframe_coverage'))
+      .toMatchObject({ status: 'warn' });
+  });
+});
+
 describe('picture_coverage', () => {
   /**
    * The shape run 4c9b5f82 shipped: a 36.1s music bed with ten photos over only its

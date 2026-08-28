@@ -15,7 +15,7 @@
 import { z } from 'zod/v4';
 import type { Asset } from '@framepilot/timeline-schema';
 import type { ProjectOperation } from '@framepilot/editor-core';
-import { toModelAssets } from '../model-view.js';
+import { type ModelAsset, toModelAssets } from '../model-view.js';
 import type { ToolContext } from '../tool-context.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { readMemory, type MemoryPreferenceKey } from '../memory-store.js';
@@ -159,6 +159,43 @@ function organizeByKind(ctx: ToolContext): ProjectOperation[] {
   return ops;
 }
 
+/**
+ * The line `list_assets` adds when the bin holds picture that will letterbox as placed.
+ *
+ * The renderer FITS a clip into the frame — `_place_video_clip` computes
+ * `min(target_w/w, target_h/h)`, which is *contain*, not cover — so a landscape source in
+ * a portrait sequence renders with black bars unless its clip carries a crop. Nothing said
+ * so. Run `fc10301a` placed 34 landscape WhatsApp photos in a 1080x1920 sequence against a
+ * brief whose delivery spec read "No black bars. No stretched photos.", and the only check
+ * that noticed downgraded itself to a warning whose text was never shown.
+ *
+ * Stated here because this is where a run learns what it is editing, and because the
+ * answer is a join the model cannot make on its own: it needs each asset's shape AND the
+ * project's frame, and before schema v21 it had neither.
+ *
+ * Says nothing when the frame is not portrait (a landscape source in a landscape sequence
+ * is the ordinary case) or when nothing has been probed — silence is the honest reading of
+ * "unknown", and a warning about assets whose shape nobody measured would be noise.
+ */
+export function letterboxNote(
+  assets: readonly ModelAsset[],
+  resolution: { readonly width: number; readonly height: number },
+): string | undefined {
+  if (resolution.height <= resolution.width) return undefined;
+  const mismatched = assets.filter((asset) => asset.orientation === 'landscape');
+  if (mismatched.length === 0) return undefined;
+  const named = mismatched.slice(0, 3).map((asset) => asset.id);
+  const rest = mismatched.length - named.length;
+  return (
+    `${String(mismatched.length)} of these are landscape in a ` +
+    `${String(resolution.width)}x${String(resolution.height)} portrait project — ` +
+    `${named.join(', ')}${rest > 0 ? `, plus ${String(rest)} more` : ''}. ` +
+    'Placed as they are they render with black bars above and below: the renderer fits ' +
+    'the source into the frame rather than filling it. Give each clip a set_clip_crop to ' +
+    'fill the frame, choosing the part of the picture that matters.'
+  );
+}
+
 export const PROJECT_TOOLS: readonly ToolSpec[] = [
   readTool(
     {
@@ -168,7 +205,10 @@ export const PROJECT_TOOLS: readonly ToolSpec[] = [
         'get_project_state when you only need the media library — optionally filter ' +
         'by kind (video/audio/image) and/or folderId — OMIT a filter you do not need ' +
         'rather than passing an empty value. Returns { assets, folders }, ' +
-        'each asset as { id, path, kind, durationSeconds, folderId }.',
+        'each asset as { id, path, kind, durationSeconds, folderId }, plus ' +
+        '`orientation`/`aspect` for picture the engine has measured — absent means ' +
+        'unmeasured, never square. A `letterbox` note names any landscape source in a ' +
+        'portrait project, which is the one thing you cannot work out from the ids.',
     },
     listAssetsSchema,
     (a, ctx) => {
@@ -179,8 +219,10 @@ export const PROJECT_TOOLS: readonly ToolSpec[] = [
       // Engine-derived render data (waveform peaks, thumbnails, proxy) is stripped —
       // see model-view.ts. The timeline canvas reads it from the project; a bin listing
       // exists to hand you real asset ids.
+      const model = toModelAssets(assets);
+      const letterbox = letterboxNote(model, ctx.project.resolution);
       return {
-        assets: toModelAssets(assets),
+        assets: model,
         folders: ctx.project.folders,
         // A filter that matches nothing and an empty bin are the same `{ assets: [] }`
         // to a reader, and the agent has repeatedly read the first as the second — then
@@ -188,6 +230,9 @@ export const PROJECT_TOOLS: readonly ToolSpec[] = [
         ...(assets.length === 0 && ctx.project.assets.length > 0
           ? { note: emptyFilterNote(ctx.project.assets) }
           : {}),
+        // See `letterboxNote`: the renderer fits rather than covers, and nothing else in
+        // this result would tell a run that its picture is about to arrive in a box.
+        ...(letterbox ? { letterbox } : {}),
       };
     },
   ),

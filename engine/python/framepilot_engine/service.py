@@ -362,6 +362,12 @@ class AssetMediaResponse(BaseModel):
 
     duration_seconds: float | None = Field(default=None, alias="durationSeconds")
     kind: str = Field(description="One of 'video' | 'audio' | 'image'.")
+    #: Source pixel dimensions (schema v21). Absent for audio, and for anything ffprobe
+    #: could not measure — never guessed. The renderer FITS a clip into the frame, so a
+    #: landscape source in a portrait sequence letterboxes unless the clip is cropped, and
+    #: this is what lets the editor and the agent know which assets those are.
+    width: int | None = Field(default=None)
+    height: int | None = Field(default=None)
     peaks: list[float] | None = Field(default=None)
     peaks_per_second: float | None = Field(default=None, alias="peaksPerSecond")
     thumbnail_paths: list[str] | None = Field(default=None, alias="thumbnailPaths")
@@ -4302,6 +4308,10 @@ def create_app(
         return AssetMediaResponse(
             durationSeconds=duration,
             kind=kind,
+            # Already probed above for `has_video`/`is_image`; carrying the two numbers
+            # costs nothing and is the whole of schema v21.
+            width=info.width,
+            height=info.height,
             peaks=peaks,
             peaksPerSecond=peaks_per_second,
             thumbnailPaths=thumbnail_paths,

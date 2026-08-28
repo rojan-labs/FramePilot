@@ -6,6 +6,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **Vertical edits no longer arrive letterboxed without warning.** FramePilot renders a
+  clip by fitting it inside the frame, so a landscape photo or video placed in a 9:16
+  project shows black bars above and below unless you crop it. Nothing knew the shape of
+  your footage, so nothing could tell you — the AI would place a whole reel of landscape
+  photos in a vertical project and report it finished. Imported media now records its
+  dimensions, the media list says which files will letterbox as placed, and the
+  self-check fails the edit instead of quietly warning about it. Projects imported before
+  this release keep working; their files simply have no recorded shape until you
+  re-import them.
+
 ### Changed
 
 - **Understanding your footage is roughly four times faster.** Preparing media used to

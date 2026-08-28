@@ -264,6 +264,18 @@ export const MIGRATIONS: readonly Migration[] = [
       'one. The step exists to stamp the envelope version (ADR 0138).',
     migrate: (raw) => raw,
   },
+  {
+    from: 20,
+    to: 21,
+    describe:
+      "Asset `media` gains optional `width`/`height`: the source's pixel dimensions, so a " +
+      'run can tell a landscape photo from a portrait one before it places either in a ' +
+      'vertical frame. Purely additive and nothing to backfill — the engine probes them ' +
+      'when it derives media, and an asset that has not been probed is honestly absent ' +
+      'rather than guessed at. Reading them is what lets `list_assets` say which clips ' +
+      'will letterboxe without a crop; the renderer fits rather than covers.',
+    migrate: (raw) => raw,
+  },
 ];
 
 /**

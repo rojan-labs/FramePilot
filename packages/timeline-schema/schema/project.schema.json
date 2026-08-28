@@ -67,6 +67,30 @@
               {
                 "type": "object",
                 "properties": {
+                  "width": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "height": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "proxyPath": {
                     "anyOf": [
                       {

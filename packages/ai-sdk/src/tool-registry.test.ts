@@ -398,6 +398,74 @@ describe('read tools', () => {
     expect(JSON.stringify(state)).not.toContain('peaks');
   });
 
+  // GAP-009 (run `fc10301a`). The renderer FITS a clip into the frame, so a landscape
+  // source in a portrait sequence letterboxes unless the clip carries a crop. Nothing
+  // carried an asset's shape, so the run placed 34 landscape photos in a 1080x1920 frame
+  // against a brief reading "No black bars. No stretched photos." with no way to know.
+  it('reports each measured asset as landscape, portrait or square', () => {
+    const project = makeProject({
+      assets: [
+        {
+          id: 'wide',
+          path: 'media/w.jpeg',
+          kind: 'image',
+          media: { width: 4032, height: 3024 },
+        },
+        { id: 'tall', path: 'media/t.jpeg', kind: 'image', media: { width: 1080, height: 1920 } },
+        { id: 'sq', path: 'media/s.jpeg', kind: 'image', media: { width: 800, height: 800 } },
+        { id: 'unmeasured', path: 'media/u.jpeg', kind: 'image' },
+      ],
+    });
+    const bin = getTool('list_assets')?.read?.({}, { project }) as {
+      assets: { id: string; orientation?: string; aspect?: number }[];
+    };
+    expect(bin.assets.map((a) => [a.id, a.orientation])).toEqual([
+      ['wide', 'landscape'],
+      ['tall', 'portrait'],
+      ['sq', 'square'],
+      // Absent means unmeasured, never square: a guess would send a run to crop the
+      // wrong axis.
+      ['unmeasured', undefined],
+    ]);
+    expect(bin.assets[0]?.aspect).toBe(1.333);
+  });
+
+  it('warns that landscape sources will letterbox in a portrait project', () => {
+    const project = makeProject({
+      resolution: { width: 1080, height: 1920 },
+      assets: [
+        { id: 'p1', path: 'media/1.jpeg', kind: 'image', media: { width: 4032, height: 3024 } },
+        { id: 'p2', path: 'media/2.jpeg', kind: 'image', media: { width: 4032, height: 3024 } },
+      ],
+    });
+    const bin = getTool('list_assets')?.read?.({}, { project }) as { letterbox?: string };
+    expect(bin.letterbox).toContain('2 of these are landscape');
+    expect(bin.letterbox).toContain('1080x1920');
+    expect(bin.letterbox).toContain('set_clip_crop');
+  });
+
+  it('says nothing about letterboxing when the frame is not portrait', () => {
+    const project = makeProject({
+      resolution: { width: 1920, height: 1080 },
+      assets: [
+        { id: 'p1', path: 'media/1.jpeg', kind: 'image', media: { width: 4032, height: 3024 } },
+      ],
+    });
+    expect((getTool('list_assets')?.read?.({}, { project }) as { letterbox?: string }).letterbox)
+      .toBeUndefined();
+  });
+
+  it('says nothing about letterboxing when nothing has been measured', () => {
+    // Silence is the honest reading of "unknown"; warning about assets whose shape nobody
+    // measured would be noise on every un-probed project.
+    const project = makeProject({
+      resolution: { width: 1080, height: 1920 },
+      assets: [{ id: 'p1', path: 'media/1.jpeg', kind: 'image' }],
+    });
+    expect((getTool('list_assets')?.read?.({}, { project }) as { letterbox?: string }).letterbox)
+      .toBeUndefined();
+  });
+
   it('list_assets collapses provenance to the one fact the model can act on', () => {
     // Licence URLs, creator URLs and fetch timestamps are not reasoning material — the
     // model never opens a licence page. "This track obliges a credit" is, because the

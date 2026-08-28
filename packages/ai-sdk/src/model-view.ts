@@ -54,12 +54,49 @@ export type ModelAsset = Omit<Asset, 'media' | 'source'> & {
    * has no provenance at all. Absent means "nothing to credit", never "unknown".
    */
   readonly attributionRequired?: true;
+  /**
+   * The shape of the source picture, when the engine has probed it (schema v21).
+   *
+   * Two fields rather than the whole `media` block, for the same reason the block is
+   * stripped: `peaks` is thousands of floats the model never reasons over, and orientation
+   * is one word it reasons over constantly. A landscape source in a portrait sequence
+   * renders with black bars unless the clip carries a crop — `_place_video_clip` fits, it
+   * does not cover — and until now nothing told the model which of its assets those were.
+   * Run `fc10301a` placed 34 landscape photos in a 1080x1920 frame against a brief that
+   * said "no black bars", with no way to know.
+   *
+   * Omitted when the asset has not been probed. Absent means unknown, never square: a
+   * guessed orientation would send a run to crop the wrong axis.
+   */
+  readonly orientation?: 'landscape' | 'portrait' | 'square';
+  /** Width ÷ height, rounded to three places. Omitted with `orientation`. */
+  readonly aspect?: number;
 };
+
+/** Landscape, portrait or square — or `undefined` when the asset was never probed. */
+function shapeOf(
+  media: Asset['media'],
+): { orientation: 'landscape' | 'portrait' | 'square'; aspect: number } | undefined {
+  const width = media?.width;
+  const height = media?.height;
+  if (typeof width !== 'number' || typeof height !== 'number' || width <= 0 || height <= 0) {
+    return undefined;
+  }
+  return {
+    orientation: width > height ? 'landscape' : width < height ? 'portrait' : 'square',
+    aspect: Math.round((width / height) * 1000) / 1000,
+  };
+}
 
 /** Drop the engine-derived render block and collapse provenance to the one actionable bit. */
 export function toModelAsset(asset: Asset): ModelAsset {
-  const { media: _media, source, ...rest } = asset;
-  return source?.attributionRequired === true ? { ...rest, attributionRequired: true } : rest;
+  const { media, source, ...rest } = asset;
+  const shape = shapeOf(media);
+  return {
+    ...rest,
+    ...(source?.attributionRequired === true ? { attributionRequired: true } : {}),
+    ...(shape ?? {}),
+  };
 }
 
 export function toModelAssets(assets: readonly Asset[]): ModelAsset[] {

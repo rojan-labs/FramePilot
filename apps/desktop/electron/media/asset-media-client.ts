@@ -24,6 +24,9 @@ const DEFAULT_THUMBNAILS = 5;
 interface AssetMediaResponse {
   durationSeconds?: number | null;
   kind?: 'video' | 'audio' | 'image';
+  /** Source pixel dimensions (schema v21). Absent for audio and for anything unprobeable. */
+  width?: number | null;
+  height?: number | null;
   peaks?: number[];
   peaksPerSecond?: number;
   thumbnailPaths?: string[];
@@ -90,11 +93,19 @@ export async function importAssetViaSidecar(
   // optional field, and an absent field reads more cleanly downstream than a
   // present-but-undefined one.
   const media: {
+    width?: number;
+    height?: number;
     peaks?: number[];
     peaksPerSecond?: number;
     thumbnailPaths?: string[];
     proxyPath?: string;
   } = {};
+  // Both or neither: half a shape is not a shape, and a reader that finds only a width
+  // cannot decide anything with it. Absent means "not probed", never "square".
+  if (typeof body.width === 'number' && typeof body.height === 'number') {
+    media.width = body.width;
+    media.height = body.height;
+  }
   if (body.peaks !== undefined) media.peaks = body.peaks;
   if (body.peaksPerSecond !== undefined) media.peaksPerSecond = body.peaksPerSecond;
   if (body.thumbnailPaths !== undefined) media.thumbnailPaths = body.thumbnailPaths;

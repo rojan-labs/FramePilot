@@ -470,6 +470,19 @@ function requestWantsPicture(options: CritiqueOptions): boolean {
   );
 }
 
+/**
+ * Is this clip's source wider than it is tall, as measured (schema v21)?
+ *
+ * False for an unmeasured asset by design: absent dimensions mean unknown, and treating
+ * unknown as landscape would fail runs over a shape nobody probed.
+ */
+function isLandscapeSource(project: Project, assetId: string): boolean {
+  const media = project.assets.find((asset) => asset.id === assetId)?.media;
+  const width = media?.width;
+  const height = media?.height;
+  return typeof width === 'number' && typeof height === 'number' && width > height;
+}
+
 /** A merged, ascending list of the spans picture occupies. */
 function pictureSpans(project: Project): readonly { start: number; end: number }[] {
   const sorted = [...pictureClips(project)]
@@ -805,11 +818,19 @@ function checkTreatmentCoverage(project: Project, options: CritiqueOptions): Cri
  * vertical cut, the agent reframed the opening shots, stopped, and the run reported "All
  * checks passed" over a timeline that was 9 shots reframed and 38 not.
  *
- * Asked as a consistency question rather than a geometry one, because the project does not
- * carry each asset's pixel dimensions: nobody deliberately reframes a fifth of a sequence, so
- * a MIX of reframed and unreframed picture is a defect regardless of what the sources are. A
- * sequence with no crops at all cannot be judged the same way — it may be a same-aspect edit
- * that needs none — so a portrait frame with nothing reframed is a warning, not a failure.
+ * Asked as a consistency question first, because a MIX of reframed and unreframed picture
+ * is a defect regardless of what the sources are — nobody deliberately reframes a fifth of
+ * a sequence.
+ *
+ * Where it CAN be asked as a geometry question, it now is. This check used to say "the
+ * project does not carry each asset's pixel dimensions", and that was true until schema
+ * v21 added them. When the sources are measured and a portrait sequence holds landscape
+ * picture with no crop on it, black bars are not a risk to warn about — they are what the
+ * render will produce, because `_place_video_clip` fits rather than covers. That is a
+ * failure, and it names the clips.
+ *
+ * An unmeasured project keeps the old warning: absent dimensions mean unknown, and failing
+ * a run over a shape nobody measured would be worse than the gap it closes.
  */
 function checkReframeCoverage(project: Project): CriticCheck {
   const picture = pictureClips(project);
@@ -825,6 +846,21 @@ function checkReframeCoverage(project: Project): CriticCheck {
         'Reframing is consistent',
         'skipped',
         'No clip is reframed, and the frame is not portrait.',
+      );
+    }
+    // Measured landscape picture in a portrait frame, uncropped: not a risk, an outcome.
+    const landscape = picture.filter((clip) => isLandscapeSource(project, clip.assetId));
+    if (landscape.length > 0) {
+      const named = landscape.slice(0, 3).map((clip) => clip.id);
+      const rest = landscape.length - named.length;
+      return check(
+        'reframe_coverage',
+        'Reframing is consistent',
+        'fail',
+        `${String(landscape.length)} of ${String(picture.length)} picture clips use a ` +
+          `landscape source in a ${String(width)}x${String(height)} portrait frame with no ` +
+          `crop, so they render with black bars: ${named.join(', ')}` +
+          `${rest > 0 ? `, plus ${String(rest)} more` : ''}. Crop each to fill the frame.`,
       );
     }
     return check(
