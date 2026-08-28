@@ -95,11 +95,7 @@ describe('the beat ledger', () => {
   it('is order-independent — the write race that picked the wrong track cannot exist', () => {
     // `detect_beats` is a `pure_read`, so three calls in one turn run through `mapBounded`
     // and settle in completion order. Distinct keys commute; one field did not.
-    const payloads = [
-      rawBeats('music_a', [1]),
-      rawBeats('music_b', [2]),
-      rawBeats('music_c', [3]),
-    ];
+    const payloads = [rawBeats('music_a', [1]), rawBeats('music_b', [2]), rawBeats('music_c', [3])];
     const forward = createBeatEvidence();
     for (const payload of payloads) recordBeatAnalysis(forward, payload, false);
     const reversed = createBeatEvidence();

@@ -25,14 +25,14 @@ Finding the beat in Epic_Orchestral_Adventure_Theme.mp3 — completed · 249ms �
 Finding the beat in Skyline_run_….mp3 — completed · 132ms  → 119 beats, ~172 BPM
 ```
 
-All three at `18:03:44.725` — one turn, three calls. It chose *Skyline run*, placed it on
+All three at `18:03:44.725` — one turn, three calls. It chose _Skyline run_, placed it on
 `music_2` at `0 → 27.533s`, and proposed the 61-photo montage. Six times. Every one was
 refused with the same sentence:
 
 > rejected by the beat grid: this step cuts to detected beats, but the analyzed audio asset
 > `"music_openverse_4c9cb2da…"` is not on the timeline and this proposal does not place it …
 
-`4c9cb2da` is *Epic Orchestral Adventure Theme* — the **middle** of the three parallel
+`4c9cb2da` is _Epic Orchestral Adventure Theme_ — the **middle** of the three parallel
 analyses, and a track the editor had not chosen.
 
 The model diagnosed its own situation exactly right, at `18:12:56`:
@@ -42,8 +42,8 @@ The model diagnosed its own situation exactly right, at `18:12:56`:
 
 It called `detect_beats` on the track that was on the timeline. The runtime answered
 **"Skipped redundant detect_beats call"**, and later **"detect_beats is unavailable this
-turn"**, until the run died. The editor was told: *"The run stopped making progress — no
-further edits could be found for this request."*
+turn"**, until the run died. The editor was told: _"The run stopped making progress — no
+further edits could be found for this request."_
 
 ## The five things that had to be true at once
 
@@ -52,7 +52,7 @@ further edits could be found for this request."*
    `tool-contract.ts` declares it `concurrency: 'parallel'` and three calls in one turn go
    through `mapBounded` — three writers, one slot, survivor decided by completion order.
 2. **The grid asked the wrong question.** It read one `assetId` off that one payload and
-   demanded *that* asset be on the timeline, rather than asking which analysed track the
+   demanded _that_ asset be on the timeline, rather than asking which analysed track the
    picture is actually cut against.
 3. **Groundedness vetoed unconditionally.** The module's own governing rule — reject only
    what the run PROMISED via `hardSync`, otherwise measure and report — was applied to
@@ -63,7 +63,7 @@ further edits could be found for this request."*
    only sanctioned way to establish what it is checked against.
 5. **Nothing bounded the retry, and nothing explained it.** "A rejected op is a bounded
    retry" reset the stall streak on every attempt, so six identical refusals read as six
-   attempts at progress; and the account of a refusal was gated on the run landing *nothing*,
+   attempts at progress; and the account of a refusal was gated on the run landing _nothing_,
    so a run with two audio operations on the board explained none of it.
 
 ## Decision
