@@ -90,6 +90,19 @@ const MIN_MEANINGFUL_SHOT_COUNT = 3;
 const MAX_MEANINGFUL_SHOT_COUNT = 200;
 
 /**
+ * Every noun an editor uses for one picture on a timeline, in one place.
+ *
+ * There were two lists and they had drifted. The shot-count reader carried the stills
+ * nouns — added for run `4c9b5f82`, whose brief said "photos" forty times and named no
+ * other material — and the coverage reader did not, so on the same class of brief a
+ * duration and a shot count were readable and "apply a unified cinematic grade across all
+ * photos" was not. Run `fc10301a` produced no coverage criteria at all, and the three
+ * treatments it then omitted entirely (motion, grade, crop) were the three no check could
+ * see. One list, two readers, and a test that asserts they stay one.
+ */
+const PICTURE_NOUN_SOURCE = 'clips?|shots?|moments?|cuts?|scenes?|segments?|photos?|images?|pictures?|stills?';
+
+/**
  * Words that make a number a count of SHOTS. "moment" is here because it is what editors
  * actually say ("use 20+ of the best moments"), and in a cut request a moment is a shot.
  *
@@ -99,8 +112,7 @@ const MAX_MEANINGFUL_SHOT_COUNT = 200;
  * so the run's only checkable count was unreadable and `checkShotCount` reported `skipped`
  * over a montage that used ten of the sixty-one. A photo placed on a timeline is a shot.
  */
-const SHOT_NOUNS =
-  'clips?|shots?|moments?|cuts?|scenes?|segments?|angles?|photos?|images?|pictures?|stills?';
+const SHOT_NOUNS = `${PICTURE_NOUN_SOURCE}|angles?`;
 
 /** Time units that make a number a duration rather than a count. */
 const TIME_UNITS = 's|sec|secs|second|seconds|m|min|mins|minutes';
@@ -277,8 +289,11 @@ export function mentionsUnreadableShotCount(prompt: string): boolean {
  */
 const UNIVERSAL_QUANTIFIER = /\b(every|each|all|across|per|throughout)\b/;
 
-/** The clip nouns a universal statement attaches to. */
-const CLIP_NOUN = /\b(clips?|shots?|moments?|cuts?|scenes?|segments?)\b/;
+/**
+ * The picture nouns a universal statement attaches to — the same list the shot-count
+ * reader uses, because "every photo" and "every clip" are the same requirement.
+ */
+const CLIP_NOUN = new RegExp(`\\b(?:${PICTURE_NOUN_SOURCE})\\b`);
 
 /**
  * How a treatment is named in ordinary creator language.
@@ -289,9 +304,22 @@ const CLIP_NOUN = /\b(clips?|shots?|moments?|cuts?|scenes?|segments?)\b/;
  * pull in every treatment mentioned anywhere.
  */
 const TREATMENT_WORDS: readonly (readonly [CoverageTreatment, RegExp])[] = [
-  ['crop', /\b(reframe[sd]?|reframing|crop(?:ped|ping)?|fill the (?:full )?(?:vertical )?frame)\b/],
+  // `no black bars` and `safe area` are crop requirements stated as their consequence,
+  // which is how a delivery spec writes them ("9:16 … no black bars, no stretched photos").
+  [
+    'crop',
+    /\b(reframe[sd]?|reframing|crop(?:ped|ping)?|fill the (?:full )?(?:vertical )?frame|no black bars|safe areas?)\b/,
+  ],
   ['grade', /\b(grade[sd]?|grading|colou?r[- ]?correct(?:ed|ion)?)\b/],
-  ['motion', /\b(ken burns|zoom(?:ing)?|pan(?:ning)?|drift|push[- ]?in|punch[- ]?in)\b/],
+  // `animation`/`motion`/`movement`/`parallax` are how a STILLS brief asks for the same
+  // thing a video brief calls a push-in: "create motion inside them", "do not apply the
+  // same animation to every image". Naming only the camera-move vocabulary meant the one
+  // kind of footage that cannot move on its own was the one kind whose motion requirement
+  // was invisible.
+  [
+    'motion',
+    /\b(ken burns|zoom(?:ing)?|pan(?:ning)?|drift|push[- ]?in|punch[- ]?in|animat(?:e|ed|ion|ions)|motion|movement|parallax)\b/,
+  ],
   ['speed', /\b(speed ramp|ramp(?:ed|ing)?|slow[- ]?mo(?:tion)?|retim(?:e|ed|ing))\b/],
 ];
 

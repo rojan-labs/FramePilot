@@ -19,6 +19,7 @@ import {
   unmeetableDeliverables,
 } from './acceptance.js';
 import { MONTAGE_BRIEF_E36235CC } from './__fixtures__/montage-brief-e36235cc.js';
+import { MONTAGE_BRIEF_FC10301A } from './__fixtures__/montage-brief-fc10301a.js';
 
 describe('explicitMinShotCount', () => {
   it('reads a shot count from the way editors actually ask', () => {
@@ -70,10 +71,70 @@ describe('explicitCoverage', () => {
     // One moment, not the whole cut.
     expect(explicitCoverage('punch in on the reveal')).toEqual([]);
     expect(explicitCoverage('grade the opening shot')).toEqual([]);
-    // A quantifier with no clip noun is about something else entirely.
-    expect(explicitCoverage('crop every image in the bin')).toEqual([]);
+    // A quantifier with no PICTURE noun is about something else entirely. ("every beat"
+    // is a statement about the music, not about the cut.)
+    expect(explicitCoverage('push in on every beat')).toEqual([]);
     // A clip noun with no quantifier is not a whole-cut demand.
     expect(explicitCoverage('reframe the second clip')).toEqual([]);
+  });
+
+  // GAP-006 (run `fc10301a`). The coverage reader used a narrower noun list than the
+  // shot-count reader beside it, so a stills brief — which says "photos" and never "clips"
+  // — could have its duration and its shot count read while every per-clip demand it made
+  // went unseen. Both readers now share one list.
+  // The drift guard. The two readers had separate noun lists, one grew stills nouns and
+  // the other did not, and nothing noticed for two captured runs. This asserts the
+  // property directly rather than the implementation: whatever noun makes a number a shot
+  // count must also make a line a whole-cut demand.
+  it('every noun the shot-count reader accepts also anchors a coverage demand', () => {
+    for (const noun of ['clip', 'shot', 'moment', 'cut', 'scene', 'segment', 'photo', 'image', 'picture', 'still']) {
+      expect(explicitMinShotCount(`at least 12 ${noun}s`)).toBe(12);
+      expect(explicitCoverage(`grade every ${noun}`)).toEqual(['grade']);
+    }
+  });
+
+  it('reads a whole-cut demand made of photos, images, pictures and stills', () => {
+    expect(explicitCoverage('Apply a unified cinematic grade across all photos.')).toEqual([
+      'grade',
+    ]);
+    expect(explicitCoverage('Crop every image to fill the vertical frame.')).toEqual(['crop']);
+    expect(explicitCoverage('A slow push-in on each picture.')).toEqual(['motion']);
+    expect(explicitCoverage('Slow-mo on all stills.')).toEqual(['speed']);
+  });
+
+  // The motion vocabulary of a STILLS brief. A photograph cannot move on its own, so the
+  // brief asks for "animation" and "motion" rather than for a camera move — and naming
+  // only the camera-move words meant the one kind of footage whose motion has to be
+  // authored was the one kind whose motion requirement was invisible.
+  it('reads motion asked for in the words a stills brief uses', () => {
+    expect(explicitCoverage('Do not apply the same animation to every image.')).toEqual([
+      'motion',
+    ]);
+    expect(explicitCoverage('Motion should follow the composition of each photo.')).toEqual([
+      'motion',
+    ]);
+    expect(explicitCoverage('Subtle parallax across all shots.')).toEqual(['motion']);
+  });
+
+  // A delivery spec states the crop requirement as its consequence.
+  it('reads a crop demand stated as "no black bars" across the cut', () => {
+    expect(explicitCoverage('Every photo fills the frame — no black bars.')).toEqual(['crop']);
+  });
+
+  // The whole brief, unedited. Every treatment it demands is stated in the vocabulary of
+  // stills, and the run that received it applied none of them — motion, grade and crop
+  // were the three things it omitted entirely, and the three no criterion could see.
+  it('reads every per-photo demand the captured stills brief actually makes', () => {
+    // "Apply a unified cinematic grade across all photos", "do not apply the same
+    // animation to every image", "motion should follow the composition of each photo".
+    // Read as `[]` before the two noun lists were unified.
+    expect([...explicitCoverage(MONTAGE_BRIEF_FC10301A)].sort()).toEqual(['grade', 'motion']);
+    // Deliberately NOT 'crop'. The brief demands 9:16 with "no black bars" and "no
+    // stretched photos", but never attaches that to a universal quantifier and a picture
+    // noun on one line — so reading a crop criterion out of it would be inventing one, and
+    // a wrong criterion fails runs that did the work. The letterbox problem on that
+    // project is real and is caught where it belongs: `critic.ts#checkReframeCoverage`
+    // reads the FRAME, not the prose.
   });
 
   it('does not let a quantifier on one line reach a treatment on another', () => {
