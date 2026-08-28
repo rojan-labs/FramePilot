@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21618,
+      "usedTokens": 21659,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -144,7 +144,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 161,
+            "tokenEstimate": 202,
             "included": true,
             "cacheSide": "per_turn"
           },
@@ -160,9 +160,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21618,
+          "estimatedInputTokensBeforeSend": 21659,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170190,
+          "estimatedRemainingCapacity": 170149,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -384,7 +384,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21711,
+      "usedTokens": 21751,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -420,7 +420,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 254,
+            "tokenEstimate": 294,
             "included": true,
             "cacheSide": "per_turn"
           },
@@ -436,9 +436,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21711,
+          "estimatedInputTokensBeforeSend": 21751,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170097,
+          "estimatedRemainingCapacity": 170057,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -670,7 +670,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 16555,
+      "usedTokens": 16596,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -706,7 +706,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 535,
+            "tokenEstimate": 576,
             "included": true,
             "cacheSide": "per_turn"
           },
@@ -722,9 +722,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 16555,
+          "estimatedInputTokensBeforeSend": 16596,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 175253,
+          "estimatedRemainingCapacity": 175212,
           "toolSchemaTokensRebilled": 12359,
           "calculationSource": "local_estimate"
         },
@@ -792,6 +792,14 @@
       "type": "tool_result",
       "toolCallId": "r",
       "summary": "Skipped redundant get_timeline call"
+    },
+    {
+      "id": "turn_golden:notice:12",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "notification",
+      "text": "That exact set of calls was already made against this same arrangement and produced nothing new, so the run is settling here rather than repeating it."
     },
     {
       "id": "turn_golden:run-state",
@@ -889,7 +897,7 @@
       }
     },
     {
-      "id": "turn_golden:notice:12",
+      "id": "turn_golden:notice:13",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1012,7 +1020,7 @@
       }
     },
     {
-      "id": "turn_golden:usage:13",
+      "id": "turn_golden:usage:14",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1022,7 +1030,7 @@
       "modelCalls": 3
     },
     {
-      "id": "turn_golden:status:14",
+      "id": "turn_golden:status:15",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",

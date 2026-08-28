@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21623,
+      "usedTokens": 21664,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -144,7 +144,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 161,
+            "tokenEstimate": 202,
             "included": true,
             "cacheSide": "per_turn"
           },
@@ -160,9 +160,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21623,
+          "estimatedInputTokensBeforeSend": 21664,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170185,
+          "estimatedRemainingCapacity": 170144,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -376,7 +376,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21822,
+      "usedTokens": 21862,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -412,7 +412,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 360,
+            "tokenEstimate": 400,
             "included": true,
             "cacheSide": "per_turn"
           },
@@ -428,9 +428,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21822,
+          "estimatedInputTokensBeforeSend": 21862,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 169986,
+          "estimatedRemainingCapacity": 169946,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -763,7 +763,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 17861,
+      "usedTokens": 17901,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -799,7 +799,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 381,
+            "tokenEstimate": 421,
             "included": true,
             "cacheSide": "per_turn"
           },
@@ -815,9 +815,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 17861,
+          "estimatedInputTokensBeforeSend": 17901,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 173947,
+          "estimatedRemainingCapacity": 173907,
           "toolSchemaTokensRebilled": 13814,
           "calculationSource": "local_estimate"
         },
@@ -987,6 +987,14 @@
       "text": "Deterministic self-check: Passed with 1 warning(s)."
     },
     {
+      "id": "turn_golden:notice:13",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "notification",
+      "text": "Picture covers the programme: 3s of the 10s programme has no picture under it (0s–3s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen."
+    },
+    {
       "id": "turn_golden:run-state",
       "conversationId": "conv_golden",
       "ts": 1000,
@@ -1111,7 +1119,7 @@
       }
     },
     {
-      "id": "turn_golden:usage:13",
+      "id": "turn_golden:usage:14",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1129,7 +1137,7 @@
       "text": "**Applied 1 edit** in 1 step — review the proposed change below.\n\n- Deleted range Video 1 · 0s–3s"
     },
     {
-      "id": "turn_golden:status:14",
+      "id": "turn_golden:status:15",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",

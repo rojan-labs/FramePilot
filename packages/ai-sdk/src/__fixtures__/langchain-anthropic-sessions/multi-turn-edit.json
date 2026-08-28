@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 21620,
+      "usedTokens": 21661,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -144,7 +144,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 161,
+            "tokenEstimate": 202,
             "included": true,
             "cacheSide": "per_turn"
           },
@@ -160,9 +160,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21620,
+          "estimatedInputTokensBeforeSend": 21661,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 850380,
+          "estimatedRemainingCapacity": 850339,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -233,7 +233,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 161,
+            "tokenEstimate": 202,
             "included": true,
             "cacheSide": "per_turn"
           },
@@ -249,7 +249,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21620,
+          "estimatedInputTokensBeforeSend": 21661,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -553,7 +553,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 21664,
+      "usedTokens": 21704,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -589,7 +589,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 205,
+            "tokenEstimate": 245,
             "included": true,
             "cacheSide": "per_turn"
           },
@@ -605,9 +605,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21664,
+          "estimatedInputTokensBeforeSend": 21704,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 850336,
+          "estimatedRemainingCapacity": 850296,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -680,7 +680,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 205,
+            "tokenEstimate": 245,
             "included": true,
             "cacheSide": "per_turn"
           },
@@ -696,7 +696,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21664,
+          "estimatedInputTokensBeforeSend": 21704,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 0,
@@ -1030,7 +1030,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 21682,
+      "usedTokens": 21723,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -1066,7 +1066,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 223,
+            "tokenEstimate": 264,
             "included": true,
             "cacheSide": "per_turn"
           },
@@ -1082,9 +1082,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21682,
+          "estimatedInputTokensBeforeSend": 21723,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 850318,
+          "estimatedRemainingCapacity": 850277,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -1166,7 +1166,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 223,
+            "tokenEstimate": 264,
             "included": true,
             "cacheSide": "per_turn"
           },
@@ -1182,7 +1182,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21682,
+          "estimatedInputTokensBeforeSend": 21723,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 0,
@@ -1330,6 +1330,14 @@
       "text": "Deterministic self-check: Passed with 1 warning(s)."
     },
     {
+      "id": "turn_parity:notice:15",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "notification",
+      "text": "Picture covers the programme: 3s of the 10s programme has no picture under it (0s–2s, 8s–9s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen."
+    },
+    {
       "id": "turn_parity:run-state",
       "conversationId": "conv_parity",
       "ts": 1000,
@@ -1448,7 +1456,7 @@
       }
     },
     {
-      "id": "turn_parity:usage:15",
+      "id": "turn_parity:usage:16",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -1466,7 +1474,7 @@
       "text": "**Applied 2 edits** in 2 steps — review the proposed change below.\n\n- Deleted range Video 1 · 0s–2s\n- Deleted range Video 1 · 8s–9s"
     },
     {
-      "id": "turn_parity:status:16",
+      "id": "turn_parity:status:17",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",

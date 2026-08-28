@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21620,
+      "usedTokens": 21661,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -144,7 +144,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 161,
+            "tokenEstimate": 202,
             "included": true,
             "cacheSide": "per_turn"
           },
@@ -160,9 +160,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21620,
+          "estimatedInputTokensBeforeSend": 21661,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170188,
+          "estimatedRemainingCapacity": 170147,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -470,7 +470,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21664,
+      "usedTokens": 21704,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -506,7 +506,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 205,
+            "tokenEstimate": 245,
             "included": true,
             "cacheSide": "per_turn"
           },
@@ -522,9 +522,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21664,
+          "estimatedInputTokensBeforeSend": 21704,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170144,
+          "estimatedRemainingCapacity": 170104,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -862,7 +862,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21682,
+      "usedTokens": 21723,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -898,7 +898,7 @@
             "id": "s4",
             "type": "latest_user_message",
             "label": "user request",
-            "tokenEstimate": 223,
+            "tokenEstimate": 264,
             "included": true,
             "cacheSide": "per_turn"
           },
@@ -914,9 +914,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21682,
+          "estimatedInputTokensBeforeSend": 21723,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170126,
+          "estimatedRemainingCapacity": 170085,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -1077,6 +1077,14 @@
       "text": "Deterministic self-check: Passed with 1 warning(s)."
     },
     {
+      "id": "turn_golden:notice:15",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "notification",
+      "text": "Picture covers the programme: 3s of the 10s programme has no picture under it (0s–2s, 8s–9s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen."
+    },
+    {
       "id": "turn_golden:run-state",
       "conversationId": "conv_golden",
       "ts": 1000,
@@ -1195,7 +1203,7 @@
       }
     },
     {
-      "id": "turn_golden:usage:15",
+      "id": "turn_golden:usage:16",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1213,7 +1221,7 @@
       "text": "**Applied 2 edits** in 2 steps — review the proposed change below.\n\n- Deleted range Video 1 · 0s–2s\n- Deleted range Video 1 · 8s–9s"
     },
     {
-      "id": "turn_golden:status:16",
+      "id": "turn_golden:status:17",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
