@@ -77,6 +77,7 @@ import {
   recordHostRefusal,
   recordOperation,
   recordVerification,
+  isRequestEcho,
   setObjective,
   setExecutionAuthorization,
   setNextAction,
@@ -99,6 +100,8 @@ import { assessEditCompletion } from '../completion-gate.js';
 // `streamAgent` loop in `orchestrator.ts` keeps its own, much smaller default (30); the
 // two are independent by design — that path has no research budget to protect it.
 const DEFAULT_MAX_AGENT_STEPS = 300;
+// Deliberately larger than `orchestrator.ts`'s 100, for the same reason the step ceiling
+// above is: the rails exist here. `MAX_CLIPS_PER_BATCH` bounds itself by the smaller one.
 const DEFAULT_MAX_OPS_PER_TURN = 200;
 const DEFAULT_MAX_OPS_PER_RUN = 800;
 /** How many distinct validator-rejection reasons to retain for the empty-run notice. */
@@ -312,7 +315,14 @@ export interface ConductorState {
   readonly cumulativeOps: readonly AnyOperation[];
   /** Turns that produced applied edits (the completion report's step count). */
   readonly appliedTurns: number;
-  /** Tool-call signatures already seen to make no progress (exact-repeat spin guard). */
+  /**
+   * Tool-call signatures already seen to make no progress (exact-repeat spin guard).
+   *
+   * A signature is banked ONLY for a turn that genuinely learned nothing — see
+   * {@link bankableSignature}. A turn whose reads came back with fresh data is not
+   * evidence of a spin, however little the model then did with it, and banking those was
+   * half of what stopped run `fc10301a` four batches into a montage.
+   */
   readonly noProgress: readonly string[];
   /**
    * How many turns in a row made no progress (reset to 0 by any turn that applied or
@@ -652,6 +662,23 @@ export interface AgentTurnResult {
   readonly appliedOps: readonly AnyOperation[];
   /** Pre-described applied ops for the reducer's `timeline_action` cards. */
   readonly describedActions: readonly DescribedAction[];
+  /**
+   * The arrangement as it stands AFTER this turn's patch, in one line.
+   *
+   * Present only on a turn that applied something. Recorded as a `timeline_dependent`
+   * fact, which means it replaces the previous one rather than accumulating —
+   * `onProjectRevisionChanged` has just dropped it.
+   *
+   * WHY: applying a patch invalidates every timeline fact the run held, correctly, because
+   * a cut moves the ids and positions the next patch is written against. But the run
+   * AUTHORED that cut and is handed the resulting project, so making it call
+   * `get_timeline` to learn what it just did is asking it to pay for knowledge it already
+   * has. Run `fc10301a` alternated apply / re-read for its entire second half — roughly
+   * 40% of its model calls — and the re-read is also what collided with the spin guard.
+   *
+   * Computed from the post-apply project by the caller, never from the model's prose.
+   */
+  readonly arrangement?: string;
   /** Stable signature of the turn's tool calls, for the no-progress guard. */
   readonly signature: string;
   /**
@@ -711,10 +738,43 @@ export interface VerifyResult {
   readonly ok: boolean;
   readonly summary: string;
   readonly failedChecks: readonly { readonly label: string; readonly detail: string }[];
+  /**
+   * Checks that came back `warn` — advisory by contract, and until now invisible.
+   *
+   * The Critic's advisory checks are deliberately non-blocking ("a false alarm here cannot
+   * block a run that did the work"), and the price of that was that their advice never
+   * arrived: only `failedChecks` was carried, so a `warn` reached the editor as the number
+   * in "3 check(s) failed, 1 warning(s)" and nothing else. In run `fc10301a` the withheld
+   * sentence was `checkReframeCoverage`'s — "any landscape source will render with black
+   * bars" — over a montage of landscape stills in a 1080x1920 frame, which is the single
+   * most actionable thing anyone could have said about that output.
+   *
+   * Carried separately from `failedChecks` so the severity distinction survives to the
+   * event stream: a failure is a warning event, an advisory is a notification.
+   */
+  readonly warnedChecks: readonly { readonly label: string; readonly detail: string }[];
   /** Ops the bounded repair pass applied (folded into the run's combined diff). */
   readonly repairOps: readonly AnyOperation[];
+  /**
+   * What the bounded repair pass did, when the self-check gave it something to fix.
+   *
+   * `undefined` means it was never invoked (nothing failed, or nothing that failed is
+   * repairable). Any other value means a model call was made and this is what came of it —
+   * which is the distinction the run could not previously express. A repair that ran and
+   * produced nothing looked exactly like a repair that never ran, so the one diagnostic
+   * question worth asking about a failed run ("why didn't it fix the duration?") had no
+   * answer in the transcript, and a large-model call went unaccounted for.
+   */
+  readonly repairOutcome?: RepairOutcome;
   readonly endSeq: number;
 }
+
+/** Why the bounded repair pass produced no operations, or that it produced some. */
+export type RepairOutcome =
+  | { readonly kind: 'applied'; readonly opCount: number; readonly note: string }
+  | { readonly kind: 'no_calls' }
+  | { readonly kind: 'all_rejected'; readonly reasons: readonly string[] }
+  | { readonly kind: 'over_cap'; readonly opCount: number; readonly cap: number };
 
 /** What the runtime folds back into the Conductor. */
 export type ConductorResult =
@@ -1110,6 +1170,37 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
 // split-emitter contract (§7.4) that keeps event ids byte-identical across the
 // control/execution boundary.
 
+/**
+ * The run's own reading of the request, drawn from the plan it just drafted — or
+ * `undefined` when the plan says nothing the request did not.
+ *
+ * A drafted plan is the one place in the run where the model states what it believes the
+ * request means BEFORE acting on it. That is what an objective's `outcome` is for, and
+ * until now the field held a bounded copy of the request forever, which
+ * `buildStateBriefing` then had to suppress as noise.
+ *
+ * Rejects a single step that echoes the request, because that is the seed arriving by
+ * another route. Bounded, because this is stored and streamed on every turn.
+ */
+function planInterpretation(state: RunWorkingState, labels: readonly string[]): string | undefined {
+  if (!state.objective.provisional) return undefined;
+  const steps = labels.map((label) => label.trim()).filter(Boolean);
+  if (steps.length === 0) return undefined;
+  if (steps.every((step) => isRequestEcho(step, state.objective.request))) return undefined;
+  const joined = `Plan: ${steps.join('; ')}`;
+  return joined.length > PLAN_INTERPRETATION_CHARS
+    ? `${joined.slice(0, PLAN_INTERPRETATION_CHARS).trimEnd()}…`
+    : joined;
+}
+
+/**
+ * How much of a drafted plan is kept as the run's outcome.
+ *
+ * Twice {@link REQUEST_ECHO_CHARS}: a real interpretation earns more room than the request
+ * said back, and a twelve-step plan still has to fit in a state serialized every turn.
+ */
+const PLAN_INTERPRETATION_CHARS = 360;
+
 export function onDraftPlanResult(
   state: ConductorState,
   r: DraftPlanResult,
@@ -1123,7 +1214,25 @@ export function onDraftPlanResult(
     ledgerLength = planSteps.length;
     events.push(em.plan([...planSteps]));
   }
-  const working = commitExecutionPlan(state.working, r.labels, 0);
+  // The missing caller. `setObjective` is written to yield a provisional outcome — the
+  // request read back — to "the first real interpretation", and `acceptance.ts` records
+  // that nothing ever produced one: it "had exactly one caller, the seed itself". A
+  // drafted plan IS an interpretation. It is the model saying, in its own words and before
+  // it touches anything, what this request means it should do — which is the whole content
+  // of an outcome.
+  //
+  // Only a plan that says something new is taken. One step that is the request echoed back
+  // is the request echoed back however it arrived, and storing it as an interpretation
+  // would put a second copy of the brief in a state that is persisted and streamed every
+  // turn — the exact duplication `requestEcho` exists to stop.
+  const interpretation = planInterpretation(state.working, r.labels);
+  const interpreted = interpretation
+    ? setObjective(state.working, {
+        outcome: interpretation,
+        acceptance: state.working.objective.acceptance,
+      })
+    : state.working;
+  const working = commitExecutionPlan(interpreted, r.labels, 0);
   if (working.plan.status !== 'committed') {
     // `commitExecutionPlan` only ever leaves `plan.status` un-committed via its own
     // `addDiagnostic` call, which always pushes a diagnostic before returning — so
@@ -1381,7 +1490,9 @@ export function onTurnResult(
       const working = setNextAction(state.working, {
         stage: state.working.stage,
         action,
-        ...(state.working.objectives[0]?.id ? { objectiveId: state.working.objectives[0]!.id } : {}),
+        ...(state.working.objectives[0]?.id
+          ? { objectiveId: state.working.objectives[0]!.id }
+          : {}),
       });
       events.push(
         em.notification(`The request is not met yet — continuing. ${shortfall.join(' ')}`),
@@ -1457,6 +1568,21 @@ export function onTurnResult(
     // saying it is done — and the revision bump invalidates the arrangement facts while
     // leaving the transcript, footage map and committed decisions untouched.
     const revisionBefore = state.working.currentProjectRevision;
+    // One per applied patch, and deliberately NOT `project.timeline.revision`.
+    //
+    // That field is tempting — it is the project's own counter and it is what
+    // `get_timeline` reports — but it bumps only when an operation changes the
+    // source↔sequence MAPPING (`applyOperation`, ADR 0076). A colour grade, an audio gain
+    // change, a track rename and a blend-mode change all leave it exactly where it was.
+    // This counter drives `onProjectRevisionChanged`, which invalidates every
+    // timeline-dependent fact and evidence handle the run holds — and a grade absolutely
+    // does stale a `get_clips` payload. Keying invalidation to a mapping counter would
+    // leave the run reasoning from evidence its own edit had just outdated.
+    //
+    // The host's document revision (`PatchCommitOutcome.revision`) is a third counter
+    // again, counting everything written to the open project, the user's edits included.
+    // Three numbers, three questions; see that field's note for why they must not be
+    // conflated.
     const revisionAfter = revisionBefore + 1;
     const decisionId =
       state.working.plan.decisionIds[
@@ -1466,7 +1592,17 @@ export function onTurnResult(
       objective.id.endsWith(`_${Math.min(r.planStepIndex + 1, state.working.objectives.length)}`),
     )?.id;
     const planId = state.working.plan.id!;
-    const advancedWorking = onProjectRevisionChanged(state.working, revisionAfter);
+    const revised = onProjectRevisionChanged(state.working, revisionAfter);
+    // Immediately after the invalidation, and only there: the run's own account of the
+    // timeline it just produced, standing in for the `get_timeline` it would otherwise
+    // have to spend a turn on. See `AgentTurnResult.arrangement`.
+    const advancedWorking = r.arrangement
+      ? recordFact(revised, {
+          kind: 'project',
+          statement: r.arrangement,
+          scope: 'timeline_dependent',
+        })
+      : revised;
     const working = r.describedActions.reduce(
       (ledger, action, index) =>
         recordOperation(ledger, {
@@ -1732,7 +1868,7 @@ export function onTurnResult(
         ),
       );
     }
-    return advance({ ...guarded, noProgress: [...state.noProgress, r.signature] }, em, events);
+    return advance(bankIfStale(guarded, state, r, learnedSomethingNew), em, events);
   }
   const converged = stallStreak >= STALL_CONFIRM_TURNS;
   if (state.noProgress.includes(r.signature) || converged) {
@@ -1740,6 +1876,16 @@ export function onTurnResult(
       events.push(
         em.notification(
           'The run stopped making progress — no further edits could be found for this request.',
+        ),
+      );
+    } else {
+      // The exact-repeat arm used to end the run in silence. An editor watching saw a
+      // tool card go green and the run settle `failed` in the same breath, with the
+      // self-check warnings as the only account — and those describe the TIMELINE, not
+      // the decision to stop. Run `fc10301a` ended exactly here.
+      events.push(
+        em.notification(
+          'That exact set of calls was already made against this same arrangement and produced nothing new, so the run is settling here rather than repeating it.',
         ),
       );
     }
@@ -1765,7 +1911,37 @@ export function onTurnResult(
     );
     return toVerify(guarded, em, events);
   }
-  return advance({ ...guarded, noProgress: [...state.noProgress, r.signature] }, em, events);
+  return advance(bankIfStale(guarded, state, r, learnedSomethingNew), em, events);
+}
+
+/**
+ * Bank this turn's signature against the spin guard — but only when the turn is actually
+ * evidence of a spin.
+ *
+ * The guard's premise is "these exact calls, against this exact arrangement, already
+ * answered nothing new". A turn that ANSWERED — a read that came back uncached, a search
+ * that returned candidates, a call the run had never made before — fails that premise
+ * whatever the model did with the answer, and banking it arms a trap for the next turn
+ * that legitimately asks the same question.
+ *
+ * That is not hypothetical. Run `fc10301a` banked `get_timeline + list_assets` on a turn
+ * where both were memo hits, then made the same pair four turns and thirty-four clips
+ * later — uncached, against a timeline that had moved from empty to 24 seconds of picture
+ * — and was terminated on the match with eleven of thirty steps unspent. The revision is
+ * now part of the signature ({@link turnSignature} in `orchestrator.ts`), which fixes that
+ * exact collision; this fixes the class it belonged to.
+ *
+ * The stall and no-progress streaks are untouched: a run retrying one failing call
+ * forever still increments those every turn and still converges.
+ */
+function bankIfStale(
+  guarded: ConductorState,
+  state: ConductorState,
+  r: AgentTurnResult,
+  learnedSomethingNew: boolean,
+): ConductorState {
+  if (learnedSomethingNew) return guarded;
+  return { ...guarded, noProgress: [...state.noProgress, r.signature] };
 }
 
 /**
@@ -1786,6 +1962,26 @@ function mergeSeenKeys(seen: readonly string[], facts: readonly TurnCallFact[]):
   return [...new Set([...seen, ...facts.filter(callAnswered).map((f) => f.key)])];
 }
 
+/**
+ * One sentence for what the bounded repair pass did, in the editor's terms.
+ *
+ * Each arm names a different thing to do next, which is the point of distinguishing them:
+ * a repair with no calls is the model declining, a rejected repair is the validator
+ * disagreeing, and an over-cap repair is a fix too large for one turn.
+ */
+function describeRepairOutcome(outcome: RepairOutcome): string {
+  switch (outcome.kind) {
+    case 'applied':
+      return `Repair pass: ${outcome.note}`;
+    case 'no_calls':
+      return 'The repair pass looked at the failed checks and proposed no change.';
+    case 'all_rejected':
+      return `The repair pass proposed a fix and the validator rejected all of it: ${outcome.reasons.join('; ')}`;
+    case 'over_cap':
+      return `The repair pass proposed ${String(outcome.opCount)} operations, over this turn's cap of ${String(outcome.cap)}, so none were applied.`;
+  }
+}
+
 /** Fold the verify self-check (+ repair): surface its findings, fold repair ops, finalize. */
 export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitter): ConductorStep {
   // A Critic verdict is meaningful only when there is an edited result to inspect.
@@ -1799,6 +1995,15 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
     for (const check of r.failedChecks) {
       events.push(em.warning(`${check.label}: ${check.detail}`));
     }
+    // Advisory, so a notification rather than a warning — but SAID, which it was not.
+    // See `VerifyResult.warnedChecks`.
+    for (const check of r.warnedChecks) {
+      events.push(em.notification(`${check.label}: ${check.detail}`));
+    }
+    // A repair pass that ran and produced nothing used to be indistinguishable from one
+    // that never ran — including to the cost meter, which saw the model call but nothing
+    // to attribute it to. Say which of the four happened.
+    if (r.repairOutcome) events.push(em.notification(describeRepairOutcome(r.repairOutcome)));
   }
   let working = state.working;
   if (r.repairOps.length > 0) {

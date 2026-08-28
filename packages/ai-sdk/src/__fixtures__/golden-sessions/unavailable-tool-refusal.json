@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21616,
+      "usedTokens": 22341,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -121,38 +121,55 @@
             "type": "system",
             "label": "system contract",
             "tokenEstimate": 135,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "included": true
           },
           {
             "id": "s2",
-            "type": "conversation",
-            "label": "user turn 1",
-            "tokenEstimate": 1662,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "type": "system",
+            "label": "project header",
+            "tokenEstimate": 9,
+            "included": true
           },
           {
             "id": "s3",
-            "type": "conversation",
-            "label": "user turn 2",
-            "tokenEstimate": 1862,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "type": "retrieved_evidence",
+            "label": "timeline summary",
+            "tokenEstimate": 46,
+            "included": true
           },
           {
             "id": "s4",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 161,
-            "included": true,
-            "cacheSide": "per_turn"
+            "type": "retrieved_evidence",
+            "label": "transcript slice",
+            "tokenEstimate": 11,
+            "included": true
           },
           {
             "id": "s5",
+            "type": "skill",
+            "label": "skills manifest",
+            "tokenEstimate": 1645,
+            "included": true
+          },
+          {
+            "id": "s6",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 8,
+            "included": true
+          },
+          {
+            "id": "s7",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 2018,
+            "included": true
+          },
+          {
+            "id": "s8",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17796,
+            "tokenEstimate": 18469,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -160,9 +177,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21616,
+          "estimatedInputTokensBeforeSend": 22341,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170192,
+          "estimatedRemainingCapacity": 169467,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -327,7 +344,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21695,
+      "usedTokens": 22420,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -340,38 +357,55 @@
             "type": "system",
             "label": "system contract",
             "tokenEstimate": 135,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "included": true
           },
           {
             "id": "s2",
-            "type": "conversation",
-            "label": "user turn 1",
-            "tokenEstimate": 1662,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "type": "system",
+            "label": "project header",
+            "tokenEstimate": 9,
+            "included": true
           },
           {
             "id": "s3",
-            "type": "conversation",
-            "label": "user turn 2",
-            "tokenEstimate": 1862,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "type": "retrieved_evidence",
+            "label": "timeline summary",
+            "tokenEstimate": 46,
+            "included": true
           },
           {
             "id": "s4",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 240,
-            "included": true,
-            "cacheSide": "per_turn"
+            "type": "retrieved_evidence",
+            "label": "transcript slice",
+            "tokenEstimate": 11,
+            "included": true
           },
           {
             "id": "s5",
+            "type": "skill",
+            "label": "skills manifest",
+            "tokenEstimate": 1645,
+            "included": true
+          },
+          {
+            "id": "s6",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 8,
+            "included": true
+          },
+          {
+            "id": "s7",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 2097,
+            "included": true
+          },
+          {
+            "id": "s8",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17796,
+            "tokenEstimate": 18469,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -379,9 +413,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21695,
+          "estimatedInputTokensBeforeSend": 22420,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170113,
+          "estimatedRemainingCapacity": 169388,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },

@@ -20,7 +20,7 @@ import { z } from 'zod/v4';
  * Bump on any breaking change to the schema. A migration is required before the
  * schema can change in a way that invalidates existing `project.fp.json` files.
  */
-export const SCHEMA_VERSION = 20 as const;
+export const SCHEMA_VERSION = 21 as const;
 
 // ---------------------------------------------------------------------------
 // Primitives
@@ -907,6 +907,28 @@ export const TimelineSchema = z.object({
  * fail the whole project parse.
  */
 export const AssetMediaSchema = z.object({
+  /**
+   * Source pixel dimensions, when the engine has probed them (schema v21).
+   *
+   * WHY: nothing anywhere carried an asset's shape, and the consequences reached the
+   * rendered picture. `_place_video_clip` FITS a clip into the frame — `min(target_w/w,
+   * target_h/h)`, which is *contain* — so a landscape source in a portrait sequence
+   * renders with black bars unless the clip carries a crop. The one check that notices
+   * (`critic.ts#checkReframeCoverage`) had to ask a consistency question instead of a
+   * geometric one, and says so in its own docstring: "the project does not carry each
+   * asset's pixel dimensions".
+   *
+   * The agent was worse off than the check. Run `fc10301a` placed 34 landscape WhatsApp
+   * photos in a 1080x1920 sequence against a brief that said "no black bars, no stretched
+   * photos", and had no way to know any of them needed reframing: `list_assets` returns
+   * id, path, kind and duration, and `set_clip_crop` exists but nothing said which clips
+   * wanted one.
+   *
+   * Nullish like every sibling here, and for the same cross-language reason — the Python
+   * engine serialises an unprobed asset's fields as `null`, not as absent keys.
+   */
+  width: z.number().int().positive().nullish(),
+  height: z.number().int().positive().nullish(),
   /** Project-relative path to a generated low-res proxy media file. */
   proxyPath: z.string().nullish(),
   /** Downsampled, normalized (0..1) waveform peaks for timeline rendering. */

@@ -117,15 +117,42 @@ export function settledStageFor(
 /**
  * May a stage use a tool with this role?
  *
- * Execution stages (`apply`, `enhance`, `repair`) are closed to fresh reconnaissance:
- * the plan is locked and the evidence for it is already stored, so the way to check a
- * detail is `recall_evidence`, not another read. `inspection` stays open there because
- * applying an edit legitimately needs the CURRENT arrangement — the ids and positions a
- * patch is written against, which the last cut may have moved.
+ * Execution stages (`apply`, `enhance`, `repair`) are closed to fresh reconnaissance OF
+ * THE MATERIAL: the plan is locked and the evidence for it is already stored, so the way
+ * to check a detail is `recall_evidence`, not another `map_footage`. `inspection` stays
+ * open because applying an edit legitimately needs the CURRENT arrangement — the ids and
+ * positions a patch is written against, which the last cut may have moved.
+ *
+ * ## Why `guidance` is no longer withheld
+ *
+ * The rule this function encodes is "the evidence for the plan is already stored, so
+ * recall it instead of gathering again". That is true of a footage map or a beat grid,
+ * which `analysis` produces and the evidence store holds. It is false of the five
+ * `guidance` tools, and the falseness had teeth:
+ *
+ * `discover_effects` and `discover_transitions` read the SHIPPED CATALOGS — static data
+ * the run may never have fetched, so there is nothing to recall — and their own
+ * descriptions are the contract that makes them load-bearing: "Call this before
+ * `add_transition` — the ids are not guessable, and a kind this build does not know is
+ * refused outright rather than rendering as nothing." `add_transition` and `apply_effect`
+ * ARE offered in `apply` (they are mutations). So the moment a run landed its first clip,
+ * it kept the tools that demand a real catalog id and lost the only sanctioned way to
+ * learn one. Run `fc10301a` was asked for a rich variety of transitions and placed none.
+ *
+ * `load_skill`, `session_context` and `discover_caption_styles` are the same shape:
+ * reference data, not observation.
+ *
+ * A run that browses catalogs instead of editing is still stopped, by the guards that
+ * exist for it — a repeated catalog read is a memo hit, which arms `allFromCache` and the
+ * action-recovery lockout, and the no-progress streak climbs either way. Withholding the
+ * reference data an offered tool requires was never the right instrument for that.
+ *
+ * The invariant this restores is checked directly: see `stage-policy.test.ts`'s
+ * "a tool that says 'call X first' is offered no stage before X is".
  */
 export function stageAllowsRole(stage: RunStage, role: ToolRole): boolean {
   if (!isExecutionStage(stage)) return true;
-  return role !== 'analysis' && role !== 'guidance';
+  return role !== 'analysis';
 }
 
 /*

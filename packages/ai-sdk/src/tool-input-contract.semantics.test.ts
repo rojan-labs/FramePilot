@@ -210,3 +210,34 @@ describe('ordered windows', () => {
     }
   });
 });
+
+describe('add_clips per-entry ordering', () => {
+  // The tool description promises "the reason names the entry: fix that one and send the
+  // batch again". `assertOrdered` reads top-level fields only, and a contract rejection is
+  // reported without an operation index, so without a per-entry check that promise held on
+  // the sidecar and not in Agent mode — the path the batch tool exists for.
+  it('names the entry that is wrong, not just the batch', () => {
+    rejects(
+      'add_clips',
+      {
+        trackId: 'video_1',
+        clips: [
+          { assetId: 'a', start: 0, end: 1 },
+          { assetId: 'a', start: 2, end: 2 },
+        ],
+      },
+      /add_clips entry 1: end must be greater than start/,
+    );
+  });
+
+  it('accepts a batch whose every entry is ordered', () => {
+    accepts('add_clips', {
+      trackId: 'video_1',
+      clips: [
+        { assetId: 'a', start: 0, end: 1 },
+        { assetId: 'a', start: 1, end: 2.5 },
+      ],
+    });
+    accepts('add_clips', { trackId: 'video_1', clips: 'not an array' });
+  });
+});

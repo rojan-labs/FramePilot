@@ -130,6 +130,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   delete_clips: { label: 'Delete clips', Icon: ListX },
   move_clip: { label: 'Move clip', Icon: ArrowLeftRight },
   add_clip: { label: 'Add clip', Icon: Plus },
+  add_clips: { label: 'Add clips', Icon: Plus },
   add_track: { label: 'Add track', Icon: Plus },
   remove_track: { label: 'Remove track', Icon: Trash2 },
   move_track: { label: 'Reorder track', Icon: ArrowLeftRight },

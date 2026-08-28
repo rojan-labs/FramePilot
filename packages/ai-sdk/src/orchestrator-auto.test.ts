@@ -226,12 +226,25 @@ describe('Orchestrator.streamAuto', () => {
     expect(diff?.edit.validation.valid).toBe(true);
     const adds =
       diff?.edit.patch.operations.filter((operation) => operation.type === 'add_clip') ?? [];
-    expect(adds.map(({ start, end }) => [start, end])).toEqual([
-      [0, 0.75],
-      [0.75, 1.75],
-      [1.75, 3],
-    ]);
-    expect(adds.map(({ start, end }) => Number(end) - Number(start))).toEqual([0.75, 1, 1.25]);
+    // The onsets are 0, 0.75, 1.75, 3 and the project is 30fps, so two of them fall
+    // BETWEEN frames — 0.75s is frame 22.5. Every edit point is now quantized (GAP-005),
+    // including `add_clip`'s, so each cut lands on the frame nearest its onset. Asserted
+    // as the two properties that matter rather than as four constants: the cuts are on the
+    // grid, and they are still where the music is.
+    const frame = (seconds: unknown) => Number(seconds) * 30;
+    for (const [start, end] of adds.map(({ start, end }) => [start, end])) {
+      expect(frame(start)).toBeCloseTo(Math.round(frame(start)), 9);
+      expect(frame(end)).toBeCloseTo(Math.round(frame(end)), 9);
+    }
+    for (const [i, onset] of [0, 0.75, 1.75].entries()) {
+      // Within half a frame of the onset — the nearest frame that exists.
+      expect(Number(adds[i]?.start)).toBeCloseTo(onset, 1);
+    }
+    // Still variable, which is the point of cutting to non-uniform onsets: the run must
+    // not have flattened them onto a regular grid.
+    const durations = adds.map(({ start, end }) => Number(end) - Number(start));
+    expect(new Set(durations.map((d) => d.toFixed(2))).size).toBe(3);
+    expect(adds).toHaveLength(3);
     // One classification call plus the agent's turns. Bounded rather than exact so a
     // harmless extra settle turn is not a failure, but a spin loop still is.
     // 7, not 6: the model's "done" now answers to the request's own stated conditions, and

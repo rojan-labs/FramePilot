@@ -64,7 +64,7 @@ nothing in a non-empty bin.
 
 | Tool                      | Purpose                                                        | Kind             | Available? |
 | ------------------------- | -------------------------------------------------------------- | ---------------- | ---------- |
-| `get_project_state`       | Current editable project state (excludes undo history)         | read             | yes        |
+| `get_project_state`       | Current editable state (no undo history; media bin as a tally) | read             | yes        |
 | `get_timeline`            | Current tracks/clips                                           | read             | yes        |
 | `get_transcript`          | Word-level transcript (optional `start`/`end` window)          | read             | yes        |
 | `get_timeline_summary`    | Compact per-track overview (counts + spans, no clip bodies)    | read             | yes        |
@@ -84,6 +84,7 @@ nothing in a non-empty bin.
 | `remove_track`            | Remove a track and its clips (`remove_layer` op, wipe-guarded) | write            | yes        |
 | `move_track`              | Reorder a track's z-slot (`move_layer` op)                     | write            | yes        |
 | `add_clip`                | Add a clip from an existing asset                              | write            | yes        |
+| `add_clips`               | Place a whole sequence on one track in a single call           | write            | yes        |
 | `add_text_layer`          | Add a text overlay (`add_text_overlay` op)                     | write            | yes        |
 | `add_caption_layer`       | Add one short mapped caption cue (never a full-song block)     | write            | yes        |
 | `auto_emphasize_captions` | Ground AI-selected anchors and compose a caption track         | write            | yes        |
@@ -102,6 +103,27 @@ nothing in a non-empty bin.
 | `detect_scenes`           | Detect scene cuts (ffmpeg scene score)                         | analysis         | yes        |
 | `detect_subjects`         | Detect people/objects in frames (Subject Intelligence pack)    | analysis         | yes        |
 | `generate_mask`           | Produce a subject mask                                         | write            | **no\***   |
+
+`get_project_state` returns the media bin as a **tally**, not a listing:
+
+```jsonc
+// before
+{ "assets": [ { "id": "a1", "kind": "video", ... }, ... ] }
+// now
+{ "assetSummary": { "total": 61, "byKind": { "image": 60, "audio": 1 },
+                    "note": "Asset ids are not listed here — call list_assets for them." } }
+```
+
+The `assets` array is **absent**, not renamed — call `list_assets` for the ids. A run that
+called both tools paid for the same ~5,000 tokens of asset ids twice and filed two evidence
+handles for one fact. What `get_project_state` adds over `list_assets` is everything else:
+fps, resolution, the timeline, the transcript, markers, project memory.
+
+`add_clips` places many clips on one track in one call and is exactly equivalent to the
+`add_clip` calls it replaces — same derived `sourceEnd`, same validation, one reversible
+patch. Entries are rejected individually and the rejection names the offending index, so a
+batch is fixed and re-sent rather than unrolled into single calls. The whole batch still
+counts against the per-turn operation cap.
 
 `add_clip` intentionally has only one authoritative duration. `start`/`end`
 define the timeline span; `sourceStart` chooses the asset in-point (default 0),

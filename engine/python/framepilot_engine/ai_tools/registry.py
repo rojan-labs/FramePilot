@@ -115,6 +115,17 @@ class MoveClipArgs(BaseModel):
     to_start: float = Field(alias="toStart", ge=0.0)
 
 
+class AddClipEntry(BaseModel):
+    """One placement inside an ``add_clips`` batch — ``add_clip`` minus the track id."""
+
+    model_config = _STRICT
+    asset_id: str = Field(alias="assetId")
+    start: float = Field(ge=0.0)
+    end: float = Field(ge=0.0)
+    source_start: float = Field(default=0.0, alias="sourceStart", ge=0.0)
+    source_end: float | None = Field(default=None, alias="sourceEnd", ge=0.0)
+
+
 class AddClipArgs(BaseModel):
     model_config = _STRICT
     track_id: str = Field(alias="trackId")
@@ -126,6 +137,19 @@ class AddClipArgs(BaseModel):
     # source end from the timeline span so untrusted model arithmetic cannot violate
     # the clip speed/duration invariant.
     source_end: float | None = Field(default=None, alias="sourceEnd", ge=0.0)
+
+
+class AddClipsArgs(BaseModel):
+    """Place many assets on ONE track in a single call (mirrors the TS ``add_clips``).
+
+    Each entry follows ``add_clip``'s rules exactly, including the derived ``sourceEnd``;
+    the batch exists so laying out a sequence costs one call and one undo rather than one
+    of each per shot.
+    """
+
+    model_config = _STRICT
+    track_id: str = Field(alias="trackId")
+    clips: list[AddClipEntry] = Field(min_length=1)
 
 
 class AddTrackArgs(BaseModel):
@@ -204,6 +228,9 @@ class PunchInArgs(BaseModel):
 class ApplyColorGradeArgs(BaseModel):
     model_config = _STRICT
     clip_id: str = Field(alias="clipId")
+    # Accepted here, not advertised: `contract_overrides._ApplyColorGradeArgs` refuses it
+    # with the sentence that says where transforms actually come from. Mirrors
+    # `domain-tools/color.ts`.
     type: Literal["color_grade", "lut", "transform"] | None = None
     params: dict[str, Any] | None = None
 
@@ -979,9 +1006,11 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     # --- Read tools (PRD §8.3) ---
     "get_project_state": _spec(
         "get_project_state",
-        "Return the current editable project state without editor-only undo history. "
-        "This is the live state for the active session — read it here, not from "
-        "project.fp.json on disk.",
+        "Return the current editable project state — settings, timeline, transcript, "
+        "markers, memory — without editor-only undo history. This is the live state "
+        "for the active session: read it here, not from project.fp.json on disk. The "
+        "media bin comes back as a TALLY, not a listing; call list_assets for the "
+        "asset ids.",
         kind="read",
     ),
     "get_timeline": _spec(
@@ -1232,6 +1261,21 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         input_model=AddClipArgs,
         mutating=True,
     ),
+    "add_clips": _spec(
+        "add_clips",
+        # Mirrors `domain-tools/timeline.ts` — the two tool surfaces advertise one contract.
+        "Place MANY assets on one track in a single call — the same placement as "
+        "add_clip, once per entry, in one reversible patch and one undo. Use this "
+        "whenever you are laying out a sequence rather than fixing one shot: a montage, "
+        "a b-roll pass, a set of photos on a beat grid. Entries are { assetId, start, "
+        "end, sourceStart? } and follow add_clip's rules exactly — timeline seconds, "
+        "real asset ids, no overlaps on the track, and sourceEnd derived for you. The "
+        "whole call is validated together, so if any one entry is rejected none of them "
+        "land and the reason names the entry: fix that one and send the batch again.",
+        kind="mutate",
+        input_model=AddClipsArgs,
+        mutating=True,
+    ),
     "add_text_layer": _spec(
         "add_text_layer",
         "Add a text overlay clip on a track over a timeline range (start/end seconds). "
@@ -1273,7 +1317,16 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "apply_color_grade": _spec(
         "apply_color_grade",
-        "Apply a color grade to a clip.",
+        # Mirrors `domain-tools/color.ts` — the two tool surfaces advertise one contract.
+        "Grade ONE clip. Two kinds: `color_grade` (the default) takes signed offsets "
+        "where 0 changes nothing — exposure (-5..5), contrast (-1..1), "
+        "saturation (-1..3), temperature (-1..1), tint (-1..1), shadows (-1..1), "
+        "highlights (-1..1). A value outside its range, or a name not on that list, is "
+        "refused rather than silently ignored, and every parameter you omit stays at 0, "
+        "so a correction can name only the axis it fixes. `lut` instead takes "
+        "params.path — a .cube file inside the project. There is no grade for position, "
+        "scale or rotation: those are keyframes (add_keyframes, punch_in). Grading is "
+        "per clip, so a whole-sequence look is one call per clip.",
         kind="mutate",
         input_model=ApplyColorGradeArgs,
         mutating=True,

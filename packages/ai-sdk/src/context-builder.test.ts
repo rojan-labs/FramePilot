@@ -16,6 +16,7 @@ import {
   MIN_CLIPS_PER_LAYER,
   MIN_TRANSCRIPT_WORDS,
   allocateGroundingSlice,
+  summarizeMediaBin,
   summarizeTimeline,
   summarizeTranscript,
 } from './context-builder.js';
@@ -693,6 +694,74 @@ describe('per-section accounting (ADR 0080)', () => {
     }
   });
 
+  // GAP-012 (run `fc10301a`). `summarizeTimeline` describes what has been PLACED; nothing
+  // described the material waiting to be placed. So a montage run spent a `list_assets`
+  // call to learn what it was editing, and — because the action log keeps payloads for
+  // only its two freshest entries — more calls recalling the same list later. That run
+  // retrieved one unchanging list of 62 asset ids five times.
+  describe('media bin', () => {
+    const withAssets = (count: number, placedIds: readonly string[] = []) =>
+      makeProject({
+        assets: Array.from({ length: count }, (_, i) => ({
+          id: `asset_p${String(i)}`,
+          path: `media/p${String(i)}.jpeg`,
+          kind: 'image' as const,
+          durationSeconds: 5,
+        })),
+        timeline: {
+          tracks: [
+            {
+              id: 'video_1',
+              type: 'video' as const,
+              clips: placedIds.map((assetId, i) => ({
+                id: `c_${assetId}`,
+                assetId,
+                trackId: 'video_1',
+                start: i,
+                end: i + 1,
+                sourceStart: 0,
+                sourceEnd: 1,
+                effects: [],
+                keyframes: [],
+              })),
+            },
+          ],
+        },
+      } as never);
+
+    it('answers "what have I not used yet" — the question a montage asks every turn', () => {
+      const text = summarizeMediaBin(withAssets(4, ['asset_p0', 'asset_p2']));
+      expect(text).toContain('4 asset(s), 2 placed, 2 not yet used');
+      expect(text).toContain('- asset_p0 [image] 5s · placed');
+      expect(text).toContain('- asset_p1 [image] 5s');
+      expect(text).not.toContain('- asset_p1 [image] 5s · placed');
+    });
+
+    it('bounds itself by characters and says how to read the rest', () => {
+      const text = summarizeMediaBin(withAssets(400));
+      expect(text.length).toBeLessThan(4500);
+      // Never trails off: a run told "+37 more" with no route to them invents ids.
+      expect(text).toMatch(/…and \d+ more — call list_assets to read them all/);
+    });
+
+    it('shows a 61-photo library whole — the size an editor actually imports', () => {
+      const text = summarizeMediaBin(withAssets(61));
+      expect(text).not.toContain('more — call list_assets');
+      expect(text).toContain('asset_p60');
+    });
+
+    it('is absent for a project with an empty bin', () => {
+      expect(summarizeMediaBin(makeProject({ assets: [] } as never))).toBe('');
+    });
+
+    it('is absent once every asset is on the timeline', () => {
+      // The block answers "what is there still to place". With nothing left, the timeline
+      // summary above is already the complete account of the project's material, and a
+      // second listing of the same ids is weight the grounding tiers could have used.
+      expect(summarizeMediaBin(withAssets(2, ['asset_p0', 'asset_p1']))).toBe('');
+    });
+  });
+
   it('distinguishes blocks that share a tier, so the UI can name what took the room', () => {
     const project = makeProject();
     const { sections } = assembleContext({
@@ -702,7 +771,25 @@ describe('per-section accounting (ADR 0080)', () => {
       footageMap: 'Chapter 1 (0–12s): the hook.',
     });
     const timeline = sections.filter((s) => s.tier === 'timeline').map((s) => s.label);
+    // No media-bin block here: this fixture's only asset is already on the timeline, so
+    // the bin has nothing to add (GAP-012).
     expect(timeline).toEqual(['timeline summary', 'visual index status', 'footage map']);
+  });
+
+  it('adds the media bin to the timeline tier when material is waiting to be placed', () => {
+    const { sections } = assembleContext({
+      project: makeProject({
+        assets: [
+          { id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 30 },
+          { id: 'asset_2', path: 'media/b.jpeg', kind: 'image', durationSeconds: 5 },
+        ],
+      } as never),
+      userPrompt: 'cut it down',
+    });
+    const timeline = sections.filter((s) => s.tier === 'timeline').map((s) => s.label);
+    // Directly under the timeline summary: together they are "what has been placed" and
+    // "what there is to place", which is the pair a montage reasons over.
+    expect(timeline).toEqual(['timeline summary', 'media bin']);
   });
 
   it('keeps a dropped section in the account, marked not-included', () => {

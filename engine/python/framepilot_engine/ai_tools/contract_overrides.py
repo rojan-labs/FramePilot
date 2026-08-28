@@ -70,6 +70,41 @@ class _AddClipArgs(BaseModel):
         return self
 
 
+class _AddClipEntry(BaseModel):
+    """One placement inside an ``add_clips`` batch — ``_AddClipArgs`` minus the track id.
+
+    The ordering rule is repeated rather than shared because it must fail per ENTRY: a
+    batch rejected without saying which of sixty entries was wrong is a batch the model
+    cannot fix.
+    """
+
+    model_config = _STRICT
+    asset_id: str = Field(alias="assetId")
+    start: float = Field(ge=0.0)
+    end: float = Field(ge=0.0)
+    source_start: float = Field(default=0.0, alias="sourceStart", ge=0.0)
+    source_end: float | None = Field(default=None, alias="sourceEnd", ge=0.0)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> _AddClipEntry:
+        if self.end <= self.start:
+            raise ValueError("end must be greater than start")
+        return self
+
+
+#: The most placements one ``add_clips`` call may carry. Mirrors
+#: ``domain-tools/timeline.ts#MAX_CLIPS_PER_BATCH`` — a batch is still N operations to the
+#: turn's blast-radius bound, and the smaller of the two TS defaults (100) is the only value
+#: that parses on either path. Rejecting here says what the limit IS; the turn cap does not.
+MAX_CLIPS_PER_BATCH = 100
+
+
+class _AddClipsArgs(BaseModel):
+    model_config = _STRICT
+    track_id: str = Field(alias="trackId")
+    clips: list[_AddClipEntry] = Field(min_length=1, max_length=MAX_CLIPS_PER_BATCH)
+
+
 class _AddTrackArgs(BaseModel):
     model_config = _STRICT
     # TS: `type: z.enum([...]).default('overlay')` — the advisory role, not a content limit.
@@ -238,6 +273,10 @@ class _PunchInArgs(BaseModel):
 class _ApplyColorGradeArgs(BaseModel):
     model_config = _STRICT
     clip_id: str = Field(alias="clipId")
+    # `transform` is accepted HERE and not advertised to the model — the same split
+    # `domain-tools/color.ts` makes. The renderer takes its transform from keyframes, never
+    # from a colour effect's params, so the arm can only fail; letting it parse is what
+    # buys the caller the explanation below instead of a generic enum error.
     type: Literal["color_grade", "lut", "transform"] | None = None
     params: dict[str, Any] | None = None
 
@@ -246,7 +285,10 @@ class _ApplyColorGradeArgs(BaseModel):
         grade_type = self.type or "color_grade"
         params = self.params or {}
         if grade_type == "transform":
-            raise ValueError("transform is not a color renderer operation; use color_grade or lut")
+            raise ValueError(
+                "transform is not a color renderer operation; use color_grade or lut. "
+                "Position, scale and rotation come from keyframes (add_keyframes, punch_in)."
+            )
         if grade_type == "lut":
             path = params.get("path")
             if not isinstance(path, str) or not path.strip():
@@ -477,6 +519,7 @@ class _AutoEmphasizeCaptionsArgs(BaseModel):
 _MODEL_OVERRIDES: dict[str, type[BaseModel]] = {
     "add_asset": _AddAssetArgs,
     "add_clip": _AddClipArgs,
+    "add_clips": _AddClipsArgs,
     "add_track": _AddTrackArgs,
     "get_transcript": _WindowArgs,
     "get_mapped_transcript": _WindowArgs,

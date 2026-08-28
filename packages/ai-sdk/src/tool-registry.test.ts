@@ -4,10 +4,15 @@
  * exercised; the resulting operations must pass the patch validator.
  */
 import { describe, expect, it } from 'vitest';
-import { validatePatch, type Operation } from '@framepilot/editor-core';
+import {
+  COLOR_GRADE_PARAMETER_CONTRACTS,
+  validatePatch,
+  type Operation,
+} from '@framepilot/editor-core';
 import { ZodError } from 'zod/v4';
 import { TOOL_REGISTRY, concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
 import type { ToolContext } from './tool-context.js';
+import { MAX_CLIPS_PER_BATCH } from './domain-tools/timeline.js';
 import { makeProject } from './__fixtures__/project.js';
 
 const ctx: ToolContext = { project: makeProject(), selection: { start: 1, end: 2 } };
@@ -174,12 +179,19 @@ describe('tool registry — shape', () => {
 
 describe('read tools', () => {
   it('return project data from context', () => {
-    // Not identity: the project is projected for the model (assets lose `media`, and
-    // editor-only undo history never enters the result/evidence/WAL path).
+    // Not identity: the project is projected for the model (editor-only undo history
+    // never enters the result/evidence/WAL path), and the bin is a TALLY rather than a
+    // listing — `list_assets` returns the same array, and a run that calls both pays for
+    // the ids twice (GAP-018).
+    const { assets: _assets, ...withoutAssets } = ctx.project;
     expect(getTool('get_project_state')?.read?.({}, ctx)).toEqual({
-      ...ctx.project,
-      assets: ctx.project.assets.map(({ media: _media, ...rest }) => rest),
+      ...withoutAssets,
       history: [],
+      assetSummary: {
+        total: 1,
+        byKind: { video: 1 },
+        note: 'Asset ids are not listed here — call list_assets for them.',
+      },
     });
     expect(getTool('get_timeline')?.read?.({}, ctx)).toBe(ctx.project.timeline);
     expect(getTool('get_transcript')?.read?.({}, ctx)).toBe(ctx.project.transcript);
@@ -372,15 +384,89 @@ describe('read tools', () => {
     ]);
 
     const state = getTool('get_project_state')?.read?.({}, mediaCtx) as {
-      assets: unknown[];
+      assets?: unknown[];
+      assetSummary: { total: number; byKind: Record<string, number> };
       history: unknown;
     };
-    expect(state.assets).toEqual(bin.assets);
+    // The bin is a tally here, not a listing (GAP-018) — but the stripping still has to
+    // hold, which is what the `peaks` assertion below proves against the whole payload.
+    expect(state.assets).toBeUndefined();
+    expect(state.assetSummary).toMatchObject({ total: 1, byKind: { video: 1 } });
     expect(state.history).toEqual([]);
     // The stored project keeps its media — only the model-facing copy drops it.
     expect(project.assets[0]?.media?.peaks).toHaveLength(3);
     expect(project.history).toHaveLength(1);
     expect(JSON.stringify(state)).not.toContain('peaks');
+  });
+
+  // GAP-009 (run `fc10301a`). The renderer FITS a clip into the frame, so a landscape
+  // source in a portrait sequence letterboxes unless the clip carries a crop. Nothing
+  // carried an asset's shape, so the run placed 34 landscape photos in a 1080x1920 frame
+  // against a brief reading "No black bars. No stretched photos." with no way to know.
+  it('reports each measured asset as landscape, portrait or square', () => {
+    const project = makeProject({
+      assets: [
+        {
+          id: 'wide',
+          path: 'media/w.jpeg',
+          kind: 'image',
+          media: { width: 4032, height: 3024 },
+        },
+        { id: 'tall', path: 'media/t.jpeg', kind: 'image', media: { width: 1080, height: 1920 } },
+        { id: 'sq', path: 'media/s.jpeg', kind: 'image', media: { width: 800, height: 800 } },
+        { id: 'unmeasured', path: 'media/u.jpeg', kind: 'image' },
+      ],
+    });
+    const bin = getTool('list_assets')?.read?.({}, { project }) as {
+      assets: { id: string; orientation?: string; aspect?: number }[];
+    };
+    expect(bin.assets.map((a) => [a.id, a.orientation])).toEqual([
+      ['wide', 'landscape'],
+      ['tall', 'portrait'],
+      ['sq', 'square'],
+      // Absent means unmeasured, never square: a guess would send a run to crop the
+      // wrong axis.
+      ['unmeasured', undefined],
+    ]);
+    expect(bin.assets[0]?.aspect).toBe(1.333);
+  });
+
+  it('warns that landscape sources will letterbox in a portrait project', () => {
+    const project = makeProject({
+      resolution: { width: 1080, height: 1920 },
+      assets: [
+        { id: 'p1', path: 'media/1.jpeg', kind: 'image', media: { width: 4032, height: 3024 } },
+        { id: 'p2', path: 'media/2.jpeg', kind: 'image', media: { width: 4032, height: 3024 } },
+      ],
+    });
+    const bin = getTool('list_assets')?.read?.({}, { project }) as { letterbox?: string };
+    expect(bin.letterbox).toContain('2 of these are landscape');
+    expect(bin.letterbox).toContain('1080x1920');
+    expect(bin.letterbox).toContain('set_clip_crop');
+  });
+
+  it('says nothing about letterboxing when the frame is not portrait', () => {
+    const project = makeProject({
+      resolution: { width: 1920, height: 1080 },
+      assets: [
+        { id: 'p1', path: 'media/1.jpeg', kind: 'image', media: { width: 4032, height: 3024 } },
+      ],
+    });
+    expect(
+      (getTool('list_assets')?.read?.({}, { project }) as { letterbox?: string }).letterbox,
+    ).toBeUndefined();
+  });
+
+  it('says nothing about letterboxing when nothing has been measured', () => {
+    // Silence is the honest reading of "unknown"; warning about assets whose shape nobody
+    // measured would be noise on every un-probed project.
+    const project = makeProject({
+      resolution: { width: 1080, height: 1920 },
+      assets: [{ id: 'p1', path: 'media/1.jpeg', kind: 'image' }],
+    });
+    expect(
+      (getTool('list_assets')?.read?.({}, { project }) as { letterbox?: string }).letterbox,
+    ).toBeUndefined();
   });
 
   it('list_assets collapses provenance to the one fact the model can act on', () => {
@@ -776,6 +862,103 @@ describe('mutating tools — build valid operations', () => {
       params: { name: 'teal' },
     })[0] as Extract<Operation, { type: 'apply_color_grade' }>;
     expect(lut.effect).toMatchObject({ type: 'lut', params: { name: 'teal' } });
+  });
+
+  // GAP-013 (run `fc10301a`). The brief said "evaluate multiple suitable tracks and select
+  // the strongest one", listing clear beat, build-up, drop and beat separation as the
+  // criteria. Search results carry a title, a duration and a licence — Openverse publishes
+  // no tempo, and its `genres`/`category` come back null in practice — so that judgement
+  // cannot be made from them. The run reported a track as "a high-energy cinematic drum
+  // track built for adventure" having heard nothing and measured nothing.
+  it('says that music results carry no tempo, and names the route that does', () => {
+    const description = getTool('search_music')?.description ?? '';
+    expect(description).toMatch(/NO tempo, key, energy or section structure/);
+    expect(description).toContain('detect_beats');
+    // And that changing your mind is cheap, so the honest route is not the expensive one.
+    expect(description).toMatch(/undo removes the track/);
+  });
+
+  // GAP-017 (run `fc10301a`). Every grade parameter name and bound was enforced on both
+  // sides of the boundary and NONE was advertised: the description was "Apply a color
+  // grade to a clip." and `params` an untyped record, so a model could only learn the
+  // contract by guessing and being refused. That run loaded the color-grading playbook —
+  // which instructs this tool and speaks of keeping corrections "within ±0.3" — and
+  // applied no grade at all.
+  it('advertises every grade parameter and its real range, from the contract itself', () => {
+    const description = getTool('apply_color_grade')?.description ?? '';
+    for (const [name, { min, max }] of Object.entries(COLOR_GRADE_PARAMETER_CONTRACTS)) {
+      expect(description).toContain(`${name} (${String(min)}..${String(max)})`);
+    }
+    // The other kind, and where transforms actually come from.
+    expect(description).toContain('params.path');
+    expect(description).toMatch(/add_keyframes|punch_in/);
+  });
+
+  // GAP-004 (run `fc10301a`). Laying out 61 photos meant 61 `add_clip` calls against a
+  // 30-step budget, interleaved with a re-read per batch. The run managed 34 in four apply
+  // turns and the batches decayed 12 → 9 → 8 → 5 as reasoning ate the output reservation.
+  // Per-clip granularity is right for fixing one shot and wrong for building a sequence.
+  it('add_clips places a whole sequence in one patch, by add_clip’s rules', () => {
+    const batch = build('add_clips', {
+      trackId: 'video_1',
+      clips: [
+        { assetId: 'asset_1', start: 0, end: 1.5 },
+        { assetId: 'asset_1', start: 1.5, end: 2, sourceStart: 4 },
+      ],
+    });
+    expect(batch).toEqual([
+      {
+        type: 'add_clip',
+        trackId: 'video_1',
+        assetId: 'asset_1',
+        start: 0,
+        end: 1.5,
+        sourceStart: 0,
+        sourceEnd: 1.5,
+      },
+      {
+        type: 'add_clip',
+        trackId: 'video_1',
+        assetId: 'asset_1',
+        start: 1.5,
+        end: 2,
+        sourceStart: 4,
+        // Derived from the timeline span, exactly as the singular tool derives it — a
+        // batch that placed clips by different rules would be worse than no batch.
+        sourceEnd: 4.5,
+      },
+    ]);
+  });
+
+  it('add_clips produces exactly what the same placements would through add_clip', () => {
+    const placements = [
+      { assetId: 'asset_1', start: 0, end: 1 },
+      { assetId: 'asset_1', start: 1, end: 2.25, sourceStart: 3 },
+      { assetId: 'asset_1', start: 2.25, end: 3 },
+    ];
+    expect(build('add_clips', { trackId: 'video_1', clips: placements })).toEqual(
+      placements.flatMap((clip) => build('add_clip', { trackId: 'video_1', ...clip })),
+    );
+  });
+
+  it('add_clips refuses an empty batch rather than proposing nothing', () => {
+    expect(() => build('add_clips', { trackId: 'video_1', clips: [] })).toThrow();
+  });
+
+  // A batch is still N operations against the turn's blast-radius bound. Rejecting an
+  // over-long batch at the schema — where the description states the limit — beats
+  // `Turn rejected: 120 operations exceeds the per-turn cap`, which names no fix and
+  // invites the model to re-send the same batch.
+  it('refuses a batch longer than one turn could apply, and states the limit', () => {
+    const entry = (i: number) => ({ assetId: 'asset_1', start: i, end: i + 0.5 });
+    const atCap = Array.from({ length: MAX_CLIPS_PER_BATCH }, (_, i) => entry(i));
+    expect(build('add_clips', { trackId: 'video_1', clips: atCap })).toHaveLength(
+      MAX_CLIPS_PER_BATCH,
+    );
+    expect(() =>
+      build('add_clips', { trackId: 'video_1', clips: [...atCap, entry(MAX_CLIPS_PER_BATCH)] }),
+    ).toThrow();
+    expect(getTool('add_clips')?.description).toContain(String(MAX_CLIPS_PER_BATCH));
   });
 
   it('adjust_audio / add_transition / add_mask / track_object', () => {

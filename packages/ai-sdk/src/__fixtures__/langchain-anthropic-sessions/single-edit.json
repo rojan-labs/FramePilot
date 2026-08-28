@@ -108,7 +108,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 21616,
+      "usedTokens": 22341,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -121,38 +121,55 @@
             "type": "system",
             "label": "system contract",
             "tokenEstimate": 135,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "included": true
           },
           {
             "id": "s2",
-            "type": "conversation",
-            "label": "user turn 1",
-            "tokenEstimate": 1662,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "type": "system",
+            "label": "project header",
+            "tokenEstimate": 9,
+            "included": true
           },
           {
             "id": "s3",
-            "type": "conversation",
-            "label": "user turn 2",
-            "tokenEstimate": 1862,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "type": "retrieved_evidence",
+            "label": "timeline summary",
+            "tokenEstimate": 46,
+            "included": true
           },
           {
             "id": "s4",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 161,
-            "included": true,
-            "cacheSide": "per_turn"
+            "type": "retrieved_evidence",
+            "label": "transcript slice",
+            "tokenEstimate": 11,
+            "included": true
           },
           {
             "id": "s5",
+            "type": "skill",
+            "label": "skills manifest",
+            "tokenEstimate": 1645,
+            "included": true
+          },
+          {
+            "id": "s6",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 8,
+            "included": true
+          },
+          {
+            "id": "s7",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 2018,
+            "included": true
+          },
+          {
+            "id": "s8",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17796,
+            "tokenEstimate": 18469,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -160,9 +177,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21616,
+          "estimatedInputTokensBeforeSend": 22341,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 850384,
+          "estimatedRemainingCapacity": 849659,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -210,38 +227,55 @@
             "type": "system",
             "label": "system contract",
             "tokenEstimate": 135,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "included": true
           },
           {
             "id": "s2",
-            "type": "conversation",
-            "label": "user turn 1",
-            "tokenEstimate": 1662,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "type": "system",
+            "label": "project header",
+            "tokenEstimate": 9,
+            "included": true
           },
           {
             "id": "s3",
-            "type": "conversation",
-            "label": "user turn 2",
-            "tokenEstimate": 1862,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "type": "retrieved_evidence",
+            "label": "timeline summary",
+            "tokenEstimate": 46,
+            "included": true
           },
           {
             "id": "s4",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 161,
-            "included": true,
-            "cacheSide": "per_turn"
+            "type": "retrieved_evidence",
+            "label": "transcript slice",
+            "tokenEstimate": 11,
+            "included": true
           },
           {
             "id": "s5",
+            "type": "skill",
+            "label": "skills manifest",
+            "tokenEstimate": 1645,
+            "included": true
+          },
+          {
+            "id": "s6",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 8,
+            "included": true
+          },
+          {
+            "id": "s7",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 2018,
+            "included": true
+          },
+          {
+            "id": "s8",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17796,
+            "tokenEstimate": 18469,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -249,7 +283,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21616,
+          "estimatedInputTokensBeforeSend": 22341,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -454,7 +488,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_parity"
         },
-        "version": 5,
+        "version": 6,
         "objective": {
           "request": "tighten the intro",
           "outcome": "tighten the intro",
@@ -471,7 +505,17 @@
           "interpret"
         ],
         "stageEnteredAtTurn": 1,
-        "facts": [],
+        "facts": [
+          {
+            "id": "fact_1",
+            "kind": "project",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+            "evidenceIds": [],
+            "scope": "timeline_dependent",
+            "observedAtRevision": 1,
+            "stage": "inspect"
+          }
+        ],
         "decisions": [
           {
             "id": "decision_1",
@@ -553,7 +597,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 21660,
+      "usedTokens": 22486,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -566,38 +610,55 @@
             "type": "system",
             "label": "system contract",
             "tokenEstimate": 135,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "included": true
           },
           {
             "id": "s2",
-            "type": "conversation",
-            "label": "user turn 1",
-            "tokenEstimate": 1662,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "type": "system",
+            "label": "project header",
+            "tokenEstimate": 9,
+            "included": true
           },
           {
             "id": "s3",
-            "type": "conversation",
-            "label": "user turn 2",
-            "tokenEstimate": 1862,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "type": "retrieved_evidence",
+            "label": "timeline summary",
+            "tokenEstimate": 46,
+            "included": true
           },
           {
             "id": "s4",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 205,
-            "included": true,
-            "cacheSide": "per_turn"
+            "type": "retrieved_evidence",
+            "label": "transcript slice",
+            "tokenEstimate": 11,
+            "included": true
           },
           {
             "id": "s5",
+            "type": "skill",
+            "label": "skills manifest",
+            "tokenEstimate": 1645,
+            "included": true
+          },
+          {
+            "id": "s6",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 8,
+            "included": true
+          },
+          {
+            "id": "s7",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 2163,
+            "included": true
+          },
+          {
+            "id": "s8",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17796,
+            "tokenEstimate": 18469,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -605,9 +666,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21660,
+          "estimatedInputTokensBeforeSend": 22486,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 850340,
+          "estimatedRemainingCapacity": 849514,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -622,7 +683,7 @@
           "projectRevision": 1,
           "objectiveKnown": true,
           "committedDecisions": 1,
-          "facts": 0,
+          "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
           "nextAction": "Continue inspect: read only what the objective still needs."
@@ -666,38 +727,55 @@
             "type": "system",
             "label": "system contract",
             "tokenEstimate": 135,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "included": true
           },
           {
             "id": "s2",
-            "type": "conversation",
-            "label": "user turn 1",
-            "tokenEstimate": 1662,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "type": "system",
+            "label": "project header",
+            "tokenEstimate": 9,
+            "included": true
           },
           {
             "id": "s3",
-            "type": "conversation",
-            "label": "user turn 2",
-            "tokenEstimate": 1862,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "type": "retrieved_evidence",
+            "label": "timeline summary",
+            "tokenEstimate": 46,
+            "included": true
           },
           {
             "id": "s4",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 205,
-            "included": true,
-            "cacheSide": "per_turn"
+            "type": "retrieved_evidence",
+            "label": "transcript slice",
+            "tokenEstimate": 11,
+            "included": true
           },
           {
             "id": "s5",
+            "type": "skill",
+            "label": "skills manifest",
+            "tokenEstimate": 1645,
+            "included": true
+          },
+          {
+            "id": "s6",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 8,
+            "included": true
+          },
+          {
+            "id": "s7",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 2163,
+            "included": true
+          },
+          {
+            "id": "s8",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17796,
+            "tokenEstimate": 18469,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -705,7 +783,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 21660,
+          "estimatedInputTokensBeforeSend": 22486,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 0,
@@ -725,7 +803,7 @@
           "projectRevision": 1,
           "objectiveKnown": true,
           "committedDecisions": 1,
-          "facts": 0,
+          "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
           "nextAction": "Continue inspect: read only what the objective still needs."
@@ -754,7 +832,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_parity"
         },
-        "version": 5,
+        "version": 6,
         "objective": {
           "request": "tighten the intro",
           "outcome": "tighten the intro",
@@ -771,7 +849,17 @@
           "interpret"
         ],
         "stageEnteredAtTurn": 1,
-        "facts": [],
+        "facts": [
+          {
+            "id": "fact_1",
+            "kind": "project",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+            "evidenceIds": [],
+            "scope": "timeline_dependent",
+            "observedAtRevision": 1,
+            "stage": "inspect"
+          }
+        ],
         "decisions": [
           {
             "id": "decision_1",
@@ -839,6 +927,14 @@
       "text": "Deterministic self-check: Passed with 1 warning(s)."
     },
     {
+      "id": "turn_parity:notice:10",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "notification",
+      "text": "Picture covers the programme: 3s of the 10s programme has no picture under it (0s–3s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen."
+    },
+    {
       "id": "turn_parity:run-state",
       "conversationId": "conv_parity",
       "ts": 1000,
@@ -852,7 +948,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_parity"
         },
-        "version": 12,
+        "version": 13,
         "objective": {
           "request": "tighten the intro",
           "outcome": "tighten the intro",
@@ -875,7 +971,17 @@
           "verify"
         ],
         "stageEnteredAtTurn": 2,
-        "facts": [],
+        "facts": [
+          {
+            "id": "fact_1",
+            "kind": "project",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+            "evidenceIds": [],
+            "scope": "timeline_dependent",
+            "observedAtRevision": 1,
+            "stage": "inspect"
+          }
+        ],
         "decisions": [
           {
             "id": "decision_1",
@@ -943,7 +1049,7 @@
       }
     },
     {
-      "id": "turn_parity:usage:10",
+      "id": "turn_parity:usage:11",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -961,7 +1067,7 @@
       "text": "**Applied 1 edit** in 1 step — review the proposed change below.\n\n- Deleted range Video 1 · 0s–3s"
     },
     {
-      "id": "turn_parity:status:11",
+      "id": "turn_parity:status:12",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",

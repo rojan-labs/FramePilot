@@ -103,6 +103,7 @@ const verify = (over: Partial<VerifyResult> = {}): VerifyResult => ({
   ok: true,
   summary: 'looks good',
   failedChecks: [],
+  warnedChecks: [],
   repairOps: [],
   endSeq: 1,
   ...over,
@@ -315,6 +316,31 @@ describe('onEffectResult — draft_plan fold', () => {
         working: state.working,
       },
     ]);
+  });
+
+  // GAP-015 (run `fc10301a`). `setObjective` is written to yield a provisional outcome —
+  // the request read back — to "the first real interpretation", and `acceptance.ts` records
+  // that nothing ever produced one: it "had exactly one caller, the seed itself". So a
+  // 12,000-character brief with ten enumerated deliverables became one objective, one
+  // decision and one criterion, all of them the brief; `buildStateBriefing` then suppressed
+  // every one of them as noise, and the model was shown a STAGE line and nothing else.
+  it('takes the drafted plan as the run’s own reading of the request', () => {
+    const s = onCommand(idle, command({ planFirst: true })).state;
+    expect(s.working.objective.provisional).toBe(true);
+    const { state } = onEffectResult(s, draftPlan({ labels: ['Trim', 'Wrap up'] }));
+    expect(state.working.objective.provisional).toBe(false);
+    expect(state.working.objective.outcome).toBe('Plan: Trim; Wrap up');
+  });
+
+  it('does not take a plan that is only the request said back', () => {
+    // The seed arriving by another route. Storing it as an interpretation would put a
+    // second copy of the brief in a state persisted and streamed every turn. The label
+    // below is `input.userPrompt` verbatim — that is what makes it an echo.
+    const s = onCommand(idle, command({ planFirst: true })).state;
+    expect(s.working.objective.request).toBe(input.userPrompt);
+    const { state } = onEffectResult(s, draftPlan({ labels: [input.userPrompt] }));
+    expect(state.working.objective.provisional).toBe(true);
+    expect(state.working.objective.outcome).not.toContain('Plan:');
   });
 
   it('an empty drafted plan cannot commit and pauses the run for integrity review (RSI1)', () => {
@@ -773,6 +799,63 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     expect(state.planSteps[0]).toMatchObject({ status: 'failed', detail: 'overlaps neighbour' });
   });
 
+  // GAP-003 (run `fc10301a`). Applying a patch correctly invalidates every timeline fact
+  // the run held — a cut moves the ids the next patch is written against. But the run
+  // AUTHORED that cut and is handed the resulting project, so making it call get_timeline
+  // to learn what it just did is asking it to pay for knowledge it already has. That run
+  // alternated apply / re-read for its whole second half, and the re-read is also what
+  // collided with the spin guard.
+  it('records the arrangement it just made, so the next turn need not re-read it', () => {
+    const { state } = onEffectResult(
+      started(),
+      turn({
+        applied: true,
+        appliedOps: ops(1),
+        turnOpCount: 1,
+        arrangement: 'Timeline now: sequence 24.08s, 3 tracks, 35 clips — layer_video_3 …',
+      }),
+    );
+    expect(state.working.facts.map((f) => f.statement)).toContain(
+      'Timeline now: sequence 24.08s, 3 tracks, 35 clips — layer_video_3 …',
+    );
+  });
+
+  // GAP-019. This counter looks like it should be `project.timeline.revision` and must
+  // not be: that field bumps only when an operation changes the source↔sequence MAPPING
+  // (ADR 0076), so a colour grade, an audio gain change or a blend-mode change leave it
+  // exactly where it was. It drives `onProjectRevisionChanged`, which invalidates every
+  // timeline-dependent fact the run holds — and a grade does stale a `get_clips` payload.
+  it('counts every applied patch, including one that changes no timing', () => {
+    const graded = onEffectResult(
+      started(),
+      turn({
+        applied: true,
+        turnOpCount: 1,
+        appliedOps: [
+          { type: 'apply_color_grade', clipId: 'clip_a', effect: { id: 'g', type: 'color_grade', params: {}, keyframes: [] } },
+        ] as never,
+      }),
+    ).state;
+    expect(graded.working.currentProjectRevision).toBe(1);
+  });
+
+  it('replaces the previous arrangement rather than stacking them', () => {
+    const first = onEffectResult(
+      started(),
+      turn({ applied: true, appliedOps: ops(1), turnOpCount: 1, arrangement: 'Timeline now: A' }),
+    ).state;
+    const second = onEffectResult(
+      first,
+      turn({ applied: true, appliedOps: ops(1), turnOpCount: 1, arrangement: 'Timeline now: B' }),
+    ).state;
+    const arrangements = second.working.facts
+      .map((f) => f.statement)
+      .filter((t) => t.startsWith('Timeline now:'));
+    // The revision bump drops the stale one immediately before the new one is recorded,
+    // so "replace" needs no special case — it falls out of the existing invalidation.
+    expect(arrangements).toEqual(['Timeline now: B']);
+  });
+
   it('stops a rejected turn that exactly repeats a no-progress signature', () => {
     const s = started({ noProgress: ['sig'] });
     const { effects } = onEffectResult(
@@ -780,6 +863,49 @@ describe('onEffectResult — turn stop/continue decisions', () => {
       turn({ applied: false, turnOpCount: 2, note: 'overlaps neighbour' }),
     );
     expect(effects).toEqual([{ kind: 'run_verify' }]);
+  });
+
+  // GAP-002 (run `fc10301a`). The exact-repeat arm ended runs in silence: a tool card went
+  // green and the run settled `failed` in the same breath, with only the timeline's
+  // self-check warnings to explain it. The editor could not tell a converged run from a
+  // crashed one.
+  it('says why it is settling when a signature exactly repeats', () => {
+    const { events } = onEffectResult(
+      started({ noProgress: ['sig'] }),
+      turn({ applied: false, turnOpCount: 2, note: 'overlaps neighbour' }),
+    );
+    expect(
+      events.some(
+        (e) => e.type === 'notification' && e.text.includes('already made against this same'),
+      ),
+    ).toBe(true);
+  });
+
+  // GAP-002, the banking half. A turn that ANSWERED is not evidence of a spin, whatever
+  // the model then did with the answer — and banking it arms a trap for the next turn
+  // that legitimately asks the same question. Run `fc10301a` banked
+  // `get_timeline + list_assets` on a memo-hit turn, made the same pair four turns and
+  // thirty-four clips later against a moved timeline, and was killed on the match.
+  it('does not bank a signature for a turn whose reads came back with fresh data', () => {
+    const { state } = onEffectResult(
+      started(),
+      turn({
+        signature: 'read-timeline',
+        callFacts: [{ key: 'get_timeline', status: 'completed', fromCache: false }],
+      }),
+    );
+    expect(state.noProgress).not.toContain('read-timeline');
+  });
+
+  it('still banks a signature for a turn that learned nothing', () => {
+    const { state } = onEffectResult(
+      started(),
+      turn({
+        signature: 'read-timeline',
+        callFacts: [{ key: 'get_timeline', status: 'completed', fromCache: true }],
+      }),
+    );
+    expect(state.noProgress).toContain('read-timeline');
   });
 
   it('treats an attempted (even rejected) edit as progress — the streak resets, not climbs', () => {
@@ -1255,6 +1381,63 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
     expect(types(events)).toEqual(['notification', 'warning']);
     expect(events[0]).toMatchObject({ text: 'Deterministic self-check: one issue' });
     expect(effects[0]).toMatchObject({ kind: 'finalize', ops: s.cumulativeOps, cancelled: false });
+  });
+
+  // GAP-010 (run `fc10301a`). Advisory checks are non-blocking on purpose, and the price
+  // of that was that their advice never arrived: only failures were carried, so a `warn`
+  // reached the editor as the number in "3 check(s) failed, 1 warning(s)". The withheld
+  // sentence in that run was "any landscape source will render with black bars", over a
+  // montage of landscape stills in a portrait frame.
+  it('says what an advisory check found, not just how many there were', () => {
+    const s = started({ phase: 'verifying', cumulativeOps: ops(2), appliedTurns: 1 });
+    const { events } = onEffectResult(
+      s,
+      verify({
+        ok: false,
+        summary: '1 check(s) failed, 1 warning(s)',
+        failedChecks: [{ label: 'Duration', detail: 'too long' }],
+        warnedChecks: [
+          { label: 'Reframing is consistent', detail: 'any landscape source will render…' },
+        ],
+      }),
+    );
+    // The failure is a warning event; the advisory is a notification — the severity
+    // distinction survives to the stream rather than being flattened.
+    expect(types(events)).toEqual(['notification', 'warning', 'notification']);
+    expect(events[2]).toMatchObject({
+      text: 'Reframing is consistent: any landscape source will render…',
+    });
+  });
+
+  // GAP-016. Four different things could have happened; they all looked identical.
+  it('says what the repair pass did, including when it did nothing', () => {
+    const s = started({ phase: 'verifying', cumulativeOps: ops(2), appliedTurns: 1 });
+    const { events } = onEffectResult(
+      s,
+      verify({ ok: false, summary: 'one issue', repairOutcome: { kind: 'no_calls' } }),
+    );
+    expect(
+      events.some(
+        (e) => e.type === 'notification' && e.text.includes('proposed no change'),
+      ),
+    ).toBe(true);
+  });
+
+  it('names the validator when the repair pass was rejected', () => {
+    const s = started({ phase: 'verifying', cumulativeOps: ops(2), appliedTurns: 1 });
+    const { events } = onEffectResult(
+      s,
+      verify({
+        ok: false,
+        summary: 'one issue',
+        repairOutcome: { kind: 'all_rejected', reasons: ['Rejected: overlaps neighbour'] },
+      }),
+    );
+    expect(
+      events.some(
+        (e) => e.type === 'notification' && e.text.includes('overlaps neighbour'),
+      ),
+    ).toBe(true);
   });
 
   it('blocks successful completion when deterministic verification still fails', () => {

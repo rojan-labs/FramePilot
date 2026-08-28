@@ -140,7 +140,17 @@ function renderFact(fact: Fact): string {
  * empty scaffold of headings — the contract and the request are enough there, and an
  * empty briefing would only teach the model that the section is noise.
  */
-export function buildStateBriefing(state: RunWorkingState): string {
+export function buildStateBriefing(
+  state: RunWorkingState,
+  /**
+   * Where the cut stands against the request's checkable conditions RIGHT NOW — one line
+   * per unmet whole-cut condition, from `critic.ts#standingAgainstAcceptance`.
+   *
+   * A parameter rather than something derived here, because the briefing is pure over the
+   * ledger and the ledger holds no timeline. The caller has the working project.
+   */
+  standing: readonly string[] = [],
+): string {
   const sections: string[] = [];
   // Is this text just the editor's request back again?
   //
@@ -174,13 +184,42 @@ export function buildStateBriefing(state: RunWorkingState): string {
   const restatesRequest = (text: string): boolean =>
     request.length > 0 && (text.includes(request) || text.includes(requestEcho(request)));
 
-  if (state.objective.outcome && !echoesRequest(state.objective.outcome)) {
-    const criteria = state.objective.acceptance
-      .filter((c) => !echoesRequest(c.description))
-      .map((c) => `- ${c.description}`)
-      .join('\n');
+  /**
+   * The conditions the run will actually be GRADED on, and the run's own reading of the
+   * request when it has one.
+   *
+   * The outcome and the criteria are two independent things and are gated independently.
+   * They were not: the whole section hung on `outcome` being a real interpretation, and a
+   * seeded run's outcome is the request echoed back — so a run whose acceptance said "runs
+   * about 27.5s", "at least 61 distinct shots" and "sound effects cannot be sourced here"
+   * was shown none of them, placed a 47.8-second bed on turn five, and was then failed by
+   * the very checks derived from those criteria (run `fc10301a`).
+   *
+   * `acceptance.ts` derives these deterministically off the request BEFORE the first turn
+   * (`orchestrator.ts#critiqueOptions`), and `critic.ts` settles the run against exactly
+   * them. Withholding them does not keep the briefing terse — it makes the run
+   * unwinnable. The per-criterion `echoesRequest` filter below is what keeps the seeded
+   * request out; the outer gate was only ever duplicating it, and losing real criteria to
+   * do so.
+   */
+  const criteria = state.objective.acceptance
+    .filter((c) => !echoesRequest(c.description))
+    .map((c) => `- ${c.description}`);
+  const outcomeLine =
+    state.objective.outcome && !echoesRequest(state.objective.outcome)
+      ? state.objective.outcome
+      : '';
+  if (outcomeLine || criteria.length > 0) {
+    sections.push(`WHAT DONE LOOKS LIKE\n${[outcomeLine, ...criteria].filter(Boolean).join('\n')}`);
+  }
+
+  // Directly under what "done" means, because it is the same question measured against
+  // the timeline as it stands. A run that reads its target and its distance from it in
+  // one place can correct on the next turn; run `fc10301a` learned both only after its
+  // budget was gone, seventeen turns after the edit that decided them.
+  if (standing.length > 0) {
     sections.push(
-      `WHAT DONE LOOKS LIKE\n${state.objective.outcome}${criteria ? `\n${criteria}` : ''}`,
+      `WHERE YOU STAND — measured now, not at the end\n${standing.map((line) => `- ${line}`).join('\n')}`,
     );
   }
 

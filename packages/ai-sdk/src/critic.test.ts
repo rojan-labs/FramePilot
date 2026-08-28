@@ -4,11 +4,17 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { Project } from '@framepilot/timeline-schema';
-import { CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID } from '@framepilot/editor-core';
+import {
+  CAPTION_ASSET_ID,
+  TEXT_OVERLAY_ASSET_ID,
+  applyProjectPatch,
+} from '@framepilot/editor-core';
 import {
   critique,
   explicitDurationTarget,
   explicitDurationTargetSeconds,
+  repairTrailingSoundOverrun,
+  standingAgainstAcceptance,
   timelineDuration,
 } from './critic.js';
 import { checkableAcceptance } from './acceptance.js';
@@ -720,6 +726,174 @@ describe('export_settings', () => {
   });
 });
 
+// GAP-014. The same checks the final self-check runs, consulted while the run can still
+// act on them — in the check's own words, so what a run is told in flight is exactly what
+// it will be judged by.
+describe('standingAgainstAcceptance', () => {
+  it('names every unmet whole-cut condition, in the words the verdict will use', () => {
+    const project = withTracks(
+      [
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 4 })],
+        },
+        {
+          id: 'a_music',
+          type: 'audio',
+          clips: [
+            clip({ id: 'music', assetId: 'asset_music', trackId: 'a_music', start: 0, end: 30 }),
+          ],
+        },
+      ],
+      {
+        assets: [
+          { id: 'asset_1', path: 'media/a.jpeg', kind: 'image', durationSeconds: 5 },
+          { id: 'asset_music', path: 'media/m.mp3', kind: 'audio', durationSeconds: 47.8 },
+        ] as Project['assets'],
+      },
+    );
+    const standing = standingAgainstAcceptance(project, {
+      durationTargetSeconds: 4,
+      minShotCount: 61,
+    });
+    expect(standing.join('\n')).toMatch(/no picture under it/);
+    expect(standing.join('\n')).toMatch(/Timeline is 30s but the target is 4s/);
+    expect(standing.join('\n')).toMatch(/uses 1 shots but at least 61/);
+    // Every line is verbatim from a check, so the in-flight account and the verdict can
+    // never describe the same condition two different ways.
+    const details = critique(project, { durationTargetSeconds: 4, minShotCount: 61 }).checks.map(
+      (c) => c.detail,
+    );
+    for (const line of standing) expect(details).toContain(line);
+  });
+
+  it('is empty for a cut that meets every stated condition', () => {
+    const project = withTracks([
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [
+          clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 2 }),
+          clip({ id: 'p_2', trackId: 'v_main', start: 2, end: 4 }),
+        ],
+      },
+    ]);
+    expect(
+      standingAgainstAcceptance(project, { durationTargetSeconds: 4, minShotCount: 2 }),
+    ).toEqual([]);
+  });
+
+  it('reports nothing when the request stated no checkable condition', () => {
+    const project = withTracks([
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 4 })],
+      },
+    ]);
+    expect(standingAgainstAcceptance(project, {})).toEqual([]);
+  });
+
+  // The in-flight block is built from `critiqueOptions(input, agentOptions, true)` with no
+  // evidence store, while the verdict passes one. That is only safe while no whole-cut
+  // check reads evidence — an invariant nothing enforced, and the first check that starts
+  // reading `measuredSilences` would make a run judged by something it was never shown.
+  it('is measured by options the verdict cannot disagree with', () => {
+    const project = withTracks([
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 30 })],
+      },
+    ]);
+    const options = { durationTargetSeconds: 4, minShotCount: 61 };
+    expect(standingAgainstAcceptance(project, options)).toEqual(
+      standingAgainstAcceptance(project, {
+        ...options,
+        measuredSilences: [{ start: 1, end: 2 }],
+        blackFrames: [{ start: 0, end: 3 }],
+      }),
+    );
+  });
+
+  it('leaves local defects to the seam that shows them, not to a standing count', () => {
+    // A jump cut is something the model finds by looking at the edit point. These five
+    // checks are properties of the finished thing that no single edit reveals.
+    const project = withTracks([
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [
+          clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 2, sourceStart: 0, sourceEnd: 2 }),
+          clip({ id: 'p_2', trackId: 'v_main', start: 2, end: 4, sourceStart: 8, sourceEnd: 10 }),
+        ],
+      },
+    ]);
+    expect(
+      standingAgainstAcceptance(project, { durationTargetSeconds: 4, minShotCount: 2 }),
+    ).toEqual([]);
+  });
+});
+
+// GAP-009 (run `fc10301a`). This check used to say, in its own docstring, that "the
+// project does not carry each asset's pixel dimensions" — true until schema v21 added
+// them. With the sources measured, uncropped landscape picture in a portrait frame is not
+// a risk to warn about: it is what the render will produce.
+describe('reframe_coverage with measured sources', () => {
+  const portraitProjectOf = (media: Record<string, unknown> | undefined) =>
+    withTracks(
+      [
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [
+            clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 2 }),
+            clip({ id: 'p_2', trackId: 'v_main', start: 2, end: 4 }),
+          ],
+        },
+      ],
+      {
+        resolution: { width: 1080, height: 1920 },
+        assets: [
+          {
+            id: 'asset_1',
+            path: 'media/a.jpeg',
+            kind: 'image',
+            durationSeconds: 5,
+            ...(media ? { media } : {}),
+          },
+        ] as Project['assets'],
+      },
+    );
+
+  it('fails an uncropped landscape source in a portrait frame, and names the clips', () => {
+    const report = critique(portraitProjectOf({ width: 4032, height: 3024 }), { minShotCount: 2 });
+    const reframe = idOf(report, 'reframe_coverage');
+    expect(reframe).toMatchObject({ status: 'fail' });
+    expect(reframe?.detail).toMatch(/2 of 2 picture clips use a landscape source/);
+    expect(reframe?.detail).toContain('p_1, p_2');
+    expect(report.ok).toBe(false);
+  });
+
+  it('says nothing when the source is already portrait', () => {
+    expect(
+      idOf(
+        critique(portraitProjectOf({ width: 1080, height: 1920 }), { minShotCount: 2 }),
+        'reframe_coverage',
+      ),
+    ).toMatchObject({ status: 'warn' });
+  });
+
+  it('keeps the old warning when nothing was measured', () => {
+    // Absent dimensions mean unknown. Failing a run over a shape nobody probed would be
+    // worse than the gap this closes.
+    expect(
+      idOf(critique(portraitProjectOf(undefined), { minShotCount: 2 }), 'reframe_coverage'),
+    ).toMatchObject({ status: 'warn' });
+  });
+});
+
 describe('picture_coverage', () => {
   /**
    * The shape run 4c9b5f82 shipped: a 36.1s music bed with ten photos over only its
@@ -740,7 +914,13 @@ describe('picture_coverage', () => {
           id: 'a_music',
           type: 'audio',
           clips: [
-            clip({ id: 'music', assetId: 'asset_music', trackId: 'a_music', start: 0, end: 36.107 }),
+            clip({
+              id: 'music',
+              assetId: 'asset_music',
+              trackId: 'a_music',
+              start: 0,
+              end: 36.107,
+            }),
           ],
         },
       ],
@@ -759,6 +939,88 @@ describe('picture_coverage', () => {
     expect(coverage?.detail).toMatch(/26\.099s of the 36\.107s programme has no picture/);
     expect(coverage?.detail).toMatch(/10\.008s–36\.107s/);
     expect(report.ok).toBe(false);
+  });
+
+  // GAP-007 (run `fc10301a`). The most user-visible failure the Critic can report was
+  // absent from `FIXABLE_CHECKS`, so a timeline whose last 23.7 of 47.8 seconds were black
+  // went to the editor unrepaired — over a fix that is two numbers and a trim.
+  describe('repairTrailingSoundOverrun', () => {
+    it('trims the bed back to where the picture ends', () => {
+      const project = musicOutrunsPicture();
+      const ops = repairTrailingSoundOverrun(project, { minShotCount: 61 });
+      expect(ops).toEqual([{ type: 'trim_clip', clipId: 'music', start: 0, end: 10.008 }]);
+    });
+
+    it('refuses an interior hole — that needs picture, not a trim', () => {
+      const project = withTracks([
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [
+            clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 4 }),
+            clip({ id: 'p_2', trackId: 'v_main', start: 9, end: 12 }),
+          ],
+        },
+      ]);
+      expect(repairTrailingSoundOverrun(project, { minShotCount: 2 })).toEqual([]);
+    });
+
+    it('refuses when nothing visual was asked for — sound over no picture is the deliverable', () => {
+      expect(repairTrailingSoundOverrun(musicOutrunsPicture(), {})).toEqual([]);
+    });
+
+    it('does nothing when the picture already covers the programme', () => {
+      const project = withTracks([
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 6 })],
+        },
+      ]);
+      expect(repairTrailingSoundOverrun(project, { minShotCount: 1 })).toEqual([]);
+    });
+
+    it('leaves a bed that starts after the picture ends for a human', () => {
+      // Trimming it back would invert the clip; removing it is a bigger decision than a
+      // repair pass is allowed to make on its own.
+      const project = withTracks(
+        [
+          {
+            id: 'v_main',
+            type: 'video',
+            clips: [clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 4 })],
+          },
+          {
+            id: 'a_music',
+            type: 'audio',
+            clips: [
+              clip({ id: 'music', assetId: 'asset_music', trackId: 'a_music', start: 8, end: 20 }),
+            ],
+          },
+        ],
+        {
+          assets: [
+            { id: 'asset_1', path: 'media/a.jpeg', kind: 'image', durationSeconds: 5 },
+            { id: 'asset_music', path: 'media/m.mp3', kind: 'audio', durationSeconds: 47.8 },
+          ] as Project['assets'],
+        },
+      );
+      expect(repairTrailingSoundOverrun(project, { minShotCount: 1 })).toEqual([]);
+    });
+
+    it('closes the hole it was given — the check passes on the repaired timeline', () => {
+      const project = musicOutrunsPicture();
+      const ops = repairTrailingSoundOverrun(project, { minShotCount: 61 });
+      const repaired = applyProjectPatch(project, {
+        patchId: 'p' as never,
+        createdBy: 'agent',
+        reason: 'test',
+        operations: [...ops],
+      });
+      expect(idOf(critique(repaired, { minShotCount: 61 }), 'picture_coverage')).toMatchObject({
+        status: 'pass',
+      });
+    });
   });
 
   it('is what picture_present cannot ask: that check passes the same timeline', () => {
@@ -894,7 +1156,9 @@ describe('run 4c9b5f82, end to end', () => {
       minShotCount: acceptance.minShotCount,
     });
     expect(report.ok).toBe(false);
-    const failed = report.checks.filter((check) => check.status === 'fail').map((check) => check.id);
+    const failed = report.checks
+      .filter((check) => check.status === 'fail')
+      .map((check) => check.id);
     expect(failed).toContain('picture_coverage');
     expect(failed).toContain('shot_count');
     expect(failed).toContain('duration_target');
@@ -922,9 +1186,7 @@ describe('run 4c9b5f82, end to end', () => {
         {
           id: 'layer_audio_1',
           type: 'audio',
-          clips: [
-            clip({ id: 'music', assetId: 'asset_music', trackId: 'layer_audio_1', end: 30 }),
-          ],
+          clips: [clip({ id: 'music', assetId: 'asset_music', trackId: 'layer_audio_1', end: 30 })],
         },
       ],
       {

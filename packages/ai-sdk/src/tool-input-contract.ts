@@ -98,7 +98,8 @@ function assertColorGrade(value: Record<string, unknown>): void {
   if (type !== 'color_grade' && type !== 'lut') {
     throw new ToolInputContractError(
       'apply_color_grade',
-      `Unsupported color effect type "${type}". Use color_grade or lut.`,
+      `Unsupported color effect type "${type}". Use color_grade or lut. Position, scale ` +
+        'and rotation are not grades — they come from keyframes (add_keyframes, punch_in).',
     );
   }
   const params = record(value.params) ?? {};
@@ -199,11 +200,39 @@ function assertEffectParams(value: Record<string, unknown>): void {
   }
 }
 
+/**
+ * Per-ENTRY ordering for a batch placement.
+ *
+ * `assertOrdered` reads top-level fields only, so listing `add_clips` beside `add_clip`
+ * would check nothing. The failure has to name the entry: `contractRejectionMessage`
+ * deliberately strips the operation index from a contract rejection (on the singular tools
+ * the index is always 0), so without this a sixty-entry batch is refused with no way to
+ * tell which entry was wrong — and the tool description promises the opposite. Mirrors
+ * `contract_overrides.py#_AddClipEntry._ordered`.
+ */
+function assertAddClipsEntries(value: Record<string, unknown>): void {
+  const clips = value.clips;
+  if (!Array.isArray(clips)) return;
+  clips.forEach((raw, index) => {
+    const clip = record(raw);
+    if (!clip) return;
+    const { start, end } = clip;
+    if (typeof start === 'number' && typeof end === 'number' && end <= start) {
+      throw new ToolInputContractError(
+        'add_clips',
+        `add_clips entry ${String(index)}: end must be greater than start ` +
+          `(got start ${String(start)}, end ${String(end)}).`,
+      );
+    }
+  });
+}
+
 export function assertToolInputSemantics(toolName: string, parsed: unknown): void {
   const value = record(parsed);
   if (!value) return;
   if (ORDERED_WINDOW_TOOLS.has(toolName)) assertOrdered(toolName, value, 'start', 'end');
   if (ORDERED_START_END_TOOLS.has(toolName)) assertOrdered(toolName, value, 'start', 'end');
+  if (toolName === 'add_clips') assertAddClipsEntries(value);
   if (toolName === 'apply_effect' || toolName === 'punch_in') {
     assertOrdered(toolName, value, 'startTime', 'endTime');
   }
@@ -250,9 +279,15 @@ function mapTimeParameters(): ToolParameterSchema {
     description:
       'Map one time domain at a time. Provide sourceTime (+ optional assetId) to convert source time to sequence time, or sequenceTime to convert sequence time to source time, or no arguments to get the full mapping. Never provide both sourceTime and sequenceTime, and only provide assetId alongside sourceTime.',
     properties: {
-      sourceTime: { ...time, description: 'Source-domain time in seconds. Mutually exclusive with sequenceTime.' },
+      sourceTime: {
+        ...time,
+        description: 'Source-domain time in seconds. Mutually exclusive with sequenceTime.',
+      },
       assetId: { type: 'string', description: 'Only valid together with sourceTime.' },
-      sequenceTime: { ...time, description: 'Sequence-domain time in seconds. Mutually exclusive with sourceTime.' },
+      sequenceTime: {
+        ...time,
+        description: 'Sequence-domain time in seconds. Mutually exclusive with sourceTime.',
+      },
     },
     additionalProperties: false,
   };

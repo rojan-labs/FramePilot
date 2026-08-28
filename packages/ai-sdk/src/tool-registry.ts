@@ -39,7 +39,7 @@ import { createLogger } from '@framepilot/shared-types';
 import type { AnyOperation } from '@framepilot/editor-core';
 
 import type { ToolContext } from './tool-context.js';
-import { toModelProject } from './model-view.js';
+import { type ModelAsset, toModelProject } from './model-view.js';
 // Type-only import — erased at runtime, so no cycle with `tool-scope.ts` (which imports
 // the `ToolSpec` type from here). These tag types live with the scoping logic.
 import type { ToolCost, ToolLatency, ToolPermission } from './tool-scope.js';
@@ -185,6 +185,26 @@ const recallEvidenceSchema = z
 // Read tools (PRD §8.3)
 // ---------------------------------------------------------------------------
 
+/**
+ * The media bin as a count, for a reader that wants project state rather than asset ids.
+ *
+ * Names the recovery call in the same breath, so a run that DOES need the ids has one
+ * obvious move and never has to guess that `list_assets` exists.
+ */
+function assetTally(assets: readonly ModelAsset[]): {
+  readonly total: number;
+  readonly byKind: Record<string, number>;
+  readonly note: string;
+} {
+  const byKind: Record<string, number> = {};
+  for (const asset of assets) byKind[asset.kind] = (byKind[asset.kind] ?? 0) + 1;
+  return {
+    total: assets.length,
+    byKind,
+    note: 'Asset ids are not listed here — call list_assets for them.',
+  };
+}
+
 // `list_assets` filters (all optional): narrow the bin to one media `kind` and/or a
 // single `folderId`. Mirrors the Python `ListAssetsArgs` so the schema-parity guard
 // stays green.
@@ -194,10 +214,24 @@ const readTools: ToolSpec[] = [
     {
       name: 'get_project_state',
       description:
-        'Return the current editable project state without editor-only undo history. This is the live state for the active session — read it here, not from project.fp.json on disk.',
+        'Return the current editable project state — settings, timeline, transcript, ' +
+        'markers, memory — without editor-only undo history. This is the live state for ' +
+        'the active session: read it here, not from project.fp.json on disk. The media ' +
+        'bin comes back as a TALLY, not a listing; call list_assets for the asset ids.',
     },
     noArgs,
-    (_args, ctx) => toModelProject(ctx.project),
+    // The bin is summarised rather than listed, and the reason is measured. `list_assets`
+    // returns the same array, and a run that calls both — which run `fc10301a` did, 35
+    // seconds apart — pays for ~5,000 tokens of asset ids twice and files two evidence
+    // handles for one fact, competing for the retained-handle budget. What this tool adds
+    // over `list_assets` is everything ELSE: fps, resolution, the timeline, the
+    // transcript, markers, project memory. The tally keeps the one bin fact a reader of
+    // project state actually needs — how much material there is, and of what kind — and
+    // names the call that returns the rest.
+    (_args, ctx) => {
+      const { assets, ...rest } = toModelProject(ctx.project);
+      return { ...rest, assetSummary: assetTally(assets) };
+    },
   ),
   readTool(
     {

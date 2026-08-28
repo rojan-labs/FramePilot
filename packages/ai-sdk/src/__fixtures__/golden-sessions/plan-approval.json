@@ -116,11 +116,11 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 2,
+        "version": 3,
         "objective": {
           "request": "tighten the intro",
-          "outcome": "tighten the intro",
-          "provisional": true,
+          "outcome": "Plan: Trim the dead air; Tighten the intro",
+          "provisional": false,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -213,7 +213,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21727,
+      "usedTokens": 22462,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -226,38 +226,55 @@
             "type": "system",
             "label": "system contract",
             "tokenEstimate": 135,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "included": true
           },
           {
             "id": "s2",
-            "type": "conversation",
-            "label": "user turn 1",
-            "tokenEstimate": 1662,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "type": "system",
+            "label": "project header",
+            "tokenEstimate": 9,
+            "included": true
           },
           {
             "id": "s3",
-            "type": "conversation",
-            "label": "user turn 2",
-            "tokenEstimate": 1884,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "type": "retrieved_evidence",
+            "label": "timeline summary",
+            "tokenEstimate": 46,
+            "included": true
           },
           {
             "id": "s4",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 250,
-            "included": true,
-            "cacheSide": "per_turn"
+            "type": "retrieved_evidence",
+            "label": "transcript slice",
+            "tokenEstimate": 11,
+            "included": true
           },
           {
             "id": "s5",
+            "type": "skill",
+            "label": "skills manifest",
+            "tokenEstimate": 1645,
+            "included": true
+          },
+          {
+            "id": "s6",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 8,
+            "included": true
+          },
+          {
+            "id": "s7",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 2139,
+            "included": true
+          },
+          {
+            "id": "s8",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17796,
+            "tokenEstimate": 18469,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -265,9 +282,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21727,
+          "estimatedInputTokensBeforeSend": 22462,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170081,
+          "estimatedRemainingCapacity": 169346,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -517,11 +534,11 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 5,
+        "version": 7,
         "objective": {
           "request": "tighten the intro",
-          "outcome": "tighten the intro",
-          "provisional": true,
+          "outcome": "Plan: Trim the dead air; Tighten the intro",
+          "provisional": false,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -534,7 +551,17 @@
           "interpret"
         ],
         "stageEnteredAtTurn": 1,
-        "facts": [],
+        "facts": [
+          {
+            "id": "fact_1",
+            "kind": "project",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+            "evidenceIds": [],
+            "scope": "timeline_dependent",
+            "observedAtRevision": 1,
+            "stage": "inspect"
+          }
+        ],
         "decisions": [
           {
             "id": "decision_1",
@@ -631,7 +658,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 21764,
+      "usedTokens": 22601,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -644,38 +671,55 @@
             "type": "system",
             "label": "system contract",
             "tokenEstimate": 135,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "included": true
           },
           {
             "id": "s2",
-            "type": "conversation",
-            "label": "user turn 1",
-            "tokenEstimate": 1662,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "type": "system",
+            "label": "project header",
+            "tokenEstimate": 9,
+            "included": true
           },
           {
             "id": "s3",
-            "type": "conversation",
-            "label": "user turn 2",
-            "tokenEstimate": 1884,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "type": "retrieved_evidence",
+            "label": "timeline summary",
+            "tokenEstimate": 46,
+            "included": true
           },
           {
             "id": "s4",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 287,
-            "included": true,
-            "cacheSide": "per_turn"
+            "type": "retrieved_evidence",
+            "label": "transcript slice",
+            "tokenEstimate": 11,
+            "included": true
           },
           {
             "id": "s5",
+            "type": "skill",
+            "label": "skills manifest",
+            "tokenEstimate": 1645,
+            "included": true
+          },
+          {
+            "id": "s6",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 8,
+            "included": true
+          },
+          {
+            "id": "s7",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 2278,
+            "included": true
+          },
+          {
+            "id": "s8",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 17796,
+            "tokenEstimate": 18469,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -683,9 +727,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 21764,
+          "estimatedInputTokensBeforeSend": 22601,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 170044,
+          "estimatedRemainingCapacity": 169207,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -700,7 +744,7 @@
           "projectRevision": 1,
           "objectiveKnown": true,
           "committedDecisions": 2,
-          "facts": 0,
+          "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 2,
           "nextAction": "Continue inspect: Trim the dead air"
@@ -755,11 +799,11 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 6,
+        "version": 8,
         "objective": {
           "request": "tighten the intro",
-          "outcome": "tighten the intro",
-          "provisional": true,
+          "outcome": "Plan: Trim the dead air; Tighten the intro",
+          "provisional": false,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -772,7 +816,17 @@
           "interpret"
         ],
         "stageEnteredAtTurn": 1,
-        "facts": [],
+        "facts": [
+          {
+            "id": "fact_1",
+            "kind": "project",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+            "evidenceIds": [],
+            "scope": "timeline_dependent",
+            "observedAtRevision": 1,
+            "stage": "inspect"
+          }
+        ],
         "decisions": [
           {
             "id": "decision_1",
@@ -873,7 +927,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 16499,
+      "usedTokens": 17243,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -886,38 +940,55 @@
             "type": "system",
             "label": "system contract",
             "tokenEstimate": 135,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "included": true
           },
           {
             "id": "s2",
-            "type": "conversation",
-            "label": "user turn 1",
-            "tokenEstimate": 1662,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "type": "system",
+            "label": "project header",
+            "tokenEstimate": 9,
+            "included": true
           },
           {
             "id": "s3",
-            "type": "conversation",
-            "label": "user turn 2",
-            "tokenEstimate": 1884,
-            "included": true,
-            "cacheSide": "cached_prefix"
+            "type": "retrieved_evidence",
+            "label": "timeline summary",
+            "tokenEstimate": 46,
+            "included": true
           },
           {
             "id": "s4",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 459,
-            "included": true,
-            "cacheSide": "per_turn"
+            "type": "retrieved_evidence",
+            "label": "transcript slice",
+            "tokenEstimate": 11,
+            "included": true
           },
           {
             "id": "s5",
+            "type": "skill",
+            "label": "skills manifest",
+            "tokenEstimate": 1645,
+            "included": true
+          },
+          {
+            "id": "s6",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 8,
+            "included": true
+          },
+          {
+            "id": "s7",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 2450,
+            "included": true
+          },
+          {
+            "id": "s8",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 12359,
+            "tokenEstimate": 12939,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -925,10 +996,10 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 16499,
+          "estimatedInputTokensBeforeSend": 17243,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 175309,
-          "toolSchemaTokensRebilled": 12359,
+          "estimatedRemainingCapacity": 174565,
+          "toolSchemaTokensRebilled": 12939,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -942,7 +1013,7 @@
           "projectRevision": 1,
           "objectiveKnown": true,
           "committedDecisions": 2,
-          "facts": 0,
+          "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 2,
           "nextAction": "Tighten the intro"
@@ -989,11 +1060,11 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 6,
+        "version": 8,
         "objective": {
           "request": "tighten the intro",
-          "outcome": "tighten the intro",
-          "provisional": true,
+          "outcome": "Plan: Trim the dead air; Tighten the intro",
+          "provisional": false,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -1006,7 +1077,17 @@
           "interpret"
         ],
         "stageEnteredAtTurn": 1,
-        "facts": [],
+        "facts": [
+          {
+            "id": "fact_1",
+            "kind": "project",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+            "evidenceIds": [],
+            "scope": "timeline_dependent",
+            "observedAtRevision": 1,
+            "stage": "inspect"
+          }
+        ],
         "decisions": [
           {
             "id": "decision_1",
@@ -1097,6 +1178,14 @@
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
+      "type": "notification",
+      "text": "Picture covers the programme: 3s of the 10s programme has no picture under it (0s–3s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen."
+    },
+    {
+      "id": "turn_golden:notice:16",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
       "type": "warning",
       "text": "Not everything in the plan was done — 1 of 2 planned tasks completed."
     },
@@ -1114,11 +1203,11 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 14,
+        "version": 16,
         "objective": {
           "request": "tighten the intro",
-          "outcome": "tighten the intro",
-          "provisional": true,
+          "outcome": "Plan: Trim the dead air; Tighten the intro",
+          "provisional": false,
           "acceptance": [
             {
               "id": "criterion_1",
@@ -1136,7 +1225,17 @@
           "enhance"
         ],
         "stageEnteredAtTurn": 3,
-        "facts": [],
+        "facts": [
+          {
+            "id": "fact_1",
+            "kind": "project",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
+            "evidenceIds": [],
+            "scope": "timeline_dependent",
+            "observedAtRevision": 1,
+            "stage": "inspect"
+          }
+        ],
         "decisions": [
           {
             "id": "decision_1",
@@ -1233,7 +1332,7 @@
               "message": "Verification found: The committed plan still has incomplete deliverables.",
               "stage": "verify",
               "blocking": true,
-              "atVersion": 13
+              "atVersion": 15
             }
           ]
         },
@@ -1242,7 +1341,7 @@
       }
     },
     {
-      "id": "turn_golden:usage:16",
+      "id": "turn_golden:usage:17",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1252,7 +1351,7 @@
       "modelCalls": 3
     },
     {
-      "id": "turn_golden:status:17",
+      "id": "turn_golden:status:18",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",

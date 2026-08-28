@@ -55,6 +55,8 @@ import {
   type CritiqueReport,
   critique,
   explicitDurationTarget,
+  repairTrailingSoundOverrun,
+  standingAgainstAcceptance,
   timelineDuration,
 } from './critic.js';
 import { describeOperation, describeToolCall } from './describe.js';
@@ -94,13 +96,14 @@ import {
   DIMINISHING_RETURNS_TURNS,
   PLAN_STEP_HEADROOM,
   STALL_CONFIRM_TURNS,
+  type RepairOutcome,
   type TurnCallFact,
   turnLearnedSomethingNew,
 } from './kernel/conductor.js';
 import { type AnalysisBudget, createAnalysisBudget } from './kernel/cost/analysis-caps.js';
 import { estimateUsd } from './kernel/cost/cost-meter.js';
 import { stageAllowsRole, toolRole } from './kernel/stage-policy.js';
-import { isCatalogueSearch } from './tool-classification.js';
+import { classifyTool, isCatalogueSearch } from './tool-classification.js';
 import { deriveObjectiveText } from './kernel/continuation.js';
 import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
 import { buildStateBriefing, distil } from './kernel/briefing.js';
@@ -375,7 +378,15 @@ function costFromUsage(
  */
 const DEFAULT_MAX_AGENT_STEPS = 30;
 
-/** Blast-radius bounds for one agent run (R3 C1). Mirrors `kernel/conductor.ts`. */
+/**
+ * Blast-radius bounds for one agent run (R3 C1).
+ *
+ * NOTE `maxOpsPerRun` mirrors `kernel/conductor.ts`; `maxOpsPerTurn` does NOT — that path
+ * allows 200, for the same reason it allows more steps (it has behavioral rails this legacy
+ * loop does not). Anything that must parse on either path — `add_clips`, whose whole batch
+ * lands in one turn — bounds itself by the SMALLER of the two. See
+ * `domain-tools/timeline.ts#MAX_CLIPS_PER_BATCH`.
+ */
 const DEFAULT_MAX_OPS_PER_TURN = 100;
 const DEFAULT_MAX_OPS_PER_RUN = 800;
 const USER_WAIT_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
@@ -686,6 +697,15 @@ const FIXABLE_CHECKS = new Set<string>([
   'audio_clipping',
   'word_severed',
   'transition_fit',
+  // Run `fc10301a` shipped a timeline whose last 23.7 of 47.8 seconds were black, and the
+  // repair pass never looked at it: the set covered the checks that were cheap to wire,
+  // not the ones that describe what the viewer sees. `picture_coverage` is the most
+  // user-visible failure the Critic can report and its trailing-hole case has a
+  // deterministic fix (`repairTrailingSoundOverrun`), which runs before the model is
+  // asked. `reframe_coverage` is a mix of reframed and unreframed picture — the model
+  // knows which clips are missing a crop because the detail text names them.
+  'picture_coverage',
+  'reframe_coverage',
 ]);
 
 /**
@@ -1050,18 +1070,54 @@ const IDENTITY_PREFIX_RESERVE_CHARS = 160; // room for `${runId}:${planId}:${dec
 const SIGNATURE_PREFIX_CHARS = MAX_IDENTITY_KEY_CHARS - IDENTITY_PREFIX_RESERVE_CHARS;
 
 /**
- * A stable, bounded signature of a turn's tool calls (names + arguments), used to detect
- * a *spinning* agent: a turn that made no progress and repeats a signature we have
- * already seen make no progress means the model is stuck, so the run should stop.
- * A novel no-progress turn is allowed to continue (e.g. a no-op "organize" when the
- * bin is already tidy, or a first failed call the model can now retry from the
- * surfaced error).
+ * A stable, bounded signature of a turn's tool calls (names, arguments, and — for a call
+ * whose answer depends on the timeline — the revision it was asked at), used to detect a
+ * *spinning* agent: a turn that made no progress and repeats a signature we have already
+ * seen make no progress means the model is stuck, so the run should stop. A novel
+ * no-progress turn is allowed to continue (e.g. a no-op "organize" when the bin is
+ * already tidy, or a first failed call the model can now retry from the surfaced error).
  *
  * Long turns keep a readable head and carry a digest of the whole thing, so two turns
  * that differ only past the cut-off still compare as different.
+ *
+ * ## Why the revision is part of the signature
+ *
+ * It was not, and the omission terminated a healthy run. `get_timeline` + `list_assets`
+ * with no arguments is the same STRING whether the timeline holds nothing or holds
+ * thirty-four clips, so a montage that reads the arrangement between batches — which it
+ * must, because applying a patch invalidates its timeline evidence — collides with itself
+ * on its second batch and is stopped as a spin. Run `fc10301a` was killed exactly there,
+ * with eleven of thirty steps unspent, on a read that had returned an entirely different
+ * timeline from the one banked four turns earlier (revision 71 → 75).
+ *
+ * Only a timeline-dependent QUESTION carries the revision, and the distinction is the
+ * whole rule:
+ *
+ * - A read or inspection is a question, and its answer changes when the timeline does.
+ *   Asking it again after the run has landed more work is new work, so the run's applied-
+ *   work counter belongs in its identity. Deliberately that counter and not
+ *   `project.timeline.revision`: the latter bumps only when an operation changes the
+ *   source↔sequence mapping, so a grade or a gain change would leave two genuinely
+ *   different `get_clips` answers sharing one signature — the very collision this is for.
+ * - A `load_skill` or a `detect_beats` answers the same at every revision, so stamping one
+ *   would defeat the guard for the run it was built for — the model asking one unchanging
+ *   question forever.
+ * - A MUTATION is an intent, not a question. Re-proposing the same edit turn after turn is
+ *   repeating yourself whether or not earlier ones landed, and stamping the revision would
+ *   make an applying-but-runaway agent look novel every turn. A rejected edit does not move
+ *   the revision, so the exact-repeat guard still catches the re-proposed bad edit it was
+ *   written for; and an edit that DOES land is credited by `progressedMeaningfully`, which
+ *   is where "this turn achieved something" belongs.
  */
-function turnSignature(calls: readonly ToolCall[]): string {
-  const full = calls.map((c) => `${c.name}:${JSON.stringify(c.arguments)}`).join('|');
+function turnSignature(calls: readonly ToolCall[], revision: number): string {
+  const full = calls
+    .map((c) => {
+      const { role, scope } = classifyTool(c.name, getTool(c.name)?.kind);
+      const asksTheTimeline = scope === 'timeline_dependent' && role !== 'mutation';
+      const at = asksTheTimeline ? `@${String(revision)}` : '';
+      return `${c.name}${at}:${JSON.stringify(c.arguments)}`;
+    })
+    .join('|');
   return boundedKeySegment(full, SIGNATURE_PREFIX_CHARS);
 }
 
@@ -1406,6 +1462,40 @@ const VISUAL_DIGEST_MAX_PACKETS = 24;
 
 const baseName = (p: string): string => p.split(/[\\/]/).pop() || p;
 const round2 = (n: number): string => (Math.round(n * 100) / 100).toString();
+
+/**
+ * The arrangement in one line, computed from a project rather than read back from a tool.
+ *
+ * This is the sentence `get_timeline` would have produced, and it exists so a run that
+ * just applied a patch does not have to spend a turn asking what it did. The revision
+ * bump correctly invalidates every timeline fact the run held (a cut moves the ids the
+ * next patch is written against) — but the run authored that cut and is handed the
+ * resulting project, so the knowledge is already in hand and only the bookkeeping said
+ * otherwise. Run `fc10301a` alternated apply / re-read for its entire second half.
+ *
+ * Deliberately the same shape as `get_timeline_summary`'s digest — sequence length, track
+ * and clip counts, then a row per track with its span — so a run that reads the tool and a
+ * run that reads this fact hold the timeline in the same terms.
+ *
+ * Bounded by construction: one row per track, and a project has few of those.
+ */
+export function arrangementLine(project: Project): string {
+  const tracks = project.timeline.tracks;
+  const clipCount = tracks.reduce((total, track) => total + track.clips.length, 0);
+  const end = tracks.reduce(
+    (max, track) => track.clips.reduce((m, clip) => Math.max(m, clip.end), max),
+    0,
+  );
+  const rows = tracks
+    .map((track) => {
+      if (track.clips.length === 0) return `${track.id} [${track.type}] empty`;
+      const first = track.clips.reduce((m, c) => Math.min(m, c.start), Infinity);
+      const last = track.clips.reduce((m, c) => Math.max(m, c.end), 0);
+      return `${track.id} [${track.type}] ${String(track.clips.length)} clips ${round2(first)}–${round2(last)}s`;
+    })
+    .join('; ');
+  return `Timeline now: sequence ${round2(end)}s, ${String(tracks.length)} tracks, ${String(clipCount)} clips — ${rows}`;
+}
 const round3 = (n: number): string => (Math.round(n * 1000) / 1000).toString();
 const round4 = (n: number): string => (Math.round(n * 10_000) / 10_000).toString();
 
@@ -3091,7 +3181,37 @@ export class Orchestrator {
      * vision-capable run would silently eat its own context window.
      */
     frames?: readonly AiImage[],
-  ): AiMessage[] {
+    /**
+     * The run's options, so the turn's WHERE YOU STAND block is measured against the same
+     * acceptance reading the final self-check will use (GAP-014). Defaulted rather than
+     * required: the repair pass and the legacy loop pass none, and an empty reading yields
+     * an empty block rather than a wrong one.
+     */
+    agentOptions: AgentOptions = {},
+  ): {
+    readonly messages: AiMessage[];
+    /**
+     * The TIER account `assembleContext` produced, carried out so the request manifest can
+     * name what the project view actually held (GAP-020).
+     *
+     * It used to be discarded. The agent folds every tier into one turn-varying message,
+     * and `buildRequestManifest` falls back to a per-MESSAGE account when it is given no
+     * assembled sections — so every manifest in an agent run read `system contract`,
+     * `user turn 1`, `user turn 2`, `user request`, `tool definitions` and nothing else.
+     * Whether the footage map, the media bin, the timeline summary or the transcript slice
+     * were in the prompt was unanswerable from the run's own record, and a trimmed tier
+     * left no trace at all: compaction is invisible in a payload-derived account, which is
+     * the one thing this field exists to carry.
+     *
+     * Run `fc10301a` claimed to have "absorbed all the photo descriptions from the footage
+     * map" on a turn where no footage map existed. Nothing in 41 manifests could falsify
+     * it.
+     */
+    readonly assembled: {
+      readonly sections: readonly AssembledSection[];
+      readonly droppedTokenEstimate: number;
+    };
+  } {
     const stableHead = this.agentStableInstruction(loadedSkills, plan);
     // P1.2: the agent turn's budget subtracts what `buildContext` does not assemble — the
     // widest tool set the run can advertise, plus this run's stable head (the agent
@@ -3163,7 +3283,16 @@ export class Orchestrator {
     // follows it is only continuity of prose. That ordering matters: the log is a rolling
     // window whose payloads age out, so anything the run must not forget has to live in
     // the briefing, which is bounded by construction rather than by truncation.
-    const briefing = taskMemory ? buildStateBriefing(taskMemory) : '';
+    // WHERE YOU STAND (GAP-014): the whole-cut conditions measured against the working
+    // copy as it is now. Pure and render-free — the same checks the final self-check runs,
+    // consulted while the run can still act on them. Skipped when the request stated no
+    // checkable condition, in which case the list is empty anyway.
+    const briefing = taskMemory
+      ? buildStateBriefing(
+          taskMemory,
+          standingAgainstAcceptance(working, this.critiqueOptions(input, agentOptions, true)),
+        )
+      : '';
     const turnMessage: AiMessage = {
       role: 'user',
       content: `${volatileContext}${briefing}${steeringBlock}${recoveryBlock}\n\n${history}${framesBlock(frames)}`,
@@ -3171,12 +3300,18 @@ export class Orchestrator {
       // image attached here can never invalidate the cached prefix above it.
       ...(frames && frames.length > 0 ? { images: frames } : {}),
     };
-    return [
-      ...stablePrefix,
-      { role: 'user', content: stableContext },
-      { role: 'user', content: stableHead, cacheBoundary: true },
-      turnMessage,
-    ];
+    return {
+      messages: [
+        ...stablePrefix,
+        { role: 'user', content: stableContext },
+        { role: 'user', content: stableHead, cacheBoundary: true },
+        turnMessage,
+      ],
+      assembled: {
+        sections: assembled.sections,
+        droppedTokenEstimate: assembled.droppedTokenEstimate,
+      },
+    };
   }
 
   /**
@@ -3822,15 +3957,34 @@ export class Orchestrator {
           rejectedOpCount: ops.length,
         };
       }
-      const note = summarizeOperations(ops, names, call);
-      orchestratorLog.action('tool produced ops', { tool: call.name, opCount: ops.length, note });
+      // The NORMALIZED operations, not the raw ones the tool built.
+      //
+      // `assembleEdit` quantizes to the frame grid before it validates and applies, so the
+      // working copy this call hands to the next one already holds the snapped times. The
+      // raw ops were returned anyway, and the run accumulated numbers it had never
+      // validated and that did not describe its own working copy. While `add_clip` was
+      // exempt from the grid the two happened to be equal and nothing showed; the moment
+      // it was not, a turn placing abutting clips rejected its own second call — the model
+      // had computed `0.75` from the ungridded beat, clip one's end had already snapped to
+      // 0.7667, and 0.75 now overlapped it. Both would have snapped to the same frame; the
+      // seam was between raw and normalized, not between the two clips.
+      //
+      // One set of numbers, from here to the turn's patch to the ledger. `quantizePatch`
+      // is idempotent, so re-normalizing at turn end is a no-op.
+      const normalized = [...probe.patch.operations];
+      const note = summarizeOperations(normalized, names, call);
+      orchestratorLog.action('tool produced ops', {
+        tool: call.name,
+        opCount: normalized.length,
+        note,
+      });
       // Invalidate what this patch actually changed — the ARRANGEMENT — and nothing more
       // (§3.7). This used to be a blanket `clear()`, which threw away the transcript and
       // the footage map every time a cut landed, forcing the run to buy its own
       // reconnaissance again. A ripple delete cannot change the words that were spoken.
-      host.evidence?.invalidate(ops.map((op) => op.type));
+      host.evidence?.invalidate(normalized.map((op) => op.type));
       return {
-        ops,
+        ops: normalized,
         note,
         summary: note,
         status: 'completed',
@@ -3882,6 +4036,12 @@ export class Orchestrator {
     working: Project;
     log: readonly string[];
     report: CritiqueReport;
+    /**
+     * The same options the report was produced with, so a deterministic repair settles the
+     * SAME question the check that failed asked. Recomputing them here would let the two
+     * drift — the repair could refuse a trim the check demanded, or make one it did not.
+     */
+    critiqueOptions: CritiqueOptions;
     stepIndex: number;
     appliedPatchIds: Set<string>;
     /** This run's beat payload, so a repair is held to the grid like any other turn. */
@@ -3920,11 +4080,63 @@ export class Orchestrator {
      * re-deriving the context it is fixing against.
      */
     taskMemory?: RunWorkingState;
-  }): Promise<{ step: AgentStep; working: Project; ops: AnyOperation[] } | null> {
+  }): Promise<{
+    step: AgentStep;
+    working: Project;
+    ops: AnyOperation[];
+    /**
+     * What this pass did — carried even when `ops` is empty, so a repair that RAN and
+     * produced nothing can be told apart from one that never ran. See
+     * `VerifyResult.repairOutcome`; the four arms name four different next steps.
+     */
+    outcome: RepairOutcome;
+  } | null> {
     const fixable = args.report.checks.filter(
       (c) => c.status === 'fail' && FIXABLE_CHECKS.has(c.id),
     );
+    // The only branch that returns before a model call is made: nothing failed that this
+    // pass knows how to fix, so there is no spend and nothing to report.
     if (fixable.length === 0) return null;
+
+    // Some failures have an answer the Critic can compute, and asking a model for those is
+    // strictly worse: it costs a large-model call, it can decline, and it can propose
+    // something else. Run `fc10301a` failed on 23.7 seconds of black under a music bed
+    // that outran the picture — two numbers and a trim — and its repair pass produced
+    // nothing at all. Try the arithmetic first; fall through to the model for the rest.
+    const deterministic = repairTrailingSoundOverrun(args.working, args.critiqueOptions);
+    if (deterministic.length > 0) {
+      const edit = assembleEdit(args.working, [...deterministic], 'Repair pass', 'agent');
+      if (edit.validation.valid) {
+        const names = projectNames(args.working);
+        const note = deterministic
+          .map((op) => describeOperation(op, names))
+          .map((d) => `${d.action}${d.detail ? ` ${d.detail}` : ''}`)
+          .join('; ');
+        return {
+          step: {
+            index: args.stepIndex,
+            rationale: 'Trimmed the sound back to where the picture ends.',
+            toolCalls: ['trim_clip'],
+            applied: true,
+            // Prefixed like every other repair record, so a reader (and the two tests
+            // that look for one) sees repair turns under one name whatever produced them.
+            note: `Repair pass: ${note}`,
+          },
+          working: applyProjectPatch(args.working, edit.patch),
+          // The PATCH's operations, not the raw ones: `assembleEdit` quantizes to the
+          // frame grid, and these are pushed to `repairOps`/`cumulativeOps` — the run's
+          // ledger of what it did. Reporting the pre-snap numbers there would make the
+          // ledger disagree with the timeline over the same edit.
+          ops: [...edit.patch.operations],
+          outcome: { kind: 'applied', opCount: edit.patch.operations.length, note },
+        };
+      }
+      // The computed trim did not validate — say so rather than applying nothing in
+      // silence, then let the model try.
+      orchestratorLog.warn('deterministic picture-coverage repair failed validation', {
+        issues: edit.validation.issues,
+      });
+    }
 
     const instruction = repairPassInstruction(fixable.map((c) => `${c.label}: ${c.detail}`));
     const messages = [
@@ -3937,7 +4149,7 @@ export class Orchestrator {
         undefined,
         false,
         args.taskMemory,
-      ),
+      ).messages,
       { role: 'user' as const, content: instruction },
     ];
     const response = await this.completeModel(
@@ -3951,7 +4163,20 @@ export class Orchestrator {
     // nothing still shows up as spend of unknown size rather than as no spend.
     args.onUsage?.(response.usage);
     const calls = response.toolCalls ?? [];
-    if (calls.length === 0) return null;
+    if (calls.length === 0) {
+      return {
+        step: {
+          index: args.stepIndex,
+          rationale: response.text || 'Repair pass',
+          toolCalls: [],
+          applied: false,
+          note: 'Repair pass: proposed no change.',
+        },
+        working: args.working,
+        ops: [],
+        outcome: { kind: 'no_calls' },
+      };
+    }
 
     // Thread the repair turn's speculative working copy call-to-call (see executeToolCalls).
     let ctx = this.toolContext({ ...args.input, project: args.working });
@@ -3979,7 +4204,6 @@ export class Orchestrator {
       // non-applied attempt (with the validator's reasons) instead of dropping it;
       // a repair turn that proposed nothing at all stays a silent no-op.
       const rejections = notes.filter((n) => n.startsWith('Rejected'));
-      if (rejections.length === 0) return null;
       return {
         step: {
           index: args.stepIndex,
@@ -3990,10 +4214,27 @@ export class Orchestrator {
         },
         working: args.working,
         ops: [],
+        outcome:
+          rejections.length > 0
+            ? { kind: 'all_rejected', reasons: rejections }
+            : { kind: 'no_calls' },
       };
     }
     // Respect the per-turn blast-radius bound even during repair.
-    if (turnOps.length > args.maxOpsPerTurn) return null;
+    if (turnOps.length > args.maxOpsPerTurn) {
+      return {
+        step: {
+          index: args.stepIndex,
+          rationale: response.text || 'Repair pass',
+          toolCalls: calls.map((c) => c.name),
+          applied: false,
+          note: `Repair pass: ${String(turnOps.length)} operations exceeds the per-turn cap of ${String(args.maxOpsPerTurn)}.`,
+        },
+        working: args.working,
+        ops: [],
+        outcome: { kind: 'over_cap', opCount: turnOps.length, cap: args.maxOpsPerTurn },
+      };
+    }
 
     const step = this.applyAgentTurn({
       index: args.stepIndex,
@@ -4008,8 +4249,20 @@ export class Orchestrator {
     });
     const record: AgentStep = { ...step.record, note: `Repair pass: ${step.record.note}` };
     return step.applied
-      ? { step: record, working: step.working, ops: turnOps }
-      : { step: record, working: args.working, ops: [] };
+      ? {
+          step: record,
+          working: step.working,
+          ops: turnOps,
+          outcome: { kind: 'applied', opCount: turnOps.length, note: step.record.note },
+        }
+      : {
+          step: record,
+          working: args.working,
+          ops: [],
+          // The turn-level assemble rejected what the per-call checks let through, so the
+          // notes carry the validator's reasons.
+          outcome: { kind: 'all_rejected', reasons: [step.record.note] },
+        };
   }
 
   /**
@@ -4101,7 +4354,8 @@ export class Orchestrator {
             false,
             undefined,
             pendingFrames,
-          ),
+            options,
+          ).messages,
           tools,
         },
         undefined,
@@ -4225,7 +4479,9 @@ export class Orchestrator {
         outputDelta === undefined
           ? []
           : [...recentOutputDeltas, outputDelta].slice(-diminishingTurns);
-      const signature = turnSignature(calls);
+      // The run's applied-work counter. The legacy loop keeps no ledger, so the number of
+      // operations it has landed is the same monotonic fact by another name.
+      const signature = turnSignature(calls, cumulativeOps.length);
       if (noProgressSignatures.has(signature) || stallStreak >= STALL_CONFIRM_TURNS) {
         break;
       }
@@ -4257,6 +4513,7 @@ export class Orchestrator {
         working,
         log,
         report,
+        critiqueOptions: this.critiqueOptions(input, options, cumulativeOps.length > 0, evidence),
         stepIndex: steps.length + 1,
         appliedPatchIds,
         rawBeats: beatEvidence.current,
@@ -5683,7 +5940,9 @@ export class Orchestrator {
           // ("they are not perceptually clean") that reads as a verdict the run stood
           // behind rather than as work it never reached. Saying which one it is costs a
           // sentence and tells the editor whether asking again is worth anything.
-          const unattempted = remaining.filter((finding) => !findings.hasExhaustedSteering(finding));
+          const unattempted = remaining.filter(
+            (finding) => !findings.hasExhaustedSteering(finding),
+          );
           const attempted = remaining.filter((finding) => findings.hasExhaustedSteering(finding));
           if (attempted.length > 0) {
             const notice: AiEvent = {
@@ -6593,21 +6852,26 @@ export class Orchestrator {
         // phase (vs. the generic `editing` the caller set for the whole run).
         yield emit.status('generating');
         /** One attempt at this turn's model call. Re-callable — see the retry below. */
-        const streamOnce = (attempt: number) =>
+        // Built once per attempt and held, so the manifest can report the TIER account
+        // rather than falling back to one row per message (GAP-020).
+        const built = () =>
+          self.agentMessages(
+            input,
+            working,
+            log,
+            loadedSkills,
+            plan,
+            steeringMessage,
+            effect.actionRecovery,
+            taskMemory,
+            pendingFrames,
+            agentOptions,
+          );
+        const streamOnce = (attempt: number, prompt = built()) =>
           self.streamAssistant(
             emit,
             {
-              messages: self.agentMessages(
-                input,
-                working,
-                log,
-                loadedSkills,
-                plan,
-                steeringMessage,
-                effect.actionRecovery,
-                taskMemory,
-                pendingFrames,
-              ),
+              messages: prompt.messages,
               // Stage-scoped surface (ADR 0075 §3.6): action recovery still wins when it
               // fires, but an executing run is closed to fresh reconnaissance regardless.
               tools: effect.actionRecovery
@@ -6631,6 +6895,10 @@ export class Orchestrator {
               tier: 'mid',
               contextWindow: contextWindowFor(input, self.provider),
               reservedOutputTokens: reservedOutputFor(input, self.provider),
+              // What the project view actually held, tier by tier — the only way a dropped
+              // section reaches the manifest, since a trimmed tier leaves no trace in the
+              // payload. See `agentMessages`'s return type.
+              assembled: prompt.assembled,
               // The run's durable memory rides with the request so the composer can say
               // "memory intact" while the prompt itself shrinks between turns.
               /* v8 ignore next -- taskMemory is always defined on the live path (see the effect.working guard above), so the empty-object fallback never runs. */
@@ -6744,7 +7012,9 @@ export class Orchestrator {
         // C2: the turn's calls are now known — announce the specific, honest status for
         // what they're about to do before running them (never per-call, just once here).
         yield emit.status(statusForToolCalls(turn.calls));
-        const signature = turnSignature(turn.calls);
+        // The run's own applied-work counter, read BEFORE this turn's calls run — the
+        // signature describes "these calls, asked against this arrangement".
+        const signature = turnSignature(turn.calls, taskMemory?.currentProjectRevision ?? 0);
         /* v8 ignore next 5 -- taskMemory is always defined on the live path (see the effect.working guard above), so the `undefined` side never runs. */
         const decisionId = taskMemory
           ? taskMemory.plan.decisionIds[Math.min(stepIdx, taskMemory.plan.decisionIds.length - 1)]
@@ -6910,6 +7180,9 @@ export class Orchestrator {
           turnPlacementCount: placementCount(turnOps),
           applied: applied.applied,
           appliedOps: applied.applied ? [...turnOps] : [],
+          // The timeline the run just made, so the next turn does not have to ask.
+          // See `AgentTurnResult.arrangement` and `arrangementLine`.
+          ...(applied.applied ? { arrangement: arrangementLine(working) } : {}),
           describedActions,
           note: applied.record.note,
           ...(applied.edit ? { patchId: applied.edit.patch.patchId } : {}),
@@ -6931,19 +7204,25 @@ export class Orchestrator {
         // Critiquing a timeline the authoritative project never received would grade the
         // run's private copy and report the verdict as if it were the user's.
         await reconcileHostVerdicts();
-        let report = critique(
-          working,
-          // P4.3: the run's evidence, so the critic reviews with what the run learned
-          // rather than with a thinner view than its own planner had.
-          self.critiqueOptions(input, agentOptions, state.cumulativeOps.length > 0, evidence),
+        // P4.3: the run's evidence, so the critic reviews with what the run learned
+        // rather than with a thinner view than its own planner had. Held in a variable so
+        // the repair pass settles against the SAME reading the checks were run with.
+        const verifyOptions = self.critiqueOptions(
+          input,
+          agentOptions,
+          state.cumulativeOps.length > 0,
+          evidence,
         );
+        let report = critique(working, verifyOptions);
         const repairOps: AnyOperation[] = [];
+        let repairOutcome: RepairOutcome | undefined;
         if ((agentOptions.autoRepair ?? true) && !report.ok) {
           const repair = await self.attemptRepair({
             input,
             working,
             log,
             report,
+            critiqueOptions: verifyOptions,
             stepIndex: state.planSteps.length + 1,
             appliedPatchIds,
             rawBeats: beatEvidence.current,
@@ -6965,6 +7244,9 @@ export class Orchestrator {
               usageUsd += cost.usd;
             },
           });
+          // Carried whether or not anything landed: a repair that RAN and produced nothing
+          // is a different fact from one that never ran, and it cost a large-model call.
+          repairOutcome = repair?.outcome;
           if (repair && repair.ops.length > 0) {
             // Assemble the repair patch against the PRE-repair working project — that is
             // the timeline state its ops were validated against inside attemptRepair.
@@ -6984,19 +7266,23 @@ export class Orchestrator {
               turnIndex: state.planSteps.length + 1,
               runId: analysisRunId,
             });
-            yield emit.notification(`Repair pass: ${repair.step.note}`);
             report = critique(working, self.critiqueOptions(input, agentOptions, true, evidence));
           }
         }
-        const failedChecks = report.checks
-          .filter((c) => c.status === 'fail')
-          .map((c) => ({ label: c.label, detail: c.detail }));
+        const named = (status: 'fail' | 'warn'): { label: string; detail: string }[] =>
+          report.checks
+            .filter((c) => c.status === status)
+            .map((c) => ({ label: c.label, detail: c.detail }));
         return {
           kind: 'verify',
           ok: report.ok,
           summary: report.summary,
-          failedChecks,
+          failedChecks: named('fail'),
+          // Advisory checks reached the editor as a COUNT and nothing else. See
+          // `VerifyResult.warnedChecks`.
+          warnedChecks: named('warn'),
           repairOps,
+          ...(repairOutcome ? { repairOutcome } : {}),
           endSeq: emit.seq(),
         };
       },
@@ -7121,6 +7407,24 @@ function withheldCallOutcome(
    */
   bankedSearches?: number,
 ): AgentCallOutcome {
+  // A name the registry has never heard of is not "withheld this turn" — it is not a tool.
+  //
+  // Every branch below explains a REAL tool that this turn is not offering, and each ends
+  // by telling the model to try again later or reach for the stored answer instead. Told
+  // that about a hallucinated name, a model does exactly what it is told: it waits a turn
+  // and calls the same non-existent tool again. Worse, the outcome settled as `warning`,
+  // which `callAnswered` reads as "this call answered" — so inventing a tool CREDITED the
+  // turn with having learned something, resetting the guards that exist to stop it.
+  //
+  // The one honest thing to say is that the name is wrong, and to say it as a failure.
+  // `runAgentCall` already answers this way on the serial path (`Refused unknown tool`);
+  // this is the same verdict for the path that never reaches it.
+  if (!getTool(call.name)) {
+    const note =
+      `There is no tool called "${call.name}". Use one of the tools offered on this ` +
+      'turn — inventing a name will not make it exist on the next one.';
+    return { ops: [], note, summary: `Refused unknown tool "${call.name}"`, status: 'failed' };
+  }
   if (bankedSearches !== undefined && isCatalogueSearch(call.name)) {
     return {
       ops: [],

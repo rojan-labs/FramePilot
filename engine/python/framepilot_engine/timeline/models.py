@@ -47,7 +47,7 @@ from pydantic import BaseModel, Field
 # it, because provenance cannot affect a render, but it must round-trip it rather
 # than silently strip the one record of a crediting obligation (ADR 0138); the
 # engine rejects any file whose envelope version exceeds this.
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 
 
 class ProjectFileError(Exception):
@@ -725,6 +725,15 @@ class AssetMedia(BaseModel):
     in the browser). All fields optional.
     """
 
+    #: Source pixel dimensions, when the engine has probed them (schema v21).
+    #:
+    #: WHY: ``_place_video_clip`` FITS a clip into the frame — ``min(target_w/w,
+    #: target_h/h)``, which is *contain* — so a landscape source in a portrait sequence
+    #: renders with black bars unless the clip carries a crop. Nothing carried an asset's
+    #: shape, so neither the agent nor ``checkReframeCoverage`` could tell which clips
+    #: needed one. Absent means "not probed", never "square".
+    width: int | None = Field(default=None)
+    height: int | None = Field(default=None)
     proxy_path: str | None = Field(default=None, alias="proxyPath")
     peaks: list[float] | None = Field(default=None)
     peaks_per_second: float | None = Field(default=None, alias="peaksPerSecond")

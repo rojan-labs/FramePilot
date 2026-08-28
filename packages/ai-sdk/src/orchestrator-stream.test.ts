@@ -1863,6 +1863,114 @@ describe('streamAgent', () => {
     expect(events.at(-1)).toMatchObject({ status: 'failed' });
   });
 
+  // GAP-002 (run `fc10301a`). A montage places clips in batches and MUST re-read the
+  // arrangement between them — applying a patch invalidates the run's timeline evidence,
+  // so the ids and free space it writes the next batch against have to be re-fetched. The
+  // signature was tool names + arguments only, so `get_timeline` with no arguments hashed
+  // identically at revision 1 and revision 2, and the second batch's read was killed as an
+  // exact repeat. The captured run stopped there with 34 of 61 photos placed and eleven of
+  // thirty steps unspent.
+  it('lets a batching run re-read the timeline between edits without tripping the spin guard', async () => {
+    const provider = new ScriptedProvider([
+      {
+        text: 'first batch',
+        toolCalls: [
+          {
+            id: 'a1',
+            name: 'add_clip',
+            arguments: {
+              trackId: 'video_1',
+              assetId: 'asset_1',
+              start: 10,
+              end: 11,
+              sourceStart: 0,
+              sourceEnd: 1,
+            },
+          },
+        ],
+      },
+      { text: 'checking', toolCalls: [{ id: 'r1', name: 'get_timeline', arguments: {} }] },
+      {
+        text: 'second batch',
+        toolCalls: [
+          {
+            id: 'a2',
+            name: 'add_clip',
+            arguments: {
+              trackId: 'video_1',
+              assetId: 'asset_1',
+              start: 11,
+              end: 12,
+              sourceStart: 0,
+              sourceEnd: 1,
+            },
+          },
+        ],
+      },
+      // The SAME read, same arguments, against a timeline that has moved. Under the old
+      // signature this was an exact repeat and ended the run here.
+      { text: 'checking again', toolCalls: [{ id: 'r2', name: 'get_timeline', arguments: {} }] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 8 }),
+    );
+    // The turn AFTER the repeated read is what discriminates: the read itself always runs
+    // (the guard folds the result, it does not withhold the call), so the question is
+    // whether the run got a fifth turn. Under the old signature it did not — the fold
+    // terminated it and the model was never asked again.
+    expect(provider.requests).toHaveLength(5);
+    expect(
+      events.some(
+        (e) => e.type === 'notification' && e.text.includes('already made against this same'),
+      ),
+    ).toBe(false);
+    // Both batches landed, and the run settled on its own terms.
+    const applied = events
+      .filter((e) => e.type === 'diff')
+      .flatMap((e) => (e.type === 'diff' ? e.ops : []));
+    expect(applied).toHaveLength(2);
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
+  });
+
+  // The other half of the signature rule (GAP-002). A mutation is an INTENT, not a
+  // question: re-proposing the same edit turn after turn is repeating yourself whether or
+  // not earlier ones landed. Stamping the revision on it would make an applying-but-runaway
+  // agent look novel every turn and remove the only thing that stops it.
+  it('still stops an agent that re-proposes the identical edit forever', async () => {
+    // MockProvider is exactly this agent: it proposes the same `delete_range` every turn,
+    // forever, and each one applies. Without the mutation carve-out the revision moved
+    // under it every turn, every signature looked novel, and the run ran to `maxSteps`.
+    const events = await drain(
+      new Orchestrator(new MockProvider()).streamAgent(input, opts(), { maxSteps: 8 }),
+    );
+    const turns = events.filter((e) => e.type === 'tool_call' && e.status === 'running');
+    expect(turns.length).toBeLessThanOrEqual(2);
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
+  });
+
+  // GAP-020 (run `fc10301a`). The agent folds every context tier into one turn-varying
+  // message, and the manifest fell back to a per-MESSAGE account — so all 41 manifests in
+  // that run read `system contract`, `user turn 1`, `user turn 2`, `user request`,
+  // `tool definitions` and nothing else. Whether the footage map or the media bin were in
+  // the prompt was unanswerable from the run's own record, and the run claimed to have
+  // "absorbed all the photo descriptions from the footage map" on a turn where no footage
+  // map existed. Nothing could falsify it.
+  it('reports what the project view held, tier by tier, not one row per message', async () => {
+    const events = await drain(
+      new Orchestrator(new MockProvider()).streamAgent(input, opts(), { maxSteps: 1 }),
+    );
+    const usage = events.find((e) => e.type === 'context_usage');
+    const labels =
+      usage?.type === 'context_usage' ? usage.manifest.sections.map((s) => s.label) : [];
+    expect(labels).toContain('timeline summary');
+    expect(labels).toContain('project header');
+    expect(labels).toContain('tool definitions');
+    // The briefing, steering and action log ride in the same message as the tiers, so the
+    // account names the remainder rather than silently under-reporting the prompt.
+    expect(labels).toContain('additional request content');
+  });
+
   it('defaults the clock when absent; a run that never edits emits no diff', async () => {
     const bare: ContextInput = { project: makeProject(), userPrompt: '' };
     const events = await drain(

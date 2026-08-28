@@ -68,6 +68,7 @@ const verifyResult = (overrides: Partial<VerifyResult> = {}): VerifyResult => ({
   ok: true,
   summary: 'verified',
   failedChecks: [],
+  warnedChecks: [],
   repairOps: [],
   endSeq: 0,
   ...overrides,

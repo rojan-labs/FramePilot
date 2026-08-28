@@ -64,9 +64,11 @@ tools edit `project.fp.json` directly and bypass validation/undo.
   `get_clip`, `get_transcript`, `get_selected_range`, `list_assets`) → `result` is the
   requested project data. `get_timeline_summary` / `get_clips` / `get_clip` are the
   compact, windowed reads for long-form projects; `get_transcript` accepts an optional
-  `start`/`end` window.
+  `start`/`end` window. `get_project_state` returns the media bin as `assetSummary`
+  (`{ total, byKind, note }`); the `assets` array is **not** included — call `list_assets`
+  for asset ids.
 - **mutate** (`trim_clip`, `split_clip`, `delete_range`, `ripple_delete`,
-  `delete_clip`, `delete_clips`, `move_clip`, `add_clip`, `add_track`, `remove_track`,
+  `delete_clip`, `delete_clips`, `move_clip`, `add_clip`, `add_clips`, `add_track`, `remove_track`,
   `move_track`, `add_text_layer`, `add_caption_layer`, `add_keyframes`,
   `apply_color_grade`, `adjust_audio`, `add_transition`, `add_mask`, `track_object`)
   → `result` is `{ applied, patch, validation, diff }`. When `applied` is `false`

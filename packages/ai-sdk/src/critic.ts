@@ -25,6 +25,7 @@ import {
   mapTranscript,
 } from '@framepilot/editor-core';
 import type { Clip, Effect, Project, Timeline } from '@framepilot/timeline-schema';
+import type { AnyOperation } from '@framepilot/editor-core';
 import {
   COVERAGE_LABEL,
   mentionsUnreadableShotCount,
@@ -469,6 +470,27 @@ function requestWantsPicture(options: CritiqueOptions): boolean {
   );
 }
 
+/**
+ * The ids of assets measured (schema v21) as wider than they are tall.
+ *
+ * A set built ONCE per check rather than a lookup per clip: the Critic runs at the end of
+ * every agent run, and a per-clip `assets.find` is O(clips × assets) — the exact shape
+ * `critic-scale.test.ts` exists to keep out.
+ *
+ * An unmeasured asset is absent by design. Absent dimensions mean unknown, and treating
+ * unknown as landscape would fail runs over a shape nobody probed.
+ */
+function landscapeAssetIds(project: Project): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const asset of project.assets) {
+    const { width, height } = asset.media ?? {};
+    if (typeof width === 'number' && typeof height === 'number' && width > height) {
+      ids.add(asset.id);
+    }
+  }
+  return ids;
+}
+
 /** A merged, ascending list of the spans picture occupies. */
 function pictureSpans(project: Project): readonly { start: number; end: number }[] {
   const sorted = [...pictureClips(project)]
@@ -569,6 +591,79 @@ function checkPictureCoverage(project: Project, options: CritiqueOptions): Criti
     'Picture covers the programme',
     requestWantsPicture(options) ? 'fail' : 'warn',
     detail,
+  );
+}
+
+/**
+ * The one repair for a picture-coverage failure that needs no judgement: trim the sound
+ * back to where the picture stops.
+ *
+ * ## Why this is deterministic rather than a model call
+ *
+ * `checkPictureCoverage` reports a HOLE, and most holes need an editorial decision — what
+ * picture goes in the gap. One shape does not: a programme whose picture ends and whose
+ * SOUND keeps running past it. There is nothing to decide there. Either the bed was placed
+ * at its full length before the picture was built (which is what run `fc10301a` did on
+ * turn five, laying a 47.8-second track under a cut that reached 24.079s), or the picture
+ * was trimmed and the bed was not. Both are the same repair, and the check's own detail
+ * text already names it: "trim the sound back to the picture".
+ *
+ * Asking a model to make this edit is worse than making it: it costs a large-model call,
+ * it can decline (run `fc10301a`'s repair pass produced nothing), and it can propose
+ * something else entirely. The Critic knows the two numbers.
+ *
+ * ## What it refuses to touch
+ *
+ * - **An interior hole.** Picture that stops and starts again needs picture, not a trim,
+ *   and shortening the bed would not close it.
+ * - **A request that did not ask for a film.** `requestWantsPicture` is false for an
+ *   audio-only or caption-only pass, where sound outrunning picture is the deliverable.
+ * - **Sound that ends inside the picture.** Nothing to trim.
+ * - **A clip whose trim would invert it.** A bed starting after the picture ends cannot be
+ *   trimmed back into a valid range, so it is left for a human.
+ *
+ * The operations it returns are ordinary `trim_clip`s: validated, frame-quantized and
+ * invertible like any other edit, and they appear in the run's diff as a repair turn.
+ *
+ * @param project - The project as the self-check found it.
+ * @param options - The same critique options the checks were run with.
+ * @returns Trim operations closing the trailing hole, or `[]` when this is not that shape.
+ */
+export function repairTrailingSoundOverrun(
+  project: Project,
+  options: CritiqueOptions,
+): readonly AnyOperation[] {
+  if (!requestWantsPicture(options)) return [];
+  const spans = pictureSpans(project);
+  if (spans.length === 0) return [];
+  const programme = contentDuration(project.timeline);
+  const fps = Number.isFinite(project.fps) && project.fps > 0 ? project.fps : 30;
+  const threshold = PICTURE_GAP_FRAMES / fps;
+  // The picture must be CONTINUOUS to its end: an interior hole is a different defect and
+  // trimming the sound would leave it exactly where it was.
+  let cursor = 0;
+  for (const span of spans) {
+    if (span.start - cursor >= threshold) return [];
+    cursor = Math.max(cursor, span.end);
+  }
+  if (programme - cursor < threshold) return [];
+  const pictureEnd = cursor;
+  const audioAssetIds = new Set(
+    project.assets.filter((asset) => asset.kind === 'audio').map((asset) => asset.id),
+  );
+  const overrunning = allClips(project.timeline).filter(
+    (clip) => !isOverlayClip(clip) && audioAssetIds.has(clip.assetId) && clip.end > pictureEnd,
+  );
+  // Every clip past the picture must be sound. If any picture clip ends beyond
+  // `pictureEnd` the span merge above was wrong, and if something else runs past it this
+  // is not the shape this repair is for.
+  if (overrunning.length === 0) return [];
+  return overrunning.flatMap((clip) =>
+    // A bed that starts at or after the picture ends cannot be trimmed into a valid range.
+    // Removing it outright is a bigger decision than this repair is allowed to make.
+    clip.start >= pictureEnd
+      ? []
+      : [{ type: 'trim_clip' as const, clipId: clip.id, start: clip.start, end: pictureEnd }],
   );
 }
 
@@ -730,11 +825,19 @@ function checkTreatmentCoverage(project: Project, options: CritiqueOptions): Cri
  * vertical cut, the agent reframed the opening shots, stopped, and the run reported "All
  * checks passed" over a timeline that was 9 shots reframed and 38 not.
  *
- * Asked as a consistency question rather than a geometry one, because the project does not
- * carry each asset's pixel dimensions: nobody deliberately reframes a fifth of a sequence, so
- * a MIX of reframed and unreframed picture is a defect regardless of what the sources are. A
- * sequence with no crops at all cannot be judged the same way — it may be a same-aspect edit
- * that needs none — so a portrait frame with nothing reframed is a warning, not a failure.
+ * Asked as a consistency question first, because a MIX of reframed and unreframed picture
+ * is a defect regardless of what the sources are — nobody deliberately reframes a fifth of
+ * a sequence.
+ *
+ * Where it CAN be asked as a geometry question, it now is. This check used to say "the
+ * project does not carry each asset's pixel dimensions", and that was true until schema
+ * v21 added them. When the sources are measured and a portrait sequence holds landscape
+ * picture with no crop on it, black bars are not a risk to warn about — they are what the
+ * render will produce, because `_place_video_clip` fits rather than covers. That is a
+ * failure, and it names the clips.
+ *
+ * An unmeasured project keeps the old warning: absent dimensions mean unknown, and failing
+ * a run over a shape nobody measured would be worse than the gap it closes.
  */
 function checkReframeCoverage(project: Project): CriticCheck {
   const picture = pictureClips(project);
@@ -750,6 +853,22 @@ function checkReframeCoverage(project: Project): CriticCheck {
         'Reframing is consistent',
         'skipped',
         'No clip is reframed, and the frame is not portrait.',
+      );
+    }
+    // Measured landscape picture in a portrait frame, uncropped: not a risk, an outcome.
+    const landscapeIds = landscapeAssetIds(project);
+    const landscape = picture.filter((clip) => landscapeIds.has(clip.assetId));
+    if (landscape.length > 0) {
+      const named = landscape.slice(0, 3).map((clip) => clip.id);
+      const rest = landscape.length - named.length;
+      return check(
+        'reframe_coverage',
+        'Reframing is consistent',
+        'fail',
+        `${String(landscape.length)} of ${String(picture.length)} picture clips use a ` +
+          `landscape source in a ${String(width)}x${String(height)} portrait frame with no ` +
+          `crop, so they render with black bars: ${named.join(', ')}` +
+          `${rest > 0 ? `, plus ${String(rest)} more` : ''}. Crop each to fill the frame.`,
       );
     }
     return check(
@@ -1513,6 +1632,72 @@ function checkShotRhythm(project: Project, fps: number): CriticCheck {
  * @param options - Target/render context that informs the checks.
  * @returns A {@link CritiqueReport}; `ok` is false when any check failed.
  */
+/**
+ * The acceptance checks that count the WHOLE cut — `picture_coverage`, `duration_target`,
+ * `shot_count`, `reframe_coverage`, `treatment_coverage` — run on their own.
+ *
+ * Not every check belongs here. A jump cut or a severed word is a local defect the model
+ * finds by looking at the seam; these five are properties of the finished thing that the
+ * model cannot see from any one edit — how long it is, how many shots it has, whether
+ * anything is under the sound, whether the treatment reached every clip. That is what
+ * makes them worth telling a run about while it can still act on them.
+ *
+ * `standingAgainstAcceptance` is called on every prompt build — once per turn AND once per
+ * retry attempt — and running the full battery to keep five of its twenty-odd results meant
+ * the editorial passes (jump cut, severed word, dead air, shot rhythm) were re-walked every
+ * clip of an hour-long project for nothing. `critic-scale.test.ts` measures that battery at
+ * ~185ms clean and ~805ms under coverage, so a long-form run was paying seconds inside the
+ * turn loop for a five-line block.
+ *
+ * `critique` composes the same function rather than repeating the calls, so the block a run
+ * is shown in flight and the checks that judge it at the end can never come apart.
+ */
+function wholeCutChecks(project: Project, options: CritiqueOptions): CriticCheck[] {
+  return [
+    checkPictureCoverage(project, options),
+    checkDurationTarget(project.timeline, options),
+    checkShotCount(project, options),
+    checkReframeCoverage(project),
+    checkTreatmentCoverage(project, options),
+  ];
+}
+
+/**
+ * Where the cut currently stands against what the request asked for, in the run's own
+ * words — for a turn that is still running, not for the post-mortem.
+ *
+ * ## Why this is not just `critique`
+ *
+ * The checks below are pure and render-free, and `checkPictureCoverage`'s own docstring
+ * says so: "unlike the perceptual reviewer it can be consulted BEFORE a run is allowed to
+ * call itself complete." Nothing consulted it. `critique` ran once, in `runVerify`, at the
+ * end.
+ *
+ * The cost of that: run `fc10301a` laid a 47.8-second music bed on turn five, two minutes
+ * into a twelve-minute run, against a 27.5-second target. That single operation guaranteed
+ * both of its terminal failures — the duration overshoot and 23.7 seconds of black — and
+ * the run was told about neither until the budget was spent. Seventeen turns of
+ * compounding, over two numbers that were computable the moment the bed landed.
+ *
+ * ## Why the wording is the check's own
+ *
+ * The detail text is reused verbatim rather than paraphrased, so what a run is told in
+ * flight is exactly what it will be judged by. A shorter in-flight sentence would be a
+ * second description of the same condition, and the two would drift.
+ *
+ * @param project - The working copy as it stands after the last applied patch.
+ * @param options - The same critique options the final self-check will use.
+ * @returns One line per unmet whole-cut condition; empty when the cut is on target.
+ */
+export function standingAgainstAcceptance(
+  project: Project,
+  options: CritiqueOptions = {},
+): readonly string[] {
+  return wholeCutChecks(project, options)
+    .filter((c) => c.status === 'fail' || c.status === 'warn')
+    .map((c) => c.detail);
+}
+
 export function critique(project: Project, options: CritiqueOptions = {}): CritiqueReport {
   const timeline = project.timeline;
   // Every editorial threshold is stated in frames, so every editorial check needs the
@@ -1522,11 +1707,7 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
   const checks: CriticCheck[] = [
     checkRequestMatch(options),
     checkPicturePresent(project, options),
-    checkPictureCoverage(project, options),
-    checkDurationTarget(timeline, options),
-    checkShotCount(project, options),
-    checkReframeCoverage(project),
-    checkTreatmentCoverage(project, options),
+    ...wholeCutChecks(project, options),
     checkCaptionAlignment(timeline),
     checkSafeArea(timeline),
     checkAudioClipping(options),

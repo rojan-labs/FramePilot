@@ -230,6 +230,12 @@ def _fake_media_module(
             self.duration_seconds = duration
             self.has_audio = with_audio
             self.format_name = format_name
+            # Schema v21: the real ``MediaInfo`` reads these off the first video stream,
+            # and ``/asset-media`` carries them through so a run can tell a landscape
+            # source from a portrait one. A landscape shape here, since that is the case
+            # the response exists to make visible.
+            self.width = 1920 if has_video else None
+            self.height = 1080 if has_video else None
 
         @property
         def is_image(self) -> bool:
@@ -300,6 +306,38 @@ def test_asset_media_video_returns_relative_thumbnail_paths(
     # Deterministic hash dir: stable across calls for the same source.
     resp2 = client.post("/asset-media", json={"input_path": str(src), "thumbnails": 3})
     assert resp2.json()["thumbnailPaths"] == paths
+
+
+def test_asset_media_carries_source_dimensions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Schema v21: the probe already measures the source, so the response carries it.
+
+    WHY it matters: the renderer FITS a clip into the frame (``_place_video_clip`` uses
+    ``min(target_w/w, target_h/h)``, which is *contain*), so a landscape source in a
+    portrait sequence renders with black bars unless the clip carries a crop. Nothing
+    anywhere held an asset's shape, so neither the editor nor the agent could tell which
+    assets those were — run ``fc10301a`` placed 34 landscape photos in a 1080x1920 frame
+    against a brief reading "No black bars".
+    """
+    _fake_media_module(monkeypatch, has_video=True, duration=8.0)
+    client, src = _sandboxed_client_with_source(tmp_path, "wide.mp4")
+
+    body = client.post("/asset-media", json={"input_path": str(src)}).json()
+    assert body["width"] == 1920
+    assert body["height"] == 1080
+
+
+def test_asset_media_omits_dimensions_for_audio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Absent means "not measured", never "square" — a guess would misdirect a crop."""
+    _fake_media_module(monkeypatch, has_video=False, duration=2.0, with_audio=True)
+    client, src = _sandboxed_client_with_source(tmp_path, "bed.mp3")
+
+    body = client.post("/asset-media", json={"input_path": str(src)}).json()
+    assert body["width"] is None
+    assert body["height"] is None
 
 
 def test_asset_media_audio_thumbnails_null(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -422,6 +460,8 @@ def test_asset_media_threads_configured_timeout_to_subprocesses(
             self.video_streams = [object()]
             self.duration_seconds = 8.0
             self.is_image = False  # a real-duration video clip
+            self.width = 1920
+            self.height = 1080
 
     def _fake_inspect(_p: Path, *, timeout: float | None = None) -> _FakeInfo:
         seen["inspect"] = timeout

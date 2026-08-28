@@ -15,6 +15,7 @@ import type { Project } from '@framepilot/timeline-schema';
 import {
   MusicAssetPayloadSchema,
   buildAddMusicOps,
+  localMusicAssetRefusal,
   musicDuckSidechainIssue,
   nextMusicLayerId,
 } from './music-placement.js';
@@ -266,5 +267,41 @@ describe('the agent path and the manual path agree', () => {
     // `revision` counts applies and legitimately moves; the CONTENT must not.
     expect(undone.timeline.tracks).toEqual(base.timeline.tracks);
     expect(undone.assets).toEqual(base.assets);
+  });
+});
+
+// GAP-011 (run `fc10301a`). `add_music` mints its bin id from the provider identity —
+// `music_<provider>_<remoteId>` — so the id it PRODUCES is a plausible thing for a later
+// turn to hand back to it, and `list_assets` shows exactly that string. It was not
+// accepted: the id went to the network, came back `unknown_track`, and the model was told
+// to "search again" — the one recovery that cannot work for a track already on disk.
+describe('localMusicAssetRefusal', () => {
+  const bin = [
+    { id: 'music_openverse_2052b163_fdbe_4005_b3ed_f45b481a324d', kind: 'audio' },
+    { id: 'asset_photo_1', kind: 'image' },
+  ];
+
+  it('refuses the id add_music itself minted, and names the tool that places it', () => {
+    const refusal = localMusicAssetRefusal(
+      bin,
+      'music_openverse_2052b163_fdbe_4005_b3ed_f45b481a324d',
+    );
+    expect(refusal).toContain('already in this project');
+    expect(refusal).toContain('add_clip');
+    // It says the id is not a search RESULT; it never tells the model to search again,
+    // because no search will ever return a local id.
+    expect(refusal).toContain('not a search result');
+    expect(refusal).not.toMatch(/search again|search_music/i);
+  });
+
+  it('lets a genuine remote id through to the provider', () => {
+    expect(localMusicAssetRefusal(bin, '2052b163-fdbe-4005-b3ed-f45b481a324d')).toBeUndefined();
+    expect(localMusicAssetRefusal([], 'anything')).toBeUndefined();
+  });
+
+  it('names what the asset actually is when the id points at picture', () => {
+    // A model reaching for `add_music` with a photo id has a different mistake, and the
+    // sentence should not tell it the photo is a track.
+    expect(localMusicAssetRefusal(bin, 'asset_photo_1')).toContain('an asset already');
   });
 });

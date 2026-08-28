@@ -1,7 +1,7 @@
 ---
 name: travel-montage
 description: Shape travel footage into a readable geographic and emotional journey using establishing shots, details, people, motion, music, and restrained transitions.
-tools: [map_footage, describe_footage, search_visual, detect_beats, get_timeline, add_clip, trim_clip, set_clip_speed, add_transition, render_preview]
+tools: [map_footage, describe_footage, search_visual, detect_beats, get_timeline, add_clip, add_clips, trim_clip, set_clip_speed, add_transition, render_preview]
 ---
 
 # Travel montage

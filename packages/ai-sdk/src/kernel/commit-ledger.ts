@@ -60,7 +60,22 @@ export interface HostPatchRefusal {
  */
 export interface PatchCommitOutcome {
   readonly state: 'committed' | 'stale' | 'deferred';
-  /** The authoritative project revision after a commit. Absent on refusal. */
+  /**
+   * The HOST DOCUMENT's revision after a commit — the app's own counter of everything
+   * written to the open project, the user's edits included. Absent on refusal.
+   *
+   * Deliberately not the number the run keys its bookkeeping to, and the distinction is
+   * worth stating because the two look alike and are not. A run tracks
+   * `TimelineSchema.revision` — the project's STRUCTURAL counter, bumped by operations
+   * that change sequence timing — because that is what `get_timeline` reports, what the
+   * spin guard signs a read with, and what `liveEvidence` measures freshness against. The
+   * host's document revision counts more things and moves for reasons a run has no view
+   * of. Captured run `fc10301a` had 71→75 on one and 82→86 on the other, for the same five
+   * patches.
+   *
+   * No consumer reads this today; hosts record it so a verdict is legible on its own, and
+   * a reader who reaches for it should not mistake it for the run's counter.
+   */
   readonly revision?: number;
   /** Why a refusal happened, in words the model and the editor can both act on. */
   readonly reason?: string;

@@ -104,6 +104,11 @@ describe('renderer-backed model-facing schemas', () => {
         type: 'transform',
       }),
     ).toThrow(/Unsupported color effect type/i);
+    // GAP-017: and it says where transforms DO come from, instead of leaving the model to
+    // work out that the arm it just tried has no replacement.
+    expect(() =>
+      parseToolArguments(tool('apply_color_grade'), { clipId: 'clip-1', type: 'transform' }),
+    ).toThrow(/add_keyframes|punch_in/);
   });
 
   it('rejects unknown and out-of-range color-grade params', () => {

@@ -1,7 +1,7 @@
 ---
 name: broll-and-layering
 description: Source footage the user never filmed (stock clips and photos, via search_stock/add_stock — explained here and nowhere else) and place it as b-roll, overlays, or a whole montage that clarifies narration and preserves visual hierarchy without decorative clutter.
-tools: [list_assets, get_timeline, get_mapped_transcript, search_visual, search_stock, add_stock, add_clip, trim_clip, set_clip_blend_mode, add_mask, add_keyframes, set_track_flags]
+tools: [list_assets, get_timeline, get_mapped_transcript, search_visual, search_stock, add_stock, add_clip, add_clips, trim_clip, set_clip_blend_mode, add_mask, add_keyframes, set_track_flags]
 ---
 
 # B-roll and layering
@@ -44,7 +44,8 @@ and it just arrives in the media bin. Reach for them **last**, not first.
   it knows — if the number is small, commit to a candidate rather than browsing.
 - **Building a sequence out of stock? Download first, arrange second.** Call
   `add_stock` without `atSeconds` for each clip you want so it lands in the media
-  bin, then lay them out with `add_clip` once you know the order. "Gather" here
+  bin, then lay them out with `add_clips` — one call for the whole run of them — once you
+  know the order. "Gather" here
   means downloading into the bin — not collecting search results to choose from
   later. Downloading straight onto the timeline
   forces you to commit to a running order before you have seen the second shot,

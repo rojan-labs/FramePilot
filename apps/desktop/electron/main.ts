@@ -185,7 +185,7 @@ import { MusicService } from './media/music-service.js';
 import { StockService, isStockKind } from './media/stock-service.js';
 
 import { StockQuotaStore } from './media/stock-quota.js';
-import { musicErrorMessage, stockErrorMessage } from '@framepilot/ai-sdk';
+import { localMusicAssetRefusal, musicErrorMessage, stockErrorMessage } from '@framepilot/ai-sdk';
 import { createStockHost } from './ai/stock-host.js';
 import { agentSearchFailureSummary } from './ai/search-failure-summary.js';
 import { LocalTelemetry, telemetryEnabledFromEnv } from './telemetry/telemetry.js';
@@ -1945,12 +1945,25 @@ function registerIpcHandlers(): void {
     // of ten. The captured run spent ten searches and ~76k tokens re-learning this.
     const matched =
       result.matchedQuery === undefined
-        ? `"${query}"`
+        ? // Both arms end the sentence: the summary continues with another one, and
+          // `…for "hiking" No tempo or structure…` reads as a single run-on line.
+          `"${query}".`
         : `"${result.matchedQuery}" — this library matches short phrases, so only the ` +
           `opening words of a longer query are used. Search two or three words.`;
+    // Say what these rows do NOT contain, at the moment the model is about to choose from
+    // them. Openverse publishes no tempo, key or section structure — `genres` and
+    // `category` come back null in practice — so a brief that says "evaluate multiple
+    // tracks and select the strongest" is asking for a judgement the catalogue cannot
+    // support. Run `fc10301a` was given eight titles and reported one as "a high-energy
+    // cinematic drum track built for adventure"; it had heard nothing and measured
+    // nothing. The tool description carries the same fact, and this repeats it where the
+    // guess would otherwise happen.
     return {
       status: 'completed',
-      summary: `Found ${result.tracks.length} track${result.tracks.length === 1 ? '' : 's'} for ${matched}.`,
+      summary:
+        `Found ${result.tracks.length} track${result.tracks.length === 1 ? '' : 's'} for ${matched} ` +
+        'No tempo or structure is published for any of them — to know a track’s rhythm, ' +
+        'add_music it and run detect_beats.',
       data: { tracks: result.tracks },
     };
   };
@@ -1976,6 +1989,12 @@ function registerIpcHandlers(): void {
         summary: 'add_music needs the remoteId of a track from search_music.',
       };
     }
+    // The id `add_music` MINTS is a plausible thing for a later turn to hand back to it,
+    // and it was not accepted — the id went to the network and came back `unknown_track`,
+    // whose advice ("search again") is the one recovery that cannot work for a track
+    // already on disk. See `localMusicAssetRefusal` for the full account.
+    const localRefusal = localMusicAssetRefusal(project.assets, remoteId);
+    if (localRefusal) return { status: 'failed', summary: localRefusal };
     const result = await musicService.download({
       projectId: project.id,
       remoteId,

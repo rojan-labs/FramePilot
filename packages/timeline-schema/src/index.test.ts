@@ -42,7 +42,7 @@ const validProject = {
 
 describe('timeline-schema', () => {
   it('exposes a numeric SCHEMA_VERSION', () => {
-    expect(SCHEMA_VERSION).toBe(20);
+    expect(SCHEMA_VERSION).toBe(21);
   });
 
   describe('asset provenance (`Asset.source`, schema v20)', () => {

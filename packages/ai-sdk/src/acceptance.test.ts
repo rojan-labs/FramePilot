@@ -19,6 +19,7 @@ import {
   unmeetableDeliverables,
 } from './acceptance.js';
 import { MONTAGE_BRIEF_E36235CC } from './__fixtures__/montage-brief-e36235cc.js';
+import { MONTAGE_BRIEF_FC10301A } from './__fixtures__/montage-brief-fc10301a.js';
 
 describe('explicitMinShotCount', () => {
   it('reads a shot count from the way editors actually ask', () => {
@@ -70,10 +71,111 @@ describe('explicitCoverage', () => {
     // One moment, not the whole cut.
     expect(explicitCoverage('punch in on the reveal')).toEqual([]);
     expect(explicitCoverage('grade the opening shot')).toEqual([]);
-    // A quantifier with no clip noun is about something else entirely.
-    expect(explicitCoverage('crop every image in the bin')).toEqual([]);
+    // A quantifier with no PICTURE noun is about something else entirely. ("every beat"
+    // is a statement about the music, not about the cut.)
+    expect(explicitCoverage('push in on every beat')).toEqual([]);
     // A clip noun with no quantifier is not a whole-cut demand.
     expect(explicitCoverage('reframe the second clip')).toEqual([]);
+  });
+
+  // GAP-006 (run `fc10301a`). The coverage reader used a narrower noun list than the
+  // shot-count reader beside it, so a stills brief — which says "photos" and never "clips"
+  // — could have its duration and its shot count read while every per-clip demand it made
+  // went unseen. Both readers now share one list.
+  // The drift guard. The two readers had separate noun lists, one grew stills nouns and
+  // the other did not, and nothing noticed for two captured runs. This asserts the
+  // property directly rather than the implementation: whatever noun makes a number a shot
+  // count must also make a line a whole-cut demand.
+  it('every noun the shot-count reader accepts also anchors a coverage demand', () => {
+    for (const noun of [
+      'clip',
+      'shot',
+      'moment',
+      'cut',
+      'scene',
+      'segment',
+      'photo',
+      'image',
+      'picture',
+      'still',
+    ]) {
+      expect(explicitMinShotCount(`at least 12 ${noun}s`)).toBe(12);
+      expect(explicitCoverage(`grade every ${noun}`)).toEqual(['grade']);
+    }
+  });
+
+  it('reads a whole-cut demand made of photos, images, pictures and stills', () => {
+    expect(explicitCoverage('Apply a unified cinematic grade across all photos.')).toEqual([
+      'grade',
+    ]);
+    expect(explicitCoverage('Crop every image to fill the vertical frame.')).toEqual(['crop']);
+    expect(explicitCoverage('A slow push-in on each picture.')).toEqual(['motion']);
+    expect(explicitCoverage('Slow-mo on all stills.')).toEqual(['speed']);
+  });
+
+  // The motion vocabulary of a STILLS brief. A photograph cannot move on its own, so the
+  // brief asks for "animation" and "motion" rather than for a camera move — and naming
+  // only the camera-move words meant the one kind of footage whose motion has to be
+  // authored was the one kind whose motion requirement was invisible.
+  it('reads motion asked for in the words a stills brief uses', () => {
+    expect(explicitCoverage('Do not apply the same animation to every image.')).toEqual(['motion']);
+    expect(explicitCoverage('Motion should follow the composition of each photo.')).toEqual([
+      'motion',
+    ]);
+    expect(explicitCoverage('Subtle parallax across all shots.')).toEqual(['motion']);
+  });
+
+  // A delivery spec states the crop requirement as its consequence.
+  it('reads a crop demand stated as "no black bars" across the cut', () => {
+    expect(explicitCoverage('Every photo fills the frame — no black bars.')).toEqual(['crop']);
+  });
+
+  // The whole brief, unedited. Every treatment it demands is stated in the vocabulary of
+  // stills, and the run that received it applied none of them — motion, grade and crop
+  // were the three things it omitted entirely, and the three no criterion could see.
+  it('reads every per-photo demand the captured stills brief actually makes', () => {
+    // "Apply a unified cinematic grade across all photos", "do not apply the same
+    // animation to every image", "motion should follow the composition of each photo".
+    // Read as `[]` before the two noun lists were unified.
+    expect([...explicitCoverage(MONTAGE_BRIEF_FC10301A)].sort()).toEqual(['grade', 'motion']);
+    // Deliberately NOT 'crop'. The brief demands 9:16 with "no black bars" and "no
+    // stretched photos", but never attaches that to a universal quantifier and a picture
+    // noun on one line — so reading a crop criterion out of it would be inventing one, and
+    // a wrong criterion fails runs that did the work. The letterbox problem on that
+    // project is real and is caught where it belongs: `critic.ts#checkReframeCoverage`
+    // reads the FRAME, not the prose.
+  });
+
+  // `checkTreatmentCoverage` FAILS a run rather than warning it, and `reframe_coverage` is
+  // repairable, so a criterion read out of a line that asked for nothing costs the user a
+  // failed verdict and a repair call. Each of these lines carries a treatment WORD and a
+  // universal quantifier and still demands no treatment.
+  it('does not read a demand out of footage described, not asked for', () => {
+    expect(explicitCoverage('Keep camera movement smooth across all shots')).toEqual([]);
+    expect(explicitCoverage('Trim all the clips so there is no wasted motion')).toEqual([]);
+    expect(explicitCoverage('The animation in every clip already reads well')).toEqual([]);
+  });
+
+  it('does not read a prohibition as a demand', () => {
+    expect(explicitCoverage('Avoid zooming on all the photos.')).toEqual([]);
+    expect(explicitCoverage('No push-ins on any of the shots.')).toEqual([]);
+    expect(explicitCoverage('Leave every clip ungraded — do not grade anything.')).toEqual([]);
+  });
+
+  // The sameness is what is forbidden; the animation is still required.
+  it('still reads a demand whose negation is aimed at repeating it', () => {
+    expect(explicitCoverage('Do not apply the same animation to every image.')).toEqual(['motion']);
+  });
+
+  // A safe area belongs to whatever is inside it. Captions have one; so does the picture.
+  it('does not read a caption safe area as a reframe demand', () => {
+    expect(explicitCoverage('Keep text inside the safe areas on every shot.')).toEqual([]);
+    expect(explicitCoverage('Keep every shot inside the 9:16 safe areas.')).toEqual(['crop']);
+  });
+
+  // A spec lists its consequences together; the earlier `no` must not disqualify the later one.
+  it('reads a consequence-form crop demand next to another prohibition', () => {
+    expect(explicitCoverage('Every photo: no stretched images, no black bars.')).toEqual(['crop']);
   });
 
   it('does not let a quantifier on one line reach a treatment on another', () => {
@@ -96,10 +198,35 @@ describe('asksForRenderedFile', () => {
     expect(asksForRenderedFile('render out a mov file')).toBe(true);
   });
 
+  // GAP-021 (run `fc10301a`). A long brief states its deliverable as a SECTION, not a
+  // sentence — and the inline reader bounds its gap with `[^.\n]{0,60}`, which cannot
+  // cross the newline between the heading and the noun under it. That run asked for a
+  // finished Reel, was never told the panel cannot export, and got a timeline.
+  it('recognises a deliverable stated as a heading with the noun on the next line', () => {
+    expect(asksForRenderedFile('# FINAL DELIVERABLE\n\nCreate the finished Instagram Reel.')).toBe(
+      true,
+    );
+    expect(asksForRenderedFile('**Deliverables**\n- the montage\n- a timeline report')).toBe(true);
+    // The whole captured brief, unedited.
+    expect(asksForRenderedFile(MONTAGE_BRIEF_FC10301A)).toBe(true);
+  });
+
+  it('reads a blank-line-heavy brief in linear time', () => {
+    // The heading reader used to allow `\s` (newline included) as a leading marker, which
+    // overlapped the `(?:^|\n)` it follows: a brief of many blank lines and no deliverable
+    // backtracked quadratically. The prompt is user text and this runs on every turn.
+    const blankLines = `${'\n'.repeat(20000)}deliverabl`;
+    const start = performance.now();
+    expect(asksForRenderedFile(blankLines)).toBe(false);
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
   it('is not fooled by the words used about something that is not a file', () => {
     expect(asksForRenderedFile('render the captions legible')).toBe(false);
     expect(asksForRenderedFile('make it 30 seconds and punchy')).toBe(false);
     expect(asksForRenderedFile('export settings should be 9:16')).toBe(false);
+    // A deliverable heading that names no artefact is not a request for a file.
+    expect(asksForRenderedFile('# Deliverable\n\nMake it tighter and punchier.')).toBe(false);
   });
 });
 

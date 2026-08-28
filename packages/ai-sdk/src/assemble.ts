@@ -119,11 +119,34 @@ function contractRejectionMessage(cause: unknown): string {
  * Build, normalize, validate, and diff a patch from typed operations.
  *
  * Ordering is deliberate:
- * 1. semantic contract on RAW intent;
- * 2. structural patch validation on RAW intent;
- * 3. frame quantization;
- * 4. semantic + structural validation again on normalized values;
- * 5. canonical project apply + canonical project diff.
+ * 1. semantic contract on RAW intent — what the model MEANT (wipe guards, referents);
+ * 2. frame quantization;
+ * 3. semantic + structural validation on normalized values;
+ * 4. canonical project apply + canonical project diff.
+ *
+ * ## Why structural validation waits for the grid
+ *
+ * There used to be a structural pass on raw intent as step 2, so an invalid edit was
+ * reported in the model's own numbers before snapping could move them. The trouble is what
+ * it compared: the timeline is ALWAYS on the grid (nothing is applied before
+ * `quantizePatch`), so validating an ungridded operation against it measures a discrepancy
+ * that does not survive to the thing being validated.
+ *
+ * That is not theoretical. A turn placing abutting clips on detected beats — 0→0.75,
+ * 0.75→1.75 at 30fps — had its second call rejected for overlapping its first: 0.75s is
+ * frame 22.5, clip one's end had already snapped to frame 23, and the raw 0.75 now sat
+ * inside it. Both times snap to frame 23 and abut exactly. The seam was between raw and
+ * normalized, never between the two clips.
+ *
+ * Snapping cannot repair a real defect into validity: it moves a value by less than half a
+ * frame, so the only "overlap" it can remove is one smaller than a frame — which is not an
+ * overlap on a frame grid, it is one edit point described twice. Everything a structural
+ * check exists to catch (an unknown id, a negative duration, a clip off the end of its
+ * source) is unaffected by a sub-frame nudge, and `normalizeOperationTimes` still refuses
+ * to normalize intent that is invalid on its face rather than repairing it.
+ *
+ * The semantic contract stays on RAW intent, where it belongs: it judges what the model
+ * meant, and grid arithmetic has nothing to do with that.
  */
 export function assembleEdit(
   project: Project,
@@ -140,16 +163,6 @@ export function assembleEdit(
   };
   const rawContractFailure = validateContracts(project, operations, rawPatch, reason);
   if (rawContractFailure) return rawContractFailure;
-
-  const rawValidation = validatePatch(project.timeline, rawPatch, context);
-  if (!rawValidation.valid) {
-    log.warn('assembleEdit → raw patch failed validation before normalization', {
-      operations: operations.length,
-      fps: project.fps,
-      issues: rawValidation.issues,
-    });
-    return { patch: rawPatch, validation: rawValidation, text: reason };
-  }
 
   let normalizedOperations: AnyOperation[];
   try {
@@ -187,20 +200,17 @@ export function assembleEdit(
     operations: normalizedOperations,
   };
   const normalizedContractFailure = validateContracts(project, normalizedOperations, patch, reason);
-  // Unreachable today for the same reason as the normalized validation below: snapping
-  // cannot make a value the raw contract accepted violate that contract. Kept so a new
-  // quantization rule cannot bypass the semantic gate.
+  // Unreachable today: snapping cannot make a value the raw contract accepted violate that
+  // contract. Kept so a new quantization rule cannot bypass the semantic gate.
   /* v8 ignore next */
   if (normalizedContractFailure) return normalizedContractFailure;
 
+  // THE structural gate. It runs on the normalized patch because that is what will be
+  // applied, and because the timeline it is compared against is already on the grid — see
+  // the ordering note above.
   const validation = validatePatch(project.timeline, patch, context);
-  // Defence in depth, and unreachable today: frame snapping is monotonic, so it cannot
-  // invert an ordering the raw pass already accepted, and the contract re-check above
-  // has already re-examined every value it did change. Kept so a future normalization
-  // rule cannot quietly persist a patch that only the snapped values invalidate.
-  /* v8 ignore next 9 */
   if (!validation.valid) {
-    log.warn('assembleEdit → normalized patch failed validation', {
+    log.warn('assembleEdit → patch failed validation', {
       operations: normalizedOperations.length,
       normalizedTimingOperations: normalizedCount,
       fps: project.fps,
