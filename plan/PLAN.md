@@ -13,6 +13,24 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-08-28, photo-montage run gap analysis, round 6):** `[x]` **All six
+closed in code; the re-run is what settles them.** Run `4c9b5f82` answered a 61-photo,
+"20–35 second" brief with ten photos over the first 10.0s of a 36.1s music bed — 72% of the
+programme black — and reported `completed`. Six layers each had a reason not to catch it,
+and all six are fixed: `picture_coverage` (a new deterministic check comparing picture
+against the whole programme), the acceptance reader (photos are shots; a stated range is a
+length), the early-done guard (the model's "done" now answers to the request's own failing
+checks and buys one bounded recovery turn), the representative frame probes (they measured
+black and asserted nothing), the review's account of a finding it never reached, and two
+tool dead ends that cost five of seventeen model calls (`get_timeline` took no window;
+a stale music id reported "provider not responding, try again"). ADR **0153**.
+`packages/ai-sdk/src/critic.test.ts` asserts the whole chain, brief to verdict, and that a
+cut which actually answers the brief still passes.
+
+**Not yet measured against a live run.** The re-run settles: whether the timeline reaches
+61 photos, whether it lands inside 20–35 seconds, whether picture covers the bed, and
+whether the recovery turn is spent productively rather than on a second "done".
+
 **Status snapshot (2026-08-28, media-intelligence closure):** a reported "footage map is
 never created for images" turned out to be photos being dispatched to a video-only hosted
 index, where one refusal froze the whole project's preparation at asset #1. Phase 1 of

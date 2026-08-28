@@ -24,6 +24,29 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A montage that stops a third of the way through no longer reports success.** Given 61
+  photos and a 36-second track, the assistant could place ten photos over the first ten
+  seconds, leave the rest of the song playing over black, and call the job finished. It
+  now measures whether picture actually covers the whole video before it is allowed to
+  stop, and keeps going if it does not. It also reads two things out of your brief that it
+  used to miss entirely: a count written as photos, images or stills rather than clips
+  ("use all 61 photos"), and a length written as a range ("20–35 seconds"). Both are now
+  conditions the finished edit is held to.
+- **The review no longer reports two black frames when a quarter of your video is black.**
+  The check that looks at the start, middle and end of a video measured how dark each one
+  was and then ignored the answer, so a video that ran out of picture halfway was only
+  ever caught at the last cut. It now says which part of the video is black.
+- **A finding that arrived after the run finished says so.** When the last edit's review
+  came back too late for anything to be done about it, the assistant reported it as though
+  it had tried and failed. It now tells you nothing was attempted, and that asking again
+  will pick up from what the review found.
+- **Reading a long timeline no longer costs a wasted step.** `get_timeline` now takes a
+  start and end, the way reading the transcript already did — the assistant used to ask
+  for a section, get an error, and try again.
+- **A stale music track says it is stale.** Asking to add a track from a previous
+  session's search results reported "the music provider is not responding, try again
+  shortly". The provider was fine, and retrying could never work. It now says to search
+  again.
 - **When a file can't be prepared, you can now see which one and why.** Media
   intelligence used to report a clean "done" even when it had prepared nothing at all —
   the reasons existed for the length of one request and were then thrown away, so a
