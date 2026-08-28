@@ -521,6 +521,55 @@ export function summarizeMediaBin(project: Project): string {
   return [head, ...lines].join('\n');
 }
 
+/** Orientation of a frame from its pixel dimensions. */
+function orientationOf(width: number, height: number): 'landscape' | 'portrait' | 'square' {
+  if (width === height) return 'square';
+  return width > height ? 'landscape' : 'portrait';
+}
+
+const SOURCE_MEDIA_CHARS = 1800;
+
+/**
+ * The per-asset facts an editor reads off a thumbnail and the model cannot: file name,
+ * source dimensions, and whether the source's orientation matches the sequence's.
+ *
+ * WHY: in the mission montage ledger the model spent five `recall_evidence` calls and
+ * five `describe_footage` calls asking "is this landscape, will it letterbox?" — facts the
+ * project file already holds. Stated once, in one line per asset, they cost ~15 tokens
+ * each and remove those requests. Assets with no known dimensions are listed by kind only;
+ * nothing is guessed.
+ */
+export function summarizeSourceMedia(project: Project): string {
+  if (project.assets.length === 0) return '';
+  const sequence = orientationOf(project.resolution.width, project.resolution.height);
+  const lines: string[] = [];
+  let used = 0;
+  for (const [index, asset] of project.assets.entries()) {
+    const name = asset.path.split('/').pop() ?? asset.path;
+    const width = asset.media?.width ?? null;
+    const height = asset.media?.height ?? null;
+    let shape = '';
+    if (asset.kind !== 'audio' && width !== null && height !== null) {
+      const orientation = orientationOf(width, height);
+      const fit =
+        orientation === sequence
+          ? 'matches the sequence'
+          : `sequence is ${sequence}: fills the frame only with a crop, else letterboxed`;
+      shape = ` · ${String(width)}×${String(height)} ${orientation} — ${fit}`;
+    } else if (asset.kind === 'audio') {
+      shape = ' · audio';
+    }
+    const line = `- ${asset.id} ${name}${shape}`;
+    if (used + line.length > SOURCE_MEDIA_CHARS) {
+      lines.push(`- …and ${String(project.assets.length - index)} more — call list_assets for their dimensions`);
+      break;
+    }
+    lines.push(line);
+    used += line.length + 1;
+  }
+  return ['Source media (file · dimensions · fit in this sequence):', ...lines].join('\n');
+}
+
 /**
  * Rough token estimate for budgeting (R2 B2). Uses the standard ≈4-chars-per-token
  * heuristic — deliberately dependency-free; an exact tokenizer is a §7-gated upgrade.
@@ -920,6 +969,12 @@ export function assembleContext(input: ContextInput): AssembledContext {
   const mediaBin = summarizeMediaBin(project);
   if (mediaBin !== '') {
     tiered.push({ tier: 'timeline', label: 'media bin', text: mediaBin });
+  }
+  // Source facts (file, dimensions, orientation vs the sequence) ride with the bin: they
+  // are what the model otherwise re-derives with recall/describe calls (P1.3a).
+  const sourceMedia = summarizeSourceMedia(project);
+  if (sourceMedia !== '') {
+    tiered.push({ tier: 'timeline', label: 'source media', text: sourceMedia });
   }
   // The visual-index status line (MI6.2) sits with the timeline it describes, so the
   // model reads "what it can see" right next to "what is on the timeline".

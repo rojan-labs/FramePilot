@@ -17,6 +17,7 @@ import {
   MIN_TRANSCRIPT_WORDS,
   allocateGroundingSlice,
   summarizeMediaBin,
+  summarizeSourceMedia,
   summarizeTimeline,
   summarizeTranscript,
 } from './context-builder.js';
@@ -762,6 +763,47 @@ describe('per-section accounting (ADR 0080)', () => {
     });
   });
 
+  describe('summarizeSourceMedia', () => {
+    it('states file, dimensions and whether the source fits the sequence orientation', () => {
+      const project = makeProject({
+        resolution: { width: 1080, height: 1920 },
+        assets: [
+          { id: 'a1', path: 'media/p/camera.mov', kind: 'video', durationSeconds: 40, media: { width: 3840, height: 2160 } },
+          { id: 'a2', path: 'media/p/vertical.mp4', kind: 'video', durationSeconds: 30, media: { width: 1080, height: 1920 } },
+          { id: 'a3', path: 'media/p/beat.wav', kind: 'audio', durationSeconds: 30 },
+          { id: 'a4', path: 'media/p/unknown.mp4', kind: 'video' },
+        ],
+      } as never);
+      const text = summarizeSourceMedia(project);
+      expect(text).toContain('- a1 camera.mov · 3840×2160 landscape — sequence is portrait: fills the frame only with a crop, else letterboxed');
+      expect(text).toContain('- a2 vertical.mp4 · 1080×1920 portrait — matches the sequence');
+      expect(text).toContain('- a3 beat.wav · audio');
+      expect(text).toContain('- a4 unknown.mp4');
+      expect(text).not.toContain('a4 unknown.mp4 ·');
+    });
+
+    it('is absent with no assets and bounds itself with a route to the rest', () => {
+      expect(summarizeSourceMedia(makeProject({ assets: [] } as never))).toBe('');
+      const many = makeProject({
+        assets: Array.from({ length: 200 }, (_, i) => ({ id: `p${i}`, path: `media/x/photo-${i}.jpg`, kind: 'image', media: { width: 4000, height: 3000 } })),
+      } as never);
+      const text = summarizeSourceMedia(many);
+      expect(text.length).toBeLessThan(2100);
+      expect(text).toMatch(/…and \d+ more — call list_assets/);
+    });
+
+    it('reaches the assembled context beside the media bin', () => {
+      const project = makeProject({
+        resolution: { width: 1080, height: 1920 },
+        assets: [{ id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 30, media: { width: 1920, height: 1080 } }],
+      } as never);
+      const messages = buildContext({ project, userPrompt: 'make it vertical' });
+      const all = messages.map((m) => m.content).join('\n');
+      expect(all).toContain('Source media');
+      expect(all).toContain('1920×1080 landscape — sequence is portrait');
+    });
+  });
+
   it('distinguishes blocks that share a tier, so the UI can name what took the room', () => {
     const project = makeProject();
     const { sections } = assembleContext({
@@ -773,7 +815,7 @@ describe('per-section accounting (ADR 0080)', () => {
     const timeline = sections.filter((s) => s.tier === 'timeline').map((s) => s.label);
     // No media-bin block here: this fixture's only asset is already on the timeline, so
     // the bin has nothing to add (GAP-012).
-    expect(timeline).toEqual(['timeline summary', 'visual index status', 'footage map']);
+    expect(timeline).toEqual(['timeline summary', 'source media', 'visual index status', 'footage map']);
   });
 
   it('adds the media bin to the timeline tier when material is waiting to be placed', () => {
@@ -789,7 +831,7 @@ describe('per-section accounting (ADR 0080)', () => {
     const timeline = sections.filter((s) => s.tier === 'timeline').map((s) => s.label);
     // Directly under the timeline summary: together they are "what has been placed" and
     // "what there is to place", which is the pair a montage reasons over.
-    expect(timeline).toEqual(['timeline summary', 'media bin']);
+    expect(timeline).toEqual(['timeline summary', 'media bin', 'source media']);
   });
 
   it('keeps a dropped section in the account, marked not-included', () => {
