@@ -140,7 +140,17 @@ function renderFact(fact: Fact): string {
  * empty scaffold of headings — the contract and the request are enough there, and an
  * empty briefing would only teach the model that the section is noise.
  */
-export function buildStateBriefing(state: RunWorkingState): string {
+export function buildStateBriefing(
+  state: RunWorkingState,
+  /**
+   * Where the cut stands against the request's checkable conditions RIGHT NOW — one line
+   * per unmet whole-cut condition, from `critic.ts#standingAgainstAcceptance`.
+   *
+   * A parameter rather than something derived here, because the briefing is pure over the
+   * ledger and the ledger holds no timeline. The caller has the working project.
+   */
+  standing: readonly string[] = [],
+): string {
   const sections: string[] = [];
   // Is this text just the editor's request back again?
   //
@@ -201,6 +211,16 @@ export function buildStateBriefing(state: RunWorkingState): string {
       : '';
   if (outcomeLine || criteria.length > 0) {
     sections.push(`WHAT DONE LOOKS LIKE\n${[outcomeLine, ...criteria].filter(Boolean).join('\n')}`);
+  }
+
+  // Directly under what "done" means, because it is the same question measured against
+  // the timeline as it stands. A run that reads its target and its distance from it in
+  // one place can correct on the next turn; run `fc10301a` learned both only after its
+  // budget was gone, seventeen turns after the edit that decided them.
+  if (standing.length > 0) {
+    sections.push(
+      `WHERE YOU STAND — measured now, not at the end\n${standing.map((line) => `- ${line}`).join('\n')}`,
+    );
   }
 
   const completed = state.completedStages.length

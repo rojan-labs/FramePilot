@@ -56,6 +56,7 @@ import {
   critique,
   explicitDurationTarget,
   repairTrailingSoundOverrun,
+  standingAgainstAcceptance,
   timelineDuration,
 } from './critic.js';
 import { describeOperation, describeToolCall } from './describe.js';
@@ -3134,6 +3135,13 @@ export class Orchestrator {
      * vision-capable run would silently eat its own context window.
      */
     frames?: readonly AiImage[],
+    /**
+     * The run's options, so the turn's WHERE YOU STAND block is measured against the same
+     * acceptance reading the final self-check will use (GAP-014). Defaulted rather than
+     * required: the repair pass and the legacy loop pass none, and an empty reading yields
+     * an empty block rather than a wrong one.
+     */
+    agentOptions: AgentOptions = {},
   ): AiMessage[] {
     const stableHead = this.agentStableInstruction(loadedSkills, plan);
     // P1.2: the agent turn's budget subtracts what `buildContext` does not assemble — the
@@ -3206,7 +3214,16 @@ export class Orchestrator {
     // follows it is only continuity of prose. That ordering matters: the log is a rolling
     // window whose payloads age out, so anything the run must not forget has to live in
     // the briefing, which is bounded by construction rather than by truncation.
-    const briefing = taskMemory ? buildStateBriefing(taskMemory) : '';
+    // WHERE YOU STAND (GAP-014): the whole-cut conditions measured against the working
+    // copy as it is now. Pure and render-free — the same checks the final self-check runs,
+    // consulted while the run can still act on them. Skipped when the request stated no
+    // checkable condition, in which case the list is empty anyway.
+    const briefing = taskMemory
+      ? buildStateBriefing(
+          taskMemory,
+          standingAgainstAcceptance(working, this.critiqueOptions(input, agentOptions, true)),
+        )
+      : '';
     const turnMessage: AiMessage = {
       role: 'user',
       content: `${volatileContext}${briefing}${steeringBlock}${recoveryBlock}\n\n${history}${framesBlock(frames)}`,
@@ -4239,6 +4256,7 @@ export class Orchestrator {
             false,
             undefined,
             pendingFrames,
+            options,
           ),
           tools,
         },
@@ -6751,6 +6769,7 @@ export class Orchestrator {
                 effect.actionRecovery,
                 taskMemory,
                 pendingFrames,
+                agentOptions,
               ),
               // Stage-scoped surface (ADR 0075 §3.6): action recovery still wins when it
               // fires, but an executing run is closed to fresh reconnaissance regardless.

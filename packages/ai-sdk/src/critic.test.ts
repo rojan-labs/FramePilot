@@ -10,6 +10,7 @@ import {
   explicitDurationTarget,
   explicitDurationTargetSeconds,
   repairTrailingSoundOverrun,
+  standingAgainstAcceptance,
   timelineDuration,
 } from './critic.js';
 import { checkableAcceptance } from './acceptance.js';
@@ -718,6 +719,94 @@ describe('export_settings', () => {
     expect(
       idOf(critique(makeProject(), { targetPlatform: 'linkedin' }), 'export_settings')?.status,
     ).toBe('pass');
+  });
+});
+
+// GAP-014. The same checks the final self-check runs, consulted while the run can still
+// act on them — in the check's own words, so what a run is told in flight is exactly what
+// it will be judged by.
+describe('standingAgainstAcceptance', () => {
+  it('names every unmet whole-cut condition, in the words the verdict will use', () => {
+    const project = withTracks(
+      [
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 4 })],
+        },
+        {
+          id: 'a_music',
+          type: 'audio',
+          clips: [
+            clip({ id: 'music', assetId: 'asset_music', trackId: 'a_music', start: 0, end: 30 }),
+          ],
+        },
+      ],
+      {
+        assets: [
+          { id: 'asset_1', path: 'media/a.jpeg', kind: 'image', durationSeconds: 5 },
+          { id: 'asset_music', path: 'media/m.mp3', kind: 'audio', durationSeconds: 47.8 },
+        ] as Project['assets'],
+      },
+    );
+    const standing = standingAgainstAcceptance(project, {
+      durationTargetSeconds: 4,
+      minShotCount: 61,
+    });
+    expect(standing.join('\n')).toMatch(/no picture under it/);
+    expect(standing.join('\n')).toMatch(/Timeline is 30s but the target is 4s/);
+    expect(standing.join('\n')).toMatch(/uses 1 shots but at least 61/);
+    // Every line is verbatim from a check, so the in-flight account and the verdict can
+    // never describe the same condition two different ways.
+    const details = critique(project, { durationTargetSeconds: 4, minShotCount: 61 }).checks.map(
+      (c) => c.detail,
+    );
+    for (const line of standing) expect(details).toContain(line);
+  });
+
+  it('is empty for a cut that meets every stated condition', () => {
+    const project = withTracks([
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [
+          clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 2 }),
+          clip({ id: 'p_2', trackId: 'v_main', start: 2, end: 4 }),
+        ],
+      },
+    ]);
+    expect(standingAgainstAcceptance(project, { durationTargetSeconds: 4, minShotCount: 2 })).toEqual(
+      [],
+    );
+  });
+
+  it('reports nothing when the request stated no checkable condition', () => {
+    const project = withTracks([
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 4 })],
+      },
+    ]);
+    expect(standingAgainstAcceptance(project, {})).toEqual([]);
+  });
+
+  it('leaves local defects to the seam that shows them, not to a standing count', () => {
+    // A jump cut is something the model finds by looking at the edit point. These five
+    // checks are properties of the finished thing that no single edit reveals.
+    const project = withTracks([
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [
+          clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 2, sourceStart: 0, sourceEnd: 2 }),
+          clip({ id: 'p_2', trackId: 'v_main', start: 2, end: 4, sourceStart: 8, sourceEnd: 10 }),
+        ],
+      },
+    ]);
+    expect(standingAgainstAcceptance(project, { durationTargetSeconds: 4, minShotCount: 2 })).toEqual(
+      [],
+    );
   });
 });
 

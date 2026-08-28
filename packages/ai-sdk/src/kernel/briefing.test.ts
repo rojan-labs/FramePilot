@@ -173,6 +173,27 @@ describe('buildStateBriefing', () => {
   // request said back — it is the only statement of what "done" means that the model ever
   // gets, and it was being dropped alongside the echoes because the section hung on the
   // outcome rather than on its own contents.
+  // GAP-014 (run `fc10301a`). The duration and picture-coverage checks are pure and
+  // render-free — `checkPictureCoverage`'s own docstring says it "can be consulted BEFORE
+  // a run is allowed to call itself complete". Nothing consulted it. That run laid a
+  // 47.8-second bed on turn five against a 27.5-second target, which decided both of its
+  // terminal failures, and learned about neither for seventeen turns.
+  it('shows where the cut stands against its target, while the run can still act', () => {
+    const state = initialWorkingState({ runId: 'run_1', request: 'a 30s reel', projectRevision: 0 });
+    const text = buildStateBriefing(state, [
+      'Timeline is 47.8s but the target is 27.5s (off by 20.3s).',
+      '23.7s of the 47.8s programme has no picture under it — that renders as black.',
+    ]);
+    expect(text).toContain('WHERE YOU STAND');
+    expect(text).toContain('off by 20.3s');
+    expect(text).toContain('renders as black');
+  });
+
+  it('says nothing about where it stands when every condition is met', () => {
+    const state = initialWorkingState({ runId: 'run_1', request: 'a 30s reel', projectRevision: 0 });
+    expect(buildStateBriefing(state, [])).not.toContain('WHERE YOU STAND');
+  });
+
   it('shows checkable acceptance criteria even when the outcome is only the request echoed', () => {
     const request = 'Turn my 61 hiking photos into a 20-35 second beat-synced reel';
     let state = initialWorkingState({ runId: 'run_1', request, projectRevision: 0 });

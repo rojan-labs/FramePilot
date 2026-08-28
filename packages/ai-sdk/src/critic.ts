@@ -1588,6 +1588,61 @@ function checkShotRhythm(project: Project, fps: number): CriticCheck {
  * @param options - Target/render context that informs the checks.
  * @returns A {@link CritiqueReport}; `ok` is false when any check failed.
  */
+/**
+ * The acceptance checks that count the WHOLE cut, and are therefore worth telling a run
+ * about while it can still act on them.
+ *
+ * Not every check belongs here. A jump cut or a severed word is a local defect the model
+ * finds by looking at the seam; these five are properties of the finished thing that the
+ * model cannot see from any one edit — how long it is, how many shots it has, whether
+ * anything is under the sound, whether the treatment reached every clip.
+ */
+const WHOLE_CUT_CHECK_IDS: ReadonlySet<CheckId> = new Set<CheckId>([
+  'duration_target',
+  'shot_count',
+  'picture_coverage',
+  'reframe_coverage',
+  'treatment_coverage',
+]);
+
+/**
+ * Where the cut currently stands against what the request asked for, in the run's own
+ * words — for a turn that is still running, not for the post-mortem.
+ *
+ * ## Why this is not just `critique`
+ *
+ * The checks below are pure and render-free, and `checkPictureCoverage`'s own docstring
+ * says so: "unlike the perceptual reviewer it can be consulted BEFORE a run is allowed to
+ * call itself complete." Nothing consulted it. `critique` ran once, in `runVerify`, at the
+ * end.
+ *
+ * The cost of that: run `fc10301a` laid a 47.8-second music bed on turn five, two minutes
+ * into a twelve-minute run, against a 27.5-second target. That single operation guaranteed
+ * both of its terminal failures — the duration overshoot and 23.7 seconds of black — and
+ * the run was told about neither until the budget was spent. Seventeen turns of
+ * compounding, over two numbers that were computable the moment the bed landed.
+ *
+ * ## Why the wording is the check's own
+ *
+ * The detail text is reused verbatim rather than paraphrased, so what a run is told in
+ * flight is exactly what it will be judged by. A shorter in-flight sentence would be a
+ * second description of the same condition, and the two would drift.
+ *
+ * @param project - The working copy as it stands after the last applied patch.
+ * @param options - The same critique options the final self-check will use.
+ * @returns One line per unmet whole-cut condition; empty when the cut is on target.
+ */
+export function standingAgainstAcceptance(
+  project: Project,
+  options: CritiqueOptions = {},
+): readonly string[] {
+  return critique(project, options)
+    .checks.filter(
+      (c) => WHOLE_CUT_CHECK_IDS.has(c.id) && (c.status === 'fail' || c.status === 'warn'),
+    )
+    .map((c) => c.detail);
+}
+
 export function critique(project: Project, options: CritiqueOptions = {}): CritiqueReport {
   const timeline = project.timeline;
   // Every editorial threshold is stated in frames, so every editorial check needs the
