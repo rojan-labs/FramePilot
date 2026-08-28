@@ -52,7 +52,7 @@ Landed so far:
 **Done when:** p50 model calls per scenario ≤ baseline − (count of rows classified
 removable) and the P0.3 rubric score is unchanged or higher.
 
-## P1.2 — Parallelize independent effects — `[ ]`
+## P1.2 — Parallelize independent effects — `[~]`
 
 **Touches:** `kernel/agent-graph.ts` node fan-out, `kernel/effect-runtime.ts`,
 `kernel/effects.ts`. ADR 0150 already parallelized acquisition (stock/music). Extend the
@@ -61,6 +61,12 @@ the placed track and `analyze_silence` on the picture) and to per-asset reads. K
 GraphEventQueue ordering contract documented at the top of `agent-graph.ts`.
 **Done when:** scenarios with ≥2 independent analyses show wall-time reduction equal to
 the overlap, with call count unchanged.
+
+Finding (2026-08-29): read/analysis tool calls inside one request already run
+concurrently (`partitionConcurrencyBatches`, pool 4, `concurrencySafe`); the montage
+ledger's five `get_frame` calls overlapped in the sidecar log. The remaining wall cost is
+per-frame decode of the 4K master (4–6 s each) — a sidecar item (leads #8), not an
+orchestration one. Evidence lands with the P1.6 after-measurement.
 
 ## P1.3 — Structured state block replaces prose facts — `[ ]`
 
@@ -94,7 +100,7 @@ re-planning).
 **Done when:** UC-08 call count ≤ UC-01 call count and the placed clips from UC-01 survive
 except the ones the request named.
 
-## P1.5 — Decision memory with TTL and invalidation — `[ ]`
+## P1.5 — Decision memory with TTL and invalidation — `[~]`
 
 **Touches:** the Memory Store in `packages/ai-sdk` (PRD §8.7 — reuse, do not fork),
 `kernel/briefing.ts` (writes), `context-builder.ts` (reads into P1.3 `memory`).
@@ -107,6 +113,12 @@ If the store's persisted shape needs a new field → `[!]` schema gate.
 **Done when:** UC-09 passes: turn 5 "same captions" applies the turn-2 template with no
 re-explanation; a contradicting instruction on turn 3 supersedes turn 2 and turn 5 uses
 turn 3.
+
+Landed so far: engine memory tiers supersede an earlier entry with the same title
+(`brain/memory.py` `supersede_by_title`, tested); `remember_preference` already replaces
+by key; `carryForwardWorkingState` already carries only revision-independent facts and
+committed decisions. Remaining: the UC-09 evidence from the after-measurement, and the
+`source`/`until` metadata on entries.
 
 ## P1.6 — Measure and close — `[ ]`
 
