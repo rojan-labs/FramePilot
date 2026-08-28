@@ -936,6 +936,80 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     expect(effects[0]).toMatchObject({ kind: 'run_turn' });
   });
 
+  /**
+   * Run `ea8e46ec`: six turns, one byte-identical rejection, thirty minutes. Every attempt
+   * reset the stall streak because "a rejected op is a bounded retry" — and nothing bounded
+   * it. A retry that changes nothing the runtime can see and learns nothing new is the same
+   * nothing the stall guard exists to catch.
+   */
+  it('does not credit a turn refused with the reason that refused the last one', () => {
+    const refusal = 'rejected by the beat grid: the analyzed audio asset is not on the timeline';
+    const first = onEffectResult(
+      started(),
+      turn({ applied: false, turnOpCount: 61, rejection: refusal, note: refusal }),
+    );
+    // The FIRST attempt is a real attempt: it is progress and the streak stays at 0.
+    expect(first.state.stallStreak).toBe(0);
+    expect(first.state.lastRejectionReason).toBe(refusal);
+
+    // The second, refused identically and learning nothing, is not.
+    const second = onEffectResult(
+      { ...first.state, noProgress: [] },
+      turn({
+        applied: false,
+        turnOpCount: 61,
+        rejection: refusal,
+        note: refusal,
+        signature: 'sig-2',
+      }),
+    );
+    expect(second.state.stallStreak).toBe(1);
+  });
+
+  it('still credits a repeated refusal when the turn learned something new', () => {
+    const refusal = 'rejected by the beat grid: ungrounded';
+    const first = onEffectResult(
+      started(),
+      turn({ applied: false, turnOpCount: 3, rejection: refusal, note: refusal }),
+    );
+    const second = onEffectResult(
+      { ...first.state, noProgress: [] },
+      turn({
+        applied: false,
+        turnOpCount: 3,
+        rejection: refusal,
+        note: refusal,
+        signature: 'sig-2',
+        callFacts: [{ key: 'detect_beats:music_c', status: 'completed', role: 'analysis' }],
+      }),
+    );
+    expect(second.state.stallStreak).toBe(0);
+  });
+
+  it('forgets a standing refusal once an edit lands, so a later one is a fresh attempt', () => {
+    const refusal = 'rejected by the beat grid: ungrounded';
+    const refused = onEffectResult(
+      started(),
+      turn({ applied: false, turnOpCount: 3, rejection: refusal, note: refusal }),
+    );
+    const landed = onEffectResult(
+      { ...refused.state, noProgress: [] },
+      turn({ applied: true, turnOpCount: 2, appliedOps: ops(2), signature: 'sig-2' }),
+    );
+    expect(landed.state.lastRejectionReason).toBe('');
+    const refusedAgain = onEffectResult(
+      { ...landed.state, noProgress: [] },
+      turn({
+        applied: false,
+        turnOpCount: 3,
+        rejection: refusal,
+        note: refusal,
+        signature: 'sig-3',
+      }),
+    );
+    expect(refusedAgain.state.stallStreak).toBe(0);
+  });
+
   it('caps retained rejection reasons at three', () => {
     const s = started({ rejectedOpCount: 9, rejectionReasons: ['a', 'b', 'c'] });
     const { state } = onEffectResult(s, turn({ applied: false, turnOpCount: 1, note: 'd' }));
@@ -1477,6 +1551,28 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
     expect(events.some((e) => e.type === 'warning')).toBe(false);
   });
 
+  /**
+   * Run `ea8e46ec` landed two audio operations and was refused sixty-one picture clips six
+   * times. Because the only account of a refusal was gated on the run being COMPLETELY
+   * empty, the editor was shown a stall notice and two warnings about the resulting
+   * timeline, and nothing about the rule that produced it.
+   */
+  it('says what did NOT land when a run applied some edits and had others refused', () => {
+    const s = started({
+      phase: 'verifying',
+      cumulativeOps: ops(2),
+      appliedTurns: 1,
+      rejectedOpCount: 61,
+      rejectionReasons: ['rejected by the beat grid: the analyzed music is not on the timeline'],
+    });
+    const { events } = onEffectResult(s, verify());
+    const warn = events.find((e) => e.type === 'warning') as { text: string } | undefined;
+    expect(warn?.text).toContain('61 proposed changes');
+    expect(warn?.text).toContain('beat grid');
+    // And it must not read as a total failure: what landed is real and undoable.
+    expect(warn?.text).toContain('can be undone');
+  });
+
   // GAP-006. `assessEditCompletion` was written to stop a run reporting incomplete planned
   // work as success, and then wired only into `autonomous-edit-runtime.ts`, which no
   // production code ever called — a green suite for a rail that was not installed. This is
@@ -1662,6 +1758,32 @@ describe('diminishing-returns stop (E4)', () => {
     const notice = step.events.find((e) => e.type === 'notification');
     expect(notice?.type === 'notification' ? notice.text : '').toContain('stopped making progress');
     expect(notice?.type === 'notification' ? notice.reason : 'set').toBeUndefined();
+  });
+
+  /**
+   * "No further edits could be found for this request" was said unconditionally, and in run
+   * `ea8e46ec` it was false: 61 edits were found, six times over, and refused six times by
+   * one internal rule. A run that knows exactly why it could not act must say so.
+   */
+  it('names the standing refusal instead of claiming no edits could be found', () => {
+    const refusal = 'rejected by the beat grid: the analyzed music is not on the timeline';
+    // The FIRST refusal is a genuine attempt and resets the streak, so confirmation takes
+    // one more turn than a pure non-progress stall — which is exactly the bound intended.
+    const refusedTurns = Array.from({ length: STALL_CONFIRM_TURNS + 1 }, (_, i) =>
+      turn({
+        stepIndex: i + 1,
+        signature: `refused-${i}`,
+        turnOpCount: 61,
+        rejection: refusal,
+        note: refusal,
+      }),
+    );
+    const step = fold(started(), refusedTurns);
+    const notice = step.events.find((e) => e.type === 'notification');
+    const text = notice?.type === 'notification' ? notice.text : '';
+    expect(text).toContain('kept being refused');
+    expect(text).toContain('beat grid');
+    expect(text).not.toContain('no further edits could be found');
   });
 });
 
