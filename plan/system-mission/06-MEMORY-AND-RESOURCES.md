@@ -101,6 +101,22 @@ empties the image map, the held frame, the sources and the EDL. Everything else 
 _audit_ result — a claim that the code is balanced, checked by reading every site — not a
 measurement. The counter run and the snapshot diff stay with P6.6, which owns the harness.
 
+
+**2026-08-30 — the harness now runs the scripted session, and stops one step short of the
+counter evidence.** Two harness bugs were fixed getting there: the session seeked to 25 s on
+a 20 s timeline (`fill` rejects an out-of-range value outright, taking the whole baseline
+with it), and it reopened the project by id when the app rewrites the recents entry with the
+project's own display name. It now completes the full scripted edit session and its
+snapshots.
+
+What it still cannot reach is the close/reopen ×3 leg, and the wall is not a resource
+question: after `page.goto` reloads the renderer, the home screen reports "No recent
+projects yet" for a project opened seconds earlier, so there is nothing to click. The export
+history row (P9.4) stops on the same wall. That is filed in Phase 9 §Discovered as a
+question for someone at the app — a real defect if a user loses their recents, an artefact
+if reloading a renderer is simply not restarting the app — and P6.1's `[~]` is now waiting
+on that one answer rather than on the harness.
+
 ## P6.2 — Renderer: bounded caches — `[x]`
 
 Every in-memory cache (thumbnails, waveforms, frame cache, footage map, transcript,

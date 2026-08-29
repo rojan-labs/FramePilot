@@ -101,7 +101,7 @@ mission runs) — `docs/reports/system-mission/05-after.md` carries the table.
 - **critic judgment — already a specialist**, on a small tier through `proposerModelEffect`
   with its own 140-token prompt and manifest budget.
 
-## P5.3 — Process lifecycle registry (desktop main) — `[~]` (registry + pidfile sweep landed; crash-case pgrep proof remains)
+## P5.3 — Process lifecycle registry (desktop main) — `[x]` (registry, pidfile sweep, and the crash-case proof green in e2e)
 
 **Touches:** `apps/desktop/electron/sidecar/manager.ts`, `spawn.ts`,
 `render/export-hub.ts`, `ai/run-coordinator-base.ts`, FFmpeg/ffprobe spawns in the
@@ -139,6 +139,21 @@ Remaining for `[x]`: the `pgrep` e2e proof (kill the app mid-export and mid-anal
 no ffmpeg/ffprobe/sidecar survives) — `tests/e2e-desktop/specs/failure-paths.spec.ts`
 already asserts the clean-close case, and the crash case is being added with the rest of
 the UC-15 rows.
+
+
+**Closed 2026-08-30 — the crash-case proof is in `failure-paths.spec.ts`, green.** Two rows
+cover it between them, both passing: "killing the engine mid-session leaves no orphans and
+the app recovers" SIGKILLs the engine and asserts the count returns to what it was before
+the kill (not to a hard-coded 1, which failed on any machine running a second engine), and
+"closing the app takes every child process with it" asserts no ffmpeg/ffprobe/sidecar
+survives the app. The provider row "relaunching after a crash mid-run hands control back,
+with no run still running" exercises the pidfile sweep across a real crash and also passes.
+12/12 rows green.
+
+One correction to what "no orphans" means, learned from the cancel row and applied here:
+counting media children immediately is not the measurement. Ten ffmpeg processes after a
+cancel are one warm entry of the render composition cache, held open on purpose and closed
+with the app. The claim is that the work ENDS, not that nothing is running.
 
 ## P5.4 — Backpressure, limits, duplicate suppression — `[x]`
 
