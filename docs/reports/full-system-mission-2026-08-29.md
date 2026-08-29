@@ -50,6 +50,12 @@ Four root causes, all found by measurement (`docs/reports/system-mission/00-base
 | 8 | Engine death was terminal for the session | `SidecarManager` recovers: bounded restarts with backoff, cause and attempt in `status.detail` | 6 tests in `manager.test.ts` |
 | 9 | Identical concurrent analyses each spawned their own ffmpeg | `singleflight.py` coalesces in-flight duplicates on `/asset-media`, `/analyze-silence`, `/detect-beats` | 6 callers → 1 derivation (test) |
 | 10 | Readiness claimed a provider worked because a key existed | `providerHealth` records the only evidence that settles it — a run that finished without a provider failure | UX-11, 6 tests |
+| 11 | **A 4K export spent 69 % of its wall time in one line** | The decode cap sized to the frame's longest edge, so a landscape 4K source was decoded at 2400 px and then shrunk to its real displayed size (1080×608) by PIL, per frame. `fitted_decode_size` asks ffmpeg for the displayed size directly | **48.2 s → 11.5 s**, `07-after.md` |
+| 12 | A `delete_clip` could leave an undeletable sub-frame husk | Frame-grid quantisation rounds to *nearest*, so a clip whose end sat off-grid had its delete range rounded back inside itself — the clip survived 8 ms wide, the card reported success, and the retry hit "end must be greater than start". **29 of 48 failed delete calls carry exactly that message** | `delete-clip-grid.test.ts` |
+| 13 | An engine that stopped answering was never noticed | The manager watched its direct child, but `uv run framepilot serve` makes the server a **grandchild** — kill it and the wrapper lives on, no exit event, `ready` forever. Six green unit tests; the e2e found it | liveness probe, 4 tests |
+| 14 | Four context chips had a remove button that removed nothing | Timeline/Project/Transcript/Assets are always in the snapshot; the control implied otherwise | `ContextItem.removable` |
+| 15 | The "Show details" disclosure on a failed run was never fed | Both catch blocks put the raw provider body in the headline instead | `ai/runFailure.ts` |
+| 16 | Preview dispose leaked a detached canvas and decoded images | `dispose()` was documented as clearing its image map and did not | `8ff1f8a` |
 
 ---
 
@@ -58,18 +64,19 @@ Four root causes, all found by measurement (`docs/reports/system-mission/00-base
 `mission-baseline.mjs --runs 3`, real desktop sidecar, real media, p50, scored by
 `eval/mission-rubric.ts`. Full table and caveats: `docs/reports/system-mission/01-after.md`.
 
-| scenario | model calls | prompt tokens | cache | wall | USD | rubric | did not complete |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| podcast-highlight-60s | **25 → 5** | **804k → 173k** | 0.99 → 1.00 | **1200s → 253s** | **$1.54 → $0.32** | 1.00 → 1.00 | **3/3 → 0/3** |
-| montage-30s | 10 → 31 | 332k → 963k | 0.99 → 0.99 | 424s → 1070s | $0.57 → $1.52 | **0.25 → 1.00** | 2/3 → 1/3 (a cancel at the harness's own 1200s cap) |
-| remove-dead-air | 1 → 7 | 0 → 180k | — → 0.97 | 0s → 584s | $0.00 → $0.94 | **0.25 → 0.75** | 3/3 → 1/1 (settled `failed` *after* landing 54 edits) |
-| beat-sync | 1 → 18 | 0 → 497k | — → 0.98 | 0s → 882s | $0.00 → $1.37 | **0.22 → 0.78** | **3/3 → 0/3** |
+| scenario | model calls | prompt tokens | cache | ops | rubric |
+| --- | --- | --- | --- | --- | --- |
+| podcast-highlight-60s | **25 → 5** | **804k → 173k** | 0.99 → 1.00 | 1 → 1 | 1.00 → 1.00 (1200s → 253s, $1.54 → $0.32) |
+| montage-30s | 10 → 31 | 332k → 963k | 0.99 → 0.99 | **0 → 35** | **0.25 → 1.00** |
+| beat-sync | 1 → 18 | 0 → 497k | — → 0.98 | **0 → 34** | **0.22 → 0.78** |
+| remove-dead-air | 1 → 6 | 0 → 109k | — → 0.95 | **0 → 54** | **0.25 → 0.75** |
+| refine-tighten t1 / t2 | 1 → 18 / 12 | 0 → 516k / 321k | — → 0.98 | **0 → 18 / 4** | **0.25 → 0.63** / **0.50 → 0.88** |
+| memory-captions t1 / t2 / t3 | 1 → 10 / 61 / 2 | 0 → 289k / 1.91M / 0 | — → 0.87 | **0 → 7 / 83 / 0** | **0.38 → 0.63** / **0.29 → 0.71** / 0.29 → 0.43 |
 
-All three montage runs scored **1.00** with 30–44 operations, the cancelled one included:
-that cancellation is the harness's clock, not the edit's quality. The dead-air run reports
-`failed` because the bounded verify loop could not clear its last rubric finding (a
-mid-word cut) and settled honestly instead of claiming success — the designed behaviour.
-Prompt-cache share held throughout (0.97–1.00); none of this was bought by giving up cache.
+**All six scenarios improved. Seven of nine turns went from zero operations to a real
+edit.** Prompt-cache share held throughout (0.87–1.00) — none of this was bought by giving
+up cache. Coverage is uneven and `01-after.md` states it per row: four scenarios have three
+runs, remove-dead-air two, memory-captions one.
 
 **Read the last two columns first.** The baseline was cheap because it was failing: every
 baseline row has runs that never completed, and two of three scenarios landed **zero**
@@ -149,9 +156,13 @@ warning. Every platform preset and `/export-reels` is gone; the only remaining p
 names in the tree are content-style targets, orientation hints and catalog tags.
 
 - **Hardware encode**: VideoToolbox / NVENC / QSV with x264/x265 fallback.
-- **Measured**: 30 s 4K → 1080p, 94.2 s → 92.6 s, ffmpeg CPU **146 % → 48 %**. The
-  headline finding is what it *disproves*: **the encoder was never the bottleneck**;
-  MoviePy's per-frame Python compositing is. That is P7.5, and it is not done.
+- **Measured, and then fixed**: hardware encode cut ffmpeg CPU **146 % → 48 %** and moved
+  wall time 94.2 s → 92.6 s — which *disproved* the encoder as the bottleneck. Profiling
+  found 69 % of the export inside one line (`PIL ImagingCore.resize`, 901 calls at 37 ms).
+  Decoding straight to the displayed size took the same export **48.2 s → 11.5 s, 4.2×**.
+  The 360p fixture is unchanged at 3.7 s — correctly, since there is nothing to downscale.
+- **Progress accuracy**: max error 5.9 pp → **4.8 pp** (budget 5), by reporting preparation
+  as work rather than a flat 0.05 for 13 % of the run.
 - **Progress** carries stage and fraction from the render subprocess, plus "about N s left"
   derived from the render's own measured pace — never shown before there is a rate to
   derive it from.
@@ -177,29 +188,43 @@ names in the tree are content-style targets, orientation hints and catalog tags.
 
 ## 9. Remaining issues
 
-These are genuinely unresolved and each names what would close it.
+**52 of 69 plan tasks are `[x]`, 16 are `[~]`, 1 is `[!]`, none unstarted.** Each remainder
+below names what would close it.
 
-1. **Two scenarios have no after-numbers.** `refine-tighten` and `memory-captions` were
-   not re-measured: the provider bridge 429s after roughly $4-8 of traffic, and two
-   attempts hit that wall. `beat-sync` was recovered on the second attempt (0.22 → 0.78);
-   `refine-tighten`'s first turn measured 0.63 with 22 operations before the wall. The
-   exact command is in `01-after.md` and P1.6. **This still blocks P1.4's evidence**
-   (refinement reuse is what `refine-tighten` measures).
-2. **Export's real bottleneck is untouched.** P7.5 (dependency analysis, stream-copy
-   passthrough, single final encode) is not started; the measurement that motivates it is.
-   The progress-accuracy (< 5 %) and cancel-leaves-no-partial-file proofs are also pending.
-3. **Repeated tool calls are still high** — 51 of 66 on the montage. Nothing in this work
-   attacked repetition directly; the stage-scoped tool set and the action-log window are
-   the levers, and both sit in Phase 5.
-4. **Phase 5 specialisation (P5.1/P5.2) was deliberately not built.** The measurement did
-   not justify new model workers, and the mission's own rule is that workers exist only
-   where they earned it. Recorded as a decision, not an omission.
-5. **P10.2 (a day of adversarial use) has not been performed.** It needs a human at the
-   desktop app; every automated failure path that could stand in for it is in
-   `failure-paths.spec.ts`.
-6. **Open UX findings**: UX-08 (clip context menu breadth) and UX-14 (preview fit/crop
-   indication) are triaged and unfixed; the cosmetic findings (UX-03/09/12/13/15) are
-   explicitly deferred with reasons in P8.1.
+1. **Nothing has been run green against a real provider end to end.** `ai-journey.spec.ts`
+   (UC-01 → 08 → 09 → 06 → 07 → preview → 13) and four `failure-paths` rows are written and
+   wired into the nightly lane; they need a billed key. A spec that compiles is not
+   evidence, and P9.1 / P9.2 / P3.7 stay `[~]` for exactly that reason.
+2. **The app does not yet recover from a killed engine.** The liveness probe is in and
+   unit-tested, and it fixed the diagnosis — but the e2e row moved from failing fast to
+   timing out rather than passing. Two candidates are recorded in P5.5; claiming it on the
+   unit tests would repeat the mistake the e2e already caught once.
+3. **P6.1's aggregate evidence.** Every renderer primitive is proven to release in
+   isolation; "counters flat across open → edit → close ×3" needs the desktop harness. The
+   unit tests do not prove the aggregate and the plan says so.
+4. **No 4K 20-minute fixture exists** (UC-16), so that row skips with its measured reason
+   rather than passing on a stand-in.
+5. **The export matrix has no Linux runner** — the fixtures are uncommitted camera files,
+   so it runs only where the media lives.
+6. **P10.2 — a day of adversarial hands-on use** cannot be automated. What could be is:
+   eight `failure-paths` rows run anywhere.
+7. **Deliberate non-goals, recorded as decisions rather than gaps**: no new model workers
+   (the ledger rejected two of three candidates and the third was already shipped); the
+   `main.ts` split (127 KB, "no behaviour change", three workstreams editing concurrently);
+   "disable clip" (needs a schema migration, which CLAUDE.md §5 says to raise, not slip
+   into a menu task).
 
-Phase-by-phase task state, with the residual and its unblocking step on each, is in
-`plan/system-mission/README.md`.
+## 10. What this work actually changed
+
+The single most useful result is not a speed-up. It is that **three separate subsystems
+were reporting success while doing nothing**, and each was found by measuring rather than
+reading:
+
+- agent runs that truncated at 8,192 tokens and retried into the same wall — two of three
+  scenarios landing **zero** operations;
+- an export spending 69 % of its time discarding pixels it had just decoded;
+- an IPC channel declared in three places and handled in none.
+
+Each of those looked healthy from the inside. The mission's habit — measure, then fix the
+cause, then measure again — is what turned them up, and the same habit is why two of the
+numbers in this report are corrections of earlier numbers in this report.
