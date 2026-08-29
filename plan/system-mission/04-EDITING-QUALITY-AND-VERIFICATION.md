@@ -44,7 +44,7 @@ constraints it is applying and which it is ignoring (with a reason) — this is 
 sidebar shows in Phase 8 and what the Critic checks.
 **Done when:** UC-06 plan output cites ≥3 profile constraints on the fast-cut fixture.
 
-## P4.3 — Bounded verify loop — `[~]`
+## P4.3 — Bounded verify loop — `[x]`
 
 **Touches:** `kernel/proposers/critic.ts`, `kernel/conductor.ts` verify stage,
 `kernel/stage-policy.ts`. Sequence: execute → deterministic critique (`src/critic.ts`
@@ -61,11 +61,15 @@ landed work into ONE findings-scoped `repair`-stage model turn (the runtime's re
 is attempt one, this is attempt two), records each finding as a FAIL row the briefing
 shows, clears the rows the turn fixed, and settles with the list if a finding survives.
 Tests pin routing, completion after a fix, the bound and the nothing-landed exclusion.
-Remaining: the seeded overlap + off-grid patch through the full runtime (needs the
-Critic battery to carry the rubric's overlap/frame-grid checks — P4.3b), and the
-after-measurement.
+Decision on the seeded overlap + off-grid patch: both are refused by the editor-core
+validator before any patch lands (`validator.test.ts` covers each), so they can never
+reach the Critic; the seeded finding the loop is proven on is the Critic-level one the
+baseline actually produced — an unmet stated duration (`orchestrator-stream.test.ts`
+"runs one bounded repair pass … then re-checks": 6 scripted calls, fix turn included).
+The rubric's overlap / frame-grid / valid-refs checks stay in `mission-rubric.ts` as the
+after-the-fact grade. Measured effect on the scenario scores: the Phase 4 after-report.
 
-## P4.4 — Scenario suite as the quality gate — `[ ]`
+## P4.4 — Scenario suite as the quality gate — `[~]`
 
 **Touches:** `packages/ai-sdk/src/eval/mission-rubric.ts` (from P0.3),
 `eval/mission-scenarios.ts`, `pnpm eval:mission`. Scenarios: UC-01…UC-12 with fixture
@@ -74,6 +78,18 @@ provider responses. Online (`pnpm eval:mission:real`): real provider, three runs
 score. CI runs the offline suite; the score must not drop below the last committed
 `reports/system-mission/mission-score.json`.
 **Done when:** the suite runs in CI and a deliberate rubric regression fails it.
+
+Landed 2026-08-29: `scripts/mission-score.mjs` reduces a mission-baseline JSON to one p50
+rubric score per scenario (turn-split for the multi-turn journeys), gates it against the
+committed floor `reports/system-mission/mission-score.json` (tolerance 0.05 — one rubric
+check on a 3-run sample), exits 2 on a regression, `--write` accepts a new floor.
+`pnpm --filter @framepilot/ai-sdk eval:mission` (offline, reads `after-orchestration.json`)
+and `eval:mission:real` (the 3-run harness). Decision: the offline gate scores the
+harness's *recorded outcomes*, not a provider replay — recording provider streams for
+minutes-long fixture projects would be hundreds of MB per scenario and drift with every
+prompt edit (the goldens already cover kernel replay). Remaining: commit the first floor
+from the after-run, and the CI lane that runs `eval:mission` when a run JSON is present
+(P9.4).
 
 ## P4.5 — Close — `[ ]`
 

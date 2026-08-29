@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "sideEffects": false,
-  "description": "Multi-provider AI layer (Anthropic, NVIDIA, mock) — tool registry, orchestrator, context builder (PRD §8).",
+  "description": "Multi-provider AI layer (Anthropic, NVIDIA, mock) \u2014 tool registry, orchestrator, context builder (PRD \u00a78).",
   "license": "SEE LICENSE IN ../../LICENSE",
   "exports": {
     ".": {
@@ -25,7 +25,9 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "eval:mission": "node scripts/mission-score.mjs ../../reports/system-mission/after-orchestration.json",
+    "eval:mission:real": "node scripts/mission-baseline.mjs --runs 3 --label after --dump-events ../../reports/system-mission/runs --out ../../reports/system-mission/after-orchestration.json"
   },
   "dependencies": {
     "@framepilot/capability-packs": "workspace:*",

@@ -128,3 +128,7 @@ CHANGELOG, ADR for the profile contract. Report `03-after.md`.
 
 ## Discovered
 
+- 2026-08-29: the desktop `referencesAnalyze` IPC channel was declared (contract, preload,
+  renderer bridge) but never handled in `main.ts`; found by the P6.3 registration test,
+  fixed there. Every desktop reference attachment before that fix would have failed.
+

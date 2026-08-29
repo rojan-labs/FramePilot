@@ -29,7 +29,7 @@ query caches) gets a size bound in bytes or entries with LRU eviction, and a
 `clear()` on project close. Bounds are constants in one module, not magic numbers.
 **Done when:** each cache has a test for eviction and a project-close test for emptiness.
 
-## P6.3 — Main process: IPC listeners, child processes, handles, temp files — `[ ]`
+## P6.3 — Main process: IPC listeners, child processes, handles, temp files — `[~]`
 
 **Touches:** `apps/desktop/electron/main.ts` (127 KB — split listener registration by
 domain while here, no behaviour change), `ipc/*`, `sidecar/*`, `render/*`,
@@ -39,6 +39,16 @@ project temp dir and removed on job end and on startup sweep; file handles from
 `fp-media://` streams closed on abort.
 **Done when:** `lsof` count and child count return to idle after export and after AI run;
 temp dir empty after each.
+
+Landed 2026-08-29: `ipc/main-channel-registration.test.ts` scans every main-process
+source and asserts each contract channel is `handle`d at most once, never both
+`handle` and `on`, and that nothing the contract declares goes unserved. First run caught
+`referencesAnalyze`: declared in the contract and preload since Phase 3, handled by
+nothing — a desktop reference attachment could never resolve. Handler added in `main.ts`
+(sandboxed path, sidecar analyzer, typed result). Render children die with their process
+group (`killProcessGroup`, Phase 7). Remaining: the `lsof`/child-count idle assertion
+after export and after an AI run (the resource spec measures `openFiles` and
+`ffmpegCount` at session end; add an export leg), temp-dir sweep, and the `main.ts` split.
 
 ## P6.4 — Sidecar: emitters, caches, streams, MoviePy clip trees — `[ ]`
 

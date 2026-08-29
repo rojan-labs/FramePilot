@@ -14,12 +14,7 @@
  * and only wires the modules above (which are tested). Keep logic out of here.
  */
 import { loadDotEnvFile } from './env.js';
-import {
-  appendFileSync,
-  createReadStream,
-  existsSync,
-  watch as fsWatch,
-} from 'node:fs';
+import { appendFileSync, createReadStream, existsSync, watch as fsWatch } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
@@ -49,6 +44,8 @@ import {
 
 const aiLog = createLogger('desktop:main');
 import {
+  createReferenceAnalyzer,
+  ReferenceProfileSchema,
   Orchestrator,
   MockProvider,
   createProviderFromConfig,
@@ -92,6 +89,7 @@ import {
   type AiProviderName,
   type AiRequest,
   type AiTextResult,
+  type AiStreamReferenceProfile,
   type AiStreamRequest,
   type DurableRunAccepted,
   type TrackingProgressWire,
@@ -118,6 +116,8 @@ import {
   type StockDownloadRequest,
   type StockDownloadResult,
   type StockQuotaSnapshot,
+  type AnalyzeReferenceRequest,
+  type AnalyzeReferenceResult,
   type TranscriptionRequest,
   type TranscriptionResult,
   type ConversationSaveResult,
@@ -139,9 +139,7 @@ import {
   type CapabilityPackProjectResolutionWire,
 } from './ipc/contract.js';
 import { SidecarManager, type SidecarProcess } from './sidecar/manager.js';
-import { resolveSidecarCommand,
-  killProcessGroup,
-} from './sidecar/spawn.js';
+import { resolveSidecarCommand, killProcessGroup } from './sidecar/spawn.js';
 import { RecentFilesStore, type RecentFilesIO } from './projects/recent-files.js';
 import { ConversationStore, type ConversationStoreIO } from './ai/conversation-store.js';
 import { AiStreamHub, parseAiStreamRequest, prepareAiEventForTransport } from './ai/ai-stream.js';
@@ -655,14 +653,17 @@ function registerIpcHandlers(): void {
    * instead of two.
    */
   const cachedDerive = (request: { thumbnails: number; proxy: boolean }) =>
-    cacheDerivedMedia(async (absolutePath: string) => {
-      const derived = await importAssetViaSidecar(
-        engineBaseUrl,
-        { inputPath: absolutePath, ...request },
-        electronFetch,
-      );
-      return derived.ok ? derived : null;
-    }, { projectsRoot });
+    cacheDerivedMedia(
+      async (absolutePath: string) => {
+        const derived = await importAssetViaSidecar(
+          engineBaseUrl,
+          { inputPath: absolutePath, ...request },
+          electronFetch,
+        );
+        return derived.ok ? derived : null;
+      },
+      { projectsRoot },
+    );
 
   const musicService = new MusicService({
     projectsRoot,
@@ -1535,6 +1536,52 @@ function registerIpcHandlers(): void {
         );
       } catch (error) {
         return { ok: false, error: errorMessage(error) };
+      }
+    },
+  );
+
+  // Reference analysis (plan/system-mission Phase 3) is host-owned for the same reasons
+  // as transcription: the renderer names a file it just imported, main proves the path
+  // sits inside the projects root, the sidecar measures it, and the renderer gets back a
+  // typed profile it cannot have forged. Declared in the contract since Phase 3 but only
+  // wired here once `main-channel-registration.test.ts` showed nothing served it.
+  ipcMain.handle(
+    IpcChannels.referencesAnalyze,
+    async (_event, req: unknown): Promise<AnalyzeReferenceResult> => {
+      try {
+        requireLicense();
+        const request = (req ?? {}) as Partial<AnalyzeReferenceRequest>;
+        if (typeof request.inputPath !== 'string' || request.inputPath.trim() === '') {
+          return { ok: false, error: 'Choose a video or image file to use as a reference.' };
+        }
+        if (request.kind !== 'video' && request.kind !== 'image') {
+          return { ok: false, error: 'Only video and image references are analyzed.' };
+        }
+        if (typeof request.id !== 'string' || typeof request.fileName !== 'string') {
+          return { ok: false, error: 'Invalid reference request.' };
+        }
+        const role = ReferenceProfileSchema.shape.role.safeParse(request.role);
+        if (!role.success) return { ok: false, error: 'Invalid reference role.' };
+        const projectsRoot = await ensureProjectsDir();
+        const inputPath = resolveWithin(projectsRoot, request.inputPath);
+        const analyze = createReferenceAnalyzer({ baseUrl: engineBaseUrl, fetchFn: electronFetch });
+        const result = await analyze({
+          id: request.id,
+          inputPath,
+          fileName: request.fileName,
+          kind: request.kind,
+          role: role.data,
+          ...(request.refresh ? { refresh: true } : {}),
+        });
+        return {
+          ok: true,
+          profile: result.profile as unknown as AiStreamReferenceProfile,
+          cached: result.cached,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        aiLog.warn('references:analyze failed', { error: message });
+        return { ok: false, error: message };
       }
     },
   );

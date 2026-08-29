@@ -9,13 +9,30 @@
 > **Owner agents:** `ui-ux-critic` (review), `frontend-product-architect`,
 > `accessibility-responsive-auditor`.
 
-## P8.1 — Triage the findings — `[ ]`
+## P8.1 — Triage the findings — `[x]`
 
 Take `00-ux-findings.md`; keep only *blocks work* and *slows work*; group by root
 interaction (e.g. "selection model is inconsistent between bin and timeline" rather than
 five symptoms). Each group becomes a task below, added under §"Discovered" with its
 UX-nn ids.
 **Done when:** every finding is either in a task or explicitly deferred with a reason.
+
+Triage 2026-08-29 (from `00-ux-findings.md`, B/S only; C = cosmetic, deferred below):
+
+| Root interaction | Findings | Lands in |
+| --- | --- | --- |
+| Export is platform-driven | UX-01 | **closed** by Phase 7 (P7.3 dialog: resolution / fps / quality / codec / format, size estimate) |
+| References never reach the model | UX-04 | **closed** by Phase 3 (composer attach → analyzed profile → context block) |
+| Sidebar does not reflect project state | UX-02 (static chips), UX-16 (no "knows" strip, no memory view) | P8.2 **Knows** |
+| Timeline navigation is inconsistent | UX-05 (empty tracks hidden), UX-06 (wheel does nothing), UX-07 (selection scrolls, playhead does not) | P8.3 "timeline navigation" |
+| Clip actions are thin | UX-08 (context menu lacks trim-to-playhead, speed, transition, reveal, disable) | P8.3 "clip context menu" |
+| Modal / status surfaces mislead | UX-10 (translucent settings), UX-11 (readiness shows a stored choice, not a working provider) | P8.4 |
+| Preview hides the fit | UX-14 (4K landscape in 9:16 cropped silently) | P8.3 "preview fit" |
+
+Deferred as cosmetic (C), with the reason "does not block or slow the raw-footage-to-edit
+loop": UX-03 (clipped placeholder), UX-09 (icon-only top bar), UX-12 (1024-wide overflow),
+UX-13 (agent header over Inspector — fixed opportunistically if P8.2 touches that header),
+UX-15 (truncated filter tabs).
 
 ## P8.2 — AI sidebar: knows / doing / changed / needs / failed — `[ ]`
 
