@@ -1,4 +1,4 @@
-# Phase 7 — Export: quality-driven dialog and a faster pipeline — `[ ]`
+# Phase 7 — Export: quality-driven dialog and a faster pipeline — `[~]`
 
 > **Ships:** a CapCut-style export — resolution, frame rate, quality, codec, format,
 > from the project's aspect ratio — with **no platform names anywhere**; hardware
@@ -22,7 +22,7 @@
 - Desktop: `render/export-client.ts`, `export-hub.ts`, `export-save.ts`.
 - `.agents/commands/export-reels.md` and PRD §9 describe platform export.
 
-## P7.1 — Export settings model — `[ ]`
+## P7.1 — Export settings model — `[~]`
 
 **Touches:** `render/presets.py` → replace `ExportPreset` with `ExportSettings`:
 
@@ -49,7 +49,7 @@ about goes away.
 **Done when:** unit tests cover dimension derivation for 9:16, 16:9, 1:1, 4:5 at every
 resolution, source capping, and the ladder.
 
-## P7.2 — Remove platform presets everywhere — `[ ]`
+## P7.2 — Remove platform presets everywhere — `[~]`
 
 Delete `EXPORT_PRESETS` (both sides), the `preset` field on `RenderRequest`/`RenderOptions`
 (replace with `settings`), the preset combobox and copy in `ExportDialog.tsx`, the
@@ -60,7 +60,7 @@ Delete `EXPORT_PRESETS` (both sides), the `preset` field on `RenderRequest`/`Ren
 must return only historical CHANGELOG/ADR lines.
 **Done when:** the grep is clean and `pnpm verify` is green.
 
-## P7.3 — Export dialog — `[ ]`
+## P7.3 — Export dialog — `[~]`
 
 **Touches:** `ExportDialog.tsx` (+ test), styles. Layout: aspect ratio (read-only, from
 project) · Resolution · Frame rate · Quality (with live estimated size from duration ×
@@ -72,7 +72,7 @@ exports, Esc cancels. RTL tests updated (labels change → check Playwright subs
 matching for e2e).
 **Done when:** UC-13's dialog rows pass in RTL tests.
 
-## P7.4 — Hardware encoding and codec args — `[ ]`
+## P7.4 — Hardware encoding and codec args — `[~]`
 
 **Touches:** `render/compiler.py` / wherever `write_videofile` is called, new
 `render/encoders.py`. Probe once at sidecar start: `ffmpeg -encoders` for
@@ -95,7 +95,7 @@ only when a pass needs them and deleted after; single final encode.
 **Done when:** P0.5 "intermediate bytes" and "assets prepared but unreferenced" are 0 on
 the fixtures; encode count = 1.
 
-## P7.6 — Progress, ETA, cancellation, errors, history — `[ ]`
+## P7.6 — Progress, ETA, cancellation, errors, history — `[~]`
 
 **Touches:** `render/pipeline.py` (progress callback from the MoviePy/FFmpeg writer via
 `-progress pipe:`), `service.py` job record (`framesDone`, `fps`, `etaS`), desktop
@@ -114,3 +114,23 @@ with startup latency, wall, CPU/GPU, RSS, intermediates, PSNR, progress accuracy
 
 ## Discovered
 
+## Landed 2026-08-29 (evidence in commits on `feat/system-mission`)
+
+- P7.1 `render/export_settings.py` (`ExportSettings` → `ExportTarget`, source-capped
+  frame from the project aspect, bitrate ladder, size estimate; 11 tests).
+- P7.2 engine: `RenderOptions.settings`, `presets.py` is now targets only, CLI flags,
+  fixtures state their aspect; TS: `ExportRequest.settings`, `/export` replaces
+  `/export-reels`, PRD/CLAUDE/MANUAL_TESTING wording. Grep gate: the only remaining
+  platform names are content-style targets (`targetPlatform`), orientation hints, catalog
+  tags and skill prose — none is an export preset.
+- P7.3 dialog: Resolution / Frame rate / Quality / Codec / Format, summary line with the
+  exact frame + size estimate, upscale warning, per-project persistence
+  (`useViewPreference`). Residual: custom-bitrate field and export history (P7.6 tail).
+- P7.4 `render/encoders.py` (VideoToolbox/NVENC/QSV or x264/x265 with tier presets,
+  faststart, hvc1, `FRAMEPILOT_HW_ENCODE`), encoder + args logged and on the job.
+- P7.6 progress channel from the render subprocess (stage + fraction), task
+  `stage/progress`, client/hub/dialog show "Rendering… 42%", process-group SIGTERM on
+  cancel/timeout. Residual: ETA, export history list, plain-language encoder failure.
+- Measurement (P7.7, first pass, contaminated by a concurrent test run): 30 s 4K→1080p
+  94.2 s → 92.6 s with VideoToolbox (ffmpeg CPU 146% → 48%): **the encoder was not the
+  bottleneck; MoviePy's per-frame Python compositing is.** P7.5 targets that.
