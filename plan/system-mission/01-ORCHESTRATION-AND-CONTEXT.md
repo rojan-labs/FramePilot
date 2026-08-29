@@ -52,6 +52,25 @@ Landed so far:
 **Done when:** p50 model calls per scenario ≤ baseline − (count of rows classified
 removable) and the P0.3 rubric score is unchanged or higher.
 
+Ledger classified 2026-08-29 — `docs/reports/system-mission/01-call-classification.md`.
+**684 calls, 116 identical repeats (17 %)**, and the shape of them is the finding: the model
+does not repeat edits, it repeats reads. Every mutation (`ripple_delete` 140, `trim_clip`
+48, `add_clip`/`add_clips` 16, `move_clip` 6) has **zero** identical repeats; the repetition
+is `get_clips` 53 %, `get_timeline` 52 %, `get_clip` 39 %.
+
+That makes it cache-shaped, not prompt-shaped: a timeline read is a pure function of the
+project revision, and the working state already invalidates `timeline_dependent` facts when
+the revision moves. A read cache keyed on `(tool, args, revision)` removes ~50 calls from
+this sample with nothing said to the model.
+
+Two rows are not caching problems and are flagged for a look rather than a fix here:
+`delete_clip` (48 %) and `delete_clips` (33 %) repeating with identical arguments means the
+same clip deleted twice — either the first did not land and nothing said so, or it landed
+and the model did not observe it.
+
+Remaining for `[x]`: implementing the read cache and the `delete_*` investigation, both in
+`packages/ai-sdk`.
+
 ## P1.2 — Parallelize independent effects — `[~]`
 
 **Touches:** `kernel/agent-graph.ts` node fan-out, `kernel/effect-runtime.ts`,
