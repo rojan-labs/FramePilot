@@ -204,6 +204,23 @@ defaulted: the loop's cadence comes from the injected clock, and a test that inj
 instant sleep for startup polling would otherwise spin. `main.ts` sets 5 s. Four tests,
 driven by a bounded clock.
 
+**The e2e row still does not pass, and that is the honest state.** After the liveness
+change the "killing the engine mid-session" row no longer fails fast with "the engine
+should come back on its own" — it now runs to its 4-minute timeout instead. Two things are
+known and one is not:
+
+- **Known:** the grandchild shape above is real, and watching the process alone could never
+  have recovered from it.
+- **Known:** the liveness mechanism itself behaves correctly against a controlled clock
+  (four tests, including forgiving one missed probe and retiring on `stop()`).
+- **Not known:** why the real app does not complete the cycle. Candidates worth checking
+  in order — the SIGKILLed grandchild may leave the port bound, so the replacement engine
+  never becomes ready and the restart budget exhausts into `failed`; or the app's shutdown
+  path is what hangs, since the timeout moved from the poll to the whole test.
+
+Claiming P5.5 on the unit tests would be claiming exactly the thing the e2e just
+disproved once already. It stays `[~]` until the row runs green.
+
 ## P5.6 — Close — `[ ]`
 
 `05-after.md`, ADR for the lifecycle registry, `docs/runbooks/ai-run-lifecycle.md` update.
