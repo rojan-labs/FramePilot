@@ -260,6 +260,23 @@ async function runTurn({ project, prompt, history, scenarioId, turnIndex, carrie
   };
 }
 
+/**
+ * The subscription bridge answers 429 after a few dollars of calls in a window. A run that
+ * records 1 call / 0 tokens is not a measurement, so on a rate-limited turn (every model
+ * call failed with 429) wait and try the same turn again, up to MISSION_429_RETRIES times.
+ */
+const RATE_LIMIT_WAIT_MS = Number(process.env.MISSION_429_WAIT_MS ?? 10 * 60_000);
+const RATE_LIMIT_RETRIES = Number(process.env.MISSION_429_RETRIES ?? 12);
+async function runTurnWithBackoff(args) {
+  for (let attempt = 0; ; attempt++) {
+    const outcome = await runTurn(args);
+    const limited = outcome.metrics.errors.some((e) => /429|rate limit/i.test(String(e))) && outcome.metrics.tokens.prompt === 0;
+    if (!limited || attempt >= RATE_LIMIT_RETRIES) return outcome;
+    process.stdout.write(`   rate-limited (429); waiting ${Math.round(RATE_LIMIT_WAIT_MS / 60000)} min before retrying this turn (${attempt + 1}/${RATE_LIMIT_RETRIES})\n`);
+    await new Promise((r) => setTimeout(r, RATE_LIMIT_WAIT_MS));
+  }
+}
+
 function sum(arr, key) {
   return arr.reduce((s, t) => s + (t[key] ?? 0), 0);
 }
@@ -288,7 +305,7 @@ for (const scenario of SCENARIOS) {
       }
       let outcome;
       try {
-        outcome = await runTurn({ project, prompt: turn.prompt, history, scenarioId: scenario.id, turnIndex, carriedForward });
+        outcome = await runTurnWithBackoff({ project, prompt: turn.prompt, history, scenarioId: scenario.id, turnIndex, carriedForward });
       } catch (error) {
         turnRecords.push({ turnIndex, prompt: turn.prompt, crashed: String(error), wallMs: Date.now() - t0 });
         process.stdout.write(`   turn ${turnIndex + 1}: CRASH ${String(error).slice(0, 200)}\n`);
