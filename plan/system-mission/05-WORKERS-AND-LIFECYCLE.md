@@ -95,7 +95,7 @@ no ffmpeg/ffprobe/sidecar survives) — `tests/e2e-desktop/specs/failure-paths.s
 already asserts the clean-close case, and the crash case is being added with the rest of
 the UC-15 rows.
 
-## P5.4 — Backpressure, limits, duplicate suppression — `[~]`
+## P5.4 — Backpressure, limits, duplicate suppression — `[x]`
 
 **Touches:** engine `render/queue.py`, media preparation queue (media-intelligence
 closure), `evidence-store.ts`. Concurrency caps by kind (analysis N, encode 1 by default,
@@ -104,6 +104,26 @@ existing job instead of starting another; queue depth and per-job state are read
 the sidebar (Phase 8) and by `debug:resources` (Phase 0).
 **Done when:** submitting the same analysis 5× concurrently runs it once; queue caps are
 respected under a 60-asset preparation burst.
+
+Landed 2026-08-29, both clauses measured:
+
+- **Same analysis 5× concurrently runs once.** `framepilot_engine/singleflight.py`
+  coalesces identical in-flight requests on `/asset-media`, `/analyze-silence` and
+  `/detect-beats`. Six identical concurrent callers produce **one** ffmpeg derivation and
+  all six are served the leader's answer — including its exception, if it failed. Keys are
+  released the instant the leader finishes: this is coalescing, not memoisation.
+- **Caps hold under a 60-asset burst.** Sixty distinct concurrent `/asset-media` requests
+  against a gate of 3 admit exactly **3** derivations at peak and all sixty are served —
+  the gate queues, it never sheds. Six callers proves the gate exists; sixty proves it does
+  not sag under the load it was built for (a user dragging in a shoot).
+
+Caps that already existed and were verified rather than added: asset-media
+(`FRAMEPILOT_ASSET_MEDIA_CONCURRENCY`), temporal evidence (1), visual index
+(`visual_index_concurrency`), render queue (one encode). Duplicate suppression was the
+missing half.
+
+Queue depth being *readable by the sidebar* belongs to Phase 8's "Doing" strip and is
+tracked there, not here.
 
 Landed 2026-08-29: `framepilot_engine/singleflight.py` (sync + async in-flight
 coalescing, keyed on the request's inputs, nothing memoised) wired into `/asset-media`,

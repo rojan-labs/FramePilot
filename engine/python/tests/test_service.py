@@ -339,6 +339,41 @@ async def _gathered_asset_media(
 
 
 @pytest.mark.asyncio
+async def test_asset_media_gate_holds_under_a_sixty_asset_burst(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P5.4: importing a folder is a burst, and the cap must hold for all of it.
+
+    Six callers proves the gate exists; sixty proves it does not sag under the load it was
+    actually built for — a user dragging in a shoot, or the agent warming a sourcing pass.
+    Every request is distinct (different bucket counts) so this measures the CAP and not
+    the in-flight coalescing, which has its own test.
+    """
+    hold = threading.Event()
+    peak = _concurrency_probe(monkeypatch, hold)
+    src = tmp_path / "vid.mp4"
+    src.write_bytes(b"fake media bytes")
+    app = create_app(Settings(projects_root=tmp_path, asset_media_concurrency=3))
+    endpoint = _asset_media_endpoint(app)
+
+    from framepilot_engine.service import AssetMediaRequest
+
+    tasks = [
+        asyncio.create_task(endpoint(AssetMediaRequest(input_path=str(src), buckets=100 + i)))
+        for i in range(60)
+    ]
+    await asyncio.sleep(0.5)
+    observed = peak()
+    hold.set()
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    assert observed == 3, f"the gate admitted {observed} derivations, not 3"
+    assert peak() == 3
+    # The gate queues, it never sheds: all sixty are served.
+    assert len(results) == 60
+
+
+@pytest.mark.asyncio
 async def test_asset_media_coalesces_identical_concurrent_requests(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
