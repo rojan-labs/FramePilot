@@ -62,6 +62,7 @@ pay no per-frame cost.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -940,7 +941,13 @@ def compile_timeline(
                         opened.append(picture)
                         track_pictures.append((picture, clip.blend_mode))
                     else:
-                        reader = _open_source_reader(VideoFileClip, path, max_decode_dimension)
+                        reader = _open_source_reader(
+                            VideoFileClip,
+                            path,
+                            max_decode_dimension
+                            if max_decode_dimension is not None
+                            else decode_cap_for_clip(clip, target),
+                        )
                         opened.append(reader)
                         source = _subclipped_source(reader, clip)
                         source = _apply_crop(source, clip)
@@ -1212,6 +1219,29 @@ def _caption_clip(
         text, target_w, target_h, style=style, words=words, frame_time=clip.start
     )
     return finish(ImageClip(image, transparent=True).with_duration(duration))
+
+
+#: Extra source pixels kept beyond the exact need, so a cropped/fitted frame never upsamples.
+DECODE_CAP_HEADROOM = 1.25
+
+
+def decode_cap_for_clip(clip: Clip, target: tuple[int, int]) -> int | None:
+    """The largest source edge this clip's export needs (plan/system-mission P7.5).
+
+    A 4K source fitted into a 1080p frame only ever contributes 1080p of detail, so ffmpeg
+    can decode it at that size instead of handing Python full frames to shrink. A crop
+    needs more: a 30%-wide crop filling the frame needs ~3.3x the frame's pixels from the
+    source. Animated clips (scale/position keyframes) are left uncapped — the zoom they
+    reach is not known here, and a soft zoom is worse than a slower export.
+    """
+    if clip.keyframes:
+        return None
+    longest = max(target)
+    crop = clip.crop
+    fraction = 1.0
+    if crop is not None:
+        fraction = max(1e-3, min(float(crop.width), float(crop.height)))
+    return math.ceil(longest / fraction * DECODE_CAP_HEADROOM)
 
 
 def _open_source_reader(

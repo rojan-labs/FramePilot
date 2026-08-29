@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import math
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
@@ -28,10 +29,10 @@ from framepilot_engine.render.compiler import (
 )
 from framepilot_engine.render.presets import frame_target
 from framepilot_engine.render.resources import close_clip_tree
+from framepilot_engine.timeline.models import CaptionStyle, Clip, Effect, Project
 
 #: The 9:16 1080p target these fixtures render to (formerly the "reels" preset).
 REELS = frame_target(1080, 1920, 30)
-from framepilot_engine.timeline.models import CaptionStyle, Clip, Effect, Project
 
 
 def test_caption_free_position_respects_safe_area() -> None:
@@ -1760,6 +1761,7 @@ def test_text_overlay_honours_authored_style_and_position(
 
     small = frame_of({"fontSizePercent": 4})
     large = frame_of({"fontSizePercent": 12})
+
     def bright(frame: Any) -> int:
         return int((frame.max(axis=2) > 200).sum())
 
@@ -2344,3 +2346,48 @@ class TestDecodeBudget:
             assert composition.get_frame(0.0).shape == (120, 160, 3)
         finally:
             close_clip_tree(composition)
+
+
+class _SizedReader:
+    """A VideoFileClip stand-in that records how it was opened."""
+
+    opened: ClassVar[list[tuple[str, tuple[int, int] | None]]] = []
+
+    def __init__(self, path: str, target_resolution: tuple[int, int] | None = None) -> None:
+        self.size = (3840, 2160)
+        _SizedReader.opened.append((path, target_resolution))
+
+    def close(self) -> None:
+        pass
+
+
+def test_decode_cap_follows_the_frame_the_crop_and_animation() -> None:
+    from framepilot_engine.render.compiler import decode_cap_for_clip
+
+    plain = Clip(id="c", assetId="a", trackId="t", start=0, end=1, sourceStart=0, sourceEnd=1)
+    assert decode_cap_for_clip(plain, (1080, 1920)) == int(1920 * 1.25)
+    cropped = Clip.model_validate(
+        {
+            **plain.model_dump(by_alias=True),
+            "crop": {"x": 0.3, "y": 0.0, "width": 0.4, "height": 1.0},
+        }
+    )
+    assert decode_cap_for_clip(cropped, (1080, 1920)) == math.ceil(1920 / 0.4 * 1.25)
+    animated = Clip.model_validate(
+        {
+            **plain.model_dump(by_alias=True),
+            "keyframes": [{"id": "k1", "property": "scale", "time": 0.0, "value": 1.0}],
+        }
+    )
+    assert decode_cap_for_clip(animated, (1080, 1920)) is None
+
+
+def test_source_reader_decodes_at_the_capped_size() -> None:
+    from framepilot_engine.render.compiler import _open_source_reader
+
+    _SizedReader.opened.clear()
+    _open_source_reader(_SizedReader, "big.mov", 1920)
+    assert _SizedReader.opened[-1] == ("big.mov", (1920, 1080))
+    _SizedReader.opened.clear()
+    _open_source_reader(_SizedReader, "big.mov", None)
+    assert _SizedReader.opened == [("big.mov", None)]
