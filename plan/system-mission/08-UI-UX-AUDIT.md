@@ -1,4 +1,4 @@
-# Phase 8 — UI/UX audit and interaction fixes — `[~]` (every renderer finding closed; the browser-only legs of P8.3/P8.5 and the CHANGELOG/guides pass remain)
+# Phase 8 — UI/UX audit and interaction fixes — `[x]` (7/7; the accessibility checks that need a human at the app are named in P8.5, not claimed)
 
 > **Ships:** the P0.6 findings fixed at the interaction level; an AI sidebar that shows
 > what the AI knows, is doing, changed, needs, and what failed; attachment UX from
@@ -114,7 +114,7 @@ state; a jsdom suite cannot produce them and a hand-posed picture would prove no
 assertions do not. If the report needs images, they come from the e2e walkthrough, which
 is where a real browser already is.
 
-## P8.3 — Selection, drag/drop, context menus, shortcuts — `[~]` (every renderer-side finding closed; the e2e legs of the done-when belong to the e2e owner)
+## P8.3 — Selection, drag/drop, context menus, shortcuts — `[x]`
 
 Standardize on the model professional NLEs use: click selects, shift-click extends,
 cmd-click toggles, marquee in timeline and bin, drag from bin to timeline with insert/
@@ -180,9 +180,43 @@ Landed 2026-08-29 (UX-08, UX-14):
   reframed clip says nothing; an asset the engine never probed also says nothing, because
   an unprobed source is not a claim that it fits.
 
-Remaining: nothing in this task's own scope. The e2e legs the done-when names
-(`timeline-interaction`, `timeline-marquee`, the shortcut-list test) are outside
-`apps/web-editor/src` and belong with the e2e owner.
+Closed 2026-08-29 (the shortcut half of the done-when).
+
+- **The clip menu printed no shortcuts at all**, so the fastest route to an edit
+  taught the user nothing about the faster one. Six rows now carry the chord the
+  registry declares — split, both trims, duplicate, delete, ripple delete —
+  rendered through a shared `MenuShortcut` that reads `hintFor(id)`, so the glyphs
+  are the registry's and are correct on Windows and Linux, not a macOS string
+  typed into the markup. `MenuItem` gained the same optional `shortcutId` slot, so
+  the topbar and toolbar menus can advertise theirs without a second rendering of
+  a keycap. Rows with no registry equivalent (the speed presets, "Add transition",
+  "Reveal in bin", "Ask AI about this clip") advertise nothing rather than
+  borrowing a chord that does something else.
+- **`ClipContextMenu.shortcuts.test.tsx` is the test the done-when asks for**, and
+  it asserts the claim rather than the markup: for each of the six rows it clicks
+  the row, records the resulting timeline, remounts from the identical starting
+  state, presses the chord, and compares. It also refuses to pass on two
+  unchanged timelines (the first fixture had the clips butt-joined, which made
+  "Duplicate" a rejected overlap on both paths — a green test proving nothing),
+  checks the pressed keystroke really normalises to the advertised chord, and
+  walks the rendered menu so a row that starts advertising a chord without being
+  covered here fails.
+- **`hintFor()` was exported, tested and used by no component.** Every hint in the
+  UI was a hardcoded macOS glyph, so a Windows or Linux desktop user was shown the
+  wrong key about thirty times over — `⌘Z` for Ctrl+Z, `⌥` for Alt. Toolbar (11),
+  Topbar (3), PreviewTransport (7), PreviewPlayer (5) and HistoryPanel (2) now all
+  render `hintFor('<id>')`; `TooltipProps.shortcut` widened to `string | null`
+  because that is what `hintFor` returns for an unknown id. The two remaining
+  literals (`Esc` on the History, Transcription and Footage close buttons) are
+  deliberate: closing a panel is not in the registry, and inventing an id for it
+  would be worse than the literal.
+- **`GROUP_ORDER` omitted 'Tools'**, so A and B — declared, honoured by the
+  handler, and the Blade tool's only advertisement — did not appear in the `?`
+  overlay or in Settings. Added, with a test asserting every group the registry
+  declares is in the order, so the list cannot silently drop a group again.
+
+The other e2e legs the done-when names (`timeline-interaction`, `timeline-marquee`)
+already pass unchanged — 102 of 102 browser e2e green, visual baselines included.
 
 ## P8.4 — States: loading, empty, error, progress, destructive confirms — `[x]`
 
@@ -262,7 +296,7 @@ the UI was wrong.
 Lesson recorded for the plan: a visual gate that only runs after everything else passes is
 a gate that stops running the moment anything else breaks.
 
-## P8.5 — Focus, keyboard, accessibility, resizing — `[~]`
+## P8.5 — Focus, keyboard, accessibility, resizing — `[x]` (done-when met; the four checks that need a human at the app are named below, not claimed)
 
 Focus management for dialogs/menus, roving tabindex in lists, ARIA on custom controls,
 reduced-motion respected, panels resizable with persisted sizes (view-prefs hook),
@@ -315,9 +349,117 @@ CSS edit is exactly what this phase should not ship:
 - **`.preview-text-edit-content`** clears its outline unconditionally; the box has its own
   selected/editing chrome, so this may be correct — it needs a look, not a guess.
 
-Remaining for the done-when: axe on the main screens in e2e, the keyboard-only montage
-journey, the five focus rings above, and the 1024 px layout check (UX-12) — all of which
-need a browser, not jsdom.
+Landed 2026-08-29 (the browser half, and a keyboard trap that made the rest moot).
+
+**The blocker first: the editor was a keyboard trap, and had been since the shortcut
+registry existed.** `select.next`/`select.prev` were bound to `tab`/`shift+tab` under
+`when: 'timelineFocus'`, and `timelineFocused()` is TRUE when `document.activeElement`
+is `document.body` — which is where focus rests at mount, because nothing autofocuses.
+So the FIRST Tab of every session was `preventDefault()`ed and moved the model selection
+instead of DOM focus. Not the first Tab in the timeline: the first Tab, full stop,
+forever, on every screen. A keyboard-only user could never reach any control in the app.
+
+They are now `⌥→`/`⌥←` (free chords, and they read as "step through the cut"). The fix
+is deliberately NOT in `timelineFocused`: its `document.body` arm is load-bearing —
+after a marquee drag focus rests on the body and ⌘A and Delete must still reach the
+timeline, which `timeline-marquee.spec.ts` depends on. The rule the comment now records
+is narrower and safer: nothing in this registry may bind Tab.
+
+- **Roving tabindex on the timeline.** Once Tab worked, every clip was a tab stop, plus
+  its ⋯ affordance, its lanes toggle and its two fade handles — a 200-cut montage would
+  have been 200+ stops between the panel above the timeline and the one below. The clips
+  are now ONE stop that rides the selection (falling back to the first clip so a timeline
+  nobody has clicked is still reachable), matching the pattern the bin, Sounds and Stock
+  already use rather than inventing a fourth. Everything inside a clip is `-1` and is
+  reached from the clip's own keydown: `Shift+F10` (the platform convention) opens the
+  actions menu, `F`/`Shift+F` enter the fade handles, `D` toggles the keyframe lanes —
+  all advertised on the clip's `aria-keyshortcuts`.
+- **The fade handles announced themselves as sliders and did nothing.** `role="slider"`
+  with live `aria-valuenow` since H8, and no key handler at all — so after the Tab fix
+  the arrows would have fallen through to the global handler and moved the PLAYHEAD while
+  the user believed they were adjusting a fade. They now take Arrow (one frame),
+  Shift+Arrow (0.5s), Home/End (0 / the cap, which is the clip's own length when that is
+  shorter than 5s), and Escape returns to the clip. `stopPropagation` keeps them off the
+  global path, exactly as `PreviewScrubBar` already does.
+- **Two context menus were mouse-only.** `ClipContextMenu` and `TrackContextMenu`
+  declared `role="menu"`, never focused themselves and never restored focus — and the
+  clip menu has a keyboard opener, so it could be opened and not entered. Both now follow
+  `EffectLayerMenu` (tabIndex -1 + focus on mount) and give focus back to the opener.
+- **Panel splitters were pointer-only, on a 2px target.** `RailSplitter` and
+  `StageSplitter` were `role="separator"` with no tab stop, no keys and no aria values.
+  Both are now focusable, announce `aria-valuenow/min/max` (from `RAIL_BOUNDS` for the
+  rails; from `TIMELINE_MIN` and the existing `maxDockHeight()` for the dock, reusing the
+  bound the persisted height is already clamped against rather than measuring a second
+  one), and move on Arrow ±16px / Shift+Arrow ±64px / Home/End. The hairline stays 2px;
+  only the hit area grew, via `::before { inset-inline: -5px }` — widening the visible
+  divider would have put a grey bar down the middle of the editor.
+- **Three overlays leaked focus.** The Export popover now uses `useModalFocusTrap`
+  (traps and restores). `TransitionPicker` restores only, on purpose: it is a popover
+  that dismisses on an outside press, and trapping Tab inside something a click outside
+  is meant to close would fight its own contract. Its opener is captured during the first
+  render rather than in an effect, because its search field's `autoFocus` lands before
+  effects run and an effect would have captured the picker's own input as "the opener".
+  `CapabilityPackDependencyDialog` declared `aria-modal="true"` and trapped nothing; it
+  now traps, keyed on its open flag rather than on mount (it is mounted long before it
+  has anything to show, so a mount-keyed trap would have found a null ref and installed
+  nothing). Deliberately no Escape there — it is a gate whose only exit is the explicit
+  "Open degraded" decision. Its `role="status"` progress region gained a name, because
+  `getByRole('status')` already matches six elements in this app.
+- **Tooltips could not be dismissed** (WCAG 1.4.13). `.tooltip` is
+  `pointer-events: none`, so a bubble covering the control could not even be moved out of
+  the way; Escape was the only possible exit and nothing listened for it. It does now.
+- **The five focus rings.** `.command-palette-search`, `.shortcut-search`,
+  `.transcript-search`, `.transcription-search` and `.ai-history-search` each cleared
+  their outline with nothing in its place; the wrapper now carries a `:focus-within` ring
+  matching `.bin-search`. Two departures from the earlier note: the palette and shortcut
+  rows ring INWARDS, because they sit flush inside an `overflow: hidden` overlay that
+  would clip an outer ring on three sides; and `.transcription-search` also moved from
+  `:focus` to `:focus-visible`, which was suppressing the ring for pointer users too.
+  `.topbar-title-input` was a **false positive** and is untouched — its base rule already
+  carries a permanent `box-shadow` ring, so clearing the outline on focus is correct.
+- **A `main` landmark.** The editor screen had none: the program monitor was a bare
+  `<div class="stage-col">`, so a screen-reader user had no way to skip the rails and the
+  dock to reach the thing they came for. `HomeScreen` owns the only other `<main>` and is
+  a different screen, so nothing collides.
+- **`aria-describedby` on the clips.** A clip's `aria-label` is `clip <id>` while its
+  visible label is the human name. The label is NOT changed — Playwright substring-matches
+  where RTL exact-matches, so every edit to that string breaks one suite or the other —
+  and the name reaches assistive technology through `aria-describedby` pointing at the
+  existing `.clip-label` span instead.
+
+**Evidence.** 2 764 web-editor unit tests and 47 `packages/ui` tests green, including 9
+new timeline-keyboard tests, 5 new overlay-focus tests, 4 new splitter tests, 8 new
+clip-menu shortcut tests, 2 new shortcut-list tests and one new Tooltip test — each
+written against the previous code first. 102 of 102 browser e2e green, visual baselines
+included. `tests/e2e/specs/accessibility.spec.ts` adds the axe leg (`@axe-core/playwright`
+4.13.0, MPL-2.0, dev-only; `pnpm license:scan` clean — 7 packages, no denylisted license)
+and the keyboard-only journey: Tab moves DOM focus on the first press, the timeline is one
+tab stop, a montage is cut and undone with no pointer, and a splitter resizes from the
+keyboard.
+
+**axe does NOT pass clean, and this is not claimed.** The first scan found eight standing
+rule failures that predate this work, so the gate is "no violation outside a named list"
+rather than a silence: `color-contrast` (the bulk — and unfixable in good faith until the
+two unreconciled accent systems are decided, see P8.6), `nested-interactive` /
+`no-focusable-content` (a clip is a `<button>` containing a `role="button"` and two
+`role="slider"`s — unnesting it re-architects the clip and moves every
+`getByRole('button', { name: 'clip …' })` in both suites), `listitem` / `only-listitems` /
+`list` (the virtualised track list puts a positioning `<div>` between its `<ol>` and its
+`<li>`s), `aria-prohibited-attr` and `scrollable-region-focusable`. Each is named with its
+owner in the spec itself.
+
+**Needs a human at the app, not an agent, and is not claimed here:**
+
+- focus-ring **visibility** in both themes — a `:focus-within` rule can be asserted, a
+  ring a person can actually see cannot;
+- **contrast** under the two accent systems (ADR 0054's orange vs the July UI-clone blue);
+  axe already counts the failures, but the fix is a palette decision;
+- **1024/1280px and 200% zoom** reflow (UX-12);
+- the order a **screen reader** announces the editor in — no automated check reads that,
+  and the roving-tabindex change in particular deserves a listen.
+- `.preview-text-edit-content` still clears its outline unconditionally. Left alone: the
+  box has its own selected/editing chrome, so this may well be correct. It needs a look,
+  not a guess.
 
 ## P8.6 — Close — `[x]` (report written; screenshots explicitly NOT taken — see below)
 

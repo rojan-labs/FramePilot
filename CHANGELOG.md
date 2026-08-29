@@ -111,6 +111,33 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The editor can be used from the keyboard at all.** Pressing Tab did not move focus
+  anywhere — it moved the selection on the timeline instead, from the very first press,
+  on every screen. Tab is now what it should always have been (it walks the controls);
+  stepping through the cut moved to ⌥→ and ⌥←, which is on the shortcut list with
+  everything else.
+- **The timeline is one stop on the way round, not one per clip.** A 200-cut montage used
+  to sit 200 tabs deep between the panel above it and the panel below. Tab now lands on the
+  selected clip, and the clip's own controls open from there: Shift+F10 for its menu, F for
+  the fades, D for the keyframe lanes.
+- **A clip's fade handles respond to the arrow keys.** They looked and announced themselves
+  like sliders and did nothing at all; the arrows moved the playhead instead.
+- **The panels resize without a mouse.** The dividers between the rails, the monitor and the
+  timeline take Tab, then the arrow keys (hold Shift to move faster, Home/End to go all the
+  way). They are also easier to grab with a pointer — same hairline, wider target.
+- **The right-click menu on a clip shows its keyboard shortcuts**, and every shortcut in the
+  app is now shown with the keys your own platform uses. Windows and Linux were being told
+  to press ⌘ and ⌥ about thirty times over.
+- **The Blade tool's key is on the shortcut list.** The Tools group was missing from the `?`
+  overlay and from Settings, so B was a shortcut nobody could discover.
+- Right-click menus, the Export panel and the transition picker now give focus back to
+  whatever opened them, and can be entered from the keyboard in the first place.
+- Search fields in the command palette, the shortcut overlay, the transcript, the
+  transcription panel and the AI history show a focus ring again — they cleared it and put
+  nothing in its place, so the only way to tell where you were typing was to type.
+- Tooltips close on Escape. A tooltip covering the thing underneath it could not be
+  dismissed without moving the pointer.
+
 - **A failed AI run says what went wrong in one sentence**, with the provider's own text kept behind "Show details" instead of thrown at you as the headline.
 - Deleting a conversation now asks first — it is the one action in the sidebar that undo cannot take back.
 - The video preview releases its decoded frames when it shuts down, and the render engine closes the ffmpeg pipes it was leaving open at the end of every export.
