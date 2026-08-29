@@ -763,6 +763,29 @@ describe('per-section accounting (ADR 0080)', () => {
     });
   });
 
+  it('shows attached reference profiles as a fixed block the planner can cite (P3.4)', () => {
+    const project = makeProject();
+    const messages = buildContext({
+      project,
+      userPrompt: 'make it feel like the reference',
+      references: [
+        {
+          id: 'ref_1',
+          role: 'style',
+          kind: 'video',
+          fileName: 'ref.mp4',
+          contentHash: 'abcdef0123456789',
+          analyzedAt: '2026-08-29T00:00:00Z',
+          constraints: ['Pacing: fast — median shot 1.1s', 'Look: warm, saturated'],
+        },
+      ],
+    });
+    const all = messages.map((m) => m.content).join('\n');
+    expect(all).toContain('References the editor attached');
+    expect(all).toContain('- ref_1 · ref.mp4 · style');
+    expect(all).toContain('  Pacing: fast — median shot 1.1s');
+  });
+
   describe('summarizeSourceMedia', () => {
     it('states file, dimensions and whether the source fits the sequence orientation', () => {
       const project = makeProject({

@@ -6,6 +6,7 @@
  * ordered messages handed to a provider. Kept pure and deterministic so the same
  * project + prompt always produce the same context (testable, cacheable).
  */
+import { summarizeReferences, type ReferenceProfile } from './references/profile.js';
 import { createLogger, type Seconds } from '@framepilot/shared-types';
 import type { Clip, Project, Timeline } from '@framepilot/timeline-schema';
 import type { AiMessage } from './providers/types.js';
@@ -101,6 +102,12 @@ export interface ContextInput {
    * `assembleContext` drops tiers whole, it does not summarize them.
    */
   readonly sessionContext?: string;
+  /**
+   * Reference videos/images the editor attached, analyzed once into profiles (P3.4).
+   * Rendered as a fixed block so a turn that says "like the reference" reads the
+   * constraints, never re-analyzes.
+   */
+  readonly references?: readonly ReferenceProfile[];
   /**
    * The one-line visual-index status (plan MI6.2): coverage, vector count, and backend,
    * or the honest reason the model cannot see the footage (no key, not indexed, no
@@ -904,6 +911,10 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // The narrative memory tier (B6.3) rides alongside the typed preferences above,
   // under the same `memory` tier — they are one concern to the budgeter, and both
   // yield together when the request's own material needs the room.
+  const referencesBlock = summarizeReferences(input.references ?? []);
+  if (referencesBlock !== '') {
+    fixed.push({ tier: 'pinned', label: 'references', text: referencesBlock });
+  }
   if (input.sessionContext && input.sessionContext.trim() !== '') {
     fixed.push({
       tier: 'memory',
