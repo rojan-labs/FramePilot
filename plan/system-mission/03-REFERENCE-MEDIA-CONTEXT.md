@@ -101,9 +101,21 @@ job, not a model turn).
 
 Landed 2026-08-29: `ContextInput.references` → fixed "References the editor attached"
 block (`summarizeReferences`), desktop request validation (`parseReferences`, ≤ 8), web
-path threads them on both browser and desktop routes. Remaining: the plan citing the
-constraints it applies (proposer prompt), controllers reading the numeric profile,
-role-specific ops (logo overlay, grade target, b-roll enrolment), and the UC-06/07 evidence.
+path threads them on both browser and desktop routes.
+
+Landed 2026-08-29 (the numeric half — ADR 0162): `references/directives.ts` reduces the
+attached profiles to targets the deterministic side consumes, so the shot-length target
+enters the run's **acceptance criteria** — the briefing states what the run is graded on —
+and a `shot_length_target` Critic check in `wholeCutChecks`, which tells a run it is off the
+reference pace *while it can still re-trim*. Tolerance is the reference's own p10–p90
+spread. What a reference cannot drive is stated by name under its own heading rather than
+silently dropped, which is P4.2's "which it is ignoring, with a reason" rendered
+deterministically.
+
+Remaining: role-specific operations beyond pacing (a `brand-logo` is measured and then
+explicitly ignored — nothing places an overlay from a reference file yet; likewise the
+grade target and b-roll enrolment), and the UC-06/07 rubric evidence, which needs a
+provider and the maintainer's media.
 
 ## P3.5 — "Same as the reference" across turns — `[x]`
 
