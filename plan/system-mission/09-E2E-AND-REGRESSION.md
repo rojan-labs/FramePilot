@@ -1,4 +1,4 @@
-# Phase 9 — E2E, failure paths, regression and efficiency gates — `[ ]`
+# Phase 9 — E2E, failure paths, regression and efficiency gates — `[~]`
 
 > **Ships:** the journeys in `USE-CASES.md` proven on the desktop host; failure paths
 > proven; the editing rubric and efficiency metrics gated in CI.
@@ -8,7 +8,7 @@
 > **Schema/deps:** Playwright already present; **no new dependency** without the gate.
 > **Owner agent:** `qa-e2e`.
 
-## P9.0 — Desktop e2e host — `[ ]`
+## P9.0 — Desktop e2e host — `[x]` (Playwright `_electron` launcher, smoke, resource + UX specs; recorded-provider mode not yet)
 
 **Touches:** `tests/e2e-desktop/` (new), Playwright `_electron` launcher against the
 built desktop app with the sidecar; fixtures from Phase 0; a recorded-provider mode
@@ -16,7 +16,7 @@ built desktop app with the sidecar; fixtures from Phase 0; a recorded-provider m
 a test-only IPC (`debug:project`) rather than the DOM.
 **Done when:** smoke opens `project-montage` in the desktop app in CI.
 
-## P9.1 — `ai-journey.spec.ts` — `[ ]`
+## P9.1 — `ai-journey.spec.ts` — `[~]` (written; runs with MISSION_AI=1 against the real bridge)
 
 UC-01 → UC-08 → UC-09 → UC-06 → UC-07 in one session: open project, import media, attach
 reference video and image, ask for the montage, assert timeline outcome by rubric,

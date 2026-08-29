@@ -1,4 +1,4 @@
-# Phase 5 — Workers and lifecycle — `[ ]`
+# Phase 5 — Workers and lifecycle — `[~]`
 
 > **Ships:** specialization where the Phase 0/1 ledger shows it pays (smaller context,
 > parallel time, accuracy); typed input/output contracts for every specialist; a single
@@ -39,7 +39,7 @@ Each runs through `proposerModelEffect` with its own manifest budget.
 accuracy) in `05-after.md`; rejected candidates are listed with the number that
 rejected them.
 
-## P5.3 — Process lifecycle registry (desktop main) — `[ ]`
+## P5.3 — Process lifecycle registry (desktop main) — `[~]`
 
 **Touches:** `apps/desktop/electron/sidecar/manager.ts`, `spawn.ts`,
 `render/export-hub.ts`, `ai/run-coordinator-base.ts`, FFmpeg/ffprobe spawns in the
@@ -50,6 +50,11 @@ and run-cancel walk the registry; orphan sweep on startup by pidfile. Engine sid
 subprocess goes through `subprocess_safety` with a timeout and is tracked per job.
 **Done when:** killing the app mid-export and mid-analysis leaves no FFmpeg/ffprobe/sidecar
 process (test with `pgrep` in the desktop e2e); cancel reaches the child within 500 ms.
+
+Landed 2026-08-29: the render subprocess runs in its own session and a cancel/timeout
+SIGTERMs its group (python + ffmpeg); the desktop spawns the sidecar `detached` and
+`stop()` kills the whole group (`killProcessGroup`, tested). Remaining: a single registry
+with owner/purpose/started-at per child and the `pgrep` e2e proof.
 
 ## P5.4 — Backpressure, limits, duplicate suppression — `[ ]`
 
