@@ -1,6 +1,6 @@
 {
   "label": "after",
-  "generatedAt": "2026-08-29T05:54:48.523Z",
+  "generatedAt": "2026-08-29T08:40:23.954Z",
   "provider": "openai-compatible",
   "model": "claude-sonnet-5",
   "runsPerScenario": 3,
@@ -4089,6 +4089,293 @@
                 "id": "video_1",
                 "type": "video",
                 "clips": 50
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "remove-dead-air",
+      "project": "mission-podcast",
+      "run": 2,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Remove the dead air and long pauses from this recording.",
+          "rubric": "remove-dead-air",
+          "score": 0.75,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": true,
+              "detail": "changed",
+              "weight": 2
+            },
+            {
+              "id": "shorter",
+              "ok": true,
+              "detail": "575.85s → 401.82s"
+            },
+            {
+              "id": "no-mid-word-cuts",
+              "ok": false,
+              "detail": "89 edge(s) inside a word"
+            },
+            {
+              "id": "min-clips",
+              "ok": true,
+              "detail": "71 picture clip(s), need ≥ 2"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 784070,
+            "modelCalls": 6,
+            "tokens": {
+              "prompt": 108691,
+              "input": 5152,
+              "output": 53182,
+              "cacheRead": 103539,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 4203,
+                "wallMs": 4203,
+                "input": 426,
+                "output": 280,
+                "cacheRead": 0
+              },
+              {
+                "ttftMs": 138032,
+                "wallMs": 147728,
+                "input": 0,
+                "output": 17106,
+                "cacheRead": 30457
+              },
+              {
+                "ttftMs": 151208,
+                "wallMs": 184172,
+                "input": 4726,
+                "output": 22073,
+                "cacheRead": 0
+              },
+              {
+                "ttftMs": 4688,
+                "wallMs": 4688,
+                "input": 0,
+                "output": 269,
+                "cacheRead": 36541
+              },
+              {
+                "ttftMs": 139732,
+                "wallMs": 139732,
+                "input": 0,
+                "output": 13454,
+                "cacheRead": 36541
+              },
+              {
+                "ttftMs": 303048,
+                "wallMs": 303048,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 6,
+              "ttftMs": {
+                "p50": 138032,
+                "p95": 303048,
+                "min": 4203,
+                "max": 303048
+              },
+              "wallMs": {
+                "p50": 139732,
+                "p95": 303048,
+                "min": 4203,
+                "max": 303048
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 4726,
+                "min": 0,
+                "max": 4726
+              },
+              "outputTokensPerTurn": {
+                "p50": 280,
+                "p95": 22073,
+                "min": 0,
+                "max": 22073
+              },
+              "cacheHitRate": 0.95259957126165,
+              "cacheReportingTurns": 5
+            },
+            "usd": 0.813186,
+            "usageTokens": 58334,
+            "toolCalls": 75,
+            "toolCallsByName": {
+              "load_skill": 1,
+              "analyze_silence": 1,
+              "ripple_delete": 71,
+              "get_timeline_summary": 1,
+              "get_timeline_map": 1
+            },
+            "repeatedToolCalls": 70,
+            "analysisFromCache": 0,
+            "contextRequests": 11,
+            "contextByType": [
+              {
+                "system": 2171,
+                "retrieved_evidence": 3218,
+                "project_memory": 95,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2171,
+                "retrieved_evidence": 3218,
+                "project_memory": 95,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4108,
+                "retrieved_evidence": 3218,
+                "project_memory": 95,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4108,
+                "retrieved_evidence": 3218,
+                "project_memory": 95,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4396,
+                "retrieved_evidence": 3400,
+                "project_memory": 95,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 15669
+              },
+              {
+                "system": 4396,
+                "retrieved_evidence": 3400,
+                "project_memory": 95,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 15669
+              },
+              {
+                "system": 5409,
+                "retrieved_evidence": 5581,
+                "project_memory": 95,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 15669
+              },
+              {
+                "system": 5409,
+                "retrieved_evidence": 5581,
+                "project_memory": 95,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 15669
+              },
+              {
+                "system": 5473,
+                "retrieved_evidence": 5581,
+                "project_memory": 95,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 15669
+              },
+              {
+                "system": 5473,
+                "retrieved_evidence": 5581,
+                "project_memory": 95,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 15669
+              },
+              {
+                "system": 8794,
+                "retrieved_evidence": 5581,
+                "project_memory": 95,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 15669
+              }
+            ],
+            "contextUsedTokens": [
+              25616,
+              426,
+              27553,
+              0,
+              25223,
+              4726,
+              28417,
+              0,
+              28481,
+              0,
+              31802
+            ],
+            "contextCachedTokens": [
+              null,
+              0,
+              null,
+              30457,
+              null,
+              0,
+              null,
+              36541,
+              null,
+              36541,
+              null
+            ],
+            "diffs": 2,
+            "validDiffs": 2,
+            "operations": 71,
+            "errors": [
+              "openai-compatible request failed: terminated"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 401.82154166666675,
+            "pictureClips": 71,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 71
               },
               {
                 "id": "audio_1",
