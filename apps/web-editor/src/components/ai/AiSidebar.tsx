@@ -27,6 +27,7 @@ import {
   createPlanApprovalGate,
   createSteeringQueue,
   createTurnEmitter,
+  projectNames,
   readMemory,
   recordAccepted,
   recordRejected,
@@ -100,6 +101,13 @@ import { PlanApprovalCard } from './PlanApprovalCard.js';
 import { PlanAccordion } from './PlanAccordion.js';
 import type { StepOutcome } from './EventNode.js';
 import { SteeringInput } from './SteeringInput.js';
+import { explainRunFailure } from '../../ai/runFailure.js';
+import {
+  formatDurationDelta,
+  formatRunChangeGroups,
+  summarizeRunChanges,
+} from '../../ai/runSummary.js';
+import { PlayheadContextChip } from './PlayheadContextChip.js';
 import { Composer } from './Composer.js';
 import {
   MEMORY_CHIP_PREFIX,
@@ -1210,8 +1218,16 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
           // transport error before any event) surfaces as a throw from the session
           // iterable, not an in-stream error event. Render it — otherwise the run just
           // stops with no explanation (an unhandled rejection).
-          const message = error instanceof Error ? error.message : String(error);
-          conversations.append(conversation.id, emitter.error(message, { retryable: true }));
+          // Plain sentence up front, provider/FFmpeg text behind "Show details"
+          // (P8.2 "failed") — the raw message is evidence, not the message.
+          const failure = explainRunFailure(error instanceof Error ? error.message : String(error));
+          conversations.append(
+            conversation.id,
+            emitter.error(failure.text, {
+              retryable: true,
+              ...(failure.detail === undefined ? {} : { detail: failure.detail }),
+            }),
+          );
           conversations.append(conversation.id, emitter.status('failed'));
         }
         finalized = true;
@@ -1310,8 +1326,14 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     } catch (error) {
       // Same run-level failure surfacing as runTurn (hub timeout / transport throw).
       batcher.flush();
-      const message = error instanceof Error ? error.message : String(error);
-      conversations.append(conversation.id, emitter.error(message, { retryable: true }));
+      const failure = explainRunFailure(error instanceof Error ? error.message : String(error));
+      conversations.append(
+        conversation.id,
+        emitter.error(failure.text, {
+          retryable: true,
+          ...(failure.detail === undefined ? {} : { detail: failure.detail }),
+        }),
+      );
       conversations.append(conversation.id, emitter.status('failed'));
     } finally {
       batcher.flush();
@@ -1472,6 +1494,27 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       ? []
       : diffs.filter((n) => n.turnId === lastTurnId).map((n) => n.edit.patch.patchId);
   }, [view.nodes]);
+  // What the last run changed, said in editing terms (P8.2 "changed"): the operations
+  // grouped by semantic action and the programme-length delta. "Made N edits" is a
+  // count of patches; this is an account of the cut.
+  const lastRunSummary = useMemo(() => {
+    const diffs = view.nodes.filter(
+      (n): n is Extract<typeof n, { kind: 'diff' }> => n.kind === 'diff' && n.edit.validation.valid,
+    );
+    const lastTurnId = diffs.at(-1)?.turnId;
+    if (lastTurnId === undefined) return null;
+    const edits = diffs
+      .filter((n) => n.turnId === lastTurnId)
+      .map((n) => {
+        const card = toReviewCard(n.edit);
+        return {
+          operations: n.edit.patch.operations as readonly AnyOperation[],
+          before: card.before,
+          after: card.after,
+        };
+      });
+    return summarizeRunChanges(edits, projectNames(project));
+  }, [view.nodes, project]);
   // Where the last run's edits landed (P8.2 "changed"): the first clip an operation
   // names, else the first track — enough for "Show on timeline" to put the editor's eyes
   // on the affected range instead of leaving them to hunt for what changed.
@@ -1834,6 +1877,17 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
                     ? 'Made 1 edit'
                     : `Made ${String(lastRunPatchIds.length)} edits`}
                 </span>
+                {lastRunSummary && lastRunSummary.groups.length > 0 && (
+                  <span className="ai-run-footer-changes">
+                    {formatRunChangeGroups(lastRunSummary.groups)}
+                  </span>
+                )}
+                {lastRunSummary?.durationDeltaSeconds !== undefined &&
+                  formatDurationDelta(lastRunSummary.durationDeltaSeconds) !== null && (
+                    <span className="ai-run-footer-duration tabular">
+                      {`${formatDurationDelta(lastRunSummary.durationDeltaSeconds) ?? ''} · now ${(lastRunSummary.durationAfterSeconds ?? 0).toFixed(1)}s`}
+                    </span>
+                  )}
                 {onReveal && lastRunReference && (
                   <button
                     type="button"
@@ -1932,6 +1986,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
             contextPhase={phase}
             {...(contextDebug ? { contextDebug } : {})}
             contextItems={contextItems}
+            {...(editor ? { playheadChip: <PlayheadContextChip editor={editor} /> } : {})}
             onReanalyzeAttachment={(id) => void reanalyzeReference(id)}
             onChangeAttachmentRole={(id, role) => void reanalyzeReference(id, role)}
             onRemoveContext={(id) =>

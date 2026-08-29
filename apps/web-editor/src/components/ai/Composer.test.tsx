@@ -9,7 +9,9 @@ import type { Attachment, ContextItem } from '../../ai/conversation.js';
 import { Composer, type ComposerProps } from './Composer.js';
 import type { ContextWindowState } from './ContextWindowIndicator.js';
 
-const context: ContextItem[] = [{ id: 'timeline', kind: 'timeline', label: 'Current Timeline' }];
+const context: ContextItem[] = [
+  { id: 'timeline', kind: 'timeline', label: 'Current Timeline', removable: false },
+];
 const contextWindow: ContextWindowState = {
   usedTokens: 20,
   contextWindow: 100,
@@ -94,14 +96,34 @@ describe('Composer', () => {
 
   it('lists context chips and removes them', () => {
     const contextItems: ContextItem[] = [
-      { id: 'selection', kind: 'selection', label: 'Selected: 2 clips, 12–18s' },
-      { id: 'timeline', kind: 'timeline', label: 'Current Timeline' },
+      { id: 'selection', kind: 'selection', label: 'Selected: 2 clips, 12–18s', removable: true },
+      { id: 'timeline', kind: 'timeline', label: 'Current Timeline', removable: false },
     ];
     const props = setup({ contextItems });
     expect(screen.getByText('Selected: 2 clips, 12–18s')).toBeTruthy();
     expect(screen.getByText('Current Timeline')).toBeTruthy();
     fireEvent.click(screen.getByLabelText('Remove Selected: 2 clips, 12–18s'));
     expect(props.onRemoveContext).toHaveBeenCalledWith('selection');
+  });
+
+  // P8.2 "knows": the strip is an account of what the AI is actually given, so a chip
+  // whose removal would change nothing must not offer to remove it. `Current Timeline`
+  // is built from the project snapshot every request carries; the button used to be
+  // there and did nothing at all.
+  it('offers no remove control on an always-on context fact', () => {
+    setup({
+      contextItems: [
+        { id: 'timeline', kind: 'timeline', label: 'Current Timeline', removable: false },
+      ],
+    });
+    expect(screen.getByText('Current Timeline')).toBeTruthy();
+    expect(screen.queryByLabelText('Remove Current Timeline')).toBeNull();
+  });
+
+  it('renders the playhead chip the parent supplies into the context strip', () => {
+    setup({ playheadChip: <span className="ai-context-chip">Playhead 0:12</span> });
+    const strip = screen.getByLabelText('Included context');
+    expect(strip.textContent).toContain('Playhead 0:12');
   });
 
   it('renders no context row when there are no context items', () => {

@@ -9,7 +9,7 @@
  * intentionally absent (Approval A5). Pure presentational state lives here; the
  * parent owns the conversation + run.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react';
 import type { ReferenceRole, RunStatus } from '@framepilot/ai-sdk';
 import type { Attachment, ContextItem } from '../../ai/conversation.js';
 import {
@@ -80,6 +80,14 @@ export interface ComposerProps {
   readonly contextPhase: ContextPhase;
   /** Dev-only context inspector data; absent in production builds. */
   readonly contextDebug?: ContextDebugInfo;
+  /**
+   * The live playhead chip, rendered into the context strip (P8.2 "knows").
+   *
+   * Passed as an element rather than a number so it can subscribe to the playhead
+   * clock by itself — see `PlayheadContextChip`. Omitted where there is no editor
+   * (previews, tests that render the composer alone).
+   */
+  readonly playheadChip?: JSX.Element;
   /** Included-context chips (already filtered by the parent's removals). */
   readonly contextItems: readonly ContextItem[];
   readonly onRemoveContext: (id: string) => void;
@@ -331,13 +339,18 @@ export function Composer(props: ComposerProps): JSX.Element {
         </div>
       ) : null}
       {props.contextItems.length > 0 && (
-        // Included-context chips (P8.4/P8.7/P12.7): what the orchestrator's
+        // Included-context chips (P8.2/P8.4/P8.7/P12.7): what the orchestrator's
         // `context-builder` actually receives for the next turn — the always-on
-        // project/timeline/transcript/asset chips, plus a "Selected" chip when the
-        // editor has a live timeline selection. Each is removable; removing one
-        // (e.g. the selection chip) means it is NOT sent as context for the next
-        // turn (`AiSidebar` filters `contextItems` by the removed-id list before it
-        // builds the request) — mirrors the attachment chips' remove affordance.
+        // project/timeline/transcript/asset chips and the playhead, plus a
+        // "Selected" chip when the editor has a live timeline selection.
+        //
+        // Only the withholdable chips carry a remove control (`item.removable`):
+        // removing the selection, a pin or a remembered decision genuinely keeps it
+        // out of the next request (`AiSidebar` filters `contextItems` by the
+        // removed-id list before it builds the request, and a memory chip's remove
+        // forgets it outright). The rest are facts of the project snapshot the
+        // request is built from and go whether or not a chip is drawn — so they
+        // show no button rather than one that quietly does nothing.
         <div className="ai-context-chips" aria-label="Included context">
           {props.contextItems.map((item) => (
             <span
@@ -347,15 +360,18 @@ export function Composer(props: ComposerProps): JSX.Element {
               title={item.label}
             >
               <span className="ai-context-chip-label">{item.label}</span>
-              <button
-                type="button"
-                aria-label={`Remove ${item.label}`}
-                onClick={() => props.onRemoveContext(item.id)}
-              >
-                <X size={12} aria-hidden="true" />
-              </button>
+              {item.removable && (
+                <button
+                  type="button"
+                  aria-label={`Remove ${item.label}`}
+                  onClick={() => props.onRemoveContext(item.id)}
+                >
+                  <X size={12} aria-hidden="true" />
+                </button>
+              )}
             </span>
           ))}
+          {props.playheadChip}
         </div>
       )}
 

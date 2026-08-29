@@ -185,6 +185,7 @@ export function buildContextItems(
       id: 'selection',
       kind: 'selection',
       label: `Selected: ${clipsLabel}, ${round1(range.start)}–${round1(range.end)}s`,
+      removable: true,
     });
   }
   for (const entity of pinned) {
@@ -192,11 +193,12 @@ export function buildContextItems(
       id: `pin:${entity.kind}:${entity.id}`,
       kind: `pinned-${entity.kind}`,
       label: entity.label,
+      removable: true,
     });
   }
   items.push(
-    { id: 'timeline', kind: 'timeline', label: 'Current Timeline' },
-    { id: 'project', kind: 'project', label: `Project: ${project.name}` },
+    { id: 'timeline', kind: 'timeline', label: 'Current Timeline', removable: false },
+    { id: 'project', kind: 'project', label: `Project: ${project.name}`, removable: false },
   );
   // What the AI remembers about this project — visible, and removable (P8.2 "knows").
   for (const decision of remembered) {
@@ -204,13 +206,19 @@ export function buildContextItems(
       id: `${MEMORY_CHIP_PREFIX}${decision.key}`,
       kind: 'memory',
       label: `Remembers ${decision.label}: ${decision.value}`,
+      removable: true,
     });
   }
   if (project.transcript.length > 0) {
-    items.push({ id: 'transcript', kind: 'transcript', label: 'Transcript' });
+    items.push({ id: 'transcript', kind: 'transcript', label: 'Transcript', removable: false });
   }
   if (project.assets.length > 0) {
-    items.push({ id: 'assets', kind: 'assets', label: `Open Assets (${project.assets.length})` });
+    items.push({
+      id: 'assets',
+      kind: 'assets',
+      label: `Open Assets (${project.assets.length})`,
+      removable: false,
+    });
   }
   return items;
 }

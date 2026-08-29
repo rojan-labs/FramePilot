@@ -10979,6 +10979,22 @@ a.export-credits-license {
   color: var(--text-secondary);
   font-size: 12px;
 }
+/* What the run changed, in editing terms, and by how much the programme moved
+   (P8.2 "changed"). Quieter than the count: the count is the headline, these are
+   the account. `min-width: 0` so a long group list truncates instead of forcing
+   the Undo/Show buttons onto a second row. */
+.ai-run-footer-changes {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+.ai-run-footer-duration {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
 .ai-run-footer-note {
   color: var(--text-tertiary);
   font-size: 12px;

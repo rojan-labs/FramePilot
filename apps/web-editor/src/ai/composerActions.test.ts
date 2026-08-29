@@ -76,6 +76,7 @@ describe('buildContextItems', () => {
       id: 'memory:captionStyle',
       kind: 'memory',
       label: 'Remembers caption style: bold yellow',
+      removable: true,
     });
   });
 
@@ -92,6 +93,7 @@ describe('buildContextItems', () => {
       id: 'selection',
       kind: 'selection',
       label: 'Selected: 2 clips, 12–18s',
+      removable: true,
     });
     // Still ahead of the always-present chips.
     expect(items.map((i) => i.id)).toEqual(['selection', 'timeline', 'project']);
@@ -122,8 +124,18 @@ describe('buildContextItems', () => {
       'timeline',
       'project',
     ]);
-    expect(items[1]).toEqual({ id: 'pin:clip:c1', kind: 'pinned-clip', label: 'intro.mp4 0–5s' });
-    expect(items[2]).toEqual({ id: 'pin:asset:a2', kind: 'pinned-asset', label: 'broll.mp4' });
+    expect(items[1]).toEqual({
+      id: 'pin:clip:c1',
+      kind: 'pinned-clip',
+      label: 'intro.mp4 0–5s',
+      removable: true,
+    });
+    expect(items[2]).toEqual({
+      id: 'pin:asset:a2',
+      kind: 'pinned-asset',
+      label: 'broll.mp4',
+      removable: true,
+    });
   });
 
   it('renders pinned chips with no selection too', () => {
@@ -190,5 +202,30 @@ describe('pinnableEntities / isAtQuery / filterAtEntities / removeAtQuery', () =
     expect(removeAtQuery('tighten @bro')).toBe('tighten');
     expect(removeAtQuery('@bro')).toBe('');
     expect(removeAtQuery('use @broll then trim')).toBe('use @broll then trim');
+  });
+
+  // P8.2 "knows": only the chips whose removal genuinely withholds context carry a
+  // remove control. Timeline/project/transcript/assets are read off the project
+  // snapshot every request is built from — nothing the strip does can hold them back.
+  it('marks only the withholdable chips removable', () => {
+    const items = buildContextItems(
+      project({
+        transcript: [{ word: 'hi', start: 0, end: 1 }],
+        assets: [{ id: 'a1', path: 'a.mp4', kind: 'video', durationSeconds: 3 }],
+      }),
+      { range: { start: 1, end: 2 }, clipCount: 1 },
+      [{ kind: 'clip', id: 'c1', label: 'intro.mp4' }],
+      [{ key: 'preferredPacing', label: 'pacing', value: 'fast' }],
+    );
+    const removable = Object.fromEntries(items.map((i) => [i.id, i.removable]));
+    expect(removable).toEqual({
+      selection: true,
+      'pin:clip:c1': true,
+      'memory:preferredPacing': true,
+      timeline: false,
+      project: false,
+      transcript: false,
+      assets: false,
+    });
   });
 });

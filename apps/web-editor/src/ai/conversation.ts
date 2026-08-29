@@ -46,6 +46,17 @@ export interface ContextItem {
   readonly id: string;
   readonly kind: string;
   readonly label: string;
+  /**
+   * Whether the chip's remove control actually excludes this from the next turn.
+   *
+   * Only the selection, the pinned entities and the remembered decisions can be
+   * withheld — everything else on the strip is a fact of the project snapshot the
+   * orchestrator builds from, so it goes whether or not a chip is on screen. An
+   * always-on fact therefore renders with no remove button: a control that
+   * silently does nothing is worse than no control, and this strip's whole job is
+   * to be an honest account of what the AI is given (P8.2 "knows").
+   */
+  readonly removable: boolean;
 }
 
 /** Per-conversation UI state, persisted so a reload restores exactly where you were. */

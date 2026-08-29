@@ -1274,13 +1274,24 @@
 }
 
 .ai-run-footer-count,
+.ai-run-footer-changes,
+.ai-run-footer-duration,
 .ai-run-footer-note {
   color: var(--ai-ink-3);
   font-family: var(--font-mono);
   font-size: 10.5px;
 }
 
-.ai-run-footer .ai-btn {
+.ai-run-footer-changes {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Only the FIRST button is pushed right, so the change/duration text keeps its
+   place next to the count instead of every control claiming the gap. */
+.ai-run-footer .ai-btn:first-of-type {
   margin-left: auto;
 }
 

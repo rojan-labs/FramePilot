@@ -34,7 +34,7 @@ loop": UX-03 (clipped placeholder), UX-09 (icon-only top bar), UX-12 (1024-wide 
 UX-13 (agent header over Inspector — fixed opportunistically if P8.2 touches that header),
 UX-15 (truncated filter tabs).
 
-## P8.2 — AI sidebar: knows / doing / changed / needs / failed — `[~]`
+## P8.2 — AI sidebar: knows / doing / changed / needs / failed — `[x]` (five RTL tests; screenshots deliberately not taken — see below)
 
 **Touches:** `AiSidebar.tsx`, `Composer.tsx`, run event rendering, `conversation.ts`.
 
@@ -59,9 +59,53 @@ attachment chips with their role (Phase 3). Changed: the run footer ("Made N edi
 "Undo run") gained "Show on timeline", which reveals the first clip (else track) the
 run's operations named — RTL-tested. Already present and tested before this phase:
 Needs (`ask_user` renders its options as buttons, EventNode) and Failed (retryable error
-notice with inline Retry). Remaining: selection/playhead facts in the strip, Doing
-(queue/progress from P5.4), grouping the result card by semantic op, the Failed "details"
-disclosure for provider/FFmpeg text, and the screenshots for the report.
+notice with inline Retry).
+
+Closed 2026-08-29 (second slice). `AiSidebar.states.test.tsx` now drives all five through
+the panel itself, one test each, because the point of the task is that a user in front of
+the sidebar can read each state off the screen — which is only true end to end.
+
+- **Knows — the playhead, and an honest strip.** Two gaps, and the second was the worse
+  one. (a) `playheadSeconds` is threaded into **every** request
+  (`captureEditorInteractionContext`) and is what the model leans on for anything
+  positional — "cut here", "title now" — and the strip never showed it. It does now, as
+  its own leaf component: a value routed through the sidebar's `contextItems` memo would
+  re-render the whole composer on every tick of playback, the exact storm `usePlayhead`
+  exists to prevent. (b) **Four chips offered a remove button that removed nothing.**
+  Timeline, Project, Transcript and Assets are read off the project snapshot the request
+  is built from; only selection, pins and memory are actually withholdable, and only they
+  were ever filtered. `ContextItem.removable` now says which is which and the always-on
+  facts render no button. A strip whose whole job is an honest account of what the AI is
+  given cannot end with four controls that quietly do nothing.
+- **Changed — an account of the cut, not a count of patches.** "Made 3 edits" could be
+  three trims or a trim, a transition and a caption layer, and the only way to find out
+  was to reopen the log. The footer now also carries `Trimmed clip ×2 · Added transition`
+  (grouped through the AI layer's own `describeOperation`, so a new op type gets a real
+  label here, in the history reel and in the diff cards at once) and the programme-length
+  delta — `−12.5s · now 47.5s` — which is the first thing an editor checks after any
+  automated pass and was nowhere on screen. The delta is omitted, never rendered as 0,
+  when the run's edits carried no before/after timelines.
+- **Failed — the action first, the evidence behind the fold.** The "details" disclosure
+  already existed on the notice; **nothing ever gave it anything**. Both of the sidebar's
+  catch blocks passed `error.message` straight through as the headline, so a 401 body or
+  an FFmpeg dump became the loudest text in the panel at the moment the user most needs
+  to know what to do. `ai/runFailure.ts` maps the actionable families (rejected key, rate
+  limit, billing, timeout, unreachable provider, media engine) to one plain sentence
+  naming the action and moves the raw text to `detail`. Unrecognised failures **keep their
+  own words** — folding a long or multi-line one to its first line — because guessing a
+  friendlier phrase for an unknown error trades a true technical sentence for a vague
+  false one.
+- **Doing** and **Needs** were already right and are now pinned by tests rather than by
+  assumption: the activity rail names the phase and the composer holds a Stop; a blocked
+  run renders the model's own question with its options as buttons. Raw tool JSON was
+  already behind a disclosure (`EventNode`), not shown by default.
+
+**Not done, and not claimed:** the P5.4 queue/progress for analysis and export jobs is not
+in the rail — it is a Phase 5 surface this phase would have to reach across for, and the
+five states read correctly without it. **No screenshots.** The done-when asks for one per
+state; a jsdom suite cannot produce them and a hand-posed picture would prove nothing the
+assertions do not. If the report needs images, they come from the e2e walkthrough, which
+is where a real browser already is.
 
 ## P8.3 — Selection, drag/drop, context menus, shortcuts — `[~]`
 
