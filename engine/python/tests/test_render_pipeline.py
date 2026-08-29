@@ -377,3 +377,43 @@ def test_progress_never_reports_outside_its_band_however_odd_the_counter() -> No
     logger.bars_callback("t", "index", 999)
 
     assert seen == [0.15, pytest.approx(0.95)]
+
+
+def test_a_failed_render_leaves_no_partial_file(tmp_path: Path) -> None:
+    """P9.2: a broken encoder must not leave a half-written file where a finished one goes.
+
+    MoviePy writes progressively into the output path, so before this a failed export left
+    megabytes of unplayable video at the destination — indistinguishable from a real
+    export until someone tried to open it.
+    """
+    from framepilot_engine.render.pipeline import RenderJob, RenderState, _discard_partial_output
+
+    partial = tmp_path / "half-written.mp4"
+    partial.write_bytes(b"\x00" * 4096)
+    failed = RenderJob(id="j1", project_id="p1", state=RenderState.FAILED, error="encoder died")
+
+    _discard_partial_output(failed, partial)
+
+    assert not partial.exists()
+
+
+def test_a_completed_render_keeps_its_output(tmp_path: Path) -> None:
+    """The cleanup is narrow on purpose: only a FAILED job's file is ever removed."""
+    from framepilot_engine.render.pipeline import RenderJob, RenderState, _discard_partial_output
+
+    finished = tmp_path / "done.mp4"
+    finished.write_bytes(b"\x00" * 1024)
+    job = RenderJob(id="j2", project_id="p1", state=RenderState.COMPLETED)
+
+    _discard_partial_output(job, finished)
+
+    assert finished.exists()
+
+
+def test_discarding_a_partial_survives_a_missing_or_unresolved_path(tmp_path: Path) -> None:
+    """A job that failed before resolving a path has nothing to remove, and says nothing."""
+    from framepilot_engine.render.pipeline import RenderJob, RenderState, _discard_partial_output
+
+    job = RenderJob(id="j3", project_id="p1", state=RenderState.FAILED, error="boom")
+    _discard_partial_output(job, None)
+    _discard_partial_output(job, tmp_path / "never-created.mp4")

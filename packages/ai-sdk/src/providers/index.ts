@@ -67,6 +67,7 @@ export {
   normalizeOpenverseTrack,
   safeFormat,
   OPENVERSE_API_BASE,
+  openverseApiBase,
 } from './openverse-music.js';
 export {
   PexelsStockProvider,

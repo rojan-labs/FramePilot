@@ -47,6 +47,22 @@ const log = createLogger('ai-sdk:providers:openverse-music');
 export const OPENVERSE_API_BASE = 'https://api.openverse.org/v1';
 
 /**
+ * The Openverse endpoint this process should use.
+ *
+ * Read per call rather than captured, and overridable with `FRAMEPILOT_OPENVERSE_BASE`.
+ * The override exists because the failure that matters here — the music library being
+ * unreachable — could not otherwise be provoked honestly: the provider binds `fetch` in
+ * its constructor, so a test that patches `globalThis.fetch` after the app has started is
+ * patching something nobody will call, and the search quietly succeeds against the real
+ * internet while claiming to be offline. Pointing the base at an unroutable address makes
+ * the outage real instead of simulated.
+ */
+export function openverseApiBase(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env['FRAMEPILOT_OPENVERSE_BASE']?.trim();
+  return configured !== undefined && configured !== '' ? configured : OPENVERSE_API_BASE;
+}
+
+/**
  * Openverse asks integrators to identify themselves. A generic agent string gets
  * throttled harder, and being anonymous about it would be rude to a free service.
  */
@@ -215,7 +231,7 @@ export class OpenverseMusicProvider implements MusicProvider {
     // what they are after.
     const limit = Math.max(1, Math.min(query.limit, MUSIC_SEARCH_MAX_LIMIT));
 
-    const url = new URL(`${OPENVERSE_API_BASE}/audio/`);
+    const url = new URL(`${openverseApiBase()}/audio/`);
     if (text !== '') url.searchParams.set('q', text);
     // Server-side commercial-use filtering, so an NC track never arrives to be
     // mishandled. `normalizeOpenverseTrack` checks again anyway.

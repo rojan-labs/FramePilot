@@ -283,8 +283,33 @@ def render(
         job.state = RenderState.FAILED
         job.error = plain_render_error(exc)
         job.error_detail = str(exc)[-ERROR_DETAIL_CHARS:]
+        # A failed export must not leave a half-written file where a finished one goes.
+        # MoviePy writes progressively into `output`, so a broken encoder — the shape a
+        # desktop e2e reproduces with a fake ffmpeg — left ~28 MB of unplayable video at
+        # the destination, indistinguishable from a real export until someone opened it.
+        # Only ever removes a file THIS call was writing, and never one that validated.
+        _discard_partial_output(job, locals().get("output"))
 
     return job
+
+
+def _discard_partial_output(job: RenderJob, output: object) -> None:
+    """Delete the partial file a failed render was writing, if there is one.
+
+    Deliberately narrow: a job that reached ``COMPLETED`` keeps its output, and a job that
+    never resolved a path has nothing to remove. A failure to delete is logged and
+    swallowed — the render already failed, and a second error about cleanup would replace
+    the reason the editor actually needs.
+    """
+    if job.state is not RenderState.FAILED or not isinstance(output, Path):
+        return
+    try:
+        if output.exists():
+            size = output.stat().st_size
+            output.unlink()
+            _log.info("ACT render: discarded %d-byte partial output %s", size, output.name)
+    except OSError as cleanup_error:  # pragma: no cover - best-effort cleanup
+        _log.warning("could not remove the partial output %s: %s", output, cleanup_error)
 
 
 #: How much of the raw cause to keep on the job — enough for the ffmpeg stderr tail.

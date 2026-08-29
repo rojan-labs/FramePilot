@@ -194,6 +194,14 @@ export class SidecarManager {
         // P5.5: an engine that dies under a running app is restarted, bounded, with
         // backoff. Without this every later render, analysis and agent tool call failed
         // with a connection error until the user found "restart engine" in Settings.
+        //
+        // Reap the GROUP before restarting, not just the child that died. The engine runs
+        // as `uv run framepilot serve`: the wrapper is our child and the server is its
+        // child, both in one process group. Kill the wrapper alone — which is exactly what
+        // a crash or a `kill -9` does — and the server is orphaned but very much alive,
+        // still holding the port. The replacement then cannot bind, fails its health
+        // probe, and burns the whole restart budget losing to a process we left running.
+        process.kill();
         this.recover(`Sidecar process exited (code ${code ?? 'null'}).`);
       } else if (this.phase === 'starting') {
         this.setPhase('failed', `Sidecar process exited (code ${code ?? 'null'}).`);

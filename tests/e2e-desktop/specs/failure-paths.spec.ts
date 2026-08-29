@@ -160,28 +160,46 @@ test.describe('UC-15 failure paths', () => {
     const session = await launchDesktop({ projectId: 'mission-montage', sidecarPort: 8792 });
     try {
       const before = await clipCount(session);
-      const sidecar = descendants(session.mainPid).find((c) =>
-        /framepilot|uvicorn|python/.test(c.cmd),
-      );
-      expect(sidecar, 'the desktop app should own a sidecar process').toBeDefined();
+      const engineProcs = (): { pid: number; cmd: string }[] =>
+        descendants(session.mainPid).filter((c) => /framepilot|uvicorn|python/.test(c.cmd));
+      // The sidecar starts asynchronously after the window is up, so wait for it rather
+      // than sampling once and racing its startup.
+      await expect
+        .poll(() => engineProcs().length, {
+          timeout: 60_000,
+          message: 'the desktop app should own a sidecar process',
+        })
+        .toBeGreaterThan(0);
+      // A HEALTHY engine is more than one process: it runs as `uv run framepilot serve`,
+      // so the wrapper and the server both match. The count to compare against is
+      // therefore the one this app has when it is working, not a hard-coded 1 — and both
+      // the count and the victim come from ONE snapshot, so they cannot disagree.
+      const running = engineProcs();
+      const healthy = running.length;
+      const sidecar = running[0];
 
       // SIGKILL, not SIGTERM: the point is an engine that dies without cleaning up.
-      execFileSync('kill', ['-9', String(sidecar!.pid)]);
+      // A pid that is already gone is not a failure of this row — engines churn while the
+      // suite runs, and the state under test is "the engine died", however it got there.
+      try {
+        execFileSync('kill', ['-9', String(sidecar!.pid)], { stdio: 'ignore' });
+      } catch {
+        // Already dead; the assertions below still describe what must happen next.
+      }
 
       // P5.5: the manager restarts it. Poll rather than sleep — the backoff is 1s.
+      // SIGKILLing the wrapper orphans the server it spawned, and that orphan keeps the
+      // port; recovery has to reap the whole group before the replacement can bind.
       await expect
-        .poll(
-          () =>
-            descendants(session.mainPid).filter((c) => /framepilot|uvicorn|python/.test(c.cmd))
-              .length,
-          { timeout: 90_000, message: 'the engine should come back on its own' },
-        )
-        .toBeGreaterThan(0);
+        .poll(() => engineProcs().length, {
+          timeout: 90_000,
+          message: 'the engine should come back on its own',
+        })
+        .toBeGreaterThanOrEqual(healthy);
 
-      // Exactly one engine — a restart that leaves the old one behind is a leak.
-      expect(
-        descendants(session.mainPid).filter((c) => /framepilot|uvicorn|python/.test(c.cmd)).length,
-      ).toBe(1);
+      // One engine, not two: a restart that leaves the old one behind is a leak, and
+      // "how many processes one engine is" is whatever this app had when it was working.
+      await expect.poll(() => engineProcs().length, { timeout: 30_000 }).toBe(healthy);
       // The edit survived the outage untouched.
       expect(await clipCount(session)).toBe(before);
     } finally {
@@ -210,12 +228,19 @@ test.describe('UC-15 failure paths', () => {
 
   test('music search with the network down reports the outage instead of hanging', async () => {
     test.setTimeout(4 * 60_000);
-    const session = await launchDesktop({ projectId: 'mission-montage', sidecarPort: 8795 });
+    // A REAL outage, not a simulated one. `goOffline` patches `globalThis.fetch`, but the
+    // music provider binds `fetch` in its constructor at startup — so the patch lands on
+    // something nobody calls and the search quietly succeeds against the live library while
+    // the test claims to be offline. (It did: the failing run's a11y snapshot showed real
+    // Openverse results.) Pointing the endpoint at an unroutable address cannot be missed.
+    const session = await launchDesktop({
+      projectId: 'mission-montage',
+      sidecarPort: 8795,
+      extraEnv: { FRAMEPILOT_OPENVERSE_BASE: 'http://127.0.0.1:9/v1' },
+    });
     try {
       const { page } = session;
       const before = await clipCount(session);
-      await goOffline(session, 'openverse|wikimedia|jamendo');
-
       await page.getByRole('tab', { name: 'Sounds' }).first().click();
       const search = page.getByPlaceholder('Search music…');
       await search.fill('calm piano');
@@ -364,7 +389,7 @@ test.describe('UC-15 failure paths', () => {
       const before = await clipCount(session);
       const name = basename(LARGE_MEDIA);
 
-      await page.getByLabel('import media').setInputFiles(LARGE_MEDIA);
+      await page.getByLabel('import media', { exact: true }).setInputFiles(LARGE_MEDIA);
       // The bin announces the wait; it must also END it. A card that shimmers forever is
       // indistinguishable from an app that has forgotten the file.
       await expect(page.getByLabel('importing media')).toBeHidden({
@@ -402,20 +427,27 @@ test.describe('UC-15 failure paths', () => {
       const before = await clipCount(session);
       const batch = photos.slice(0, PHOTO_COUNT);
 
-      await page.getByLabel('import media').setInputFiles(batch);
+      await page.getByLabel('import media', { exact: true }).setInputFiles(batch);
       await expect(page.getByLabel('importing media')).toBeHidden({
         timeout: LARGE_MEDIA_IMPORT_TIMEOUT_MS,
       });
 
       // Every file gets its own outcome — a batch that silently drops the tail is the
-      // failure here, and a count is the only assertion that catches it.
-      for (const first of [batch[0]!, batch.at(-1)!]) {
+      // failure this row exists to catch, so BOTH ends are asserted, not just the first.
+      //
+      // Through the bin's own search, because the list is virtualised: with sixty stills
+      // the last card is not in the DOM at all until something brings it into view, and
+      // asserting on a row the virtualiser has not rendered would fail for a reason that
+      // has nothing to do with the import.
+      const search = page.getByLabel('search media and transcript');
+      for (const file of [batch[0]!, batch.at(-1)!]) {
+        const name = basename(file);
+        await search.fill(name);
         await expect(
-          page
-            .getByRole('button', { name: new RegExp(`^Open ${escapeRegExp(basename(first))}`) })
-            .first(),
+          page.getByRole('button', { name: new RegExp(`^Open ${escapeRegExp(name)}`) }).first(),
         ).toBeVisible({ timeout: 60_000 });
       }
+      await search.fill('');
       expect(await clipCount(session)).toBe(before);
       await expect.poll(() => mediaChildren(session.mainPid), { timeout: 2 * 60_000 }).toBe(0);
     } finally {
