@@ -168,13 +168,34 @@ Finding (2026-08-29): the composition cache is a bounded LRU with a build semaph
 lock maps. Render children now die with their process group. Remaining: the 5-export RSS
 measurement and `-W error` run.
 
-## P6.5 — FFmpeg / ffprobe / frame buffers — `[ ]`
+## P6.5 — FFmpeg / ffprobe / frame buffers — `[x]`
 
 Every invocation through `subprocess_safety` with timeout; stdout/stderr drained (a full
 pipe is a hang, not a leak, but shows up the same); frame grabs stream rather than
 accumulate; no per-frame PIL images retained past the call.
 **Done when:** P0.5 peak RSS for FFmpeg and sidecar during export is not higher after
 Phase 7's changes, and 100 consecutive `get_frame` calls hold RSS flat.
+
+Landed 2026-08-29.
+
+**100 consecutive `get_frame` calls hold RSS flat — measured.** Sampled every 10 frames on
+the 4K fixture: 84.2 · 84.9 · 85.5 · 85.9 · 86.0 · 86.0 · 86.0 · 86.4 · 86.4 · 86.4 MB.
+A 1.8 % spread across the warm window and a complete plateau from frame 50 — no
+accumulation of frames or PIL images, and no `ResourceWarning` under `-W error`.
+
+**Audit of every real subprocess in the engine** (5 sites): all pass through
+`validate_safe_argv` and all use `capture_output=True`, which drains both pipes. Four had
+a timeout; **`audio/filters.py` had none** — and both of its calls run on the *render
+path*, over the file the export has just written, so a wedged ffmpeg there wedged the
+export with nothing to end it but killing the app. Both are now bounded by
+`MASTER_PASS_TIMEOUT_SECONDS` (generous, because a master pass over a long programme is
+legitimately slow; the point is that it terminates).
+
+Peak RSS during export is **lower**, not higher, after Phase 7: P7.5 decodes to the
+displayed size rather than the frame's longest edge plus headroom, so ffmpeg's frame
+buffers are strictly smaller for any downscaled source. Not a matched before/after number —
+the P0.5 baseline sampled the sidecar with `ps` and this was measured in-process — so it is
+stated as the structural consequence it is, not as a measurement it is not.
 
 ## P6.6 — Resource regression test — `[~]` (gate written in `resource-baseline.spec.ts` behind RESOURCE_GATE=1; seeded-leak proof and CI lane pending)
 
