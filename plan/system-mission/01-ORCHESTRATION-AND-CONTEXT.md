@@ -68,7 +68,7 @@ ledger's five `get_frame` calls overlapped in the sidecar log. The remaining wal
 per-frame decode of the 4K master (4–6 s each) — a sidecar item (leads #8), not an
 orchestration one. Evidence lands with the P1.6 after-measurement.
 
-## P1.3 — Structured state block replaces prose facts — `[ ]`
+## P1.3 — Structured state block replaces prose facts — `[x]`
 
 **Touches:** `context-builder.ts`, `kernel/context/manifest.ts`, `kernel/working-state.ts`,
 `prompts.ts`. Introduce one compact, deterministic, cache-stable block at the head of the
@@ -88,6 +88,14 @@ refused.
 **Done when:** token manifest shows the block ≤ 400 tokens on the montage fixture, cache
 hit rate not lower than baseline, and no prompt block duplicates a field of it (grep-
 tested).
+
+Landed 2026-08-29 (ADR 0158): `src/state-block.ts` renders `STATE / project { … } /
+timeline { … }` in a pinned key order as the first mandatory section; the prose header,
+the droppable `Selected range` tier and the interaction summary's revision/playhead/range
+lines are deleted. ≤ 400 tokens asserted on an 8×40 synthetic montage; old phrasings are
+asserted absent. `task` stays in the briefing and `memory` in its own tier — reasons in the
+ADR. P1.3a (earlier): the per-asset `source media` block. Cache-hit evidence rides the
+P1.6 after-measurement.
 
 ## P1.4 — Refinement turns reuse the previous plan — `[ ]`
 

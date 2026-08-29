@@ -14,6 +14,7 @@ import type { ContextBudget, ContextTier } from './reliability/types.js';
 import { readMemory } from './memory-store.js';
 import { SYSTEM_PROMPT } from './prompts.js';
 import { summarizeScopedMemory } from './scoped-memory.js';
+import { renderStateBlock } from './state-block.js';
 import { type Skill, summarizeSkillsManifest } from './skills.js';
 import type { UserMemory } from './user-memory.js';
 import { indexFor } from './project-index.js';
@@ -568,7 +569,9 @@ export function summarizeSourceMedia(project: Project): string {
     }
     const line = `- ${asset.id} ${name}${shape}`;
     if (used + line.length > SOURCE_MEDIA_CHARS) {
-      lines.push(`- …and ${String(project.assets.length - index)} more — call list_assets for their dimensions`);
+      lines.push(
+        `- …and ${String(project.assets.length - index)} more — call list_assets for their dimensions`,
+      );
       break;
     }
     lines.push(line);
@@ -864,9 +867,15 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // the asset list on every turn.
   const projectIndex = indexFor(project);
   const assetKinds = new Map([...projectIndex.assetById].map(([id, asset]) => [id, asset.kind]));
-  // Mandatory blocks (never dropped): project header + platform. The user request is
+  // Mandatory blocks (never dropped): the structured STATE block (P1.3 — project facts,
+  // selection, playhead, revision in a fixed key order) + platform. The user request is
   // appended last, always.
-  const header = `Project: "${project.name}" — ${project.resolution.width}x${project.resolution.height} @ ${project.fps}fps`;
+  const header = renderStateBlock({
+    project,
+    ...(input.projectRevision === undefined ? {} : { projectRevision: input.projectRevision }),
+    ...(selection ? { selection } : {}),
+    ...(input.interaction ? { interaction: input.interaction } : {}),
+  });
   const mandatory: string[] = [header];
   if (targetPlatform) mandatory.push(`Target platform: ${targetPlatform}`);
 
@@ -883,14 +892,10 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // compile-time constant, and the budget is only knowable once everything else is
   // priced. They are spliced back into their display positions below, so the assembled
   // message text is byte-identical to what this order has always produced.
+  // The selected range and playhead live in the STATE block above; the interaction
+  // summary carries only what the block does not (clip/track/effect/keyframe ids,
+  // source monitor).
   const fixed: TieredBlock[] = [];
-  if (selection) {
-    fixed.push({
-      tier: 'selection',
-      label: 'selected range',
-      text: `Selected range: ${round(selection.start)}–${round(selection.end)}s`,
-    });
-  }
   if (input.interaction) {
     fixed.push({
       tier: 'selection',

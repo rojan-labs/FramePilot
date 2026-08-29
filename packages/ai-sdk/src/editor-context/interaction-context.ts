@@ -214,9 +214,10 @@ export function captureEditorInteractionContext(
 export function summarizeEditorInteraction(context: EditorInteractionContext): string {
   const effectLayerIds = context.selection.effectLayerIds ?? [];
   const keyframes = context.selection.keyframes ?? [];
+  // Revision, playhead and the selected range are stated once, in the STATE block at
+  // the head of the context (P1.3); this summary carries the referents only.
   const lines = [
-    `Editor state (revision ${context.projectRevision}, timeline revision ${context.timelineRevision}):`,
-    `- Playhead: frame ${context.playhead.frame} (${context.playhead.seconds}s)`,
+    `Editor state (timeline revision ${context.timelineRevision}, playhead frame ${context.playhead.frame}):`,
     `- Selected clips: ${context.selection.clipIds.length > 0 ? context.selection.clipIds.join(', ') : '(none)'}`,
     `- Selected tracks: ${context.selection.trackIds.length > 0 ? context.selection.trackIds.join(', ') : '(none)'}`,
     `- Selected effect layers: ${effectLayerIds.length > 0 ? effectLayerIds.join(', ') : '(none)'}`,
@@ -224,11 +225,6 @@ export function summarizeEditorInteraction(context: EditorInteractionContext): s
   ];
   if (context.selection.primaryClipId) {
     lines.push(`- Primary clip: ${context.selection.primaryClipId}`);
-  }
-  if (context.selection.timeRange) {
-    lines.push(
-      `- Selected range: ${context.selection.timeRange.start}–${context.selection.timeRange.end}s`,
-    );
   }
   if (context.sourceMonitor) {
     lines.push(

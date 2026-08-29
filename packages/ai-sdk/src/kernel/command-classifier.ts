@@ -32,6 +32,7 @@ import type { TargetPlatform } from '../context-builder.js';
 import { classifierSystemPrompt } from '../prompts.js';
 import type { AiMessage } from '../providers/types.js';
 import type { TimeRange } from './semantic-index/semantic-index.js';
+import { timelineDurationSeconds } from '../state-block.js';
 
 /**
  * A **tiny** project header — the only project context the classifier sees. Never the
@@ -51,14 +52,8 @@ export interface ProjectHeader {
 
 /** Derive the tiny {@link ProjectHeader} from a project (pure). */
 export function projectHeaderOf(project: Project, platform?: TargetPlatform): ProjectHeader {
-  let end = 0;
-  for (const track of project.timeline.tracks) {
-    for (const clip of track.clips) {
-      if (clip.end > end) end = clip.end;
-    }
-  }
   return {
-    durationSeconds: end,
+    durationSeconds: timelineDurationSeconds(project.timeline),
     resolution: { width: project.resolution.width, height: project.resolution.height },
     layerCount: project.timeline.tracks.length,
     ...(platform !== undefined ? { platform } : {}),
