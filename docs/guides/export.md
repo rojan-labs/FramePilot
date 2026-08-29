@@ -9,15 +9,15 @@ make in CapCut, Premiere or Resolve.
 
 Topbar → **Export**.
 
-| Field | Choices | Default |
-| --- | --- | --- |
-| Resolution | 480p · 720p · 1080p · 1440p (2K) · 2160p (4K) | 1080p |
-| Frame rate | Project · 24 · 25 · 30 · 50 · 60 | Project |
-| Quality | Low · Recommended · High | Recommended |
-| Codec | H.264 (plays everywhere) · HEVC / H.265 (smaller files) | H.264 |
-| Format | MP4 · MOV | MP4 |
-| Audio (disclosure) | loudness, EQ, compression, de-noise, limiter | off |
-| Burn captions | on/off | off |
+| Field              | Choices                                                 | Default     |
+| ------------------ | ------------------------------------------------------- | ----------- |
+| Resolution         | 480p · 720p · 1080p · 1440p (2K) · 2160p (4K)           | 1080p       |
+| Frame rate         | Project · 24 · 25 · 30 · 50 · 60                        | Project     |
+| Quality            | Low · Recommended · High                                | Recommended |
+| Codec              | H.264 (plays everywhere) · HEVC / H.265 (smaller files) | H.264       |
+| Format             | MP4 · MOV                                               | MP4         |
+| Audio (disclosure) | loudness, EQ, compression, de-noise, limiter            | off         |
+| Burn captions      | on/off                                                  | off         |
 
 The line under the choices states exactly what you get — e.g.
 `1080 × 1920 · 30 fps · MP4 (H.264) · about 31 MB` — computed from the project's aspect,
@@ -77,3 +77,14 @@ rate to derive it from.
 Each finished export is remembered per project (the last ten) under **Recent exports** in
 the Export dialog, with the resolution and container it was rendered at and a **Reveal**
 button that opens its folder.
+
+## What the tier actually gets you
+
+The resolution tier is a **request**; your media gives the answer. A 360p source asked to
+export at 4K produces 360p — FramePilot never upscales, because inventing pixels costs
+time and adds nothing. The summary line above the Export button always shows the exact
+frame that will be produced, and warns you before an upscale would have happened.
+
+Measured on the reference fixtures: a 30-second 4K project exports at 1080×1920 in about
+11 seconds and at 2160×3840 in about 38; a 360p project takes the same 3.7 seconds whether
+you ask for 1080p or 4K, because both produce 640×360.

@@ -339,3 +339,41 @@ def test_plain_render_error_keeps_the_sentence_and_hides_the_stderr() -> None:
     )
     assert plain_render_error(MemoryError()).startswith("The render ran out of memory")
     assert plain_render_error(ValueError("first line\nsecond line")) == "first line"
+
+
+def test_progress_bands_are_monotonic_and_leave_room_for_preparation() -> None:
+    """P7.6/P7.7: every phase owns a band, and they only ever move forward.
+
+    Preparation used to report one flat 0.05 for its whole duration — about 13% of a 30s
+    4K export's wall time, spent opening readers — which put the reported bar 5.5
+    percentage points BEHIND reality at the 20% mark and ahead of it at the end. Measured
+    after banding: max error 4.8pp, mean 2.9pp, inside the 5pp budget.
+    """
+    from framepilot_engine.render.pipeline import _EncodeProgress
+
+    seen: list[tuple[str, float]] = []
+    logger = _EncodeProgress(lambda stage, fraction: seen.append((stage, fraction)))
+    logger.state["bars"] = {"t": {"total": 100}}
+
+    for index in (0, 50, 100):
+        logger.bars_callback("t", "index", index)
+
+    fractions = [fraction for _stage, fraction in seen]
+    # Encoding spans 0.15..0.95, leaving 0.02..0.15 for preparation and 0.97 for validation.
+    assert fractions == [0.15, pytest.approx(0.55), pytest.approx(0.95)]
+    assert fractions == sorted(fractions), "progress must never go backwards"
+    assert all(stage == "encoding" for stage, _ in seen)
+
+
+def test_progress_never_reports_outside_its_band_however_odd_the_counter() -> None:
+    """A frame counter past its total (or below zero) must not push the bar out of range."""
+    from framepilot_engine.render.pipeline import _EncodeProgress
+
+    seen: list[float] = []
+    logger = _EncodeProgress(lambda _stage, fraction: seen.append(fraction))
+    logger.state["bars"] = {"t": {"total": 10}}
+
+    logger.bars_callback("t", "index", -5)
+    logger.bars_callback("t", "index", 999)
+
+    assert seen == [0.15, pytest.approx(0.95)]

@@ -69,11 +69,44 @@ fixture it cannot possibly help would mean the measurement was wrong.
   track. The 30 s fixture has 9 assets and 2 placed clips; nothing was being prepared for
   the other 7.
 
+## The resolution matrix (P7.7)
+
+Both fixtures, both tiers, measured in-process after Phase 7. `frame` is what the export
+actually produced — the dialog's tier is a request, the **source cap** is the answer.
+
+| fixture | tier | frame produced | wall | size | encoder |
+| --- | --- | --- | --- | --- | --- |
+| 30 s, 4K → portrait | 1080p | 1080×1920 | **11.3 s** | 31.2 MB | `h264_videotoolbox` (hardware) |
+| 30 s, 4K → portrait | 2160p | 2160×3840 | 37.6 s | 133.8 MB | `h264_videotoolbox` (hardware) |
+| 60 s, 360p → landscape | 1080p | **640×360** | 3.7 s | 19.3 MB | `h264_videotoolbox` (hardware) |
+| 60 s, 360p → landscape | 2160p | **640×360** | 3.6 s | 19.3 MB | `h264_videotoolbox` (hardware) |
+
+The last two rows are the source cap doing its job: a 360p source asked to export at 4K
+produces 360p, not an upscale, and takes the same time either way. That is the CapCut-style
+contract — the dialog offers tiers, the media decides what is actually available, and the
+summary line says so before the user commits.
+
+## Progress accuracy (P7.6's residual, P7.7)
+
+Measured by comparing each reported fraction against the wall-clock fraction actually
+elapsed, on the 30 s 4K export.
+
+| | max error | mean error |
+| --- | --- | --- |
+| before | **5.9 pp** (fails) | 3.3 pp |
+| after | **4.8 pp** (passes) | 2.9 pp |
+
+Budget: < 5 percentage points after the first 10 %.
+
+The failure had a shape worth naming: the bar was **behind early and ahead late** — 5.5 pp
+behind at the 20 % mark, 5.2 pp ahead at 92 %. Preparation (opening readers, building the
+composite graph) is about **13 % of a 4K export's wall time** and was reported as a single
+flat `0.05` for its whole duration, so the bar sat still while real work happened and then
+had to catch up. Preparation now reports as each clip is opened (0.02→0.15) and encoding
+owns 0.15→0.95, so every band corresponds to work actually being done.
+
 ## Still open
 
-- **Progress accuracy (< 5 % after the first 10 %)** is not measured. The progress channel
-  exists and reports stage + fraction from the render subprocess; nobody has compared its
-  curve against wall time.
 - **Stream-copy passthrough** for an untouched same-codec same-resolution export is not
   implemented. It is listed in P7.5 as "rare but cheap to detect", and after this change the
   case it would serve — a clip that needs no scaling at all — is already the cheap path.

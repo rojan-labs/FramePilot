@@ -55,6 +55,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Export is much faster on high-resolution footage.** A 30-second 4K project now exports in about 11 seconds instead of 48 — FramePilot asks the decoder for exactly the size the frame needs instead of shrinking every frame afterwards. The progress bar is more honest about it too.
+
 - **Settings:** the readiness panel no longer calls a provider "ready" just because a key is saved — it says "key saved" until that provider has actually answered a request, then reports when it last did.
 
 - **Timeline:** the mouse wheel now scrolls along the timeline (Cmd/Ctrl+wheel still zooms), every track in the project shows as a row — including empty ones, so there is somewhere to drop music — and moving the playhead brings it back into view.

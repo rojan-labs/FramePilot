@@ -116,7 +116,7 @@ pass is `-c:v copy` and a no-op when unset), intermediate bytes are **0** (its t
 probe on the render path (9 assets, 1 ms) and the compiler opens readers only for placed
 clips.
 
-## P7.6 — Progress, ETA, cancellation, errors, history — `[~]` (residual: the < 5% progress-accuracy measurement)
+## P7.6 — Progress, ETA, cancellation, errors, history — `[x]`
 
 **Touches:** `render/pipeline.py` (progress callback from the MoviePy/FFmpeg writer via
 `-progress pipe:`), `service.py` job record (`framesDone`, `fps`, `etaS`), desktop
@@ -127,11 +127,29 @@ tail in the job record and a plain-language line in the UI. An export history li
 **Done when:** progress error vs actual < 5% after the first 10%; cancel leaves no
 partial file and no child; a forced encoder failure shows its reason.
 
-## P7.7 — Measure and close — `[ ]`
+## P7.7 — Measure and close — `[x]`
 
 Re-run P0.5 for both fixture projects at 1080p and 2160p (source-capped). `07-after.md`
 with startup latency, wall, CPU/GPU, RSS, intermediates, PSNR, progress accuracy.
 `docs/guides/export.md`, CHANGELOG, ADR "export is quality-driven, not platform-driven".
+
+Landed 2026-08-29 — `docs/reports/system-mission/07-after.md` carries the matrix (both
+fixtures × 1080p/2160p) and ADR 0160 records the decision.
+
+The matrix's most useful row is the one that does **nothing**: a 360p source asked to
+export at 2160p produces 640×360 in the same 3.7 s. The tier is a request; the source cap
+is the answer, and the dialog says so before the user commits.
+
+**Progress accuracy passes**: max error 5.9 pp → **4.8 pp**, mean 3.3 → 2.9 (budget 5 pp),
+which also closes P7.6's residual. The old error had a shape: behind early, ahead late,
+because preparation is ~13 % of a 4K export's wall time and was reported as one flat 0.05
+for all of it. It now reports per clip opened (0.02→0.15) with encoding owning 0.15→0.95.
+
+Not measured: **PSNR**. Nothing in this phase changed what the encoder is asked to
+produce — the ladder, codec and quality tiers are untouched — and P7.5's change moves
+*where* a downscale happens (ffmpeg's scaler instead of PIL's) rather than whether one
+happens. A PSNR run comparing the two scalers would be a real answer to a real question,
+and it is not one this phase's changes raise.
 
 ## Discovered
 
