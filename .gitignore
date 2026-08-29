@@ -136,3 +136,13 @@ tests/fixtures/mission/projects/*.fp.json
 # benchmarks write them on every run, so tracking them added 376 MB of churning
 # binaries that nothing ever reads back.
 tests/fixtures/mission/projects/exports/
+# The media itself is the maintainer's real camera files — hundreds of MB each, and
+# `fetch-fixtures.sh` regenerates the synthetic ones. They were never meant to be in
+# the repo; a `git add -A` pulled 439 of them (3.4 GB) in before this rule existed,
+# which is also what made the branch too large to push.
+tests/fixtures/mission/projects/media/
+# Derived caches and the per-project AI memory DB: regenerated on demand, and the
+# sqlite churns several MB on every run.
+tests/fixtures/mission/projects/.framepilot-derived/
+tests/fixtures/mission/projects/**/brain.sqlite
+tests/fixtures/mission/projects/**/sidecars/
