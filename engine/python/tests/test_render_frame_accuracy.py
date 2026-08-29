@@ -35,6 +35,7 @@ import numpy as np
 import pytest
 
 from framepilot_engine.media.ffmpeg import find_ffmpeg
+from framepilot_engine.render.export_settings import ExportSettings
 from framepilot_engine.render.frame_grid import frame_to_seconds, seconds_to_frame
 from framepilot_engine.render.pipeline import export_video
 from framepilot_engine.timeline.models import Project
@@ -47,7 +48,7 @@ _SOURCE_SECONDS = 12.0
 #: Every shipped export preset sets fps=30 and `pipeline.render` writes
 #: `fps=preset.fps or project.fps`, so the OUTPUT rate is 30 whatever the project says.
 #: Measuring against the project rate instead is how a passing test would hide that.
-_PRESET = "reels"
+_SETTINGS = ExportSettings(fps=30)
 _OUTPUT_FPS = 30
 
 
@@ -148,7 +149,7 @@ def _render_one_cut(tmp_project_dir: Path, project_fps: int) -> tuple[str, float
     job = export_video(
         _cut_project(project_fps, cut_seconds, end_seconds),
         base_dir=tmp_project_dir,
-        preset_id=_PRESET,
+        settings=_SETTINGS,
     )
     assert job.state == "completed", job.error
     assert job.output_path is not None

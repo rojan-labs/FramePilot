@@ -1051,7 +1051,7 @@ def compile_timeline(
 
 
 def _composite_with_blend_modes(
-    video_layers: list[tuple[Any, str | None]], target: tuple[int, int], fps: int
+    video_layers: list[tuple[Any, str | None]], target: tuple[int, int], fps: float
 ) -> VideoClip:
     from moviepy import CompositeVideoClip as _CompositeVideoClip
 

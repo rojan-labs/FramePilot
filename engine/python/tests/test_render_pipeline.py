@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from framepilot_engine.render.export_settings import ExportSettings
 from framepilot_engine.render.pipeline import (
     RenderOptions,
     RenderState,
@@ -15,10 +16,13 @@ from framepilot_engine.render.pipeline import (
     export_video,
     render,
     render_preview,
-    resolve_preset,
+    resolve_target,
 )
-from framepilot_engine.render.presets import REELS, YOUTUBE
+from framepilot_engine.render.presets import frame_target
 from framepilot_engine.timeline.models import Project
+
+#: The 9:16 1080p target the fixture projects render to (formerly the "reels" preset).
+REELS = frame_target(1080, 1920, 30)
 
 
 def _video_project(asset_path: str = "clip.mp4", *, seconds: float = 1.0) -> Project:
@@ -28,6 +32,7 @@ def _video_project(asset_path: str = "clip.mp4", *, seconds: float = 1.0) -> Pro
             "id": "p1",
             "name": "T",
             "fps": 30,
+            "resolution": {"width": 1080, "height": 1920},
             "assets": [{"id": "a1", "path": asset_path, "kind": "video"}],
             "timeline": {
                 "tracks": [
@@ -61,17 +66,62 @@ def _place_asset(media_factory: Callable[..., Path], base: Path, name: str, **kw
 # --- preset resolution -------------------------------------------------------
 
 
-def test_resolve_preset_defaults_to_reels() -> None:
-    assert resolve_preset(RenderOptions()) is REELS
+def _portrait_project() -> Project:
+    return Project.model_validate(
+        {
+            "id": "p",
+            "name": "T",
+            "fps": 30,
+            "resolution": {"width": 1080, "height": 1920},
+            "assets": [],
+            "timeline": {"tracks": []},
+        }
+    )
 
 
-def test_resolve_preset_known() -> None:
-    assert resolve_preset(RenderOptions(preset_id="youtube")) is YOUTUBE
+def test_resolve_target_defaults_to_1080p_in_the_project_aspect() -> None:
+    target = resolve_target(_portrait_project(), RenderOptions())
+    assert (target.width, target.height, target.fps) == (1080, 1920, 30.0)
+    assert target.video_codec == "libx264" and target.container == "mp4"
+    assert target.effective_resolution == "1080p" and target.capped_to_source is False
 
 
-def test_resolve_preset_unknown_raises() -> None:
-    with pytest.raises(ValueError, match="Unknown preset"):
-        resolve_preset(RenderOptions(preset_id="nope"))
+def test_resolve_target_follows_settings_and_caps_at_the_sources() -> None:
+    project = _portrait_project()
+    hevc = resolve_target(
+        project,
+        RenderOptions(
+            settings=ExportSettings(resolution="2160p", video_codec="hevc", container="mov")
+        ),
+    )
+    assert (hevc.width, hevc.height, hevc.video_codec, hevc.container) == (
+        2160,
+        3840,
+        "libx265",
+        "mov",
+    )
+    capped_project = project.model_copy(
+        update={
+            "assets": [
+                {
+                    "id": "a",
+                    "path": "a.mp4",
+                    "kind": "video",
+                    "media": {"width": 1920, "height": 1080},
+                }
+            ]
+        }
+    )
+    capped = resolve_target(
+        Project.model_validate(capped_project.model_dump(by_alias=True)),
+        RenderOptions(settings=ExportSettings(resolution="2160p")),
+    )
+    assert (capped.width, capped.height, capped.capped_to_source) == (1080, 1920, True)
+
+
+def test_unknown_settings_values_are_rejected_at_the_model() -> None:
+    with pytest.raises(ValueError):
+        ExportSettings(resolution="8k")  # type: ignore[arg-type]
 
 
 # --- failure paths (no real encode needed) -----------------------------------
@@ -138,9 +188,7 @@ def test_render_respects_explicit_output_path(
 
 
 @pytest.mark.usefixtures("require_ffprobe")
-def test_preview_is_downscaled(
-    tmp_project_dir: Path, media_factory: Callable[..., Path]
-) -> None:
+def test_preview_is_downscaled(tmp_project_dir: Path, media_factory: Callable[..., Path]) -> None:
     _place_asset(media_factory, tmp_project_dir, "clip.mp4", seconds=1.0, with_audio=False)
     job = render_preview(_video_project(), base_dir=tmp_project_dir)
     assert job.state == RenderState.COMPLETED, job.error
@@ -216,9 +264,7 @@ def test_master_audio_pass_threads_eq_and_compression(tmp_path: Path, monkeypatc
     monkeypatch.setattr("framepilot_engine.render.pipeline.apply_master_audio", fake_apply)
     output = tmp_path / "out.mp4"
     output.write_bytes(b"original")
-    _apply_master_audio_pass(
-        output, REELS, RenderOptions(eq="voice-clarity", compression="voice")
-    )
+    _apply_master_audio_pass(output, REELS, RenderOptions(eq="voice-clarity", compression="voice"))
     assert "equalizer" in seen["filter"] and "acompressor" in seen["filter"]
     assert output.read_bytes() == b"filtered"
 

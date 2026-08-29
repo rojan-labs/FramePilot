@@ -348,7 +348,7 @@ def _check_cancelled(cancelled: CancelCheck | None) -> None:
 def _settings(preset: ExportPreset, burn_captions: bool) -> TemporalRenderSettings:
     return TemporalRenderSettings(
         identity=(
-            f"{preset.id}:{preset.width}x{preset.height}@{preset.fps}:"
+            f"{preset.id}:{preset.width}x{preset.height}@{preset.fps:g}:"
             f"captions={str(burn_captions).lower()}"
         ),
         preset_id=preset.id,

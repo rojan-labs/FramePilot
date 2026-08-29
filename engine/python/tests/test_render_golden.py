@@ -6,7 +6,7 @@ Hamming distance of the committed golden in
 ``tests/fixtures/golden/reels_testsrc2.json``.
 
 To regenerate the golden after an intentional framing change, render the fixture
-source (its `lavfi` string) with ``export_video`` to the `preset_id`, recompute
+source (its `lavfi` string) with ``export_video`` under the golden's `settings`, recompute
 ``average_hash`` at each ``sample_timestamps`` entry, and update ``ahash``.
 """
 
@@ -19,6 +19,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from framepilot_engine.render.export_settings import ExportSettings
 from framepilot_engine.render.pipeline import export_video
 from framepilot_engine.timeline.models import Project
 from framepilot_engine.validation.golden import average_hash, hamming_distance
@@ -73,8 +74,17 @@ def test_render_matches_golden_hashes(tmp_project_dir: Path) -> None:
 
     source = tmp_project_dir / "src.mp4"
     subprocess.run(
-        [find_ffmpeg(), "-y", "-f", "lavfi", "-i", golden["source"]["lavfi"],
-         "-pix_fmt", "yuv420p", str(source)],
+        [
+            find_ffmpeg(),
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            golden["source"]["lavfi"],
+            "-pix_fmt",
+            "yuv420p",
+            str(source),
+        ],
         check=True,
         capture_output=True,
     )
@@ -85,6 +95,7 @@ def test_render_matches_golden_hashes(tmp_project_dir: Path) -> None:
             "id": "golden",
             "name": "Golden",
             "fps": 30,
+            "resolution": {"width": 1080, "height": 1920},
             "assets": [{"id": "a1", "path": "src.mp4", "kind": "video"}],
             "timeline": {
                 "tracks": [
@@ -108,7 +119,9 @@ def test_render_matches_golden_hashes(tmp_project_dir: Path) -> None:
         }
     )
 
-    job = export_video(project, base_dir=tmp_project_dir, preset_id=golden["preset_id"])
+    job = export_video(
+        project, base_dir=tmp_project_dir, settings=ExportSettings(**golden["settings"])
+    )
     assert job.state == "completed", job.error
     assert job.output_path is not None
 
@@ -132,6 +145,7 @@ def _caption_project(duration: float, caption_style: dict[str, object] | None = 
             "id": "cap",
             "name": "Captioned",
             "fps": 30,
+            "resolution": {"width": 1080, "height": 1920},
             "assets": [{"id": "a1", "path": "src.mp4", "kind": "video"}],
             "transcript": [
                 {"word": "hello", "start": 0.0, "end": 0.35},
@@ -196,20 +210,29 @@ def test_burned_captions_appear_only_during_their_range(tmp_project_dir: Path) -
     # A mid-gray source (not black) so render validation's black-frame check
     # passes; the translucent caption box still darkens the lower region clearly.
     subprocess.run(
-        [find_ffmpeg(), "-y", "-f", "lavfi", "-i",
-         f"color=c=gray:s=216x384:r=30:d={duration}", "-pix_fmt", "yuv420p", str(source)],
+        [
+            find_ffmpeg(),
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c=gray:s=216x384:r=30:d={duration}",
+            "-pix_fmt",
+            "yuv420p",
+            str(source),
+        ],
         check=True,
         capture_output=True,
     )
 
     project = _caption_project(duration)
     soft = export_video(
-        project, base_dir=tmp_project_dir, preset_id="reels", output_path="soft.mp4"
+        project, base_dir=tmp_project_dir, settings=ExportSettings(fps=30), output_path="soft.mp4"
     )
     burned = export_video(
         project,
         base_dir=tmp_project_dir,
-        preset_id="reels",
+        settings=ExportSettings(fps=30),
         output_path="burned.mp4",
         burn_captions=True,
     )
@@ -263,12 +286,15 @@ def test_free_positioned_caption_renders_in_authored_region(tmp_project_dir: Pat
         },
     )
     soft = export_video(
-        project, base_dir=tmp_project_dir, preset_id="reels", output_path="soft-position.mp4"
+        project,
+        base_dir=tmp_project_dir,
+        settings=ExportSettings(fps=30),
+        output_path="soft-position.mp4",
     )
     burned = export_video(
         project,
         base_dir=tmp_project_dir,
-        preset_id="reels",
+        settings=ExportSettings(fps=30),
         output_path="burned-position.mp4",
         burn_captions=True,
     )

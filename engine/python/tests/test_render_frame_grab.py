@@ -171,13 +171,6 @@ class TestGrabFrame:
         with pytest.raises(FrameGrabError, match="gif"):
             grab_frame(project, base, 0.0, image_format="gif")
 
-    def test_refuses_an_unknown_preset_and_names_the_known_ones(
-        self, project_with_media: tuple[Project, Path]
-    ) -> None:
-        project, base = project_with_media
-        with pytest.raises(FrameGrabError, match="Known presets"):
-            grab_frame(project, base, 0.0, preset_id="imax")
-
     def test_refuses_an_empty_timeline_with_a_readable_reason(self, tmp_project_dir: Path) -> None:
         empty = Project.model_validate(
             {"id": "p", "name": "T", "timeline": {"tracks": [{"id": "v", "type": "video"}]}}
@@ -229,9 +222,7 @@ class TestRenderFrameRoute:
         project_file = tmp_project_dir / "project.fp.json"
         project_file.write_text(empty.model_dump_json(by_alias=True), encoding="utf-8")
 
-        client = TestClient(
-            create_app(Settings(projects_root=str(tmp_project_dir.parent)))
-        )
+        client = TestClient(create_app(Settings(projects_root=str(tmp_project_dir.parent))))
         response = client.post(
             "/render/frame",
             json={"project_path": str(project_file), "time_seconds": 0.0},
@@ -303,6 +294,7 @@ class TestCompositeSizedToTheRequest:
         )
         project = _video_project(seconds=1.0, width=640, height=480)
         seen: list[tuple[int, int, int | None]] = []
+
         def _spy(*args: Any, **kwargs: Any) -> Any:
             preset = args[2]
             seen.append((preset.width, preset.height, kwargs.get("max_decode_dimension")))
@@ -324,6 +316,7 @@ class TestCompositeSizedToTheRequest:
         """Asking for more pixels than the project has must not upscale the composite."""
         project, base = project_with_media
         seen: list[tuple[int, int]] = []
+
         def _spy(*args: Any, **kwargs: Any) -> Any:
             seen.append((args[2].width, args[2].height))
             return real_compile(*args, **kwargs)
@@ -347,12 +340,14 @@ class TestCompositeSizedToTheRequest:
         """
         project, base = project_with_media
         seen: list[tuple[int, int]] = []
+
         def _spy(*args: Any, **kwargs: Any) -> Any:
             seen.append((args[2].width, args[2].height))
             return real_compile(*args, **kwargs)
 
         monkeypatch.setattr(_COMPILE_TARGET, _spy)
-        frame = grab_frame(project, base, 0.0, preset_id="reels", max_dimension=256)
+        frame = grab_frame(project, base, 0.0, max_dimension=256)
 
-        assert seen == [(1080, 1920)]
+        # Composites at the size of the answer, in the project's aspect — never larger.
+        assert len(seen) == 1 and max(seen[0]) <= 256
         assert max(frame.width, frame.height) == 256

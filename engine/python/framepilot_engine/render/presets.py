@@ -1,101 +1,78 @@
-"""Export preset definitions (plan 2.2, PRD §6.1; renamed to platform presets H1.3b).
+"""Encode targets (plan/system-mission Phase 7).
 
-WHY real data: presets are static configuration, not logic. They are the
-platform-targeted output formats the user picks at export time. The set now
-mirrors the product plan's explicit short-form platform list — Reels, TikTok,
-Shorts, YouTube — plus ``square`` (kept for feed-post exports, not itself named
-in the plan but a real, already-shipped capability we didn't want to silently
-drop). ``custom`` is handled at call sites, not listed here.
+Export is **quality-driven, never platform-driven**: the editor picks a resolution,
+frame rate, quality tier, codec and container (:mod:`.export_settings`), and the frame
+follows the project's own aspect ratio, capped at what the sources hold. The platform
+presets that used to live here ("Reels", "TikTok", …) are gone; nothing in the engine
+names a platform.
 
-WHY ``loudness_target`` on the preset: the plan asks for "per-platform
-loudness." Loudness itself stays a fully separate, user-controllable render
-option (``RenderOptions.loudness`` / :mod:`framepilot_engine.audio.filters`,
-values ``social``/``podcast``/``broadcast``) — a preset only carries a
-*recommended default* for its platform; it does not force-apply loudnorm (the
-user's explicit choice always wins). Reels/TikTok/Shorts/YouTube all default to
-``"social"`` (-14 LUFS): this is the widely documented integrated-loudness
-convention shared by short-form/streaming platforms (YouTube's published
-loudness target, Spotify/TikTok/Instagram normalizing around the same -14 LUFS
-figure) — see :data:`framepilot_engine.audio.filters.LOUDNESS_PRESETS`.
-``square`` (feed posts, not a video platform on its own) keeps the same
-general-purpose social default for consistency.
-
-WHY ``linkedin_16_9`` was retired as a *distinct* preset: it was pixel-for-pixel
-identical to the new ``youtube`` 16:9 preset (1920x1080). Exporting with
-``youtube`` still produces a file that plays correctly on LinkedIn — no
-capability was dropped, only the duplicate named entry. LinkedIn remains a
-first-class *content-style* target elsewhere (`AiStreamAgentOptions.targetPlatform`
-in `@framepilot/shared-types`) — that is a separate concern (agent pacing/hook
-style) from this module (container resolution/codec), so nothing there changed.
+:class:`ExportPreset` survives as the *encode target* every compiler and encoder path
+consumes — width, height, fps, codecs, container, bitrates — built by
+:func:`target_from_settings` for exports and :func:`frame_target` for compositing a
+single frame at a given shape.
 """
 
 from __future__ import annotations
 
 from pydantic import BaseModel
 
+from framepilot_engine.render.export_settings import (
+    ExportSettings,
+    ExportTarget,
+    SourceFacts,
+    resolve_export_target,
+)
+
+_FFMPEG_VIDEO_CODEC: dict[str, str] = {"h264": "libx264", "hevc": "libx265"}
+
 
 class ExportPreset(BaseModel):
-    """A named export configuration (resolution / fps / codecs / loudness default)."""
+    """A concrete encode target (resolution / fps / codecs / container / bitrates)."""
 
     id: str
     label: str
     width: int
     height: int
-    fps: int = 30
+    fps: float = 30
     video_codec: str = "libx264"
     audio_codec: str = "aac"
     container: str = "mp4"
-    #: Recommended default key into `audio.filters.LOUDNESS_PRESETS` for this
-    #: platform. A *default suggestion* only — the user's explicit loudness
-    #: choice on the render request always takes precedence.
-    loudness_target: str = "social"
+    #: Video bitrate in kbit/s; ``None`` lets the encoder pick its default.
+    video_bitrate_kbps: int | None = None
+    audio_bitrate_kbps: int | None = None
+    #: The resolution actually delivered and whether the sources capped the request.
+    effective_resolution: str | None = None
+    capped_to_source: bool = False
 
 
-REELS = ExportPreset(
-    id="reels",
-    label="Instagram Reels (9:16)",
-    width=1080,
-    height=1920,
-    loudness_target="social",
-)
+def frame_target(width: int, height: int, fps: float = 30, *, label: str = "frame") -> ExportPreset:
+    """A target for compositing at a given shape (frame grabs, tests, previews)."""
+    even_w = max(2, width - width % 2)
+    even_h = max(2, height - height % 2)
+    return ExportPreset(id=f"{even_w}x{even_h}", label=label, width=even_w, height=even_h, fps=fps)
 
-TIKTOK = ExportPreset(
-    id="tiktok",
-    label="TikTok (9:16)",
-    width=1080,
-    height=1920,
-    loudness_target="social",
-)
 
-SHORTS = ExportPreset(
-    id="shorts",
-    label="YouTube Shorts (9:16)",
-    width=1080,
-    height=1920,
-    loudness_target="social",
-)
+def target_from_export(target: ExportTarget) -> ExportPreset:
+    """Wrap a derived :class:`ExportTarget` as the encoder's target."""
+    return ExportPreset(
+        id=f"{target.effective_resolution}-{target.video_codec}-{target.container}",
+        label=(
+            f"{target.effective_resolution} · {target.video_codec.upper()} · "
+            f"{target.container.upper()}"
+        ),
+        width=target.width,
+        height=target.height,
+        fps=target.fps,
+        video_codec=_FFMPEG_VIDEO_CODEC[target.video_codec],
+        audio_codec="aac",
+        container=target.container,
+        video_bitrate_kbps=target.video_bitrate_kbps,
+        audio_bitrate_kbps=target.audio_bitrate_kbps,
+        effective_resolution=target.effective_resolution,
+        capped_to_source=target.capped_to_source,
+    )
 
-YOUTUBE = ExportPreset(
-    id="youtube",
-    label="YouTube (16:9)",
-    width=1920,
-    height=1080,
-    loudness_target="social",
-)
 
-SQUARE = ExportPreset(
-    id="square",
-    label="Square (1:1)",
-    width=1080,
-    height=1080,
-    loudness_target="social",
-)
-
-# Lookup table keyed by preset id, consumed by the CLI/service and render path.
-EXPORT_PRESETS: dict[str, ExportPreset] = {
-    REELS.id: REELS,
-    TIKTOK.id: TIKTOK,
-    SHORTS.id: SHORTS,
-    YOUTUBE.id: YOUTUBE,
-    SQUARE.id: SQUARE,
-}
+def target_from_settings(settings: ExportSettings, facts: SourceFacts) -> ExportPreset:
+    """The encode target for ``settings`` against what the project's sources can supply."""
+    return target_from_export(resolve_export_target(settings, facts))

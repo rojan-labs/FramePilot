@@ -26,8 +26,11 @@ from framepilot_engine.render.compiler import (
     unsupported_animated_properties,
     unsupported_track_types,
 )
-from framepilot_engine.render.presets import REELS
+from framepilot_engine.render.presets import frame_target
 from framepilot_engine.render.resources import close_clip_tree
+
+#: The 9:16 1080p target these fixtures render to (formerly the "reels" preset).
+REELS = frame_target(1080, 1920, 30)
 from framepilot_engine.timeline.models import CaptionStyle, Clip, Effect, Project
 
 

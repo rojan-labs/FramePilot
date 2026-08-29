@@ -196,6 +196,7 @@ from framepilot_engine.media.derive import PROXY_ENCODE_VERSION, generate_proxy,
 from framepilot_engine.media.ffmpeg import FFmpegError, NoAudioStreamError
 from framepilot_engine.media.probe import MediaInfo, inspect_media
 from framepilot_engine.media.waveform import extract_waveform
+from framepilot_engine.render.export_settings import ExportSettings
 from framepilot_engine.render.frame_grab import (
     DEFAULT_MAX_DIMENSION,
     FrameGrabError,
@@ -266,7 +267,13 @@ class RenderRequest(BaseModel):
     """Request body for ``POST /render`` (final export, PRD §9.3)."""
 
     project_path: str = Field(description="Path to the project.fp.json to render.")
-    preset: str | None = Field(default=None, description="Export preset id (see render.presets).")
+    settings: ExportSettings | None = Field(
+        default=None,
+        description=(
+            "Quality-driven export settings; omit for 1080p / source fps / recommended / "
+            "H.264 / MP4."
+        ),
+    )
     burn_captions: bool = Field(
         default=False, description="Burn caption-track text into the output (plan 3.3)."
     )
@@ -287,7 +294,13 @@ class RenderPreviewRequest(BaseModel):
     """Request body for ``POST /render/preview`` (fast, low-res)."""
 
     project_path: str = Field(description="Path to the project.fp.json to preview.")
-    preset: str | None = Field(default=None, description="Export preset id (see render.presets).")
+    settings: ExportSettings | None = Field(
+        default=None,
+        description=(
+            "Quality-driven export settings; omit for 1080p / source fps / recommended / "
+            "H.264 / MP4."
+        ),
+    )
     burn_captions: bool = Field(
         default=False, description="Burn caption-track text into the output (plan 3.3)."
     )
@@ -614,10 +627,6 @@ class RenderFrameRequest(AnalysisProjectSource):
 
     time_seconds: float = Field(
         description="Timeline time to grab, in seconds. Clamped into the timeline.",
-    )
-    preset: str | None = Field(
-        default=None,
-        description="Export preset id; omit to composite at the project's own resolution.",
     )
     max_dimension: int = Field(
         default=DEFAULT_MAX_DIMENSION,
@@ -4121,7 +4130,7 @@ def create_app(
         project_path = sandbox(req.project_path)
         project = _load_project(project_path)
         opts = RenderOptions(
-            preset_id=req.preset,
+            settings=req.settings or ExportSettings(),
             preview=False,
             burn_captions=req.burn_captions,
             denoise=req.denoise,
@@ -4134,9 +4143,9 @@ def create_app(
             QueuedRenderRequest(project=project, opts=opts, base_dir=str(project_path.parent))
         )
         _log.info(
-            "ACT export queued: job=%s preset=%s burn_captions=%s path=%s",
+            "ACT export queued: job=%s settings=%s burn_captions=%s path=%s",
             task_id,
-            req.preset,
+            (req.settings or ExportSettings()).model_dump(),
             req.burn_captions,
             project_path.name,
         )
@@ -4180,7 +4189,7 @@ def create_app(
         export has no such bound, which is why it moved to the async queue.
         """
         return _run_render(
-            sandbox(req.project_path), req.preset, preview=True, burn_captions=req.burn_captions
+            sandbox(req.project_path), req.settings, preview=True, burn_captions=req.burn_captions
         )
 
     @app.post("/render/frame", response_model=RenderFrameResponse)
@@ -4198,7 +4207,6 @@ def create_app(
                 project,
                 media_base,
                 req.time_seconds,
-                preset_id=req.preset,
                 max_dimension=req.max_dimension,
                 image_format=req.image_format,
                 burn_captions=req.burn_captions,
@@ -5346,7 +5354,7 @@ def _load_project(project_path: Path) -> Project:
 
 def _run_render(
     project_path: Path,
-    preset: str | None,
+    settings: ExportSettings | None,
     *,
     preview: bool,
     burn_captions: bool = False,
@@ -5362,7 +5370,7 @@ def _run_render(
     path = project_path
     project = _load_project(path)
     opts = RenderOptions(
-        preset_id=preset,
+        settings=settings or ExportSettings(),
         preview=preview,
         burn_captions=burn_captions,
         denoise=denoise,
@@ -5370,8 +5378,8 @@ def _run_render(
         limiter=limiter,
     )
     _log.info(
-        "ACT render start: preset=%s preview=%s burn_captions=%s path=%s",
-        preset,
+        "ACT render start: settings=%s preview=%s burn_captions=%s path=%s",
+        opts.settings.model_dump(),
         preview,
         burn_captions,
         path.name,

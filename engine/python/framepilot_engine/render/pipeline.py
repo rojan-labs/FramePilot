@@ -25,7 +25,8 @@ from pydantic import BaseModel, Field
 from framepilot_engine.audio.filters import apply_master_audio, build_master_filter
 from framepilot_engine.media.assets import index_assets
 from framepilot_engine.render.compiler import compile_timeline, expected_render, timeline_duration
-from framepilot_engine.render.presets import EXPORT_PRESETS, REELS, ExportPreset
+from framepilot_engine.render.export_settings import ExportSettings, SourceFacts
+from framepilot_engine.render.presets import ExportPreset, target_from_settings
 from framepilot_engine.render.resources import close_clip_tree
 from framepilot_engine.safety import resolve_within
 from framepilot_engine.timeline.models import Project
@@ -58,7 +59,10 @@ class RenderState(StrEnum):
 class RenderOptions(BaseModel):
     """Options controlling a render (preview vs final, preset, output path)."""
 
-    preset_id: str | None = Field(default=None, description="Export preset id (render.presets).")
+    settings: ExportSettings = Field(
+        default_factory=ExportSettings,
+        description="Quality-driven export settings (resolution/fps/quality/codec/container).",
+    )
     output_path: str | None = Field(default=None, description="Destination file path.")
     preview: bool = Field(default=False, description="Fast low-res preview vs final export.")
     burn_captions: bool = Field(
@@ -89,33 +93,61 @@ class RenderJob(BaseModel):
     output_path: str | None = None
     error: str | None = None
     validation: ValidationReport | None = None
+    #: The encode target actually used (resolution/fps/codec/bitrate, source cap).
+    target: ExportPreset | None = None
 
 
-def resolve_preset(opts: RenderOptions) -> ExportPreset:
-    """Resolve the export preset for ``opts``, defaulting to vertical Reels.
+def source_facts(project: Project, asset_index: Any = None) -> SourceFacts:
+    """What the placed picture sources can supply: the export's resolution cap.
 
-    :param opts: Render options.
-    :returns: The chosen :class:`ExportPreset`.
-    :raises ValueError: If ``preset_id`` is set but unknown.
+    Reads the dimensions the import already derived (``asset.media.width/height``) and
+    only falls back to probed asset-index streams when the project file carries none —
+    a render never re-probes every file just to learn what it already knows.
     """
-    if opts.preset_id is None:
-        return REELS
-    try:
-        return EXPORT_PRESETS[opts.preset_id]
-    except KeyError as exc:
-        raise ValueError(
-            f"Unknown preset {opts.preset_id!r}. Known: {sorted(EXPORT_PRESETS)}."
-        ) from exc
+    short_edges: list[int] = []
+    for asset in project.assets:
+        media = getattr(asset, "media", None)
+        width = getattr(media, "width", None)
+        height = getattr(media, "height", None)
+        if width and height and getattr(asset, "kind", "video") != "audio":
+            short_edges.append(min(int(width), int(height)))
+    if not short_edges:
+        for entry in getattr(asset_index, "entries", []) or []:
+            info = getattr(entry, "media", None)
+            for stream in getattr(info, "streams", []) or []:
+                if (
+                    getattr(stream, "codec_type", None) == "video"
+                    and stream.width
+                    and stream.height
+                ):
+                    short_edges.append(min(int(stream.width), int(stream.height)))
+    return SourceFacts(
+        max_short_edge=max(short_edges) if short_edges else None,
+        project_fps=float(project.fps),
+        project_width=int(project.resolution.width),
+        project_height=int(project.resolution.height),
+    )
 
 
-def _preview_preset(preset: ExportPreset) -> ExportPreset:
-    """Derive a fast, downscaled preview preset from ``preset`` (even dimensions)."""
+def resolve_target(project: Project, opts: RenderOptions, asset_index: Any = None) -> ExportPreset:
+    """The encode target for ``opts.settings`` against this project and its sources."""
+    return target_from_settings(opts.settings, source_facts(project, asset_index))
+
+
+def _preview_target(target: ExportPreset) -> ExportPreset:
+    """Derive a fast, downscaled preview target from ``target`` (even dimensions)."""
 
     def even(value: int) -> int:
         scaled = int(value * _PREVIEW_SCALE)
         return scaled if scaled % 2 == 0 else scaled + 1  # H.264 needs even dims
 
-    return preset.model_copy(update={"width": even(preset.width), "height": even(preset.height)})
+    return target.model_copy(
+        update={
+            "width": even(target.width),
+            "height": even(target.height),
+            "video_bitrate_kbps": None,
+        }
+    )
 
 
 def _default_output_path(base_dir: Path, project: Project, preset: ExportPreset) -> Path:
@@ -145,9 +177,15 @@ def render(
     job = RenderJob(id=job_id or uuid.uuid4().hex, project_id=project.id)
 
     try:
-        preset = resolve_preset(opts)
+        # --- Resolve assets first: the export target is capped by what they hold ------
+        job.state = RenderState.PREPARING_ASSETS
+        asset_index = index_assets(
+            [asset.model_dump(by_alias=True) for asset in project.assets], base_dir
+        )
+        preset = resolve_target(project, opts, asset_index)
         if opts.preview:
-            preset = _preview_preset(preset)
+            preset = _preview_target(preset)
+        job.target = preset
 
         # --- Resolve output path inside the sandbox ---------------------------
         if opts.output_path is not None:
@@ -156,13 +194,6 @@ def render(
             output = _default_output_path(base_dir, project, preset)
         output.parent.mkdir(parents=True, exist_ok=True)
 
-        # --- preparing_assets -------------------------------------------------
-        job.state = RenderState.PREPARING_ASSETS
-        # ``index_assets`` reads plain mappings (id/path/kind); dump the typed
-        # Asset models to that shape via their camelCase aliases.
-        asset_index = index_assets(
-            [asset.model_dump(by_alias=True) for asset in project.assets], base_dir
-        )
         if asset_index.missing:
             missing = ", ".join(e.asset_id for e in asset_index.missing)
             raise RenderError(f"Cannot render: unusable assets [{missing}].")
@@ -188,9 +219,7 @@ def render(
         job.output_path = str(output)
 
         if not report.ok:
-            failed = ", ".join(
-                c.name for c in report.checks if c.status == CheckStatus.FAIL
-            )
+            failed = ", ".join(c.name for c in report.checks if c.status == CheckStatus.FAIL)
             raise RenderError(f"Render produced an invalid output (failed checks: {failed}).")
 
         job.state = RenderState.COMPLETED
@@ -220,6 +249,12 @@ def _encode(
             codec=preset.video_codec,
             audio_codec=preset.audio_codec,
             fps=preset.fps or project.fps,
+            **({"bitrate": f"{preset.video_bitrate_kbps}k"} if preset.video_bitrate_kbps else {}),
+            **(
+                {"audio_bitrate": f"{preset.audio_bitrate_kbps}k"}
+                if preset.audio_bitrate_kbps
+                else {}
+            ),
             logger=None,  # silence MoviePy's stdout progress bar
         )
     finally:
@@ -256,14 +291,17 @@ def render_preview(
     project: Project,
     *,
     base_dir: Path,
-    preset_id: str | None = None,
+    settings: ExportSettings | None = None,
     output_path: str | None = None,
     burn_captions: bool = False,
     job_id: str | None = None,
 ) -> RenderJob:
     """Render a fast, downscaled preview (PRD §9.2). Thin wrapper over :func:`render`."""
     opts = RenderOptions(
-        preset_id=preset_id, output_path=output_path, preview=True, burn_captions=burn_captions
+        settings=settings or ExportSettings(),
+        output_path=output_path,
+        preview=True,
+        burn_captions=burn_captions,
     )
     return render(project, opts, base_dir=base_dir, job_id=job_id)
 
@@ -272,13 +310,16 @@ def export_video(
     project: Project,
     *,
     base_dir: Path,
-    preset_id: str | None = None,
+    settings: ExportSettings | None = None,
     output_path: str | None = None,
     burn_captions: bool = False,
     job_id: str | None = None,
 ) -> RenderJob:
     """Render a final, full-resolution export (PRD §9.3). Thin wrapper over :func:`render`."""
     opts = RenderOptions(
-        preset_id=preset_id, output_path=output_path, preview=False, burn_captions=burn_captions
+        settings=settings or ExportSettings(),
+        output_path=output_path,
+        preview=False,
+        burn_captions=burn_captions,
     )
     return render(project, opts, base_dir=base_dir, job_id=job_id)

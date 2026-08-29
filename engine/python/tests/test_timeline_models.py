@@ -10,7 +10,6 @@ import pytest
 from pydantic import ValidationError
 
 from framepilot_engine.effects.keyframes import Easing
-from framepilot_engine.render.presets import EXPORT_PRESETS
 from framepilot_engine.timeline.models import (
     SCHEMA_VERSION,
     Angle,
@@ -44,14 +43,6 @@ def test_clip_alias_round_trip(sample_clip_dict: dict[str, Any]) -> None:
     assert clip.asset_id == "asset_001"
     assert clip.source_start == 4.0
     assert clip.model_dump(by_alias=True)["sourceStart"] == 4.0
-
-
-def test_export_presets_constants() -> None:
-    assert {"reels", "tiktok", "shorts", "youtube", "square"} == set(EXPORT_PRESETS)
-    assert EXPORT_PRESETS["reels"].width == 1080
-    assert EXPORT_PRESETS["reels"].height == 1920
-    assert EXPORT_PRESETS["youtube"].width == 1920
-    assert EXPORT_PRESETS["youtube"].height == 1080
 
 
 def test_easing_enum_members() -> None:
