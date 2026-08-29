@@ -97,7 +97,7 @@ asserted absent. `task` stays in the briefing and `memory` in its own tier — r
 ADR. P1.3a (earlier): the per-asset `source media` block. Cache-hit evidence rides the
 P1.6 after-measurement.
 
-## P1.4 — Refinement turns reuse the previous plan — `[ ]`
+## P1.4 — Refinement turns reuse the previous plan — `[~]`
 
 **Touches:** `kernel/continuation.ts`, `kernel/briefing.ts`, wipe guard. A second-turn
 request ("tighten the middle") must start from the prior run's briefing + commit ledger,
@@ -107,6 +107,13 @@ user says so (the wipe guard already blocks full-track ripple delete — extend 
 re-planning).
 **Done when:** UC-08 call count ≤ UC-01 call count and the placed clips from UC-01 survive
 except the ones the request named.
+
+State 2026-08-29: the mechanism exists and is tested — `carryForwardWorkingState` passes
+the previous run's committed decisions and revision-independent facts into the new run's
+briefing, and the wipe guard blocks a full-track ripple delete. The desktop hub reads it
+from the run ledger; the browser does not (documented host difference, P2.4). The
+**evidence** is the `refine-tighten` scenario, which is exactly one of the three the
+provider rate-limit blocked — so this closes with P1.6's residual, on the same command.
 
 ## P1.5 — Decision memory with TTL and invalidation — `[~]`
 
@@ -128,11 +135,38 @@ by key; `carryForwardWorkingState` already carries only revision-independent fac
 committed decisions. Remaining: the UC-09 evidence from the after-measurement, and the
 `source`/`until` metadata on entries.
 
-## P1.6 — Measure and close — `[ ]`
+## P1.6 — Measure and close — `[!]` (3 of 6 scenarios measured; the rest need provider headroom)
 
 Re-run P0.2/P0.3 with the same fixtures. Write `docs/reports/system-mission/01-after.md`
 with the per-scenario before/after table (calls, rounds, tokens, cache %, wall, USD,
 rubric score). ADR for the structured-state block. Update README/PLAN snapshot.
+
+Landed 2026-08-29: `docs/reports/system-mission/01-after.md` with the measured
+before/after table. ADR 0158 covers the structured-state block.
+
+**Measured (3 runs each, real sidecar, real media):**
+- `podcast-highlight-60s`: 25 → 5 model calls, 804k → 173k prompt tokens, 1200s → 253s,
+  $1.54 → $0.32, and 3/3 runs that never completed → 0/3.
+- `remove-dead-air`: 0 → 54 operations, rubric 0.25 → 0.75, 3/3 unfinished → 0/1.
+- `montage-30s`: 0 → 35 operations, rubric 0.25 → 1.00, 2/3 unfinished → 0/3, at a real
+  cost increase (10 → 31 calls) — the baseline was cheap because it was failing.
+
+**`[!]` residual:** `beat-sync`, `refine-tighten`, `memory-captions` have no after-numbers.
+The auth2api bridge began 429ing after ~3h and the harness exhausted its retries mid-run.
+Unblocking step, verbatim:
+```
+cd packages/ai-sdk && node scripts/mission-baseline.mjs --runs 3 --label after \
+  --only beat-sync,refine-tighten,memory-captions \
+  --dump-events ../../reports/system-mission/runs \
+  --out ../../reports/system-mission/after-orchestration-rest.json
+```
+then `node scripts/mission-report.mjs ../../reports/system-mission/baseline-orchestration.json <merged>`
+and replace the placeholder rows in `01-after.md`. Needs a provider with headroom.
+
+Cache-share is `—` in the after column: the completed turns were recovered from the
+harness log by `mission-salvage.mjs` (the harness only writes its JSON after every
+scenario finishes) and the log does not carry the cache-read split. Not a regression,
+not a measurement.
 
 ## Discovered
 

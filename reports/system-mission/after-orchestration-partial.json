@@ -1,0 +1,162 @@
+{
+  "label": "after (partial)",
+  "generatedAt": "2026-08-29T08:16:07.489Z",
+  "salvagedFrom": "/private/tmp/claude-501/-Users-rjach-Stuffs-FramePilot/a26af27f-14a6-49f5-8284-e55468053483/scratchpad/after.log",
+  "results": [
+    {
+      "scenario": "montage-30s",
+      "turns": [
+        {
+          "turnIndex": 0,
+          "rubric": "montage-30s",
+          "score": 1,
+          "crashed": false,
+          "metrics": {
+            "modelCalls": 31,
+            "tokens": {
+              "prompt": 963346,
+              "input": 963346,
+              "output": 97568
+            },
+            "toolCalls": 66,
+            "repeatedToolCalls": 51,
+            "operations": 44,
+            "wallMs": 1070000,
+            "usd": 1.6443570000000003,
+            "finalStatus": "completed"
+          }
+        },
+        {
+          "turnIndex": 0,
+          "rubric": "montage-30s",
+          "score": 1,
+          "crashed": false,
+          "metrics": {
+            "modelCalls": 47,
+            "tokens": {
+              "prompt": 1474155,
+              "input": 1474155,
+              "output": 100465
+            },
+            "toolCalls": 81,
+            "repeatedToolCalls": 66,
+            "operations": 30,
+            "wallMs": 1200000,
+            "usd": 1.5247229999999998,
+            "finalStatus": "completed"
+          }
+        },
+        {
+          "turnIndex": 0,
+          "rubric": "montage-30s",
+          "score": 1,
+          "crashed": false,
+          "metrics": {
+            "modelCalls": 20,
+            "tokens": {
+              "prompt": 555837,
+              "input": 555837,
+              "output": 65367
+            },
+            "toolCalls": 51,
+            "repeatedToolCalls": 40,
+            "operations": 35,
+            "wallMs": 716000,
+            "usd": 1.0756379999999999,
+            "finalStatus": "completed"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "podcast-highlight-60s",
+      "turns": [
+        {
+          "turnIndex": 0,
+          "rubric": "podcast-highlight-60s",
+          "score": 1,
+          "crashed": false,
+          "metrics": {
+            "modelCalls": 5,
+            "tokens": {
+              "prompt": 164051,
+              "input": 164051,
+              "output": 20120
+            },
+            "toolCalls": 10,
+            "repeatedToolCalls": 6,
+            "operations": 1,
+            "wallMs": 252000,
+            "usd": 0.3018,
+            "finalStatus": "completed"
+          }
+        },
+        {
+          "turnIndex": 0,
+          "rubric": "podcast-highlight-60s",
+          "score": 1,
+          "crashed": false,
+          "metrics": {
+            "modelCalls": 6,
+            "tokens": {
+              "prompt": 212694,
+              "input": 212694,
+              "output": 26303
+            },
+            "toolCalls": 8,
+            "repeatedToolCalls": 4,
+            "operations": 1,
+            "wallMs": 312000,
+            "usd": 0.394545,
+            "finalStatus": "completed"
+          }
+        },
+        {
+          "turnIndex": 0,
+          "rubric": "podcast-highlight-60s",
+          "score": 1,
+          "crashed": false,
+          "metrics": {
+            "modelCalls": 5,
+            "tokens": {
+              "prompt": 172718,
+              "input": 172718,
+              "output": 21353
+            },
+            "toolCalls": 5,
+            "repeatedToolCalls": 1,
+            "operations": 1,
+            "wallMs": 253000,
+            "usd": 0.320295,
+            "finalStatus": "completed"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "remove-dead-air",
+      "turns": [
+        {
+          "turnIndex": 0,
+          "rubric": "remove-dead-air",
+          "score": 0.75,
+          "crashed": false,
+          "metrics": {
+            "modelCalls": 7,
+            "tokens": {
+              "prompt": 179885,
+              "input": 179885,
+              "output": 61684
+            },
+            "toolCalls": 59,
+            "repeatedToolCalls": 53,
+            "operations": 54,
+            "wallMs": 584000,
+            "usd": 0.941826,
+            "finalStatus": "completed"
+          }
+        }
+      ]
+    }
+  ]
+}
