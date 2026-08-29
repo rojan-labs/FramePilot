@@ -930,6 +930,20 @@ const TimelineClip = memo(function TimelineClip({
     onFadeCommit(clip.id, edge, Math.min(limit, Math.max(0, next)));
   };
 
+  /** Which of the clip's own controls are actually on screen for this clip. */
+  const hasFadeHandles = kind === 'audio' && clipWidthPx >= FADE_HANDLE_MIN_CLIP_PX;
+  const hasLanesToggle =
+    onToggleLanes !== undefined && clip.keyframes.length > 0 && density.showHeader;
+  // Advertised only where the key does something. A clip that promises D and has
+  // no lanes to open teaches the user the shortcut does not work.
+  const keyShortcuts = [
+    density.showMenu ? 'Shift+F10' : null,
+    hasFadeHandles ? 'F' : null,
+    hasLanesToggle ? 'D' : null,
+  ]
+    .filter((key): key is string => key !== null)
+    .join(' ');
+
   /**
    * The clip is the timeline's single clip tab stop, so it is also the way in to
    * the controls it contains — all of which are `tabIndex={-1}` (G2). Every branch
@@ -954,7 +968,7 @@ const TimelineClip = memo(function TimelineClip({
       handle.focus();
       return;
     }
-    if ((event.key === 'd' || event.key === 'D') && onToggleLanes && clip.keyframes.length > 0) {
+    if ((event.key === 'd' || event.key === 'D') && hasLanesToggle && onToggleLanes) {
       event.preventDefault();
       event.stopPropagation();
       onToggleLanes(clip.id);
@@ -975,7 +989,7 @@ const TimelineClip = memo(function TimelineClip({
       aria-label={`clip ${clip.id}`}
       aria-describedby={density.showHeader ? `${clip.id}-label` : undefined}
       aria-pressed={selected}
-      aria-keyshortcuts="Shift+F10 F D"
+      aria-keyshortcuts={keyShortcuts === '' ? undefined : keyShortcuts}
       tabIndex={tabbable ? 0 : -1}
       data-selected={selected}
       data-pulse={pulseKind ?? undefined}
