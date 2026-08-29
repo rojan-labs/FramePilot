@@ -205,4 +205,19 @@ describe('HistoryPanel', () => {
     const { container } = render(<ClosedHost />);
     expect(container.querySelector('.history-panel')).toBeNull();
   });
+
+  it('is modal in fact and now says so: focus is trapped and Tab cannot leave it', () => {
+    render(<Host />);
+    const panel = screen.getByRole('dialog', { name: 'Project history' });
+    expect(panel.getAttribute('aria-modal')).toBe('true');
+    // Opening moves focus into the panel; before the trap, focus stayed on whatever
+    // the user last touched and Tab walked straight out under the dimmed backdrop
+    // onto the editor controls the panel is covering.
+    expect(panel.contains(document.activeElement)).toBe(true);
+
+    const focusable = panel.querySelectorAll<HTMLElement>('button, a[href], input, select');
+    focusable[focusable.length - 1]!.focus();
+    fireEvent.keyDown(panel, { key: 'Tab' });
+    expect(panel.contains(document.activeElement)).toBe(true);
+  });
 });

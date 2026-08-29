@@ -54,6 +54,7 @@ import {
   Wand2,
   X,
 } from './icons.js';
+import { useModalFocusTrap } from './ai/useModalFocusTrap.js';
 
 /** Who a patch came from — drives the author badge + the You/AI filter. */
 type Author = 'user' | 'agent';
@@ -361,6 +362,12 @@ export function HistoryPanel({
     if (open) nowRef.current = Date.now();
   }, [open, entries.length, cursor]);
 
+  // The panel dims and blocks the app behind it, so it is modal in fact — it just
+  // never said so. Without the trap, Tab walks out under the backdrop onto controls
+  // the user cannot see; without `aria-modal`, a screen reader never learns the rest
+  // of the page is out of play.
+  const panelRef = useModalFocusTrap<HTMLElement>(open);
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -423,7 +430,14 @@ export function HistoryPanel({
   return (
     <>
       <div className="history-backdrop" onClick={onClose} aria-hidden="true" />
-      <aside className="history-panel" role="dialog" aria-label="Project history">
+      <aside
+        ref={panelRef}
+        className="history-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Project history"
+        tabIndex={-1}
+      >
         <header className="history-head">
           <div className="history-titles">
             <h2 className="history-title">History</h2>

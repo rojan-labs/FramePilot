@@ -290,4 +290,20 @@ describe('FootageUnderstandingPanel', () => {
     );
     expect(await screen.findByText(/Can’t reach the engine/i)).toBeTruthy();
   });
+
+  it('is modal in fact and now says so: focus is trapped and Tab cannot leave it', () => {
+    render(
+      <FootageUnderstandingPanel editor={fakeEditor()} project={project} open onClose={vi.fn()} />,
+    );
+    const panel = screen.getByRole('dialog', { name: 'Footage understanding' });
+    expect(panel.getAttribute('aria-modal')).toBe('true');
+    // The panel dims the app behind it, but focus used to stay outside it and Tab
+    // walked straight out onto the controls the backdrop is covering.
+    expect(panel.contains(document.activeElement)).toBe(true);
+
+    const focusable = panel.querySelectorAll<HTMLElement>('button, a[href], input, select');
+    focusable[focusable.length - 1]!.focus();
+    fireEvent.keyDown(panel, { key: 'Tab' });
+    expect(panel.contains(document.activeElement)).toBe(true);
+  });
 });
