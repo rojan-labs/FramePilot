@@ -83,6 +83,7 @@ describe('first-class tool execution contracts', () => {
 describe('analysis-kind tools are exhaustively classified by project-state effect', () => {
   /** Host-backed ANALYSIS tools that nonetheless change project state. */
   const MUTATING = [
+    'remove_silences',
     'add_music',
     'add_stock',
     'index_media',

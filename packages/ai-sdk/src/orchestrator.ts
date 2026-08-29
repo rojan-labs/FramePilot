@@ -11,6 +11,7 @@
  * Modes implemented here: chat, plan, edit, autocomplete (plan/PLAN.md §4.2) and —
  * Phase 7 — the multi-step `agent` loop and the `review` critic pass.
  */
+import { DEFAULT_SILENCE_CUT, SilenceRangesPayloadSchema, silenceCutOps } from './silence-cut.js';
 import { type AnyOperation, applyProjectPatch } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
 import {
@@ -3641,6 +3642,44 @@ export class Orchestrator {
       // downloads and materializes the file, and the orchestrator turns what came
       // back into the SAME reversible operations the Sounds panel builds by hand.
       // The host never edits the timeline (AGENTS.md invariant 5).
+      if (call.name === 'remove_silences' && outcome.status === 'completed') {
+        // The measurement came back; the cuts are arithmetic (plan/system-mission P4.1).
+        const parsed = SilenceRangesPayloadSchema.safeParse(outcome.data);
+        if (!parsed.success) {
+          const note = 'Rejected "remove_silences" — the silence analysis returned no usable ranges.';
+          return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
+        }
+        const args = (call.arguments ?? {}) as Record<string, unknown>;
+        const options = {
+          minSilenceSeconds:
+            typeof args.minSilenceSeconds === 'number' ? args.minSilenceSeconds : DEFAULT_SILENCE_CUT.minSilenceSeconds,
+          keepSeconds: typeof args.keepSeconds === 'number' ? args.keepSeconds : DEFAULT_SILENCE_CUT.keepSeconds,
+          ...(typeof args.trackId === 'string' ? { trackId: args.trackId } : {}),
+        };
+        const { ops, cuts, removedSeconds } = silenceCutOps(ctx.project, parsed.data, options);
+        if (ops.length === 0) {
+          const note = `No dead air to cut: ${String(parsed.data.ranges.length)} silence(s) measured, none longer than ${String(options.minSilenceSeconds)}s where the asset plays.`;
+          return { ops: [], note, summary: note, status: 'warning', data: outcome.data };
+        }
+        const probe = assembleEdit(ctx.project, ops, 'Remove dead air', 'agent');
+        if (!probe.validation.valid) {
+          const problems = probe.validation.issues
+            .filter((issue) => issue.severity === 'error')
+            .map((issue) => issue.message)
+            .join('; ');
+          const note = `Rejected "remove_silences" — ${problems}`;
+          return { ops: [], note, summary: note, status: 'failed', data: problems };
+        }
+        const summary = `Removed ${String(cuts.length)} silence(s), ${removedSeconds.toFixed(1)}s in total`;
+        return {
+          ops,
+          note: `${summary}. Breath of ${String(options.keepSeconds)}s kept on each side; the timeline is ${removedSeconds.toFixed(1)}s shorter.`,
+          summary,
+          status: 'completed',
+          project: applyProjectPatch(ctx.project, probe.patch),
+          data: outcome.data,
+        };
+      }
       if (call.name === 'add_music' && outcome.status === 'completed') {
         const parsed = MusicAssetPayloadSchema.safeParse(outcome.data);
         if (!parsed.success) {

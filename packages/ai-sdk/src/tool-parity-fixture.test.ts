@@ -64,6 +64,8 @@ describe('tool-parity fixture', () => {
         // Desktop Agent mode is unaffected; this gates the standalone MCP surface.
         'search_music',
         'add_music',
+
+        'remove_silences',
         'search_stock',
         'add_stock',
         // Pack-worker tools execute in the isolated Capability Pack worker process,

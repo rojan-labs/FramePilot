@@ -53,6 +53,7 @@ def _ts_sources() -> list[str]:
     )
     return sources
 
+
 # Matches a tool spec's `name: 'snake_case_name'` declaration. Tool names are
 # always lower-snake-case (PRD §8.3), which lets this regex skip unrelated
 # `name: '...'` object-literal fields elsewhere in the file (e.g. the by-kind
@@ -112,6 +113,7 @@ def test_host_ui_only_tools_are_detected_and_excluded() -> None:
         # (ADR 0139). Desktop Agent mode still offers them.
         "search_music",
         "add_music",
+        "remove_silences",
         "search_stock",
         "add_stock",
         "professional_audio",

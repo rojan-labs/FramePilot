@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 87,
+  "toolCount": 88,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -3142,6 +3142,50 @@
         ],
         "properties": {
           "id": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    },
+    "remove_silences": {
+      "kind": "analysis",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "assetId": {
+            "type": [
+              "string"
+            ]
+          },
+          "keepSeconds": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 2
+          },
+          "minSilenceSeconds": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0.2,
+            "maximum": 10
+          },
+          "noiseFloorDb": {
+            "type": [
+              "number"
+            ],
+            "maximum": 0
+          },
+          "trackId": {
             "type": [
               "string"
             ]

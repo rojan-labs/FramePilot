@@ -108,4 +108,29 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
     },
     addMusicSchema,
   ),
+  analysisTool(
+    {
+      name: 'remove_silences',
+      description:
+        'Cut the dead air out of a recording in ONE call: measures the silences in the ' +
+        'asset that plays on the timeline and ripple-deletes them where that asset is placed, ' +
+        'keeping keepSeconds of breath on each side so words never touch. Use this instead of ' +
+        'analyze_silence followed by many delete_range calls. assetId names the recording ' +
+        '(default: the asset under the first picture clip); minSilenceSeconds (default 0.8) ' +
+        'ignores natural pauses; trackId limits the cuts to one track. Returns how many cuts ' +
+        'and seconds were removed. Returns a reversible patch.',
+      // Runs in the TS executor (measure via the sidecar, cut in ai-sdk); it never reaches the
+      // Python dispatcher, exactly like `add_music`.
+      hostUiOnly: true,
+    },
+    z
+      .object({
+        assetId: z.string().min(1).optional(),
+        trackId: z.string().min(1).optional(),
+        minSilenceSeconds: z.number().min(0.2).max(10).optional(),
+        keepSeconds: z.number().min(0).max(2).optional(),
+        noiseFloorDb: z.number().max(0).optional(),
+      })
+      .strict(),
+  ),
 ];

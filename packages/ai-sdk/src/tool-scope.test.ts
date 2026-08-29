@@ -91,6 +91,7 @@ describe('selectTools', () => {
         'add_music',
         'search_stock',
         'add_stock',
+        'remove_silences',
       ].sort(),
     );
   });

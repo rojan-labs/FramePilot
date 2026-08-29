@@ -1,4 +1,4 @@
-# Phase 4 — Editing quality and the verification loop — `[ ]`
+# Phase 4 — Editing quality and the verification loop — `[~]`
 
 > **Ships:** semantic editing operations built on existing editor-core ops; a bounded
 > verify loop that is deterministic first; a graded scenario suite that becomes the
@@ -8,7 +8,7 @@
 > **Depends on:** Phase 1 (state, memory), Phase 3 (reference profiles).
 > **Schema/deps:** none — semantic ops compose existing operations into one patch.
 
-## P4.1 — Semantic operations — `[ ]`
+## P4.1 — Semantic operations — `[~]`
 
 **Touches:** `packages/ai-sdk/src/domain-tools/*` (new tool specs), the controllers that
 implement them, `autonomous-tools.manifest.json` (regenerated), Python mirror
@@ -30,6 +30,12 @@ Each op ships with: table tests over fixtures, a golden patch snapshot, an inver
 a skill line in the matching `skills/*.md`.
 **Done when:** every UC row in `USE-CASES.md` that names one of these has a passing
 deterministic test that asserts the timeline outcome.
+
+Landed 2026-08-29: `remove_silences` — measure once, cut deterministically
+(`silence-cut.ts`, executor route, orchestrator branch, skill guidance; orchestrator-level
+tests assert the ripple deletes and the seconds removed). Baseline evidence: 6/6
+remove-dead-air runs died echoing ~110 ranges. Next: `cut_to_beat`, `tighten_pacing`,
+`create_hook`, `insert_broll`, `match_reference_style`.
 
 ## P4.2 — Reference-driven planning — `[ ]`
 

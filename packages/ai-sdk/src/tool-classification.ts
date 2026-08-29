@@ -132,6 +132,11 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   // later undo would report a bed the timeline does not have, so it ages with the
   // arrangement like any other edit-producing call.
   add_music: { role: 'sourcing', scope: 'timeline_dependent' },
+  // `remove_silences` MEASURES then CUTS in one call (plan/system-mission P4.1). Like
+  // `add_music` its ops come from the host outcome, not from `buildOps`, so the registry
+  // marks it `mutates: false`; `sourcing` is the role that stays offered in the execution
+  // stages and is counted as work landed.
+  remove_silences: { role: 'sourcing', scope: 'timeline_dependent' },
   search_stock: { role: 'sourcing', scope: 'revision_independent' },
   // `add_stock` DOWNLOADS and PLACES, and its refusal depends on what already
   // occupies the timeline — a memoized "already added" replayed past an undo
