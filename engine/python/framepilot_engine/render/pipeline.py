@@ -15,6 +15,8 @@ the cancellation seam (:class:`RenderOptions.timeout_seconds`) are already here.
 
 from __future__ import annotations
 
+import logging
+import os
 import uuid
 from enum import StrEnum
 from pathlib import Path
@@ -25,6 +27,7 @@ from pydantic import BaseModel, Field
 from framepilot_engine.audio.filters import apply_master_audio, build_master_filter
 from framepilot_engine.media.assets import index_assets
 from framepilot_engine.render.compiler import compile_timeline, expected_render, timeline_duration
+from framepilot_engine.render.encoders import choose_encoder
 from framepilot_engine.render.export_settings import ExportSettings, SourceFacts
 from framepilot_engine.render.presets import ExportPreset, target_from_settings
 from framepilot_engine.render.resources import close_clip_tree
@@ -35,6 +38,8 @@ from framepilot_engine.validation.render_validation import (
     ValidationReport,
     validate_render,
 )
+
+_log = logging.getLogger(__name__)
 
 # Preview renders downscale by this factor for speed (PRD §9.2 fast preview).
 _PREVIEW_SCALE = 0.5
@@ -95,6 +100,8 @@ class RenderJob(BaseModel):
     validation: ValidationReport | None = None
     #: The encode target actually used (resolution/fps/codec/bitrate, source cap).
     target: ExportPreset | None = None
+    #: The ffmpeg encoder and arguments the export ran with.
+    encoder: str | None = None
 
 
 def source_facts(project: Project, asset_index: Any = None) -> SourceFacts:
@@ -203,7 +210,15 @@ def render(
 
         # --- rendering_frames + encoding -------------------------------------
         job.state = RenderState.RENDERING_FRAMES
-        _encode(project, asset_index, preset, output, job, burn_captions=opts.burn_captions)
+        _encode(
+            project,
+            asset_index,
+            preset,
+            output,
+            job,
+            burn_captions=opts.burn_captions,
+            quality=opts.settings.quality,
+        )
 
         # --- master-bus audio pass (optional, deterministic ffmpeg filter) ----
         _apply_master_audio_pass(output, preset, opts)
@@ -239,16 +254,34 @@ def _encode(
     job: RenderJob,
     *,
     burn_captions: bool = False,
+    quality: str = "recommended",
 ) -> None:
     """Compile + write the composition to ``output`` (frames then FFmpeg encode)."""
     composite = compile_timeline(project, asset_index, preset, burn_captions=burn_captions)
     try:
         job.state = RenderState.ENCODING
+        codec_family = "hevc" if preset.video_codec in {"libx265", "hevc"} else "h264"
+        encoder = choose_encoder(codec_family, quality=quality, container=preset.container)
+        job.encoder = encoder.describe()
+        _log.info(
+            "ACT encode: %dx%d@%g %s bitrate=%s audio=%s → %s",
+            preset.width,
+            preset.height,
+            preset.fps,
+            encoder.describe(),
+            preset.video_bitrate_kbps,
+            preset.audio_bitrate_kbps,
+            output.name,
+        )
         composite.write_videofile(
             str(output),
-            codec=preset.video_codec,
+            codec=encoder.name,
             audio_codec=preset.audio_codec,
             fps=preset.fps or project.fps,
+            pixel_format="yuv420p",
+            threads=os.cpu_count() or 1,
+            ffmpeg_params=encoder.ffmpeg_params,
+            **({"preset": encoder.preset} if encoder.preset else {}),
             **({"bitrate": f"{preset.video_bitrate_kbps}k"} if preset.video_bitrate_kbps else {}),
             **(
                 {"audio_bitrate": f"{preset.audio_bitrate_kbps}k"}
