@@ -30,7 +30,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: 'add-captions', description: 'Generate and add a styled caption track' },
   { name: 'improve-pacing', description: 'Tighten slow parts and add punch-ins' },
   { name: 'add-hook', description: 'Restructure the opening as a stronger hook' },
-  { name: 'export-reels', description: 'Export for Reels (9:16) through the engine' },
+  { name: 'export', description: 'Export at a chosen resolution, quality and format through the engine' },
   { name: 'plan-edit', description: 'Produce a structured edit plan (no mutation)' },
 ];
 

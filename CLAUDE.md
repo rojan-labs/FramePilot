@@ -176,7 +176,7 @@ exposed through the `.claude/commands` adapter. Editing commands follow the
 plan/docs:
 
 `/plan-edit`, `/create-short`, `/remove-silence`, `/add-captions`, `/improve-pacing`,
-`/add-hook`, `/export-reels`, `/debug-render`, `/write-tests`, `/review-timeline-patch`,
+`/add-hook`, `/export`, `/debug-render`, `/write-tests`, `/review-timeline-patch`,
 `/review-product-scope`, plus `/update-plan` and `/update-docs`.
 
 ## 10. Pointers

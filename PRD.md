@@ -84,7 +84,7 @@ The app should eventually support Premiere-style capabilities:
 - sound mixing
 - color grading
 - transitions
-- render presets
+- quality-driven export settings (resolution / fps / quality / codec / container; frame follows the project aspect, capped at the sources)
 - project files
 
 ### 3.6 Reliability over fake magic
@@ -1666,7 +1666,7 @@ Add these commands first:
 /add-captions
 /improve-pacing
 /add-hook
-/export-reels
+/export
 /debug-render
 /write-tests
 /review-timeline-patch

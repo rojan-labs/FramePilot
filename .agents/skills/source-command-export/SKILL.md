@@ -1,11 +1,11 @@
 ---
-name: 'source-command-export-reels'
+name: 'source-command-export'
 description: 'Export the project for Reels (9:16) through the deterministic render engine with validation (PRD §9)'
 ---
 
-# source-command-export-reels
+# source-command-export
 
-Use this skill when the user asks to run the migrated source command `export-reels`.
+Use this skill when the user asks to run the migrated source command `export`.
 
 ## Command Template
 
