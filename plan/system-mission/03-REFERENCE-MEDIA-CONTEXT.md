@@ -105,12 +105,26 @@ path threads them on both browser and desktop routes. Remaining: the plan citing
 constraints it applies (proposer prompt), controllers reading the numeric profile,
 role-specific ops (logo overlay, grade target, b-roll enrolment), and the UC-06/07 evidence.
 
-## P3.5 — "Same as the reference" across turns — `[ ]`
+## P3.5 — "Same as the reference" across turns — `[x]`
 
 **Touches:** P1.5 decision memory. A reference used in a plan is recorded as a decision
 with `source: reference`, `until: superseded`. Removing the tile supersedes it.
 **Done when:** UC-06 turn 3 without the attachment still applies the profile; removing the
 tile then asking again does not.
+
+Landed 2026-08-29: a reference the run plans against becomes a committed decision with
+`source: reference`, `until: superseded` and the measured line carried verbatim in its
+text, so it crosses the run boundary like any other committed decision and lands in the
+briefing's DECIDED section holding its own numbers — a later turn applies the profile
+without re-reading, re-measuring or asking.
+
+The contract it rests on: `subject` is the profile id, and the conductor hands the
+carry-forward the **complete live set** of attached profiles. The sidebar keeps a tile
+until it is removed, so a turn that says nothing about the reference still carries it, and
+a subject missing from the set means the editor took the tile away — so a constraint they
+deleted stops binding. Three tests drive the real conductor and cover exactly the two
+done-when clauses: a later turn that never mentions the reference still reads its 1.1s
+target out of DECIDED, and the turn after the tile is gone reads neither.
 
 ## P3.6 — Sidebar shows what the AI knows about the reference — `[x]`
 

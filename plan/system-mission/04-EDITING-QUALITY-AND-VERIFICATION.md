@@ -46,12 +46,29 @@ correction can only ever SHRINK the cut and never eat speech; a range a word swa
 entirely is dropped. 7 tests. This is the finding the bounded verify loop reported and
 could not fix from inside a run, fixed at the source.
 
-## P4.2 — Reference-driven planning — `[ ]`
+## P4.2 — Reference-driven planning — `[x]`
 
 **Touches:** proposers' plan prompt + `match_reference_style`. The plan must state which
 constraints it is applying and which it is ignoring (with a reason) — this is what the
 sidebar shows in Phase 8 and what the Critic checks.
 **Done when:** UC-06 plan output cites ≥3 profile constraints on the fast-cut fixture.
+
+Landed 2026-08-29: analysis produced two things and only one was being spent — the
+`constraints` lines reached the model, the measurements behind them reached nobody, so
+"make it feel like this reel" was a sentence the planner read and no check could settle.
+
+`references/directives.ts` (pure, model-free) reduces the attached profiles to the targets
+the deterministic side consumes. The shot-length target goes the whole way: into the run's
+acceptance criteria, so the briefing states what the run is graded on, and into a new
+`shot_length_target` Critic check in `wholeCutChecks`, so a run is told it is off the
+reference pace **while it can still re-trim**. Tolerance is the reference's own p10–p90
+spread, because a reel running 0.6–2.4s is stating the band it allows.
+
+It is equally explicit about what a reference cannot drive: a logo is measured and then
+ignored, because nothing places an overlay from a reference file yet — and the block says
+so by name, with the reason, under its own heading. That is the "which it is ignoring, with
+a reason" half of this task, rendered deterministically instead of left to the model to
+notice.
 
 ## P4.3 — Bounded verify loop — `[x]`
 
