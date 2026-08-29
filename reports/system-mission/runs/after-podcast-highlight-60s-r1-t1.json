@@ -1,0 +1,2288 @@
+[
+ {
+  "id": "mission-podcast-highlight-60s-t0:status:1",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981486796,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "status",
+  "status": "thinking"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:run-state",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981486797,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "run_state",
+  "working": {
+   "schemaVersion": 2,
+   "runId": "mission-podcast-highlight-60s-t0",
+   "identity": {
+    "conversationId": "mission-podcast-highlight-60s",
+    "projectId": "mission-podcast",
+    "attemptId": "mission-podcast-highlight-60s-t0"
+   },
+   "version": 2,
+   "objective": {
+    "request": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+    "outcome": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+    "provisional": true,
+    "acceptance": [
+     {
+      "id": "criterion_1",
+      "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
+     }
+    ]
+   },
+   "stage": "interpret",
+   "completedStages": [],
+   "stageEnteredAtTurn": 0,
+   "facts": [],
+   "decisions": [
+    {
+     "id": "decision_1",
+     "decision": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+     "evidenceIds": [],
+     "stage": "plan",
+     "status": "committed",
+     "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+    }
+   ],
+   "plan": {
+    "status": "committed",
+    "id": "plan_mission-podcast-highlight-60s-t0_1",
+    "committedAtTurn": 0,
+    "basedOnProjectRevision": 0,
+    "decisionIds": [
+     "decision_1"
+    ]
+   },
+   "execution": {
+    "authorized": true
+   },
+   "evidence": [],
+   "objectives": [
+    {
+     "id": "objective_1",
+     "description": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+     "stage": "verify",
+     "status": "pending"
+    }
+   ],
+   "operations": [],
+   "verifications": [],
+   "nextAction": null,
+   "blockedOn": null,
+   "integrity": {
+    "status": "valid",
+    "diagnostics": []
+   },
+   "baseProjectRevision": 0,
+   "currentProjectRevision": 0
+  }
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:status:2",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981486797,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "status",
+  "status": "generating"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:reasoning:1",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981486801,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": false
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:context-usage",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981486802,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "context_usage",
+  "usedTokens": 25529,
+  "contextWindow": 1000000,
+  "estimated": true,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 17
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 45
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "source media",
+     "tokens": 32
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 3088
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 26
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 2019
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 18469
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 25529,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 846471,
+    "calculationSource": "local_estimate"
+   }
+  }
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:reasoning:1",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981510000,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": true
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:context-usage",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981510000,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "context_usage",
+  "usedTokens": 0,
+  "contextWindow": 1000000,
+  "estimated": false,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 17
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 45
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "source media",
+     "tokens": 32
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 3088
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 26
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 2019
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 18469
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 25529,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 872000,
+    "calculationSource": "provider_reported",
+    "providerReportedInputTokens": 0,
+    "providerReportedOutputTokens": 1975,
+    "cachedInputTokens": 30457
+   }
+  }
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:status:3",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981510000,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "status",
+  "status": "searching"
+ },
+ {
+  "id": "toolu_01EKqt1vV9L5QVsBvafSdyh6",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981510002,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "load_skill",
+  "status": "running",
+  "title": "Reading the podcast editing playbook",
+  "argsSummary": "name: \"podcast-editing\""
+ },
+ {
+  "id": "toolu_01EKqt1vV9L5QVsBvafSdyh6",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981510002,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "load_skill",
+  "status": "completed",
+  "runtimeMs": 0,
+  "title": "Reading the podcast editing playbook",
+  "argsSummary": "name: \"podcast-editing\""
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:result:4",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981510002,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_result",
+  "toolCallId": "toolu_01EKqt1vV9L5QVsBvafSdyh6",
+  "summary": "Reading the podcast editing playbook",
+  "result": "{\"name\":\"podcast-editing\",\"description\":\"Edit spoken multi-speaker conversations for clarity, thought continuity, reaction value, natural cadence, and consistent audio without over-cutting.\",\"tools\":[\"get_mapped_transcript\",\"get_timeline\",\"analyze_silence\",\"split_clip\",\"ripple_delete\",\"move_clip\",\"punch_in\",\"adjust_audio\",\"render_preview\"],\"body\":\"# Podcast editing\\n\\n## Purpose\\n\\nCreate a concis"
+ },
+ {
+  "id": "toolu_018yD5d9DeWEV7R7ZQA4mtNA",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981511670,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "get_mapped_transcript",
+  "status": "running",
+  "title": "Reading the edited transcript",
+  "argsSummary": "start: 0, end: 70"
+ },
+ {
+  "id": "toolu_018yD5d9DeWEV7R7ZQA4mtNA",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981511670,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "get_mapped_transcript",
+  "status": "completed",
+  "runtimeMs": 8,
+  "title": "Reading the edited transcript",
+  "argsSummary": "start: 0, end: 70"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:result:5",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981511670,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_result",
+  "toolCallId": "toolu_018yD5d9DeWEV7R7ZQA4mtNA",
+  "summary": "Reading the edited transcript",
+  "result": "{\"words\":[{\"word\":\"Whoo!\",\"start\":0.07,\"end\":2.49,\"sourceStart\":0.07,\"sourceEnd\":2.49,\"assetId\":\"asset_001\",\"clipId\":\"clip_001\",\"startFrame\":2,\"endFrame\":75},{\"word\":\"Tom.\",\"start\":2.49,\"end\":3,\"sourceStart\":2.49,\"sourceEnd\":3,\"assetId\":\"asset_001\",\"clipId\":\"clip_001\",\"startFrame\":75,\"endFrame\":90},{\"word\":\"Jake,\",\"start\":3.07,\"end\":3.34,\"sourceStart\":3.07,\"sourceEnd\":3.34,\"assetId\":\"asset_001\",\"c"
+ },
+ {
+  "id": "toolu_01FDoshNirXKB6kArD9B6Uqy",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981511670,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "get_frame",
+  "status": "running",
+  "title": "Looking at the frame at 15.00s",
+  "argsSummary": "timeSeconds: 15"
+ },
+ {
+  "id": "toolu_01FDoshNirXKB6kArD9B6Uqy",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981511671,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "get_frame",
+  "status": "completed",
+  "runtimeMs": 1478,
+  "title": "Looking at the frame at 15.00s",
+  "argsSummary": "timeSeconds: 15"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:result:6",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981511671,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_result",
+  "toolCallId": "toolu_01FDoshNirXKB6kArD9B6Uqy",
+  "summary": "Looked at the timeline at 15.00s",
+  "result": "{\"timeSeconds\":15,\"requestedTimeSeconds\":15,\"clamped\":false,\"width\":512,\"height\":288,\"durationSeconds\":575.854875,\"note\":\"The frame itself is attached to this turn as an image.\"}"
+ },
+ {
+  "id": "toolu_01T8z3DMEhMxjQDoVCGEZGvJ",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981511671,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "get_frame",
+  "status": "running",
+  "title": "Looking at the frame at 30.00s",
+  "argsSummary": "timeSeconds: 30"
+ },
+ {
+  "id": "toolu_01T8z3DMEhMxjQDoVCGEZGvJ",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981511671,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "get_frame",
+  "status": "completed",
+  "runtimeMs": 1555,
+  "title": "Looking at the frame at 30.00s",
+  "argsSummary": "timeSeconds: 30"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:result:7",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981511671,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_result",
+  "toolCallId": "toolu_01T8z3DMEhMxjQDoVCGEZGvJ",
+  "summary": "Looked at the timeline at 30.00s",
+  "result": "{\"timeSeconds\":30,\"requestedTimeSeconds\":30,\"clamped\":false,\"width\":512,\"height\":288,\"durationSeconds\":575.854875,\"note\":\"The frame itself is attached to this turn as an image.\"}"
+ },
+ {
+  "id": "toolu_01BYBZWMFgEXhhgr66fsSeGD",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981511671,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "get_frame",
+  "status": "running",
+  "title": "Looking at the frame at 55.00s",
+  "argsSummary": "timeSeconds: 55"
+ },
+ {
+  "id": "toolu_01BYBZWMFgEXhhgr66fsSeGD",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981511671,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "get_frame",
+  "status": "completed",
+  "runtimeMs": 1660,
+  "title": "Looking at the frame at 55.00s",
+  "argsSummary": "timeSeconds: 55"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:result:8",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981511671,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_result",
+  "toolCallId": "toolu_01BYBZWMFgEXhhgr66fsSeGD",
+  "summary": "Looked at the timeline at 55.00s",
+  "result": "{\"timeSeconds\":55,\"requestedTimeSeconds\":55,\"clamped\":false,\"width\":512,\"height\":288,\"durationSeconds\":575.854875,\"note\":\"The frame itself is attached to this turn as an image.\"}"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:run-state",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981511672,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "run_state",
+  "working": {
+   "schemaVersion": 2,
+   "runId": "mission-podcast-highlight-60s-t0",
+   "identity": {
+    "conversationId": "mission-podcast-highlight-60s",
+    "projectId": "mission-podcast",
+    "attemptId": "mission-podcast-highlight-60s-t0"
+   },
+   "version": 13,
+   "objective": {
+    "request": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+    "outcome": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+    "provisional": true,
+    "acceptance": [
+     {
+      "id": "criterion_1",
+      "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
+     }
+    ]
+   },
+   "stage": "analyze",
+   "completedStages": [
+    "interpret",
+    "inspect"
+   ],
+   "stageEnteredAtTurn": 1,
+   "facts": [
+    {
+     "id": "fact_1",
+     "kind": "derived",
+     "statement": "Reading the podcast editing playbook → podcast-editing playbook loaded — its instructions are pinned in your context",
+     "evidenceIds": [],
+     "scope": "revision_independent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_2",
+     "kind": "footage",
+     "statement": "Reading the edited transcript → 97 mapped words in 1 speech run (0–575.855s), 30fps, revision 0:",
+     "evidenceIds": [
+      "ev_1"
+     ],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_3",
+     "kind": "footage",
+     "statement": "Looking at the frame at 15.00s → Looked at the timeline at 15.00s",
+     "evidenceIds": [
+      "ev_2"
+     ],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_4",
+     "kind": "footage",
+     "statement": "Looking at the frame at 30.00s → Looked at the timeline at 30.00s",
+     "evidenceIds": [
+      "ev_3"
+     ],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_5",
+     "kind": "footage",
+     "statement": "Looking at the frame at 55.00s → Looked at the timeline at 55.00s",
+     "evidenceIds": [
+      "ev_4"
+     ],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    }
+   ],
+   "decisions": [
+    {
+     "id": "decision_1",
+     "decision": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+     "evidenceIds": [],
+     "stage": "plan",
+     "status": "committed",
+     "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+    }
+   ],
+   "plan": {
+    "status": "committed",
+    "id": "plan_mission-podcast-highlight-60s-t0_1",
+    "committedAtTurn": 0,
+    "basedOnProjectRevision": 0,
+    "decisionIds": [
+     "decision_1"
+    ]
+   },
+   "execution": {
+    "authorized": true
+   },
+   "evidence": [
+    {
+     "id": "ev_1",
+     "source": "get_mapped_transcript",
+     "descriptor": "Reading the edited transcript",
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0
+    },
+    {
+     "id": "ev_2",
+     "source": "get_frame",
+     "descriptor": "Looking at the frame at 15.00s",
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0
+    },
+    {
+     "id": "ev_3",
+     "source": "get_frame",
+     "descriptor": "Looking at the frame at 30.00s",
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0
+    },
+    {
+     "id": "ev_4",
+     "source": "get_frame",
+     "descriptor": "Looking at the frame at 55.00s",
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0
+    }
+   ],
+   "objectives": [
+    {
+     "id": "objective_1",
+     "description": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+     "stage": "verify",
+     "status": "pending"
+    }
+   ],
+   "operations": [],
+   "verifications": [],
+   "nextAction": null,
+   "blockedOn": null,
+   "integrity": {
+    "status": "valid",
+    "diagnostics": []
+   },
+   "baseProjectRevision": 0,
+   "currentProjectRevision": 0
+  }
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:status:9",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981511673,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "status",
+  "status": "generating"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:reasoning:2",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981511675,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": false
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:context-usage",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981511676,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "context_usage",
+  "usedTokens": 27134,
+  "contextWindow": 1000000,
+  "estimated": true,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 17
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 45
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "source media",
+     "tokens": 32
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 3088
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 26
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 3624
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 18469
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 27134,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 844866,
+    "toolSchemaTokensRebilled": 0,
+    "calculationSource": "local_estimate"
+   }
+  }
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:reasoning:2",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981560163,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": true
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:context-usage",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981560163,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "context_usage",
+  "usedTokens": 0,
+  "contextWindow": 1000000,
+  "estimated": false,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 17
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 45
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "source media",
+     "tokens": 32
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 3088
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 26
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 3624
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 18469
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 27134,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 872000,
+    "toolSchemaTokensRebilled": 0,
+    "calculationSource": "provider_reported",
+    "providerReportedInputTokens": 0,
+    "providerReportedOutputTokens": 3931,
+    "cachedInputTokens": 30457
+   }
+  }
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:status:10",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981560163,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "status",
+  "status": "searching"
+ },
+ {
+  "id": "toolu_01GubF3Xrx2ioppBKJnSUK9F",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981560338,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "get_frame",
+  "status": "running",
+  "title": "Looking at the frame at 100.00s",
+  "argsSummary": "timeSeconds: 100"
+ },
+ {
+  "id": "toolu_01GubF3Xrx2ioppBKJnSUK9F",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981560339,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "get_frame",
+  "status": "completed",
+  "runtimeMs": 93,
+  "title": "Looking at the frame at 100.00s",
+  "argsSummary": "timeSeconds: 100"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:result:11",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981560339,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_result",
+  "toolCallId": "toolu_01GubF3Xrx2ioppBKJnSUK9F",
+  "summary": "Looked at the timeline at 100.00s",
+  "result": "{\"timeSeconds\":100,\"requestedTimeSeconds\":100,\"clamped\":false,\"width\":512,\"height\":288,\"durationSeconds\":575.854875,\"note\":\"The frame itself is attached to this turn as an image.\"}"
+ },
+ {
+  "id": "toolu_01R4sWKMpoHGuiHBFJq88144",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981560339,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "get_frame",
+  "status": "running",
+  "title": "Looking at the frame at 250.00s",
+  "argsSummary": "timeSeconds: 250"
+ },
+ {
+  "id": "toolu_01R4sWKMpoHGuiHBFJq88144",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981560339,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "get_frame",
+  "status": "completed",
+  "runtimeMs": 139,
+  "title": "Looking at the frame at 250.00s",
+  "argsSummary": "timeSeconds: 250"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:result:12",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981560339,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_result",
+  "toolCallId": "toolu_01R4sWKMpoHGuiHBFJq88144",
+  "summary": "Looked at the timeline at 250.00s",
+  "result": "{\"timeSeconds\":250,\"requestedTimeSeconds\":250,\"clamped\":false,\"width\":512,\"height\":288,\"durationSeconds\":575.854875,\"note\":\"The frame itself is attached to this turn as an image.\"}"
+ },
+ {
+  "id": "toolu_01JmYYmAQ8x2Q88G3jJWrf7n",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981560339,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "get_frame",
+  "status": "running",
+  "title": "Looking at the frame at 450.00s",
+  "argsSummary": "timeSeconds: 450"
+ },
+ {
+  "id": "toolu_01JmYYmAQ8x2Q88G3jJWrf7n",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981560339,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "get_frame",
+  "status": "completed",
+  "runtimeMs": 175,
+  "title": "Looking at the frame at 450.00s",
+  "argsSummary": "timeSeconds: 450"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:result:13",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981560339,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_result",
+  "toolCallId": "toolu_01JmYYmAQ8x2Q88G3jJWrf7n",
+  "summary": "Looked at the timeline at 450.00s",
+  "result": "{\"timeSeconds\":450,\"requestedTimeSeconds\":450,\"clamped\":false,\"width\":512,\"height\":288,\"durationSeconds\":575.854875,\"note\":\"The frame itself is attached to this turn as an image.\"}"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:run-state",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981560339,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "run_state",
+  "working": {
+   "schemaVersion": 2,
+   "runId": "mission-podcast-highlight-60s-t0",
+   "identity": {
+    "conversationId": "mission-podcast-highlight-60s",
+    "projectId": "mission-podcast",
+    "attemptId": "mission-podcast-highlight-60s-t0"
+   },
+   "version": 19,
+   "objective": {
+    "request": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+    "outcome": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+    "provisional": true,
+    "acceptance": [
+     {
+      "id": "criterion_1",
+      "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
+     }
+    ]
+   },
+   "stage": "analyze",
+   "completedStages": [
+    "interpret",
+    "inspect"
+   ],
+   "stageEnteredAtTurn": 1,
+   "facts": [
+    {
+     "id": "fact_1",
+     "kind": "derived",
+     "statement": "Reading the podcast editing playbook → podcast-editing playbook loaded — its instructions are pinned in your context",
+     "evidenceIds": [],
+     "scope": "revision_independent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_2",
+     "kind": "footage",
+     "statement": "Reading the edited transcript → 97 mapped words in 1 speech run (0–575.855s), 30fps, revision 0:",
+     "evidenceIds": [
+      "ev_1"
+     ],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_3",
+     "kind": "footage",
+     "statement": "Looking at the frame at 15.00s → Looked at the timeline at 15.00s",
+     "evidenceIds": [
+      "ev_2"
+     ],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_4",
+     "kind": "footage",
+     "statement": "Looking at the frame at 30.00s → Looked at the timeline at 30.00s",
+     "evidenceIds": [
+      "ev_3"
+     ],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_5",
+     "kind": "footage",
+     "statement": "Looking at the frame at 55.00s → Looked at the timeline at 55.00s",
+     "evidenceIds": [
+      "ev_4"
+     ],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_6",
+     "kind": "footage",
+     "statement": "Looking at the frame at 100.00s → Looked at the timeline at 100.00s",
+     "evidenceIds": [
+      "ev_5"
+     ],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_7",
+     "kind": "footage",
+     "statement": "Looking at the frame at 250.00s → Looked at the timeline at 250.00s",
+     "evidenceIds": [
+      "ev_6"
+     ],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_8",
+     "kind": "footage",
+     "statement": "Looking at the frame at 450.00s → Looked at the timeline at 450.00s",
+     "evidenceIds": [
+      "ev_7"
+     ],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    }
+   ],
+   "decisions": [
+    {
+     "id": "decision_1",
+     "decision": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+     "evidenceIds": [],
+     "stage": "plan",
+     "status": "committed",
+     "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+    }
+   ],
+   "plan": {
+    "status": "committed",
+    "id": "plan_mission-podcast-highlight-60s-t0_1",
+    "committedAtTurn": 0,
+    "basedOnProjectRevision": 0,
+    "decisionIds": [
+     "decision_1"
+    ]
+   },
+   "execution": {
+    "authorized": true
+   },
+   "evidence": [
+    {
+     "id": "ev_1",
+     "source": "get_mapped_transcript",
+     "descriptor": "Reading the edited transcript",
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0
+    },
+    {
+     "id": "ev_2",
+     "source": "get_frame",
+     "descriptor": "Looking at the frame at 15.00s",
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0
+    },
+    {
+     "id": "ev_3",
+     "source": "get_frame",
+     "descriptor": "Looking at the frame at 30.00s",
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0
+    },
+    {
+     "id": "ev_4",
+     "source": "get_frame",
+     "descriptor": "Looking at the frame at 55.00s",
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0
+    },
+    {
+     "id": "ev_5",
+     "source": "get_frame",
+     "descriptor": "Looking at the frame at 100.00s",
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0
+    },
+    {
+     "id": "ev_6",
+     "source": "get_frame",
+     "descriptor": "Looking at the frame at 250.00s",
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0
+    },
+    {
+     "id": "ev_7",
+     "source": "get_frame",
+     "descriptor": "Looking at the frame at 450.00s",
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0
+    }
+   ],
+   "objectives": [
+    {
+     "id": "objective_1",
+     "description": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+     "stage": "verify",
+     "status": "pending"
+    }
+   ],
+   "operations": [],
+   "verifications": [],
+   "nextAction": null,
+   "blockedOn": null,
+   "integrity": {
+    "status": "valid",
+    "diagnostics": []
+   },
+   "baseProjectRevision": 0,
+   "currentProjectRevision": 0
+  }
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:status:14",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981560340,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "status",
+  "status": "generating"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:reasoning:3",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981560341,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": false
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:context-usage",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981560341,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "context_usage",
+  "usedTokens": 27287,
+  "contextWindow": 1000000,
+  "estimated": true,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 17
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 45
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "source media",
+     "tokens": 32
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 3088
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 26
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 3777
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 18469
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 27287,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 844713,
+    "toolSchemaTokensRebilled": 0,
+    "calculationSource": "local_estimate"
+   }
+  }
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:reasoning:3",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981634231,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": true
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:context-usage",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981634231,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "context_usage",
+  "usedTokens": 0,
+  "contextWindow": 1000000,
+  "estimated": false,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 17
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 45
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "source media",
+     "tokens": 32
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 3088
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 26
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 3777
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 18469
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 27287,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 872000,
+    "toolSchemaTokensRebilled": 0,
+    "calculationSource": "provider_reported",
+    "providerReportedInputTokens": 0,
+    "providerReportedOutputTokens": 5954,
+    "cachedInputTokens": 40622
+   }
+  }
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:assistant:seg-3",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981634231,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "assistant_message",
+  "text": "Looking at this footage: it's helmet-cam snowboarding video, not a talking-head podcast. The only substantive spoken content — the crew introductions, the plan to \"meet at the bottom of this cliff,\" the alarmed \"Oh, God!,\" and the caring \"You okay?\" check-in — all happens in the first 60 seconds. Past that point the transcript degenerates into the same line (\"I'll try to follow you later\") repeating for eight minutes straight, almost certainly a transcription artifact off ambient noise, and the frames I checked at 100s/250s/450s show visually interchangeable snowy descent with no standout action to justify pulling from later in the run.\n\nThat makes the first 60 seconds the genuine highlight: it's the only stretch with a real mini-arc (excited banter → dramatic reaction → reassurance) and it happens to end exactly on a sentence boundary — \"...I'll try to follow you **later**.\" finishes at precisely 60.0s. I'll trim the timeline down to that span."
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:status:22",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981634232,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "status",
+  "status": "running_tool"
+ },
+ {
+  "id": "toolu_014K4hDRJQt85EBLzchMSyWh",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981634232,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "trim_clip",
+  "status": "running",
+  "title": "Trimming speech-9min.mp4",
+  "argsSummary": "clipId: \"clip_001\", start: 0, end: 60"
+ },
+ {
+  "id": "toolu_014K4hDRJQt85EBLzchMSyWh",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981634237,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "trim_clip",
+  "status": "completed",
+  "runtimeMs": 5,
+  "title": "Trimming speech-9min.mp4",
+  "argsSummary": "clipId: \"clip_001\", start: 0, end: 60"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:result:23",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981634237,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_result",
+  "toolCallId": "toolu_014K4hDRJQt85EBLzchMSyWh",
+  "summary": "Trimmed clip speech-9min.mp4 · 0s–60s"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:diff:24",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981634240,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "diff",
+  "edit": {
+   "valid": true,
+   "ops": [
+    "trim_clip"
+   ],
+   "text": "Looking at this footage: it's helmet-cam snowboarding video, not a talking-head podcast. The only substantive spoken content — the crew introductions, the plan to \"meet at the bottom of this cliff,\" the alarmed \"Oh, God!,\" and the caring \"You okay?\" check-in — all happens in the first 60 seconds. Pa"
+  },
+  "scope": "turn",
+  "turnIndex": 3,
+  "runId": "run:mission-podcast-highlight-60s-t0"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:action:25",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981634240,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "timeline_action",
+  "action": "Trimmed clip",
+  "detail": "0s–60s",
+  "refs": [
+   {
+    "kind": "clip",
+    "id": "clip_001",
+    "label": "speech-9min.mp4"
+   }
+  ]
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:run-state",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981634240,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "run_state",
+  "working": {
+   "schemaVersion": 2,
+   "runId": "mission-podcast-highlight-60s-t0",
+   "identity": {
+    "conversationId": "mission-podcast-highlight-60s",
+    "projectId": "mission-podcast",
+    "attemptId": "mission-podcast-highlight-60s-t0"
+   },
+   "version": 24,
+   "objective": {
+    "request": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+    "outcome": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+    "provisional": true,
+    "acceptance": [
+     {
+      "id": "criterion_1",
+      "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
+     }
+    ]
+   },
+   "stage": "apply",
+   "completedStages": [
+    "interpret",
+    "inspect",
+    "analyze",
+    "plan"
+   ],
+   "stageEnteredAtTurn": 3,
+   "facts": [
+    {
+     "id": "fact_1",
+     "kind": "derived",
+     "statement": "Reading the podcast editing playbook → podcast-editing playbook loaded — its instructions are pinned in your context",
+     "evidenceIds": [],
+     "scope": "revision_independent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_2",
+     "kind": "project",
+     "statement": "Timeline now: sequence 60s, 2 tracks, 1 clips — video_1 [video] 1 clips 0–60s; audio_1 [audio] empty",
+     "evidenceIds": [],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 1,
+     "stage": "apply"
+    }
+   ],
+   "decisions": [
+    {
+     "id": "decision_1",
+     "decision": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+     "evidenceIds": [],
+     "stage": "plan",
+     "status": "committed",
+     "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+    }
+   ],
+   "plan": {
+    "status": "committed",
+    "id": "plan_mission-podcast-highlight-60s-t0_1",
+    "committedAtTurn": 0,
+    "basedOnProjectRevision": 0,
+    "decisionIds": [
+     "decision_1"
+    ]
+   },
+   "execution": {
+    "authorized": true
+   },
+   "evidence": [],
+   "objectives": [
+    {
+     "id": "objective_1",
+     "description": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+     "stage": "verify",
+     "status": "pending"
+    }
+   ],
+   "operations": [
+    {
+     "id": "op_1",
+     "intent": "Trimmed clip",
+     "status": "succeeded",
+     "atRevision": 1,
+     "attempts": 1,
+     "planId": "plan_mission-podcast-highlight-60s-t0_1",
+     "decisionId": "decision_1",
+     "idempotencyKey": "mission-podcast-highlight-60s-t0:plan_mission-podcast-highlight-60s-t0_1:decision_1:trim_clip:{\"clipId\":\"clip_001\",\"start\":0,\"end\":60}:0",
+     "projectRevisionBefore": 0,
+     "projectRevisionAfter": 1,
+     "patchId": "patch_8ab375a0",
+     "objectiveId": "objective_1"
+    }
+   ],
+   "verifications": [],
+   "nextAction": null,
+   "blockedOn": null,
+   "integrity": {
+    "status": "valid",
+    "diagnostics": []
+   },
+   "baseProjectRevision": 0,
+   "currentProjectRevision": 1
+  }
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:status:26",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981634244,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "status",
+  "status": "generating"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:reasoning:4",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981634248,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": false
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:context-usage",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981634249,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "context_usage",
+  "usedTokens": 24314,
+  "contextWindow": 1000000,
+  "estimated": true,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 17
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 43
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "source media",
+     "tokens": 32
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 3088
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 26
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 3606
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 15669
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 24314,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 847686,
+    "toolSchemaTokensRebilled": 15669,
+    "calculationSource": "local_estimate"
+   }
+  }
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:reasoning:4",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981697501,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": true
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:context-usage",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981697501,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "context_usage",
+  "usedTokens": 0,
+  "contextWindow": 1000000,
+  "estimated": false,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 17
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 43
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "source media",
+     "tokens": 32
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 3088
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 26
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 3606
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 15669
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 24314,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 872000,
+    "toolSchemaTokensRebilled": 15669,
+    "calculationSource": "provider_reported",
+    "providerReportedInputTokens": 0,
+    "providerReportedOutputTokens": 5136,
+    "cachedInputTokens": 26175
+   }
+  }
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:status:27",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981697501,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "status",
+  "status": "searching"
+ },
+ {
+  "id": "toolu_01EH2qDk9oFoXJ8VqqoKeoGb",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981697501,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "get_frame",
+  "status": "running",
+  "title": "Looking at the frame at 40.00s",
+  "argsSummary": "timeSeconds: 40"
+ },
+ {
+  "id": "toolu_01EH2qDk9oFoXJ8VqqoKeoGb",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981699507,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_call",
+  "toolName": "get_frame",
+  "status": "completed",
+  "runtimeMs": 2006,
+  "title": "Looking at the frame at 40.00s",
+  "argsSummary": "timeSeconds: 40"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:result:28",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981699507,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "tool_result",
+  "toolCallId": "toolu_01EH2qDk9oFoXJ8VqqoKeoGb",
+  "summary": "Looked at the timeline at 40.00s",
+  "result": "{\"timeSeconds\":40,\"requestedTimeSeconds\":40,\"clamped\":false,\"width\":512,\"height\":288,\"durationSeconds\":60,\"note\":\"The frame itself is attached to this turn as an image.\"}"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:run-state",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981699507,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "run_state",
+  "working": {
+   "schemaVersion": 2,
+   "runId": "mission-podcast-highlight-60s-t0",
+   "identity": {
+    "conversationId": "mission-podcast-highlight-60s",
+    "projectId": "mission-podcast",
+    "attemptId": "mission-podcast-highlight-60s-t0"
+   },
+   "version": 26,
+   "objective": {
+    "request": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+    "outcome": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+    "provisional": true,
+    "acceptance": [
+     {
+      "id": "criterion_1",
+      "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
+     }
+    ]
+   },
+   "stage": "apply",
+   "completedStages": [
+    "interpret",
+    "inspect",
+    "analyze",
+    "plan"
+   ],
+   "stageEnteredAtTurn": 3,
+   "facts": [
+    {
+     "id": "fact_1",
+     "kind": "derived",
+     "statement": "Reading the podcast editing playbook → podcast-editing playbook loaded — its instructions are pinned in your context",
+     "evidenceIds": [],
+     "scope": "revision_independent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_2",
+     "kind": "project",
+     "statement": "Timeline now: sequence 60s, 2 tracks, 1 clips — video_1 [video] 1 clips 0–60s; audio_1 [audio] empty",
+     "evidenceIds": [],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 1,
+     "stage": "apply"
+    },
+    {
+     "id": "fact_3",
+     "kind": "footage",
+     "statement": "Looking at the frame at 40.00s → Looked at the timeline at 40.00s",
+     "evidenceIds": [
+      "ev_8"
+     ],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 1,
+     "stage": "apply"
+    }
+   ],
+   "decisions": [
+    {
+     "id": "decision_1",
+     "decision": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+     "evidenceIds": [],
+     "stage": "plan",
+     "status": "committed",
+     "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+    }
+   ],
+   "plan": {
+    "status": "committed",
+    "id": "plan_mission-podcast-highlight-60s-t0_1",
+    "committedAtTurn": 0,
+    "basedOnProjectRevision": 0,
+    "decisionIds": [
+     "decision_1"
+    ]
+   },
+   "execution": {
+    "authorized": true
+   },
+   "evidence": [
+    {
+     "id": "ev_8",
+     "source": "get_frame",
+     "descriptor": "Looking at the frame at 40.00s",
+     "scope": "timeline_dependent",
+     "observedAtRevision": 1
+    }
+   ],
+   "objectives": [
+    {
+     "id": "objective_1",
+     "description": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+     "stage": "verify",
+     "status": "pending"
+    }
+   ],
+   "operations": [
+    {
+     "id": "op_1",
+     "intent": "Trimmed clip",
+     "status": "succeeded",
+     "atRevision": 1,
+     "attempts": 1,
+     "planId": "plan_mission-podcast-highlight-60s-t0_1",
+     "decisionId": "decision_1",
+     "idempotencyKey": "mission-podcast-highlight-60s-t0:plan_mission-podcast-highlight-60s-t0_1:decision_1:trim_clip:{\"clipId\":\"clip_001\",\"start\":0,\"end\":60}:0",
+     "projectRevisionBefore": 0,
+     "projectRevisionAfter": 1,
+     "patchId": "patch_8ab375a0",
+     "objectiveId": "objective_1"
+    }
+   ],
+   "verifications": [],
+   "nextAction": null,
+   "blockedOn": null,
+   "integrity": {
+    "status": "valid",
+    "diagnostics": []
+   },
+   "baseProjectRevision": 0,
+   "currentProjectRevision": 1
+  }
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:status:29",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981699508,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "status",
+  "status": "generating"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:reasoning:5",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981699509,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": false
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:context-usage",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981699510,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "context_usage",
+  "usedTokens": 24428,
+  "contextWindow": 1000000,
+  "estimated": true,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 17
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 43
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "source media",
+     "tokens": 32
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 3088
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 26
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 3720
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 15669
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 24428,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 847572,
+    "toolSchemaTokensRebilled": 0,
+    "calculationSource": "local_estimate"
+   }
+  }
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:reasoning:5",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981738734,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": true
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:context-usage",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981738734,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "context_usage",
+  "usedTokens": 0,
+  "contextWindow": 1000000,
+  "estimated": false,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 17
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 43
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "source media",
+     "tokens": 32
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 3088
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 26
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 3720
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 15669
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 24428,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 872000,
+    "toolSchemaTokensRebilled": 0,
+    "calculationSource": "provider_reported",
+    "providerReportedInputTokens": 0,
+    "providerReportedOutputTokens": 3124,
+    "cachedInputTokens": 36340
+   }
+  }
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:assistant:seg-5",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981738734,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "assistant_message",
+  "text": "The highlight is set: **0–60s** of the source, which is the only stretch of this 9-minute recording with real variation — everything from 60s onward on the transcript is the same line (\"I'll try to follow you later\") repeated for the remaining ~515 seconds, so there was nothing better to pull from later in the file. The kept 60 seconds carries a complete arc: the intro and radio-check (\"Whoo! Tom... Ryan. Jennay. Say hi.\"), the plan (\"Meeting at the bottom of this cliff\"), the drop with a startled reaction (\"Oh, God.\"), and the check-in afterward (\"You okay?... I'll try to follow you later.\").\n\nCut placement respects sentence boundaries — it starts at 0s (before any speech begins at 0.07s) and ends at exactly 60.00s, which lands right on the completed word \"later.\" (59.38–60.00s); the next utterance doesn't begin until 60.07s, so nothing is severed mid-sentence.\n\nThis is a straightforward trim-to-highlight job with no captions, transitions, or grading requested, so no further edits are needed. The result has been visually confirmed via get_frame at 40s; I have not screened every second of the 60s window, so if you want a final pass I'd suggest a quick playback check on the \"Oh, God.\" and \"You okay?\" moments specifically, but the cut structure itself is complete and sentence-safe."
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:run-state",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981738739,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "run_state",
+  "working": {
+   "schemaVersion": 2,
+   "runId": "mission-podcast-highlight-60s-t0",
+   "identity": {
+    "conversationId": "mission-podcast-highlight-60s",
+    "projectId": "mission-podcast",
+    "attemptId": "mission-podcast-highlight-60s-t0"
+   },
+   "version": 26,
+   "objective": {
+    "request": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+    "outcome": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+    "provisional": true,
+    "acceptance": [
+     {
+      "id": "criterion_1",
+      "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
+     }
+    ]
+   },
+   "stage": "apply",
+   "completedStages": [
+    "interpret",
+    "inspect",
+    "analyze",
+    "plan"
+   ],
+   "stageEnteredAtTurn": 3,
+   "facts": [
+    {
+     "id": "fact_1",
+     "kind": "derived",
+     "statement": "Reading the podcast editing playbook → podcast-editing playbook loaded — its instructions are pinned in your context",
+     "evidenceIds": [],
+     "scope": "revision_independent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_2",
+     "kind": "project",
+     "statement": "Timeline now: sequence 60s, 2 tracks, 1 clips — video_1 [video] 1 clips 0–60s; audio_1 [audio] empty",
+     "evidenceIds": [],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 1,
+     "stage": "apply"
+    },
+    {
+     "id": "fact_3",
+     "kind": "footage",
+     "statement": "Looking at the frame at 40.00s → Looked at the timeline at 40.00s",
+     "evidenceIds": [
+      "ev_8"
+     ],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 1,
+     "stage": "apply"
+    }
+   ],
+   "decisions": [
+    {
+     "id": "decision_1",
+     "decision": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+     "evidenceIds": [],
+     "stage": "plan",
+     "status": "committed",
+     "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+    }
+   ],
+   "plan": {
+    "status": "committed",
+    "id": "plan_mission-podcast-highlight-60s-t0_1",
+    "committedAtTurn": 0,
+    "basedOnProjectRevision": 0,
+    "decisionIds": [
+     "decision_1"
+    ]
+   },
+   "execution": {
+    "authorized": true
+   },
+   "evidence": [
+    {
+     "id": "ev_8",
+     "source": "get_frame",
+     "descriptor": "Looking at the frame at 40.00s",
+     "scope": "timeline_dependent",
+     "observedAtRevision": 1
+    }
+   ],
+   "objectives": [
+    {
+     "id": "objective_1",
+     "description": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+     "stage": "verify",
+     "status": "pending"
+    }
+   ],
+   "operations": [
+    {
+     "id": "op_1",
+     "intent": "Trimmed clip",
+     "status": "succeeded",
+     "atRevision": 1,
+     "attempts": 1,
+     "planId": "plan_mission-podcast-highlight-60s-t0_1",
+     "decisionId": "decision_1",
+     "idempotencyKey": "mission-podcast-highlight-60s-t0:plan_mission-podcast-highlight-60s-t0_1:decision_1:trim_clip:{\"clipId\":\"clip_001\",\"start\":0,\"end\":60}:0",
+     "projectRevisionBefore": 0,
+     "projectRevisionAfter": 1,
+     "patchId": "patch_8ab375a0",
+     "objectiveId": "objective_1"
+    }
+   ],
+   "verifications": [],
+   "nextAction": null,
+   "blockedOn": null,
+   "integrity": {
+    "status": "valid",
+    "diagnostics": []
+   },
+   "baseProjectRevision": 0,
+   "currentProjectRevision": 1
+  }
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:notice:38",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981738744,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "notification",
+  "text": "Deterministic self-check: All checks passed."
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:run-state",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981738744,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "run_state",
+  "working": {
+   "schemaVersion": 2,
+   "runId": "mission-podcast-highlight-60s-t0",
+   "identity": {
+    "conversationId": "mission-podcast-highlight-60s",
+    "projectId": "mission-podcast",
+    "attemptId": "mission-podcast-highlight-60s-t0"
+   },
+   "version": 30,
+   "objective": {
+    "request": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+    "outcome": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+    "provisional": true,
+    "acceptance": [
+     {
+      "id": "criterion_1",
+      "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
+     }
+    ]
+   },
+   "stage": "complete",
+   "completedStages": [
+    "interpret",
+    "inspect",
+    "analyze",
+    "plan",
+    "apply",
+    "enhance",
+    "verify"
+   ],
+   "stageEnteredAtTurn": 5,
+   "facts": [
+    {
+     "id": "fact_1",
+     "kind": "derived",
+     "statement": "Reading the podcast editing playbook → podcast-editing playbook loaded — its instructions are pinned in your context",
+     "evidenceIds": [],
+     "scope": "revision_independent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_2",
+     "kind": "project",
+     "statement": "Timeline now: sequence 60s, 2 tracks, 1 clips — video_1 [video] 1 clips 0–60s; audio_1 [audio] empty",
+     "evidenceIds": [],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 1,
+     "stage": "apply"
+    },
+    {
+     "id": "fact_3",
+     "kind": "footage",
+     "statement": "Looking at the frame at 40.00s → Looked at the timeline at 40.00s",
+     "evidenceIds": [
+      "ev_8"
+     ],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 1,
+     "stage": "apply"
+    }
+   ],
+   "decisions": [
+    {
+     "id": "decision_1",
+     "decision": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+     "evidenceIds": [],
+     "stage": "plan",
+     "status": "committed",
+     "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+    }
+   ],
+   "plan": {
+    "status": "committed",
+    "id": "plan_mission-podcast-highlight-60s-t0_1",
+    "committedAtTurn": 0,
+    "basedOnProjectRevision": 0,
+    "decisionIds": [
+     "decision_1"
+    ]
+   },
+   "execution": {
+    "authorized": true
+   },
+   "evidence": [
+    {
+     "id": "ev_8",
+     "source": "get_frame",
+     "descriptor": "Looking at the frame at 40.00s",
+     "scope": "timeline_dependent",
+     "observedAtRevision": 1
+    }
+   ],
+   "objectives": [
+    {
+     "id": "objective_1",
+     "description": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+     "stage": "verify",
+     "status": "satisfied"
+    }
+   ],
+   "operations": [
+    {
+     "id": "op_1",
+     "intent": "Trimmed clip",
+     "status": "succeeded",
+     "atRevision": 1,
+     "attempts": 1,
+     "planId": "plan_mission-podcast-highlight-60s-t0_1",
+     "decisionId": "decision_1",
+     "idempotencyKey": "mission-podcast-highlight-60s-t0:plan_mission-podcast-highlight-60s-t0_1:decision_1:trim_clip:{\"clipId\":\"clip_001\",\"start\":0,\"end\":60}:0",
+     "projectRevisionBefore": 0,
+     "projectRevisionAfter": 1,
+     "patchId": "patch_8ab375a0",
+     "objectiveId": "objective_1"
+    }
+   ],
+   "verifications": [
+    {
+     "id": "verify_1",
+     "criterion": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+     "passed": true,
+     "atRevision": 1,
+     "detail": "All checks passed."
+    }
+   ],
+   "nextAction": null,
+   "blockedOn": null,
+   "integrity": {
+    "status": "valid",
+    "diagnostics": []
+   },
+   "baseProjectRevision": 0,
+   "currentProjectRevision": 1
+  }
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:usage:39",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981738746,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "usage",
+  "tokens": 20120,
+  "usd": 0.3018,
+  "modelCalls": 5
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:assistant",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981738746,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "assistant_message",
+  "text": "**Applied 1 edit** in 1 step — review the proposed change below.\n\n- Trimmed clip speech-9min.mp4 · 0s–60s"
+ },
+ {
+  "id": "mission-podcast-highlight-60s-t0:status:40",
+  "conversationId": "mission-podcast-highlight-60s",
+  "ts": 1787981738746,
+  "turnId": "mission-podcast-highlight-60s-t0",
+  "type": "status",
+  "status": "completed"
+ }
+]

@@ -135,7 +135,7 @@ by key; `carryForwardWorkingState` already carries only revision-independent fac
 committed decisions. Remaining: the UC-09 evidence from the after-measurement, and the
 `source`/`until` metadata on entries.
 
-## P1.6 — Measure and close — `[!]` (3 of 6 scenarios measured; the rest need provider headroom)
+## P1.6 — Measure and close — `[!]` (4 of 6 scenarios measured; 2 need provider headroom)
 
 Re-run P0.2/P0.3 with the same fixtures. Write `docs/reports/system-mission/01-after.md`
 with the per-scenario before/after table (calls, rounds, tokens, cache %, wall, USD,
@@ -155,8 +155,15 @@ before/after table. ADR 0158 covers the structured-state block.
   cancelled at the harness's own 1200s cap and still scored 1.00 with 30 operations.
 - Prompt-cache share held throughout (0.97–1.00); none of the gain came from losing cache.
 
-**`[!]` residual:** `beat-sync`, `refine-tighten`, `memory-captions` have no after-numbers.
-The auth2api bridge began 429ing after ~3h and the harness exhausted its retries mid-run.
+- `beat-sync`: rubric **0.22 → 0.78** (runs scored 0.78 / 0.67 / 1.00), **0 → 34** operations,
+  3/3 unfinished → 0/3. Measured on the second attempt, 2026-08-29.
+
+**`[!]` residual:** `refine-tighten` and `memory-captions` have no after-numbers.
+The auth2api bridge 429s after roughly $4-8 of traffic. The second attempt cleared all of
+`beat-sync` and `refine-tighten`'s first turn (0.63, 22 operations) before hitting the wall
+again; every turn after that recorded `calls=1, prompt=0, ops=0` — a provider answering
+nothing, not a run doing badly. NOTE: `--out` and `--dump-events` resolve against the
+REPOSITORY ROOT, not the working directory.
 Unblocking step, verbatim:
 ```
 cd packages/ai-sdk && node scripts/mission-baseline.mjs --runs 3 --label after \

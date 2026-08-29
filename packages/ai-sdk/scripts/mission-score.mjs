@@ -11,6 +11,8 @@
  * Usage:
  *   node scripts/mission-score.mjs <run.json>              # gate against the committed floor
  *   node scripts/mission-score.mjs <run.json> --write      # accept as the new floor
+ *
+ * `<run.json>` is resolved against the repository root, like `mission-baseline.mjs --out`.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -56,7 +58,11 @@ export function scoreRun(data) {
   return out;
 }
 
-const current = scoreRun(JSON.parse(readFileSync(file, 'utf8')));
+// Resolved against the REPOSITORY ROOT, exactly like `mission-baseline.mjs`'s `--out`.
+// One convention for both scripts: a `../../`-style path from `packages/ai-sdk` silently
+// wrote a whole run's results outside the repo once, which is not a mistake worth
+// leaving available twice.
+const current = scoreRun(JSON.parse(readFileSync(resolve(REPO, file), 'utf8')));
 const floor = existsSync(FLOOR) ? JSON.parse(readFileSync(FLOOR, 'utf8')) : { scenarios: {} };
 
 let failed = 0;

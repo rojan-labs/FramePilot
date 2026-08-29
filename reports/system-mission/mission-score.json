@@ -1,0 +1,27 @@
+{
+  "recordedAt": "2026-08-29T09:35:02.076Z",
+  "source": "reports/system-mission/after-orchestration-merged.json",
+  "tolerance": 0.05,
+  "scenarios": {
+    "montage-30s": {
+      "score": 1,
+      "runs": 3,
+      "notDone": 1
+    },
+    "podcast-highlight-60s": {
+      "score": 1,
+      "runs": 3,
+      "notDone": 0
+    },
+    "remove-dead-air": {
+      "score": 0.75,
+      "runs": 2,
+      "notDone": 2
+    },
+    "beat-sync": {
+      "score": 0.7777777777777778,
+      "runs": 3,
+      "notDone": 0
+    }
+  }
+}

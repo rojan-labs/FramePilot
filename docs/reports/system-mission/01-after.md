@@ -8,8 +8,7 @@ projects, scored by `eval/mission-rubric.ts`.
 
 The after-run was **cut short by the provider**, not by the code. The bridge began
 returning 429 after roughly three hours and the harness spent ten-minute backoffs on a
-single turn until it had exhausted its retries. Three scenarios completed all their runs;
-three did not start. Those rows are marked `[!]` in `01-ORCHESTRATION-AND-CONTEXT.md` with
+single turn until it had exhausted its retries. Four scenarios now have real after-numbers; two do not. Those rows are marked `[!]` in `01-ORCHESTRATION-AND-CONTEXT.md` with
 the exact command to finish them.
 
 **Correction, same day.** An earlier draft of this table was rebuilt from the harness log
@@ -36,9 +35,14 @@ from that file, and two of them changed materially:
 | montage-30s | 10 → 31 | 332k → 963k | 37.9k → 97.6k | 0.99 → 0.99 | 56 → 66 | 28 → 51 | **0 → 35** | 424s → 1070s | $0.57 → $1.52 | **0.25 → 1.00** | 2/3 → 1/3 (a cancel at the harness cap) |
 | podcast-highlight-60s | **25 → 5** | **804k → 173k** | **101k → 21k** | 0.99 → 1.00 | **58 → 8** | **30 → 4** | 1 → 1 | **1200s → 253s** | **$1.54 → $0.32** | 1.00 → 1.00 | **3/3 → 0/3** |
 | remove-dead-air | 1 → 7 | 0 → 180k | 0 → 62k | — → 0.97 | 0 → 59 | 0 → 53 | **0 → 54** | 0s → 584s | $0.00 → $0.94 | **0.25 → 0.75** | 3/3 → 1/1 (settled `failed` after editing) |
-| beat-sync | — | — | — | — | — | — | — | — | — | 0.22 (baseline) | 3/3 (baseline) |
+| beat-sync | 1 → 18 | 0 → 497k | 0 → 80k | — → 0.98 | 0 → 47 | 0 → 34 | **0 → 34** | 0s → 882s | $0.00 → $1.37 | **0.22 → 0.78** | **3/3 → 0/3** |
 | refine-tighten t1/t2 | — | — | — | — | — | — | — | — | — | 0.25 / 0.50 (baseline) | 3/3 (baseline) |
 | memory-captions t1/t2/t3 | — | — | — | — | — | — | — | — | — | 0.38 / 0.29 / 0.29 (baseline) | 3/3 (baseline) |
+
+**beat-sync, measured 2026-08-29 (second run):** three runs, all completed, scoring 0.78 /
+0.67 / 1.00 with 34 / 28 / 36 operations against a baseline of 0.22 and **zero**
+operations in three of three unfinished runs. The same output-cap story as the others:
+the baseline could not get a beat-matched cut out of the model at all.
 
 Every montage run scored **1.00** with 30–44 operations, including the cancelled one — the
 cancellation is the harness's clock, not the edit's quality.
@@ -75,16 +79,23 @@ Repeated tool calls are still high (montage 51 of 66). The stage-scoped tool set
 action-log window are the levers, and both sit in Phase 5. Nothing in this phase attacked
 repetition directly, and the numbers say so.
 
-## Finishing the three missing scenarios
+## Finishing the two missing scenarios
+
+`refine-tighten` and `memory-captions` still have no after-numbers. A second attempt on
+2026-08-29 got through all three `beat-sync` runs and the first turn of `refine-tighten`
+(0.63, 22 operations, 15 calls) before the bridge began 429ing again; every later turn
+recorded `calls=1, prompt=0, ops=0`, which is the signature of a provider that answered
+nothing, not of a run that did badly.
 
 ```
 cd packages/ai-sdk
 node scripts/mission-baseline.mjs --runs 3 --label after \
-  --only beat-sync,refine-tighten,memory-captions \
-  --dump-events ../../reports/system-mission/runs \
-  --out ../../reports/system-mission/after-orchestration-rest.json
+  --only refine-tighten,memory-captions \
+  --dump-events reports/system-mission/runs \
+  --out reports/system-mission/after-orchestration-rest.json
 ```
 
-Needs a provider with headroom (the bridge in `scratchpad/mission.env` rate-limits at
-roughly $4–8 of traffic). Merge with `after-orchestration.json` and re-run
-`mission-report.mjs` to replace the placeholder rows above.
+**Paths are resolved against the repository root, not the working directory** — passing
+`../../reports/...` from `packages/ai-sdk` writes outside the repo entirely, which is how
+the first attempt's results ended up in `~/reports`. Merge with
+`after-orchestration.json` and re-run `mission-report.mjs`.

@@ -78,7 +78,7 @@ baseline actually produced — an unmet stated duration (`orchestrator-stream.te
 The rubric's overlap / frame-grid / valid-refs checks stay in `mission-rubric.ts` as the
 after-the-fact grade. Measured effect on the scenario scores: the Phase 4 after-report.
 
-## P4.4 — Scenario suite as the quality gate — `[~]`
+## P4.4 — Scenario suite as the quality gate — `[~]` (floor committed and gate proven; CI lane remains)
 
 **Touches:** `packages/ai-sdk/src/eval/mission-rubric.ts` (from P0.3),
 `eval/mission-scenarios.ts`, `pnpm eval:mission`. Scenarios: UC-01…UC-12 with fixture
@@ -96,9 +96,13 @@ check on a 3-run sample), exits 2 on a regression, `--write` accepts a new floor
 and `eval:mission:real` (the 3-run harness). Decision: the offline gate scores the
 harness's *recorded outcomes*, not a provider replay — recording provider streams for
 minutes-long fixture projects would be hundreds of MB per scenario and drift with every
-prompt edit (the goldens already cover kernel replay). Remaining: commit the first floor
-from the after-run, and the CI lane that runs `eval:mission` when a run JSON is present
-(P9.4).
+prompt edit (the goldens already cover kernel replay).
+
+The floor is committed (`reports/system-mission/mission-score.json`, 2026-08-29): montage
+1.00, podcast 1.00, beat-sync 0.78, dead-air 0.75. **Proven both ways** — the gate exits 0
+with every scenario `held`, and lowering one scenario's recorded score by 0.17 makes it
+exit 2 with `REGRESSION` against that row. Remaining: the CI lane that runs it (P9.3), and
+floor rows for the two scenarios the provider rate-limit still blocks.
 
 ## P4.5 — Close — `[ ]`
 

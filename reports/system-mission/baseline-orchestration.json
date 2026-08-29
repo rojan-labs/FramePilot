@@ -1,0 +1,6761 @@
+{
+  "label": "baseline",
+  "generatedAt": "2026-08-28T22:59:47.761Z",
+  "provider": "openai-compatible",
+  "model": "claude-sonnet-5",
+  "runsPerScenario": 3,
+  "results": [
+    {
+      "scenario": "montage-30s",
+      "project": "mission-montage",
+      "run": 1,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Create a 30-second fast-paced social montage from the raw footage on the timeline. Pick the strongest moments, vary the shot lengths, keep it vertical.",
+          "rubric": "montage-30s",
+          "score": 1,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": true,
+              "detail": "changed",
+              "weight": 2
+            },
+            {
+              "id": "duration-within",
+              "ok": true,
+              "detail": "30.00s vs 30s ±3s",
+              "weight": 2
+            },
+            {
+              "id": "min-clips",
+              "ok": true,
+              "detail": "10 picture clip(s), need ≥ 6"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": true,
+              "detail": "0 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 923703,
+            "modelCalls": 35,
+            "tokens": {
+              "prompt": 1068100,
+              "input": 9874,
+              "output": 84265,
+              "cacheRead": 1058226,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 5821,
+                "wallMs": 5821,
+                "input": 0,
+                "output": 466,
+                "cacheRead": 30457
+              },
+              {
+                "ttftMs": 6988,
+                "wallMs": 6988,
+                "input": 0,
+                "output": 684,
+                "cacheRead": 30457
+              },
+              {
+                "ttftMs": 14620,
+                "wallMs": 14620,
+                "input": 0,
+                "output": 1464,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 20025,
+                "wallMs": 20025,
+                "input": 0,
+                "output": 1678,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 11360,
+                "wallMs": 11360,
+                "input": 0,
+                "output": 1001,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 15156,
+                "wallMs": 15156,
+                "input": 0,
+                "output": 1184,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 50490,
+                "wallMs": 52115,
+                "input": 3994,
+                "output": 4652,
+                "cacheRead": 0
+              },
+              {
+                "ttftMs": 90256,
+                "wallMs": 90256,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 54925,
+                "wallMs": 60583,
+                "input": 0,
+                "output": 6035,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 84359,
+                "wallMs": 84359,
+                "input": 2822,
+                "output": 8192,
+                "cacheRead": 0
+              },
+              {
+                "ttftMs": 2623,
+                "wallMs": 2623,
+                "input": 0,
+                "output": 137,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 13828,
+                "wallMs": 13828,
+                "input": 0,
+                "output": 1271,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 38436,
+                "wallMs": 38436,
+                "input": 0,
+                "output": 3682,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 7393,
+                "wallMs": 7393,
+                "input": 0,
+                "output": 485,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 34605,
+                "wallMs": 34605,
+                "input": 0,
+                "output": 3279,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 47789,
+                "wallMs": 47789,
+                "input": 0,
+                "output": 4813,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 4732,
+                "wallMs": 4732,
+                "input": 0,
+                "output": 379,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 9221,
+                "wallMs": 9221,
+                "input": 0,
+                "output": 842,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 10872,
+                "wallMs": 16040,
+                "input": 3058,
+                "output": 1893,
+                "cacheRead": 0
+              },
+              {
+                "ttftMs": 9326,
+                "wallMs": 9326,
+                "input": 0,
+                "output": 743,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 12766,
+                "wallMs": 12766,
+                "input": 0,
+                "output": 1021,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 7281,
+                "wallMs": 7281,
+                "input": 0,
+                "output": 537,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 17295,
+                "wallMs": 17295,
+                "input": 0,
+                "output": 1568,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 17711,
+                "wallMs": 17711,
+                "input": 0,
+                "output": 1866,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 15540,
+                "wallMs": 15540,
+                "input": 0,
+                "output": 1375,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 55710,
+                "wallMs": 57637,
+                "input": 0,
+                "output": 5059,
+                "cacheRead": 28731
+              },
+              {
+                "ttftMs": 31564,
+                "wallMs": 31564,
+                "input": 0,
+                "output": 2867,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 14373,
+                "wallMs": 14373,
+                "input": 0,
+                "output": 1323,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 45446,
+                "wallMs": 45446,
+                "input": 0,
+                "output": 4136,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 16476,
+                "wallMs": 16476,
+                "input": 0,
+                "output": 1487,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 12425,
+                "wallMs": 12425,
+                "input": 0,
+                "output": 1102,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 44987,
+                "wallMs": 44987,
+                "input": 0,
+                "output": 4105,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 20832,
+                "wallMs": 20832,
+                "input": 0,
+                "output": 1759,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 27516,
+                "wallMs": 27516,
+                "input": 0,
+                "output": 2365,
+                "cacheRead": 32447
+              },
+              {
+                "ttftMs": 23884,
+                "wallMs": 29722,
+                "input": 0,
+                "output": 2623,
+                "cacheRead": 32447
+              }
+            ],
+            "summary": {
+              "turnCount": 35,
+              "ttftMs": {
+                "p50": 16476,
+                "p95": 84359,
+                "min": 2623,
+                "max": 90256
+              },
+              "wallMs": {
+                "p50": 16476,
+                "p95": 84359,
+                "min": 2623,
+                "max": 90256
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 3058,
+                "min": 0,
+                "max": 3994
+              },
+              "outputTokensPerTurn": {
+                "p50": 1568,
+                "p95": 8192,
+                "min": 137,
+                "max": 8192
+              },
+              "cacheHitRate": 0.9907555472334051,
+              "cacheReportingTurns": 35
+            },
+            "usd": 1.293597,
+            "usageTokens": 94139,
+            "toolCalls": 138,
+            "toolCallsByName": {
+              "load_skill": 4,
+              "map_footage": 2,
+              "describe_footage": 10,
+              "list_assets": 6,
+              "get_frame": 18,
+              "get_clips": 12,
+              "recall_evidence": 18,
+              "delete_clips": 4,
+              "trim_clip": 10,
+              "set_clip_crop": 28,
+              "get_timeline": 4,
+              "get_timeline_summary": 6,
+              "add_clips": 2,
+              "search_music": 2,
+              "add_clip": 2,
+              "punch_in": 8,
+              "render_preview": 2
+            },
+            "repeatedToolCalls": 80,
+            "analysisFromCache": 0,
+            "contextRequests": 70,
+            "contextByType": [
+              {
+                "system": 2258,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2258,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3412,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3412,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4212,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4212,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4646,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4646,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4663,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4663,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4923,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4923,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 5354,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 5354,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 5192,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 5192,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4635,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4635,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4482,
+                "retrieved_evidence": 152,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4482,
+                "retrieved_evidence": 152,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4396,
+                "retrieved_evidence": 152,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4396,
+                "retrieved_evidence": 152,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4230,
+                "retrieved_evidence": 152,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4230,
+                "retrieved_evidence": 152,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4337,
+                "retrieved_evidence": 152,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4337,
+                "retrieved_evidence": 152,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4246,
+                "retrieved_evidence": 117,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4246,
+                "retrieved_evidence": 117,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4290,
+                "retrieved_evidence": 117,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4290,
+                "retrieved_evidence": 117,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4210,
+                "retrieved_evidence": 117,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4210,
+                "retrieved_evidence": 117,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4297,
+                "retrieved_evidence": 217,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4297,
+                "retrieved_evidence": 217,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4401,
+                "retrieved_evidence": 217,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4401,
+                "retrieved_evidence": 217,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4454,
+                "retrieved_evidence": 217,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 4454,
+                "retrieved_evidence": 217,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 4264,
+                "retrieved_evidence": 217,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4264,
+                "retrieved_evidence": 217,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4310,
+                "retrieved_evidence": 217,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4310,
+                "retrieved_evidence": 217,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4317,
+                "retrieved_evidence": 217,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4317,
+                "retrieved_evidence": 217,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4284,
+                "retrieved_evidence": 217,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4284,
+                "retrieved_evidence": 217,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4118,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4118,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4133,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4133,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4489,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 4489,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 4292,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4292,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4317,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4317,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4309,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4309,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4536,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4536,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4344,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4344,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4586,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4586,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4569,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4569,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4656,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4656,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4730,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4730,
+                "retrieved_evidence": 231,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 15448
+              }
+            ],
+            "contextUsedTokens": [
+              22569,
+              0,
+              23723,
+              0,
+              24523,
+              0,
+              24957,
+              0,
+              24974,
+              0,
+              25234,
+              0,
+              20135,
+              3994,
+              25503,
+              0,
+              24946,
+              0,
+              21769,
+              2822,
+              21683,
+              0,
+              21517,
+              0,
+              21624,
+              0,
+              21498,
+              0,
+              21542,
+              0,
+              21462,
+              0,
+              21649,
+              0,
+              21753,
+              0,
+              19297,
+              3058,
+              21616,
+              0,
+              21662,
+              0,
+              21669,
+              0,
+              21636,
+              0,
+              21484,
+              0,
+              21499,
+              0,
+              19346,
+              0,
+              21658,
+              0,
+              21683,
+              0,
+              21675,
+              0,
+              21902,
+              0,
+              21710,
+              0,
+              21952,
+              0,
+              21935,
+              0,
+              22022,
+              0,
+              22096,
+              0
+            ],
+            "contextCachedTokens": [
+              null,
+              30457,
+              null,
+              30457,
+              null,
+              37050,
+              null,
+              37050,
+              null,
+              37050,
+              null,
+              37050,
+              null,
+              0,
+              null,
+              37050,
+              null,
+              37050,
+              null,
+              0,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              0,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              28731,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              32447,
+              null,
+              32447
+            ],
+            "diffs": 7,
+            "validDiffs": 7,
+            "operations": 34,
+            "errors": [],
+            "finalStatus": "completed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 30,
+            "pictureClips": 10,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 10
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 1
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "montage-30s",
+      "project": "mission-montage",
+      "run": 2,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Create a 30-second fast-paced social montage from the raw footage on the timeline. Pick the strongest moments, vary the shot lengths, keep it vertical.",
+          "rubric": "montage-30s",
+          "score": 0.25,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "duration-within",
+              "ok": false,
+              "detail": "134.67s vs 30s ±3s",
+              "weight": 2
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "5 picture clip(s), need ≥ 6"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 407926,
+            "modelCalls": 10,
+            "tokens": {
+              "prompt": 286394,
+              "input": 4906,
+              "output": 34933,
+              "cacheRead": 281488,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 7654,
+                "wallMs": 7654,
+                "input": 675,
+                "output": 648,
+                "cacheRead": 0
+              },
+              {
+                "ttftMs": 3980,
+                "wallMs": 3980,
+                "input": 0,
+                "output": 274,
+                "cacheRead": 30457
+              },
+              {
+                "ttftMs": 9586,
+                "wallMs": 12364,
+                "input": 0,
+                "output": 1233,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 14251,
+                "wallMs": 14251,
+                "input": 0,
+                "output": 1442,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 28234,
+                "wallMs": 28234,
+                "input": 0,
+                "output": 2551,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 17137,
+                "wallMs": 17137,
+                "input": 0,
+                "output": 1466,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 39615,
+                "wallMs": 39615,
+                "input": 0,
+                "output": 3513,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 75863,
+                "wallMs": 78167,
+                "input": 0,
+                "output": 7422,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 90940,
+                "wallMs": 90940,
+                "input": 4231,
+                "output": 8192,
+                "cacheRead": 0
+              },
+              {
+                "ttftMs": 91216,
+                "wallMs": 91216,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 28731
+              }
+            ],
+            "summary": {
+              "turnCount": 10,
+              "ttftMs": {
+                "p50": 17137,
+                "p95": 91216,
+                "min": 3980,
+                "max": 91216
+              },
+              "wallMs": {
+                "p50": 17137,
+                "p95": 91216,
+                "min": 3980,
+                "max": 91216
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 4231,
+                "min": 0,
+                "max": 4231
+              },
+              "outputTokensPerTurn": {
+                "p50": 1466,
+                "p95": 8192,
+                "min": 274,
+                "max": 8192
+              },
+              "cacheHitRate": 0.982869752857951,
+              "cacheReportingTurns": 10
+            },
+            "usd": 0.538713,
+            "usageTokens": 39839,
+            "toolCalls": 56,
+            "toolCallsByName": {
+              "load_skill": 4,
+              "map_footage": 2,
+              "describe_footage": 14,
+              "get_frame": 10,
+              "detect_scenes": 10,
+              "get_transcript": 2,
+              "recall_evidence": 10,
+              "list_assets": 2,
+              "delete_clips": 2
+            },
+            "repeatedToolCalls": 28,
+            "analysisFromCache": 0,
+            "contextRequests": 20,
+            "contextByType": [
+              {
+                "system": 2258,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2258,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3388,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3388,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3414,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3414,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4532,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4532,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4871,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4871,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 5105,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 5105,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 5365,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 5365,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 5414,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 5414,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 5644,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 5644,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 4860,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 4860,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 12939
+              }
+            ],
+            "contextUsedTokens": [
+              22569,
+              675,
+              23699,
+              0,
+              23725,
+              0,
+              24843,
+              0,
+              25182,
+              0,
+              25416,
+              0,
+              25676,
+              0,
+              25725,
+              0,
+              20425,
+              4231,
+              19641,
+              0
+            ],
+            "contextCachedTokens": [
+              null,
+              0,
+              null,
+              30457,
+              null,
+              37050,
+              null,
+              37050,
+              null,
+              37050,
+              null,
+              37050,
+              null,
+              37050,
+              null,
+              37050,
+              null,
+              0,
+              null,
+              28731
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "The model returned an empty response — no answer and no tool call, on every attempt. This is usually the provider dropping the request (overloaded or rate-limited)."
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "montage-30s",
+      "project": "mission-montage",
+      "run": 3,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Create a 30-second fast-paced social montage from the raw footage on the timeline. Pick the strongest moments, vary the shot lengths, keep it vertical.",
+          "rubric": "montage-30s",
+          "score": 0.25,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "duration-within",
+              "ok": false,
+              "detail": "134.67s vs 30s ±3s",
+              "weight": 2
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "5 picture clip(s), need ≥ 6"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 423890,
+            "modelCalls": 9,
+            "tokens": {
+              "prompt": 332074,
+              "input": 0,
+              "output": 37866,
+              "cacheRead": 332074,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 13181,
+                "wallMs": 13181,
+                "input": 0,
+                "output": 1183,
+                "cacheRead": 35674
+              },
+              {
+                "ttftMs": 7351,
+                "wallMs": 7351,
+                "input": 0,
+                "output": 714,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 3111,
+                "wallMs": 7689,
+                "input": 0,
+                "output": 933,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 17871,
+                "wallMs": 19165,
+                "input": 0,
+                "output": 1751,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 88545,
+                "wallMs": 88545,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 59236,
+                "wallMs": 59236,
+                "input": 0,
+                "output": 4824,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 43000,
+                "wallMs": 43000,
+                "input": 0,
+                "output": 3885,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 93137,
+                "wallMs": 93137,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 37050
+              },
+              {
+                "ttftMs": 88036,
+                "wallMs": 88036,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 37050
+              }
+            ],
+            "summary": {
+              "turnCount": 9,
+              "ttftMs": {
+                "p50": 43000,
+                "p95": 93137,
+                "min": 3111,
+                "max": 93137
+              },
+              "wallMs": {
+                "p50": 43000,
+                "p95": 93137,
+                "min": 7351,
+                "max": 93137
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 3885,
+                "p95": 8192,
+                "min": 714,
+                "max": 8192
+              },
+              "cacheHitRate": 1,
+              "cacheReportingTurns": 9
+            },
+            "usd": 0.56799,
+            "usageTokens": 37866,
+            "toolCalls": 46,
+            "toolCallsByName": {
+              "load_skill": 4,
+              "map_footage": 2,
+              "describe_footage": 10,
+              "get_frame": 18,
+              "get_clips": 2,
+              "list_assets": 6,
+              "get_mapped_transcript": 2,
+              "delete_clips": 2
+            },
+            "repeatedToolCalls": 24,
+            "analysisFromCache": 0,
+            "contextRequests": 18,
+            "contextByType": [
+              {
+                "system": 2258,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2258,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3412,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3412,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4212,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4212,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4774,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4774,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4865,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4865,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4879,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4879,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 5186,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 5186,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 5238,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 5238,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4681,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4681,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 42,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              22569,
+              0,
+              23723,
+              0,
+              24523,
+              0,
+              25085,
+              0,
+              25176,
+              0,
+              25190,
+              0,
+              25497,
+              0,
+              25549,
+              0,
+              24992,
+              0
+            ],
+            "contextCachedTokens": [
+              null,
+              35674,
+              null,
+              37050,
+              null,
+              37050,
+              null,
+              37050,
+              null,
+              37050,
+              null,
+              37050,
+              null,
+              37050,
+              null,
+              37050,
+              null,
+              37050
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "The model returned an empty response — no answer and no tool call, on every attempt. This is usually the provider dropping the request (overloaded or rate-limited)."
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "podcast-highlight-60s",
+      "project": "mission-podcast",
+      "run": 1,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+          "rubric": "podcast-highlight-60s",
+          "score": 0.75,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": true,
+              "detail": "changed",
+              "weight": 2
+            },
+            {
+              "id": "duration-within",
+              "ok": false,
+              "detail": "28.00s vs 60s ±10s",
+              "weight": 2
+            },
+            {
+              "id": "no-mid-word-cuts",
+              "ok": true,
+              "detail": "0 edge(s) inside a word"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": true,
+              "detail": "0 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 1200011,
+            "modelCalls": 25,
+            "tokens": {
+              "prompt": 803755,
+              "input": 0,
+              "output": 104793,
+              "cacheRead": 803755,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 18643,
+                "wallMs": 19484,
+                "input": 0,
+                "output": 1587,
+                "cacheRead": 30457
+              },
+              {
+                "ttftMs": 14105,
+                "wallMs": 14105,
+                "input": 0,
+                "output": 1097,
+                "cacheRead": 39873
+              },
+              {
+                "ttftMs": 46566,
+                "wallMs": 49165,
+                "input": 0,
+                "output": 4185,
+                "cacheRead": 39873
+              },
+              {
+                "ttftMs": 53673,
+                "wallMs": 57397,
+                "input": 0,
+                "output": 4825,
+                "cacheRead": 39873
+              },
+              {
+                "ttftMs": 48017,
+                "wallMs": 48017,
+                "input": 0,
+                "output": 4067,
+                "cacheRead": 25854
+              },
+              {
+                "ttftMs": 43257,
+                "wallMs": 43257,
+                "input": 0,
+                "output": 3696,
+                "cacheRead": 35270
+              },
+              {
+                "ttftMs": 59606,
+                "wallMs": 59606,
+                "input": 0,
+                "output": 4938,
+                "cacheRead": 35270
+              },
+              {
+                "ttftMs": 88145,
+                "wallMs": 88145,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 35270
+              },
+              {
+                "ttftMs": 21935,
+                "wallMs": 21935,
+                "input": 0,
+                "output": 1753,
+                "cacheRead": 35270
+              },
+              {
+                "ttftMs": 41333,
+                "wallMs": 41333,
+                "input": 0,
+                "output": 3692,
+                "cacheRead": 35270
+              },
+              {
+                "ttftMs": 38950,
+                "wallMs": 38950,
+                "input": 0,
+                "output": 3305,
+                "cacheRead": 25854
+              },
+              {
+                "ttftMs": 95968,
+                "wallMs": 95968,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 36019
+              },
+              {
+                "ttftMs": 46705,
+                "wallMs": 46705,
+                "input": 0,
+                "output": 3836,
+                "cacheRead": 36019
+              },
+              {
+                "ttftMs": 27918,
+                "wallMs": 27918,
+                "input": 0,
+                "output": 2391,
+                "cacheRead": 36019
+              },
+              {
+                "ttftMs": 29203,
+                "wallMs": 29203,
+                "input": 0,
+                "output": 2450,
+                "cacheRead": 22138
+              },
+              {
+                "ttftMs": 52431,
+                "wallMs": 52431,
+                "input": 0,
+                "output": 4325,
+                "cacheRead": 32303
+              },
+              {
+                "ttftMs": 32078,
+                "wallMs": 32078,
+                "input": 0,
+                "output": 2968,
+                "cacheRead": 32303
+              },
+              {
+                "ttftMs": 47118,
+                "wallMs": 47118,
+                "input": 0,
+                "output": 4374,
+                "cacheRead": 32303
+              },
+              {
+                "ttftMs": 74143,
+                "wallMs": 74143,
+                "input": 0,
+                "output": 7019,
+                "cacheRead": 32303
+              },
+              {
+                "ttftMs": 54334,
+                "wallMs": 56070,
+                "input": 0,
+                "output": 5028,
+                "cacheRead": 32303
+              },
+              {
+                "ttftMs": 39788,
+                "wallMs": 45276,
+                "input": 0,
+                "output": 3846,
+                "cacheRead": 25854
+              },
+              {
+                "ttftMs": 69852,
+                "wallMs": 73094,
+                "input": 0,
+                "output": 6305,
+                "cacheRead": 36019
+              },
+              {
+                "ttftMs": 72293,
+                "wallMs": 74129,
+                "input": 0,
+                "output": 7189,
+                "cacheRead": 36019
+              },
+              {
+                "ttftMs": 61564,
+                "wallMs": 61564,
+                "input": 0,
+                "output": 5533,
+                "cacheRead": 36019
+              },
+              {
+                "ttftMs": 623,
+                "wallMs": 623,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 25,
+              "ttftMs": {
+                "p50": 46705,
+                "p95": 88145,
+                "min": 623,
+                "max": 95968
+              },
+              "wallMs": {
+                "p50": 47118,
+                "p95": 88145,
+                "min": 623,
+                "max": 95968
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 4067,
+                "p95": 8192,
+                "min": 0,
+                "max": 8192
+              },
+              "cacheHitRate": 1,
+              "cacheReportingTurns": 24
+            },
+            "usd": 1.571895,
+            "usageTokens": 104793,
+            "toolCalls": 60,
+            "toolCallsByName": {
+              "get_mapped_transcript": 2,
+              "map_footage": 2,
+              "analyze_silence": 2,
+              "get_frame": 10,
+              "trim_clip": 2,
+              "ask_user": 6,
+              "get_timeline_summary": 2,
+              "get_timeline_map": 2,
+              "load_skill": 4,
+              "get_project_state": 2,
+              "recall_evidence": 14,
+              "delete_clip": 6,
+              "add_clips": 4,
+              "move_clip": 2
+            },
+            "repeatedToolCalls": 33,
+            "analysisFromCache": 0,
+            "contextRequests": 49,
+            "contextByType": [
+              {
+                "system": 2170,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2170,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2850,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2850,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2917,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2917,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3259,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3259,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3093,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3093,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3119,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3119,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3178,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3178,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 2721,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 2721,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 2678,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 2678,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 2589,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 2589,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3175,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3175,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3196,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3196,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3173,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3173,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3081,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3081,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3282,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3282,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3279,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3279,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3289,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3289,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3291,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3291,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3325,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3325,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 7346,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 7346,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 7094,
+                "retrieved_evidence": 3143,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 7094,
+                "retrieved_evidence": 3143,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 7170,
+                "retrieved_evidence": 3143,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 7170,
+                "retrieved_evidence": 3143,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 7182,
+                "retrieved_evidence": 3164,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 7182,
+                "retrieved_evidence": 3164,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 7241,
+                "retrieved_evidence": 3145,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 7241,
+                "retrieved_evidence": 3145,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 7162,
+                "retrieved_evidence": 3145,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              }
+            ],
+            "contextUsedTokens": [
+              25443,
+              0,
+              26123,
+              0,
+              26190,
+              0,
+              26532,
+              0,
+              23343,
+              0,
+              23369,
+              0,
+              23428,
+              0,
+              22971,
+              0,
+              22928,
+              0,
+              22839,
+              0,
+              23425,
+              0,
+              23446,
+              0,
+              23423,
+              0,
+              23331,
+              0,
+              21023,
+              0,
+              21020,
+              0,
+              21030,
+              0,
+              21032,
+              0,
+              21066,
+              0,
+              25087,
+              0,
+              27356,
+              0,
+              27432,
+              0,
+              27465,
+              0,
+              27505,
+              0,
+              27426
+            ],
+            "contextCachedTokens": [
+              null,
+              30457,
+              null,
+              39873,
+              null,
+              39873,
+              null,
+              39873,
+              null,
+              25854,
+              null,
+              35270,
+              null,
+              35270,
+              null,
+              35270,
+              null,
+              35270,
+              null,
+              35270,
+              null,
+              25854,
+              null,
+              36019,
+              null,
+              36019,
+              null,
+              36019,
+              null,
+              22138,
+              null,
+              32303,
+              null,
+              32303,
+              null,
+              32303,
+              null,
+              32303,
+              null,
+              32303,
+              null,
+              25854,
+              null,
+              36019,
+              null,
+              36019,
+              null,
+              36019,
+              null
+            ],
+            "diffs": 5,
+            "validDiffs": 5,
+            "operations": 9,
+            "errors": [],
+            "finalStatus": "cancelled"
+          },
+          "timelineAfter": {
+            "durationSeconds": 28,
+            "pictureClips": 2,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 2
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "podcast-highlight-60s",
+      "project": "mission-podcast",
+      "run": 2,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+          "rubric": "podcast-highlight-60s",
+          "score": 1,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": true,
+              "detail": "changed",
+              "weight": 2
+            },
+            {
+              "id": "duration-within",
+              "ok": true,
+              "detail": "60.00s vs 60s ±10s",
+              "weight": 2
+            },
+            {
+              "id": "no-mid-word-cuts",
+              "ok": true,
+              "detail": "0 edge(s) inside a word"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": true,
+              "detail": "0 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 1200015,
+            "modelCalls": 30,
+            "tokens": {
+              "prompt": 925672,
+              "input": 7122,
+              "output": 101384,
+              "cacheRead": 918550,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 30326,
+                "wallMs": 30326,
+                "input": 0,
+                "output": 2604,
+                "cacheRead": 30457
+              },
+              {
+                "ttftMs": 16013,
+                "wallMs": 16013,
+                "input": 0,
+                "output": 1196,
+                "cacheRead": 39873
+              },
+              {
+                "ttftMs": 11474,
+                "wallMs": 11474,
+                "input": 0,
+                "output": 937,
+                "cacheRead": 39873
+              },
+              {
+                "ttftMs": 40503,
+                "wallMs": 41219,
+                "input": 0,
+                "output": 3417,
+                "cacheRead": 39873
+              },
+              {
+                "ttftMs": 42808,
+                "wallMs": 42808,
+                "input": 0,
+                "output": 3542,
+                "cacheRead": 39873
+              },
+              {
+                "ttftMs": 31231,
+                "wallMs": 31231,
+                "input": 0,
+                "output": 2829,
+                "cacheRead": 39873
+              },
+              {
+                "ttftMs": 69426,
+                "wallMs": 69426,
+                "input": 0,
+                "output": 5729,
+                "cacheRead": 39873
+              },
+              {
+                "ttftMs": 56656,
+                "wallMs": 56656,
+                "input": 0,
+                "output": 4946,
+                "cacheRead": 39873
+              },
+              {
+                "ttftMs": 83637,
+                "wallMs": 86149,
+                "input": 3434,
+                "output": 8192,
+                "cacheRead": 0
+              },
+              {
+                "ttftMs": 14715,
+                "wallMs": 14715,
+                "input": 0,
+                "output": 1162,
+                "cacheRead": 31554
+              },
+              {
+                "ttftMs": 29503,
+                "wallMs": 29503,
+                "input": 0,
+                "output": 2518,
+                "cacheRead": 31554
+              },
+              {
+                "ttftMs": 42298,
+                "wallMs": 45404,
+                "input": 0,
+                "output": 3804,
+                "cacheRead": 31554
+              },
+              {
+                "ttftMs": 16978,
+                "wallMs": 16978,
+                "input": 3688,
+                "output": 1432,
+                "cacheRead": 0
+              },
+              {
+                "ttftMs": 34101,
+                "wallMs": 34101,
+                "input": 0,
+                "output": 2787,
+                "cacheRead": 35270
+              },
+              {
+                "ttftMs": 34928,
+                "wallMs": 34928,
+                "input": 0,
+                "output": 2960,
+                "cacheRead": 31554
+              },
+              {
+                "ttftMs": 21886,
+                "wallMs": 21886,
+                "input": 0,
+                "output": 1814,
+                "cacheRead": 35270
+              },
+              {
+                "ttftMs": 59234,
+                "wallMs": 59234,
+                "input": 0,
+                "output": 5263,
+                "cacheRead": 35270
+              },
+              {
+                "ttftMs": 90469,
+                "wallMs": 90469,
+                "input": 0,
+                "output": 8112,
+                "cacheRead": 35270
+              },
+              {
+                "ttftMs": 21261,
+                "wallMs": 21261,
+                "input": 0,
+                "output": 1919,
+                "cacheRead": 35270
+              },
+              {
+                "ttftMs": 20362,
+                "wallMs": 20362,
+                "input": 0,
+                "output": 1658,
+                "cacheRead": 25854
+              },
+              {
+                "ttftMs": 98189,
+                "wallMs": 98189,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 22138
+              },
+              {
+                "ttftMs": 26018,
+                "wallMs": 26018,
+                "input": 0,
+                "output": 2214,
+                "cacheRead": 32303
+              },
+              {
+                "ttftMs": 20262,
+                "wallMs": 20262,
+                "input": 0,
+                "output": 1769,
+                "cacheRead": 32303
+              },
+              {
+                "ttftMs": 33977,
+                "wallMs": 33977,
+                "input": 0,
+                "output": 2920,
+                "cacheRead": 32303
+              },
+              {
+                "ttftMs": 42844,
+                "wallMs": 42844,
+                "input": 0,
+                "output": 3560,
+                "cacheRead": 32303
+              },
+              {
+                "ttftMs": 26326,
+                "wallMs": 26326,
+                "input": 0,
+                "output": 2199,
+                "cacheRead": 32303
+              },
+              {
+                "ttftMs": 36722,
+                "wallMs": 36722,
+                "input": 0,
+                "output": 3097,
+                "cacheRead": 32303
+              },
+              {
+                "ttftMs": 42704,
+                "wallMs": 42704,
+                "input": 0,
+                "output": 3458,
+                "cacheRead": 32303
+              },
+              {
+                "ttftMs": 84853,
+                "wallMs": 84853,
+                "input": 0,
+                "output": 7154,
+                "cacheRead": 32303
+              },
+              {
+                "ttftMs": 12009,
+                "wallMs": 12009,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 30,
+              "ttftMs": {
+                "p50": 33977,
+                "p95": 90469,
+                "min": 11474,
+                "max": 98189
+              },
+              "wallMs": {
+                "p50": 33977,
+                "p95": 90469,
+                "min": 11474,
+                "max": 98189
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 3434,
+                "min": 0,
+                "max": 3688
+              },
+              "outputTokensPerTurn": {
+                "p50": 2829,
+                "p95": 8192,
+                "min": 0,
+                "max": 8192
+              },
+              "cacheHitRate": 0.9923061300331003,
+              "cacheReportingTurns": 29
+            },
+            "usd": 1.542126,
+            "usageTokens": 108506,
+            "toolCalls": 58,
+            "toolCallsByName": {
+              "list_assets": 2,
+              "map_footage": 2,
+              "get_mapped_transcript": 2,
+              "analyze_silence": 2,
+              "ask_user": 8,
+              "recall_evidence": 30,
+              "trim_clip": 2,
+              "get_timeline_summary": 4,
+              "get_timeline": 2,
+              "load_skill": 2,
+              "get_clip": 2
+            },
+            "repeatedToolCalls": 30,
+            "analysisFromCache": 0,
+            "contextRequests": 59,
+            "contextByType": [
+              {
+                "system": 2170,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2170,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2234,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2234,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2266,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2266,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2793,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2793,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3006,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3006,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3054,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3054,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3198,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3198,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3470,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3470,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3680,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3680,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3194,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3194,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3434,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3434,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 4092,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 4092,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3797,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3797,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3572,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3572,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3779,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3779,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 4032,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4032,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3654,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3654,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 2974,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 2974,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3056,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3056,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3615,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3615,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3756,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3756,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3330,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3330,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3329,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3329,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3638,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3638,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3582,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3582,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3594,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3594,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3601,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3601,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3629,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3629,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3631,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3631,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3334,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              }
+            ],
+            "contextUsedTokens": [
+              25443,
+              0,
+              25507,
+              0,
+              25539,
+              0,
+              26066,
+              0,
+              26279,
+              0,
+              26327,
+              0,
+              26471,
+              0,
+              26743,
+              0,
+              21423,
+              3434,
+              20937,
+              0,
+              21177,
+              0,
+              21835,
+              0,
+              24047,
+              3688,
+              23822,
+              0,
+              21520,
+              0,
+              24282,
+              0,
+              23904,
+              0,
+              23224,
+              0,
+              23306,
+              0,
+              23865,
+              0,
+              21497,
+              0,
+              21071,
+              0,
+              21070,
+              0,
+              21379,
+              0,
+              21323,
+              0,
+              21335,
+              0,
+              21342,
+              0,
+              21370,
+              0,
+              21372,
+              0,
+              21075
+            ],
+            "contextCachedTokens": [
+              null,
+              30457,
+              null,
+              39873,
+              null,
+              39873,
+              null,
+              39873,
+              null,
+              39873,
+              null,
+              39873,
+              null,
+              39873,
+              null,
+              39873,
+              null,
+              0,
+              null,
+              31554,
+              null,
+              31554,
+              null,
+              31554,
+              null,
+              0,
+              null,
+              35270,
+              null,
+              31554,
+              null,
+              35270,
+              null,
+              35270,
+              null,
+              35270,
+              null,
+              35270,
+              null,
+              25854,
+              null,
+              22138,
+              null,
+              32303,
+              null,
+              32303,
+              null,
+              32303,
+              null,
+              32303,
+              null,
+              32303,
+              null,
+              32303,
+              null,
+              32303,
+              null,
+              32303,
+              null
+            ],
+            "diffs": 1,
+            "validDiffs": 1,
+            "operations": 1,
+            "errors": [],
+            "finalStatus": "cancelled"
+          },
+          "timelineAfter": {
+            "durationSeconds": 60,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "podcast-highlight-60s",
+      "project": "mission-podcast",
+      "run": 3,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+          "rubric": "podcast-highlight-60s",
+          "score": 1,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": true,
+              "detail": "changed",
+              "weight": 2
+            },
+            {
+              "id": "duration-within",
+              "ok": true,
+              "detail": "60.00s vs 60s ±10s",
+              "weight": 2
+            },
+            {
+              "id": "no-mid-word-cuts",
+              "ok": true,
+              "detail": "0 edge(s) inside a word"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": true,
+              "detail": "0 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 591927,
+            "modelCalls": 14,
+            "tokens": {
+              "prompt": 390567,
+              "input": 3718,
+              "output": 49284,
+              "cacheRead": 386849,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 14016,
+                "wallMs": 14016,
+                "input": 303,
+                "output": 1097,
+                "cacheRead": 0
+              },
+              {
+                "ttftMs": 28793,
+                "wallMs": 28793,
+                "input": 0,
+                "output": 2373,
+                "cacheRead": 30457
+              },
+              {
+                "ttftMs": 22496,
+                "wallMs": 22496,
+                "input": 0,
+                "output": 1911,
+                "cacheRead": 40622
+              },
+              {
+                "ttftMs": 98496,
+                "wallMs": 98496,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 40622
+              },
+              {
+                "ttftMs": 49454,
+                "wallMs": 49454,
+                "input": 0,
+                "output": 4182,
+                "cacheRead": 40622
+              },
+              {
+                "ttftMs": 21992,
+                "wallMs": 24896,
+                "input": 0,
+                "output": 2070,
+                "cacheRead": 40622
+              },
+              {
+                "ttftMs": 34946,
+                "wallMs": 34946,
+                "input": 0,
+                "output": 2832,
+                "cacheRead": 40622
+              },
+              {
+                "ttftMs": 99516,
+                "wallMs": 99516,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 40622
+              },
+              {
+                "ttftMs": 48424,
+                "wallMs": 51762,
+                "input": 0,
+                "output": 4349,
+                "cacheRead": 40622
+              },
+              {
+                "ttftMs": 42847,
+                "wallMs": 42847,
+                "input": 1369,
+                "output": 3766,
+                "cacheRead": 0
+              },
+              {
+                "ttftMs": 24946,
+                "wallMs": 24946,
+                "input": 0,
+                "output": 2176,
+                "cacheRead": 36019
+              },
+              {
+                "ttftMs": 54114,
+                "wallMs": 54114,
+                "input": 2046,
+                "output": 4645,
+                "cacheRead": 0
+              },
+              {
+                "ttftMs": 43160,
+                "wallMs": 43160,
+                "input": 0,
+                "output": 3499,
+                "cacheRead": 36019
+              },
+              {
+                "ttftMs": 1549,
+                "wallMs": 1549,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 14,
+              "ttftMs": {
+                "p50": 34946,
+                "p95": 99516,
+                "min": 1549,
+                "max": 99516
+              },
+              "wallMs": {
+                "p50": 34946,
+                "p95": 99516,
+                "min": 1549,
+                "max": 99516
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 2046,
+                "min": 0,
+                "max": 2046
+              },
+              "outputTokensPerTurn": {
+                "p50": 2832,
+                "p95": 8192,
+                "min": 0,
+                "max": 8192
+              },
+              "cacheHitRate": 0.9904805065456119,
+              "cacheReportingTurns": 13
+            },
+            "usd": 0.7504140000000001,
+            "usageTokens": 53002,
+            "toolCalls": 38,
+            "toolCallsByName": {
+              "load_skill": 2,
+              "map_footage": 2,
+              "get_clip": 2,
+              "get_mapped_transcript": 2,
+              "analyze_silence": 2,
+              "get_frame": 6,
+              "describe_footage": 2,
+              "search_visual": 4,
+              "recall_evidence": 8,
+              "trim_clip": 2,
+              "get_project_state": 4,
+              "get_timeline_summary": 2
+            },
+            "repeatedToolCalls": 20,
+            "analysisFromCache": 0,
+            "contextRequests": 27,
+            "contextByType": [
+              {
+                "system": 2170,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2170,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2824,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2824,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2883,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2883,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3857,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3857,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3870,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3870,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4100,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4100,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4266,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4266,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4389,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4389,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4372,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4372,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3378,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3378,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3426,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3426,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 3762,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 3762,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 12939
+              },
+              {
+                "system": 7489,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 7489,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 7391,
+                "retrieved_evidence": 3131,
+                "skill": 1645,
+                "latest_user_message": 26,
+                "tool_schemas": 15448
+              }
+            ],
+            "contextUsedTokens": [
+              25443,
+              303,
+              26097,
+              0,
+              26156,
+              0,
+              27130,
+              0,
+              27143,
+              0,
+              27373,
+              0,
+              27539,
+              0,
+              27662,
+              0,
+              27645,
+              0,
+              23628,
+              1369,
+              23676,
+              0,
+              21503,
+              2046,
+              27739,
+              0,
+              27641
+            ],
+            "contextCachedTokens": [
+              null,
+              0,
+              null,
+              30457,
+              null,
+              40622,
+              null,
+              40622,
+              null,
+              40622,
+              null,
+              40622,
+              null,
+              40622,
+              null,
+              40622,
+              null,
+              40622,
+              null,
+              0,
+              null,
+              36019,
+              null,
+              0,
+              null,
+              36019,
+              null
+            ],
+            "diffs": 1,
+            "validDiffs": 1,
+            "operations": 1,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 60,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "remove-dead-air",
+      "project": "mission-podcast",
+      "run": 1,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Remove the dead air and long pauses from this recording.",
+          "rubric": "remove-dead-air",
+          "score": 0.25,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "shorter",
+              "ok": false,
+              "detail": "575.85s → 575.85s"
+            },
+            {
+              "id": "no-mid-word-cuts",
+              "ok": false,
+              "detail": "1 edge(s) inside a word"
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "1 picture clip(s), need ≥ 2"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 16,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 5,
+                "wallMs": 5,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 5,
+                "p95": 5,
+                "min": 5,
+                "max": 5
+              },
+              "wallMs": {
+                "p50": 5,
+                "p95": 5,
+                "min": 5,
+                "max": 5
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2169,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              25434
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 575.854875,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "remove-dead-air",
+      "project": "mission-podcast",
+      "run": 2,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Remove the dead air and long pauses from this recording.",
+          "rubric": "remove-dead-air",
+          "score": 0.25,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "shorter",
+              "ok": false,
+              "detail": "575.85s → 575.85s"
+            },
+            {
+              "id": "no-mid-word-cuts",
+              "ok": false,
+              "detail": "1 edge(s) inside a word"
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "1 picture clip(s), need ≥ 2"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 12,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 6,
+                "wallMs": 6,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 6,
+                "p95": 6,
+                "min": 6,
+                "max": 6
+              },
+              "wallMs": {
+                "p50": 6,
+                "p95": 6,
+                "min": 6,
+                "max": 6
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2169,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              25434
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 575.854875,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "remove-dead-air",
+      "project": "mission-podcast",
+      "run": 3,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Remove the dead air and long pauses from this recording.",
+          "rubric": "remove-dead-air",
+          "score": 0.25,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "shorter",
+              "ok": false,
+              "detail": "575.85s → 575.85s"
+            },
+            {
+              "id": "no-mid-word-cuts",
+              "ok": false,
+              "detail": "1 edge(s) inside a word"
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "1 picture clip(s), need ≥ 2"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 8,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 4,
+                "wallMs": 4,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 4,
+                "p95": 4,
+                "min": 4,
+                "max": 4
+              },
+              "wallMs": {
+                "p50": 4,
+                "p95": 4,
+                "min": 4,
+                "max": 4
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2169,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              25434
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 575.854875,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "beat-sync",
+      "project": "mission-montage",
+      "run": 1,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Put the 100 BPM music track (beat-100bpm) under the footage and cut the picture to the beat. Aim for about 30 seconds.",
+          "rubric": "beat-sync",
+          "score": 0.2222222222222222,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "has-music",
+              "ok": false,
+              "detail": "0 music clip(s)"
+            },
+            {
+              "id": "cuts-on-beats",
+              "ok": false,
+              "detail": "no music placed",
+              "weight": 2
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "5 picture clip(s), need ≥ 6"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2233,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              22535
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "beat-sync",
+      "project": "mission-montage",
+      "run": 2,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Put the 100 BPM music track (beat-100bpm) under the footage and cut the picture to the beat. Aim for about 30 seconds.",
+          "rubric": "beat-sync",
+          "score": 0.2222222222222222,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "has-music",
+              "ok": false,
+              "detail": "0 music clip(s)"
+            },
+            {
+              "id": "cuts-on-beats",
+              "ok": false,
+              "detail": "no music placed",
+              "weight": 2
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "5 picture clip(s), need ≥ 6"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2233,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              22535
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "beat-sync",
+      "project": "mission-montage",
+      "run": 3,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Put the 100 BPM music track (beat-100bpm) under the footage and cut the picture to the beat. Aim for about 30 seconds.",
+          "rubric": "beat-sync",
+          "score": 0.2222222222222222,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "has-music",
+              "ok": false,
+              "detail": "0 music clip(s)"
+            },
+            {
+              "id": "cuts-on-beats",
+              "ok": false,
+              "detail": "no music placed",
+              "weight": 2
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "5 picture clip(s), need ≥ 6"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2233,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              22535
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "refine-tighten",
+      "project": "mission-montage",
+      "run": 1,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Create a 30-second fast-paced social montage from the raw footage on the timeline.",
+          "rubric": "montage-30s",
+          "score": 0.25,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "duration-within",
+              "ok": false,
+              "detail": "134.67s vs 30s ±3s",
+              "weight": 2
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "5 picture clip(s), need ≥ 6"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2259,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 24,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              22552
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        },
+        {
+          "turnIndex": 1,
+          "prompt": "Tighten the middle section so it moves faster, but keep the first and last clips exactly as they are.",
+          "rubric": "refine-tighten",
+          "score": 0.5,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "shorter",
+              "ok": false,
+              "detail": "134.67s → 134.67s"
+            },
+            {
+              "id": "kept-clips-untouched",
+              "ok": true,
+              "detail": "0/2 named clip(s) altered",
+              "weight": 2
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2232,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "conversation": 25,
+                "latest_user_message": 29,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              22555
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "refine-tighten",
+      "project": "mission-montage",
+      "run": 2,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Create a 30-second fast-paced social montage from the raw footage on the timeline.",
+          "rubric": "montage-30s",
+          "score": 0.25,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "duration-within",
+              "ok": false,
+              "detail": "134.67s vs 30s ±3s",
+              "weight": 2
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "5 picture clip(s), need ≥ 6"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 4,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2259,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 24,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              22552
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        },
+        {
+          "turnIndex": 1,
+          "prompt": "Tighten the middle section so it moves faster, but keep the first and last clips exactly as they are.",
+          "rubric": "refine-tighten",
+          "score": 0.5,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "shorter",
+              "ok": false,
+              "detail": "134.67s → 134.67s"
+            },
+            {
+              "id": "kept-clips-untouched",
+              "ok": true,
+              "detail": "0/2 named clip(s) altered",
+              "weight": 2
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2232,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "conversation": 25,
+                "latest_user_message": 29,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              22555
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "refine-tighten",
+      "project": "mission-montage",
+      "run": 3,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Create a 30-second fast-paced social montage from the raw footage on the timeline.",
+          "rubric": "montage-30s",
+          "score": 0.25,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "duration-within",
+              "ok": false,
+              "detail": "134.67s vs 30s ±3s",
+              "weight": 2
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "5 picture clip(s), need ≥ 6"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 3,
+                "wallMs": 3,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 3,
+                "p95": 3,
+                "min": 3,
+                "max": 3
+              },
+              "wallMs": {
+                "p50": 3,
+                "p95": 3,
+                "min": 3,
+                "max": 3
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2259,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "latest_user_message": 24,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              22552
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        },
+        {
+          "turnIndex": 1,
+          "prompt": "Tighten the middle section so it moves faster, but keep the first and last clips exactly as they are.",
+          "rubric": "refine-tighten",
+          "score": 0.5,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "shorter",
+              "ok": false,
+              "detail": "134.67s → 134.67s"
+            },
+            {
+              "id": "kept-clips-untouched",
+              "ok": true,
+              "detail": "0/2 named clip(s) altered",
+              "weight": 2
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2232,
+                "retrieved_evidence": 155,
+                "skill": 1645,
+                "conversation": 25,
+                "latest_user_message": 29,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              22555
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "memory-captions",
+      "project": "mission-talk",
+      "run": 1,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Cut this down to the best 45 seconds.",
+          "rubric": "podcast-highlight-60s",
+          "score": 0.375,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "duration-within",
+              "ok": false,
+              "detail": "528.74s vs 60s ±10s",
+              "weight": 2
+            },
+            {
+              "id": "no-mid-word-cuts",
+              "ok": true,
+              "detail": "0 edge(s) inside a word"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2172,
+                "retrieved_evidence": 2116,
+                "skill": 1645,
+                "latest_user_message": 13,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              24415
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 528.741587,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        },
+        {
+          "turnIndex": 1,
+          "prompt": "Add captions in a bold, uppercase, centered style.",
+          "rubric": "memory-captions",
+          "score": 0.2857142857142857,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "has-captions",
+              "ok": false,
+              "detail": "0 caption clip(s)",
+              "weight": 2
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2172,
+                "retrieved_evidence": 2116,
+                "skill": 1645,
+                "conversation": 14,
+                "latest_user_message": 16,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              24432
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 528.741587,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        },
+        {
+          "turnIndex": 2,
+          "prompt": "Trim the last clip by two seconds and keep the captions in the same style.",
+          "rubric": "memory-captions",
+          "score": 0.2857142857142857,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "has-captions",
+              "ok": false,
+              "detail": "0 caption clip(s)",
+              "weight": 2
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 4,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2172,
+                "retrieved_evidence": 2116,
+                "skill": 1645,
+                "conversation": 31,
+                "latest_user_message": 22,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              24455
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 528.741587,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "memory-captions",
+      "project": "mission-talk",
+      "run": 2,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Cut this down to the best 45 seconds.",
+          "rubric": "podcast-highlight-60s",
+          "score": 0.375,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "duration-within",
+              "ok": false,
+              "detail": "528.74s vs 60s ±10s",
+              "weight": 2
+            },
+            {
+              "id": "no-mid-word-cuts",
+              "ok": true,
+              "detail": "0 edge(s) inside a word"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2172,
+                "retrieved_evidence": 2116,
+                "skill": 1645,
+                "latest_user_message": 13,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              24415
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 528.741587,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        },
+        {
+          "turnIndex": 1,
+          "prompt": "Add captions in a bold, uppercase, centered style.",
+          "rubric": "memory-captions",
+          "score": 0.2857142857142857,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "has-captions",
+              "ok": false,
+              "detail": "0 caption clip(s)",
+              "weight": 2
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 3,
+                "wallMs": 3,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 3,
+                "p95": 3,
+                "min": 3,
+                "max": 3
+              },
+              "wallMs": {
+                "p50": 3,
+                "p95": 3,
+                "min": 3,
+                "max": 3
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2172,
+                "retrieved_evidence": 2116,
+                "skill": 1645,
+                "conversation": 14,
+                "latest_user_message": 16,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              24432
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 528.741587,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        },
+        {
+          "turnIndex": 2,
+          "prompt": "Trim the last clip by two seconds and keep the captions in the same style.",
+          "rubric": "memory-captions",
+          "score": 0.2857142857142857,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "has-captions",
+              "ok": false,
+              "detail": "0 caption clip(s)",
+              "weight": 2
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2172,
+                "retrieved_evidence": 2116,
+                "skill": 1645,
+                "conversation": 31,
+                "latest_user_message": 22,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              24455
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 528.741587,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "memory-captions",
+      "project": "mission-talk",
+      "run": 3,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Cut this down to the best 45 seconds.",
+          "rubric": "podcast-highlight-60s",
+          "score": 0.375,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "duration-within",
+              "ok": false,
+              "detail": "528.74s vs 60s ±10s",
+              "weight": 2
+            },
+            {
+              "id": "no-mid-word-cuts",
+              "ok": true,
+              "detail": "0 edge(s) inside a word"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2172,
+                "retrieved_evidence": 2116,
+                "skill": 1645,
+                "latest_user_message": 13,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              24415
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 528.741587,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        },
+        {
+          "turnIndex": 1,
+          "prompt": "Add captions in a bold, uppercase, centered style.",
+          "rubric": "memory-captions",
+          "score": 0.2857142857142857,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "has-captions",
+              "ok": false,
+              "detail": "0 caption clip(s)",
+              "weight": 2
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2172,
+                "retrieved_evidence": 2116,
+                "skill": 1645,
+                "conversation": 14,
+                "latest_user_message": 16,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              24432
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 528.741587,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        },
+        {
+          "turnIndex": 2,
+          "prompt": "Trim the last clip by two seconds and keep the captions in the same style.",
+          "rubric": "memory-captions",
+          "score": 0.2857142857142857,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "has-captions",
+              "ok": false,
+              "detail": "0 caption clip(s)",
+              "weight": 2
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2172,
+                "retrieved_evidence": 2116,
+                "skill": 1645,
+                "conversation": 31,
+                "latest_user_message": 22,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              24455
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 429: 429 Rate limited on the configured account\n\nTroubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_RATE_LIMIT/"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 528.741587,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -63,6 +63,7 @@ Four root causes, all found by measurement (`docs/reports/system-mission/00-base
 | podcast-highlight-60s | **25 → 5** | **804k → 173k** | 0.99 → 1.00 | **1200s → 253s** | **$1.54 → $0.32** | 1.00 → 1.00 | **3/3 → 0/3** |
 | montage-30s | 10 → 31 | 332k → 963k | 0.99 → 0.99 | 424s → 1070s | $0.57 → $1.52 | **0.25 → 1.00** | 2/3 → 1/3 (a cancel at the harness's own 1200s cap) |
 | remove-dead-air | 1 → 7 | 0 → 180k | — → 0.97 | 0s → 584s | $0.00 → $0.94 | **0.25 → 0.75** | 3/3 → 1/1 (settled `failed` *after* landing 54 edits) |
+| beat-sync | 1 → 18 | 0 → 497k | — → 0.98 | 0s → 882s | $0.00 → $1.37 | **0.22 → 0.78** | **3/3 → 0/3** |
 
 All three montage runs scored **1.00** with 30–44 operations, the cancelled one included:
 that cancellation is the harness's clock, not the edit's quality. The dead-air run reports
@@ -91,7 +92,10 @@ Prompt-side reductions independent of the scenarios: **−959 tokens on every re
   briefing, before the run is settled. Bounded to one; a finding that survives both
   attempts reaches the editor as a list rather than a third guess.
 - **Quality gate**: `pnpm --filter @framepilot/ai-sdk eval:mission` reduces a run to one
-  p50 score per scenario and fails against a committed floor (tolerance 0.05).
+  p50 score per scenario and fails against a committed floor (tolerance 0.05). The floor is
+  committed — montage 1.00, podcast 1.00, beat-sync 0.78, dead-air 0.75 — and the gate is
+  proven in both directions: it exits 0 with every row `held`, and exits 2 with
+  `REGRESSION` when a recorded score is lowered past the tolerance.
 
 ---
 
@@ -175,12 +179,12 @@ names in the tree are content-style targets, orientation hints and catalog tags.
 
 These are genuinely unresolved and each names what would close it.
 
-1. **Three scenarios have no after-numbers.** `beat-sync`, `refine-tighten` and
-   `memory-captions` were not re-measured: the provider bridge began returning 429 about
-   three hours into the run and the harness exhausted its retries. The exact command is in
-   `01-after.md` and in P1.6. Needs a provider with headroom. **This also blocks P1.4's
-   evidence** (refinement reuse is measured by `refine-tighten`) and the first committed
-   score floor for `eval:mission`.
+1. **Two scenarios have no after-numbers.** `refine-tighten` and `memory-captions` were
+   not re-measured: the provider bridge 429s after roughly $4-8 of traffic, and two
+   attempts hit that wall. `beat-sync` was recovered on the second attempt (0.22 → 0.78);
+   `refine-tighten`'s first turn measured 0.63 with 22 operations before the wall. The
+   exact command is in `01-after.md` and P1.6. **This still blocks P1.4's evidence**
+   (refinement reuse is what `refine-tighten` measures).
 2. **Export's real bottleneck is untouched.** P7.5 (dependency analysis, stream-copy
    passthrough, single final encode) is not started; the measurement that motivates it is.
    The progress-accuracy (< 5 %) and cancel-leaves-no-partial-file proofs are also pending.
