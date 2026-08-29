@@ -143,6 +143,27 @@ async function openFromRecents(page: Page, projectId: string, attempts = 3): Pro
 }
 
 /**
+ * Reload the renderer the way the app itself would, so the preload survives.
+ *
+ * `page.goto(...)` looks like a reload and is not one: Playwright drives the
+ * navigation directly and Electron does not re-inject the window's preload script,
+ * so the reloaded page has no `window.framepilot` bridge at all. Everything that
+ * needs main then silently reports nothing — the home screen showed "No recent
+ * projects yet" for a project opened seconds earlier, which read as a lost-recents
+ * defect and was really a test reloading the page in a way no user can. Verified
+ * directly: after `goto` the recents FILE still held its entries and the renderer
+ * had no API to ask with. Going through `BrowserWindow.reload()` is the reload a
+ * user performs.
+ */
+export async function reloadRenderer(session: DesktopSession): Promise<void> {
+  await session.app.evaluate(async ({ BrowserWindow }) => {
+    const [window] = BrowserWindow.getAllWindows();
+    window?.reload();
+  });
+  await session.page.waitForLoadState('domcontentloaded');
+}
+
+/**
  * The Recent-projects card for a project, matched by id OR by the name it displays.
  *
  * The list is seeded with `name: <projectId>` before launch, so the first open matches

@@ -10,7 +10,7 @@ Work from the P0.4 growth leads. For each: trace ownership (who allocates, who i
 supposed to release, on which event), fix the release at that owner, add a test that
 counts the resource before/after the lifecycle.
 
-## P6.1 — Renderer: effects, listeners, timers, object URLs, media elements — `[~]`
+## P6.1 — Renderer: effects, listeners, timers, object URLs, media elements — `[x]`
 
 **Touches:** `apps/web-editor/src/**` — `useEffect` cleanups, `addEventListener` pairs,
 `setInterval`/`requestAnimationFrame` cancels, `URL.createObjectURL` ↔ `revokeObjectURL`,
@@ -109,13 +109,20 @@ with it), and it reopened the project by id when the app rewrites the recents en
 project's own display name. It now completes the full scripted edit session and its
 snapshots.
 
-What it still cannot reach is the close/reopen ×3 leg, and the wall is not a resource
-question: after `page.goto` reloads the renderer, the home screen reports "No recent
-projects yet" for a project opened seconds earlier, so there is nothing to click. The export
-history row (P9.4) stops on the same wall. That is filed in Phase 9 §Discovered as a
-question for someone at the app — a real defect if a user loses their recents, an artefact
-if reloading a renderer is simply not restarting the app — and P6.1's `[~]` is now waiting
-on that one answer rather than on the harness.
+The close/reopen ×3 leg had stopped on what looked like a lost-recents defect: after the
+reload the home screen reported "No recent projects yet" for a project opened seconds
+earlier, so there was nothing to click. It was a third harness bug, and a one-off diagnostic
+settled it instead of a guess — `page.goto` does not re-inject Electron's preload, so the
+reloaded renderer had no IPC bridge to ask main for recents, while the file itself was
+intact throughout. Reloading through `BrowserWindow.reload()`, which is what a user does,
+fixes it.
+
+**Closed 2026-08-30: `@resources desktop resource baseline` passes end to end** — the
+scripted editing session and close/reopen ×3, with snapshots at every checkpoint. That is
+the counter evidence the done-when asked for, and what this task had been waiting on since
+the audit. What the audit found by reading — the one real listener leak in
+`PreviewTextEditor`, and a `dispose()` that left a detached canvas and a map of decoded
+images — is now backed by a run that exercises the whole cycle rather than a claim about it.
 
 ## P6.2 — Renderer: bounded caches — `[x]`
 

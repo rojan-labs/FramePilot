@@ -11,6 +11,7 @@ import {
   FIXTURE_PROJECTS,
   type DesktopSession,
   openRecentProject,
+  reloadRenderer,
 } from './launch.js';
 
 /**
@@ -414,7 +415,7 @@ test.describe('UC-13 export matrix', () => {
 
       // Reload the whole renderer and reopen the project: history and the chosen
       // settings are what the user comes back to, so they have to outlive the window.
-      await ui.page.goto('http://127.0.0.1:5173/');
+      await reloadRenderer(ui);
       await openRecentProject(ui.page, PROJECT_30S);
       await expect(ui.page.locator('section[aria-label="timeline"]')).toBeVisible({
         timeout: 60_000,

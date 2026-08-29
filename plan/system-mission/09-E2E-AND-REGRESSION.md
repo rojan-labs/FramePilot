@@ -219,7 +219,7 @@ $ node packages/ai-sdk/scripts/mission-score.mjs reports/system-mission/.tmp-sco
 1 scenario(s) regressed by more than 0.05 …                             exit 2
 ```
 
-## P9.4 — Export tests — `[~]` (7/8 rows green on BOTH encoder paths; the reopen row is blocked on a real question about recents)
+## P9.4 — Export tests — `[x]` (8/8 rows green on BOTH encoder paths)
 
 UC-13 matrix (resolution × fps × codec × container, source-capped) against both fixture
 projects: `ffprobe` asserts dimensions, fps, codec, container, duration ±1 frame; cancel
@@ -284,13 +284,18 @@ defects, none of them in the code that computes the answer, all in the seams aro
    "picked 1080p" read as "clicked away". 32 existing tests missed it because
    `fireEvent.click` never dispatches a `pointerdown`.
 
-**7 of 8 rows green on both paths.** The one that does not pass is the reopen leg of the
-history row, and it stops on something that is not an export question at all: after
-`page.goto` reloads the renderer, the home screen reports "No recent projects yet" for a
-project opened seconds earlier. The resource baseline (P6.1) stops on the same wall. It is
-recorded in §Discovered as a question for someone at the app, because whether that is a
-real defect or an artefact of reloading a renderer instead of restarting the app is not
-something the harness can answer.
+**8 of 8 rows green on both encoder paths** (2026-08-30), including the history / reveal /
+remembered-settings row.
+
+That last row, and the close/reopen leg of the resource baseline, had both stopped on what
+looked like a lost-recents defect: after the reload the home screen reported "No recent
+projects yet" for a project opened seconds earlier. **It was the test, and a one-off
+diagnostic settled it rather than a guess.** After `page.goto` the recents FILE still held
+its entries and the renderer had no `window.framepilot` bridge at all — Playwright drives
+that navigation directly and Electron does not re-inject the window's preload, so everything
+needing the main process silently answered nothing. `page.goto` looks like a reload and is
+not one. Both rows now reload through `BrowserWindow.reload()`, which is the reload a user
+actually performs, and both pass.
 
 **Update 2026-08-29 — the second platform is not the blocker the note assumed.**
 ## P9.5 — Efficiency and resource gates — `[x]`
@@ -380,7 +385,12 @@ media. `USE-CASES.md`'s own State column was left untouched (outside this task's
 
 ## Discovered
 
-- [ ] **Recent projects is empty after a renderer reload.** Open a mission fixture project,
+- [x] **Recent projects is empty after a renderer reload** — RESOLVED 2026-08-30, and it was
+  the harness. `page.goto` does not re-inject Electron's preload, so the reloaded renderer
+  had no IPC bridge; the recents file was intact the whole time. Both rows reload through
+  `BrowserWindow.reload()` now. Kept here because the shape is worth recognising again: a
+  test that reloads a page in a way no user can will produce defects that do not exist.
+  Original note: **Recent projects is empty after a renderer reload.** Open a mission fixture project,
   then reload the window: the home screen says "No recent projects yet" for a project opened
   seconds earlier, even though `recentFiles.add(...)` runs on open and the store reads the
   file on every render. Two independent rows stop here — the export history/reveal row

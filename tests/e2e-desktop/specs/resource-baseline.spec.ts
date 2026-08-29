@@ -7,6 +7,7 @@ import {
   snapshot,
   type ResourceSnapshot,
   openRecentProject,
+  reloadRenderer,
 } from './launch.js';
 import { resourceGateViolations } from './resource-gate.js';
 
@@ -90,7 +91,7 @@ test('@resources desktop resource baseline', async () => {
     // Close/reopen: what a leak looks like is "reopen ×3 is bigger than open ×1".
     for (let r = 1; r <= 3; r++) {
       await page.keyboard.press('Meta+W').catch(() => undefined);
-      await page.goto('http://127.0.0.1:5173/');
+      await reloadRenderer(session);
       await openRecentProject(page, 'mission-montage');
       await expect(page.locator('section[aria-label="timeline"]')).toBeVisible({ timeout: 60_000 });
       await page.waitForTimeout(5_000);
