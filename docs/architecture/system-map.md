@@ -36,18 +36,18 @@ Export : ExportDialog → 'framepilot:render:export-start' → electron/render/e
 
 Channel families (all prefixed `framepilot:`):
 
-| Family | Channels | Crossing shape |
-| --- | --- | --- |
-| project | `project:open`, `open-dialog`, `recent`, `save`, `save-default`, `snapshot`, `commit-patch`, `changed`, `dir`, `reveal` | `Project` (schema v21), `Patch`, revision ids; **host-authoritative commit** (`ai/commit-target.ts`, `patch-settlement.ts`) |
-| media | `media:import`, `import-asset`, `import-chunk` | file bytes → enrolled asset under project sandbox (`media/asset-enrolment.ts`, `asset-paths.ts`) |
-| ai (legacy single-shot) | `ai:chat`, `ai:edit`, `ai:plan`, `ai:transcribe`, `ai:providers`, `ai:config-get/set` | `AiStreamRequest`-shaped payloads; keys never cross (config stays in main) |
-| ai (stream) | `ai:stream-start`, `stream-event`, `stream-answer`, `stream-abort` | `ai/ai-stream.ts` (50 KB) builds host tools + context and drives `Orchestrator` |
-| run (durable) | `run:start`, `command`, `event`, `ack`, `snapshot`, `subscribe`, `unsubscribe` | `ai/run-coordinator-base.ts` (49 KB), `run-store.ts`, `durable-run-controls.ts` — replayable run events |
-| render | `render:export`, `export-start`, `export-progress`, `export-cancel`, `export:save-as` | `render/export-client.ts`, `export-hub.ts`, `export-save.ts`; request carries **`preset` id today** (Phase 7 replaces with `ExportSettings`) |
-| stock / music | `stock:search/preview/download/…`, `music:search/preview/download/…` | `ai/stock-host.ts`; shared by UI and agent (see memory note "agent shares panel services") |
-| capability-pack | `capability-pack:*` (14 channels) | `packages/capability-packs` install/track/evict |
-| conversations | `conversations:list/load/save/delete` | `ai/conversation-store.ts` — persists `ConversationUiState` incl. attachment chips |
-| visual-index, sidecar:status, license:*, ping | — | status/boolean payloads |
+| Family                                         | Channels                                                                                                                | Crossing shape                                                                                                                               |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| project                                        | `project:open`, `open-dialog`, `recent`, `save`, `save-default`, `snapshot`, `commit-patch`, `changed`, `dir`, `reveal` | `Project` (schema v21), `Patch`, revision ids; **host-authoritative commit** (`ai/commit-target.ts`, `patch-settlement.ts`)                  |
+| media                                          | `media:import`, `import-asset`, `import-chunk`                                                                          | file bytes → enrolled asset under project sandbox (`media/asset-enrolment.ts`, `asset-paths.ts`)                                             |
+| ai (legacy single-shot)                        | `ai:chat`, `ai:edit`, `ai:plan`, `ai:transcribe`, `ai:providers`, `ai:config-get/set`                                   | `AiStreamRequest`-shaped payloads; keys never cross (config stays in main)                                                                   |
+| ai (stream)                                    | `ai:stream-start`, `stream-event`, `stream-answer`, `stream-abort`                                                      | `ai/ai-stream.ts` (50 KB) builds host tools + context and drives `Orchestrator`                                                              |
+| run (durable)                                  | `run:start`, `command`, `event`, `ack`, `snapshot`, `subscribe`, `unsubscribe`                                          | `ai/run-coordinator-base.ts` (49 KB), `run-store.ts`, `durable-run-controls.ts` — replayable run events                                      |
+| render                                         | `render:export`, `export-start`, `export-progress`, `export-cancel`, `export:save-as`                                   | `render/export-client.ts`, `export-hub.ts`, `export-save.ts`; request carries **`preset` id today** (Phase 7 replaces with `ExportSettings`) |
+| stock / music                                  | `stock:search/preview/download/…`, `music:search/preview/download/…`                                                    | `ai/stock-host.ts`; shared by UI and agent (see memory note "agent shares panel services")                                                   |
+| capability-pack                                | `capability-pack:*` (14 channels)                                                                                       | `packages/capability-packs` install/track/evict                                                                                              |
+| conversations                                  | `conversations:list/load/save/delete`                                                                                   | `ai/conversation-store.ts` — persists `ConversationUiState` incl. attachment chips                                                           |
+| visual-index, sidecar:status, license:\*, ping | —                                                                                                                       | status/boolean payloads                                                                                                                      |
 
 Security: `contextIsolation`, `sandbox`, `hardenRendererSession()` (main.ts:2945);
 `fp-media://` protocol serves sandboxed media + derived proxies.
@@ -66,20 +66,20 @@ route; **no unified registry of FFmpeg/ffprobe children** (Phase 5 P5.3).
 
 ## 3. AI layer internals (`packages/ai-sdk`)
 
-| Piece | Module | Crossing shape |
-| --- | --- | --- |
-| Entry | `orchestrator.ts` (`Orchestrator.streamAgent`, ~6k lines) | `AiStreamRequest` in; `AgentEvent` stream out |
-| Runtime | `kernel/agent-graph.ts` (LangGraph nodes) → `kernel/conductor.ts` (pure decisions, 110 KB) | `ConductorEffect` / `EffectResult` |
-| Effects | `kernel/effects.ts`, `effect-runtime.ts` | 13 kinds (§0) |
-| State | `kernel/working-state.ts` (50 KB), `commit-ledger.ts`, `evidence-store.ts`, `event-log.ts` | run-scoped |
-| Context | `context-builder.ts`, `kernel/context/{tiers,budget,manifest,invariants}`, `kernel/briefing.ts`, `kernel/semantic-index/*` | prompt blocks + token manifest |
-| Policy | `kernel/stage-policy.ts`, `loop-detector.ts`, `continuation.ts`, `completion-gate.ts`, `acceptance.ts`, `agent-run-quality.ts` | stop/continue verdicts |
-| Proposers | `kernel/proposers/{critic,edit-signals,…}.ts` | `ProposerResult` via `proposerModelEffect` |
-| Tools | `domain-tools/*` specs → `autonomous-tool-router.ts` / `autonomous-tool-contract.ts` → `controllers/*` | tool args (zod) → ops → `Patch` |
-| Memory | Memory Store (project-persisted, PRD §8.7) + `brain` `/brain/memory` | style/pacing/accepted-rejected |
-| Metrics | `kernel/cost/{run-metrics,cost-meter,usage-summary,baseline-capture,analysis-caps}.ts` | `TurnSample` → percentiles |
-| Eval | `eval/foundation-real-eval.ts`, `scripts/context-benchmark.mjs`, `kernel/replay/` | JSON reports |
-| Mirrors | `autonomous-tools.manifest.json`, Python `ai_tools/`, `packages/mcp-server` | generated by `scripts/generate-*.mjs` |
+| Piece     | Module                                                                                                                         | Crossing shape                                |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------- |
+| Entry     | `orchestrator.ts` (`Orchestrator.streamAgent`, ~6k lines)                                                                      | `AiStreamRequest` in; `AgentEvent` stream out |
+| Runtime   | `kernel/agent-graph.ts` (LangGraph nodes) → `kernel/conductor.ts` (pure decisions, 110 KB)                                     | `ConductorEffect` / `EffectResult`            |
+| Effects   | `kernel/effects.ts`, `effect-runtime.ts`                                                                                       | 13 kinds (§0)                                 |
+| State     | `kernel/working-state.ts` (50 KB), `commit-ledger.ts`, `evidence-store.ts`, `event-log.ts`                                     | run-scoped                                    |
+| Context   | `context-builder.ts`, `kernel/context/{tiers,budget,manifest,invariants}`, `kernel/briefing.ts`, `kernel/semantic-index/*`     | prompt blocks + token manifest                |
+| Policy    | `kernel/stage-policy.ts`, `loop-detector.ts`, `continuation.ts`, `completion-gate.ts`, `acceptance.ts`, `agent-run-quality.ts` | stop/continue verdicts                        |
+| Proposers | `kernel/proposers/{critic,edit-signals,…}.ts`                                                                                  | `ProposerResult` via `proposerModelEffect`    |
+| Tools     | `domain-tools/*` specs → `autonomous-tool-router.ts` / `autonomous-tool-contract.ts` → `controllers/*`                         | tool args (zod) → ops → `Patch`               |
+| Memory    | Memory Store (project-persisted, PRD §8.7) + `brain` `/brain/memory`                                                           | style/pacing/accepted-rejected                |
+| Metrics   | `kernel/cost/{run-metrics,cost-meter,usage-summary,baseline-capture,analysis-caps}.ts`                                         | `TurnSample` → percentiles                    |
+| Eval      | `eval/foundation-real-eval.ts`, `scripts/context-benchmark.mjs`, `kernel/replay/`                                              | JSON reports                                  |
+| Mirrors   | `autonomous-tools.manifest.json`, Python `ai_tools/`, `packages/mcp-server`                                                    | generated by `scripts/generate-*.mjs`         |
 
 Attachments: `apps/web-editor/src/ai/conversation.ts` `Attachment{id,kind,name}` chips in
 `AiSidebar.tsx` state → persisted via `conversations:save`; **not** on `AiStreamRequest`.
@@ -141,6 +141,40 @@ in `electron/telemetry`; cost meter per run in the sidebar.
 5. ASR: manual transcribe via IPC/TS hosted provider vs agent `transcribe` via sidecar (documented two-path) → keep, document in §"Intentional host differences".
 6. `main.ts` legacy `ai:chat/edit/plan` vs `ai:stream-*` vs `run:*` — three generations of the same entry → P1/P6 candidate for deletion of the legacy pair once nothing calls it.
 7. Caption style: `captionStyle.ts` ↔ `captions.py` parity contract (tested) — keep.
+
+## 11. Process lifecycle (added during the system mission)
+
+Every OS child the desktop app owns is registered in `electron/process-registry.ts` with
+owner, purpose, started-at, an optional timeout and a cancel handle, moving through
+`created → ready → running → idle → failed → recovering → terminated`. Registering is how
+a child becomes visible to shutdown, so a new kind of process cannot silently opt out.
+
+- `will-quit` calls `terminateAll()` as a **backstop** behind the existing owners
+  (`sidecar.stop()`, `exportHub.abortAll()`), not a replacement for them.
+- A **pidfile** in `userData` is written synchronously — the one sync write there —
+  because its job is to be readable after a process died without running any handler.
+  The next launch sweeps it, liveness-checking each pid first (pids get reused).
+- `SidecarManager` restarts an engine that dies after becoming ready: bounded (default 3),
+  1s/2s/4s backoff, cause and attempt in `status.detail`. `recovering` is a distinct state
+  from `failed` so a reader can tell "coming back" from "gone".
+- The render subprocess runs in its own session; cancel and timeout SIGTERM the whole
+  group, so python and the ffmpeg it spawned die together.
+
+Engine side: `framepilot_engine/singleflight.py` coalesces identical **in-flight**
+requests on `/asset-media`, `/analyze-silence` and `/detect-beats` — six identical
+concurrent callers produce one ffmpeg derivation and all six are served. It is not a
+cache: the key is released the moment the leader finishes.
+
+## 12. What the UI is allowed to claim
+
+Two surfaces were saying more than they knew, and both now report only what they can prove:
+
+- **Provider readiness** (`apps/web-editor/src/editor/providerHealth.ts`) — a stored
+  credential earns "key saved", not a green dot. The claim is upgraded only once that
+  provider has actually answered a run on this device.
+- **Export progress** — "about N s left" is derived from the render's own reported pace
+  and is not shown before there is a rate to derive it from. A failed render says one plain
+  sentence and keeps the encoder's own text behind "Details".
 
 ## Intentional host differences
 
