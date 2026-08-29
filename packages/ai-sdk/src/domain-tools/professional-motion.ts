@@ -1,10 +1,11 @@
 /** Controller-backed professional motion editing tool. */
 import { z } from 'zod/v4';
 import { compileMotionCommand } from '@framepilot/editor-core';
-import { MotionObjectiveSchema, resolveMotionObjective } from '../controllers/motion-controller.js';
+import { MotionObjectiveSchema } from '../controllers/motion-controller.js';
 import type { ToolContext } from '../tool-context.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { validateProfessionalOperationBatch } from './professional-batch.js';
+import { MOTION_SPECIALIST, runSpecialist, sliceOf } from '../specialists/index.js';
 
 function jsonSchema(schema: z.ZodType): Record<string, unknown> {
   const { $schema: _dialect, ...parameters } = z.toJSONSchema(schema) as Record<string, unknown>;
@@ -16,18 +17,17 @@ function buildProfessionalMotion(rawArgs: unknown, ctx: ToolContext) {
   if (!ctx.interaction) {
     throw new Error('professional_motion requires a live editor interaction snapshot.');
   }
-  const resolution = resolveMotionObjective({
-    project: ctx.project,
-    ...(ctx.projectRevision === undefined ? {} : { projectRevision: ctx.projectRevision }),
-    interaction: ctx.interaction,
-    objective,
+  const resolution = runSpecialist(MOTION_SPECIALIST, {
+    task: 'professional_motion',
+    context: sliceOf(MOTION_SPECIALIST, ctx),
+    constraints: {},
+    inputs: objective,
   });
-  if (resolution.status === 'rejected') {
-    throw new Error(
-      `professional_motion controller rejected ${resolution.code}: ${resolution.detail}`,
-    );
+  const [failure] = resolution.errors;
+  if (failure) {
+    throw new Error(`professional_motion controller rejected ${failure.code}: ${failure.detail}`);
   }
-  const operations = resolution.commands.flatMap((command) => {
+  const operations = resolution.outputs.commands.flatMap((command) => {
     const result = compileMotionCommand({
       timeline: ctx.project.timeline,
       assets: ctx.project.assets,

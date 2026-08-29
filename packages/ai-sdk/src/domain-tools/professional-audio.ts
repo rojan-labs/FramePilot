@@ -3,12 +3,12 @@ import { z } from 'zod/v4';
 import { compileAudioCommand } from '@framepilot/editor-core';
 import {
   AudioObjectiveSchema,
-  resolveAudioObjective,
   type ParsedAudioObjective,
 } from '../controllers/audio-controller.js';
 import type { ToolContext } from '../tool-context.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { validateProfessionalOperationBatch } from './professional-batch.js';
+import { AUDIO_SPECIALIST, runSpecialist, sliceOf } from '../specialists/index.js';
 
 /** One variant's JSON Schema, as `z.toJSONSchema` emits it inside `anyOf`. */
 interface ObjectiveVariantSchema {
@@ -27,9 +27,7 @@ interface ObjectiveVariantSchema {
  * declaration; every other shared name (`reductionDb`) is declared identically by
  * every variant that has it, so first-seen is also just the only declaration.
  */
-function mergedProperties(
-  variants: readonly ObjectiveVariantSchema[],
-): Record<string, unknown> {
+function mergedProperties(variants: readonly ObjectiveVariantSchema[]): Record<string, unknown> {
   const merged: Record<string, unknown> = {};
   for (const variant of variants) {
     for (const [name, propertySchema] of Object.entries(variant.properties ?? {})) {
@@ -72,7 +70,7 @@ function jsonSchema(schema: z.ZodDiscriminatedUnion): Record<string, unknown> {
         type: 'string',
         enum: intentEnum(variants),
         description:
-          'Which mixing operation to perform. Only the fields that belong to this intent are read — see the tool description for the field list per intent — so provide exactly one intent\'s fields, never a mix.',
+          "Which mixing operation to perform. Only the fields that belong to this intent are read — see the tool description for the field list per intent — so provide exactly one intent's fields, never a mix.",
       },
       ...mergedProperties(variants),
     },
@@ -89,18 +87,17 @@ function buildProfessionalAudio(rawArgs: unknown, ctx: ToolContext) {
   if (!ctx.interaction) {
     throw new Error('professional_audio requires a live editor interaction snapshot.');
   }
-  const resolution = resolveAudioObjective({
-    project: ctx.project,
-    ...(ctx.projectRevision === undefined ? {} : { projectRevision: ctx.projectRevision }),
-    interaction: ctx.interaction,
-    objective,
+  const resolution = runSpecialist(AUDIO_SPECIALIST, {
+    task: 'professional_audio',
+    context: sliceOf(AUDIO_SPECIALIST, ctx),
+    constraints: {},
+    inputs: objective,
   });
-  if (resolution.status === 'rejected') {
-    throw new Error(
-      `professional_audio controller rejected ${resolution.code}: ${resolution.detail}`,
-    );
+  const [failure] = resolution.errors;
+  if (failure) {
+    throw new Error(`professional_audio controller rejected ${failure.code}: ${failure.detail}`);
   }
-  const operations = resolution.commands.flatMap((command) => {
+  const operations = resolution.outputs.commands.flatMap((command) => {
     const result = compileAudioCommand({
       timeline: ctx.project.timeline,
       assets: ctx.project.assets,
