@@ -941,12 +941,26 @@ def compile_timeline(
                         opened.append(picture)
                         track_pictures.append((picture, clip.blend_mode))
                     else:
+                        # P7.5: when the clip is a plain fit — nothing animated, nothing
+                        # cropped, no transition bending its geometry — its displayed size
+                        # is known now, so ffmpeg decodes straight to it and MoviePy's
+                        # per-frame PIL resize becomes a no-op. That resize was 69% of a
+                        # measured 4K->1080x1920 export.
+                        static_fit = (
+                            max_decode_dimension is None
+                            and not clip.keyframes
+                            and clip.crop is None
+                            and not has_rendered_transform(clip)
+                            and not _uses_legacy_transition_path(clip)
+                            and transitions.transition_from_clip(clip) is None
+                        )
                         reader = _open_source_reader(
                             VideoFileClip,
                             path,
                             max_decode_dimension
                             if max_decode_dimension is not None
                             else decode_cap_for_clip(clip, target),
+                            target if static_fit else None,
                         )
                         opened.append(reader)
                         source = _subclipped_source(reader, clip)
@@ -1244,12 +1258,53 @@ def decode_cap_for_clip(clip: Clip, target: tuple[int, int]) -> int | None:
     return math.ceil(longest / fraction * DECODE_CAP_HEADROOM)
 
 
+def fitted_decode_size(source: tuple[int, int], target: tuple[int, int]) -> tuple[int, int] | None:
+    """The exact size a fit-to-frame clip is displayed at, for ffmpeg to decode straight to.
+
+    A landscape 4K source in a 1080x1920 portrait frame is displayed at 1080x608. Decoding
+    it at 2400 and letting MoviePy resize every frame to 1080x608 in PIL is the single most
+    expensive thing an export does: profiling a 30s 4K->1080x1920 render put **33.3s of
+    48.2s — 69% of the whole export — inside one line**, `ImagingCore.resize`, called once
+    per frame. ffmpeg's scaler does the same work in the decode thread with SIMD.
+
+    Returns ``None`` when the source is already at or below the displayed size, so an
+    upscale is never requested (that would cost time AND invent detail).
+    """
+    source_w, source_h = source
+    target_w, target_h = target
+    if source_w <= 0 or source_h <= 0:
+        return None
+    scale = min(target_w / source_w, target_h / source_h)
+    if scale >= 1.0:
+        return None
+    # Even dimensions: odd sizes break yuv420p chroma subsampling in several encoders.
+    return (
+        max(2, round(source_w * scale / 2) * 2),
+        max(2, round(source_h * scale / 2) * 2),
+    )
+
+
 def _open_source_reader(
     video_file_clip_cls: Any,
     path: str,
     max_decode_dimension: int | None,
+    fit_target: tuple[int, int] | None = None,
 ) -> Any:
+    """Open a source, decoding no larger than the export actually needs.
+
+    ``fit_target`` is the frame a *statically fitted* clip lands in — no keyframes, no
+    crop, no transform, no geometry transition — where the displayed size is known now and
+    ffmpeg can be asked for exactly it, leaving MoviePy's per-frame resize a no-op. Any
+    clip that moves, scales or is cropped falls back to ``max_decode_dimension``, which
+    keeps headroom because the zoom it reaches is not knowable here.
+    """
     reader = video_file_clip_cls(path)
+    if fit_target is not None:
+        exact = fitted_decode_size(reader.size, fit_target)
+        if exact is not None:
+            reader.close()
+            return video_file_clip_cls(path, target_resolution=exact)
+        return reader
     if max_decode_dimension is None:
         return reader
     width, height = reader.size

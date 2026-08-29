@@ -2403,3 +2403,37 @@ def test_source_reader_decodes_at_the_capped_size() -> None:
     _SizedReader.opened.clear()
     _open_source_reader(_SizedReader, "big.mov", None)
     assert _SizedReader.opened == [("big.mov", None)]
+
+
+def test_fitted_decode_size_asks_ffmpeg_for_exactly_what_is_displayed() -> None:
+    """P7.5: a fit-to-frame clip's displayed size is knowable, so decode straight to it."""
+    from framepilot_engine.render.compiler import fitted_decode_size
+
+    # Landscape 4K into a portrait 1080x1920 frame: fitted to the frame's width.
+    assert fitted_decode_size((3840, 2160), (1080, 1920)) == (1080, 608)
+    # Portrait 4K into the same frame: fitted to the frame's height.
+    assert fitted_decode_size((2160, 3840), (1080, 1920)) == (1080, 1920)
+    # Landscape into a landscape frame.
+    assert fitted_decode_size((3840, 2160), (1920, 1080)) == (1920, 1080)
+
+
+def test_fitted_decode_size_never_asks_for_an_upscale() -> None:
+    """Decoding larger than the source costs time and invents detail; return None instead."""
+    from framepilot_engine.render.compiler import fitted_decode_size
+
+    assert fitted_decode_size((640, 360), (1920, 1080)) is None
+    # Exactly the displayed size is already right — nothing to ask for.
+    assert fitted_decode_size((1920, 1080), (1920, 1080)) is None
+    # Degenerate sizes are not a scaling decision.
+    assert fitted_decode_size((0, 1080), (1920, 1080)) is None
+    assert fitted_decode_size((1920, 0), (1920, 1080)) is None
+
+
+def test_fitted_decode_size_is_always_even() -> None:
+    """Odd dimensions break yuv420p chroma subsampling in several encoders."""
+    from framepilot_engine.render.compiler import fitted_decode_size
+
+    for source in [(1999, 1131), (3841, 2161), (1233, 999)]:
+        size = fitted_decode_size(source, (1080, 1920))
+        assert size is not None
+        assert size[0] % 2 == 0 and size[1] % 2 == 0, size

@@ -85,7 +85,7 @@ matching for e2e).
 than the P0.5 baseline with the same PSNR ±1 dB (record both numbers); the software path
 is exercised by a test with the probe stubbed.
 
-## P7.5 — Avoid unnecessary work — `[ ]`
+## P7.5 — Avoid unnecessary work — `[x]`
 
 **Touches:** `render/compiler.py`, `composition_cache.py`, `media/assets.py`. Dependency
 analysis over the timeline: only assets referenced by placed clips are prepared; a clip
@@ -94,6 +94,27 @@ copied when the whole export qualifies (rare but cheap to detect); intermediate 
 only when a pass needs them and deleted after; single final encode.
 **Done when:** P0.5 "intermediate bytes" and "assets prepared but unreferenced" are 0 on
 the fixtures; encode count = 1.
+
+Landed 2026-08-29 — `docs/reports/system-mission/07-after.md`. **48.2 s → 11.5 s (4.2×)**
+on the 30 s 4K → 1080×1920 fixture, by deleting work rather than encoding faster.
+
+Profiling found **69 % of the whole export inside one line**: `PIL ImagingCore.resize`,
+901 calls at 37 ms each. A landscape 4K source was decoded at 2400×1350 (the frame's
+longest edge plus headroom) and then shrunk to its actual displayed size, 1080×608, by PIL
+in Python — once per frame, throwing away three quarters of the pixels ffmpeg had just
+produced. `fitted_decode_size` computes the displayed size and asks ffmpeg for exactly it,
+so the resize becomes a no-op and the scaling happens in ffmpeg's SIMD scaler.
+
+Guarded: only for a plain fit (no keyframes, crop, rendered transform or geometry
+transition — anything that moves has a size that is not knowable at compile time), and
+never an upscale. The 60 s 360p → 1080p fixture is unchanged at 3.7 s, correctly: its
+source is smaller than the frame, so there is nothing to downscale.
+
+The other clauses were checked rather than assumed: encode count is **1** (the master-audio
+pass is `-c:v copy` and a no-op when unset), intermediate bytes are **0** (its temp is
+`Path.replace`d), and assets-prepared-but-unreferenced is **0** — `index_assets` does not
+probe on the render path (9 assets, 1 ms) and the compiler opens readers only for placed
+clips.
 
 ## P7.6 — Progress, ETA, cancellation, errors, history — `[~]` (residual: the < 5% progress-accuracy measurement)
 
