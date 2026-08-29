@@ -106,7 +106,16 @@ function postRenderRequest(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       project_path: req.projectPath,
-      preset: req.preset ?? null,
+      settings: req.settings
+        ? {
+            ...(req.settings.resolution ? { resolution: req.settings.resolution } : {}),
+            ...(req.settings.fps !== undefined ? { fps: req.settings.fps } : {}),
+            ...(req.settings.quality ? { quality: req.settings.quality } : {}),
+            ...(req.settings.bitrateKbps ? { bitrate_kbps: req.settings.bitrateKbps } : {}),
+            ...(req.settings.videoCodec ? { video_codec: req.settings.videoCodec } : {}),
+            ...(req.settings.container ? { container: req.settings.container } : {}),
+          }
+        : null,
       burn_captions: req.burnCaptions ?? false,
       denoise: req.denoise ?? false,
       eq: req.eq ?? null,

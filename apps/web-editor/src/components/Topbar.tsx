@@ -67,6 +67,10 @@ export interface TopbarProps {
   readonly onRevealExport: (path: string) => void;
   /** The project's media bin, for the export dialog's Credits list (schema v20). */
   readonly assets: readonly Asset[];
+  /** The project's frame and length, for the export dialog's summary and size estimate. */
+  readonly exportFrame: { readonly width: number; readonly height: number; readonly fps: number };
+  readonly exportDurationSeconds: number;
+  readonly projectId: string;
   /** Toggle the project history panel. */
   readonly onOpenHistory: () => void;
   /** Whether the history panel is currently open (drives the active state). */
@@ -108,6 +112,9 @@ export function Topbar({
   ensureSavedForExport,
   onRevealExport,
   assets,
+  exportFrame,
+  exportDurationSeconds,
+  projectId,
   onOpenHistory,
   historyOpen = false,
   onOpenUnderstanding,
@@ -365,6 +372,9 @@ export function Topbar({
           ensureSaved={ensureSavedForExport}
           onReveal={onRevealExport}
           assets={assets}
+          frame={exportFrame}
+          durationSeconds={exportDurationSeconds}
+          projectId={projectId}
         />
         <Tooltip
           label={effectiveTheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}

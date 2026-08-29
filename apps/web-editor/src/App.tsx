@@ -433,6 +433,16 @@ export function App(): JSX.Element {
                 ensureSavedForExport={ensureSavedForExport}
                 onRevealExport={revealPath}
                 assets={project.assets}
+                exportFrame={{
+                  width: project.resolution.width,
+                  height: project.resolution.height,
+                  fps: project.fps,
+                }}
+                exportDurationSeconds={project.timeline.tracks.reduce(
+                  (max, track) => track.clips.reduce((m, clip) => Math.max(m, clip.end), max),
+                  0,
+                )}
+                projectId={project.id}
                 onOpenHistory={() => setHistoryOpen((v) => !v)}
                 historyOpen={historyOpen}
                 onOpenUnderstanding={() => {

@@ -26,6 +26,7 @@
  * in-progress export; reopening the dropdown shows it mid-flight.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useViewPreference } from '../editor/useViewPreference.js';
 import type { Asset } from '@framepilot/timeline-schema';
 import { Button } from '@framepilot/ui';
 import {
@@ -60,43 +61,142 @@ const EQ_OPTIONS = [
   { value: 'voice-clarity', label: 'Voice clarity' },
 ] as const;
 
-/**
- * Export presets — mirrored from the engine's `render/presets.py` `EXPORT_PRESETS`
- * (a hand-synced copy, same as before H1.3b; see that module's docstring for why
- * each carries a recommended, not enforced, loudness default). Keep this list's
- * ids in sync with the engine's when either changes: an id here that the engine
- * doesn't recognise doesn't fail loudly, it just falls back to the engine's
- * default preset (Reels) — a drift risk worth re-checking by hand for now, since
- * introducing shared build tooling across the TS/Python boundary for five
- * string/dimension pairs isn't worth the complexity yet.
- */
-export const EXPORT_PRESETS: readonly {
-  id: string;
-  label: string;
-  width: number;
-  height: number;
-  fps: number;
-}[] = [
-  { id: 'reels', label: 'Instagram Reels (9:16)', width: 1080, height: 1920, fps: 30 },
-  { id: 'tiktok', label: 'TikTok (9:16)', width: 1080, height: 1920, fps: 30 },
-  { id: 'shorts', label: 'YouTube Shorts (9:16)', width: 1080, height: 1920, fps: 30 },
-  { id: 'youtube', label: 'YouTube (16:9)', width: 1920, height: 1080, fps: 30 },
-  { id: 'square', label: 'Square (1:1)', width: 1080, height: 1080, fps: 30 },
-];
+/** The choices the dialog offers — the same vocabulary the engine's `ExportSettings` validates. */
+export const RESOLUTIONS = ['480p', '720p', '1080p', '1440p', '2160p'] as const;
+export const FRAME_RATES = ['source', 24, 25, 30, 50, 60] as const;
+export const QUALITIES = ['low', 'recommended', 'high'] as const;
+export const VIDEO_CODECS = ['h264', 'hevc'] as const;
+export const CONTAINERS = ['mp4', 'mov'] as const;
 
-/**
- * What the chosen preset actually produces, in one line under the picker.
- *
- * The preset labels name a platform and an aspect ratio; neither answers "what
- * file do I get?". Printing the real numbers the engine will render at turns the
- * dropdown from a name you have to trust into a choice you can check — and it is
- * the same `width`/`height`/`fps` the engine's `render/presets.py` carries, so a
- * drift between the two mirrors becomes visible instead of silent.
- */
-function presetSummary(presetId: string): string {
-  const found = EXPORT_PRESETS.find((p) => p.id === presetId);
-  if (!found) return '';
-  return `${found.width} × ${found.height} · ${found.fps} fps · MP4 (H.264)`;
+const RESOLUTION_SHORT_EDGE: Record<(typeof RESOLUTIONS)[number], number> = {
+  '480p': 480,
+  '720p': 720,
+  '1080p': 1080,
+  '1440p': 1440,
+  '2160p': 2160,
+};
+/** Mirrors the engine ladder (`export_settings.py`); the engine's number is authoritative. */
+const BITRATE_LADDER_KBPS: Record<number, Record<(typeof QUALITIES)[number], number>> = {
+  480: { low: 1_200, recommended: 2_500, high: 4_000 },
+  720: { low: 2_500, recommended: 5_000, high: 7_500 },
+  1080: { low: 4_500, recommended: 8_000, high: 12_000 },
+  1440: { low: 9_000, recommended: 16_000, high: 24_000 },
+  2160: { low: 20_000, recommended: 35_000, high: 45_000 },
+};
+const AUDIO_BITRATE_KBPS: Record<(typeof QUALITIES)[number], number> = {
+  low: 128,
+  recommended: 192,
+  high: 256,
+};
+
+export interface DialogExportSettings {
+  readonly resolution: (typeof RESOLUTIONS)[number];
+  readonly fps: (typeof FRAME_RATES)[number];
+  readonly quality: (typeof QUALITIES)[number];
+  readonly bitrateKbps: number | null;
+  readonly videoCodec: (typeof VIDEO_CODECS)[number];
+  readonly container: (typeof CONTAINERS)[number];
+}
+
+function coerceExportSettings(raw: unknown): DialogExportSettings | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const pick = <T extends string | number>(value: unknown, allowed: readonly T[]): T | undefined =>
+    (allowed as readonly unknown[]).includes(value) ? (value as T) : undefined;
+  const resolution = pick(r['resolution'], RESOLUTIONS);
+  if (!resolution) return undefined;
+  return {
+    resolution,
+    fps: pick(r['fps'], FRAME_RATES) ?? 'source',
+    quality: pick(r['quality'], QUALITIES) ?? 'recommended',
+    bitrateKbps: typeof r['bitrateKbps'] === 'number' && r['bitrateKbps'] > 0 ? r['bitrateKbps'] : null,
+    videoCodec: pick(r['videoCodec'], VIDEO_CODECS) ?? 'h264',
+    container: pick(r['container'], CONTAINERS) ?? 'mp4',
+  };
+}
+
+export const DEFAULT_EXPORT_SETTINGS: DialogExportSettings = {
+  resolution: '1080p',
+  fps: 'source',
+  quality: 'recommended',
+  bitrateKbps: null,
+  videoCodec: 'h264',
+  container: 'mp4',
+};
+
+/** The frame the export will produce for `settings` in a project of this shape, source-capped. */
+export function exportFrameFor(
+  settings: DialogExportSettings,
+  frame: { readonly width: number; readonly height: number; readonly fps: number },
+  maxSourceShortEdge: number | null,
+): { width: number; height: number; fps: number; capped: boolean } {
+  const wanted = RESOLUTION_SHORT_EDGE[settings.resolution];
+  const capped = maxSourceShortEdge !== null && wanted > maxSourceShortEdge;
+  const short = capped ? maxSourceShortEdge : wanted;
+  const aspect = frame.width / frame.height;
+  const portrait = frame.width < frame.height;
+  const width = portrait ? short : Math.round(short * aspect);
+  const height = portrait ? Math.round(short / aspect) : short;
+  const even = (n: number): number => Math.max(2, n - (n % 2));
+  return {
+    width: even(width),
+    height: even(height),
+    fps: settings.fps === 'source' ? frame.fps : settings.fps,
+    capped,
+  };
+}
+
+export function videoBitrateKbps(settings: DialogExportSettings, shortEdge: number, fps: number): number {
+  if (settings.bitrateKbps) return settings.bitrateKbps;
+  const rungs = Object.keys(BITRATE_LADDER_KBPS)
+    .map(Number)
+    .sort((a, b) => a - b);
+  const rung = rungs.find((r) => r >= shortEdge) ?? rungs[rungs.length - 1]!;
+  const base = BITRATE_LADDER_KBPS[rung]![settings.quality];
+  const factor = (settings.videoCodec === 'hevc' ? 0.65 : 1) * (fps > 30 ? 1.5 : 1);
+  return Math.round(base * factor);
+}
+
+export function estimateExportBytes(
+  settings: DialogExportSettings,
+  frame: { readonly width: number; readonly height: number; readonly fps: number },
+  maxSourceShortEdge: number | null,
+  durationSeconds: number,
+): number {
+  const target = exportFrameFor(settings, frame, maxSourceShortEdge);
+  const kbps =
+    videoBitrateKbps(settings, Math.min(target.width, target.height), target.fps) +
+    AUDIO_BITRATE_KBPS[settings.quality];
+  return Math.round((kbps * 1000) / 8 * Math.max(0, durationSeconds));
+}
+
+export function formatBytes(bytes: number): string {
+  if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(2)} GB`;
+  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(0)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1000))} KB`;
+}
+
+/** Largest short edge among the project's picture assets — the export's resolution cap. */
+export function maxSourceShortEdge(assets: readonly Asset[]): number | null {
+  const edges = assets
+    .filter((a) => a.kind !== 'audio')
+    .map((a) => (a.media?.width && a.media?.height ? Math.min(a.media.width, a.media.height) : 0))
+    .filter((n) => n > 0);
+  return edges.length ? Math.max(...edges) : null;
+}
+
+/** One line under the choices: what file you actually get. */
+export function settingsSummary(
+  settings: DialogExportSettings,
+  frame: { readonly width: number; readonly height: number; readonly fps: number },
+  maxSourceShortEdge: number | null,
+  durationSeconds: number,
+): string {
+  const target = exportFrameFor(settings, frame, maxSourceShortEdge);
+  const codec = settings.videoCodec === 'hevc' ? 'HEVC (H.265)' : 'H.264';
+  const size = formatBytes(estimateExportBytes(settings, frame, maxSourceShortEdge, durationSeconds));
+  const fps = Number.isInteger(target.fps) ? String(target.fps) : target.fps.toFixed(2);
+  return `${target.width} × ${target.height} · ${fps} fps · ${settings.container.toUpperCase()} (${codec}) · about ${size}`;
 }
 
 export interface ExportDialogProps {
@@ -113,6 +213,12 @@ export interface ExportDialogProps {
    * (schema v20, ADR 0138).
    */
   readonly assets: readonly Asset[];
+  /** The project's frame; the export follows this aspect ratio. */
+  readonly frame: { readonly width: number; readonly height: number; readonly fps: number };
+  /** Programme length, for the size estimate. */
+  readonly durationSeconds: number;
+  /** Persists the last-used settings per project. */
+  readonly projectId?: string;
 }
 
 type Phase =
@@ -136,7 +242,14 @@ function suggestedFileName(outputPath: string): string {
   return outputPath.split(/[/\\]/).pop() || 'export.mp4';
 }
 
-export function ExportDialog({ ensureSaved, onReveal, assets }: ExportDialogProps): JSX.Element {
+export function ExportDialog({
+  ensureSaved,
+  onReveal,
+  assets,
+  frame,
+  durationSeconds,
+  projectId,
+}: ExportDialogProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const onClose = useCallback(() => setOpen(false), []);
@@ -158,7 +271,14 @@ export function ExportDialog({ ensureSaved, onReveal, assets }: ExportDialogProp
     };
   }, [open]);
 
-  const [preset, setPreset] = useState<string>(EXPORT_PRESETS[0]!.id);
+  const [settings, setSettings] = useViewPreference<DialogExportSettings>(
+    `export.settings.${projectId ?? 'default'}`,
+    DEFAULT_EXPORT_SETTINGS,
+    coerceExportSettings,
+  );
+  const sourceCap = maxSourceShortEdge(assets);
+  const patchSettings = (patch: Partial<DialogExportSettings>): void =>
+    setSettings((current) => ({ ...current, ...patch }));
   const [burnCaptions, setBurnCaptions] = useState(false);
   const [loudness, setLoudness] = useState<string>('');
   const [denoise, setDenoise] = useState(false);
@@ -231,7 +351,14 @@ export function ExportDialog({ ensureSaved, onReveal, assets }: ExportDialogProp
     }
     const requestId = await exportVideoStart({
       projectPath,
-      preset,
+      settings: {
+        resolution: settings.resolution,
+        fps: settings.fps,
+        quality: settings.quality,
+        ...(settings.bitrateKbps ? { bitrateKbps: settings.bitrateKbps } : {}),
+        videoCodec: settings.videoCodec,
+        container: settings.container,
+      },
       burnCaptions,
       denoise,
       limiter,
@@ -253,7 +380,7 @@ export function ExportDialog({ ensureSaved, onReveal, assets }: ExportDialogProp
     for (const message of buffered) handleMessage(message);
   }, [
     ensureSaved,
-    preset,
+    settings,
     burnCaptions,
     denoise,
     limiter,
@@ -375,16 +502,98 @@ export function ExportDialog({ ensureSaved, onReveal, assets }: ExportDialogProp
             <section className="export-section">
               <h3 className="export-section-head">Format</h3>
               <div className="export-field">
-                <span>Preset</span>
+                <span>Resolution</span>
                 <Select
-                  label="Export preset"
-                  value={preset}
+                  label="Resolution"
+                  value={settings.resolution}
                   disabled={exporting}
-                  onChange={setPreset}
-                  options={EXPORT_PRESETS.map((p) => ({ value: p.id, label: p.label }))}
+                  onChange={(value) =>
+                    patchSettings({ resolution: value as DialogExportSettings['resolution'] })
+                  }
+                  options={RESOLUTIONS.map((r) => ({
+                    value: r,
+                    label:
+                      sourceCap !== null && RESOLUTION_SHORT_EDGE[r] > sourceCap
+                        ? `${r} (upscaled — sources are ${sourceCap}p)`
+                        : r === '1440p'
+                          ? '1440p (2K)'
+                          : r === '2160p'
+                            ? '2160p (4K)'
+                            : r,
+                  }))}
                 />
-                <p className="export-field-hint">{presetSummary(preset)}</p>
               </div>
+              <div className="export-field">
+                <span>Frame rate</span>
+                <Select
+                  label="Frame rate"
+                  value={String(settings.fps)}
+                  disabled={exporting}
+                  onChange={(value) =>
+                    patchSettings({
+                      fps: (value === 'source' ? 'source' : Number(value)) as DialogExportSettings['fps'],
+                    })
+                  }
+                  options={FRAME_RATES.map((f) => ({
+                    value: String(f),
+                    label: f === 'source' ? `Project (${frame.fps} fps)` : `${f} fps`,
+                  }))}
+                />
+              </div>
+              <div className="export-field">
+                <span>Quality</span>
+                <Select
+                  label="Quality"
+                  value={settings.quality}
+                  disabled={exporting}
+                  onChange={(value) =>
+                    patchSettings({ quality: value as DialogExportSettings['quality'], bitrateKbps: null })
+                  }
+                  options={QUALITIES.map((q) => ({
+                    value: q,
+                    label: q === 'recommended' ? 'Recommended' : q === 'high' ? 'High' : 'Low',
+                  }))}
+                />
+              </div>
+              <div className="export-field">
+                <span>Codec</span>
+                <Select
+                  label="Codec"
+                  value={settings.videoCodec}
+                  disabled={exporting}
+                  onChange={(value) =>
+                    patchSettings({ videoCodec: value as DialogExportSettings['videoCodec'] })
+                  }
+                  options={[
+                    { value: 'h264', label: 'H.264 (plays everywhere)' },
+                    { value: 'hevc', label: 'HEVC / H.265 (smaller files)' },
+                  ]}
+                />
+              </div>
+              <div className="export-field">
+                <span>Format</span>
+                <Select
+                  label="Format"
+                  value={settings.container}
+                  disabled={exporting}
+                  onChange={(value) =>
+                    patchSettings({ container: value as DialogExportSettings['container'] })
+                  }
+                  options={[
+                    { value: 'mp4', label: 'MP4' },
+                    { value: 'mov', label: 'MOV' },
+                  ]}
+                />
+              </div>
+              <p className="export-field-hint" data-testid="export-summary">
+                {settingsSummary(settings, frame, sourceCap, durationSeconds)}
+              </p>
+              {exportFrameFor(settings, frame, sourceCap).capped ? (
+                <p className="export-field-hint export-field-hint--warn">
+                  Your sources are {sourceCap}p, so the export is capped there instead of being
+                  upscaled.
+                </p>
+              ) : null}
 
               <Checkbox checked={burnCaptions} disabled={exporting} onChange={setBurnCaptions}>
                 Burn captions into the video

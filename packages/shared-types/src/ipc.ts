@@ -119,14 +119,30 @@ export interface ProjectChangedEvent {
 export type RevealResult = { ok: true } | { ok: false; error: string };
 
 /**
+ * Quality-driven export settings (plan/system-mission Phase 7) — the same fields the
+ * engine's `render/export_settings.py` `ExportSettings` validates. The output frame
+ * follows the project's aspect ratio; the engine caps the resolution at what the sources
+ * hold and reports the target actually used on the job.
+ */
+export interface ExportSettings {
+  resolution?: '480p' | '720p' | '1080p' | '1440p' | '2160p' | 'source';
+  fps?: 24 | 25 | 30 | 50 | 60 | 'source';
+  quality?: 'low' | 'recommended' | 'high';
+  /** Explicit video bitrate in kbit/s; overrides the quality ladder. */
+  bitrateKbps?: number;
+  videoCodec?: 'h264' | 'hevc';
+  container?: 'mp4' | 'mov';
+}
+
+/**
  * Request to export (render) a saved project to a video file. The sidecar loads
  * the project from `projectPath` on disk, so the project MUST be saved first.
  */
 export interface ExportRequest {
   /** Absolute path of the saved `project.fp.json` the sidecar should render. */
   projectPath: string;
-  /** Export preset id (see `render.presets`); omit for the engine default. */
-  preset?: string;
+  /** Resolution/fps/quality/codec/container; omit for 1080p, project fps, recommended, H.264, MP4. */
+  settings?: ExportSettings;
   /** Burn caption-track text into the output (PRD §6.2, plan 3.3). */
   burnCaptions?: boolean;
   /** Master-bus broadband de-noise (ffmpeg afftdn, plan Phase 6). */
