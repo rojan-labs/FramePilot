@@ -144,7 +144,7 @@ handing back the same stale answer; changing the role re-measures under the new 
 4 tests. Also fixed on the way: `remove_silences` had no `toolMeta` entry, so its tool card
 would have rendered unnamed.
 
-## P3.7 — Tests, docs, close — `[~]` (guide written; route test + UC-06/07 evidence remain)
+## P3.7 — Tests, docs, close — `[~]` (guide, route test on real media and the UC-06/07 hook all landed; ADR + CHANGELOG remain, and neither e2e has run)
 
 Unit: role table, profile builder, cache behaviour, context block. Sidecar: route test
 with the fixture. E2E hook for Phase 9 (UC-06/07). `docs/guides/reference-media.md`,
@@ -154,8 +154,32 @@ Landed 2026-08-29: `docs/guides/reference-media.md` — attaching, what the meas
 produces (the actual constraint lines, since those are what the model reads), roles and
 correcting them, failure and re-analysis, and an explicit Limits section naming what is
 read but not yet acted on (P3.4) and what is per-turn only (P3.5). Unit tests for the role
-table, profile builder and context block exist; the sidecar route test and the UC-06/07
-e2e evidence remain, so this stays `[~]`.
+table, profile builder and context block exist.
+
+Landed 2026-08-29 (second pass): the **route test on real media** and the **UC-06/07 e2e
+hook**, plus the phase report.
+
+- `tests/e2e-desktop/specs/references-analyze.spec.ts` drives `POST /references/analyze`
+  through the sidecar the desktop app itself spawned, against the real `ref/` fixtures. It
+  lives here and not in `engine/python/tests` on purpose: the engine's own test
+  (`test_service_references.py`) proves the *contract* with a synthetic PNG, and only real
+  footage through a real ffmpeg proves that scene, beat, silence and colour analysis produce
+  numbers an editor would recognise. The fixture is copied into the projects sandbox first —
+  the route correctly refuses anything outside it, and the last row re-proves that refusal.
+  The cache is asserted by **cost**, not just by the `cached` flag: the second answer must
+  come back in under half the first call's time, because a flag can be right while the work
+  is done twice. `refresh: true` (the sidebar's Re-analyze) must bypass it.
+- The UC-06/07 hook is `tests/e2e-desktop/specs/ai-journey.spec.ts`: it attaches
+  `ref/fast-cut-vertical.mp4` and `ref/logo.png`, waits out the analysis, then asks for
+  reference pacing and the logo in one turn — inside the same session that already built and
+  refined a montage, which is the only place "make it feel like this" means anything.
+- `docs/reports/system-mission/03-after.md`: what ships, the evidence table, and an explicit
+  account of the P3.4 gap.
+
+Still `[~]`, and the reason is worth stating plainly: **the ADR for the profile contract and
+the CHANGELOG entry are not written** (outside this task's scope), and **neither e2e spec has
+been run green** — both need the desktop host, and the journey needs a billed provider. A
+spec that compiles is not evidence.
 
 ## Discovered
 

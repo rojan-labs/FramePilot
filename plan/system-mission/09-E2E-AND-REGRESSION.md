@@ -16,7 +16,7 @@ built desktop app with the sidecar; fixtures from Phase 0; a recorded-provider m
 a test-only IPC (`debug:project`) rather than the DOM.
 **Done when:** smoke opens `project-montage` in the desktop app in CI.
 
-## P9.1 — `ai-journey.spec.ts` — `[~]` (written; runs with MISSION_AI=1 against the real bridge)
+## P9.1 — `ai-journey.spec.ts` — `[~]` (complete journey written and wired into the nightly lane; never yet run green with a provider)
 
 UC-01 → UC-08 → UC-09 → UC-06 → UC-07 in one session: open project, import media, attach
 reference video and image, ask for the montage, assert timeline outcome by rubric,
@@ -25,7 +25,31 @@ on memory, then reference style, then logo overlay, preview plays, export at 108
 `ffprobe` the file.
 **Done when:** green on the desktop host with recorded provider; nightly with real.
 
-## P9.2 — `failure-paths.spec.ts` — `[~]` (all rows but UC-16 written; five run anywhere, four need MISSION_AI=1)
+Landed 2026-08-29 (second pass): the journey now runs end to end — UC-01 → UC-08 → **UC-09
+→ UC-06 → UC-07 → preview → UC-13** in one continuous session, and it is wired into
+`desktop-gates` in `mission-nightly.yml` with `MISSION_AI=1`.
+
+Three things were missing and are now there:
+
+- **UC-09, the memory turn.** Turn three says only *"Do the same to the last section as
+  well."* It names no goal, so it is answerable only from what turns one and two decided.
+  The assertion is that the clip labels **changed** — a run that stalls asking what "the
+  same" meant leaves the composer editable and the timeline identical, which is exactly the
+  failure this row catches.
+- **The preview plays.** Space, then poll the timecode for movement, then Space. A timeline
+  that cannot play is not a finished edit, and nothing else in the suite would notice.
+- **UC-13 through the real export dialog.** `exportThroughDialog` (in `launch.ts`) drives
+  the popover the user drives — resolution, quality, container, Export — with the native
+  Save-As modal replaced by a *cancel* (a native dialog blocks the main process until a
+  human dismisses it, so it cannot be driven; cancelling leaves the render in the project's
+  sandboxed `exports/` folder, which is the path history and Reveal then point at). The
+  finished file is then probed: 1080×1920, h264, non-trivial duration. Asserting the
+  rendered file is the only way this journey ends in evidence rather than in a chat log.
+
+`[~]` for one reason: **it has not been run green.** It needs `MISSION_AI=1`, a billed
+provider and the maintainer's media; the wiring exists, the run does not.
+
+## P9.2 — `failure-paths.spec.ts` — `[~]` (every row written; eight run anywhere, four need MISSION_AI=1; UC-16's large file has no fixture)
 
 UC-15 rows: provider 5xx mid-run, tool throw, sidecar kill, invalid media file, 4K
 20-minute file (UC-16), cancel mid-run, network offline for stock/music, export encoder
@@ -80,8 +104,28 @@ New rows gated on `MISSION_AI=1`:
   dir, and assert control comes back: composer editable, no status spinner waiting on a run
   whose process no longer exists.
 
-Still open: the 4K 20-minute file (UC-16). `[~]` until that row exists and the whole suite
-has run green on a machine with a provider.
+Landed 2026-08-29 (third pass): the UC-16 rows. Both are provider-free.
+
+- **60 photos in one import** — the batch drains to a card per file, the timeline is
+  untouched (an import is not an edit), and no probe or thumbnailer outlives the work. The
+  first and last file of the batch are both asserted, because a batch that silently drops
+  its tail is the failure worth catching.
+- **A 4K 20-minute camera file** — same three assertions, with the import allowed 30
+  minutes. What this row is aimed at is not a crash but the app quietly giving up on a file
+  that is merely big: an import that never resolves, a card that shimmers forever, an
+  ffprobe still running after the user moved on.
+
+**The 4K row skips, and will keep skipping on this machine.** No 20-minute 4K file exists
+here — the largest real camera fixture is 40 seconds, a residual `tests/fixtures/mission/
+README.md` already records — and `fetch-fixtures.sh` cannot invent one. The row therefore
+`ffprobe`s its candidate (`tests/fixtures/mission/camera-4k-20min.mov`, or
+`MISSION_LARGE_MEDIA=<path>`) and skips **with the measured shape** when it is shorter than
+20 minutes or its short edge is under 2160. That is deliberate: a 40-second 1080p stand-in
+would make the row green while proving nothing about large media, which is worse than a
+skip that says why.
+
+`[~]` until a real 4K 20-minute file exists on the runner and the whole suite has run green
+on a machine with a provider.
 
 ## P9.3 — Editing regression suite in CI — `[x]`
 
@@ -143,11 +187,21 @@ progress-accuracy row (monotonic, and within 5 points of the elapsed fraction pa
 10%). The whole file skips with a stated reason when the media fixtures or `ffprobe` are
 absent, because the fixtures are the maintainer's real camera files and are never committed.
 
-`[~]`, not `[x]`, for one honest reason: **the Linux (software encoder) half has not run.**
-The fixtures cannot reach a GitHub-hosted runner, so the matrix only runs where the media
-lives; it is green on macOS (hardware path) and the workflow is wired, but the two-platform
-"Done when" is not met until the self-hosted Linux runner exists. The history/reveal test is
-also still missing.
+Landed 2026-08-29 (second pass): the **history / reveal / remembered-settings** row, which
+was the outstanding piece of UC-13. It goes through the export popover on its own app
+instance with the project actually open, because "Recent exports" and "Reveal" are renderer
+state the HTTP contract knows nothing about. Two stand-ins make it drivable, both recorded
+in `launch.ts`: the native Save-As modal is **cancelled** (a native dialog blocks the main
+process until a human dismisses it), and `shell.showItemInFolder` is **recorded** rather
+than opening Finder mid-run — so the assertion is that Reveal hands the OS the exact path
+of the file that was just written, not merely that a button exists. The renderer is then
+reloaded and the project reopened: the history entry and the chosen resolution both have to
+survive the window, because that is what the user comes back to.
+
+`[~]`, not `[x]`, for one remaining honest reason: **the Linux (software encoder) half has
+not run.** The fixtures cannot reach a GitHub-hosted runner, so the matrix only runs where
+the media lives; it is green on macOS (hardware path) and the workflow is wired, but the
+two-platform "Done when" is not met until the self-hosted Linux runner exists.
 
 ## P9.5 — Efficiency and resource gates — `[x]`
 
@@ -188,9 +242,51 @@ Proof it can fail, all three arms (2026-08-29, local, against the committed floo
 The last arm is the one that matters: the gate does not fire when the extra cost bought a
 better edit, which is why it can stay on without being routed around.
 
-## P9.6 — Close — `[ ]`
+All three arms were **re-verified on 2026-08-29** against the committed
+`after-orchestration-merged.json` and reproduce exactly as recorded.
+
+Landed 2026-08-29 (second pass): the **third** gate — P6.6's resource gate — is now provable
+too. It was six inline `expect`s at the bottom of `resource-baseline.spec.ts`, which made it
+unfalsifiable in practice: the only way to see whether it could fail was to spend ten minutes
+driving the real app and hope it leaked. The arithmetic moved to `specs/resource-gate.ts` as
+a pure function returning one line per breached bound, and `specs/resource-gate.spec.ts`
+replays the committed `reports/system-mission/baseline-resources.json` through it:
+
+```
+$ npx playwright test specs/resource-gate.spec.ts
+  ✓ holds on the real measured session
+  ✓ fails on a seeded heap leak
+  ✓ fails on seeded listener and node growth
+  ✓ fails on a seeded file-handle leak and on an orphan encoder
+  ✓ tolerates the ordinary variance the bounds were drawn for
+  5 passed (0.5s)
+```
+
+Green on the real trace, red on each seeded leak, green again on ordinary variance — that
+last row is part of the proof, not padding: a gate that fires on noise gets disabled within
+a week. It launches nothing and needs no media, so it runs first in `desktop-gates` and
+reports a loosened-into-a-no-op gate in seconds rather than in hours.
+
+Residual (not blocking `[x]`): the efficiency floor covers `montage-30s`,
+`podcast-highlight-60s`, `remove-dead-air` and `beat-sync`; `refine-tighten` and
+`memory-captions` report as **new** because the committed floor predates them. Regenerating
+the floor is `reports/` work, outside this task's scope.
+
+## P9.6 — Close — `[x]`
 
 `09-after.md`: journey matrix from `USE-CASES.md` with pass evidence links.
+
+Landed 2026-08-29: `docs/reports/system-mission/09-after.md` — all sixteen journeys, each
+with the evidence that actually exists behind it (a measured rubric p50 from `01-after.md`,
+or the spec that asserts it), the three gates with their seeded-failure transcripts, an
+explicit "what is not proven, and why" section, and the lane table showing why the cheap
+half is in the PR lane and the expensive half is nightly.
+
+Nine of sixteen journeys have a measured outcome. The report says so plainly rather than
+counting written specs as proof: the editing journeys are measured, the desktop-host
+journeys are written and wired but waiting on a run with a provider and the maintainer's
+media. `USE-CASES.md`'s own State column was left untouched (outside this task's scope);
+`09-after.md` is the current answer.
 
 ## Discovered
 
