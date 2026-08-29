@@ -680,7 +680,16 @@ test.describe('UC-15 failure paths', () => {
           res.end(JSON.stringify({ error: { message: 'upstream is having a bad day' } }));
           return;
         }
+        // Path-only, never an absolute URL: `new URL(path, base)` lets an absolute
+        // first argument override `base` entirely, which would turn this local relay
+        // into an open proxy to wherever the app's request line happened to point.
+        const upstreamOrigin = new URL(upstream).origin;
         const target = new URL(req.url ?? '/', upstream);
+        if (target.origin !== upstreamOrigin) {
+          res.writeHead(400, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: { message: 'refusing to relay off-origin request' } }));
+          return;
+        }
         const headers = { ...req.headers } as Record<string, string>;
         delete headers['host'];
         delete headers['content-length'];

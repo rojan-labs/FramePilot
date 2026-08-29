@@ -59,8 +59,10 @@ from framepilot_engine.analysis.freeze import (
 from framepilot_engine.analysis.loudness import measure_loudness
 from framepilot_engine.analysis.reference import (
     analysis_to_dict,
-    analyze_reference_image,
     analyze_reference_video,
+)
+from framepilot_engine.analysis.reference import (
+    analyze_reference_image as analyze_reference_image,
 )
 from framepilot_engine.analysis.scenes import DEFAULT_SCENE_THRESHOLD, SceneCut, detect_scenes
 from framepilot_engine.analysis.silence import (
@@ -4316,11 +4318,18 @@ def create_app(
         under the project's media dir). The result is cached beside the file, keyed by
         the file's content hash, so re-attaching or re-asking never re-analyzes.
         """
+        # `media_path` is `sandbox()`-resolved above (PRD §18.1 boundary — see its
+        # docstring): every use below is a file already proven to live inside the
+        # projects root, not the raw `req.input_path`. CodeQL cannot model that
+        # cross-function barrier, so this documented suppression stands in for its
+        # taint analysis on each read/stat that follows.
         media_path = sandbox(req.input_path)
         if not media_path.is_file():
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"Reference not found: {req.input_path}")
+        # codeql[py/path-injection]
         content_hash = _sha256_file(media_path)
         cache_path = media_path.with_name(f"{media_path.name}.reference.json")
+        # codeql[py/path-injection]
         if not req.refresh and cache_path.is_file():
             try:
                 cached = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -4343,8 +4352,10 @@ def create_app(
                     kind="video", content_hash=content_hash, video=payload, cached=False
                 )
         except (FFmpegError, OSError, ValueError) as exc:
+            # codeql[py/path-injection]
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
         try:
+            # codeql[py/path-injection]
             cache_path.write_text(
                 json.dumps(response.model_dump(by_alias=True, exclude_none=True)), encoding="utf-8"
             )

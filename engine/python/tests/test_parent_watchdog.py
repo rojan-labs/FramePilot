@@ -14,16 +14,19 @@ import os
 import signal
 import threading
 import time
+from collections.abc import Callable
+
+import pytest
 
 from framepilot_engine.service import PARENT_PID_ENV, start_parent_watchdog
 
 
-def test_no_watchdog_without_a_configured_owner(monkeypatch) -> None:
+def test_no_watchdog_without_a_configured_owner(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(PARENT_PID_ENV, raising=False)
     assert start_parent_watchdog() is None
 
 
-def test_ignores_a_meaningless_owner(monkeypatch) -> None:
+def test_ignores_a_meaningless_owner(monkeypatch: pytest.MonkeyPatch) -> None:
     # pid 1 is launchd/init: every orphan's parent, so watching it would never fire.
     # A non-numeric value is a misconfiguration, not a reason to refuse to serve.
     for value in ("", "  ", "not-a-pid", "0", "1", "-5"):
@@ -31,7 +34,7 @@ def test_ignores_a_meaningless_owner(monkeypatch) -> None:
         assert start_parent_watchdog() is None, value
 
 
-def test_stays_quiet_while_the_owner_is_alive(monkeypatch) -> None:
+def test_stays_quiet_while_the_owner_is_alive(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(PARENT_PID_ENV, raising=False)
     signalled: list[int] = []
     monkeypatch.setattr(os, "kill", _recording_kill(signalled, alive={os.getpid()}))
@@ -41,7 +44,9 @@ def test_stays_quiet_while_the_owner_is_alive(monkeypatch) -> None:
     assert signalled == []
 
 
-def test_terminates_this_process_once_the_owner_is_gone(monkeypatch) -> None:
+def test_terminates_this_process_once_the_owner_is_gone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv(PARENT_PID_ENV, raising=False)
     gone_owner = 987654321
     signalled: list[tuple[int, int]] = []
@@ -62,7 +67,9 @@ def test_terminates_this_process_once_the_owner_is_gone(monkeypatch) -> None:
     assert signalled == [(os.getpid(), signal.SIGTERM)]
 
 
-def _recording_kill(signalled: list[int], alive: set[int]):
+def _recording_kill(
+    signalled: list[int], alive: set[int]
+) -> Callable[[int, int], None]:
     def fake_kill(pid: int, sig: int) -> None:
         if sig == 0:
             if pid not in alive:

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from framepilot_engine.media.ffmpeg import find_ffmpeg
-from framepilot_engine.subprocess_safety import validate_safe_argv
+from framepilot_engine.subprocess_safety import safe_operand, validate_safe_argv
 
 LOUDNESS_PRESETS: dict[str, float] = {
     "social": -14.0,
@@ -156,7 +156,7 @@ def measure_peak_dbfs_file(src: Path, *, ffmpeg: str | None = None) -> float | N
                 "-hide_banner",
                 "-nostdin",
                 "-i",
-                str(src),
+                safe_operand(str(src)),
                 "-af",
                 "volumedetect",
                 "-f",
@@ -185,6 +185,10 @@ def peak_normalize_gain_db(src: Path, target_dbfs: float = -1.0) -> float:
 
 
 def _default_runner(args: Sequence[str]) -> None:
+    # Never invoked with shell=True, so shell metacharacters are inert; every caller
+    # in this module now routes its path operands through `safe_operand` before they
+    # reach here, and `validate_safe_argv` closes the remaining type/NUL/argv[0] class.
+    # codeql[py/command-line-injection]
     subprocess.run(
         validate_safe_argv(args),
         check=True,
@@ -210,13 +214,13 @@ def apply_audio_filter(
             "-y",
             "-nostdin",
             "-i",
-            str(src),
+            safe_operand(str(src)),
             "-af",
             filter_str,
             "-vn",
             "-c:a",
             audio_codec,
-            str(dst),
+            safe_operand(str(dst)),
         ]
     )
 
@@ -237,13 +241,13 @@ def apply_master_audio(
             binary,
             "-y",
             "-i",
-            str(src),
+            safe_operand(str(src)),
             "-af",
             filter_str,
             "-c:v",
             "copy",
             "-c:a",
             audio_codec,
-            str(dst),
+            safe_operand(str(dst)),
         ]
     )

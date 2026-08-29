@@ -174,8 +174,12 @@ export function parseClassification(raw: string): CommandClassification | null {
 /** Strip a ```json code fence a model may wrap structured output in (mirrors proposers). */
 function stripFence(raw: string): string {
   const trimmed = raw.trim();
-  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/.exec(trimmed);
-  return fenced?.[1] ?? trimmed;
+  // Plain slicing, not a `\s*([\s\S]*?)\s*` regex: that shape is catastrophically
+  // backtracking on unclosed fences padded with whitespace (model output is
+  // untrusted length/content), and adds nothing a fixed-anchor match doesn't.
+  const open = /^```(?:json)?\s*/.exec(trimmed);
+  if (!open || !trimmed.endsWith('```')) return trimmed;
+  return trimmed.slice(open[0].length, -3).trim();
 }
 
 /** The safe fallback when classification is unavailable or unparseable: treat as an edit. */

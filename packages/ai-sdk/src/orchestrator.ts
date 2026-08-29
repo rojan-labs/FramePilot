@@ -637,12 +637,9 @@ export const AGENT_LOG_PAYLOAD_FRESH = 2;
 /** Payloads shorter than this are kept — clearing them saves nothing worth a re-read. */
 const MIN_CLEARABLE_PAYLOAD_CHARS = 160;
 
-/**
- * One ` → payload` segment of a log entry, bounded by the `'; '` note joiner (or end
- * of entry). Dot-all so the multiline digests (search hits, extracted frames) clear as
- * one payload rather than leaking their tail lines.
- */
-const NOTE_PAYLOAD = / → (.*?)(?=; |$)/gs;
+/** The ` → payload` marker and the `'; '` note joiner that bounds a payload's end. */
+const NOTE_PAYLOAD_MARKER = ' → ';
+const NOTE_JOINER = '; ';
 
 /**
  * Clear the re-derivable payloads of ONE old log entry in place (E2.1/E2.2), keeping
@@ -658,14 +655,32 @@ const NOTE_PAYLOAD = / → (.*?)(?=; |$)/gs;
  */
 export function clearNotePayloads(entry: string): string {
   if (entry.startsWith('Steering:')) return entry;
-  return entry.replace(NOTE_PAYLOAD, (match, payload: string) => {
-    if (payload.startsWith('they answered:')) return match;
-    if (payload.length < MIN_CLEARABLE_PAYLOAD_CHARS) return match;
-    // The payload goes; its HANDLE stays. Clearing the citation along with the content is
-    // what left the model holding an offer to "re-read" with no address to read from.
-    const cited = NOTE_EVIDENCE_HANDLE.exec(payload);
-    return ` → ${cited?.[1] ? clearedWithHandle(cited[1]) : CLEARED_RESULT_MARKER}`;
-  });
+  // Indexed scanning, not a `(.*?)(?=; |$)` regex: that shape is polynomial on
+  // adversarial-length payloads (untrusted tool output), and a fixed marker/joiner
+  // pair is all this ever needed to find the same boundaries.
+  let result = '';
+  let cursor = 0;
+  for (;;) {
+    const markerAt = entry.indexOf(NOTE_PAYLOAD_MARKER, cursor);
+    if (markerAt === -1) {
+      result += entry.slice(cursor);
+      return result;
+    }
+    const payloadStart = markerAt + NOTE_PAYLOAD_MARKER.length;
+    const joinerAt = entry.indexOf(NOTE_JOINER, payloadStart);
+    const payloadEnd = joinerAt === -1 ? entry.length : joinerAt;
+    const payload = entry.slice(payloadStart, payloadEnd);
+    result += entry.slice(cursor, markerAt);
+    if (payload.startsWith('they answered:') || payload.length < MIN_CLEARABLE_PAYLOAD_CHARS) {
+      result += NOTE_PAYLOAD_MARKER + payload;
+    } else {
+      // The payload goes; its HANDLE stays. Clearing the citation along with the content is
+      // what left the model holding an offer to "re-read" with no address to read from.
+      const cited = NOTE_EVIDENCE_HANDLE.exec(payload);
+      result += ` → ${cited?.[1] ? clearedWithHandle(cited[1]) : CLEARED_RESULT_MARKER}`;
+    }
+    cursor = payloadEnd;
+  }
 }
 
 /**
