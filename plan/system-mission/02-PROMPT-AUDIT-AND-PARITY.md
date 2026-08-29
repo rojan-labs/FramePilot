@@ -56,7 +56,7 @@ descriptions matched. Found and removed a workaround stack on the way: the TS
 `add_transition` text still said `list_transitions`, and both the TS contract layer and
 the Python overrides patched it at runtime — fixed at the source, both patches deleted.
 
-## P2.4 — Host prompt parity (desktop vs web vs CLI) — `[ ]`
+## P2.4 — Host prompt parity (desktop vs web vs CLI) — `[x]`
 
 Compare the system context assembled for the same project and request through
 `apps/desktop/electron/ai/ai-stream.ts`, the web-editor path, and any CLI/eval path.
@@ -64,6 +64,11 @@ Differences must be either removed or listed in `docs/architecture/system-map.md
 "Intentional host differences" with the reason (e.g. desktop has the sidecar, so
 `transcribe` is local-only there — see ASR two-path note).
 **Done when:** a golden-per-host test exists and the only differences are documented ones.
+
+Landed 2026-08-29: `pinned` and `variations` — the last two inputs the browser session
+sent and the desktop dropped — now ride the IPC request (`AiStreamRequest`, parsed and
+bounded in `ai-stream.ts`). `ai-session.test.ts` "host parity" pins the request shape;
+`carriedForward` stays the one documented browser-only gap in the system map.
 
 Finding (2026-08-29): desktop (`ai-stream.ts`) and web (`editor/ai.ts`) both inject
 `visualStatus`, `footageMap`, `sessionContext`, `userMemory`; the web path does **not**
@@ -77,7 +82,7 @@ and `set_caption_style` re-listing the 45 template names that `discover_caption_
 already returns. Those two are the P2.2 edits, sequenced after the Phase 1 after-measurement
 so the token delta attributes cleanly.
 
-## P2.5 — Skill discovery surface — `[ ]`
+## P2.5 — Skill discovery surface — `[x]`
 
 Skill descriptions are the only thing the model sees when choosing a skill and are
 capped at 300 chars (over-cap silently skips). Check every skill's description is within
@@ -85,10 +90,17 @@ cap, names the situation it fits, and does not overlap another's; run the skill-
 eval to confirm selection rate did not drop.
 **Done when:** all descriptions within cap; selection eval green.
 
-## P2.6 — Close — `[ ]`
+Landed 2026-08-29: `skills.test.ts` now asserts every bundled description is 60–300 chars
+and distinct (over-cap files are otherwise skipped silently). The model-backed
+selection eval (`foundation-real-eval`) is gated on a provider key; the deterministic
+parse test is the evidence that nothing is skipped.
+
+## P2.6 — Close — `[x]`
 
 `docs/reports/system-mission/02-after.md`: token delta per prompt from the golden diff,
 parity defects closed, host differences documented. README/PLAN snapshot.
+
+Landed 2026-08-29: `docs/reports/system-mission/02-after.md`.
 
 ## Discovered
 

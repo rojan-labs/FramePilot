@@ -45,7 +45,7 @@ these; none of them is to be reinvented.
 | --- | --- | --- | --- | --- | --- |
 | 0 | [`00-BASELINE.md`](./00-BASELINE.md) | Numbers for every claim the mission will make; a system map | — | none | `[~]` P0.1 done |
 | 1 | [`01-ORCHESTRATION-AND-CONTEXT.md`](./01-ORCHESTRATION-AND-CONTEXT.md) | Fewer, purposeful model calls; structured state instead of prose; cross-turn decision memory | 0 | none unless a schema field is needed for persisted decisions (then `[!]`) | `[ ]` |
-| 2 | [`02-PROMPT-AUDIT-AND-PARITY.md`](./02-PROMPT-AUDIT-AND-PARITY.md) | Audited prompts, one source of truth per prompt/tool/schema across hosts | 0 | none | `[ ]` |
+| 2 | [`02-PROMPT-AUDIT-AND-PARITY.md`](./02-PROMPT-AUDIT-AND-PARITY.md) | Audited prompts, one source of truth per prompt/tool/schema across hosts | 0 | none | `[x]` 2026-08-29 |
 | 3 | [`03-REFERENCE-MEDIA-CONTEXT.md`](./03-REFERENCE-MEDIA-CONTEXT.md) | Reference videos + images attached in the sidebar reach the model as analyzed, reusable structured context | 1 | **yes** — a persisted `references` field is a schema change | `[ ]` |
 | 4 | [`04-EDITING-QUALITY-AND-VERIFICATION.md`](./04-EDITING-QUALITY-AND-VERIFICATION.md) | Semantic operations; bounded verify loop; a graded scenario suite | 1, 3 | none | `[ ]` |
 | 5 | [`05-WORKERS-AND-LIFECYCLE.md`](./05-WORKERS-AND-LIFECYCLE.md) | Specialization only where Phase 0/1 numbers earn it; typed contracts; lifecycle for every long-lived process | 1 | none | `[ ]` |

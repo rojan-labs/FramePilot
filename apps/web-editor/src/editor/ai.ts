@@ -353,12 +353,9 @@ export interface AiSessionInput {
   /**
    * Clips/assets the user pinned as extra context via the composer's "@" picker
    * (P8.7 narrow slice — the H1.5c-deferred pin-context picker), independent of the
-   * auto-derived `selection`. Threaded into the model context by the browser session
-   * (`context-builder.ts`'s "Pinned context" block). Browser-only for now, same
-   * precedent as `selection`/`variations` above — `DesktopAiSession`
-   * does not forward it over IPC yet (an explicit, documented gap; the natural home
-   * is the P6 cross-surface parity pass, not silently dropped here). Deferred:
-   * `@range`/`@marker`/`@track` entity kinds (P8.7 full scope stays open).
+   * auto-derived `selection`. Threaded into the model context on both hosts
+   * (`context-builder.ts`'s "Pinned context" block; desktop forwards it over IPC since
+   * P2.4). Deferred: `@range`/`@marker`/`@track` entity kinds (P8.7 full scope stays open).
    */
   readonly pinned?: readonly PinnedEntity[];
 }
@@ -1104,16 +1101,10 @@ class DesktopAiSession implements AiSession {
           ? { references: input.references as unknown as readonly AiStreamReferenceProfile[] }
           : {}),
         ...(input.agentOptions ? { agentOptions: input.agentOptions } : {}),
-        // `variations` (P13.1) is deliberately NOT threaded over the desktop IPC contract
-        // yet — browser-only for this slice (see `AiSessionInput.variations`); the composer
-        // only shows the toggle without an Electron bridge, so this is never silently
-        // dropped from under a user who asked for it.
-        //
-        // `pinned` (P8.7) is likewise NOT threaded over IPC yet — same browser-only
-        // precedent (see `AiSessionInput.pinned`'s doc). The composer's "@" picker still
-        // renders the pinned chips on desktop (so the user sees what they pinned), but
-        // desktop runs currently drop them from the model context rather than silently
-        // pretending to send them — a documented gap for the P6 cross-surface parity pass.
+        // `variations` and `pinned` ride the same IPC request as the browser session's
+        // inputs (P2.4 host parity): what the composer shows is what the model gets.
+        ...(input.variations ? { variations: true } : {}),
+        ...(input.pinned && input.pinned.length > 0 ? { pinned: input.pinned } : {}),
       });
       this.activeRequestId = requestId;
       for (;;) {

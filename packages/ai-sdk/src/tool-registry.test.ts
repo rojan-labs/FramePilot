@@ -1350,7 +1350,11 @@ describe('per-clip styling edits (schema v5–v8) — caption/speed/crop/blend',
     // set_track_caption_style, so the only fallback is the track's existing accent.
     expect(() =>
       tool.buildOps?.(
-        { trackId: 'caption_1', keywords: ['world'], style: { accent: { mode: 'keywords', keywords: [] } } },
+        {
+          trackId: 'caption_1',
+          keywords: ['world'],
+          style: { accent: { mode: 'keywords', keywords: [] } },
+        },
         captionCtx,
       ),
     ).toThrow();

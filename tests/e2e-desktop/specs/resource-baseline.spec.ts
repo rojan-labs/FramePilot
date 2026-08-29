@@ -13,7 +13,9 @@ import { launchDesktop, REPO, snapshot, type ResourceSnapshot } from './launch.j
  * RESOURCE_SESSION_MINUTES (default 10) sets the scripted session length.
  */
 const SESSION_MINUTES = Number(process.env.RESOURCE_SESSION_MINUTES ?? 10);
-const OUT = process.env.RESOURCE_BASELINE_OUT ?? join(REPO, 'reports', 'system-mission', 'baseline-resources.json');
+const OUT =
+  process.env.RESOURCE_BASELINE_OUT ??
+  join(REPO, 'reports', 'system-mission', 'baseline-resources.json');
 
 test('@resources desktop resource baseline', async () => {
   test.setTimeout((SESSION_MINUTES + 12) * 60_000);
@@ -49,13 +51,19 @@ test('@resources desktop resource baseline', async () => {
       loops++;
       if (loops % 10 === 0) snaps.push(await snapshot(session, `session-loop-${loops}`, started));
     }
-    snaps.push(await snapshot(session, `after-session-${SESSION_MINUTES}min-${loops}loops`, started));
+    snaps.push(
+      await snapshot(session, `after-session-${SESSION_MINUTES}min-${loops}loops`, started),
+    );
 
     if (process.env.MISSION_AI === '1') {
       await page.getByRole('tab', { name: 'AI' }).first().click();
       const composer = page.getByRole('textbox').last();
       for (let n = 1; n <= 5; n++) {
-        await composer.fill(n % 2 ? 'Make the second clip two seconds shorter.' : 'Undo that and add a 0.5 second crossfade between the first two clips.');
+        await composer.fill(
+          n % 2
+            ? 'Make the second clip two seconds shorter.'
+            : 'Undo that and add a 0.5 second crossfade between the first two clips.',
+        );
         await composer.press('Enter');
         await page.waitForTimeout(90_000);
         snaps.push(await snapshot(session, `after-ai-turn-${n}`, started));
@@ -73,7 +81,18 @@ test('@resources desktop resource baseline', async () => {
     }
   } finally {
     mkdirSync(join(OUT, '..'), { recursive: true });
-    writeFileSync(OUT, JSON.stringify({ generatedAt: new Date().toISOString(), sessionMinutes: SESSION_MINUTES, snapshots: snaps }, null, 2));
+    writeFileSync(
+      OUT,
+      JSON.stringify(
+        {
+          generatedAt: new Date().toISOString(),
+          sessionMinutes: SESSION_MINUTES,
+          snapshots: snaps,
+        },
+        null,
+        2,
+      ),
+    );
     await session.app.close();
   }
   expect(snaps.length).toBeGreaterThanOrEqual(3);

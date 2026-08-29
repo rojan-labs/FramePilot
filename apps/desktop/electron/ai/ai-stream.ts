@@ -19,7 +19,7 @@
  *   so a closed window never leaks a running fetch.
  * - Only `AiEvent`s cross the bridge; the API key stays in main.
  */
-import type { AiStreamReferenceProfile } from '@framepilot/shared-types';
+import type { AiStreamPinnedEntity, AiStreamReferenceProfile } from '@framepilot/shared-types';
 import { randomUUID } from 'node:crypto';
 import {
   assertEditorInteractionReferences,
@@ -43,9 +43,7 @@ import {
   ReferenceProfileSchema,
 } from '@framepilot/ai-sdk';
 import { type Project, parseProject } from '@framepilot/timeline-schema';
-import type { PatchCommitLedger,
-  ReferenceProfile,
-} from '@framepilot/ai-sdk';
+import type { PatchCommitLedger, ReferenceProfile } from '@framepilot/ai-sdk';
 import { createLogger } from '@framepilot/shared-types';
 import type {
   AiProviderName,
@@ -381,11 +379,45 @@ function parseReferences(value: unknown): readonly AiStreamReferenceProfile[] | 
 }
 
 /** The wire profiles, re-validated into the SDK type at the context boundary. */
-function toReferenceProfiles(value: readonly AiStreamReferenceProfile[]): readonly ReferenceProfile[] {
+function toReferenceProfiles(
+  value: readonly AiStreamReferenceProfile[],
+): readonly ReferenceProfile[] {
   return ReferenceProfileSchema.array().parse(value);
 }
 
 const MAX_REFERENCES_PER_TURN = 8;
+const MAX_PINNED_PER_TURN = 32;
+const PINNED_KINDS: ReadonlySet<string> = new Set(['clip', 'asset']);
+
+/**
+ * Pinned entities come from the composer's "@" picker; the renderer names ids and
+ * labels, and the context builder only ever prints them, so structural validation is
+ * the whole contract (P2.4 host parity — the browser session sends the same shape).
+ */
+function parsePinned(value: unknown): readonly AiStreamPinnedEntity[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error('Invalid AI stream "pinned".');
+  if (value.length > MAX_PINNED_PER_TURN) {
+    throw new Error(`Too many pinned entities: at most ${String(MAX_PINNED_PER_TURN)} per turn.`);
+  }
+  return value.map((entry: unknown) => {
+    if (!entry || typeof entry !== 'object') throw new Error('Invalid AI stream "pinned".');
+    const { kind, id, label } = entry as Record<string, unknown>;
+    if (typeof kind !== 'string' || !PINNED_KINDS.has(kind)) {
+      throw new Error('Invalid AI stream "pinned".');
+    }
+    if (typeof id !== 'string' || id === '' || typeof label !== 'string') {
+      throw new Error('Invalid AI stream "pinned".');
+    }
+    return { kind: kind as AiStreamPinnedEntity['kind'], id, label };
+  });
+}
+
+function parseVariations(value: unknown): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'boolean') throw new Error('Invalid AI stream "variations".');
+  return value;
+}
 
 export function parseUserMemory(value: unknown): AiStreamUserMemory | undefined {
   if (value === undefined) return undefined;
@@ -468,6 +500,8 @@ export function parseAiStreamRequest(value: unknown): AiStreamRequest {
   const interaction = parseInteraction(record['interaction']);
   const userMemory = parseUserMemory(record['userMemory']);
   const references = parseReferences(record['references']);
+  const pinned = parsePinned(record['pinned']);
+  const variations = parseVariations(record['variations']);
   const agentOptions = parseAgentOptions(record['agentOptions']);
   // The deterministic recipe route is gone: a request still carrying its payload is a
   // stale renderer (or a probe), and silently ignoring an instruction we will not follow
@@ -505,6 +539,8 @@ export function parseAiStreamRequest(value: unknown): AiStreamRequest {
     ...(interaction !== undefined ? { interaction } : {}),
     ...(userMemory !== undefined ? { userMemory } : {}),
     ...(references !== undefined ? { references } : {}),
+    ...(pinned !== undefined ? { pinned } : {}),
+    ...(variations !== undefined ? { variations } : {}),
     ...(agentOptions !== undefined ? { agentOptions } : {}),
     ...(durableRunId !== undefined ? { durableRunId } : {}),
   };
@@ -589,6 +625,7 @@ function streamFor(
   options: StreamOptions,
   agentOptions: AgentOptions,
   controls: EditorRunControls,
+  variations: boolean,
 ): AsyncGenerator<AiEvent> {
   switch (mode) {
     case 'auto':
@@ -615,7 +652,14 @@ function streamFor(
     case 'plan':
       return orchestrator.streamPlan(input, options);
     case 'edit':
-      return orchestrator.streamEditorRun(input, options, { route: 'edit' }, controls);
+      // `variations` (P13.1) is opt-in and edit-mode only, exactly as the browser session
+      // routes it — the desktop composer's toggle now reaches the run (P2.4).
+      return orchestrator.streamEditorRun(
+        input,
+        options,
+        { route: 'edit', ...(variations ? { variations: true } : {}) },
+        controls,
+      );
     case 'agent':
       return orchestrator.streamEditorRun(
         input,
@@ -715,6 +759,9 @@ export async function runAiStream(
     ...(request.references === undefined
       ? {}
       : { references: toReferenceProfiles(request.references) }),
+    ...(request.pinned === undefined || request.pinned.length === 0
+      ? {}
+      : { pinned: request.pinned }),
     ...(request.projectRevision === undefined ? {} : { projectRevision: request.projectRevision }),
     userPrompt: request.userPrompt,
     // The structural history/selection/userMemory shapes are validated in
@@ -769,6 +816,7 @@ export async function runAiStream(
     options,
     agentOptions,
     controls,
+    request.variations === true,
   )) {
     eventCount += 1;
     // Terminal/interesting events are logged individually; the rest are counted.

@@ -13,11 +13,11 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
-**Status snapshot (2026-08-29, SYSMISSION — system mission plan):** `[ ]` **The end-to-end
+**Status snapshot (2026-08-29, SYSMISSION — system mission plan):** `[~]` **The end-to-end
 system mission — orchestration efficiency, structured context, prompt parity, reference
 video/image context, semantic editing ops with a bounded verify loop, worker/process
 lifecycle, a memory/resource audit, a CapCut-style quality-driven export (platform presets
-removed), a UI/UX interaction pass, and desktop e2e journeys — is planned, not started.**
+removed), a UI/UX interaction pass, and desktop e2e journeys — is in execution on `feat/system-mission`: Phase 2 closed (`[x]`), Phases 0/1/4/6/7 in progress (baseline measured, output-cap root cause fixed, `remove_silences` shipped, CapCut export shipped, resource gate written), the after-measurement running.**
 Brief: `PROMPT.md`. Plan: **`plan/system-mission/`** ([README](system-mission/README.md)
 index + status table, [USE-CASES](system-mission/USE-CASES.md) journey matrix, phases
 `00-BASELINE` → `10-FINAL-VERIFICATION`). Phase 0 (measure everything, change nothing) is

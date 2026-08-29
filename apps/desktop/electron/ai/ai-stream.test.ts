@@ -93,9 +93,9 @@ describe('parseAiStreamRequest', () => {
       analyzedAt: '2026-08-29T00:00:00Z',
       constraints: ['Pacing: fast — median shot 1.1s'],
     };
-    expect(parseAiStreamRequest({ ...request('agent'), references: [profile] }).references).toEqual([
-      profile,
-    ]);
+    expect(parseAiStreamRequest({ ...request('agent'), references: [profile] }).references).toEqual(
+      [profile],
+    );
     expect(() =>
       parseAiStreamRequest({ ...request('agent'), references: [{ id: 'x', role: 'evil' }] }),
     ).toThrow('references');
@@ -105,6 +105,28 @@ describe('parseAiStreamRequest', () => {
     expect(() =>
       parseAiStreamRequest({ ...request('agent'), references: Array(9).fill(profile) }),
     ).toThrow('at most 8');
+  });
+
+  it('forwards pinned entities and the variations flag, refusing malformed pins (P2.4 host parity)', () => {
+    const pin = { kind: 'clip', id: 'clip_1', label: 'Interview A' };
+    const parsed = parseAiStreamRequest({ ...request('edit'), pinned: [pin], variations: true });
+    expect(parsed.pinned).toEqual([pin]);
+    expect(parsed.variations).toBe(true);
+    expect(parseAiStreamRequest(request('edit')).pinned).toBeUndefined();
+    expect(parseAiStreamRequest(request('edit')).variations).toBeUndefined();
+    expect(() =>
+      parseAiStreamRequest({
+        ...request('edit'),
+        pinned: [{ kind: 'track', id: 't', label: 'x' }],
+      }),
+    ).toThrow('pinned');
+    expect(() => parseAiStreamRequest({ ...request('edit'), pinned: 'clip_1' })).toThrow('pinned');
+    expect(() => parseAiStreamRequest({ ...request('edit'), variations: 'yes' })).toThrow(
+      'variations',
+    );
+    expect(() => parseAiStreamRequest({ ...request('edit'), pinned: Array(33).fill(pin) })).toThrow(
+      'at most 32',
+    );
   });
 
   it('accepts a valid provider and rejects an unknown one', () => {

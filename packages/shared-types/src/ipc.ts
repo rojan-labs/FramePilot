@@ -768,7 +768,18 @@ export interface AiStreamRequest {
   /** Agent-mode tuning (plan/caps/auto-repair/duration). Ignored for non-agent modes. */
   /** Analyzed reference attachments for this turn (Phase 3). */
   readonly references?: readonly AiStreamReferenceProfile[];
+  /** Clips/assets the user pinned via the composer's "@" picker (P8.7); desktop parity P2.4. */
+  readonly pinned?: readonly AiStreamPinnedEntity[];
+  /** `edit` mode only: propose candidate takes instead of one edit (P13.1). */
+  readonly variations?: boolean;
   readonly agentOptions?: AiStreamAgentOptions;
+}
+
+/** One entity pinned as extra model context — mirrors the SDK's `PinnedEntity`. */
+export interface AiStreamPinnedEntity {
+  readonly kind: 'clip' | 'asset';
+  readonly id: string;
+  readonly label: string;
 }
 
 /**

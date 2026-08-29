@@ -121,6 +121,18 @@ describe('loadSkills', () => {
 });
 
 describe('bundled skills', () => {
+  it('every bundled skill description is within the discovery cap and names its own situation (P2.5)', () => {
+    // The description is the ONLY thing the model sees when choosing a skill; over the cap
+    // the file is skipped silently, and two skills describing the same situation split the
+    // selection between them.
+    const descriptions = BUNDLED_SKILLS.map((skill) => skill.description);
+    for (const description of descriptions) {
+      expect(description.length).toBeLessThanOrEqual(300);
+      expect(description.length).toBeGreaterThanOrEqual(60);
+    }
+    expect(new Set(descriptions).size).toBe(descriptions.length);
+  });
+
   it('every bundled skill parses cleanly with only real tool names (nothing was skipped)', () => {
     // loadSkills skips malformed entries defensively; this asserts none IS malformed,
     // so a bad skill file can never silently ship.

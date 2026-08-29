@@ -118,12 +118,13 @@ describe('BrowserAiSession', () => {
       readonly wal: string;
       readonly runId: string;
       readonly updatedAt: number;
-    } => JSON.parse(localStorage.getItem(key) ?? 'null') as {
-      snapshot: string;
-      wal: string;
-      runId: string;
-      updatedAt: number;
-    };
+    } =>
+      JSON.parse(localStorage.getItem(key) ?? 'null') as {
+        snapshot: string;
+        wal: string;
+        runId: string;
+        updatedAt: number;
+      };
     expect(JSON.parse(readDurable().snapshot)).toMatchObject({
       patchDecisions: [{ patchId: diff.edit.patch.patchId, state: 'pending' }],
     });
@@ -133,19 +134,21 @@ describe('BrowserAiSession', () => {
       expect(JSON.parse(readDurable().snapshot)).toMatchObject({
         currentProjectRevision: 3,
         outcome: { kind: 'completed_with_changes', changed: true },
-        patchDecisions: [{
-          patchId: diff.edit.patch.patchId,
-          state: 'committed',
-          projectRevision: 3,
-        }],
+        patchDecisions: [
+          {
+            patchId: diff.edit.patch.patchId,
+            state: 'committed',
+            projectRevision: 3,
+          },
+        ],
       });
     });
     expect(session.patchRunId?.()).toBe('turn_1');
 
     session.decidePatch?.(diff.edit.patch.patchId, 'accepted', 3);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const acceptedEvents = readDurable().wal
-      .trim()
+    const acceptedEvents = readDurable()
+      .wal.trim()
       .split('\n')
       .map((line) => JSON.parse(line) as { kind: string })
       .filter(({ kind }) => kind === 'run.patch_accepted');
@@ -197,10 +200,15 @@ describe('BrowserAiSession', () => {
     const events: AiEvent[] = [];
     if (recovered) for await (const event of recovered) events.push(event);
     expect(events.some((event) => event.type === 'diff')).toBe(false);
-    expect(events).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'error', message: expect.stringContaining('closed before') }),
-      expect.objectContaining({ type: 'status', status: 'failed' }),
-    ]));
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'error',
+          message: expect.stringContaining('closed before'),
+        }),
+        expect.objectContaining({ type: 'status', status: 'failed' }),
+      ]),
+    );
     const persisted = JSON.parse(
       (JSON.parse(localStorage.getItem(key) ?? 'null') as { snapshot: string }).snapshot,
     ) as { outcome: { kind: string } };
@@ -210,43 +218,49 @@ describe('BrowserAiSession', () => {
   it.each([
     ['agent', {}],
     ['auto', {}],
-  ] as const)('persists the %s editing route through the same terminal authority', async (mode, extra) => {
-    const turnId = `turn_${mode}`;
-    const session = createAiSession('mock');
-    const events = await collect(session, mode, { ...input, ...extra, turnId });
-    const diff = events.find((event) => event.type === 'diff');
-    const durable = JSON.parse(
-      localStorage.getItem(`framepilot:orchestration:v1:run:${turnId}`) ?? 'null',
-    ) as { snapshot?: string } | null;
-    const snapshot = JSON.parse(durable?.snapshot ?? 'null') as {
-      status?: string;
-      patchDecisions?: readonly { readonly patchId: string; readonly state: string }[];
-    } | null;
-    expect(['completed', 'failed', 'cancelled']).toContain(snapshot?.status);
-    if (diff?.type === 'diff') {
-      expect(snapshot?.patchDecisions).toContainEqual({
-        patchId: diff.edit.patch.patchId,
-        state: 'pending',
-      });
-
-      session.decidePatch?.(diff.edit.patch.patchId, 'accepted', 2);
-      await vi.waitFor(() => {
-        const latest = JSON.parse(
-          (JSON.parse(
-            localStorage.getItem(`framepilot:orchestration:v1:run:${turnId}`) ?? 'null',
-          ) as { snapshot: string }).snapshot,
-        ) as { patchDecisions: readonly { patchId: string; state: string }[] };
-        expect(latest.patchDecisions).toContainEqual(expect.objectContaining({
+  ] as const)(
+    'persists the %s editing route through the same terminal authority',
+    async (mode, extra) => {
+      const turnId = `turn_${mode}`;
+      const session = createAiSession('mock');
+      const events = await collect(session, mode, { ...input, ...extra, turnId });
+      const diff = events.find((event) => event.type === 'diff');
+      const durable = JSON.parse(
+        localStorage.getItem(`framepilot:orchestration:v1:run:${turnId}`) ?? 'null',
+      ) as { snapshot?: string } | null;
+      const snapshot = JSON.parse(durable?.snapshot ?? 'null') as {
+        status?: string;
+        patchDecisions?: readonly { readonly patchId: string; readonly state: string }[];
+      } | null;
+      expect(['completed', 'failed', 'cancelled']).toContain(snapshot?.status);
+      if (diff?.type === 'diff') {
+        expect(snapshot?.patchDecisions).toContainEqual({
           patchId: diff.edit.patch.patchId,
-          state: 'committed',
-        }));
-      });
-    } else {
-      expect(snapshot?.patchDecisions).toEqual([]);
-    }
-    expect(localStorage.getItem('framepilot:browser-run-handle:v1:p')).toBeNull();
-  });
+          state: 'pending',
+        });
 
+        session.decidePatch?.(diff.edit.patch.patchId, 'accepted', 2);
+        await vi.waitFor(() => {
+          const latest = JSON.parse(
+            (
+              JSON.parse(
+                localStorage.getItem(`framepilot:orchestration:v1:run:${turnId}`) ?? 'null',
+              ) as { snapshot: string }
+            ).snapshot,
+          ) as { patchDecisions: readonly { patchId: string; state: string }[] };
+          expect(latest.patchDecisions).toContainEqual(
+            expect.objectContaining({
+              patchId: diff.edit.patch.patchId,
+              state: 'committed',
+            }),
+          );
+        });
+      } else {
+        expect(snapshot?.patchDecisions).toEqual([]);
+      }
+      expect(localStorage.getItem('framepilot:browser-run-handle:v1:p')).toBeNull();
+    },
+  );
 });
 
 /** A fake desktop bridge that replays scripted stream messages to its listener. */
@@ -322,6 +336,59 @@ describe('DesktopAiSession', () => {
 
     expect(aiStreamStart).toHaveBeenCalledWith(
       expect.objectContaining({ project, projectId: project.id, projectRevision: 7 }),
+    );
+  });
+
+  it('sends every context input the browser session uses over IPC (P2.4 host parity)', async () => {
+    // Golden-per-host: whatever the browser session feeds the context builder must reach
+    // the desktop main process too, or a desktop run silently sees less than a browser run.
+    let listener: ((m: AiStreamEventMessage) => void) | null = null;
+    const aiStreamStart = vi.fn(async () => {
+      listener?.({ requestId: 'req_parity', done: true });
+      return 'req_parity';
+    });
+    (window as { framepilot?: RendererBridge }).framepilot = {
+      onAiStreamEvent: (next: (m: AiStreamEventMessage) => void) => {
+        listener = next;
+        return () => {
+          listener = null;
+        };
+      },
+      aiStreamStart,
+      aiStreamAbort: vi.fn(),
+    } as unknown as RendererBridge;
+
+    const pinned = [{ kind: 'clip' as const, id: 'clip_1', label: 'Interview A' }];
+    const references = [
+      {
+        id: 'ref_1',
+        role: 'style' as const,
+        kind: 'video' as const,
+        fileName: 'ref.mp4',
+        contentHash: 'abcdef0123456789',
+        analyzedAt: '2026-08-29T00:00:00Z',
+        constraints: ['Pacing: fast'],
+      },
+    ];
+    for await (const _ of createAiSession().run('edit', {
+      ...input,
+      selection: { start: 1, end: 2 },
+      userMemory: { preferredPacing: 'fast', favoriteExportPlatforms: [] },
+      pinned,
+      variations: true,
+      references: references as never,
+    })) {
+      // drain
+    }
+    expect(aiStreamStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: 'edit',
+        selection: { start: 1, end: 2 },
+        userMemory: { preferredPacing: 'fast', favoriteExportPlatforms: [] },
+        pinned,
+        variations: true,
+        references,
+      }),
     );
   });
 

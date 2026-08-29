@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseToolArguments, ToolInputContractError, withToolInputContract } from './tool-input-contract.js';
+import { parseToolArguments, withToolInputContract } from './tool-input-contract.js';
 import { getTool } from './tool-registry.js';
 
 const tool = (name: string) => {

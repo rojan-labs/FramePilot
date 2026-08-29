@@ -146,3 +146,12 @@ in `electron/telemetry`; cost meter per run in the sidebar.
 
 - Desktop has the sidecar: local ASR, proxies, footage map, render. Browser build has none
   of these; browser-only gaps are acceptable (CLAUDE.md product focus).
+- **`carriedForward`** (previous run's working state, context-management P5.1) is read by
+  the desktop hub from its run ledger; the browser session has no ledger reader, so a
+  refinement turn in the browser re-learns the footage. Browser-only gap, accepted.
+- Everything else the browser session feeds the context builder — `history`, `selection`,
+  `interaction`, `userMemory`, `references`, `pinned`, `variations` — rides the same
+  `aiStreamStart` request on desktop (P2.4, 2026-08-29; `pinned` and `variations` were
+  the last two browser-only inputs). Guarded by
+  `apps/web-editor/src/editor/ai-session.test.ts` ("host parity") and
+  `apps/desktop/electron/ai/ai-stream.test.ts` (request parsing).
