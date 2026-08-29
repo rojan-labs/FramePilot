@@ -16,7 +16,17 @@ import { exportThroughDialog, launchDesktop, REPO } from './launch.js';
  * project still exports a real, correctly-shaped video.
  */
 const FIXTURES = join(REPO, 'tests', 'fixtures', 'mission');
-const RUN_TIMEOUT_MS = 25 * 60_000;
+/**
+ * How long ONE turn may take before the row calls it hung.
+ *
+ * Sized from the measurements, not from optimism: `docs/reports/system-mission/01-after.md`
+ * puts the montage turn at a 1070 s p50 on this machine — 17.8 minutes — so a 25-minute cap
+ * left barely seven minutes of headroom and a normal-but-slow run tripped it. The row then
+ * reported a hang ("Stop agent still visible after 25 min") for a run that was working
+ * correctly and simply not finished. Forty minutes is generous against the measured p50
+ * while still catching a run that is genuinely stuck.
+ */
+const RUN_TIMEOUT_MS = 40 * 60_000;
 
 test.skip(process.env.MISSION_AI !== '1', 'needs MISSION_AI=1 and a configured provider');
 
@@ -35,7 +45,8 @@ function runIndicator(page: Page): Locator {
 }
 
 test('montage → refine → reference style → logo overlay on the desktop host', async () => {
-  test.setTimeout(4 * RUN_TIMEOUT_MS);
+  // Four turns, each allowed a full run, plus room for import and export either side.
+  test.setTimeout(5 * RUN_TIMEOUT_MS);
   const session = await launchDesktop({ projectId: 'mission-montage', sidecarPort: 8796 });
   const { page } = session;
   try {

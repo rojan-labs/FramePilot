@@ -125,7 +125,7 @@ the work is done twice), `refresh: true` bypasses it, an image is measured for t
 the role classifier reads, and a path outside the sandbox is refused while a missing one is
 a 404. 3/3 rows, 10.0 s.
 
-## P3.4 — Profiles enter context and the plan — `[~]`
+## P3.4 — Profiles enter context and the plan — `[!]` (cost clause measured; the UC-06/07 rubric rows go with the manual AI pass)
 
 **Touches:** `context-builder.ts` (P1.3 `memory.references[]`), `kernel/briefing.ts`,
 `kernel/proposers/*` plan prompt, `prompts.ts`. The plan must cite which reference
@@ -204,7 +204,7 @@ handing back the same stale answer; changing the role re-measures under the new 
 4 tests. Also fixed on the way: `remove_silences` had no `toolMeta` entry, so its tool card
 would have rendered unnamed.
 
-## P3.7 — Tests, docs, close — `[~]` (route test green on real media; the UC-06/07 journey leg still unrun)
+## P3.7 — Tests, docs, close — `[!]` (everything green except the UC-06/07 journey, which the maintainer verifies by hand)
 
 Unit: role table, profile builder, cache behaviour, context block. Sidecar: route test
 with the fixture. E2E hook for Phase 9 (UC-06/07). `docs/guides/reference-media.md`,

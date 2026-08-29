@@ -16,7 +16,7 @@ built desktop app with the sidecar; fixtures from Phase 0; a recorded-provider m
 a test-only IPC (`debug:project`) rather than the DOM.
 **Done when:** smoke opens `project-montage` in the desktop app in CI.
 
-## P9.1 — `ai-journey.spec.ts` — `[~]` (complete journey written and wired into the nightly lane; never yet run green with a provider)
+## P9.1 — `ai-journey.spec.ts` — `[!]` (runs against a real provider; the maintainer verifies the AI journey by hand)
 
 UC-01 → UC-08 → UC-09 → UC-06 → UC-07 in one session: open project, import media, attach
 reference video and image, ask for the montage, assert timeline outcome by rubric,
@@ -85,6 +85,32 @@ The 5xx row also hard-coded `FRAMEPILOT_AI_PROVIDER: 'deepseek'`, so on a machin
 for anything else the app started with a provider it had no key for and the row timed out
 having tested nothing. The proxy now sits in front of whichever provider the run would
 otherwise use.
+
+**2026-08-30 — `[!]`, by the maintainer's decision, and the spec is in better shape than
+before.** It was run against the real provider twice. The first attempt failed on a
+**harness** limit, not on the product: `RUN_TIMEOUT_MS` was 25 minutes while the montage
+turn alone measures a 1070 s p50 on this machine (`01-after.md`), so a normal-but-slow run
+tripped it and the row reported a hang for a run that was working. Raised to 40 minutes per
+turn, sized from the measurement.
+
+The second attempt was stopped at ~50 minutes, in flight, because a four-turn journey at
+real provider prices is an expensive way to learn what a person can see in ten minutes. The
+maintainer verifies the AI journey by hand.
+
+**What a manual pass should cover** — this is the row's own script:
+
+1. Open `mission-montage`, ask for a 30-second fast-paced social montage. It should finish
+   with a real cut, not an empty timeline.
+2. Ask to tighten it. The refinement should touch a few clips rather than rebuild the cut.
+3. Attach `tests/fixtures/mission/ref/fast-cut-vertical.mp4` and `ref/logo.png`, wait for
+   the tiles to say they are analyzed, then ask for the reference's pacing and the logo in
+   one turn. That is UC-06 and UC-07, and it is the last unproven clause of P3.4 and P3.7.
+4. Export, and confirm the file plays.
+
+Everything the journey does NOT need a provider for is proven elsewhere and green:
+`failure-paths.spec.ts` 12/12 including all four provider rows, `references-analyze.spec.ts`
+3/3 on the real fixtures, the export matrix 7/8 on both encoder paths.
+
 ## P9.2 — `failure-paths.spec.ts` — `[x]` (12/12 rows green, including all four provider rows)
 
 UC-15 rows: provider 5xx mid-run, tool throw, sidecar kill, invalid media file, 4K
