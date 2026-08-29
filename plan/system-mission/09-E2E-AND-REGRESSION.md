@@ -49,7 +49,31 @@ Three things were missing and are now there:
 `[~]` for one reason: **it has not been run green.** It needs `MISSION_AI=1`, a billed
 provider and the maintainer's media; the wiring exists, the run does not.
 
-## P9.2 — `failure-paths.spec.ts` — `[~]` (every row written; eight run anywhere, four need MISSION_AI=1; UC-16's large file has no fixture)
+
+**Update 2026-08-29 — it could never have run green, and two defects are why.**
+
+1. **Every AI row used `getByRole('status')`, which matches SIX elements** in this app: the
+   save chip, the preview fit chip, the playhead clock, the sidebar's live region, the
+   activity label and the toast host. Playwright's strict mode failed each row before it
+   exercised anything. All five now wait on the composer's `Stop agent` button, which exists
+   for exactly as long as a run does (`runIndicator()` in both specs).
+2. **The app ignores `FRAMEPILOT_AI_PROVIDER` for the active provider.** It reads
+   `ai-config.json` from the app data dir and defaults to `nvidia`, so every row launched
+   with a mission provider in the environment still talked to whatever the default was —
+   the failing runs reported `nvidia API error 410` while the environment said
+   `openai-compatible`. `launchDesktop` now seeds that file, with `extraEnv` taking
+   precedence so a row that puts a proxy in front of the provider is not routed past it.
+
+Two rows had been "passing" because of defect 2 rather than on their merits: with no working
+provider the run died instantly, which trivially satisfied "the run ends" without the run
+ever having started. They now fail honestly.
+
+**State at the end of the session: 2 of 4 provider rows green** (`a tool that throws
+mid-run`, `relaunching after a crash mid-run`). The remaining two — cancel mid-flight and
+the provider 5xx — have had their assertions corrected (see the cancel-settle finding in
+P9.2) but were not re-run: the session was stopped before the suite could be run again.
+Nothing here is claimed as passing that has not been seen to pass.
+## P9.2 — `failure-paths.spec.ts` — `[~]` (8/8 provider-free rows green incl. UC-16's real 4K/20-min file; 2 of 4 provider rows green)
 
 UC-15 rows: provider 5xx mid-run, tool throw, sidecar kill, invalid media file, 4K
 20-minute file (UC-16), cancel mid-run, network offline for stock/music, export encoder
@@ -157,7 +181,7 @@ $ node packages/ai-sdk/scripts/mission-score.mjs reports/system-mission/.tmp-sco
 1 scenario(s) regressed by more than 0.05 …                             exit 2
 ```
 
-## P9.4 — Export tests — `[~]`
+## P9.4 — Export tests — `[~]` (macOS hardware path green; the software-encoder path is runnable here via FRAMEPILOT_HW_ENCODE=0 and was not run)
 
 UC-13 matrix (resolution × fps × codec × container, source-capped) against both fixture
 projects: `ffprobe` asserts dimensions, fps, codec, container, duration ±1 frame; cancel
@@ -198,7 +222,16 @@ of the file that was just written, not merely that a button exists. The renderer
 reloaded and the project reopened: the history entry and the chosen resolution both have to
 survive the window, because that is what the user comes back to.
 
-`[~]`, not `[x]`, for one remaining honest reason: **the Linux (software encoder) half has
+**Update 2026-08-29 — the second platform is not the blocker the note assumed.** The
+done-when says macOS (hardware) *and* Linux (software), but the variable that matters is the
+ENCODER PATH, not the kernel: `encoders.py` honours `FRAMEPILOT_HW_ENCODE=0`, which forces
+`libx264`/`libx265` on this machine. The whole matrix can therefore be run against the
+software path here, without a Linux runner and without the fixtures leaving the machine.
+That was set up (a sidecar on 8799 with `FRAMEPILOT_HW_ENCODE=0`) and **not run** — the
+session was stopped first. Running it is the remaining work, and it needs no new
+infrastructure.
+
+`[~]`, not `[x]`, for one remaining honest reason: **the software-encoder half has
 not run.** The fixtures cannot reach a GitHub-hosted runner, so the matrix only runs where
 the media lives; it is green on macOS (hardware path) and the workflow is wired, but the
 two-platform "Done when" is not met until the self-hosted Linux runner exists.

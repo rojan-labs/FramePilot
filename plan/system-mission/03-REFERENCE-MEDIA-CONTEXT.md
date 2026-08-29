@@ -37,6 +37,18 @@ sandbox does not widen.
 **Done when:** attach three videos and two images, see tiles, remove one, reload — tiles
 persist (session store).
 
+**Update 2026-08-29 (partial, committed as such).** Tiles and drag-and-drop landed:
+`ReferenceTile.tsx` renders the first frame for a video and the image itself for a picture,
+with name, duration and role badge, and files can be dropped straight onto the composer.
+Typecheck is clean and the tests written alongside it are committed, but **the suite was not
+run against it**, so none of it is claimed as verified. The third piece of the done-when —
+attachments surviving a reload through the session store — is **not built**. That, and
+running the web-editor suite, is what stands between P3.1 and `[x]`.
+
+The stale note that P3.3/P3.7 need "the maintainer's media" is **wrong**: `tests/fixtures/
+mission/ref/` holds all nine reference fixtures on disk. Those two tasks need
+`references-analyze.spec.ts` run, nothing more.
+
 Landed 2026-08-29: composer attach control (`video/*,image/*`), chunked import into the
 project's media dir (same path as the bin), `framepilot:references:analyze` IPC →
 sidecar `/references/analyze` (sandboxed, content-hash cached), role + analysis state on
