@@ -33,6 +33,11 @@ reports/coverage/*
 reports/test/*
 reports/render/*
 reports/e2e/*
+# Per-turn agent event dumps from `mission-baseline.mjs --dump-events`: megabytes of raw
+# stream, useful while diagnosing one run and worthless a week later. The measurement
+# SUMMARIES beside them (`*-orchestration*.json`, `mission-score.json`) are the evidence
+# and stay tracked.
+reports/system-mission/runs/*
 # Playwright writes failure screenshots/traces here; only the run pointer is tracked.
 reports/e2e-results/*
 !reports/e2e-results/.last-run.json
