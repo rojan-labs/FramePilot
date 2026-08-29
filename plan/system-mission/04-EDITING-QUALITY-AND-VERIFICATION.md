@@ -86,8 +86,27 @@ fitting is not a refinement for its own sake: the tempo estimate is a median of 
 so 99.4 against a true 100 BPM is 3.6 ms per beat and 0.18 s of drift across 30 s — a grid
 pinned to the estimate fits the opening and has walked off the music by the end. On the
 fixture the split is now exact: **all 30 detected clicks on-grid, all 20 beeps off-grid.**
-Three tests, plus the fallback that an older sidecar or a track with no derivable tempo
-still yields every onset, which is the previous behaviour rather than an empty grid.
+Three engine tests and three SDK tests, plus the fallback that an older sidecar or a track
+with no derivable tempo still yields every onset — the previous behaviour rather than an
+empty grid.
+
+**What this does and does not buy, measured.** Replaying 48 000 candidate cut positions
+against the fixture's real onsets through the 80 ms snap window: snapping to every onset
+moved 13 148 of them, and **only 60 % landed on an actual beat** — the other 40 % were
+actively dragged off the beat and onto a beep. Snapping to on-grid onsets moves 7 861 and
+**100 % land on a beat.** So every beat-backed snap is now correct, and a cut that would
+have been misaligned is left where the model put it instead.
+
+That is a correctness win, not yet a rubric win, and the distinction is the point. Both a
+cut that never snapped and a cut snapped onto a beep score the same zero on
+`cuts-on-beats`, so this alone does not move the number. Moving it needs the snap WINDOW to
+widen toward half a beat period, so a cut near a beat is pulled onto it rather than
+requiring an onset within 80 ms — a change to `alignBeatBackedBoundaries` that affects
+every beat-backed edit, and a separate lever. Filed under §Discovered.
+
+One live re-run after the fix scored 0.56 with **2 operations and 4 cuts**; that is a run
+that barely edited, not a signal about the grid, and it is recorded here rather than
+presented as a before/after.
 
 **`tighten_pacing` — refused; the two things that actually stopped the tighten turn are
 neither of them a missing op.** UC-08's refine turn failed `shorter` in 2/3 runs, so it

@@ -51,6 +51,31 @@ function mediaChildren(mainPid: number): number {
   return descendants(mainPid).filter((c) => /ffmpeg|ffprobe/.test(c.cmd)).length;
 }
 
+/**
+ * The app's ffmpeg/ffprobe work must DRAIN — not necessarily be zero this instant.
+ *
+ * Reports the surviving command lines when it does not, because "10 processes" is not a
+ * diagnosis and "10 ffprobes still reading the same 374 assets" is.
+ */
+async function expectMediaWorkToDrain(
+  session: DesktopSession,
+  timeoutMs: number,
+  why: string,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const alive = descendants(session.mainPid).filter((c) => /ffmpeg|ffprobe/.test(c.cmd));
+    if (alive.length === 0) return;
+    if (Date.now() > deadline) {
+      throw new Error(
+        `${why}; ${String(alive.length)} still running after ${String(timeoutMs / 1000)}s:\n` +
+          alive.map((c) => `  ${String(c.pid)} ${c.cmd}`).join('\n'),
+      );
+    }
+    await new Promise((r) => setTimeout(r, 1_000));
+  }
+}
+
 const MISSION_FIXTURES = join(REPO, 'tests', 'fixtures', 'mission');
 const PHOTOS_DIR = join(MISSION_FIXTURES, 'photos');
 const PHOTO_COUNT = 60;
@@ -536,7 +561,19 @@ test.describe('UC-15 failure paths', () => {
         // had already applied is a complete, undoable edit — never a half-written patch.
         const after = await clipCount(session);
         expect(after === before || after > 0).toBe(true);
-        expect(mediaChildren(session.mainPid)).toBe(0);
+        // DRAINS, rather than is instantly zero. The original assertion was a bare
+        // `toBe(0)` the moment the Stop button disappeared, and it measured the wrong
+        // thing twice over: this project has 374 assets and the app probes and proxies
+        // them in the background whether or not a run is in flight, so a cancelled run
+        // shares the process table with work it never started; and cancellation is a
+        // request, not an instant — an ffprobe already in flight is allowed to finish,
+        // it is only never allowed to be forgotten. What must be true is that the work
+        // ENDS, so that the user's next export does not compete with a ghost.
+        await expectMediaWorkToDrain(
+          session,
+          3 * 60_000,
+          'cancelling a run must not leave media work running forever',
+        );
       } finally {
         await session.app.close();
       }

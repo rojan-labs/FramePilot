@@ -179,7 +179,7 @@ requests so it measures the gate. Caps already existed: asset-media
 `visual_index_concurrency`, render queue 1 encode. Remaining: queue depth / per-job
 state readable by the sidebar (Phase 8 Doing) and the 60-asset burst measurement.
 
-## P5.5 — Recovery — `[~]`
+## P5.5 — Recovery — `[x]`
 
 **Touches:** `ai/durable-run-controls.ts`, `run-store.ts`, sidecar restart path.
 Sidecar crash mid-run → run enters `recovering`, sidecar restarts, analysis jobs resume
@@ -233,6 +233,23 @@ known and one is not:
 
 Claiming P5.5 on the unit tests would be claiming exactly the thing the e2e just
 disproved once already. It stays `[~]` until the row runs green.
+
+**Closed 2026-08-29 — the row runs green, and the unknown above was the first candidate.**
+The SIGKILLed grandchild did keep the port bound. `SidecarManager` watched the process it
+spawned, but the engine runs as `uv run framepilot serve`, so the server is a
+**grandchild**: killing the wrapper orphaned a live server that went on holding the port,
+and every restart in the budget then lost the bind to a process this app had itself left
+running. Recovery now reaps the process GROUP before restarting, so the replacement has a
+port to bind. The liveness probe is still needed and still right — without it nothing
+notices a grandchild that dies while its wrapper lives — but on its own it could only
+detect the failure, never clear it.
+
+Evidence: `killing the engine mid-session leaves no orphans and the app recovers` passes
+in `failure-paths.spec.ts` (4.6 s), in the full provider-free suite (8/8) and again under
+`MISSION_AI=1`. The assertion was also corrected while it was being fixed: it compared the
+engine count to the literal `1` rather than to the count observed before the kill, so a
+machine running any second engine failed the row for a reason that had nothing to do with
+recovery.
 
 ## P5.6 — Close — `[x]`
 
