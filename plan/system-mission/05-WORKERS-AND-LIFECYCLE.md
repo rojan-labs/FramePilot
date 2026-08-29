@@ -39,7 +39,7 @@ Each runs through `proposerModelEffect` with its own manifest budget.
 accuracy) in `05-after.md`; rejected candidates are listed with the number that
 rejected them.
 
-## P5.3 — Process lifecycle registry (desktop main) — `[~]`
+## P5.3 — Process lifecycle registry (desktop main) — `[~]` (registry + pidfile sweep landed; crash-case pgrep proof remains)
 
 **Touches:** `apps/desktop/electron/sidecar/manager.ts`, `spawn.ts`,
 `render/export-hub.ts`, `ai/run-coordinator-base.ts`, FFmpeg/ffprobe spawns in the
@@ -53,8 +53,30 @@ process (test with `pgrep` in the desktop e2e); cancel reaches the child within 
 
 Landed 2026-08-29: the render subprocess runs in its own session and a cancel/timeout
 SIGTERMs its group (python + ffmpeg); the desktop spawns the sidecar `detached` and
-`stop()` kills the whole group (`killProcessGroup`, tested). Remaining: a single registry
-with owner/purpose/started-at per child and the `pgrep` e2e proof.
+`stop()` kills the whole group (`killProcessGroup`, tested).
+
+Landed 2026-08-29 (registry): `electron/process-registry.ts` — every child registered with
+owner, purpose, started-at, optional timeout and a cancel handle, moving through
+`created → ready → running → idle → failed → recovering → terminated` with `terminated`
+final. `will-quit` calls `terminateAll()` as a **backstop**, not a replacement for the
+existing owners: anything they forget, or any child added by code written after that
+handler, still dies. 10 tests.
+
+The part that could not be done any other way is the **pidfile**: every live child's pid is
+written synchronously (the one sync write in `userData`, because its whole job is to be
+readable after a process died without running a single quit handler), and the next launch
+sweeps what the previous one left. Only pids this app recorded are touched, and each is
+checked for liveness first — a pid is reused by the OS, and killing a stranger's process
+because it inherited a number is a worse failure than leaving an orphan.
+
+`recovering` is a state of its own rather than a flavour of `failed` because P5.5 restarts
+an engine that dies mid-session, and a reader has to tell "it is coming back" from "it is
+gone".
+
+Remaining for `[x]`: the `pgrep` e2e proof (kill the app mid-export and mid-analysis, assert
+no ffmpeg/ffprobe/sidecar survives) — `tests/e2e-desktop/specs/failure-paths.spec.ts`
+already asserts the clean-close case, and the crash case is being added with the rest of
+the UC-15 rows.
 
 ## P5.4 — Backpressure, limits, duplicate suppression — `[~]`
 

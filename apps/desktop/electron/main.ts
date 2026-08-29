@@ -14,7 +14,16 @@
  * and only wires the modules above (which are tested). Keep logic out of here.
  */
 import { loadDotEnvFile } from './env.js';
-import { appendFileSync, createReadStream, existsSync, watch as fsWatch } from 'node:fs';
+import {
+  appendFileSync,
+  createReadStream,
+  existsSync,
+  watch as fsWatch,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
@@ -36,6 +45,7 @@ import {
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import type { Patch } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
+import { ProcessRegistry, type PidFileIO } from './process-registry.js';
 import {
   readProjectFile,
   serializeProject,
@@ -299,12 +309,19 @@ function spawnSidecar(host: string, port: number): SidecarProcess {
       error,
     });
   });
-  return {
+  const registryId = processes.register({
+    owner: 'sidecar',
+    purpose: 'python engine (render, analysis, brain)',
     pid: child.pid,
-    kill: () => {
+    cancel: () => {
       const target = killProcessGroup(child.pid);
       aiLog.action('sidecar stop', { pid: child.pid, target });
     },
+  });
+  child.on('exit', () => processes.setState(registryId, 'terminated'));
+  return {
+    pid: child.pid,
+    kill: () => processes.terminate(registryId),
     onExit: (listener) => {
       child.on('exit', (code) => listener(code));
     },
@@ -408,6 +425,47 @@ const sidecar = new SidecarManager({
     else aiLog.action('sidecar phase', { phase: status.phase, detail: status.detail });
   },
 });
+/**
+ * The pidfile is written SYNCHRONOUSLY (P5.3).
+ *
+ * Everything else in `userData` is async, and that is right for those: nothing depends on
+ * a recents entry surviving a hard kill. This one does — its whole job is to be readable
+ * by the NEXT launch after this process died without running a single quit handler, and
+ * an async write scheduled at that moment never lands.
+ */
+function pidFileIO(): PidFileIO {
+  const filePath = path.join(app.getPath('userData'), 'child-processes.json');
+  return {
+    read: () => {
+      try {
+        return readFileSync(filePath, 'utf-8');
+      } catch {
+        return null;
+      }
+    },
+    write: (contents: string) => {
+      mkdirSync(path.dirname(filePath), { recursive: true });
+      writeFileSync(filePath, contents);
+    },
+    clear: () => {
+      try {
+        rmSync(filePath, { force: true });
+      } catch {
+        // Nothing to clear.
+      }
+    },
+  };
+}
+
+/**
+ * Every OS child this app owns (P5.3). Registering is how a child becomes visible to
+ * shutdown, so a new kind of process cannot silently opt out of being cleaned up.
+ */
+const processes = new ProcessRegistry({
+  killGroup: (pid) => killProcessGroup(pid),
+  pidFile: pidFileIO(),
+});
+
 const recentFiles = new RecentFilesStore(userDataFileIO('recent-projects.json'));
 const recovery = new RecoveryStore(userDataFileIO('recovery-snapshot.json'));
 const conversations = new ConversationStore(conversationDirIO());
@@ -3076,6 +3134,18 @@ void app.whenReady().then(async () => {
   });
 
   setupTelemetry();
+  // P5.3: anything the PREVIOUS run left behind — an engine and its ffmpeg children after
+  // a crash or a force-quit — is killed before this launch spawns its own. Without it the
+  // orphan keeps its port and its cores, and the new sidecar cannot bind. Only pids this
+  // app recorded are touched, and each is checked for liveness first: a pid gets reused,
+  // and killing a stranger's process because it inherited a number is the worse failure.
+  const swept = processes.sweepOrphans();
+  if (swept.length > 0) {
+    aiLog.action('swept orphaned children from a previous run', {
+      count: swept.length,
+      owners: swept.map((child) => child.owner),
+    });
+  }
   hardenRendererSession();
   await projectCommands.restore();
   registerIpcHandlers();
@@ -3099,6 +3169,9 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   sidecar.stop();
+  // The registry is the backstop, not a replacement for the owners above: anything they
+  // forgot — or a child registered by code written after this handler — still dies here.
+  processes.terminateAll();
   projectWatcher.stop();
   // A clean quit clears the recovery snapshot; a crash leaves it for next launch.
   void recovery.clear();
