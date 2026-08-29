@@ -29,7 +29,7 @@ boundary. Controllers stop reading the whole working state and receive only thei
 **Done when:** every controller and proposer is called through the contract and a test
 asserts its input contains no field outside its declared slice.
 
-## P5.2 — Bounded-context model specialists (only where earned) — `[ ]`
+## P5.2 — Bounded-context model specialists (only where earned) — `[~]` (evaluated on 585 real requests; planner accepted, summarizer rejected, critic already one)
 
 Candidates to evaluate with the ledger — implement only those that pass the rule:
 media-analysis summarizer (turns raw footage map into the P1.3 facts, small tier),
@@ -38,6 +38,23 @@ Each runs through `proposerModelEffect` with its own manifest budget.
 **Done when:** each implemented specialist has a before/after row (tokens, wall,
 accuracy) in `05-after.md`; rejected candidates are listed with the number that
 rejected them.
+
+Evaluated 2026-08-29 against **585 real requests** (`context_usage` manifests from the
+mission runs) — `docs/reports/system-mission/05-after.md` carries the table.
+
+- **planner — PASSES.** A request without the tool block is 7,002 tokens, **30.9 %** of a
+  main turn, under the 40 % rule. Refinement the data suggests: a planner needs tool
+  *descriptions* (8,748) but not *parameter schemas* (7,553), because it emits prose, not
+  tool calls — so a third of every planning request is JSON Schema that buys nothing.
+  **Accepted, not yet landed:** it changes the proposer layer in `packages/ai-sdk`, which
+  concurrent work in the same session was already editing, and landing two changes to
+  prompt assembly at once regenerates goldens against a moving target.
+- **media-analysis summarizer — REJECTED.** The footage map is not in the ten largest
+  sections at all and `source media` is **240 tokens, 1.1 %** of a request. There is
+  nothing to save; a specialist would add a call, a contract and a failure mode for a fifth
+  of a percent of context.
+- **critic judgment — already a specialist**, on a small tier through `proposerModelEffect`
+  with its own 140-token prompt and manifest budget.
 
 ## P5.3 — Process lifecycle registry (desktop main) — `[~]` (registry + pidfile sweep landed; crash-case pgrep proof remains)
 
