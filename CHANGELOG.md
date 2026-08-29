@@ -111,6 +111,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Beat-synced montages now cut on the beat, not on every loud moment.** Beat detection
+  reports onsets — and music routinely puts loud events off the beat, so cuts were being
+  snapped onto whichever transient happened to be nearest, including ones that were not
+  beats at all. The engine now works out which onsets sit on the track's tempo and the
+  editor cuts to those, fitting the grid's spacing as well as its position so it does not
+  drift over a long track. On the reference material every cut now lands on a beat, where
+  before roughly two in five were pulled off it.
+
+- **The AI remembers where a preference came from and how long it should last.** A style
+  you state outright, one inferred from your footage and one read off a reference you
+  attached are no longer indistinguishable, and a preference can now be set to expire after
+  a few turns instead of following the project forever. Contradicting an earlier instruction
+  replaces it outright rather than leaving both for the AI to choose between.
+
 - **The editor can be used from the keyboard at all.** Pressing Tab did not move focus
   anywhere — it moved the selection on the timeline instead, from the very first press,
   on every screen. Tab is now what it should always have been (it walks the controls);
