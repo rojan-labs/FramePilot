@@ -9,8 +9,14 @@ have. In a browser the tile says so rather than pretending.
 
 ## Attaching one
 
-The paperclip beside the composer takes video and image files. Each becomes a tile above
-the message box while the engine measures it.
+The paperclip beside the composer takes video and image files, and so does dropping them
+anywhere on the composer. Each becomes a tile above the message box — its own first frame
+(or the image itself), its name, the runtime for a video, and the role FramePilot guessed —
+while the engine measures it.
+
+The tiles belong to the conversation, so they are still there when you come back to it:
+reopen the chat after a restart and the references you attached, and what was measured
+from them, come back with it. Nothing is re-measured.
 
 What happens to the file: it is imported into the project's own media folder (the same
 place your footage lives), measured there, and the measurement is cached against the
@@ -69,5 +75,5 @@ At most 8 references travel with one turn.
 - **Roles beyond `style` and `pacing` are read but not yet acted on by a dedicated
   controller** — a `brand-logo` does not automatically become an overlay operation today.
   See `plan/system-mission/03-REFERENCE-MEDIA-CONTEXT.md` P3.4 for what remains.
-- A reference is **per turn**. Carrying "same as the reference" across later turns without
-  re-attaching is P3.5, and is not implemented yet.
+- A reference binds **until you remove its tile**. A later turn that says nothing about it
+  still applies what was measured; taking the tile away stops it, from that turn on.

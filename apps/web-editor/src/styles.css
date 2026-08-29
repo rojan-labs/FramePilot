@@ -10467,6 +10467,122 @@ a.export-credits-license {
   color: var(--text-tertiary);
 }
 
+/* Reference TILES (P3.1). A reference is a picture before it is a filename, so the
+   tile leads with the frame and lets the name truncate under it — the pill chip this
+   replaces made three attached videos indistinguishable at a glance. */
+.ai-ref-tile {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 220px;
+  padding: 4px 4px 4px 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 8px);
+}
+.ai-ref-tile[data-status='failed'] {
+  border-color: color-mix(in srgb, var(--danger, #d92d20) 45%, var(--border-subtle));
+}
+.ai-ref-tile-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 30px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--bg-active);
+  color: var(--text-tertiary);
+}
+.ai-ref-tile-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ai-ref-tile[data-status='analyzing'] .ai-ref-tile-thumb {
+  opacity: 0.6;
+}
+.ai-ref-tile-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.ai-ref-tile-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 130px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  text-align: left;
+}
+.ai-ref-tile-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+.ai-chip-badge {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--bg-active);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.ai-chip-status {
+  white-space: nowrap;
+}
+.ai-ref-tile[data-status='failed'] .ai-chip-status,
+.ai-ref-tile[data-status='unsupported'] .ai-chip-status {
+  color: var(--danger, #d92d20);
+}
+.ai-ref-tile-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 0;
+  opacity: 0.55;
+}
+.ai-ref-tile-remove:hover {
+  opacity: 1;
+  background: var(--bg-active);
+}
+
+/* Drop target (P3.1): the whole composer takes a dragged reference, so the cue
+   covers the whole well rather than hiding in a corner of it. */
+.ai-composer-shell[data-dragging] {
+  border-color: var(--focus-ring);
+}
+.ai-composer-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  border: 1px dashed var(--focus-ring);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
 /* Tool-call details modal (#9) — reuses the app's .overlay-backdrop. */
 .ai-tool-modal {
   display: flex;
@@ -11638,11 +11754,11 @@ a.export-credits-license {
   letter-spacing: 0.04em;
   color: var(--text-tertiary);
 }
-/* Context / attachment chips read as proper pill BADGES (product ask #4/#6):
-   a soft filled capsule with a truncating label and an inline dismiss — not the
-   bare "label ×" text the old chip rendered. */
-.ai-context-chip,
-.ai-attachments .ai-chip {
+/* Context chips read as proper pill BADGES (product ask #4/#6): a soft filled
+   capsule with a truncating label and an inline dismiss — not the bare "label ×"
+   text the old chip rendered. Reference attachments are TILES now (P3.1), not
+   chips, and are styled above. */
+.ai-context-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -11661,8 +11777,7 @@ a.export-credits-license {
   white-space: nowrap;
   max-width: 180px;
 }
-.ai-context-chip button,
-.ai-attachments .ai-chip button {
+.ai-context-chip button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -11677,8 +11792,7 @@ a.export-credits-license {
   opacity: 0.55;
   flex: 0 0 auto;
 }
-.ai-context-chip button:hover,
-.ai-attachments .ai-chip button:hover {
+.ai-context-chip button:hover {
   opacity: 1;
   background: var(--bg-active);
 }

@@ -5,7 +5,8 @@
  * (one-tap prompt prefills), an **included-context panel** (removable chips derived
  * from the project + selection + pinned entities), an **"@" pin-context picker**
  * (H1.5, P8.7 narrow slice — search timeline clips/`project.assets` and pin one as
- * extra context), and **attachment chips** with a paste handler. Voice/mic is
+ * extra context), and **reference tiles** (`ReferenceTile`) fed by a paste handler, a
+ * file picker and a drag-and-drop target over the whole composer. Voice/mic is
  * intentionally absent (Approval A5). Pure presentational state lives here; the
  * parent owns the conversation + run.
  */
@@ -22,6 +23,7 @@ import {
   removeAtQuery,
 } from '../../ai/composerActions.js';
 import { ICON_SIZE, Paperclip, Send, Square, X } from '../icons.js';
+import { ReferenceTile } from './ReferenceTile.js';
 import {
   ContextWindowIndicator,
   type ContextPhase,
@@ -113,141 +115,6 @@ export interface ComposerProps {
   readonly onPinEntity: (entity: PinnedEntity) => void;
 }
 
-/** Every role the classifier can assign; the tile lets the editor correct it (P3.6). */
-const REFERENCE_ROLES: readonly ReferenceRole[] = [
-  'style',
-  'pacing',
-  'caption-style',
-  'color',
-  'brand-logo',
-  'thumbnail',
-  'b-roll',
-  'character',
-  'design',
-];
-
-/**
- * One attached reference, with a disclosure showing what the AI actually learned from it
- * (plan/system-mission P3.6).
- *
- * The chip alone said only "analyzing…" and then nothing — the editor attached a file,
- * watched a spinner, and had no way to find out whether the thing was read as a pacing
- * reference or a logo, or what it concluded. `constraints` is the exact text the planner
- * reads, so showing that list is showing the truth rather than a summary of it. A failed
- * analysis states its reason here too, with the retry next to it, instead of a toast that
- * is gone by the time anyone reads it.
- */
-function ReferenceChip(props: {
-  readonly attachment: Attachment;
-  readonly onRemove: (id: string) => void;
-  readonly onReanalyze?: (id: string) => void;
-  readonly onChangeRole?: (id: string, role: ReferenceRole) => void;
-}): JSX.Element {
-  const { attachment } = props;
-  const [open, setOpen] = useState(false);
-  const analyzed = attachment.profile?.analyzedAt;
-  const constraints = attachment.profile?.constraints ?? [];
-  const expandable = attachment.status === 'ready' || attachment.status === 'failed';
-
-  return (
-    <span className="ai-chip" data-kind={attachment.kind} data-open={open ? '' : undefined}>
-      {expandable ? (
-        <button
-          type="button"
-          className="ai-context-chip-label ai-chip-disclosure"
-          aria-expanded={open}
-          aria-label={`What FramePilot learned from ${attachment.name}`}
-          onClick={() => setOpen((value) => !value)}
-        >
-          {attachment.name}
-        </button>
-      ) : (
-        <span className="ai-context-chip-label" title={attachment.name}>
-          {attachment.name}
-        </span>
-      )}
-      {attachment.role ? (
-        <span className="ai-chip-badge" data-role={attachment.role}>
-          {attachment.role}
-        </span>
-      ) : null}
-      {attachment.status && attachment.status !== 'ready' ? (
-        <span
-          className="ai-chip-status"
-          data-status={attachment.status}
-          title={attachment.error ?? attachment.status}
-        >
-          {attachment.status === 'analyzing' ? 'analyzing…' : attachment.status}
-        </span>
-      ) : null}
-      <button
-        type="button"
-        aria-label={`Remove ${attachment.name}`}
-        onClick={() => props.onRemove(attachment.id)}
-      >
-        <X size={12} aria-hidden="true" />
-      </button>
-      {open && (
-        <div className="ai-chip-detail" role="group" aria-label={`${attachment.name} reference`}>
-          {attachment.status === 'failed' ? (
-            <p className="ai-chip-detail-error">
-              {attachment.error ?? 'The analysis did not finish.'}
-            </p>
-          ) : (
-            <>
-              <p className="ai-chip-detail-meta">
-                {analyzed === undefined
-                  ? 'Not analyzed yet.'
-                  : `Analyzed ${new Date(analyzed).toLocaleString()}`}
-              </p>
-              {constraints.length > 0 ? (
-                <ul className="ai-chip-detail-list">
-                  {constraints.map((line) => (
-                    <li key={line}>{line}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="ai-chip-detail-meta">
-                  Nothing measurable was found in this file, so it adds no constraints.
-                </p>
-              )}
-            </>
-          )}
-          <div className="ai-chip-detail-actions">
-            {props.onChangeRole && (
-              <label className="ai-chip-detail-role">
-                <span>Use as</span>
-                <select
-                  aria-label={`Role for ${attachment.name}`}
-                  value={attachment.role ?? 'style'}
-                  onChange={(event) =>
-                    props.onChangeRole?.(attachment.id, event.target.value as ReferenceRole)
-                  }
-                >
-                  {REFERENCE_ROLES.map((role) => (
-                    <option key={role} value={role}>
-                      {role}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {props.onReanalyze && attachment.path !== undefined && (
-              <button
-                type="button"
-                className="ai-btn ai-btn--quiet"
-                onClick={() => props.onReanalyze?.(attachment.id)}
-              >
-                Re-analyze
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-    </span>
-  );
-}
-
 export function Composer(props: ComposerProps): JSX.Element {
   const { value, onChange, onSubmit, onStop, running } = props;
   const [showQuick, setShowQuick] = useState(false);
@@ -314,8 +181,69 @@ export function Composer(props: ComposerProps): JSX.Element {
     }
   };
 
+  /**
+   * Drag-and-drop onto the composer (P3.1). Dropping a file where you would type
+   * "make it feel like this" is the gesture editors already have in their hands from
+   * every other tool; the paperclip stays as the keyboard-reachable path.
+   *
+   * `dragDepth` counts enter/leave pairs: dragging across the tiles, the textarea and
+   * the send button fires `dragleave` on each child, and a plain boolean would flicker
+   * the drop state off while the pointer is still over the composer.
+   */
+  const dragDepth = useRef(0);
+  const [dragging, setDragging] = useState(false);
+  const canAttach = props.onAttachFiles !== undefined;
+
+  const dragCarriesFiles = (event: React.DragEvent<HTMLDivElement>): boolean =>
+    Array.from(event.dataTransfer?.types ?? []).includes('Files');
+
+  const onDragEnter = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (!canAttach || !dragCarriesFiles(event)) return;
+    event.preventDefault();
+    dragDepth.current += 1;
+    setDragging(true);
+  };
+
+  const onDragOver = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (!canAttach || !dragCarriesFiles(event)) return;
+    // Without this the browser opens the dropped file instead of handing it over.
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+  };
+
+  const onDragLeave = (): void => {
+    if (!canAttach) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragging(false);
+  };
+
+  const onDrop = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (!canAttach) return;
+    event.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    // Only what this host can measure. A dropped PDF is silently not a reference —
+    // announcing an error for a file the user can see is not a video is noise.
+    const files = Array.from(event.dataTransfer?.files ?? []).filter(
+      (file) => file.type.startsWith('video/') || file.type.startsWith('image/'),
+    );
+    if (files.length > 0) props.onAttachFiles?.(files);
+  };
+
   return (
-    <div className="ai-composer-shell">
+    <div
+      className="ai-composer-shell"
+      data-dragging={dragging ? '' : undefined}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {dragging && (
+        <div className="ai-composer-drop" role="status">
+          Drop a reference video or image
+        </div>
+      )}
       {running && props.runStatus ? (
         // The supplied BeautifulUI loading primitive is intentionally adapted rather
         // than copied as demo state: a compact 3×3 drive wave + shimmer + elapsed time
@@ -378,7 +306,7 @@ export function Composer(props: ComposerProps): JSX.Element {
       {props.attachments.length > 0 && (
         <div className="ai-attachments" aria-label="Attachments">
           {props.attachments.map((attachment) => (
-            <ReferenceChip
+            <ReferenceTile
               key={attachment.id}
               attachment={attachment}
               onRemove={props.onRemoveAttachment}

@@ -2509,3 +2509,84 @@ describe('AiSidebar — persisted conversation UI state (D2)', () => {
     }
   });
 });
+
+/**
+ * P3.1's done-when, exactly: attach three videos and two images, see tiles, remove one,
+ * reload — the tiles persist.
+ *
+ * The files are seeded already-analyzed rather than attached through the picker, because
+ * the import and the measurement are the DESKTOP host's (`references-analyze.spec.ts`
+ * drives those against real media). What this test owns is the half that is the
+ * renderer's: five references render as five tiles, a removal is durable, and a reload
+ * that reopens the conversation finds exactly the four that were left.
+ */
+describe('reference tiles survive a reload (P3.1)', () => {
+  const references = [
+    { id: 'r1', kind: 'video' as const, name: 'fast-cut-vertical.mp4', role: 'pacing' as const },
+    { id: 'r2', kind: 'video' as const, name: 'slow-cinematic-4k.mov', role: 'style' as const },
+    { id: 'r3', kind: 'video' as const, name: 'caption-talk.mp4', role: 'caption-style' as const },
+    { id: 'r4', kind: 'image' as const, name: 'logo.png', role: 'brand-logo' as const },
+    { id: 'r5', kind: 'image' as const, name: 'mood.png', role: 'color' as const },
+  ].map((entry) => ({
+    ...entry,
+    status: 'ready' as const,
+    path: `media/p/${entry.name}`,
+    profile: {
+      id: entry.id,
+      role: entry.role,
+      kind: entry.kind,
+      fileName: entry.name,
+      contentHash: `hash_${entry.id}_0123456789`,
+      analyzedAt: '2026-08-29T10:00:00Z',
+      constraints: [`Measured ${entry.name}`],
+    },
+  }));
+
+  function seeded() {
+    const base = createConversation({ id: 'conv-refs', projectId: project.id, model: 'mock' });
+    const emitter = createTurnEmitter({ conversationId: 'conv-refs', turnId: 't1' });
+    return {
+      ...base,
+      title: 'Make it feel like this',
+      events: [emitter.userMessage('Make it feel like this')],
+      uiState: { ...base.uiState, attachments: references },
+    };
+  }
+
+  async function openFromHistory(): Promise<void> {
+    fireEvent.click(await screen.findByRole('button', { name: 'More options' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /History/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Make it feel like this/ }));
+  }
+
+  it('renders one tile per reference, and a removal outlives the reload', async () => {
+    const persistence = new MemoryPersistence([seeded()]);
+    const { unmount } = render(
+      <AiSidebar project={project} session={new DiffSession()} persistence={persistence} />,
+    );
+    await openFromHistory();
+
+    await waitFor(() => expect(document.querySelectorAll('.ai-ref-tile')).toHaveLength(5));
+    expect(screen.getByText('logo.png')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove slow-cinematic-4k.mov' }));
+    await waitFor(() => expect(document.querySelectorAll('.ai-ref-tile')).toHaveLength(4));
+
+    // Unmount flushes the debounced autosave rather than cancelling it, so the removal
+    // is on disk before the "reload" — that is the behaviour under test, not a nicety.
+    unmount();
+    resetConversationsRemountCache();
+    resetAiSidebarScrollCache();
+
+    render(<AiSidebar project={project} session={new DiffSession()} persistence={persistence} />);
+    await openFromHistory();
+
+    await waitFor(() => expect(document.querySelectorAll('.ai-ref-tile')).toHaveLength(4));
+    expect(screen.queryByText('slow-cinematic-4k.mov')).toBeNull();
+    expect(screen.getByText('fast-cut-vertical.mp4')).toBeTruthy();
+    expect(screen.getByText('mood.png')).toBeTruthy();
+    // The profile came back with the tile: the reload did not cost a re-measurement.
+    fireEvent.click(screen.getByRole('button', { name: /What FramePilot learned from logo.png/ }));
+    expect(screen.getByText('Measured logo.png')).toBeTruthy();
+  });
+});

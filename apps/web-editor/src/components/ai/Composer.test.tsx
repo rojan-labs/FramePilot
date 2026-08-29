@@ -1,6 +1,6 @@
 /**
  * Tests for the composer (Phase 11 M8): slash palette, quick-action prefill, context
- * chip removal, attachment chip lifecycle, and the paste handler.
+ * chip removal, reference-tile lifecycle, and the paste / picker / drop attach paths.
  */
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
@@ -284,5 +284,102 @@ describe('reference tiles (P3.6)', () => {
     setup({ attachments: [{ ...pending, status: 'analyzing' as const }] });
     expect(screen.queryByRole('button', { name: /What FramePilot learned from/ })).toBeNull();
     expect(screen.getByText('analyzing…')).toBeTruthy();
+  });
+});
+
+
+describe('reference tiles show the reference, not just its name (P3.1)', () => {
+  const ready = {
+    id: 'ref_1',
+    kind: 'video' as const,
+    name: 'fast-cut-vertical.mp4',
+    role: 'pacing' as const,
+    status: 'ready' as const,
+    path: 'media/p/fast-cut-vertical.mp4',
+    profile: {
+      id: 'ref_1',
+      role: 'pacing' as const,
+      kind: 'video' as const,
+      fileName: 'fast-cut-vertical.mp4',
+      contentHash: 'abcdef0123456789',
+      analyzedAt: '2026-08-29T10:00:00Z',
+      constraints: ['Pacing: fast — median shot 0.9s'],
+      video: { durationS: 20, shotCount: 25, medianShotS: 0.891667 },
+    },
+  };
+
+  it('shows the measured runtime of a video beside its role', () => {
+    setup({ attachments: [ready] });
+    expect(screen.getByText('0:20')).toBeTruthy();
+    expect(screen.getByText('pacing')).toBeTruthy();
+  });
+
+  it('renders an image reference as its own thumbnail', () => {
+    setup({
+      attachments: [
+        {
+          id: 'ref_2',
+          kind: 'image' as const,
+          name: 'logo.png',
+          role: 'brand-logo' as const,
+          status: 'ready' as const,
+          path: 'media/p/logo.png',
+        },
+      ],
+    });
+    const img = document.querySelector('.ai-ref-tile-img') as HTMLImageElement | null;
+    // Resolved through `mediaSrc` — a bare path would be fetched against the page
+    // origin and blocked by the renderer CSP.
+    expect(img?.getAttribute('src')).toBe('fp-media://local/media%2Fp%2Flogo.png');
+  });
+
+  it('shows no runtime while the analysis has not measured one', () => {
+    const { profile: _pending, ...analyzing } = ready;
+    setup({ attachments: [{ ...analyzing, status: 'analyzing' as const }] });
+    expect(screen.queryByText('0:20')).toBeNull();
+    expect(screen.getByText('analyzing…')).toBeTruthy();
+  });
+});
+
+describe('dropping a reference on the composer (P3.1)', () => {
+  function dataTransfer(files: readonly File[]): unknown {
+    return { types: ['Files'], files, dropEffect: 'none' };
+  }
+
+  it('takes dropped video and image files and ignores everything else', () => {
+    const onAttachFiles = vi.fn();
+    setup({ onAttachFiles });
+    const shell = document.querySelector('.ai-composer-shell') as HTMLElement;
+    const video = new File(['v'], 'ref.mp4', { type: 'video/mp4' });
+    const image = new File(['i'], 'logo.png', { type: 'image/png' });
+    const pdf = new File(['p'], 'brief.pdf', { type: 'application/pdf' });
+
+    fireEvent.dragEnter(shell, { dataTransfer: dataTransfer([video]) });
+    expect(screen.getByText('Drop a reference video or image')).toBeTruthy();
+    fireEvent.drop(shell, { dataTransfer: dataTransfer([video, image, pdf]) });
+
+    expect(onAttachFiles).toHaveBeenCalledWith([video, image]);
+    expect(screen.queryByText('Drop a reference video or image')).toBeNull();
+  });
+
+  it('keeps the drop cue up while the pointer crosses a child element', () => {
+    setup({ onAttachFiles: vi.fn() });
+    const shell = document.querySelector('.ai-composer-shell') as HTMLElement;
+    fireEvent.dragEnter(shell, { dataTransfer: dataTransfer([]) });
+    fireEvent.dragEnter(screen.getByLabelText('Message FramePilot'), {
+      dataTransfer: dataTransfer([]),
+    });
+    fireEvent.dragLeave(shell);
+    // Two enters, one leave: still over the composer.
+    expect(screen.getByText('Drop a reference video or image')).toBeTruthy();
+    fireEvent.dragLeave(shell);
+    expect(screen.queryByText('Drop a reference video or image')).toBeNull();
+  });
+
+  it('does not offer a drop target on a host that cannot take files', () => {
+    setup();
+    const shell = document.querySelector('.ai-composer-shell') as HTMLElement;
+    fireEvent.dragEnter(shell, { dataTransfer: dataTransfer([]) });
+    expect(screen.queryByText('Drop a reference video or image')).toBeNull();
   });
 });

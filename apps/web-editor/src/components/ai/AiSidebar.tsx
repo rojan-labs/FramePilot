@@ -120,7 +120,7 @@ import {
 } from '../../ai/composerActions.js';
 import { recordProviderSuccess } from '../../editor/providerHealth.js';
 import { LruCache } from '../../editor/lruCache.js';
-import type { Attachment, ConversationUiState } from '../../ai/conversation.js';
+import { isDefaultUiState, type Attachment, type ConversationUiState } from '../../ai/conversation.js';
 import { contextPhase, latestContextWindow } from './ContextWindowIndicator.js';
 import { type ContextDebugInfo, recentManifests } from './ContextDebugger.js';
 
@@ -913,12 +913,33 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   // reset what the reviewer is mid-typing/mid-scrolling. A `useLayoutEffect` (not
   // `useEffect`) so the scroll restore below lands before the browser paints, and
   // before the auto-scroll-to-bottom effect above can fight it.
+  //
+  // One conversation gets seeded TWICE, on purpose. A conversation opened from history
+  // after a cold start arrives as a stub — its log and its `uiState` are still being read
+  // from disk — so the first seed sees the default state and restores nothing. The load
+  // that follows replaces `uiState` wholesale, and that single transition must re-seed or
+  // a real reload loses the draft, the expanded cards, the scroll position and (P3.1) the
+  // reference tiles, all of which were saved correctly and simply never read back. The
+  // re-seed is refused the moment the reviewer has anything of their own in the composer,
+  // so a load that lands late can never overwrite live typing.
   const seededConversationId = useRef<string | null>(null);
+  const seededDefaultUiState = useRef(false);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   useLayoutEffect(() => {
     const id = active?.id ?? null;
-    if (seededConversationId.current === id) return;
-    seededConversationId.current = id;
     const uiState = active?.uiState;
+    const switched = seededConversationId.current !== id;
+    const arrivedFromDisk =
+      !switched &&
+      seededDefaultUiState.current &&
+      uiState !== undefined &&
+      !isDefaultUiState(uiState) &&
+      draftRef.current === '' &&
+      attachmentsRef.current.length === 0;
+    if (!switched && !arrivedFromDisk) return;
+    seededConversationId.current = id;
+    seededDefaultUiState.current = uiState === undefined || isDefaultUiState(uiState);
     setDraft(uiState?.composerDraft ?? '');
     // Reference chips survive a reload with their analyzed profiles (P3.1); an attachment
     // still `analyzing` when the state was saved can only be re-attached, so it is dropped.
@@ -949,8 +970,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     // auto-scroll effect above immediately yank it back down.
     stickRef.current = stick;
     setAtBottom(stick);
-    // Deliberately keyed on the id alone — see the comment above.
-  }, [active?.id]);
+    // The id decides a SWITCH; `uiState` is here only so the one late load above can
+    // re-seed — every other change to it returns at the guard.
+  }, [active?.id, active?.uiState]);
 
   // The stream ELEMENT can be replaced without the conversation changing: opening and
   // closing the History drawer swaps `.ai-stream` out and back, and a host auto-commit

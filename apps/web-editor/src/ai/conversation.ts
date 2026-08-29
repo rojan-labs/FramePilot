@@ -101,6 +101,27 @@ export function emptyUiState(): ConversationUiState {
   };
 }
 
+/**
+ * Whether a UI state is still the untouched default — nothing typed, nothing attached,
+ * nothing expanded, never scrolled.
+ *
+ * Used to tell a conversation STUB (opened from history, its real state still being read
+ * from disk) apart from a conversation whose saved state genuinely is empty, so the
+ * sidebar can re-seed itself exactly once when the load lands. Compared by value, not by
+ * identity: the stub's state is a fresh {@link emptyUiState} object every time.
+ */
+export function isDefaultUiState(uiState: ConversationUiState): boolean {
+  return (
+    uiState.composerDraft === '' &&
+    uiState.attachments.length === 0 &&
+    uiState.context.length === 0 &&
+    uiState.collapsedToolIds.length === 0 &&
+    uiState.expandedToolIds.length === 0 &&
+    uiState.scrollOffset === 0 &&
+    uiState.selectedEventId === null
+  );
+}
+
 /** Options for {@link createConversation}. */
 export interface CreateConversationOptions {
   readonly id: string;
