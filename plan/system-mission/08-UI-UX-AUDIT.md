@@ -54,10 +54,13 @@ Landed 2026-08-29 (Knows, first slice): the included-context strip now shows eve
 remembered project decision (audience / brand style / caption style / pacing) as its own
 "Remembers …" chip, and removing the chip FORGETS the decision (`writeMemory` through
 `onProjectChange`) rather than hiding it for a turn. References already appear as
-attachment chips with their role (Phase 3). Remaining: selection/playhead facts in the
-strip, Doing (queue/progress), Changed (per-run result card with "Show on timeline"),
-Needs (question with choices in the composer), Failed (plain line + details), and the
-five RTL tests + screenshots.
+attachment chips with their role (Phase 3). Changed: the run footer ("Made N edits",
+"Undo run") gained "Show on timeline", which reveals the first clip (else track) the
+run's operations named — RTL-tested. Already present and tested before this phase:
+Needs (`ask_user` renders its options as buttons, EventNode) and Failed (retryable error
+notice with inline Retry). Remaining: selection/playhead facts in the strip, Doing
+(queue/progress from P5.4), grouping the result card by semantic op, the Failed "details"
+disclosure for provider/FFmpeg text, and the screenshots for the report.
 
 ## P8.3 — Selection, drag/drop, context menus, shortcuts — `[ ]`
 

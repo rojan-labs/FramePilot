@@ -1492,6 +1492,33 @@ describe('AiSidebar', () => {
     expect(next.aiMemory?.['preferredPacing']).toBe('fast');
   });
 
+  it('offers "Show on timeline" for the range the last run touched (P8.2 changed)', async () => {
+    const applyPatchChecked = vi.fn(() => ({ ok: true as const }));
+    const editor = {
+      applyPatchChecked,
+      undo: vi.fn(),
+      history: { entries: [{ patch: { patchId: fakeEdit.patch.patchId } }], cursor: 1 },
+    } as unknown as UseEditor;
+    const onReveal = vi.fn();
+    render(
+      <AiSidebar
+        project={project}
+        editor={editor}
+        onReveal={onReveal}
+        session={new DiffSession()}
+        persistence={new MemoryPersistence()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Message FramePilot'), { target: { value: 'Trim it' } });
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Send'));
+    });
+    await waitFor(() => expect(screen.getByText('Made 1 edit')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Show on timeline' }));
+    // The fixture's only operation names a track, so that is what gets revealed.
+    expect(onReveal).toHaveBeenCalledWith({ kind: 'track', id: 'video_1', label: 'video_1' });
+  });
+
   it('stands the Undo-run button down once the run is no longer the top of the stack', async () => {
     const applyPatchChecked = vi.fn(() => []);
     // Someone edited after the run: undoing now would take back THEIR work, not the run's.

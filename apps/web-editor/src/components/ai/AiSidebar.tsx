@@ -34,6 +34,7 @@ import {
   writeMemory,
   type AiEvent,
   type InteractionKeyframeRef,
+  type Reference,
   type MemoryPreferenceKey,
   type PlanApprovalGate,
   type SteeringQueue,
@@ -1400,6 +1401,31 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       ? []
       : diffs.filter((n) => n.turnId === lastTurnId).map((n) => n.edit.patch.patchId);
   }, [view.nodes]);
+  // Where the last run's edits landed (P8.2 "changed"): the first clip an operation
+  // names, else the first track — enough for "Show on timeline" to put the editor's eyes
+  // on the affected range instead of leaving them to hunt for what changed.
+  const lastRunReference = useMemo<Reference | null>(() => {
+    const diffs = view.nodes.filter(
+      (n): n is Extract<typeof n, { kind: 'diff' }> => n.kind === 'diff' && n.edit.validation.valid,
+    );
+    const lastTurnId = diffs.at(-1)?.turnId;
+    if (lastTurnId === undefined) return null;
+    let track: Reference | null = null;
+    for (const node of diffs.filter((n) => n.turnId === lastTurnId)) {
+      for (const op of node.edit.patch.operations as unknown as readonly Record<
+        string,
+        unknown
+      >[]) {
+        const clipId = op['clipId'];
+        if (typeof clipId === 'string') return { kind: 'clip', id: clipId, label: clipId };
+        const trackId = op['trackId'];
+        if (track === null && typeof trackId === 'string') {
+          track = { kind: 'track', id: trackId, label: trackId };
+        }
+      }
+    }
+    return track;
+  }, [view.nodes]);
   // How many entries at the TOP of the undo stack this run owns, counted contiguously
   // from the newest backwards.
   //
@@ -1737,6 +1763,15 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
                     ? 'Made 1 edit'
                     : `Made ${String(lastRunPatchIds.length)} edits`}
                 </span>
+                {onReveal && lastRunReference && (
+                  <button
+                    type="button"
+                    className="ai-btn ai-btn--quiet"
+                    onClick={() => onReveal(lastRunReference)}
+                  >
+                    Show on timeline
+                  </button>
+                )}
                 {undoableRunEdits > 0 ? (
                   <button type="button" className="ai-btn ai-btn--quiet" onClick={undoRun}>
                     Undo run
