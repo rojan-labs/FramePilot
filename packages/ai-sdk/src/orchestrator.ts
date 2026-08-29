@@ -37,6 +37,7 @@ import {
 } from '@framepilot/timeline-schema';
 import type { AgentOptions, AgentRun, AgentStep, ReviewResult } from './agent.js';
 import { asksForRenderedFile, checkableAcceptance } from './acceptance.js';
+import { referenceDirectives, shotLengthTolerance } from './references/directives.js';
 import { type EditResult, assembleEdit } from './assemble.js';
 import {
   TOOL_CONCURRENCY_ENV,
@@ -2878,6 +2879,14 @@ export class Orchestrator {
     // reading is recorded on the run's objective, so the criterion the ledger reports against
     // and the check that settles it can never be two different things.
     const { minShotCount, coverage } = checkableAcceptance(objectiveText, durationTargetSeconds);
+    // The measured half of "make it feel like this" (P3.4). The reference's numbers reach
+    // the Critic WITHOUT passing through the model: a run cannot forget, round or re-derive
+    // a target it never had to restate, and the check the run is graded by and the target
+    // the plan was given are one reading of one analysis.
+    const directives = referenceDirectives(input.references ?? []);
+    const medianShotTargetSeconds = directives.medianShotSeconds;
+    const medianShotToleranceSeconds = shotLengthTolerance(directives);
+    const medianShotSource = directives.applied.find((c) => c.line.startsWith('Pacing:'));
     return {
       userPrompt: input.userPrompt,
       // The resolved request, so `checkShotCount` can tell "no count was asked for" apart
@@ -2887,6 +2896,11 @@ export class Orchestrator {
       ...(durationTargetSeconds !== undefined ? { durationTargetSeconds } : {}),
       ...(durationToleranceSeconds !== undefined ? { durationToleranceSeconds } : {}),
       ...(minShotCount !== undefined ? { minShotCount } : {}),
+      ...(medianShotTargetSeconds !== undefined ? { medianShotTargetSeconds } : {}),
+      ...(medianShotToleranceSeconds !== undefined ? { medianShotToleranceSeconds } : {}),
+      ...(medianShotSource !== undefined
+        ? { medianShotSource: `${medianShotSource.profileId}: ${medianShotSource.line}` }
+        : {}),
       ...(coverage !== undefined ? { coverage } : {}),
       ...(options.targetPlatform !== undefined ? { targetPlatform: options.targetPlatform } : {}),
       ...(options.render !== undefined ? { render: options.render } : {}),

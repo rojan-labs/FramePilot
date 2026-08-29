@@ -43,13 +43,49 @@ export interface ReferenceRoleDecision {
 const CUES: readonly { readonly role: ReferenceRole; readonly words: readonly string[] }[] = [
   { role: 'brand-logo', words: ['logo', 'brand mark', 'watermark', 'our brand', 'wordmark'] },
   { role: 'caption-style', words: ['caption', 'subtitle', 'subtitles', 'captions', 'lower third'] },
-  { role: 'color', words: ['grade', 'grading', 'color', 'colour', 'tone', 'look like this', 'palette', 'warm', 'cool'] },
-  { role: 'pacing', words: ['pacing', 'pace', 'rhythm', 'cut like', 'cuts like', 'speed', 'tempo', 'fast like'] },
+  {
+    role: 'color',
+    words: [
+      'grade',
+      'grading',
+      'color',
+      'colour',
+      'tone',
+      'look like this',
+      'palette',
+      'warm',
+      'cool',
+    ],
+  },
+  {
+    role: 'pacing',
+    words: ['pacing', 'pace', 'rhythm', 'cut like', 'cuts like', 'speed', 'tempo', 'fast like'],
+  },
   { role: 'thumbnail', words: ['thumbnail', 'cover image', 'poster frame'] },
-  { role: 'character', words: ['character', 'this person', 'the presenter', 'the host', 'my face', 'the subject'] },
-  { role: 'b-roll', words: ['b-roll', 'broll', 'cutaway', 'insert shot', 'use this footage', 'use this clip'] },
-  { role: 'design', words: ['design', 'layout', 'template', 'font', 'typography', 'title card', 'graphic'] },
-  { role: 'style', words: ['style', 'feel like', 'vibe', 'aesthetic', 'like this video', 'like this reel', 'like this'] },
+  {
+    role: 'character',
+    words: ['character', 'this person', 'the presenter', 'the host', 'my face', 'the subject'],
+  },
+  {
+    role: 'b-roll',
+    words: ['b-roll', 'broll', 'cutaway', 'insert shot', 'use this footage', 'use this clip'],
+  },
+  {
+    role: 'design',
+    words: ['design', 'layout', 'template', 'font', 'typography', 'title card', 'graphic'],
+  },
+  {
+    role: 'style',
+    words: [
+      'style',
+      'feel like',
+      'vibe',
+      'aesthetic',
+      'like this video',
+      'like this reel',
+      'like this',
+    ],
+  },
 ];
 
 /** Small square-ish PNG with alpha reads as a logo before a word is said. */
@@ -70,10 +106,20 @@ export function decideReferenceRole(input: ReferenceRoleInput): ReferenceRoleDec
   }
   const name = input.fileName.toLowerCase();
   if (/logo|brand|watermark/.test(name)) {
-    return { role: 'brand-logo', confidence: 0.8, reason: 'the file name says so', ambiguous: false };
+    return {
+      role: 'brand-logo',
+      confidence: 0.8,
+      reason: 'the file name says so',
+      ambiguous: false,
+    };
   }
   if (/thumb|cover|poster/.test(name)) {
-    return { role: 'thumbnail', confidence: 0.7, reason: 'the file name says so', ambiguous: false };
+    return {
+      role: 'thumbnail',
+      confidence: 0.7,
+      reason: 'the file name says so',
+      ambiguous: false,
+    };
   }
   if (input.kind === 'image') {
     const w = input.width ?? 0;
@@ -86,9 +132,19 @@ export function decideReferenceRole(input: ReferenceRoleInput): ReferenceRoleDec
         ambiguous: false,
       };
     }
-    return { role: 'style', confidence: 0.4, reason: 'an image with no stated purpose', ambiguous: true };
+    return {
+      role: 'style',
+      confidence: 0.4,
+      reason: 'an image with no stated purpose',
+      ambiguous: true,
+    };
   }
-  return { role: 'style', confidence: 0.5, reason: 'a video with no stated purpose', ambiguous: true };
+  return {
+    role: 'style',
+    confidence: 0.5,
+    reason: 'a video with no stated purpose',
+    ambiguous: true,
+  };
 }
 
 /** One line per role, for the tile badge and the profile constraints. */

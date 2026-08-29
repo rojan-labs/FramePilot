@@ -28,6 +28,8 @@
  * measurement nobody asked for. They stay in the objective's prose.
  */
 
+import type { ReferenceDirectives } from './references/directives.js';
+
 /** A per-clip treatment a request can demand of the WHOLE cut. */
 export type CoverageTreatment = 'crop' | 'grade' | 'motion' | 'speed';
 
@@ -37,6 +39,18 @@ export interface CheckableAcceptance {
   readonly durationSeconds?: number;
   /** Stated minimum number of distinct shots, when the request named one. */
   readonly minShotCount?: number;
+  /**
+   * Median picture-clip length the cut is expected to hold, from a MEASURED reference the
+   * editor attached — never from the prompt, which never states one (P3.4).
+   *
+   * It lives here rather than only on `CritiqueOptions` so the run's objective carries it:
+   * the briefing's WHAT DONE LOOKS LIKE is where a run reads what it is being graded on,
+   * and a target the Critic checks but the objective never states is a condition the run
+   * can only fail by surprise.
+   */
+  readonly medianShotSeconds?: number;
+  /** Which reference set it, so the criterion attributes the number. */
+  readonly medianShotSource?: string;
   /**
    * Treatments the request demanded of EVERY clip.
    *
@@ -524,13 +538,20 @@ export function unmeetableDeliverables(prompt: string): UnmeetableDeliverable[] 
 export function checkableAcceptance(
   prompt: string,
   durationSeconds: number | undefined,
+  /** Targets measured off the editor's attached references (`references/directives.ts`). */
+  references: ReferenceDirectives = { applied: [], ignored: [] },
 ): CheckableAcceptance {
   const minShotCount = explicitMinShotCount(prompt);
   const coverage = explicitCoverage(prompt);
   const unmeetable = unmeetableDeliverables(prompt);
+  const medianShotSource = references.applied.find((c) => c.line.startsWith('Pacing:'));
   return {
     ...(durationSeconds === undefined ? {} : { durationSeconds }),
     ...(minShotCount === undefined ? {} : { minShotCount }),
+    ...(references.medianShotSeconds === undefined
+      ? {}
+      : { medianShotSeconds: references.medianShotSeconds }),
+    ...(medianShotSource === undefined ? {} : { medianShotSource: medianShotSource.profileId }),
     ...(coverage.length === 0 ? {} : { coverage }),
     ...(asksForRenderedFile(prompt) ? { deliverableFile: true } : {}),
     ...(unmeetable.length === 0 ? {} : { unmeetable }),
@@ -567,6 +588,13 @@ export function acceptanceCriteria(acceptance: CheckableAcceptance): readonly st
   if (acceptance.minShotCount !== undefined) {
     criteria.push(`The cut uses at least ${String(acceptance.minShotCount)} distinct shots.`);
   }
+  if (acceptance.medianShotSeconds !== undefined) {
+    const from = acceptance.medianShotSource ? ` (${acceptance.medianShotSource})` : '';
+    criteria.push(
+      `The median picture clip runs about ${acceptance.medianShotSeconds.toFixed(1)}s, ` +
+        `matching the attached reference${from}.`,
+    );
+  }
   for (const treatment of acceptance.coverage ?? []) {
     criteria.push(`Every picture clip carries its ${COVERAGE_LABEL[treatment]}.`);
   }
@@ -596,6 +624,7 @@ export function hasCheckableAcceptance(acceptance: CheckableAcceptance): boolean
   return (
     acceptance.durationSeconds !== undefined ||
     acceptance.minShotCount !== undefined ||
+    acceptance.medianShotSeconds !== undefined ||
     (acceptance.coverage?.length ?? 0) > 0 ||
     acceptance.deliverableFile === true ||
     (acceptance.unmeetable?.length ?? 0) > 0

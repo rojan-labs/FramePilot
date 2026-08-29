@@ -46,6 +46,7 @@ export type CheckId =
   | 'picture_coverage'
   | 'duration_target'
   | 'shot_count'
+  | 'shot_length_target'
   | 'reframe_coverage'
   | 'treatment_coverage'
   | 'caption_alignment'
@@ -116,6 +117,19 @@ export interface CritiqueOptions {
    * hid a reader bug through four rounds of gap analysis.
    */
   readonly request?: string;
+  /**
+   * Median picture-clip length, in seconds, that the cut is expected to hold.
+   *
+   * Not read from the prompt: nobody types "median shot 1.2 seconds". It comes from a
+   * MEASURED reference the editor attached (`references/directives.ts`), which is the whole
+   * point of measuring one — "make it feel like this" is otherwise a vibe no check can
+   * settle, and the run finds out it missed only when the editor watches it.
+   */
+  readonly medianShotTargetSeconds?: number;
+  /** Allowed deviation from {@link medianShotTargetSeconds}; the reference's own spread. */
+  readonly medianShotToleranceSeconds?: number;
+  /** Which reference set the target, so the check names it rather than asserting a number. */
+  readonly medianShotSource?: string;
   /**
    * Treatments the request demanded of EVERY clip ("every clip reframed", "grade across
    * clips"), read deterministically from the prompt by `acceptance.ts`.
@@ -759,6 +773,66 @@ function checkShotCount(project: Project, options: CritiqueOptions): CriticCheck
     'Shot count on target',
     'fail',
     `The cut uses ${String(shots)} shots but at least ${String(target)} were asked for.`,
+  );
+}
+
+/** Fewest picture clips before a median shot length is a measurement rather than an accident. */
+const SHOT_LENGTH_MIN_SHOTS = 3;
+
+/**
+ * Does the cut hold the shot length the attached reference actually runs at?
+ *
+ * The gap this closes: "make it feel like this fast-cut reel" was, until now, a sentence
+ * the model read and nothing measured. The reference is analyzed into a median shot length
+ * and a p10–p90 spread; this is the check that spends those numbers. It runs in
+ * `wholeCutChecks`, so a run is told it is cutting at 4.1s against a 1.2s reference WHILE
+ * it can still re-trim, not in the post-mortem.
+ *
+ * Median, not mean: one held establishing shot in a montage of forty drags a mean off the
+ * pace the rest of the cut is holding, and would fail an edit that matches the reference
+ * everywhere it counts.
+ */
+function checkShotLengthTarget(project: Project, options: CritiqueOptions): CriticCheck {
+  const target = options.medianShotTargetSeconds;
+  if (target === undefined || target <= 0) {
+    return check(
+      'shot_length_target',
+      'Shot length matches the reference',
+      'skipped',
+      'No reference set a shot-length target.',
+    );
+  }
+  const durations = pictureClipsInOrder(project.timeline)
+    .map((clip) => clip.end - clip.start)
+    .filter((duration) => duration > 0)
+    .sort((left, right) => left - right);
+  if (durations.length < SHOT_LENGTH_MIN_SHOTS) {
+    return check(
+      'shot_length_target',
+      'Shot length matches the reference',
+      'skipped',
+      `${String(durations.length)} picture clip(s) — fewer than ${String(SHOT_LENGTH_MIN_SHOTS)}, which is too few to have a median.`,
+    );
+  }
+  const median = durations[Math.floor(durations.length / 2)]!;
+  const tolerance = options.medianShotToleranceSeconds ?? Math.max(0.5, target * 0.4);
+  const from = options.medianShotSource ? ` (${options.medianShotSource})` : '';
+  if (Math.abs(median - target) <= tolerance) {
+    return check(
+      'shot_length_target',
+      'Shot length matches the reference',
+      'pass',
+      `Median shot is ${round(median)}s against the reference's ${round(target)}s${from}, within ±${round(tolerance)}s.`,
+    );
+  }
+  const direction = median > target ? 'slower' : 'faster';
+  return check(
+    'shot_length_target',
+    'Shot length matches the reference',
+    'fail',
+    `Median shot is ${round(median)}s but the reference runs ${round(target)}s${from} — the cut is ` +
+      `${direction} than the reference by ${round(Math.abs(median - target))}s. Trim or extend the ` +
+      'picture clips; do not add shots to move the median.',
   );
 }
 
@@ -1644,7 +1718,8 @@ function checkShotRhythm(project: Project, fps: number): CriticCheck {
  */
 /**
  * The acceptance checks that count the WHOLE cut — `picture_coverage`, `duration_target`,
- * `shot_count`, `reframe_coverage`, `treatment_coverage` — run on their own.
+ * `shot_count`, `shot_length_target`, `reframe_coverage`, `treatment_coverage` — run on
+ * their own.
  *
  * Not every check belongs here. A jump cut or a severed word is a local defect the model
  * finds by looking at the seam; these five are properties of the finished thing that the
@@ -1667,6 +1742,7 @@ function wholeCutChecks(project: Project, options: CritiqueOptions): CriticCheck
     checkPictureCoverage(project, options),
     checkDurationTarget(project.timeline, options),
     checkShotCount(project, options),
+    checkShotLengthTarget(project, options),
     checkReframeCoverage(project),
     checkTreatmentCoverage(project, options),
   ];

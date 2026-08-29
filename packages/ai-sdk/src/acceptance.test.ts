@@ -18,6 +18,8 @@ import {
   mentionsUnreadableShotCount,
   unmeetableDeliverables,
 } from './acceptance.js';
+import { referenceDirectives } from './references/directives.js';
+import { buildReferenceProfile } from './references/profile.js';
 import { MONTAGE_BRIEF_E36235CC } from './__fixtures__/montage-brief-e36235cc.js';
 import { MONTAGE_BRIEF_FC10301A } from './__fixtures__/montage-brief-fc10301a.js';
 
@@ -476,5 +478,42 @@ describe('round 6 — a brief made of photos still states a shot count', () => {
       minShotCount: 61,
       durationSeconds: 27.5,
     });
+  });
+});
+
+describe('acceptance from a measured reference (P3.4)', () => {
+  const directives = referenceDirectives([
+    buildReferenceProfile({
+      id: 'ref_1',
+      role: 'pacing',
+      kind: 'video',
+      fileName: 'fast-cut.mp4',
+      contentHash: 'abcdef0123456789',
+      analyzedAt: '2026-08-29T00:00:00Z',
+      video: {
+        durationS: 20,
+        shotCount: 18,
+        medianShotS: 1.1,
+        shotLengthP10S: 0.6,
+        shotLengthP90S: 2.4,
+      },
+    }),
+  ]);
+
+  it('states the reference pace as a criterion the run is told it must hold', () => {
+    const acceptance = checkableAcceptance('make it feel like this', undefined, directives);
+    expect(acceptance.medianShotSeconds).toBe(1.1);
+    expect(acceptance.medianShotSource).toBe('ref_1');
+    expect(acceptanceCriteria(acceptance)).toContain(
+      'The median picture clip runs about 1.1s, matching the attached reference (ref_1).',
+    );
+    // A request with no numbers in it is now checkable, because the reference has them.
+    expect(hasCheckableAcceptance(acceptance)).toBe(true);
+  });
+
+  it('adds nothing when no reference is attached', () => {
+    const acceptance = checkableAcceptance('make it feel like this', undefined);
+    expect(acceptance.medianShotSeconds).toBeUndefined();
+    expect(hasCheckableAcceptance(acceptance)).toBe(false);
   });
 });

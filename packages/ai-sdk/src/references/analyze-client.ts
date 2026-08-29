@@ -53,7 +53,10 @@ const DEFAULT_TIMEOUT_MS = 180_000;
 export function createReferenceAnalyzer(options: AnalyzeReferenceOptions) {
   const fetchFn = options.fetchFn ?? fetch;
   const now = options.now ?? (() => new Date());
-  return async (input: AnalyzeReferenceInput, signal?: AbortSignal): Promise<AnalyzeReferenceResult> => {
+  return async (
+    input: AnalyzeReferenceInput,
+    signal?: AbortSignal,
+  ): Promise<AnalyzeReferenceResult> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
     const onAbort = (): void => controller.abort();

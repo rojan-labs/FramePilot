@@ -8,6 +8,7 @@
  * sessions. Nothing here guesses: a field the analysis could not measure is absent.
  */
 import { z } from 'zod/v4';
+import { referenceDirectives, renderDirectives, renderIgnoredReferences } from './directives.js';
 import type { ReferenceRole } from './role.js';
 
 export const ReferenceVideoProfileSchema = z.object({
@@ -22,7 +23,9 @@ export const ReferenceVideoProfileSchema = z.object({
   cutsPerMinute: z.number().nonnegative().optional(),
   /** 0..1 fraction of the duration with speech, when a transcript was available. */
   speechShare: z.number().min(0).max(1).optional(),
-  music: z.object({ bpm: z.number().positive().optional(), beatCount: z.number().int().nonnegative() }).optional(),
+  music: z
+    .object({ bpm: z.number().positive().optional(), beatCount: z.number().int().nonnegative() })
+    .optional(),
   color: z
     .object({
       /** Mean luma 0..1. */
@@ -49,7 +52,17 @@ export type ReferenceImageProfile = z.infer<typeof ReferenceImageProfileSchema>;
 
 export const ReferenceProfileSchema = z.object({
   id: z.string().min(1),
-  role: z.enum(['style', 'pacing', 'caption-style', 'color', 'brand-logo', 'thumbnail', 'b-roll', 'character', 'design']),
+  role: z.enum([
+    'style',
+    'pacing',
+    'caption-style',
+    'color',
+    'brand-logo',
+    'thumbnail',
+    'b-roll',
+    'character',
+    'design',
+  ]),
   kind: z.enum(['video', 'image']),
   fileName: z.string().min(1),
   /** SHA-256 of the file bytes — the cache key. */
@@ -113,39 +126,66 @@ export function renderConstraints(args: {
           (video.shotLengthP10S !== undefined && video.shotLengthP90S !== undefined
             ? ` (most shots ${round1(video.shotLengthP10S)}–${round1(video.shotLengthP90S)}s)`
             : '') +
-          (video.cutsPerMinute !== undefined ? `, ${Math.round(video.cutsPerMinute)} cuts/min` : ''),
+          (video.cutsPerMinute !== undefined
+            ? `, ${Math.round(video.cutsPerMinute)} cuts/min`
+            : ''),
       );
     } else if (video.shotCount <= 1) {
       lines.push(`Pacing: one continuous take over ${round1(video.durationS)}s — no cuts to match`);
     }
-    if (video.music?.bpm !== undefined) lines.push(`Music: about ${Math.round(video.music.bpm)} BPM with a clear beat`);
+    if (video.music?.bpm !== undefined)
+      lines.push(`Music: about ${Math.round(video.music.bpm)} BPM with a clear beat`);
     if (video.speechShare !== undefined) {
-      lines.push(video.speechShare > 0.5 ? 'Dialogue-led: speech covers most of the runtime' : 'Visual-led: little or no speech');
+      lines.push(
+        video.speechShare > 0.5
+          ? 'Dialogue-led: speech covers most of the runtime'
+          : 'Visual-led: little or no speech',
+      );
     }
     if (video.width && video.height) {
-      const orientation = video.width > video.height ? 'landscape' : video.width < video.height ? 'portrait' : 'square';
+      const orientation =
+        video.width > video.height
+          ? 'landscape'
+          : video.width < video.height
+            ? 'portrait'
+            : 'square';
       lines.push(`Frame: ${orientation} ${video.width}×${video.height}`);
     }
     if (video.color) {
       const words = toneWords(video.color);
       if (words.length) lines.push(`Look: ${words.join(', ')}`);
     }
-    if (role === 'pacing') lines.push('Apply: match the shot-length range above; do not copy content');
+    if (role === 'pacing')
+      lines.push('Apply: match the shot-length range above; do not copy content');
     if (role === 'style') lines.push('Apply: match pacing and look above; do not copy content');
-    if (role === 'caption-style') lines.push('Apply: match the caption placement and rhythm; captions should read at this pace');
+    if (role === 'caption-style')
+      lines.push(
+        'Apply: match the caption placement and rhythm; captions should read at this pace',
+      );
   }
   if (image) {
-    lines.push(`Image: ${image.width}×${image.height}${image.hasAlpha ? ', transparent background' : ''}`);
-    if (image.dominantColors?.length) lines.push(`Palette: ${image.dominantColors.slice(0, 4).join(' ')}`);
+    lines.push(
+      `Image: ${image.width}×${image.height}${image.hasAlpha ? ', transparent background' : ''}`,
+    );
+    if (image.dominantColors?.length)
+      lines.push(`Palette: ${image.dominantColors.slice(0, 4).join(' ')}`);
     if (image.color) {
       const words = toneWords(image.color);
       if (words.length) lines.push(`Look: ${words.join(', ')}`);
     }
-    if (role === 'brand-logo') lines.push('Apply: place as an overlay (add_text_layer/add_clip on an overlay track), keep proportions, never stretch');
-    if (role === 'color') lines.push('Apply: grade toward this look (apply_color_grade); keep skin tones natural');
-    if (role === 'thumbnail') lines.push('Apply: the opening frame and titles should echo this composition');
+    if (role === 'brand-logo')
+      lines.push(
+        'Apply: place as an overlay (add_text_layer/add_clip on an overlay track), keep proportions, never stretch',
+      );
+    if (role === 'color')
+      lines.push('Apply: grade toward this look (apply_color_grade); keep skin tones natural');
+    if (role === 'thumbnail')
+      lines.push('Apply: the opening frame and titles should echo this composition');
     if (role === 'b-roll') lines.push('Apply: place as a cutaway where the dialogue refers to it');
-    if (role === 'character') lines.push('Apply: keep this person framed and in focus; prefer shots where they are visible');
+    if (role === 'character')
+      lines.push(
+        'Apply: keep this person framed and in focus; prefer shots where they are visible',
+      );
     if (role === 'design') lines.push('Apply: titles and text follow this layout and typography');
   }
   return lines.slice(0, 12);
@@ -168,7 +208,21 @@ export function buildReferenceProfile(args: {
   });
 }
 
-/** The block the context builder shows the model for the active references. */
+/**
+ * The block the context builder shows the model for the active references.
+ *
+ * Three parts, in the order a plan needs them: what was measured (the constraint lines,
+ * verbatim — the same text the sidebar shows the editor, so the two cannot drift), the
+ * numeric targets derived from those measurements, and the instruction that the plan
+ * must SAY which lines it is applying (P4.2). The last part is what turns a reference from
+ * decoration into something the run can be held to: a plan that cites nothing can be told
+ * so, and one that cites a line the analysis never produced is checkable prose rather than
+ * a claim nobody can settle.
+ *
+ * The "NOT applied" lines are rendered from {@link referenceDirectives}, not left to the
+ * model to notice. A reference this product has no route for is measured all the same, and
+ * a run that quietly drops it teaches the editor that attaching things does nothing.
+ */
 export function summarizeReferences(profiles: readonly ReferenceProfile[]): string {
   if (profiles.length === 0) return '';
   const lines = ['References the editor attached (analyzed once; cite them when you apply them):'];
@@ -176,5 +230,14 @@ export function summarizeReferences(profiles: readonly ReferenceProfile[]): stri
     lines.push(`- ${p.id} · ${p.fileName} · ${p.role}`);
     for (const c of p.constraints) lines.push(`  ${c}`);
   }
+  const directives = referenceDirectives(profiles);
+  const targets = renderDirectives(directives);
+  if (targets !== '') lines.push('Targets taken from those measurements:', targets);
+  const ignored = renderIgnoredReferences(directives);
+  if (ignored !== '') lines.push('Measured but not driving anything:', ignored);
+  lines.push(
+    'In your plan, name the reference id and the line you are applying for each step that ' +
+      'follows one, and say which listed lines you are not applying and why.',
+  );
   return lines.join('\n');
 }

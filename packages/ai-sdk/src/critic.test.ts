@@ -16,6 +16,7 @@ import {
   repairTrailingSoundOverrun,
   standingAgainstAcceptance,
   timelineDuration,
+  type CritiqueOptions,
 } from './critic.js';
 import { checkableAcceptance } from './acceptance.js';
 import { makeProject } from './__fixtures__/project.js';
@@ -346,6 +347,81 @@ describe('reframe coverage', () => {
   });
 });
 
+/**
+ * P3.4/P4.2: "make it feel like this" becomes a number the run is graded on, taken from a
+ * measured reference and never from the prompt.
+ */
+describe('shot_length_target', () => {
+  const shots = (durations: readonly number[]) => {
+    let at = 0;
+    const clips = durations.map((duration, index) => {
+      const clip = {
+        id: `clip_${String(index)}`,
+        assetId: 'asset_1',
+        trackId: 'video_1',
+        start: at,
+        end: at + duration,
+        sourceStart: 0,
+        sourceEnd: duration,
+        effects: [],
+        keyframes: [],
+      };
+      at += duration;
+      return clip;
+    });
+    return makeProject({
+      timeline: { tracks: [{ id: 'video_1', type: 'video', clips }] },
+    } as never);
+  };
+  const idOf = (project: ReturnType<typeof makeProject>, options: CritiqueOptions) =>
+    critique(project, options).checks.find((c) => c.id === 'shot_length_target')!;
+
+  it('skips when no reference set a target', () => {
+    expect(idOf(shots([1, 1, 1, 1]), {}).status).toBe('skipped');
+  });
+
+  it('skips a cut too short to have a median', () => {
+    const check = idOf(shots([1, 1]), { medianShotTargetSeconds: 1.1 });
+    expect(check.status).toBe('skipped');
+    expect(check.detail).toContain('too few to have a median');
+  });
+
+  it('passes a cut holding the reference pace and names the reference', () => {
+    const check = idOf(shots([1, 1.2, 1.1, 0.9, 1.3]), {
+      medianShotTargetSeconds: 1.1,
+      medianShotToleranceSeconds: 0.5,
+      medianShotSource: 'ref_1: Pacing: fast — median shot 1.1s',
+    });
+    expect(check.status).toBe('pass');
+    expect(check.detail).toContain('ref_1');
+  });
+
+  it('fails a cut that is slower than the reference and says which way', () => {
+    const check = idOf(shots([4, 4.2, 4.1, 3.9, 4.3]), {
+      medianShotTargetSeconds: 1.1,
+      medianShotToleranceSeconds: 0.5,
+    });
+    expect(check.status).toBe('fail');
+    expect(check.detail).toContain('slower than the reference');
+    // The advice matters: adding shots would move the median without matching the pace.
+    expect(check.detail).toContain('do not add shots');
+  });
+
+  it('fails a cut that is faster than the reference', () => {
+    const check = idOf(shots([0.2, 0.25, 0.2, 0.3, 0.2]), { medianShotTargetSeconds: 4 });
+    expect(check.status).toBe('fail');
+    expect(check.detail).toContain('faster than the reference');
+  });
+
+  it('is one of the whole-cut conditions a running turn is shown', () => {
+    const standing = standingAgainstAcceptance(shots([4, 4.2, 4.1, 3.9, 4.3]), {
+      medianShotTargetSeconds: 1.1,
+      medianShotToleranceSeconds: 0.5,
+    });
+    expect(standing.some((line) => line.includes('the reference runs 1.1s'))).toBe(true);
+  });
+});
+
 describe('critique — shape', () => {
   it('preserves the existing PRD §8.6 check set when no temporal review ran', () => {
     const report = critique(makeProject());
@@ -355,6 +431,7 @@ describe('critique — shape', () => {
       'picture_coverage',
       'duration_target',
       'shot_count',
+      'shot_length_target',
       'reframe_coverage',
       'treatment_coverage',
       'caption_alignment',
