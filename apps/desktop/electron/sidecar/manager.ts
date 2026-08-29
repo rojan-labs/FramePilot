@@ -60,6 +60,24 @@ export interface SidecarManagerOptions {
   restartDelayMs?: (attempt: number) => number;
   /** Observed on every phase change — main logs it and tells the renderer. */
   onStatusChange?: (status: SidecarStatus) => void;
+  /**
+   * How often to check a READY engine is still answering. **Off unless set.**
+   *
+   * Watching the child process is not enough. The engine launches as
+   * `uv run framepilot serve`, so the direct child is the **wrapper** and the server that
+   * answers requests is its grandchild: kill the server and the wrapper can live on, no
+   * `exit` event fires, and the manager keeps reporting `ready` while every request fails.
+   * A desktop e2e that SIGKILLed the real engine caught exactly that — the process-exit
+   * path had been unit-tested into looking complete.
+   *
+   * Opt-in rather than defaulted, because the loop's cadence comes from the injected
+   * `sleep`: a test that injects an instant sleep for startup polling would otherwise turn
+   * this into a busy loop that starves its own worker. Production sets it in `main.ts`;
+   * a test that wants it says so and supplies a bounded clock.
+   */
+  livenessIntervalMs?: number;
+  /** Consecutive failed liveness probes before the engine is declared gone. */
+  livenessFailures?: number;
 }
 
 const DEFAULT_HOST = '127.0.0.1';
@@ -67,6 +85,8 @@ const DEFAULT_PORT = 8765;
 const DEFAULT_STARTUP_TIMEOUT_MS = 10_000;
 const DEFAULT_PROBE_INTERVAL_MS = 200;
 const DEFAULT_MAX_RESTARTS = 3;
+/** One missed probe is a busy engine; three in a row is an engine that is not there. */
+const DEFAULT_LIVENESS_FAILURES = 3;
 const defaultRestartDelay = (attempt: number): number =>
   Math.min(8_000, 1_000 * 2 ** (attempt - 1));
 
@@ -89,6 +109,10 @@ export class SidecarManager {
   private readonly maxRestarts: number;
   private readonly restartDelayMs: (attempt: number) => number;
   private readonly onStatusChange: ((status: SidecarStatus) => void) | undefined;
+  private readonly livenessIntervalMs: number;
+  private readonly livenessFailures: number;
+  /** Bumped whenever a new engine starts or stop() is called, retiring any watch loop. */
+  private livenessEpoch = 0;
   /** Unexpected exits recovered from since the last stop(). */
   private restarts = 0;
 
@@ -109,6 +133,8 @@ export class SidecarManager {
     this.maxRestarts = options.maxRestarts ?? DEFAULT_MAX_RESTARTS;
     this.restartDelayMs = options.restartDelayMs ?? defaultRestartDelay;
     this.onStatusChange = options.onStatusChange;
+    this.livenessIntervalMs = options.livenessIntervalMs ?? 0;
+    this.livenessFailures = options.livenessFailures ?? DEFAULT_LIVENESS_FAILURES;
   }
 
   /** How many unexpected exits the manager has recovered from (tests, diagnostics). */
@@ -190,6 +216,41 @@ export class SidecarManager {
    * Bounded on purpose: an engine that dies on startup every time is a broken install,
    * and an unbounded restart loop would hide that behind a spinner forever.
    */
+  /**
+   * Poll a ready engine until it stops answering, then recover.
+   *
+   * Deliberately not a `setInterval`: each pass awaits the previous probe, so a slow
+   * engine cannot pile up overlapping checks and manufacture the failures it is judged on.
+   * The epoch retires the loop when a newer engine starts or `stop()` is called.
+   */
+  private watchLiveness(): void {
+    if (this.livenessIntervalMs <= 0) return;
+    this.livenessEpoch += 1;
+    const epoch = this.livenessEpoch;
+    void (async () => {
+      let consecutiveFailures = 0;
+      while (this.livenessEpoch === epoch && this.phase === 'ready') {
+        await this.sleep(this.livenessIntervalMs);
+        if (this.livenessEpoch !== epoch || this.phase !== 'ready') return;
+        if (await this.healthy()) {
+          consecutiveFailures = 0;
+          continue;
+        }
+        consecutiveFailures += 1;
+        if (consecutiveFailures < this.livenessFailures) continue;
+        // The process may still exist — a wrapper whose child died, or one wedged past
+        // any use. Kill the group before restarting so the port is actually free.
+        const dead = this.process;
+        this.process = null;
+        dead?.kill();
+        this.recover(
+          `The engine stopped answering ${String(consecutiveFailures)} checks in a row.`,
+        );
+        return;
+      }
+    })();
+  }
+
   private recover(cause: string): void {
     this.process = null;
     if (this.restarts >= this.maxRestarts) {
@@ -221,6 +282,7 @@ export class SidecarManager {
       this.process = null;
     }
     this.restarts = 0;
+    this.livenessEpoch += 1; // retire any watch loop
     this.setPhase('stopped', null);
   }
 
@@ -234,6 +296,7 @@ export class SidecarManager {
       }
       if (await this.healthy()) {
         this.setPhase('ready', null);
+        this.watchLiveness();
         return this.status;
       }
       await this.sleep(this.probeIntervalMs);

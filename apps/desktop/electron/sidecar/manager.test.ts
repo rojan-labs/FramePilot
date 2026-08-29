@@ -316,4 +316,107 @@ describe('SidecarManager', () => {
       expect(spawn).toHaveBeenCalledTimes(1);
     });
   });
+
+  // The case the process-exit path structurally cannot catch: the engine launches as
+  // `uv run framepilot serve`, so the server that answers is a GRANDCHILD. Kill it and the
+  // wrapper survives — no exit event, and the manager would go on reporting `ready` while
+  // every request failed. A desktop e2e SIGKILLing the real engine is what exposed this.
+  describe('liveness (P5.5)', () => {
+    /**
+     * A clock that ticks `times` and then stops forever.
+     *
+     * The watch loop is `while (ready) { await sleep(); probe(); }`. A sleep that always
+     * resolves immediately turns that into a spin that never yields — it starves the
+     * event loop and kills the worker. Bounding the ticks is what makes the loop
+     * observable instead of infinite.
+     */
+    function steppedSleep(times: number): () => Promise<void> {
+      let remaining = times;
+      return () => (remaining-- > 0 ? Promise.resolve() : new Promise<void>(() => undefined));
+    }
+
+    it('restarts an engine that stops answering even though its process never exits', async () => {
+      const processes = [fakeProcess(), fakeProcess()];
+      let spawned = 0;
+      const spawn = vi.fn(() => processes[spawned++]!);
+      // Ready, then dead to every probe afterwards.
+      const probe = scriptedProbe([true, false, false, false, true]);
+      const details: (string | null)[] = [];
+      const manager = new SidecarManager({
+        spawn,
+        probe,
+        sleep: steppedSleep(6),
+        livenessIntervalMs: 1,
+        livenessFailures: 3,
+        onStatusChange: (status) => details.push(status.detail),
+      });
+
+      await manager.start();
+      expect(manager.status.phase).toBe('ready');
+      // The first process is never told to exit — it is the wrapper, still alive.
+      expect(processes[0]!.killed).toBe(false);
+
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2));
+      // The wedged group is killed before the restart, so the port is actually free.
+      expect(processes[0]!.killed).toBe(true);
+      expect(manager.restartCount).toBe(1);
+      // The reason is stated when it happens; `ready` clears it again, so the assertion
+      // is on what was reported, not on what is left over afterwards.
+      expect(details.some((d) => d?.includes('stopped answering'))).toBe(true);
+    });
+
+    it('forgives a missed probe — a busy engine is not a dead one', async () => {
+      const spawn = vi.fn(() => fakeProcess());
+      // One failure then healthy again: the counter resets and nothing restarts.
+      const probe = scriptedProbe([true, false, true, true, true]);
+      const manager = new SidecarManager({
+        spawn,
+        probe,
+        sleep: steppedSleep(4),
+        livenessIntervalMs: 1,
+        livenessFailures: 3,
+      });
+
+      await manager.start();
+      await vi.waitFor(() => expect(probe.mock.calls.length).toBeGreaterThan(4));
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(manager.status.phase).toBe('ready');
+    });
+
+    it('stops watching once the manager is stopped', async () => {
+      const spawn = vi.fn(() => fakeProcess());
+      const probe = scriptedProbe([true, false, false, false, false]);
+      const manager = new SidecarManager({
+        spawn,
+        probe,
+        sleep: steppedSleep(6),
+        livenessIntervalMs: 1,
+        livenessFailures: 2,
+      });
+
+      await manager.start();
+      manager.stop();
+      const spawnsAtStop = spawn.mock.calls.length;
+
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+      expect(manager.status.phase).toBe('stopped');
+      expect(spawn).toHaveBeenCalledTimes(spawnsAtStop);
+    });
+
+    it('can be switched off entirely', async () => {
+      const spawn = vi.fn(() => fakeProcess());
+      const probe = scriptedProbe([true, false, false, false, false]);
+      const manager = new SidecarManager({
+        spawn,
+        probe,
+        sleep: steppedSleep(6),
+        livenessIntervalMs: 0,
+      });
+
+      await manager.start();
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(manager.status.phase).toBe('ready');
+    });
+  });
 });

@@ -185,6 +185,25 @@ the sidebar" half of this task rides Phase 8's Doing strip rather than a new IPC
 nobody reads. Remaining: run-level `recovering` state and job resume (`durable-run-controls`),
 and the UC-15 rows in Phase 9.
 
+Landed 2026-08-29 (liveness) — **and this one was found by running the e2e, not by
+reasoning about the code.** `failure-paths.spec.ts`'s "killing the engine mid-session" row
+SIGKILLed the real engine and the app never brought it back, despite six green unit tests
+for exactly that path.
+
+The reason is a shape the unit tests could not see: the engine launches as
+`uv run framepilot serve`, so the manager's direct child is the **wrapper** and the server
+that answers requests is its **grandchild**. Kill the server and the wrapper lives on — no
+`exit` event fires, and the manager goes on reporting `ready` while every request fails.
+Watching a process is not the same as watching a service.
+
+`SidecarManager` now also watches liveness: a ready engine is probed on an interval, and
+three consecutive failures mean it is gone — the group is killed (so the port is actually
+free) and the normal bounded restart runs, with the reason in `status.detail`. One missed
+probe is forgiven, because a busy engine is not a dead one. It is **opt-in** rather than
+defaulted: the loop's cadence comes from the injected clock, and a test that injects an
+instant sleep for startup polling would otherwise spin. `main.ts` sets 5 s. Four tests,
+driven by a bounded clock.
+
 ## P5.6 — Close — `[ ]`
 
 `05-after.md`, ADR for the lifecycle registry, `docs/runbooks/ai-run-lifecycle.md` update.

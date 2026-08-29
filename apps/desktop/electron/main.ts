@@ -417,6 +417,12 @@ const sidecar = new SidecarManager({
   host: engine.host,
   port: engine.port,
   startupTimeoutMs: Number(process.env.FRAMEPILOT_SIDECAR_TIMEOUT_MS) || 15_000,
+  // P5.5: watching the child process is not enough. The engine runs as
+  // `uv run framepilot serve`, so the server that answers is a GRANDCHILD — kill it and
+  // the wrapper lives on, no exit event fires, and the manager would keep reporting
+  // `ready` while every request failed. Found by a desktop e2e that SIGKILLed the real
+  // engine, which the process-exit unit tests could never have caught.
+  livenessIntervalMs: 5_000,
   // P5.5: an engine that dies under a running app restarts itself. Log every
   // transition — a silent recovery is indistinguishable from a silent outage when
   // someone is reading the log to explain why a render failed at 14:02.
