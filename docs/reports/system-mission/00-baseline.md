@@ -82,7 +82,7 @@ attempt") · rubric 0.25. `reports/system-mission/smoke.json`.
 | 13 ×2, 16 | `trim_clip` "invalid source range", `delete_clips` "end must be greater than start" | timeline-domain times passed as source times; a zero-length clip | contract clarity (Phase 2) + **defect**: degenerate clip (below) |
 | 15, 22, 23, 32, 37, 38, 40 | `recall_evidence` ×7, five of them the same `ev_14` "orientation aspect letterbox" | the asset orientation fact was not in context | **structured state** — asset dimensions/orientation are project facts |
 | 19, 23, 25 | `delete_clip clip_005__r` rejected ×4 | a split left a zero-length right half that cannot be deleted | **defect** (editor-core) |
-| 29, 33, 39, 41, 42 | `get_frame` → "unavailable this turn" ×7 across 5 requests | the tool is in the schema list but withheld by stage policy | **remove from schemas when withheld** — 5 requests × 22k tokens for nothing |
+| 29, 33, 39, 41, 42 | `get_frame` → "unavailable this turn" ×7 across 5 requests | the run stayed in `apply` (analysis withheld) from #11 to the end and never advanced to `verify`; the model kept calling a tool it had used earlier to check its crops | **stage advance** — after a committed edit batch the run should enter `verify`, where a bounded look is allowed; 5 requests × 22k tokens for nothing |
 | 10, 19, 26, 28, 35 | the actual edits (ripple_delete, add_clips ×9, add_clip music, set_clip_crop ×8) | the work | **keep** — 5 of 44 requests did the editing |
 | 44 | closing summary, 5.3k output tokens | narration | keep, cap length |
 
@@ -91,9 +91,26 @@ model re-reading state it had just changed or recalling facts about assets; 5 we
 a tool that was listed but withheld; 3 were routing around the wipe guard. Removing the
 structured-state and withheld-tool classes alone is ~25 of 44 requests.
 
-### Full baseline
+### Full baseline — first pass (3 runs × 6 scenarios attempted)
 
-_(filled in when `baseline-orchestration.json` completes — per-scenario p50 calls,
+| scenario · turn | runs | calls | prompt | out | cache | tools* | ops | wall | usd | score | notDone |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| montage-30s | 3 | 10 | 332k | 37.9k | 1.00 | 46 | 0 | 424 s | 0.57 | 0.25 | 2/3 |
+| podcast-highlight-60s | 3 | 25 | 804k | 101k | 1.00 | 58 | 1 | 1,200 s | 1.54 | 1.00 | 2/3 (timeout) |
+
+p50 over runs; `tools*` double-counts running+terminal rows (2× the real figure — fixed in
+the script after this pass). Montage r1 scored 1.0 at 35 calls / $1.29 / 15 min; r2 and r3
+died on the output-cap truncation (P1.1a). Podcast r1 and r2 hit the 20-minute turn
+timeout; r3 finished in 592 s with one op and a rubric-perfect 60 s cut.
+
+**The remaining four scenarios (remove-dead-air, beat-sync, refine-tighten,
+memory-captions) did not run:** after ≈$8 of subscription-bridge calls the account
+answered `429 Rate limited on the configured account` and every subsequent turn
+recorded 1 call / 0 tokens / 0 s. They run again — baseline and after, same method,
+same provider — once the account window resets (`reports/system-mission/baseline-orchestration.json`
+carries the empty rows; the report only cites the measured ones).
+
+_(the after-measurement table is produced by `scripts/mission-report.mjs <baseline> <after>` — per-scenario p50 calls,
 prompt/output tokens, cache share, tool calls + repeats, wall, USD, rubric score, and the
 call ledger.)_
 
