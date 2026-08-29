@@ -43,6 +43,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   mapped software presets otherwise; `FRAMEPILOT_HW_ENCODE=0` forces software.
 - **Live export progress** — stage and percent from the render process — and cancellation
   that stops ffmpeg too.
+- **The assistant can lay down a whole sequence in one move.** Building a montage meant one
+  call per shot — sixty photos was sixty round trips, and a run could spend its whole budget
+  placing clips instead of editing them. It can now place an entire sequence on a track in a
+  single step. If one shot in the batch is wrong, it is told which one, so it fixes that shot
+  and re-sends rather than starting over.
 
 ### Changed
 
@@ -58,18 +63,6 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Tool descriptions the sidecar and MCP server show are generated from the TS registry
   (35 of 73 had drifted); a newer memory entry with the same title supersedes the older.
 - Sources are decoded at the size the export needs instead of full resolution.
-
-
-### Added
-
-- **The assistant can lay down a whole sequence in one move.** Building a montage meant one
-  call per shot — sixty photos was sixty round trips, and a run could spend its whole budget
-  placing clips instead of editing them. It can now place an entire sequence on a track in a
-  single step. If one shot in the batch is wrong, it is told which one, so it fixes that shot
-  and re-sends rather than starting over.
-
-### Changed
-
 - **The editor's chrome got tighter and easier to read.** The timeline's tool row mixed
   two icon sizes in two different button sizes, which read as two toolbars welded
   together and stole ~12px of height from the timeline; it now uses one control size
