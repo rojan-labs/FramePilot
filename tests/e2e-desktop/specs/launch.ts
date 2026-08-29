@@ -2,6 +2,7 @@ import {
   _electron as electron,
   expect,
   type ElectronApplication,
+  type Locator,
   type Page,
 } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
@@ -192,3 +193,83 @@ export async function snapshot(
 }
 
 const r1 = (n: number): number => Number(n.toFixed(1));
+
+/**
+ * Replace the native Save-As modal with a cancel.
+ *
+ * A native dialog blocks the main process until a human dismisses it, so it cannot be
+ * driven from a test. Cancelling is the honest stand-in rather than a fabricated path:
+ * the finished render stays in the project's sandboxed `exports/` folder, and that is
+ * exactly the path the export history entry and "Reveal in folder" then point at.
+ */
+export async function cancelNativeSaveDialog(session: DesktopSession): Promise<void> {
+  await session.app.evaluate(({ dialog }) => {
+    dialog.showSaveDialog = (async () => ({
+      canceled: true,
+      filePath: '',
+    })) as typeof dialog.showSaveDialog;
+  });
+}
+
+/**
+ * Record what "Reveal in folder" hands to the OS, instead of opening Finder mid-run.
+ *
+ * @returns a reader for the paths `shell.showItemInFolder` has been called with.
+ */
+export async function recordReveals(session: DesktopSession): Promise<() => Promise<string[]>> {
+  await session.app.evaluate(({ shell }) => {
+    const sink = globalThis as unknown as { __fpReveals?: string[] };
+    sink.__fpReveals = [];
+    shell.showItemInFolder = (fullPath: string): void => {
+      sink.__fpReveals?.push(fullPath);
+    };
+  });
+  return () =>
+    session.app.evaluate(
+      () => ((globalThis as unknown as { __fpReveals?: string[] }).__fpReveals ?? []) as string[],
+    );
+}
+
+export interface DialogExportChoice {
+  /** Matched against the option label's start, so "1080p (upscaled …)" still hits. */
+  readonly resolution?: string;
+  readonly quality?: 'Low' | 'Recommended' | 'High';
+  readonly container?: 'MP4' | 'MOV';
+}
+
+/** Pick one option from the editor's custom combobox (not a native `<select>`). */
+async function choose(scope: Locator, label: string, option: string): Promise<void> {
+  await scope.getByRole('combobox', { name: label }).click();
+  await scope
+    .getByRole('option', { name: new RegExp(`^${option.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) })
+    .first()
+    .click();
+}
+
+/**
+ * Run a real export through the export popover — the path the user actually takes —
+ * and return the finished file's path as the app itself reports it in Recent exports.
+ */
+export async function exportThroughDialog(
+  session: DesktopSession,
+  choice: DialogExportChoice = {},
+  timeoutMs = 20 * 60_000,
+): Promise<string> {
+  const { page } = session;
+  await cancelNativeSaveDialog(session);
+  await page.getByRole('button', { name: 'Export video' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Export video' });
+  await expect(dialog).toBeVisible();
+  if (choice.resolution) await choose(dialog, 'Resolution', choice.resolution);
+  if (choice.quality) await choose(dialog, 'Quality', choice.quality);
+  if (choice.container) await choose(dialog, 'Format', choice.container);
+  await dialog.getByRole('button', { name: 'Export', exact: true }).click();
+
+  // The one live status line in the footer resolves to exactly one of these.
+  await expect(dialog.getByText(/Exported\.|Saved to/).first()).toBeVisible({
+    timeout: timeoutMs,
+  });
+  const path = await dialog.locator('.export-history-name').first().getAttribute('title');
+  expect(path, 'a finished export should appear in Recent exports with its path').toBeTruthy();
+  return path!;
+}
