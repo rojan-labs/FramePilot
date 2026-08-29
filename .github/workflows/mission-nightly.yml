@@ -186,5 +186,4 @@ jobs:
           path: |
             tests/e2e-desktop/playwright-report
             reports/system-mission/baseline-resources.json
-            reports/system-mission/export-matrix.json
           if-no-files-found: warn

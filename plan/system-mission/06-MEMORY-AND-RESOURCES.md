@@ -10,7 +10,7 @@ Work from the P0.4 growth leads. For each: trace ownership (who allocates, who i
 supposed to release, on which event), fix the release at that owner, add a test that
 counts the resource before/after the lifecycle.
 
-## P6.1 — Renderer: effects, listeners, timers, object URLs, media elements — `[ ]`
+## P6.1 — Renderer: effects, listeners, timers, object URLs, media elements — `[~]`
 
 **Touches:** `apps/web-editor/src/**` — `useEffect` cleanups, `addEventListener` pairs,
 `setInterval`/`requestAnimationFrame` cancels, `URL.createObjectURL` ↔ `revokeObjectURL`,
@@ -22,7 +22,56 @@ closing the project.
 **Done when:** counters flat across open → edit → close ×3; heap snapshot diff shows no
 retained detached DOM or clip arrays.
 
-## P6.2 — Renderer: bounded caches — `[~]`
+Audit 2026-08-29 (`apps/web-editor/src/**`, every primitive the task names). The honest
+headline is that the renderer was already clean: one real leak, and a long list of things
+that look like leaks in a grep and are not. Recording both, because the next agent who
+greps will find the same shapes.
+
+**The one real leak — `PreviewTextEditor`.** A move/resize drag registers `pointermove`
+and `pointerup` on `window`, and removed them only in `endDrag`. `window` outlives the
+component, so unmounting mid-drag — deselect the clip, let an AI patch remount the editor,
+close the panel — left both handlers there for the life of the document, pinning the
+component's whole closure with them. Fixed at the owner: one attach/detach pair, detached
+from an unmount effect as well as from `endDrag`. Commit `d97a9ef`.
+
+The same closure hid a second bug the leak fix exposes: `endDrag` read `live` from the
+render at which the drag STARTED, where it is always `null`, so a completed move or
+resize committed **nothing at all**. The live params now travel through a ref, which is
+the only thing a listener registered once per drag can read. Two tests, both failing on
+the previous code.
+
+**Not leaks** (checked, not assumed):
+
+- **Listeners.** A per-file, per-target, per-event-name diff of `addEventListener` vs
+  `removeEventListener` across all 384 source files comes out balanced everywhere except
+  `preview/spike/main.ts`, which is a dev harness whose listener is page-lifetime.
+  `Tooltip` looked unbalanced by raw grep (2 `setTimeout`, 1 `clearTimeout`) but already
+  clears on unmount via `useEffect(() => clear, [clear])`.
+- **Observers.** Every `new ResizeObserver` / `IntersectionObserver` in the app has a
+  matching `disconnect()` in its effect cleanup — the counts match file by file.
+- **Object URLs.** Four sites. `StockPanel`'s `useObjectUrl` and `useScrubPreview`,
+  `SoundsPanel`'s audition, and `import.ts` all revoke; the cancellation generation in
+  `SoundsPanel` closes the window where a late `musicPreview` could strand a URL.
+  `HistoryDrawer` revokes its download URL in the same tick.
+- **Media elements / GPU.** `useAssetThumbnail`'s capture detaches every handler, pauses,
+  clears `src` and re-`load()`s the video. `webcodecs-preview-engine.dispose()` already
+  closes the `AudioContext`, disposes the GL chain, terminates the decode worker and
+  clears its image map — the expensive retentions were closed in an earlier pass.
+- **Store subscriptions.** `createPlayheadClock.subscribe` returns its unsubscribe and
+  every call site returns it straight out of the effect.
+- **Single-shot `requestAnimationFrame`.** `TimelineView`'s zoom-centring and
+  `PreviewEffectOverlay`'s frames are uncancelled but fire once and drop; a one-shot rAF
+  retains nothing past its callback, so nothing was changed there.
+- **Late `setState` after unmount.** `Toasts` (auto-dismiss) and `TranscriptionPanel`
+  (the 1.5s "Copied" reset) schedule one-shot timers that can outlive their component.
+  That is a React warning at worst, not retention, and fixing it would touch components
+  the task says not to rewrite. Left, deliberately, and named here.
+
+Remaining for the done-when: the counter run itself (open → edit → close ×3 with the
+P0.4 script) and the heap-snapshot diff. Those need the desktop resource harness, not
+unit tests, and belong with P6.6.
+
+## P6.2 — Renderer: bounded caches — `[x]`
 
 Every in-memory cache (thumbnails, waveforms, frame cache, footage map, transcript,
 query caches) gets a size bound in bytes or entries with LRU eviction, and a
@@ -34,8 +83,35 @@ Finding 2026-08-29: the renderer's real caches are already LRU-bounded with clos
 `editor/lruCache.ts`); the other `Map`s are per-render memos, not caches. What was missing
 was the project-close path: nothing cleared them, so a previous project's bitmaps stayed
 resident until pressure evicted them. `App.tsx` now clears both when `project.id` changes.
-Remaining: the eviction/emptiness unit tests named in the done-when, and the footage-map /
-transcript query caches in the AI sidebar.
+Landed 2026-08-29 (commit `b545893`) — both halves of the done-when now exist.
+
+**Bounds.** One cache really was unbounded, and it was in the AI sidebar: the
+cross-remount scroll cache (`AiSidebar.tsx`) was a plain `Map` keyed by conversation id,
+so it kept one entry per conversation ever opened, for the life of the tab, across every
+project. It is now the same `LruCache` (32 entries) the others use — only the
+conversation being remounted can ever read its entry, so a bound loses nothing the cache
+was able to serve. The **footage-map and transcript query caches named in the task do not
+exist in the renderer**: the sidebar holds no query cache of its own, and the footage map
+is fetched through `visualIndex.ts` straight to the sidecar. Whatever caching happens is
+in `packages/ai-sdk` / the sidecar, which is where that half of the task belongs.
+
+**Sweep.** `editor/sessionCaches.ts` is now the single place a project switch releases
+every renderer cache — decoded frame bitmaps, waveform bitmaps, waveform peaks, sidebar
+scroll state. `App.tsx` calls that one function. WHY one module: the previous version
+cleared two of the four from two imports in `App.tsx`, which is a list that silently
+falls behind. The waveform _peak_ cache was one of the missed ones, and the reason is
+visible in its old name — `resetWaveformPeakCachesForTests` — a cache whose only public
+release path is labelled "for tests" is a cache nothing in the product will ever call.
+Renamed `clearWaveformPeakCache`.
+
+**Tests.** Eviction-at-the-bound _and_ close-on-evict for the frame bitmap cache
+(`bitmapCache.test.ts`) and the waveform bitmap cache (`ClipWaveform.cache.test.ts`) —
+the evicted `ImageBitmap` must actually be `close()`d, because that memory is GPU-side
+and the GC never sees it; the peak cache's bound and an emptiness-after-project-close
+assertion for all four in `sessionCaches.test.ts`; the scroll cache's eviction is the
+`LruCache` class's own, already covered in `lruCache.test.ts`. `paintCanvas` is exported
+from `ClipWaveform` for this: jsdom has no layout engine, so driving the paint step
+directly is the only way to observe the cache the component fills.
 
 ## P6.3 — Main process: IPC listeners, child processes, handles, temp files — `[~]`
 
@@ -95,4 +171,3 @@ URLs). Runs in CI on the desktop lane when a fixture is available; otherwise nig
 `06-after.md` with the P0.4 table re-run; each fix linked to its commit and root cause.
 
 ## Discovered
-

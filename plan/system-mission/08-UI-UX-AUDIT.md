@@ -11,7 +11,7 @@
 
 ## P8.1 — Triage the findings — `[x]`
 
-Take `00-ux-findings.md`; keep only *blocks work* and *slows work*; group by root
+Take `00-ux-findings.md`; keep only _blocks work_ and _slows work_; group by root
 interaction (e.g. "selection model is inconsistent between bin and timeline" rather than
 five symptoms). Each group becomes a task below, added under §"Discovered" with its
 UX-nn ids.
@@ -19,15 +19,15 @@ UX-nn ids.
 
 Triage 2026-08-29 (from `00-ux-findings.md`, B/S only; C = cosmetic, deferred below):
 
-| Root interaction | Findings | Lands in |
-| --- | --- | --- |
-| Export is platform-driven | UX-01 | **closed** by Phase 7 (P7.3 dialog: resolution / fps / quality / codec / format, size estimate) |
-| References never reach the model | UX-04 | **closed** by Phase 3 (composer attach → analyzed profile → context block) |
-| Sidebar does not reflect project state | UX-02 (static chips), UX-16 (no "knows" strip, no memory view) | P8.2 **Knows** |
-| Timeline navigation is inconsistent | UX-05 (empty tracks hidden), UX-06 (wheel does nothing), UX-07 (selection scrolls, playhead does not) | P8.3 "timeline navigation" |
-| Clip actions are thin | UX-08 (context menu lacks trim-to-playhead, speed, transition, reveal, disable) | P8.3 "clip context menu" |
-| Modal / status surfaces mislead | UX-10 (translucent settings), UX-11 (readiness shows a stored choice, not a working provider) | P8.4 |
-| Preview hides the fit | UX-14 (4K landscape in 9:16 cropped silently) | P8.3 "preview fit" |
+| Root interaction                       | Findings                                                                                              | Lands in                                                                                        |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Export is platform-driven              | UX-01                                                                                                 | **closed** by Phase 7 (P7.3 dialog: resolution / fps / quality / codec / format, size estimate) |
+| References never reach the model       | UX-04                                                                                                 | **closed** by Phase 3 (composer attach → analyzed profile → context block)                      |
+| Sidebar does not reflect project state | UX-02 (static chips), UX-16 (no "knows" strip, no memory view)                                        | P8.2 **Knows**                                                                                  |
+| Timeline navigation is inconsistent    | UX-05 (empty tracks hidden), UX-06 (wheel does nothing), UX-07 (selection scrolls, playhead does not) | P8.3 "timeline navigation"                                                                      |
+| Clip actions are thin                  | UX-08 (context menu lacks trim-to-playhead, speed, transition, reveal, disable)                       | P8.3 "clip context menu"                                                                        |
+| Modal / status surfaces mislead        | UX-10 (translucent settings), UX-11 (readiness shows a stored choice, not a working provider)         | P8.4                                                                                            |
+| Preview hides the fit                  | UX-14 (4K landscape in 9:16 cropped silently)                                                         | P8.3 "preview fit"                                                                              |
 
 Deferred as cosmetic (C), with the reason "does not block or slow the raw-footage-to-edit
 loop": UX-03 (clipped placeholder), UX-09 (icon-only top bar), UX-12 (1024-wide overflow),
@@ -37,6 +37,7 @@ UX-15 (truncated filter tabs).
 ## P8.2 — AI sidebar: knows / doing / changed / needs / failed — `[~]`
 
 **Touches:** `AiSidebar.tsx`, `Composer.tsx`, run event rendering, `conversation.ts`.
+
 - **Knows:** a collapsible "Context" strip: selection, playhead, project facts, active
   references (Phase 3 tiles), remembered decisions (P1.5) with a remove control.
 - **Doing:** the existing activity rail; add queue/progress from P5.4 for analysis and
@@ -48,7 +49,7 @@ UX-15 (truncated filter tabs).
   composer shows the question with the choices, not a chat line the user must parse.
 - **Failed:** plain-language failure with the one action that helps (retry, attach,
   pick), FFmpeg/provider detail behind "details".
-**Done when:** each of the five states has an RTL test and a screenshot in the report.
+  **Done when:** each of the five states has an RTL test and a screenshot in the report.
 
 Landed 2026-08-29 (Knows, first slice): the included-context strip now shows every
 remembered project decision (audience / brand style / caption style / pacing) as its own
@@ -109,7 +110,7 @@ Landed 2026-08-29 (UX-10, UX-11):
 
 - **UX-10 was a capture artifact, not a styling bug.** `--bg-elevated` is opaque
   (`#212126` / `#ffffff`) and the scrim is `rgba(0,0,0,0.5)`; the screenshot shows the
-  dialog's text, chrome AND scrim all uniformly faded with the app behind *undimmed* —
+  dialog's text, chrome AND scrim all uniformly faded with the app behind _undimmed_ —
   the 0.14s fade-in caught mid-flight, because the walkthrough screenshots on the click.
   Fixed where the fault is: `page.screenshot({ animations: 'disabled' })` in
   `ux-walkthrough.spec.ts`. No CSS was changed, because none was wrong.
@@ -143,16 +144,65 @@ the UI was wrong.
 Lesson recorded for the plan: a visual gate that only runs after everything else passes is
 a gate that stops running the moment anything else breaks.
 
-## P8.5 — Focus, keyboard, accessibility, resizing — `[ ]`
+## P8.5 — Focus, keyboard, accessibility, resizing — `[~]`
 
 Focus management for dialogs/menus, roving tabindex in lists, ARIA on custom controls,
 reduced-motion respected, panels resizable with persisted sizes (view-prefs hook),
 no horizontal page scroll at 1280 px.
 **Done when:** axe passes on the main screens in e2e; keyboard-only montage journey works.
 
+Landed 2026-08-29 (focus and keyboard for every overlay; commits `925b223`, `a68b0cd`):
+
+- **Escape was handled wherever it was convenient, not where the user is.** Three
+  dialogs put it on a React `onKeyDown`, which only sees keys pressed inside the element
+  that carries it. In `NewProjectDialog` it sat on the _name input_, so tabbing to Cancel
+  or Create left the dialog with no keyboard way out at all; in `ShortcutHelp` and
+  `CommandPalette` it sat on the backdrop, so it worked until focus left the overlay —
+  which nothing prevented, because none of the three trapped Tab. All three now listen on
+  `document`, the way `SettingsDialog` already did.
+- **Nothing came back to the trigger.** Closing any of the three dropped focus at the top
+  of the document. They now share `useModalFocusTrap` — the hook the AI-sidebar modals
+  and Settings already used — which also returns focus to whatever opened them.
+- **The gate/content split is load-bearing, not style.** A hook called above an
+  `if (!open) return null` runs its mount effect while the ref is still null, so a trap
+  written that way installs nothing and silently does no work. `SettingsDialog` had
+  already discovered this; the three dialogs now follow it. Mounting per open also made
+  `CommandPalette`'s reset-on-open effect redundant — the state is fresh by construction.
+- **Three "panels" were modal in fact and said nothing about it.** History, Transcription
+  and Footage understanding each render `role="dialog"` behind a dimming, click-to-close
+  backdrop, but declared no `aria-modal` and trapped no focus: Tab walked out from under
+  the backdrop onto editor controls the user cannot see and cannot get back from without
+  a mouse. `useModalFocusTrap` gained an `active` flag for them — they render `null` from
+  inside one large component rather than through a gate, so the trap has to key on the
+  open flag rather than on mount. Existing callers are unchanged.
+- **The command palette announced nothing.** Its arrow keys move a highlight the _input_
+  owns, so a screen-reader user pressing Down heard nothing change. The input is now a
+  `combobox` with `aria-activedescendant` pointing at the highlighted row's id.
+
+13 RTL tests, every one of them failing on the previous code
+(`components/dialog-focus.test.tsx` plus one per panel).
+
+Found and NOT fixed, because a focus ring cannot be asserted in jsdom and an untestable
+CSS edit is exactly what this phase should not ship:
+
+- **Five inputs clear their outline with nothing in its place.**
+  `.command-palette-search input`, `.shortcut-search input`, `.transcript-search input`,
+  `.transcription-search input` and `.topbar-title-input` each set `outline: none` on
+  `:focus-visible` with no `box-shadow`, no border change, and no `:focus-within` ring on
+  their wrapper. The other 31 outline-clearing rules in `styles.css` are fine — they
+  delegate the ring to a child (`.caption-template`, `.fx-card-apply`,
+  `.preview-scrub-track`) or to a `:focus-within` wrapper (`.bin-search`,
+  `.ai-composer-shell`), which is a deliberate design-system choice, not a gap. These
+  five are the real ones and belong with the axe e2e leg, where the ring can be measured.
+- **`.preview-text-edit-content`** clears its outline unconditionally; the box has its own
+  selected/editing chrome, so this may be correct — it needs a look, not a guess.
+
+Remaining for the done-when: axe on the main screens in e2e, the keyboard-only montage
+journey, the five focus rings above, and the 1024 px layout check (UX-12) — all of which
+need a browser, not jsdom.
+
 ## P8.6 — Close — `[ ]`
 
 `08-after.md` with before/after screenshots per fixed finding; CHANGELOG; guide updates.
 
 ## Discovered
-

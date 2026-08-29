@@ -1,4 +1,9 @@
-import { _electron as electron, expect, type ElectronApplication, type Page } from '@playwright/test';
+import {
+  _electron as electron,
+  expect,
+  type ElectronApplication,
+  type Page,
+} from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { mkdtempSync, writeFileSync } from 'node:fs';
@@ -28,6 +33,11 @@ export interface LaunchOptions {
   readonly sidecarPort?: number;
   readonly projectsRoot?: string;
   readonly extraEnv?: Record<string, string>;
+  /**
+   * Reuse an existing user-data dir instead of a throwaway one. This is how a relaunch is
+   * tested: the second launch must see exactly what the crashed first launch left behind.
+   */
+  readonly userDataDir?: string;
 }
 
 /**
@@ -39,7 +49,7 @@ export interface LaunchOptions {
 export async function launchDesktop(options: LaunchOptions = {}): Promise<DesktopSession> {
   const sidecarPort = options.sidecarPort ?? 8798;
   const projectsRoot = options.projectsRoot ?? FIXTURE_PROJECTS;
-  const userDataDir = mkdtempSync(join(tmpdir(), 'framepilot-e2e-desktop-'));
+  const userDataDir = options.userDataDir ?? mkdtempSync(join(tmpdir(), 'framepilot-e2e-desktop-'));
   if (options.projectId) {
     const projectPath = join(projectsRoot, `${options.projectId}.fp.json`);
     writeFileSync(
@@ -74,24 +84,46 @@ export async function launchDesktop(options: LaunchOptions = {}): Promise<Deskto
 }
 
 /** Processes descended from `rootPid` (sidecar, ffmpeg, ffprobe, helpers), from `ps`. */
-export function descendants(rootPid: number): { pid: number; rssMb: number; cpu: number; cmd: string }[] {
+export function descendants(
+  rootPid: number,
+): { pid: number; rssMb: number; cpu: number; cmd: string }[] {
   const rows = execFileSync('ps', ['-axo', 'pid=,ppid=,rss=,%cpu=,command='], { encoding: 'utf8' })
     .split('\n')
     .map((l) => /^\s*(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+(.*)$/.exec(l))
     .filter((m): m is RegExpExecArray => m !== null)
-    .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), rssMb: Number(m[3]) / 1024, cpu: Number(m[4]), cmd: m[5] }));
+    .map((m) => ({
+      pid: Number(m[1]),
+      ppid: Number(m[2]),
+      rssMb: Number(m[3]) / 1024,
+      cpu: Number(m[4]),
+      cmd: m[5],
+    }));
   const out: typeof rows = [];
   const frontier = [rootPid];
   while (frontier.length) {
     const p = frontier.pop()!;
-    for (const r of rows) if (r.ppid === p) { out.push(r); frontier.push(r.pid); }
+    for (const r of rows)
+      if (r.ppid === p) {
+        out.push(r);
+        frontier.push(r.pid);
+      }
   }
-  return out.map(({ pid, rssMb, cpu, cmd }) => ({ pid, rssMb: Number(rssMb.toFixed(1)), cpu, cmd: (cmd ?? '').slice(0, 80) }));
+  return out.map(({ pid, rssMb, cpu, cmd }) => ({
+    pid,
+    rssMb: Number(rssMb.toFixed(1)),
+    cpu,
+    cmd: (cmd ?? '').slice(0, 80),
+  }));
 }
 
 export function openFileCount(pid: number): number {
   try {
-    return execFileSync('lsof', ['-p', String(pid)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split('\n').length - 2;
+    return (
+      execFileSync('lsof', ['-p', String(pid)], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).split('\n').length - 2
+    );
   } catch {
     return -1;
   }
@@ -101,17 +133,33 @@ export interface ResourceSnapshot {
   readonly label: string;
   readonly atMs: number;
   readonly main: { rssMb: number; heapUsedMb: number; externalMb: number; openFiles: number };
-  readonly renderer: { jsHeapUsedMb: number; jsHeapTotalMb: number; nodes: number; listeners: number; documents: number; frames: number; layoutCount: number };
+  readonly renderer: {
+    jsHeapUsedMb: number;
+    jsHeapTotalMb: number;
+    nodes: number;
+    listeners: number;
+    documents: number;
+    frames: number;
+    layoutCount: number;
+  };
   readonly children: ReturnType<typeof descendants>;
   readonly childRssMb: number;
   readonly ffmpegCount: number;
 }
 
 /** One resource sample across main, renderer and every child process. */
-export async function snapshot(session: DesktopSession, label: string, startedAt: number): Promise<ResourceSnapshot> {
+export async function snapshot(
+  session: DesktopSession,
+  label: string,
+  startedAt: number,
+): Promise<ResourceSnapshot> {
   const main = await session.app.evaluate(() => {
     const m = process.memoryUsage();
-    return { rssMb: m.rss / 1048576, heapUsedMb: m.heapUsed / 1048576, externalMb: m.external / 1048576 };
+    return {
+      rssMb: m.rss / 1048576,
+      heapUsedMb: m.heapUsed / 1048576,
+      externalMb: m.external / 1048576,
+    };
   });
   const cdp = await session.page.context().newCDPSession(session.page);
   await cdp.send('Performance.enable');
@@ -122,7 +170,12 @@ export async function snapshot(session: DesktopSession, label: string, startedAt
   return {
     label,
     atMs: Date.now() - startedAt,
-    main: { rssMb: r1(main.rssMb), heapUsedMb: r1(main.heapUsedMb), externalMb: r1(main.externalMb), openFiles: openFileCount(session.mainPid) },
+    main: {
+      rssMb: r1(main.rssMb),
+      heapUsedMb: r1(main.heapUsedMb),
+      externalMb: r1(main.externalMb),
+      openFiles: openFileCount(session.mainPid),
+    },
     renderer: {
       jsHeapUsedMb: r1(metric('JSHeapUsedSize') / 1048576),
       jsHeapTotalMb: r1(metric('JSHeapTotalSize') / 1048576),
