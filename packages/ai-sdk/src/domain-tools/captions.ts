@@ -51,36 +51,62 @@ function assertKnownCaptionStyle(style: z.infer<typeof CaptionStyleSchema> | nul
   }
 }
 
+/** Split a keyword into the bare tokens it must match consecutively. */
+const keywordTokens = (keyword: string): string[] =>
+  keyword
+    .split(/\s+/)
+    .map(normalizeCaptionWord)
+    .filter((token) => token !== '');
+
+/**
+ * Ground each requested emphasis keyword against what is actually spoken.
+ *
+ * A keyword may be a PHRASE. The renderers accent the whole run of consecutive
+ * words that speaks one (see `accentRunIndices` / `_accent_indices`), so this
+ * check has to ground it the same way: as a consecutive token sequence over the
+ * spoken word ORDER, not as a lookup in a bag of single words. Grounding against
+ * a bag is what rejected "stop scrolling" — a phrase the editor plainly says —
+ * and sent the model into a retry loop against a rule it could not satisfy.
+ */
 function groundedCaptionKeywords(
   track: Track,
   project: Project,
   requested: readonly string[],
 ): string[] {
-  const vocabulary = new Map<string, string>();
+  // Every ordered run of spoken words a phrase could match: each caption cue's
+  // own words and text, plus the project transcript. Kept as separate sequences
+  // so a phrase can never match across the seam between two of them.
+  const sequences: string[][] = [];
   for (const clip of track.clips) {
-    for (const word of clip.captionCue?.words ?? []) {
-      const key = normalizeCaptionWord(word.word);
-      if (key !== '' && !vocabulary.has(key)) vocabulary.set(key, word.word);
-    }
-    for (const word of clip.captionCue?.text.split(/\s+/) ?? []) {
-      const key = normalizeCaptionWord(word);
-      if (key !== '' && !vocabulary.has(key)) vocabulary.set(key, word);
-    }
+    const cue = clip.captionCue;
+    if (cue === undefined) continue;
+    sequences.push(cue.words.map((word) => word.word));
+    sequences.push(cue.text.split(/\s+/));
   }
-  for (const word of project.transcript) {
-    const key = normalizeCaptionWord(word.word);
-    if (key !== '' && !vocabulary.has(key)) vocabulary.set(key, word.word);
-  }
-  const grounded = requested.map((word) => {
-    const exact = vocabulary.get(normalizeCaptionWord(word));
-    if (exact === undefined) {
+  sequences.push(project.transcript.map((word) => word.word));
+
+  const bared = sequences.map((sequence) => sequence.map(normalizeCaptionWord));
+
+  return requested.map((keyword) => {
+    const phrase = keywordTokens(keyword);
+    const found = phrase.length > 0 && bared.some((tokens) => containsRun(tokens, phrase));
+    if (!found) {
       throw new Error(
-        `Emphasis keyword "${word}" is not present in the caption text or transcript. Read get_mapped_transcript and choose exact spoken words.`,
+        `Emphasis keyword "${keyword}" is not present in the caption text or transcript. Read get_mapped_transcript and choose exact spoken words — a multi-word keyword must be spoken as consecutive words.`,
       );
     }
-    return exact.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+    // Store the bare token sequence: it is exactly what both renderers compare
+    // against, so what is persisted cannot drift from what is highlighted.
+    return phrase.join(' ');
   });
-  return grounded;
+}
+
+/** Does `tokens` contain `phrase` as a consecutive run? */
+function containsRun(tokens: readonly string[], phrase: readonly string[]): boolean {
+  for (let i = 0; i + phrase.length <= tokens.length; i += 1) {
+    if (phrase.every((part, offset) => tokens[i + offset] === part)) return true;
+  }
+  return false;
 }
 
 /**
@@ -329,8 +355,10 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
       description:
         'Apply AI-selected semantic emphasis to a caption track as one reversible operation. ' +
         'First read get_mapped_transcript, reason about meaning, emotion, contrast, numbers, ' +
-        'delivery and payoff, then submit 1-12 sparse exact spoken keywords. The tool grounds ' +
-        'every keyword against the captions/transcript and rejects invented text. Existing ' +
+        'delivery and payoff, then submit 1-12 sparse exact spoken keywords. A keyword may be ' +
+        'a phrase ("stop scrolling"), which emphasises the whole run of words that speaks it. ' +
+        'The tool grounds every keyword against the captions/transcript and rejects invented ' +
+        'text; a phrase must be spoken as consecutive words. Existing ' +
         'track styling is preserved; change the design itself with set_track_caption_style.',
       capabilities: ['edit', 'captions', 'ai'],
     },

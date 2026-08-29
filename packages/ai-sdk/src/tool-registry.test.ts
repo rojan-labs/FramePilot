@@ -1331,6 +1331,57 @@ describe('per-clip styling edits (schema v5–v8) — caption/speed/crop/blend',
     ]);
   });
 
+  it('auto_emphasize_captions grounds a spoken phrase, and still rejects an unspoken one', () => {
+    // From a captured run: the editor says "make founders stop scrolling", the
+    // model asked to emphasise "stop scrolling", and grounding against a BAG of
+    // single words rejected it twice — a rule the model could not satisfy, over
+    // a phrase that is plainly spoken. Grounding follows word ORDER instead.
+    const tool = getTool('auto_emphasize_captions');
+    if (!tool?.buildOps) throw new Error('no buildOps for auto_emphasize_captions');
+    const spoken: ToolContext = {
+      project: makeProject({
+        transcript: [
+          { word: 'make', start: 0, end: 0.3 },
+          { word: 'founders', start: 0.3, end: 0.7 },
+          { word: 'stop', start: 0.7, end: 1 },
+          { word: 'scrolling', start: 1, end: 1.4 },
+        ],
+        timeline: {
+          fps: 30,
+          duration: 2,
+          tracks: [{ id: 'caption_1', type: 'caption', clips: [] }],
+        },
+      }),
+      selection: captionCtx.selection,
+    };
+
+    expect(
+      tool.buildOps({ trackId: 'caption_1', keywords: ['stop scrolling'] }, spoken),
+    ).toEqual([
+      {
+        type: 'set_track_caption_style',
+        trackId: 'caption_1',
+        captionStyle: {
+          accent: {
+            mode: 'keywords',
+            keywords: ['stop scrolling'],
+            color: '#ffd60a',
+            fontScale: 1.18,
+          },
+        },
+      },
+    ]);
+
+    // Invented text is still refused, and so is a phrase whose words are all
+    // spoken but never consecutively — that is not a phrase the editor said.
+    expect(() =>
+      tool.buildOps?.({ trackId: 'caption_1', keywords: ['scrolling founders'] }, spoken),
+    ).toThrow(/not present in the caption text or transcript/);
+    expect(() =>
+      tool.buildOps?.({ trackId: 'caption_1', keywords: ['buy my course'] }, spoken),
+    ).toThrow(/not present in the caption text or transcript/);
+  });
+
   it('auto_emphasize_captions rejects keywords with no letters/numbers, and duplicates', () => {
     const tool = getTool('auto_emphasize_captions');
     if (!tool?.buildOps) throw new Error('no buildOps for auto_emphasize_captions');

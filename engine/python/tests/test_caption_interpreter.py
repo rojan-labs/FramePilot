@@ -410,6 +410,36 @@ def test_accent_indices_keywords_selects_every_match() -> None:
     assert _accent_indices(tokens, "keywords", ["!!"]) == frozenset()
 
 
+def test_accent_indices_keywords_matches_a_spoken_phrase() -> None:
+    """A multi-word keyword accents the whole run of words that speaks it.
+
+    Emphasis is a unit of meaning, not of tokenization. Folding "stop scrolling"
+    to one bare token matched nothing, so the phrase an editor most wants to hit
+    could not be rendered at all. Mirrors `accentRunIndices` in the web preview.
+    """
+    from framepilot_engine.render.captions import _accent_indices
+
+    tokens = ["make", "founders", "stop", "scrolling", "now"]
+    assert _accent_indices(tokens, "keywords", ["stop scrolling"]) == frozenset({2, 3})
+    # Punctuation and case fold the same way inside a phrase as outside it.
+    assert _accent_indices(["Stop,", "SCROLLING!"], "keywords", ["stop scrolling"]) == frozenset(
+        {0, 1}
+    )
+    # A phrase that is not spoken consecutively selects nothing.
+    assert _accent_indices(["stop", "now", "scrolling"], "keywords", ["stop scrolling"]) == (
+        frozenset()
+    )
+
+
+def test_accent_indices_prefers_the_longer_phrase() -> None:
+    """A bare word must not claim part of a longer phrase and half-apply it."""
+    from framepilot_engine.render.captions import _accent_indices
+
+    tokens = ["stop", "scrolling", "and", "stop"]
+    # Both keywords apply: the phrase covers 0-1, the bare word also hits 3.
+    assert _accent_indices(tokens, "keywords", ["stop", "stop scrolling"]) == frozenset({0, 1, 3})
+
+
 def test_shift_by_subpixel_is_identity() -> None:
     from PIL import Image
 
