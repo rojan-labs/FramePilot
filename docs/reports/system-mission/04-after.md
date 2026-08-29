@@ -15,7 +15,7 @@ $4–8 of traffic, which is why 01-after's coverage is uneven per row and says s
 | montage-30s | 3/3 | **0.25 → 1.00** | 0 → 35 | the run finishes and the montage exists |
 | podcast-highlight-60s | 3/3 | 1.00 → 1.00 | 1 → 1 | already correct; got 4.7× faster |
 | remove-dead-air | 2/3 | **0.25 → 0.75** | 0 → 54 | `remove_silences` (P4.1) |
-| beat-sync | 3/3 | **0.22 → 0.78** | 0 → 34 | grounded beat grid + a run that survives |
+| beat-sync | 3/3 → 2 | **0.22 → 0.78 → 1.00** | 0 → 34 → 34, 28 | grounded beat grid, a run that survives, and cuts that land on the BEAT rather than on any transient |
 | refine-tighten · t1 | 3/3 | **0.25 → 0.63** | 0 → 18 | — |
 | refine-tighten · t2 | 3/3 | **0.50 → 0.88** | 0 → 4 | the refinement edits four things instead of rebuilding |
 | memory-captions · t1 | 1/3 | **0.38 → 0.63** | 0 → 7 | — |

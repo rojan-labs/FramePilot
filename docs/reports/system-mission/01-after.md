@@ -25,7 +25,7 @@ provider.
 | montage-30s | 3/3 | 10 → 31 | 332k → 963k | 0.99 → 0.99 | **0 → 35** | 424s → 1070s | $0.57 → $1.52 | **0.25 → 1.00** |
 | podcast-highlight-60s | 3/3 | **25 → 5** | **804k → 173k** | 0.99 → 1.00 | 1 → 1 | **1200s → 253s** | **$1.54 → $0.32** | 1.00 → 1.00 |
 | remove-dead-air | 2/3 | 1 → 6 | 0 → 109k | — → 0.95 | **0 → 54** | 0s → 584s | $0.00 → $0.81 | **0.25 → 0.75** |
-| beat-sync | 3/3 | 1 → 18 | 0 → 497k | — → 0.98 | **0 → 34** | 0s → 882s | $0.00 → $1.37 | **0.22 → 0.78** |
+| beat-sync | 3/3 | 1 → 18 | 0 → 497k | — → 0.98 | **0 → 34** | 0s → 882s | $0.00 → $1.37 | **0.22 → 0.78** ‡ |
 | refine-tighten · t1 | 3/3 | 1 → 18 | 0 → 516k | — → 0.98 | **0 → 18** | 0s → 655s | $0.00 → $0.88 | **0.25 → 0.63** |
 | refine-tighten · t2 | 3/3 | 1 → 12 | 0 → 321k | — → 0.99 | 0 → 4 | 0s → 623s | $0.00 → $0.97 | **0.50 → 0.88** |
 | memory-captions · t1 | 1/3 | 1 → 10 | 0 → 289k | — → 0.87 | 0 → 7 | 0s → 270s | $0.00 → $0.47 | **0.38 → 0.63** |
@@ -61,6 +61,12 @@ easiest wrong conclusion available. The rubric column is the one to read first.
   three runs. The extra calls and tokens buy a montage that exists. Whether 31 calls is the
   right price is Phase 5's question, not this one — the measurement to beat is now a
   *succeeding* run.
+‡ **beat-sync has since reached 1.00** (2026-08-29, two runs at 34 and 28 operations,
+`cuts-on-beats` 13/13 and 9/9). The 0.78 in the table is left as measured — this report is
+the record of the Phase 1 measurement, not a live scoreboard — but the remaining gap it
+describes was closed in Phase 4 by teaching `detect_beats` which onsets sit on the tempo
+grid. See `plan/system-mission/04-EDITING-QUALITY-AND-VERIFICATION.md` P4.1.
+
 - **beat-sync and refine-tighten close the same way.** beat-sync 0.22 → 0.78 with 34
   operations; refine-tighten's *second* turn — the refinement itself, which is what P1.4 is
   about — 0.50 → 0.88 while touching only 4 operations. A refinement that edits four things
