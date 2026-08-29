@@ -62,7 +62,7 @@ notice with inline Retry). Remaining: selection/playhead facts in the strip, Doi
 (queue/progress from P5.4), grouping the result card by semantic op, the Failed "details"
 disclosure for provider/FFmpeg text, and the screenshots for the report.
 
-## P8.3 — Selection, drag/drop, context menus, shortcuts — `[ ]`
+## P8.3 — Selection, drag/drop, context menus, shortcuts — `[~]`
 
 Standardize on the model professional NLEs use: click selects, shift-click extends,
 cmd-click toggles, marquee in timeline and bin, drag from bin to timeline with insert/
@@ -71,6 +71,26 @@ ripple-delete distinct, undo/redo everywhere including the AI run. Fix the root 
 the store, not per component.
 **Done when:** `timeline-interaction`, `timeline-marquee` e2e extended and green; a
 shortcut list test asserts every menu item's shortcut works.
+
+Landed 2026-08-29 (timeline navigation, UX-05/06/07):
+
+- **UX-06** — the bare wheel did nothing: the timeline scrolls horizontally, so a plain
+  vertical wheel reached the browser, found no vertical overflow, and moved nothing. A
+  pure `wheelIntent` (selectors-base, 4 tests) now decides: Cmd/Ctrl zooms around the
+  cursor as before, Shift and horizontal-dominant gestures stay with the browser, a bare
+  vertical wheel scrolls along the timeline — unless the track stack is tall enough to
+  scroll vertically, where stealing the gesture would be worse than the bug.
+- **UX-05** — every track in the project is now a row. Empty tracks were filtered out
+  unless they were `layer_*` or effect lanes, so a project's own empty audio track had no
+  drop target and "Add track" was the only way to discover a lane.
+- **UX-07** — half of this finding was a browser focus-scroll from clicking an off-screen
+  clip, which is correct behaviour and is left alone. The real gap was the other half:
+  playhead-follow ran only during playback, so a discrete seek could park the playhead
+  outside the viewport and leave it there. The view now follows a seek when — and only
+  when — the playhead is actually out of view.
+
+Remaining: UX-08 (clip context menu: trim-to-playhead, speed, transition, reveal in bin,
+disable) and UX-14 (preview fit/crop indication).
 
 ## P8.4 — States: loading, empty, error, progress, destructive confirms — `[ ]`
 

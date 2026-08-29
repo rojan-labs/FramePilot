@@ -56,6 +56,7 @@ import {
   rulerTicks,
   secondsToPx,
   shouldAutoFollow,
+  wheelIntent,
   snap,
   spanInRenderWindow,
   snapTargets,
@@ -1130,21 +1131,16 @@ export function TimelineView({
   // CapCut-style: hide pre-seeded empty tracks; only show a track when it has
   // clips OR was explicitly created by the user (IDs from the patch engine start
   // with "layer_"; pre-seeded tracks use "video_1", "audio_1", etc.).
-  const visibleTracks = useMemo(
-    () =>
-      timeline.tracks.filter(
-        (t) =>
-          t.clips.length > 0 ||
-          t.id.startsWith('layer_') ||
-          // Effect lanes (schema v13, ADR 0088) carry `effectLayers`, never clips,
-          // so the clip-count test excludes them and the lane would never render
-          // at all — the effect would apply invisibly. An EMPTY effect lane stays
-          // visible too, so it remains a drop target after its last layer is
-          // deleted.
-          t.type === 'effect',
-      ),
-    [timeline.tracks],
-  );
+  // Every track in the project is a row (UX-05).
+  //
+  // Empty tracks used to be filtered out unless they were `layer_*` or effect lanes,
+  // which meant a project's own empty audio track — the obvious place to drop music —
+  // did not exist as far as the editor was concerned, and "Add track" was the only way
+  // to discover a lane at all. A track in the timeline is a track the user or the AI
+  // declared; hiding it hides a drop target, and an empty row is exactly what every
+  // NLE shows there. Effect lanes (schema v13, ADR 0088) carry `effectLayers` and never
+  // clips, so they were the exception that first proved the filter wrong.
+  const visibleTracks = timeline.tracks;
   // Transient highlight over the clips the last committed edit touched (AI apply,
   // undo, redo — manual edits too). Derived purely from the edit history; while a
   // pulse is live the root gains `is-edit-pulse`, which turns on left/width
@@ -1898,7 +1894,23 @@ export function TimelineView({
       });
     };
     const onWheel = (event: WheelEvent): void => {
-      if (!event.metaKey && !event.ctrlKey) return; // plain scroll: leave to browser
+      const intent = wheelIntent({
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        zoomModifier: event.metaKey || event.ctrlKey,
+        shiftKey: event.shiftKey,
+        canScrollVertically: sc.scrollHeight - sc.clientHeight > 1,
+      });
+      if (intent === 'browser') return;
+      if (intent === 'scroll-horizontal') {
+        // UX-06: the bare wheel moves along the timeline, the axis it actually has.
+        // Counts as a manual scroll, so playback follow stands down exactly as it does
+        // for a drag of the scrollbar — otherwise the two fight for `scrollLeft`.
+        event.preventDefault();
+        userScrollUntilRef.current = performance.now() + MANUAL_SCROLL_SUSPEND_MS;
+        sc.scrollLeft += event.deltaY;
+        return;
+      }
       event.preventDefault();
       const ed = editorRef.current;
       const rect = sc.getBoundingClientRect();
@@ -1913,6 +1925,29 @@ export function TimelineView({
       if (raf !== 0) cancelAnimationFrame(raf);
     };
   }, []);
+  /* v8 ignore stop */
+
+  // --- Seek follow: a playhead you moved is a playhead you can see (UX-07) ---
+  //
+  // The follow loop below runs only during playback, so a discrete seek — the ruler,
+  // a keyboard nudge, "Show on timeline", a jump from the transcript — could park the
+  // playhead outside the viewport and leave it there. The view then showed one part of
+  // the cut while every edit applied at another, which is the coupling the walkthrough
+  // caught. Scrolls ONLY when the playhead is actually out of view (`nextAutoScrollLeft`
+  // returns `null` inside the dead-band), never during playback (the loop owns it then)
+  // and never while scrubbing (the drag owns it).
+  /* v8 ignore start -- real scroll geometry; jsdom has no layout. The decision
+     (`nextAutoScrollLeft`) is unit-tested in selectors.test.ts. */
+  useEffect(() => {
+    if (editor.state.playing || playheadDragRef.current) return;
+    const sc = scrollRef.current;
+    if (!sc) return;
+    const playheadPx = secondsToPx(editor.state.playhead, editor.state.pxPerSecond);
+    const next = nextAutoScrollLeft(playheadPx, sc.scrollLeft, sc.clientWidth, sc.scrollWidth);
+    if (next === null) return;
+    programmaticScrollRef.current = true;
+    sc.scrollLeft = next;
+  }, [editor.state.playhead, editor.state.pxPerSecond, editor.state.playing]);
   /* v8 ignore stop */
 
   // --- Auto-scroll / playhead-follow on playback (M2b-2) --------------------

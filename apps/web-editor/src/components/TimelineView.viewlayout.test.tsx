@@ -302,3 +302,19 @@ describe('TimelineView — vertical virtualization (M2b-2)', () => {
     }
   });
 });
+
+describe('empty tracks are rows (UX-05)', () => {
+  it("renders a project's empty audio track so there is somewhere to drop music", () => {
+    // The empty-track filter meant a project's own audio lane did not exist as far as
+    // the editor was concerned, and "Add track" was the only way to find a lane at all.
+    const withEmptyAudio: Timeline = {
+      tracks: [...timeline.tracks, { id: 'empty_audio', type: 'audio', clips: [] }],
+    };
+    function Host(): JSX.Element {
+      const editor = useEditor(withEmptyAudio, ['m', 'snd']);
+      return <TimelineView editor={editor} assets={[]} fps={30} />;
+    }
+    render(<Host />);
+    expect(screen.getByLabelText('Collapse track empty_audio')).toBeTruthy();
+  });
+});

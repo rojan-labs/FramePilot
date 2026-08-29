@@ -42,6 +42,7 @@ import {
   laneRenderWindow,
   spanInRenderWindow,
   shouldAutoFollow,
+  wheelIntent,
   nextAutoScrollLeft,
   minimapGeometry,
   minimapScrollLeft,
@@ -1765,5 +1766,39 @@ describe('laneRenderWindow / spanInRenderWindow (horizontal windowing)', () => {
     expect(spanInRenderWindow(12, 25, win, 40)).toBe(true);
     // Edge-touching spans stay mounted (inclusive bounds).
     expect(spanInRenderWindow(0, 10, win, 40)).toBe(true);
+  });
+});
+
+describe('wheelIntent (UX-06)', () => {
+  const base = {
+    deltaX: 0,
+    deltaY: 100,
+    zoomModifier: false,
+    shiftKey: false,
+    canScrollVertically: false,
+  };
+
+  it('zooms on Cmd/Ctrl (and on a trackpad pinch, which reports ctrl)', () => {
+    expect(wheelIntent({ ...base, zoomModifier: true })).toBe('zoom');
+    // The zoom modifier wins over every other consideration.
+    expect(wheelIntent({ ...base, zoomModifier: true, canScrollVertically: true })).toBe('zoom');
+  });
+
+  it('scrolls the timeline horizontally for a bare vertical wheel', () => {
+    expect(wheelIntent(base)).toBe('scroll-horizontal');
+    expect(wheelIntent({ ...base, deltaY: -100 })).toBe('scroll-horizontal');
+  });
+
+  it('leaves the browser alone when it already does the right thing', () => {
+    // Shift is the browser's own horizontal mapping.
+    expect(wheelIntent({ ...base, shiftKey: true })).toBe('browser');
+    // A two-finger horizontal swipe is already on the right axis.
+    expect(wheelIntent({ ...base, deltaX: -120, deltaY: 4 })).toBe('browser');
+    // No movement at all is not an intent.
+    expect(wheelIntent({ ...base, deltaY: 0 })).toBe('browser');
+  });
+
+  it('never steals a vertical wheel from a track stack tall enough to scroll', () => {
+    expect(wheelIntent({ ...base, canScrollVertically: true })).toBe('browser');
   });
 });

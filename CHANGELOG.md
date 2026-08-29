@@ -53,6 +53,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Timeline:** the mouse wheel now scrolls along the timeline (Cmd/Ctrl+wheel still zooms), every track in the project shows as a row — including empty ones, so there is somewhere to drop music — and moving the playhead brings it back into view.
+
 - **Desktop:** if the render engine stops unexpectedly, FramePilot now restarts it automatically (up to three times, with a short wait between) instead of failing every later render and analysis until the app is restarted.
 
 - **Agent runs:** when the final self-check fails on something fixable, the agent now gets one bounded fix turn with the findings in front of it before the run is settled, instead of ending as failed.

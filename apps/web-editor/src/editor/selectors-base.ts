@@ -1767,6 +1767,43 @@ export function shouldAutoFollow(inputs: AutoFollowInputs): boolean {
   return !inputs.scrubbing && !inputs.userScrolling;
 }
 
+/** What a wheel event over the timeline should do (UX-06). */
+export type WheelIntent = 'zoom' | 'scroll-horizontal' | 'browser';
+
+export interface WheelInputs {
+  readonly deltaX: number;
+  readonly deltaY: number;
+  /** Cmd (macOS) or Ctrl — also what a trackpad pinch reports. */
+  readonly zoomModifier: boolean;
+  readonly shiftKey: boolean;
+  /** Whether the lane container actually has somewhere to scroll vertically. */
+  readonly canScrollVertically: boolean;
+}
+
+/**
+ * Decide what a wheel over the timeline means (UX-06).
+ *
+ * The timeline scrolls horizontally, so a plain vertical wheel — the only gesture a
+ * mouse has — used to reach the browser, find no vertical overflow, and do nothing at
+ * all. Eight wheel steps left the viewport byte-identical, which reads as a dead
+ * surface. Every NLE maps the bare wheel onto the axis the timeline actually has.
+ *
+ * - Cmd/Ctrl (or a trackpad pinch) → zoom around the cursor.
+ * - Shift → the browser's own horizontal mapping; nothing to improve on.
+ * - A horizontal-dominant gesture (trackpad two-finger swipe) → the browser already
+ *   scrolls the right axis.
+ * - Otherwise a vertical wheel scrolls the timeline horizontally, UNLESS the lanes
+ *   are tall enough to scroll vertically — where scrolling the track stack is what
+ *   the gesture obviously means, and stealing it would be worse than the bug.
+ */
+export function wheelIntent(inputs: WheelInputs): WheelIntent {
+  if (inputs.zoomModifier) return 'zoom';
+  if (inputs.shiftKey) return 'browser';
+  if (Math.abs(inputs.deltaX) > Math.abs(inputs.deltaY)) return 'browser';
+  if (inputs.canScrollVertically) return 'browser';
+  return inputs.deltaY === 0 ? 'browser' : 'scroll-horizontal';
+}
+
 /**
  * The fraction of the viewport width kept ahead of the playhead before the view
  * re-centres on it — a dead-band so the timeline does not jitter every frame.
