@@ -74,6 +74,7 @@ import {
   initialWorkingState,
   onProjectRevisionChanged,
   parseWorkingState,
+  recordDecision,
   recordEvidence,
   recordFact,
   recordHostRefusal,
@@ -84,6 +85,7 @@ import {
   setExecutionAuthorization,
   setNextAction,
 } from './working-state.js';
+import { referenceDecisions, referenceDirectives } from '../references/directives.js';
 import type { HostPatchRefusal } from './commit-ledger.js';
 import { assessEditCompletion } from '../completion-gate.js';
 
@@ -1157,9 +1159,12 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
   //
   // `provisional` still marks a reading with nothing checkable in it: the request's prose is
   // the objective, and the field stays open for a turn that records a real interpretation.
+  const references = command.input.references ?? [];
+  const directives = referenceDirectives(references);
   const checkable = checkableAcceptance(
     command.input.userPrompt,
     explicitDurationTargetSeconds(command.input.userPrompt),
+    directives,
   );
   const criteria = acceptanceCriteria(checkable);
   const interpreted = setObjective(created, {
@@ -1178,9 +1183,36 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
   // committed decisions), and only when the conversation and project both match;
   // `carryForwardWorkingState` owns those rules. Skipped while resuming, because a crash
   // checkpoint already carries this run's own ledger.
-  const freshWorking = resuming
+  const carried = resuming
     ? planned
-    : carryForwardWorkingState(parseWorkingState(ao.carriedForward), planned);
+    : carryForwardWorkingState(
+        parseWorkingState(ao.carriedForward),
+        planned,
+        // The complete live set of tiles, not "the ones re-sent this turn": a reference the
+        // editor never removed still arrives on every turn, so a subject missing from this
+        // set means the tile is gone and its decision must stop binding (P3.5).
+        references.map((profile) => profile.id),
+      );
+  // What the attached references commit this run to. Recorded AFTER the carry-forward for
+  // the same reason it runs after `commitExecutionPlan`: a decision recorded earlier would
+  // be either erased by the plan or duplicated by the inherited copy of itself. Re-recording
+  // a reference the last run already committed is skipped by the text match below, so the
+  // DECIDED section holds one line per reference rather than one per turn.
+  const alreadyDecided = new Set(carried.decisions.map((decision) => decision.decision));
+  const freshWorking = referenceDecisions(references).reduce(
+    (state, entry) =>
+      alreadyDecided.has(entry.decision)
+        ? state
+        : recordDecision(state, {
+            decision: entry.decision,
+            reconsiderIf: entry.reconsiderIf,
+            committed: true,
+            source: 'reference',
+            until: 'superseded',
+            subject: entry.subject,
+          }),
+    carried,
+  );
   const started: ConductorState = {
     phase: resuming ? 'resuming' : planning ? 'planning' : 'executing',
     turnRef: command.stream,
