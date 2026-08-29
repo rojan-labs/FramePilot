@@ -112,6 +112,7 @@ export {
   // rest, filled via CSS when a keyframe sits at the playhead, so the two states read
   // apart by shape weight and not by colour alone.
   Diamond,
+  Paperclip,
 } from 'lucide-react';
 export type { LucideIcon } from 'lucide-react';
 

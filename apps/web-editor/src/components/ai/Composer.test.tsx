@@ -159,3 +159,36 @@ describe('Composer', () => {
     expect(screen.queryByLabelText('Pin context')).toBeNull();
   });
 });
+
+describe('Composer reference attachments (plan/system-mission P3.1)', () => {
+  it('offers a file picker only when the host can take files, and hands the files over', () => {
+    const onAttachFiles = vi.fn();
+    setup({ onAttachFiles });
+    const button = screen.getByRole('button', { name: 'Attach reference video or image' });
+    expect(button).toBeTruthy();
+    const input = screen.getByLabelText('Reference files') as HTMLInputElement;
+    expect(input.accept).toBe('video/*,image/*');
+    const file = new File(['x'], 'ref.mp4', { type: 'video/mp4' });
+    fireEvent.change(input, { target: { files: [file] } });
+    expect(onAttachFiles).toHaveBeenCalledWith([file]);
+  });
+
+  it('shows the role and the analysis state on a reference chip', () => {
+    const attachments: Attachment[] = [
+      { id: 'r1', kind: 'video', name: 'ref.mp4', role: 'pacing', status: 'analyzing' },
+      { id: 'r2', kind: 'image', name: 'logo.png', role: 'brand-logo', status: 'ready' },
+      { id: 'r3', kind: 'image', name: 'bad.png', role: 'style', status: 'failed', error: 'ffmpeg exploded' },
+    ];
+    setup({ attachments, onAttachFiles: vi.fn() });
+    expect(screen.getByText('pacing')).toBeTruthy();
+    expect(screen.getByText('analyzing…')).toBeTruthy();
+    expect(screen.getByText('brand-logo')).toBeTruthy();
+    expect(screen.queryByText('ready')).toBeNull();
+    expect(screen.getByTitle('ffmpeg exploded').textContent).toBe('failed');
+  });
+
+  it('has no picker when the host cannot take files', () => {
+    setup();
+    expect(screen.queryByRole('button', { name: 'Attach reference video or image' })).toBeNull();
+  });
+});

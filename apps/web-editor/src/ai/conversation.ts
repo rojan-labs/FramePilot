@@ -1,3 +1,4 @@
+import type { AiStreamReferenceProfile } from '@framepilot/shared-types';
 /**
  * Conversation model for the streaming AI sidebar (Phase 11 M2, ADR 0033).
  *
@@ -29,6 +30,15 @@ export interface Attachment {
   readonly id: string;
   readonly kind: 'image' | 'video' | 'audio' | 'timeline' | 'project' | 'document';
   readonly name: string;
+  /** What the reference is for (plan/system-mission P3.2); shown on the tile. */
+  readonly role?: AiStreamReferenceProfile['role'];
+  /** `analyzing` while the host measures it; `ready` once a profile exists. */
+  readonly status?: 'analyzing' | 'ready' | 'failed' | 'unsupported';
+  readonly error?: string;
+  /** Where the imported copy lives (relative to the projects root). */
+  readonly path?: string;
+  /** The analyzed profile the next turn sends as `references` (P3.4). */
+  readonly profile?: AiStreamReferenceProfile;
 }
 
 /** An included-context chip above the composer (M8). */

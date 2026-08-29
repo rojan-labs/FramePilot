@@ -1,3 +1,4 @@
+import type { ReferenceProfile } from '@framepilot/ai-sdk';
 /**
  * AI panel glue (plan/PLAN.md Phase 4.2/4.3).
  *
@@ -58,6 +59,7 @@ import type {
   DurableRunEventMessage,
   DurableRunSnapshot,
   Seconds,
+  AiStreamReferenceProfile,
 } from '@framepilot/shared-types';
 import { type ChangedRegion, type Patch, structuredDiffTimeline } from '@framepilot/editor-core';
 
@@ -323,6 +325,8 @@ export interface AiSessionInput {
    * (follow-up), mirroring how `history`/`selection` are handled today.
    */
   readonly userMemory?: UserMemory;
+  /** Analyzed reference attachments for this turn (plan/system-mission P3.4). */
+  readonly references?: readonly ReferenceProfile[];
   /**
    * Agent-run tuning (agent mode only): up-front plan, blast-radius caps, bounded
    * auto-repair, duration target. Forwarded to `streamAgent` so the app runs the same
@@ -580,6 +584,7 @@ export class BrowserAiSession implements AiSession {
       ...(input.interaction ? { interaction: input.interaction } : {}),
       ...(input.userMemory ? { userMemory: input.userMemory } : {}),
       ...(input.pinned && input.pinned.length > 0 ? { pinned: input.pinned } : {}),
+      ...(input.references && input.references.length > 0 ? { references: input.references } : {}),
       ...understanding,
     };
     const options: StreamOptions = {
@@ -1095,6 +1100,9 @@ class DesktopAiSession implements AiSession {
         // (its optional fields just also admit `undefined`); the cast bridges
         // exactOptionalPropertyTypes without copying the object field by field.
         ...(input.userMemory ? { userMemory: input.userMemory as AiStreamUserMemory } : {}),
+        ...(input.references && input.references.length > 0
+          ? { references: input.references as unknown as readonly AiStreamReferenceProfile[] }
+          : {}),
         ...(input.agentOptions ? { agentOptions: input.agentOptions } : {}),
         // `variations` (P13.1) is deliberately NOT threaded over the desktop IPC contract
         // yet — browser-only for this slice (see `AiSessionInput.variations`); the composer

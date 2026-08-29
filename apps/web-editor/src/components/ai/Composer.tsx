@@ -21,7 +21,7 @@ import {
   isSlashQuery,
   removeAtQuery,
 } from '../../ai/composerActions.js';
-import { ICON_SIZE, Send, Square, X } from '../icons.js';
+import { ICON_SIZE, Paperclip, Send, Square, X } from '../icons.js';
 import {
   ContextWindowIndicator,
   type ContextPhase,
@@ -87,6 +87,11 @@ export interface ComposerProps {
   readonly onAddAttachment: (attachment: Attachment) => void;
   readonly onRemoveAttachment: (id: string) => void;
   /**
+   * Attach reference videos/images from a file picker (plan/system-mission P3.1). The
+   * sidebar imports and analyzes them; the composer only collects the files.
+   */
+  readonly onAttachFiles?: (files: readonly File[]) => void;
+  /**
    * Every clip/asset the "@" picker can pin (P8.7 narrow slice) — the parent
    * derives this from the project via `pinnableEntities`. Typing `@query` filters
    * this list into a dropdown; picking one calls {@link onPinEntity} and removes
@@ -105,6 +110,7 @@ export function Composer(props: ComposerProps): JSX.Element {
     [value, props.atEntities],
   );
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const elapsed = useElapsedRunTime(running);
 
   // Auto-grow the textarea to fit its content (#6) so a multi-line message expands
@@ -151,7 +157,11 @@ export function Composer(props: ComposerProps): JSX.Element {
       event.preventDefault();
       props.onAddAttachment({
         id: `att_${Date.now()}`,
-        kind: file.type.startsWith('image/') ? 'image' : 'document',
+        kind: file.type.startsWith('image/')
+          ? 'image'
+          : file.type.startsWith('video/')
+            ? 'video'
+            : 'document',
         name: file.name || 'pasted',
       });
     }
@@ -220,6 +230,20 @@ export function Composer(props: ComposerProps): JSX.Element {
               title={attachment.name}
             >
               <span className="ai-context-chip-label">{attachment.name}</span>
+              {attachment.role ? (
+                <span className="ai-chip-badge" data-role={attachment.role}>
+                  {attachment.role}
+                </span>
+              ) : null}
+              {attachment.status && attachment.status !== 'ready' ? (
+                <span
+                  className="ai-chip-status"
+                  data-status={attachment.status}
+                  title={attachment.error ?? attachment.status}
+                >
+                  {attachment.status === 'analyzing' ? 'analyzing…' : attachment.status}
+                </span>
+              ) : null}
               <button
                 type="button"
                 aria-label={`Remove ${attachment.name}`}
@@ -301,6 +325,32 @@ export function Composer(props: ComposerProps): JSX.Element {
         >
           +
         </button>
+        {props.onAttachFiles ? (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/*,image/*"
+              multiple
+              hidden
+              aria-label="Reference files"
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? []);
+                event.target.value = '';
+                if (files.length > 0) props.onAttachFiles?.(files);
+              }}
+            />
+            <button
+              type="button"
+              className="ai-icon-button"
+              aria-label="Attach reference video or image"
+              title="Attach a reference video or image"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Paperclip size={ICON_SIZE.sm} aria-hidden="true" />
+            </button>
+          </>
+        ) : null}
         <textarea
           ref={inputRef}
           className="ai-composer-input"

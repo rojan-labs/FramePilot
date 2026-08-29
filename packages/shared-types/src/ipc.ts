@@ -1704,7 +1704,7 @@ export interface FramePilotBridge {
    * so the timeline draws real waveforms/frames. Non-fatal on engine failure. */
   importAsset(req: ImportAssetRequest): Promise<ImportAssetResult>;
   /** Analyze one attached reference file (video/image) once, in the trusted host. */
-  analyzeReference(req: AnalyzeReferenceRequest): Promise<AnalyzeReferenceResult>;
+  analyzeReference?(req: AnalyzeReferenceRequest): Promise<AnalyzeReferenceResult>;
   /** Run configured speech-to-text in the trusted host for one saved media asset. */
   transcribe(req: TranscriptionRequest): Promise<TranscriptionResult>;
   aiChat(req: AiRequest): Promise<AiTextResult>;

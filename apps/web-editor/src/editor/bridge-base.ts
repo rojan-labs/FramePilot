@@ -46,6 +46,8 @@ import type {
   StockDownloadResult,
   StockDownloadProgressWire,
   StockQuotaSnapshot,
+  AnalyzeReferenceRequest,
+  AnalyzeReferenceResult,
 } from '@framepilot/shared-types';
 
 // Re-exported for renderer call-sites and tests that referenced these names.
@@ -334,6 +336,21 @@ export async function importAsset(
     return { ok: false, error: 'Thumbnail previews require the FramePilot desktop app.' };
   }
   return bridge.importAsset(req);
+}
+
+/**
+ * Analyze one attached reference file in the trusted host (plan/system-mission P3.3).
+ * Browser build: no engine, so the caller shows the attachment as unsupported rather than
+ * pretending it was read.
+ */
+export async function analyzeReference(
+  req: AnalyzeReferenceRequest,
+  bridge: RendererBridge | null = getBridge(),
+): Promise<AnalyzeReferenceResult> {
+  if (!bridge?.analyzeReference) {
+    return { ok: false, error: 'Reference analysis requires the FramePilot desktop app.' };
+  }
+  return bridge.analyzeReference(req);
 }
 
 /** A validated external change to the open project file (e.g. an MCP agent edit). */

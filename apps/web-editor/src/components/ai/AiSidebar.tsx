@@ -36,6 +36,7 @@ import {
   type SteeringQueue,
   type SourceMonitorInteraction,
   type ViewNode,
+  decideReferenceRole,
 } from '@framepilot/ai-sdk';
 import type { AnyOperation } from '@framepilot/editor-core';
 import { safeParseProject, type Project } from '@framepilot/timeline-schema';
@@ -65,7 +66,9 @@ import { useConversationView } from '../../ai/useConversationView.js';
 import { createFrameBatcher, createIntervalScheduler } from '../../ai/frameBatcher.js';
 import { emptyRunNotice, foldTurnEvent, initialTurnSignals } from '../../ai/runOutcome.js';
 import { latestStreamingAssistantText } from '../../ai/liveAnnouncement.js';
-import { getBridge } from '../../editor/bridge.js';
+import type { ReferenceProfile } from '@framepilot/ai-sdk';
+import { analyzeReference, getBridge, isDesktop } from '../../editor/bridge.js';
+import { materializeImportedMedia, probeMediaFile } from '../../editor/import.js';
 import {
   ArrowDown,
   Copy,
@@ -332,6 +335,60 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   const [historyOpen, setHistoryOpen] = useState(false);
   const [removedContext, setRemovedContext] = useState<readonly string[]>([]);
   const [attachments, setAttachments] = useState<readonly Attachment[]>([]);
+  /**
+   * Reference attachments (plan/system-mission P3.1–P3.4): copy the file into the project
+   * through the same chunked import the media bin uses, let the host analyze it once, and
+   * hold the profile on the chip so the next turn sends it as `references`. The role is
+   * decided from the words in the draft and the file; the chip shows it.
+   */
+  const attachReferenceFiles = useCallback(
+    async (files: readonly File[]) => {
+      const projectId = projectRef.current.id;
+      for (const file of files) {
+        const kind: Attachment['kind'] = file.type.startsWith('image/')
+          ? 'image'
+          : file.type.startsWith('video/')
+            ? 'video'
+            : 'document';
+        const id = `ref_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+        if (kind !== 'image' && kind !== 'video') {
+          setAttachments((list) => [
+            ...list,
+            { id, kind, name: file.name, status: 'unsupported', error: 'Only video and image references are analyzed.' },
+          ]);
+          continue;
+        }
+        const decision = decideReferenceRole({ kind, fileName: file.name, promptText: draft });
+        setAttachments((list) => [...list, { id, kind, name: file.name, role: decision.role, status: 'analyzing' }]);
+        const update = (patch: Partial<Attachment>): void =>
+          setAttachments((list) => list.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+        if (!isDesktop()) {
+          update({ status: 'unsupported', error: 'Reference analysis requires the FramePilot desktop app.' });
+          continue;
+        }
+        try {
+          const probed = await probeMediaFile(file);
+          const media = await materializeImportedMedia(probed, file, projectId);
+          const result = await analyzeReference({
+            projectId,
+            inputPath: media.path,
+            id,
+            fileName: file.name,
+            kind,
+            role: decision.role,
+          });
+          if (!result.ok) {
+            update({ status: 'failed', error: result.error, path: media.path });
+            continue;
+          }
+          update({ status: 'ready', path: media.path, profile: result.profile });
+        } catch (error) {
+          update({ status: 'failed', error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+    },
+    [draft],
+  );
   // Event handlers and an imperative Cmd+K send can run between React commits. Keep
   // refs updated during render and dereference them only when the turn is submitted,
   // so the request never captures a previous render's empty asset array.
@@ -909,6 +966,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       const steeringQueue = createSteeringQueue();
       planApprovalGateRef.current = planApprovalGate;
       steeringQueueRef.current = steeringQueue;
+      const readyReferences = attachments.flatMap((a) =>
+        a.status === 'ready' && a.profile ? [a.profile as unknown as ReferenceProfile] : [],
+      );
       const runInputFor = (runMode: AiSessionMode): AiSessionInput => {
         const currentEditor = editorRef.current;
         const projectSnapshot = projectSnapshotForAiRun(projectRef.current, currentEditor);
@@ -935,6 +995,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
           turnId,
           ...(history.length > 0 ? { history } : {}),
           userMemory: loadUserMemory(),
+          ...(readyReferences.length > 0 ? { references: readyReferences } : {}),
           ...(activeProviderName !== 'mock' ? { provider: activeProviderName } : {}),
           ...(sendSelection ? { selection: sendSelection } : {}),
           interaction,
@@ -1722,6 +1783,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
             onPinEntity={onPinEntity}
             attachments={attachments}
             onAddAttachment={(a) => setAttachments((list) => [...list, a])}
+            onAttachFiles={(files) => void attachReferenceFiles(files)}
             onRemoveAttachment={(id) => setAttachments((list) => list.filter((a) => a.id !== id))}
           />
         </>
