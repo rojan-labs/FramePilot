@@ -25,7 +25,7 @@
   (`engine/python/framepilot_engine/brain`, optional TwelveLabs backend), and the
   `MediaProbe`/`VisualEvidence` contracts in `media-evidence.ts`.
 
-## P3.1 — Attach video and image files, with previews — `[ ]`
+## P3.1 — Attach video and image files, with previews — `[~]`
 
 **Touches:** `Composer.tsx`, `AiSidebar.tsx`, `apps/desktop/electron/preload.cts` +
 `ipc/` (a `references:pick` dialog channel restricted to media types), `fp-media://`
@@ -36,6 +36,12 @@ the composer; multiple attachments. Files are copied under the project's sandbox
 sandbox does not widen.
 **Done when:** attach three videos and two images, see tiles, remove one, reload — tiles
 persist (session store).
+
+Landed 2026-08-29: composer attach control (`video/*,image/*`), chunked import into the
+project's media dir (same path as the bin), `framepilot:references:analyze` IPC →
+sidecar `/references/analyze` (sandboxed, content-hash cached), role + analysis state on
+the chip, ready profiles sent as `references`. Remaining here: thumbnail tiles instead of
+chips, drag-and-drop onto the composer, and chip persistence across reload (P3.6/P3.7).
 
 ## P3.2 — Role classification — `[x]`
 
@@ -80,7 +86,7 @@ gate — write ADR + migration draft, mark `[!]`, continue.
 **Done when:** attaching `ref/fast-cut.mp4` twice runs analysis once (cache hit logged);
 the profile JSON snapshot matches for the fixture; `constraints` reads as editor language.
 
-## P3.4 — Profiles enter context and the plan — `[ ]`
+## P3.4 — Profiles enter context and the plan — `[~]`
 
 **Touches:** `context-builder.ts` (P1.3 `memory.references[]`), `kernel/briefing.ts`,
 `kernel/proposers/*` plan prompt, `prompts.ts`. The plan must cite which reference
@@ -92,6 +98,12 @@ the image as a project asset.
 **Done when:** UC-06 and UC-07 pass their Phase 4 rubric rows; the model call count for a
 turn with a reference attached is ≤ the same turn without one + 0 (analysis is a sidecar
 job, not a model turn).
+
+Landed 2026-08-29: `ContextInput.references` → fixed "References the editor attached"
+block (`summarizeReferences`), desktop request validation (`parseReferences`, ≤ 8), web
+path threads them on both browser and desktop routes. Remaining: the plan citing the
+constraints it applies (proposer prompt), controllers reading the numeric profile,
+role-specific ops (logo overlay, grade target, b-roll enrolment), and the UC-06/07 evidence.
 
 ## P3.5 — "Same as the reference" across turns — `[ ]`
 
