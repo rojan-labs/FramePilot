@@ -45,6 +45,19 @@
  *    with a `pregelTaskId`, which destroys any non-`Error` throw
  *    (`TypeError: Cannot create property 'pregelTaskId' on string`). Wrapping preserves
  *    the original value for the caller.
+ * 4. **`GraphEventQueue` order is the run's ORDER OF INTENT, not its order of completion.**
+ *    A turn's concurrency-safe tool calls run against a bounded pool (E1 batching,
+ *    `concurrency.ts`), and ADR 0150 additionally warms a turn's acquisitions ahead of the
+ *    serial pass. None of that is allowed to show: `mapBounded` returns results in input
+ *    order and `executeToolCalls` folds a batch in original call order, so the event
+ *    sequence a host observes is byte-identical to serial execution (golden-tested) and
+ *    concurrency changes wall-clock only. Anything that emits from inside a concurrent
+ *    call — rather than deferring to the fold — breaks this, and with it every golden.
+ *
+ *    The ordering RULE that bounds the batching is the mirror of the same contract: a
+ *    mutating call ends a batch, because the turn's speculative working copy is threaded
+ *    call-to-call. An analysis hoisted across a mutation would answer about a timeline
+ *    that no longer exists (`analysis-parallel.test.ts` pins both halves).
  */
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import { createLogger } from '@framepilot/shared-types';
