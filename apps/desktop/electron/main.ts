@@ -139,7 +139,9 @@ import {
   type CapabilityPackProjectResolutionWire,
 } from './ipc/contract.js';
 import { SidecarManager, type SidecarProcess } from './sidecar/manager.js';
-import { resolveSidecarCommand } from './sidecar/spawn.js';
+import { resolveSidecarCommand,
+  killProcessGroup,
+} from './sidecar/spawn.js';
 import { RecentFilesStore, type RecentFilesIO } from './projects/recent-files.js';
 import { ConversationStore, type ConversationStoreIO } from './ai/conversation-store.js';
 import { AiStreamHub, parseAiStreamRequest, prepareAiEventForTransport } from './ai/ai-stream.js';
@@ -285,6 +287,9 @@ function spawnSidecar(host: string, port: number): SidecarProcess {
     cwd: resolved.cwd,
     env: { ...process.env, ...resolved.env, ...capabilityPackRuntimeEnvironment },
     stdio: 'inherit',
+    // Own process group, so stopping the sidecar also stops its ffmpeg/ffprobe and render
+    // workers (`killProcessGroup`). The parent still waits on it; nothing is orphaned.
+    detached: process.platform !== 'win32',
   });
   // Without this, a failed spawn (e.g. ENOENT because `uv` isn't on PATH for
   // a GUI-launched app) surfaces only as Node's 'error' event; unhandled,
@@ -299,7 +304,8 @@ function spawnSidecar(host: string, port: number): SidecarProcess {
   return {
     pid: child.pid,
     kill: () => {
-      child.kill();
+      const target = killProcessGroup(child.pid);
+      aiLog.action('sidecar stop', { pid: child.pid, target });
     },
     onExit: (listener) => {
       child.on('exit', (code) => listener(code));

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { resolveSidecarCommand, type SidecarSpawnContext } from './spawn.js';
+import { killProcessGroup, resolveSidecarCommand, type SidecarSpawnContext } from './spawn.js';
 
 const HOST = '127.0.0.1';
 const PORT = 8765;
@@ -180,5 +180,35 @@ describe('resolveSidecarCommand', () => {
       });
       expect(command.env).toEqual(ROOT_ENV);
     });
+  });
+});
+
+describe('killProcessGroup (plan/system-mission P5.3)', () => {
+  it('signals the whole group first, and the process itself when the group kill fails', () => {
+    const calls: [number, string][] = [];
+    const ok = killProcessGroup(4242, (pid, signal) => void calls.push([pid, signal]), 'darwin');
+    expect(ok).toBe('group');
+    expect(calls).toEqual([[-4242, 'SIGTERM']]);
+    calls.length = 0;
+    const fallback = killProcessGroup(
+      4242,
+      (pid, signal) => {
+        calls.push([pid, signal]);
+        if (pid < 0) throw new Error('ESRCH');
+      },
+      'darwin',
+    );
+    expect(fallback).toBe('process');
+    expect(calls).toEqual([
+      [-4242, 'SIGTERM'],
+      [4242, 'SIGTERM'],
+    ]);
+  });
+
+  it('never tries a group kill on Windows and reports a missing pid', () => {
+    const calls: number[] = [];
+    expect(killProcessGroup(7, (pid) => void calls.push(pid), 'win32')).toBe('process');
+    expect(calls).toEqual([7]);
+    expect(killProcessGroup(undefined, () => undefined)).toBe('none');
   });
 });

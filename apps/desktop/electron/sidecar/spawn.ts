@@ -163,3 +163,35 @@ function bundledToolEnv(
   }
   return additions;
 }
+
+/**
+ * Stop the sidecar AND everything it spawned (plan/system-mission P5.3).
+ *
+ * The sidecar runs ffmpeg/ffprobe and render workers as children. A plain `child.kill()`
+ * only signals the python process; a running encode kept going after the app quit. Spawned
+ * `detached` (own process group) the whole group can be signalled with one negative-pid
+ * kill. Pure apart from the injected `kill`, so the fallback order is testable.
+ *
+ * @returns which signal target actually worked: `group`, `process`, or `none`.
+ */
+export function killProcessGroup(
+  pid: number | undefined,
+  kill: (pid: number, signal: NodeJS.Signals) => void = process.kill,
+  platform: NodeJS.Platform = process.platform,
+): 'group' | 'process' | 'none' {
+  if (!pid) return 'none';
+  if (platform !== 'win32') {
+    try {
+      kill(-pid, 'SIGTERM');
+      return 'group';
+    } catch {
+      // Not a group leader (or already gone): fall through to the process itself.
+    }
+  }
+  try {
+    kill(pid, 'SIGTERM');
+    return 'process';
+  } catch {
+    return 'none';
+  }
+}
