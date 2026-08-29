@@ -6,6 +6,26 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Security
+
+- **Cleared every high-severity dependency advisory the repository was carrying.** 58 of the
+  59 open high-severity Dependabot alerts are closed by this change. The desktop runtime moves
+  to **Electron 39.8.10** (from 32.x), which is the supported line and picks up every Chromium
+  and V8 fix released since; the editor and desktop dev toolchains move to **Vite 6.4.3**, the
+  marketing site to **Next.js 15.5.21**, the packaging toolchain to **electron-builder 26.15**,
+  and the render engine to **Pillow 12.3**, which closes a run of image-decoder memory-safety
+  bugs (out-of-bounds writes in the PSD and McIdas paths, decompression bombs in the FITS and
+  JPEG2000 paths) that were reachable from any thumbnail or still the engine opens. Transitive
+  packages with no direct owner — `brace-expansion`, `js-yaml`, `nanoid`, `fast-uri`,
+  `ip-address`, `postcss`, `sharp`, `shell-quote` — are pinned to patched versions through
+  workspace overrides.
+
+  One alert stays open and cannot be closed by upgrading: `extract-zip` (GHSA-jmr9-qjv8-65gv)
+  has no patched release. It reaches the tree only through the `electron` npm package, which
+  uses it at install time to unpack the Electron binary it just downloaded from a checksum-
+  verified URL. Nothing in it ships in the app, and it never touches user media. See
+  `SECURITY.md`.
+
 ### Added
 
 - **Reference videos and images in the AI sidebar.** Attach a reference (📎 in the
@@ -39,26 +59,6 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (35 of 73 had drifted); a newer memory entry with the same title supersedes the older.
 - Sources are decoded at the size the export needs instead of full resolution.
 
-
-### Security
-
-- **Cleared every high-severity dependency advisory the repository was carrying.** 58 of the
-  59 open high-severity Dependabot alerts are closed by this change. The desktop runtime moves
-  to **Electron 39.8.10** (from 32.x), which is the supported line and picks up every Chromium
-  and V8 fix released since; the editor and desktop dev toolchains move to **Vite 6.4.3**, the
-  marketing site to **Next.js 15.5.21**, the packaging toolchain to **electron-builder 26.15**,
-  and the render engine to **Pillow 12.3**, which closes a run of image-decoder memory-safety
-  bugs (out-of-bounds writes in the PSD and McIdas paths, decompression bombs in the FITS and
-  JPEG2000 paths) that were reachable from any thumbnail or still the engine opens. Transitive
-  packages with no direct owner — `brace-expansion`, `js-yaml`, `nanoid`, `fast-uri`,
-  `ip-address`, `postcss`, `sharp`, `shell-quote` — are pinned to patched versions through
-  workspace overrides.
-
-  One alert stays open and cannot be closed by upgrading: `extract-zip` (GHSA-jmr9-qjv8-65gv)
-  has no patched release. It reaches the tree only through the `electron` npm package, which
-  uses it at install time to unpack the Electron binary it just downloaded from a checksum-
-  verified URL. Nothing in it ships in the app, and it never touches user media. See
-  `SECURITY.md`.
 
 ### Added
 
