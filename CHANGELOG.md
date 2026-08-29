@@ -6,6 +6,40 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **Reference videos and images in the AI sidebar.** Attach a reference (📎 in the
+  composer); it is copied into the project, analyzed once by the render engine (shot
+  rhythm, tempo, speech share, look; image size, transparency, palette), given a role
+  (style, pacing, caption style, color, brand logo, thumbnail, b-roll, character, design)
+  from your words and the file, and its measured constraints are what the AI reads on
+  every later turn — "make mine feel like this" works without re-attaching.
+- **Quality-driven export.** The Export dialog offers resolution (480p–4K), frame rate,
+  quality tier, codec (H.264/HEVC) and format (MP4/MOV); the frame follows the project's
+  aspect ratio, resolution is capped at what the sources hold (with a clear note instead
+  of a silent upscale), and the summary line states the exact file you get with a size
+  estimate. Last-used settings persist per project. `/export` replaces `/export-reels`.
+- **Hardware encoding** (VideoToolbox / NVENC / QSV when ffmpeg has them) with quality-
+  mapped software presets otherwise; `FRAMEPILOT_HW_ENCODE=0` forces software.
+- **Live export progress** — stage and percent from the render process — and cancellation
+  that stops ffmpeg too.
+
+### Changed
+
+- Platform export presets (Reels, TikTok, Shorts, YouTube, Square) are gone from the
+  engine, the CLI (`--resolution/--fps/--quality/--codec/--container`), the dialog and
+  the docs.
+- The AI agent asks the provider for the output room it reserves (a long tool batch is no
+  longer cut off at the bridge's 8,192-token default), retries a cut-off reply with a
+  "split the step" hint instead of verbatim, may look at a frame while applying edits,
+  treats a smaller re-render of a frame as the same frame, and reads each source's file
+  name, dimensions and orientation from a one-line-per-asset block instead of
+  rediscovering them with tool calls.
+- Tool descriptions the sidecar and MCP server show are generated from the TS registry
+  (35 of 73 had drifted); a newer memory entry with the same title supersedes the older.
+- Sources are decoded at the size the export needs instead of full resolution.
+
+
 ### Security
 
 - **Cleared every high-severity dependency advisory the repository was carrying.** 58 of the
