@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import json
 import logging
 import os
 import threading
@@ -38,7 +39,7 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic import ValidationError as PydanticValidationError
 
 from framepilot_engine import __version__
@@ -55,6 +56,11 @@ from framepilot_engine.analysis.freeze import (
     detect_freezes,
 )
 from framepilot_engine.analysis.loudness import measure_loudness
+from framepilot_engine.analysis.reference import (
+    analysis_to_dict,
+    analyze_reference_image,
+    analyze_reference_video,
+)
 from framepilot_engine.analysis.scenes import DEFAULT_SCENE_THRESHOLD, SceneCut, detect_scenes
 from framepilot_engine.analysis.silence import (
     DEFAULT_MIN_SILENCE_SECONDS,
@@ -317,6 +323,31 @@ class InspectMediaRequest(BaseModel):
     """Request body for ``POST /inspect-media`` (plan 2.1)."""
 
     input_path: str = Field(description="Path to the media file to probe.")
+
+
+class ReferenceAnalysisRequest(BaseModel):
+    """Request body for ``POST /references/analyze`` (plan/system-mission P3.3)."""
+
+    input_path: str = Field(description="Path to the reference file inside the projects sandbox.")
+    kind: Literal["video", "image"] | None = Field(
+        default=None, description="Override the kind inferred from the file extension."
+    )
+    refresh: bool = Field(default=False, description="Recompute even when a cached result exists.")
+
+
+class ReferenceAnalysisResponse(BaseModel):
+    """Measured reference facts (camelCase payloads mirror the TS ``ReferenceProfile``)."""
+
+    kind: Literal["video", "image"]
+    content_hash: str = Field(alias="contentHash")
+    video: dict[str, Any] | None = None
+    image: dict[str, Any] | None = None
+    cached: bool = False
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"})
 
 
 class AssetMediaRequest(BaseModel):
@@ -4262,6 +4293,51 @@ def create_app(
             raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
         except FFmpegError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+    @app.post("/references/analyze", response_model=ReferenceAnalysisResponse)
+    def references_analyze_route(req: ReferenceAnalysisRequest) -> ReferenceAnalysisResponse:
+        """Measure a reference video/image once (plan/system-mission P3.3).
+
+        The file must live inside the projects sandbox (the host copies attachments
+        under the project's media dir). The result is cached beside the file, keyed by
+        the file's content hash, so re-attaching or re-asking never re-analyzes.
+        """
+        media_path = sandbox(req.input_path)
+        if not media_path.is_file():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Reference not found: {req.input_path}")
+        content_hash = _sha256_file(media_path)
+        cache_path = media_path.with_name(f"{media_path.name}.reference.json")
+        if not req.refresh and cache_path.is_file():
+            try:
+                cached = json.loads(cache_path.read_text(encoding="utf-8"))
+                if cached.get("contentHash") == content_hash:
+                    _log.info("ACT references/analyze: cache hit %s", media_path.name)
+                    return ReferenceAnalysisResponse.model_validate({**cached, "cached": True})
+            except (OSError, ValueError) as exc:
+                _log.warning("reference cache unreadable for %s: %s", media_path.name, exc)
+        timeout = float(settings.asset_media_timeout_seconds)
+        kind = req.kind or ("image" if media_path.suffix.lower() in _IMAGE_SUFFIXES else "video")
+        try:
+            if kind == "image":
+                payload = analysis_to_dict(analyze_reference_image(media_path))
+                response = ReferenceAnalysisResponse(
+                    kind="image", content_hash=content_hash, image=payload, cached=False
+                )
+            else:
+                payload = analysis_to_dict(analyze_reference_video(media_path, timeout=timeout))
+                response = ReferenceAnalysisResponse(
+                    kind="video", content_hash=content_hash, video=payload, cached=False
+                )
+        except (FFmpegError, OSError, ValueError) as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        try:
+            cache_path.write_text(
+                json.dumps(response.model_dump(by_alias=True, exclude_none=True)), encoding="utf-8"
+            )
+        except OSError as exc:
+            _log.warning("reference cache not written for %s: %s", media_path.name, exc)
+        _log.info("ACT references/analyze: %s %s analyzed", kind, media_path.name)
+        return response
 
     @app.post("/asset-media", response_model=AssetMediaResponse)
     async def asset_media_route(req: AssetMediaRequest) -> AssetMediaResponse:
