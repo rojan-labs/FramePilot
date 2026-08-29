@@ -1,0 +1,1152 @@
+[
+ {
+  "id": "mission-remove-dead-air-t0:status:1",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973890493,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "status",
+  "status": "thinking"
+ },
+ {
+  "id": "mission-remove-dead-air-t0:run-state",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973890493,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "run_state",
+  "working": {
+   "schemaVersion": 2,
+   "runId": "mission-remove-dead-air-t0",
+   "identity": {
+    "conversationId": "mission-remove-dead-air",
+    "projectId": "mission-podcast",
+    "attemptId": "mission-remove-dead-air-t0"
+   },
+   "version": 2,
+   "objective": {
+    "request": "Remove the dead air and long pauses from this recording.",
+    "outcome": "Remove the dead air and long pauses from this recording.",
+    "provisional": true,
+    "acceptance": [
+     {
+      "id": "criterion_1",
+      "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
+     }
+    ]
+   },
+   "stage": "interpret",
+   "completedStages": [],
+   "stageEnteredAtTurn": 0,
+   "facts": [],
+   "decisions": [
+    {
+     "id": "decision_1",
+     "decision": "Remove the dead air and long pauses from this recording.",
+     "evidenceIds": [],
+     "stage": "plan",
+     "status": "committed",
+     "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+    }
+   ],
+   "plan": {
+    "status": "committed",
+    "id": "plan_mission-remove-dead-air-t0_1",
+    "committedAtTurn": 0,
+    "basedOnProjectRevision": 0,
+    "decisionIds": [
+     "decision_1"
+    ]
+   },
+   "execution": {
+    "authorized": true
+   },
+   "evidence": [],
+   "objectives": [
+    {
+     "id": "objective_1",
+     "description": "Remove the dead air and long pauses from this recording.",
+     "stage": "verify",
+     "status": "pending"
+    }
+   ],
+   "operations": [],
+   "verifications": [],
+   "nextAction": null,
+   "blockedOn": null,
+   "integrity": {
+    "status": "valid",
+    "diagnostics": []
+   },
+   "baseProjectRevision": 0,
+   "currentProjectRevision": 0
+  }
+ },
+ {
+  "id": "mission-remove-dead-air-t0:status:2",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973890495,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "status",
+  "status": "generating"
+ },
+ {
+  "id": "mission-remove-dead-air-t0:reasoning:1",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973890497,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": false
+ },
+ {
+  "id": "mission-remove-dead-air-t0:context-usage",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973890498,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "context_usage",
+  "usedTokens": 25487,
+  "contextWindow": 1000000,
+  "estimated": true,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 17
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 45
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 3088
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 18
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 2017
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 18469
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 25487,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 846513,
+    "calculationSource": "local_estimate"
+   }
+  }
+ },
+ {
+  "id": "mission-remove-dead-air-t0:reasoning:1",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973898350,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": true
+ },
+ {
+  "id": "mission-remove-dead-air-t0:context-usage",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973898350,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "context_usage",
+  "usedTokens": 0,
+  "contextWindow": 1000000,
+  "estimated": false,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 17
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 45
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 3088
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 18
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 2017
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 18469
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 25487,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 872000,
+    "calculationSource": "provider_reported",
+    "providerReportedInputTokens": 0,
+    "providerReportedOutputTokens": 661,
+    "cachedInputTokens": 39855
+   }
+  }
+ },
+ {
+  "id": "mission-remove-dead-air-t0:status:3",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973898350,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "status",
+  "status": "reading"
+ },
+ {
+  "id": "toolu_0125ddecnGxKspR2WYFzYLE7",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973898350,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "tool_call",
+  "toolName": "load_skill",
+  "status": "running",
+  "title": "Reading the silence and filler cutting playbook",
+  "argsSummary": "name: \"silence-and-filler-cutt…"
+ },
+ {
+  "id": "toolu_0125ddecnGxKspR2WYFzYLE7",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973898351,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "tool_call",
+  "toolName": "load_skill",
+  "status": "completed",
+  "runtimeMs": 1,
+  "title": "Reading the silence and filler cutting playbook",
+  "argsSummary": "name: \"silence-and-filler-cutt…"
+ },
+ {
+  "id": "mission-remove-dead-air-t0:result:4",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973898351,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "tool_result",
+  "toolCallId": "toolu_0125ddecnGxKspR2WYFzYLE7",
+  "summary": "Reading the silence and filler cutting playbook",
+  "result": "{\"name\":\"silence-and-filler-cutting\",\"description\":\"Remove hesitation, filler, and false starts while protecting performance, word boundaries, breaths, and speech continuity.\",\"tools\":[\"analyze_silence\",\"get_transcript\",\"get_mapped_transcript\",\"get_timeline_map\",\"map_time\",\"ripple_delete\",\"punch_in\"],\"body\":\"# Silence and filler cutting\\n\\n## Purpose\\n\\nMake the speaker sound like their best natur"
+ },
+ {
+  "id": "toolu_01JMsmygNwUiQtp2qQHDhuKG",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973898351,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "tool_call",
+  "toolName": "list_assets",
+  "status": "running",
+  "title": "Browsing the media bin"
+ },
+ {
+  "id": "toolu_01JMsmygNwUiQtp2qQHDhuKG",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973898351,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "tool_call",
+  "toolName": "list_assets",
+  "status": "completed",
+  "runtimeMs": 0,
+  "title": "Browsing the media bin"
+ },
+ {
+  "id": "mission-remove-dead-air-t0:result:5",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973898351,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "tool_result",
+  "toolCallId": "toolu_01JMsmygNwUiQtp2qQHDhuKG",
+  "summary": "Browsing the media bin",
+  "result": "{\"assets\":[{\"id\":\"asset_001\",\"path\":\"media/mission-podcast/speech-9min.mp4\",\"kind\":\"video\",\"durationSeconds\":575.854875,\"orientation\":\"landscape\",\"aspect\":1.778}],\"folders\":[]}"
+ },
+ {
+  "id": "mission-remove-dead-air-t0:run-state",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973898351,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "run_state",
+  "working": {
+   "schemaVersion": 2,
+   "runId": "mission-remove-dead-air-t0",
+   "identity": {
+    "conversationId": "mission-remove-dead-air",
+    "projectId": "mission-podcast",
+    "attemptId": "mission-remove-dead-air-t0"
+   },
+   "version": 7,
+   "objective": {
+    "request": "Remove the dead air and long pauses from this recording.",
+    "outcome": "Remove the dead air and long pauses from this recording.",
+    "provisional": true,
+    "acceptance": [
+     {
+      "id": "criterion_1",
+      "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
+     }
+    ]
+   },
+   "stage": "analyze",
+   "completedStages": [
+    "interpret",
+    "inspect"
+   ],
+   "stageEnteredAtTurn": 1,
+   "facts": [
+    {
+     "id": "fact_1",
+     "kind": "derived",
+     "statement": "Reading the silence and filler cutting playbook → silence-and-filler-cutting playbook loaded — its instructions are pinned in your context",
+     "evidenceIds": [],
+     "scope": "revision_independent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_2",
+     "kind": "asset",
+     "statement": "Browsing the media bin → 1 asset:",
+     "evidenceIds": [
+      "ev_1"
+     ],
+     "scope": "revision_independent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    }
+   ],
+   "decisions": [
+    {
+     "id": "decision_1",
+     "decision": "Remove the dead air and long pauses from this recording.",
+     "evidenceIds": [],
+     "stage": "plan",
+     "status": "committed",
+     "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+    }
+   ],
+   "plan": {
+    "status": "committed",
+    "id": "plan_mission-remove-dead-air-t0_1",
+    "committedAtTurn": 0,
+    "basedOnProjectRevision": 0,
+    "decisionIds": [
+     "decision_1"
+    ]
+   },
+   "execution": {
+    "authorized": true
+   },
+   "evidence": [
+    {
+     "id": "ev_1",
+     "source": "list_assets",
+     "descriptor": "Browsing the media bin",
+     "scope": "revision_independent",
+     "observedAtRevision": 0
+    }
+   ],
+   "objectives": [
+    {
+     "id": "objective_1",
+     "description": "Remove the dead air and long pauses from this recording.",
+     "stage": "verify",
+     "status": "pending"
+    }
+   ],
+   "operations": [],
+   "verifications": [],
+   "nextAction": null,
+   "blockedOn": null,
+   "integrity": {
+    "status": "valid",
+    "diagnostics": []
+   },
+   "baseProjectRevision": 0,
+   "currentProjectRevision": 0
+  }
+ },
+ {
+  "id": "mission-remove-dead-air-t0:status:6",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973898355,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "status",
+  "status": "generating"
+ },
+ {
+  "id": "mission-remove-dead-air-t0:reasoning:2",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973898358,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": false
+ },
+ {
+  "id": "mission-remove-dead-air-t0:context-usage",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973898359,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "context_usage",
+  "usedTokens": 26186,
+  "contextWindow": 1000000,
+  "estimated": true,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 17
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 45
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 3088
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 18
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 2716
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 18469
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 26186,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 845814,
+    "toolSchemaTokensRebilled": 0,
+    "calculationSource": "local_estimate"
+   }
+  }
+ },
+ {
+  "id": "mission-remove-dead-air-t0:reasoning:2",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973907109,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": true
+ },
+ {
+  "id": "mission-remove-dead-air-t0:context-usage",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973907109,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "context_usage",
+  "usedTokens": 0,
+  "contextWindow": 1000000,
+  "estimated": false,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 17
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 45
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 3088
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 18
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 2716
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 18469
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 26186,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 872000,
+    "toolSchemaTokensRebilled": 0,
+    "calculationSource": "provider_reported",
+    "providerReportedInputTokens": 0,
+    "providerReportedOutputTokens": 764,
+    "cachedInputTokens": 40671
+   }
+  }
+ },
+ {
+  "id": "mission-remove-dead-air-t0:status:7",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973907109,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "status",
+  "status": "searching"
+ },
+ {
+  "id": "toolu_017oxLdfhS4uN5LDMB9yBrQy",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973907532,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "tool_call",
+  "toolName": "analyze_silence",
+  "status": "running",
+  "title": "Finding silences in speech-9min.mp4",
+  "argsSummary": "assetId: \"asset_001\", minSilenceSeconds: 0.8"
+ },
+ {
+  "id": "toolu_017oxLdfhS4uN5LDMB9yBrQy",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973907532,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "tool_call",
+  "toolName": "analyze_silence",
+  "status": "completed",
+  "runtimeMs": 422,
+  "title": "Finding silences in speech-9min.mp4",
+  "argsSummary": "assetId: \"asset_001\", minSilenceSeconds: 0.8"
+ },
+ {
+  "id": "mission-remove-dead-air-t0:result:8",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973907532,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "tool_result",
+  "toolCallId": "toolu_017oxLdfhS4uN5LDMB9yBrQy",
+  "summary": "Found 120 silent ranges",
+  "result": "{\"assetId\":\"asset_001\",\"ranges\":[{\"start\":0,\"end\":2.143515,\"duration\":2.143515},{\"start\":2.867007,\"end\":4.169955,\"duration\":1.302948},{\"start\":4.373764,\"end\":6.173855,\"duration\":1.800091},{\"start\":8.177868,\"end\":9.851973,\"duration\":1.674104},{\"start\":10.12712,\"end\":11.191859,\"duration\":1.064739},{\"start\":11.694399,\"end\":12.684082,\"duration\":0.989683},{\"start\":14.611429,\"end\":15.658571,\"duration\":1"
+ },
+ {
+  "id": "toolu_01DUiFSNF8KYN2a5STCxWNLm",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973907532,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "tool_call",
+  "toolName": "get_mapped_transcript",
+  "status": "running",
+  "title": "Reading the edited transcript",
+  "argsSummary": "start: 0, end: 60"
+ },
+ {
+  "id": "toolu_01DUiFSNF8KYN2a5STCxWNLm",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973907532,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "tool_call",
+  "toolName": "get_mapped_transcript",
+  "status": "completed",
+  "runtimeMs": 11,
+  "title": "Reading the edited transcript",
+  "argsSummary": "start: 0, end: 60"
+ },
+ {
+  "id": "mission-remove-dead-air-t0:result:9",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973907532,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "tool_result",
+  "toolCallId": "toolu_01DUiFSNF8KYN2a5STCxWNLm",
+  "summary": "Reading the edited transcript",
+  "result": "{\"words\":[{\"word\":\"Whoo!\",\"start\":0.07,\"end\":2.49,\"sourceStart\":0.07,\"sourceEnd\":2.49,\"assetId\":\"asset_001\",\"clipId\":\"clip_001\",\"startFrame\":2,\"endFrame\":75},{\"word\":\"Tom.\",\"start\":2.49,\"end\":3,\"sourceStart\":2.49,\"sourceEnd\":3,\"assetId\":\"asset_001\",\"clipId\":\"clip_001\",\"startFrame\":75,\"endFrame\":90},{\"word\":\"Jake,\",\"start\":3.07,\"end\":3.34,\"sourceStart\":3.07,\"sourceEnd\":3.34,\"assetId\":\"asset_001\",\"c"
+ },
+ {
+  "id": "mission-remove-dead-air-t0:run-state",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973907532,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "run_state",
+  "working": {
+   "schemaVersion": 2,
+   "runId": "mission-remove-dead-air-t0",
+   "identity": {
+    "conversationId": "mission-remove-dead-air",
+    "projectId": "mission-podcast",
+    "attemptId": "mission-remove-dead-air-t0"
+   },
+   "version": 11,
+   "objective": {
+    "request": "Remove the dead air and long pauses from this recording.",
+    "outcome": "Remove the dead air and long pauses from this recording.",
+    "provisional": true,
+    "acceptance": [
+     {
+      "id": "criterion_1",
+      "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
+     }
+    ]
+   },
+   "stage": "analyze",
+   "completedStages": [
+    "interpret",
+    "inspect"
+   ],
+   "stageEnteredAtTurn": 1,
+   "facts": [
+    {
+     "id": "fact_1",
+     "kind": "derived",
+     "statement": "Reading the silence and filler cutting playbook → silence-and-filler-cutting playbook loaded — its instructions are pinned in your context",
+     "evidenceIds": [],
+     "scope": "revision_independent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_2",
+     "kind": "asset",
+     "statement": "Browsing the media bin → 1 asset:",
+     "evidenceIds": [
+      "ev_1"
+     ],
+     "scope": "revision_independent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_3",
+     "kind": "audio",
+     "statement": "Finding silences in speech-9min.mp4 → Found 120 silent ranges",
+     "evidenceIds": [
+      "ev_3"
+     ],
+     "scope": "revision_independent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    },
+    {
+     "id": "fact_4",
+     "kind": "footage",
+     "statement": "Reading the edited transcript → 67 mapped words in 1 speech run (0–575.855s), 30fps, revision 0:",
+     "evidenceIds": [
+      "ev_2"
+     ],
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0,
+     "stage": "analyze"
+    }
+   ],
+   "decisions": [
+    {
+     "id": "decision_1",
+     "decision": "Remove the dead air and long pauses from this recording.",
+     "evidenceIds": [],
+     "stage": "plan",
+     "status": "committed",
+     "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+    }
+   ],
+   "plan": {
+    "status": "committed",
+    "id": "plan_mission-remove-dead-air-t0_1",
+    "committedAtTurn": 0,
+    "basedOnProjectRevision": 0,
+    "decisionIds": [
+     "decision_1"
+    ]
+   },
+   "execution": {
+    "authorized": true
+   },
+   "evidence": [
+    {
+     "id": "ev_1",
+     "source": "list_assets",
+     "descriptor": "Browsing the media bin",
+     "scope": "revision_independent",
+     "observedAtRevision": 0
+    },
+    {
+     "id": "ev_3",
+     "source": "analyze_silence",
+     "descriptor": "Finding silences in speech-9min.mp4",
+     "scope": "revision_independent",
+     "observedAtRevision": 0
+    },
+    {
+     "id": "ev_2",
+     "source": "get_mapped_transcript",
+     "descriptor": "Reading the edited transcript",
+     "scope": "timeline_dependent",
+     "observedAtRevision": 0
+    }
+   ],
+   "objectives": [
+    {
+     "id": "objective_1",
+     "description": "Remove the dead air and long pauses from this recording.",
+     "stage": "verify",
+     "status": "pending"
+    }
+   ],
+   "operations": [],
+   "verifications": [],
+   "nextAction": null,
+   "blockedOn": null,
+   "integrity": {
+    "status": "valid",
+    "diagnostics": []
+   },
+   "baseProjectRevision": 0,
+   "currentProjectRevision": 0
+  }
+ },
+ {
+  "id": "mission-remove-dead-air-t0:status:10",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973907534,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "status",
+  "status": "generating"
+ },
+ {
+  "id": "mission-remove-dead-air-t0:reasoning:3",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973907534,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": false
+ },
+ {
+  "id": "mission-remove-dead-air-t0:context-usage",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787973907535,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "context_usage",
+  "usedTokens": 27472,
+  "contextWindow": 1000000,
+  "estimated": true,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 17
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 45
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 3088
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 18
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 4002
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 18469
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 27472,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 844528,
+    "toolSchemaTokensRebilled": 0,
+    "calculationSource": "local_estimate"
+   }
+  }
+ },
+ {
+  "id": "mission-remove-dead-air-t0:reasoning:3",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787974002255,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": true
+ },
+ {
+  "id": "mission-remove-dead-air-t0:context-usage",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787974002255,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "context_usage",
+  "usedTokens": 0,
+  "contextWindow": 1000000,
+  "estimated": false,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 17
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 45
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 3088
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 18
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 4002
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 18469
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 27472,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 872000,
+    "toolSchemaTokensRebilled": 0,
+    "calculationSource": "provider_reported",
+    "providerReportedInputTokens": 0,
+    "providerReportedOutputTokens": 8192,
+    "cachedInputTokens": 40671
+   }
+  }
+ },
+ {
+  "id": "mission-remove-dead-air-t0:reasoning:3",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787974002259,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": false
+ },
+ {
+  "id": "mission-remove-dead-air-t0:context-usage",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787974002261,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "context_usage",
+  "usedTokens": 27485,
+  "contextWindow": 1000000,
+  "estimated": true,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 17
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 45
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 3088
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 18
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 4015
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 18469
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 27485,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 844515,
+    "toolSchemaTokensRebilled": 0,
+    "calculationSource": "local_estimate"
+   }
+  }
+ },
+ {
+  "id": "mission-remove-dead-air-t0:reasoning:3",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787974093359,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": true
+ },
+ {
+  "id": "mission-remove-dead-air-t0:context-usage",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787974093359,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "context_usage",
+  "usedTokens": 0,
+  "contextWindow": 1000000,
+  "estimated": false,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 17
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 45
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 3088
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 18
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 4015
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 18469
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 27485,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 872000,
+    "toolSchemaTokensRebilled": 0,
+    "calculationSource": "provider_reported",
+    "providerReportedInputTokens": 0,
+    "providerReportedOutputTokens": 8192,
+    "cachedInputTokens": 40671
+   }
+  }
+ },
+ {
+  "id": "mission-remove-dead-air-t0:notice:11",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787974093360,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "error",
+  "message": "The model returned an empty response — no answer and no tool call, on every attempt. This is usually the provider dropping the request (overloaded or rate-limited).",
+  "retryable": true
+ },
+ {
+  "id": "mission-remove-dead-air-t0:usage:12",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787974093360,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "usage",
+  "tokens": 17809,
+  "usd": 0.267135,
+  "modelCalls": 4
+ },
+ {
+  "id": "mission-remove-dead-air-t0:status:13",
+  "conversationId": "mission-remove-dead-air",
+  "ts": 1787974093360,
+  "turnId": "mission-remove-dead-air-t0",
+  "type": "status",
+  "status": "failed"
+ }
+]

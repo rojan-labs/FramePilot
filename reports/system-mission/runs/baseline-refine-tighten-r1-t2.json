@@ -1,0 +1,249 @@
+[
+ {
+  "id": "mission-refine-tighten-t1:status:1",
+  "conversationId": "mission-refine-tighten",
+  "ts": 1787975662050,
+  "turnId": "mission-refine-tighten-t1",
+  "type": "status",
+  "status": "thinking"
+ },
+ {
+  "id": "mission-refine-tighten-t1:run-state",
+  "conversationId": "mission-refine-tighten",
+  "ts": 1787975662050,
+  "turnId": "mission-refine-tighten-t1",
+  "type": "run_state",
+  "working": {
+   "schemaVersion": 2,
+   "runId": "mission-refine-tighten-t1",
+   "identity": {
+    "conversationId": "mission-refine-tighten",
+    "projectId": "mission-montage",
+    "attemptId": "mission-refine-tighten-t1"
+   },
+   "version": 2,
+   "objective": {
+    "request": "Tighten the middle section so it moves faster, but keep the first and last clips exactly as they are.",
+    "outcome": "Tighten the middle section so it moves faster, but keep the first and last clips exactly as they are.",
+    "provisional": true,
+    "acceptance": [
+     {
+      "id": "criterion_1",
+      "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
+     }
+    ]
+   },
+   "stage": "interpret",
+   "completedStages": [],
+   "stageEnteredAtTurn": 0,
+   "facts": [
+    {
+     "id": "carried_fact_1",
+     "kind": "derived",
+     "statement": "(from an earlier session) Reading the beat synced editing playbook → beat-synced-editing playbook loaded — its instructions are pinned in your context",
+     "evidenceIds": [],
+     "scope": "revision_independent",
+     "observedAtRevision": 1,
+     "stage": "interpret"
+    },
+    {
+     "id": "carried_fact_2",
+     "kind": "derived",
+     "statement": "(from an earlier session) Reading the vertical reframe playbook → vertical-reframe playbook loaded — its instructions are pinned in your context",
+     "evidenceIds": [],
+     "scope": "revision_independent",
+     "observedAtRevision": 1,
+     "stage": "interpret"
+    },
+    {
+     "id": "carried_fact_8",
+     "kind": "footage",
+     "statement": "(from an earlier session) Finding the beat in beat-100bpm.wav → Found 50 beats · ~99 BPM (from project brain)",
+     "evidenceIds": [],
+     "scope": "revision_independent",
+     "observedAtRevision": 1,
+     "stage": "interpret"
+    }
+   ],
+   "decisions": [
+    {
+     "id": "carried_decision_1",
+     "decision": "Create a 30-second fast-paced social montage from the raw footage on the timeline.",
+     "evidenceIds": [],
+     "stage": "interpret",
+     "status": "committed",
+     "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+    },
+    {
+     "id": "decision_1",
+     "decision": "Tighten the middle section so it moves faster, but keep the first and last clips exactly as they are.",
+     "evidenceIds": [],
+     "stage": "plan",
+     "status": "committed",
+     "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+    }
+   ],
+   "plan": {
+    "status": "committed",
+    "id": "plan_mission-refine-tighten-t1_1",
+    "committedAtTurn": 0,
+    "basedOnProjectRevision": 1,
+    "decisionIds": [
+     "decision_1"
+    ]
+   },
+   "execution": {
+    "authorized": true
+   },
+   "evidence": [],
+   "objectives": [
+    {
+     "id": "objective_1",
+     "description": "Tighten the middle section so it moves faster, but keep the first and last clips exactly as they are.",
+     "stage": "verify",
+     "status": "pending"
+    }
+   ],
+   "operations": [],
+   "verifications": [],
+   "nextAction": null,
+   "blockedOn": null,
+   "integrity": {
+    "status": "valid",
+    "diagnostics": []
+   },
+   "baseProjectRevision": 1,
+   "currentProjectRevision": 1
+  }
+ },
+ {
+  "id": "mission-refine-tighten-t1:status:2",
+  "conversationId": "mission-refine-tighten",
+  "ts": 1787975662051,
+  "turnId": "mission-refine-tighten-t1",
+  "type": "status",
+  "status": "generating"
+ },
+ {
+  "id": "mission-refine-tighten-t1:reasoning:1",
+  "conversationId": "mission-refine-tighten",
+  "ts": 1787975662053,
+  "turnId": "mission-refine-tighten-t1",
+  "type": "reasoning",
+  "summaries": [],
+  "done": false
+ },
+ {
+  "id": "mission-refine-tighten-t1:context-usage",
+  "conversationId": "mission-refine-tighten",
+  "ts": 1787975662053,
+  "turnId": "mission-refine-tighten-t1",
+  "type": "context_usage",
+  "usedTokens": 23384,
+  "contextWindow": 1000000,
+  "estimated": true,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 19
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 84
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "media bin",
+     "tokens": 86
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "project_memory",
+     "label": "session context",
+     "tokens": 521
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "conversation",
+     "label": "conversation history (2 of 2 turn(s))",
+     "tokens": 96
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 29
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 2247
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 18469
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 23384,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 848616,
+    "calculationSource": "local_estimate"
+   }
+  }
+ },
+ {
+  "id": "mission-refine-tighten-t1:reasoning:1",
+  "conversationId": "mission-refine-tighten",
+  "ts": 1787975662057,
+  "turnId": "mission-refine-tighten-t1",
+  "type": "reasoning",
+  "summaries": [],
+  "done": true
+ },
+ {
+  "id": "mission-refine-tighten-t1:notice:3",
+  "conversationId": "mission-refine-tighten",
+  "ts": 1787975662058,
+  "turnId": "mission-refine-tighten-t1",
+  "type": "error",
+  "message": "openai-compatible API error 503: 503 Upstream network temporarily unavailable",
+  "retryable": true
+ },
+ {
+  "id": "mission-refine-tighten-t1:usage:4",
+  "conversationId": "mission-refine-tighten",
+  "ts": 1787975662058,
+  "turnId": "mission-refine-tighten-t1",
+  "type": "usage",
+  "tokens": 0,
+  "usd": 0,
+  "modelCalls": 0
+ },
+ {
+  "id": "mission-refine-tighten-t1:status:5",
+  "conversationId": "mission-refine-tighten",
+  "ts": 1787975662058,
+  "turnId": "mission-refine-tighten-t1",
+  "type": "status",
+  "status": "failed"
+ }
+]

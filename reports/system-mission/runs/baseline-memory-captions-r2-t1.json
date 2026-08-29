@@ -1,0 +1,208 @@
+[
+ {
+  "id": "mission-memory-captions-t0:status:1",
+  "conversationId": "mission-memory-captions",
+  "ts": 1787975662185,
+  "turnId": "mission-memory-captions-t0",
+  "type": "status",
+  "status": "thinking"
+ },
+ {
+  "id": "mission-memory-captions-t0:run-state",
+  "conversationId": "mission-memory-captions",
+  "ts": 1787975662185,
+  "turnId": "mission-memory-captions-t0",
+  "type": "run_state",
+  "working": {
+   "schemaVersion": 2,
+   "runId": "mission-memory-captions-t0",
+   "identity": {
+    "conversationId": "mission-memory-captions",
+    "projectId": "mission-talk",
+    "attemptId": "mission-memory-captions-t0"
+   },
+   "version": 2,
+   "objective": {
+    "request": "Cut this down to the best 45 seconds.",
+    "outcome": "Cut this down to the best 45 seconds.",
+    "provisional": true,
+    "acceptance": [
+     {
+      "id": "criterion_1",
+      "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
+     }
+    ]
+   },
+   "stage": "interpret",
+   "completedStages": [],
+   "stageEnteredAtTurn": 0,
+   "facts": [],
+   "decisions": [
+    {
+     "id": "decision_1",
+     "decision": "Cut this down to the best 45 seconds.",
+     "evidenceIds": [],
+     "stage": "plan",
+     "status": "committed",
+     "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+    }
+   ],
+   "plan": {
+    "status": "committed",
+    "id": "plan_mission-memory-captions-t0_1",
+    "committedAtTurn": 0,
+    "basedOnProjectRevision": 0,
+    "decisionIds": [
+     "decision_1"
+    ]
+   },
+   "execution": {
+    "authorized": true
+   },
+   "evidence": [],
+   "objectives": [
+    {
+     "id": "objective_1",
+     "description": "Cut this down to the best 45 seconds.",
+     "stage": "verify",
+     "status": "pending"
+    }
+   ],
+   "operations": [],
+   "verifications": [],
+   "nextAction": null,
+   "blockedOn": null,
+   "integrity": {
+    "status": "valid",
+    "diagnostics": []
+   },
+   "baseProjectRevision": 0,
+   "currentProjectRevision": 0
+  }
+ },
+ {
+  "id": "mission-memory-captions-t0:status:2",
+  "conversationId": "mission-memory-captions",
+  "ts": 1787975662187,
+  "turnId": "mission-memory-captions-t0",
+  "type": "status",
+  "status": "generating"
+ },
+ {
+  "id": "mission-memory-captions-t0:reasoning:1",
+  "conversationId": "mission-memory-captions",
+  "ts": 1787975662188,
+  "turnId": "mission-memory-captions-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": false
+ },
+ {
+  "id": "mission-memory-captions-t0:context-usage",
+  "conversationId": "mission-memory-captions",
+  "ts": 1787975662188,
+  "turnId": "mission-memory-captions-t0",
+  "type": "context_usage",
+  "usedTokens": 24469,
+  "contextWindow": 1000000,
+  "estimated": true,
+  "manifest": {
+   "sections": [
+    {
+     "type": "system",
+     "label": "system contract",
+     "tokens": 135
+    },
+    {
+     "type": "system",
+     "label": "project header",
+     "tokens": 18
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "timeline summary",
+     "tokens": 45
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "media bin",
+     "tokens": 28
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "visual index status",
+     "tokens": 53
+    },
+    {
+     "type": "retrieved_evidence",
+     "label": "transcript slice",
+     "tokens": 2043
+    },
+    {
+     "type": "skill",
+     "label": "skills manifest",
+     "tokens": 1645
+    },
+    {
+     "type": "latest_user_message",
+     "label": "user request",
+     "tokens": 13
+    },
+    {
+     "type": "system",
+     "label": "additional request content",
+     "tokens": 2020
+    },
+    {
+     "type": "tool_schemas",
+     "label": "tool definitions",
+     "tokens": 18469
+    }
+   ],
+   "usage": {
+    "modelContextLimit": 1000000,
+    "limitAssumed": false,
+    "estimatedInputTokensBeforeSend": 24469,
+    "reservedOutputTokens": 128000,
+    "estimatedRemainingCapacity": 847531,
+    "calculationSource": "local_estimate"
+   }
+  }
+ },
+ {
+  "id": "mission-memory-captions-t0:reasoning:1",
+  "conversationId": "mission-memory-captions",
+  "ts": 1787975662191,
+  "turnId": "mission-memory-captions-t0",
+  "type": "reasoning",
+  "summaries": [],
+  "done": true
+ },
+ {
+  "id": "mission-memory-captions-t0:notice:3",
+  "conversationId": "mission-memory-captions",
+  "ts": 1787975662191,
+  "turnId": "mission-memory-captions-t0",
+  "type": "error",
+  "message": "openai-compatible API error 503: 503 Upstream network temporarily unavailable",
+  "retryable": true
+ },
+ {
+  "id": "mission-memory-captions-t0:usage:4",
+  "conversationId": "mission-memory-captions",
+  "ts": 1787975662191,
+  "turnId": "mission-memory-captions-t0",
+  "type": "usage",
+  "tokens": 0,
+  "usd": 0,
+  "modelCalls": 0
+ },
+ {
+  "id": "mission-memory-captions-t0:status:5",
+  "conversationId": "mission-memory-captions",
+  "ts": 1787975662191,
+  "turnId": "mission-memory-captions-t0",
+  "type": "status",
+  "status": "failed"
+ }
+]

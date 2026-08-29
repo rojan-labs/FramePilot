@@ -110,6 +110,20 @@ recorded 1 call / 0 tokens / 0 s. They run again — baseline and after, same me
 same provider — once the account window resets (`reports/system-mission/baseline-orchestration.json`
 carries the empty rows; the report only cites the measured ones).
 
+### Full baseline — second pass, pre-Phase-1 build (worktree at `ae8e2c3`)
+
+| scenario · turn | runs | calls | prompt | out | tools | repeats | ops | wall | usd | score | notDone |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| remove-dead-air | 3 | 4 | 153k | 17.8k | 4 | 0 | **0** | 193 s | 0.27 | 0.25 | 3/3 |
+| beat-sync | 3 | 6 | 214k | 31.2k | 9 | 4 | 0 (one run: 5) | 340 s | 0.51 | 0.22 | 2/3 |
+| refine-tighten · t1 | 1 | 7 | 141k | 29.7k | 11 | 5 | 1 | 418 s | 0.45 | 0.50 | 0/1 |
+
+remove-dead-air: every run found the 110 silences and died echoing them back at the 8,192
+output cap (0 operations, 3/3). beat-sync: 2 of 3 died the same way. The bridge answered
+`429` again after ≈$4, so refine-tighten r2–r3 and memory-captions have no pre-Phase-1
+rows (`baseline-orchestration-b.json` carries the empty turns). The harness now waits out
+a 429 and retries the turn instead of recording it.
+
 _(the after-measurement table is produced by `scripts/mission-report.mjs <baseline> <after>` — per-scenario p50 calls,
 prompt/output tokens, cache share, tool calls + repeats, wall, USD, rubric score, and the
 call ledger.)_
