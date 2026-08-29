@@ -14,18 +14,19 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 powerful if the editing engine is structured, testable, and deterministic.
 
 **Status snapshot (2026-08-29, SYSMISSION — system mission plan):** `[~]` **The end-to-end
-system mission is executed on `feat/system-mission`: 63 of 69 tasks `[x]`, 2 `[~]`, four
-`[!]` with the maintainer, none unstarted.** The suites were run: **failure paths 12/12**
+system mission is executed on `feat/system-mission`: 65 of 69 tasks `[x]`, none partial,
+four `[!]` that the maintainer verifies by hand (the AI journey and adversarial pass).** The suites were run: **failure paths 12/12**
 including all four rows against a real model provider, **references 3/3** on the real
-fixtures, **export matrix 7/8 on BOTH encoder paths**, web-editor **2762**, ai-sdk **3875**,
+fixtures, **export matrix 8/8 on BOTH encoder paths**, web-editor **2762**, ai-sdk **3875**,
 engine render-queue **24**. Running them was worth more than any of the code review that
 preceded it: it found a 360p source exporting as a real 4K file, a cancelled export leaving
 a half-written file where the finished one goes, and every dropdown in the export dialog
 closing the dialog — none of which any unit test could see, because all three lived in seams
-(a spawn payload, a SIGTERMed process group, a portalled listbox). Four AI-path tasks are
-`[!]` because the maintainer verifies the agent journey by hand; two `[~]` wait on one
-question — whether Recent projects being empty after a renderer reload is a defect or an
-artefact of reloading rather than restarting. All six scenarios are measured and every one
+(a spawn payload, a SIGTERMed process group, a portalled listbox). Three of the harness failures looked exactly like product bugs and were not — the last, "Recent
+projects is empty after a reload", turned out to be `page.goto` not re-injecting Electron's
+preload, so the renderer had no IPC bridge while the file was intact throughout. The four
+remaining `[!]` tasks are the AI journey and the adversarial pass, which the maintainer
+verifies by hand. All six scenarios are measured and every one
 improved — podcast 25 → 5 model calls and 1200s → 253s at held quality; montage, beat-sync,
 dead-air, refine-tighten and memory-captions all went from *not completing* or *zero
 operations* to real edits (rubric 1.00 / **1.00** / 0.75 / 0.63–0.88 / 0.63–0.71 — beat-sync
