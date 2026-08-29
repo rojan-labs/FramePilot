@@ -9,9 +9,13 @@ independent of waveform peaks, thumbnails, folders, markers, AI memory and undo 
 
 from __future__ import annotations
 
+import inspect
+import json
 import logging
 import multiprocessing as mp
+import os
 import queue as queue_mod
+import signal
 import threading
 import time
 import uuid
@@ -21,6 +25,7 @@ from contextlib import suppress
 from enum import StrEnum
 from multiprocessing.queues import Queue as MPQueue
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -58,8 +63,7 @@ def project_for_render_worker(project: Project, opts: RenderOptions) -> Project:
     size from growing with waveform/history/session state.
     """
     assets = [
-        asset.model_copy(update={"media": None, "folder_id": None})
-        for asset in project.assets
+        asset.model_copy(update={"media": None, "folder_id": None}) for asset in project.assets
     ]
     return project.model_copy(
         update={
@@ -102,35 +106,84 @@ class RenderTask(BaseModel):
     attempts: int = 0
     error: str | None = None
     result: RenderJob | None = Field(default=None)
+    #: Live progress while running: the render stage and a 0..1 fraction (plan/system-mission P7.6).
+    stage: str | None = None
+    progress: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
-JobExecutor = Callable[[RenderRequest, "threading.Event", float | None], RenderJob]
+JobExecutor = Callable[..., RenderJob]
+ProgressSink = Callable[[str, float], None]
 
 
 def _run_job_to_queue(
-    process_request_json: str, result_queue: MPQueue[str]
+    process_request_json: str,
+    result_queue: MPQueue[str],
+    progress_queue: MPQueue[str] | None = None,
 ) -> None:  # pragma: no cover
+    # Own process group: ffmpeg is this process's child, and a cancel must reach it too.
+    with suppress(OSError, AttributeError):
+        os.setsid()
     request = RenderProcessRequest.model_validate_json(process_request_json)
-    job = render(request.project, request.opts, base_dir=Path(request.base_dir))
+
+    def report(stage: str, fraction: float) -> None:
+        if progress_queue is None:
+            return
+        with suppress(Exception):
+            progress_queue.put_nowait(json.dumps({"stage": stage, "progress": fraction}))
+
+    job = render(request.project, request.opts, base_dir=Path(request.base_dir), progress=report)
     result_queue.put(job.model_dump_json())
 
 
+def _drain_progress(progress_queue: MPQueue[str], on_progress: ProgressSink | None) -> None:
+    """Forward every queued progress message; the newest wins."""
+    get_nowait = getattr(progress_queue, "get_nowait", None)
+    if get_nowait is None:
+        return
+    while True:
+        try:
+            raw = get_nowait()
+        except queue_mod.Empty:
+            return
+        if on_progress is None:
+            continue
+        with suppress(ValueError, TypeError, KeyError):
+            message = json.loads(raw)
+            on_progress(str(message["stage"]), float(message["progress"]))
+
+
+def _terminate_group(proc: Any) -> None:
+    """SIGTERM the render's whole process group (python + its ffmpeg), then the process."""
+    pid = getattr(proc, "pid", None)
+    if pid:
+        with suppress(OSError, ProcessLookupError, AttributeError):
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
+    if proc.is_alive():
+        proc.terminate()
+
+
 def subprocess_executor(
-    request: RenderRequest, cancel_event: threading.Event, timeout: float | None
+    request: RenderRequest,
+    cancel_event: threading.Event,
+    timeout: float | None,
+    on_progress: ProgressSink | None = None,
 ) -> RenderJob:
     ctx = mp.get_context("spawn")
     result_queue: MPQueue[str] = ctx.Queue()
+    progress_queue: MPQueue[str] = ctx.Queue()
     proc = ctx.Process(
         target=_run_job_to_queue,
-        args=(request.process_payload_json(), result_queue),
+        args=(request.process_payload_json(), result_queue, progress_queue),
         daemon=True,
     )
     proc.start()
     deadline = time.monotonic() + timeout if timeout else None
     try:
         while True:
+            _drain_progress(progress_queue, on_progress)
             try:
                 payload = result_queue.get(timeout=_PROCESS_POLL_SECONDS)
+                _drain_progress(progress_queue, on_progress)
                 return RenderJob.model_validate_json(payload)
             except queue_mod.Empty:
                 pass
@@ -146,8 +199,7 @@ def subprocess_executor(
                     error="render process exited without a result",
                 )
     finally:
-        if proc.is_alive():
-            proc.terminate()
+        _terminate_group(proc)
         proc.join()
 
 
@@ -200,6 +252,25 @@ class RenderQueue:
     def retained_request_count(self) -> int:
         with self._lock:
             return len(self._requests)
+
+    def _run_executor(
+        self,
+        task_id: str,
+        request: RenderRequest,
+        cancel_event: threading.Event,
+        timeout: float | None,
+    ) -> RenderJob:
+        def on_progress(stage: str, fraction: float) -> None:
+            with self._lock:
+                task = self._tasks.get(task_id)
+                if task is not None and task.status == JobStatus.RUNNING:
+                    task.stage = stage
+                    task.progress = max(0.0, min(1.0, fraction))
+
+        accepts_progress = "on_progress" in inspect.signature(self._executor).parameters
+        if accepts_progress:
+            return self._executor(request, cancel_event, timeout, on_progress=on_progress)
+        return self._executor(request, cancel_event, timeout)
 
     def cancel(self, task_id: str) -> bool:
         with self._lock:
@@ -284,7 +355,7 @@ class RenderQueue:
             timeout = request.opts.timeout_seconds or self._default_timeout
         _log.info("ACT render job %s running (attempt %d)", task_id, task.attempts)
         try:
-            job = self._executor(request, cancel_event, timeout)
+            job = self._run_executor(task_id, request, cancel_event, timeout)
             status = JobStatus.COMPLETED if job.state == RenderState.COMPLETED else JobStatus.FAILED
             self._finish(task_id, status, result=job, error=job.error)
         except JobCancelled:

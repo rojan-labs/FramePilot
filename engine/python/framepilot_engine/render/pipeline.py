@@ -18,10 +18,12 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from proglog import ProgressBarLogger  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field
 
 from framepilot_engine.audio.filters import apply_master_audio, build_master_filter
@@ -43,6 +45,30 @@ _log = logging.getLogger(__name__)
 
 # Preview renders downscale by this factor for speed (PRD §9.2 fast preview).
 _PREVIEW_SCALE = 0.5
+
+
+ProgressCallback = Callable[[str, float], None]
+"""``(stage, fraction)`` — called on every lifecycle transition and during the encode."""
+
+
+class _EncodeProgress(ProgressBarLogger):  # type: ignore[misc]
+    """Turns MoviePy's frame counter into ``progress("encoding", fraction)`` calls."""
+
+    def __init__(self, progress: ProgressCallback) -> None:
+        super().__init__(bars=None, ignored_bars=None, logged_bars="all", min_time_interval=0.5)
+        self._progress = progress
+
+    def bars_callback(self, bar: str, attr: str, value: Any, old_value: Any = None) -> None:
+        total = self.bars.get(bar, {}).get("total")
+        if (
+            attr == "index"
+            and isinstance(total, (int, float))
+            and total
+            and bar in {"t", "frame_index"}
+        ):
+            # Encoding owns the 0.05..0.95 span; validation follows at 0.97 and completion at 1.
+            fraction = max(0.0, min(1.0, float(value) / float(total)))
+            self._progress("encoding", 0.05 + 0.9 * fraction)
 
 
 class RenderError(RuntimeError):
@@ -168,6 +194,7 @@ def render(
     *,
     base_dir: Path,
     job_id: str | None = None,
+    progress: ProgressCallback | None = None,
 ) -> RenderJob:
     """Compile ``project`` and render it according to ``opts``, then validate it.
 
@@ -182,10 +209,16 @@ def render(
     :returns: A :class:`RenderJob`; ``state`` is ``COMPLETED`` or ``FAILED``.
     """
     job = RenderJob(id=job_id or uuid.uuid4().hex, project_id=project.id)
+    report_progress: ProgressCallback = progress or (lambda _stage, _fraction: None)
+
+    def enter(state: RenderState, fraction: float) -> None:
+        job.state = state
+        job.progress = fraction
+        report_progress(state.value, fraction)
 
     try:
         # --- Resolve assets first: the export target is capped by what they hold ------
-        job.state = RenderState.PREPARING_ASSETS
+        enter(RenderState.PREPARING_ASSETS, 0.02)
         asset_index = index_assets(
             [asset.model_dump(by_alias=True) for asset in project.assets], base_dir
         )
@@ -209,7 +242,7 @@ def render(
             raise RenderError("Cannot render an empty timeline (zero duration).")
 
         # --- rendering_frames + encoding -------------------------------------
-        job.state = RenderState.RENDERING_FRAMES
+        enter(RenderState.RENDERING_FRAMES, 0.05)
         _encode(
             project,
             asset_index,
@@ -218,13 +251,14 @@ def render(
             job,
             burn_captions=opts.burn_captions,
             quality=opts.settings.quality,
+            progress=report_progress,
         )
 
         # --- master-bus audio pass (optional, deterministic ffmpeg filter) ----
         _apply_master_audio_pass(output, preset, opts)
 
         # --- validating_output ------------------------------------------------
-        job.state = RenderState.VALIDATING_OUTPUT
+        enter(RenderState.VALIDATING_OUTPUT, 0.97)
         report = validate_render(
             output,
             expected_render(project, preset),
@@ -255,11 +289,14 @@ def _encode(
     *,
     burn_captions: bool = False,
     quality: str = "recommended",
+    progress: ProgressCallback | None = None,
 ) -> None:
     """Compile + write the composition to ``output`` (frames then FFmpeg encode)."""
     composite = compile_timeline(project, asset_index, preset, burn_captions=burn_captions)
     try:
         job.state = RenderState.ENCODING
+        if progress is not None:
+            progress(RenderState.ENCODING.value, 0.05)
         codec_family = "hevc" if preset.video_codec in {"libx265", "hevc"} else "h264"
         encoder = choose_encoder(codec_family, quality=quality, container=preset.container)
         job.encoder = encoder.describe()
@@ -288,7 +325,7 @@ def _encode(
                 if preset.audio_bitrate_kbps
                 else {}
             ),
-            logger=None,  # silence MoviePy's stdout progress bar
+            logger=_EncodeProgress(progress) if progress is not None else None,
         )
     finally:
         # Release the underlying FFmpeg readers/writers deterministically. The

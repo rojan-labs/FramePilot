@@ -45,6 +45,8 @@ interface RenderTaskResponse {
   attempts?: number;
   error?: string | null;
   result?: RenderJobResponse | null;
+  stage?: string | null;
+  progress?: number | null;
 }
 
 /** The queue-level statuses a submitted (non-preview) render job moves through. */
@@ -54,6 +56,8 @@ export type RenderJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'c
 export interface RenderJobProgress {
   readonly jobId: string;
   readonly status: RenderJobStatus;
+  readonly stage?: string;
+  readonly progress?: number;
 }
 
 /** Options tuning the async submit+poll flow for full (non-preview) exports. */
@@ -209,9 +213,16 @@ async function renderFullAsync(
   const reportAndCheckTerminal = (task: {
     status?: string | undefined;
     result?: RenderJobResponse | null;
+    stage?: string | null;
+    progress?: number | null;
   }): ExportResult | null => {
     const status = (task.status ?? 'queued') as RenderJobStatus;
-    options.onProgress?.({ jobId, status });
+    options.onProgress?.({
+      jobId,
+      status,
+      ...(typeof task.stage === 'string' ? { stage: task.stage } : {}),
+      ...(typeof task.progress === 'number' ? { progress: task.progress } : {}),
+    });
     if (!isTerminalStatus(status)) return null;
     const fallback =
       status === 'cancelled' ? 'Export cancelled.' : `Render did not complete (status: ${status}).`;

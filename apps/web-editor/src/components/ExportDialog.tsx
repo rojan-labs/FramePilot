@@ -226,7 +226,7 @@ type Phase =
   /** The export was submitted; the sidecar has accepted the job but it hasn't started running yet. */
   | { kind: 'queued' }
   /** The sidecar is actively rendering. */
-  | { kind: 'running' }
+  | { kind: 'running'; stage?: string; progress?: number }
   /** The user asked to cancel; waiting for the sidecar to confirm. */
   | { kind: 'cancelling' }
   /**
@@ -238,6 +238,21 @@ type Phase =
   | { kind: 'error'; message: string };
 
 /** The dialog's own file name suggestion — the last path segment of `outputPath`. */
+/** Plain words for the engine's render stages (P7.6). */
+function stageLabel(stage: string | undefined): string {
+  switch (stage) {
+    case 'preparing_assets':
+      return 'Preparing media…';
+    case 'rendering_frames':
+    case 'encoding':
+      return 'Rendering…';
+    case 'validating_output':
+      return 'Checking the file…';
+    default:
+      return 'Rendering…';
+  }
+}
+
 function suggestedFileName(outputPath: string): string {
   return outputPath.split(/[/\\]/).pop() || 'export.mp4';
 }
@@ -332,7 +347,12 @@ export function ExportDialog({
         return;
       }
       if (message.status === 'queued') setPhase({ kind: 'queued' });
-      else if (message.status === 'running') setPhase({ kind: 'running' });
+      else if (message.status === 'running')
+        setPhase({
+          kind: 'running',
+          ...(message.stage !== undefined ? { stage: message.stage } : {}),
+          ...(message.progress !== undefined ? { progress: message.progress } : {}),
+        });
       // A terminal status (completed/failed/cancelled) always arrives with
       // `result` set (handled above); 'cancelling' is a purely local phase set
       // immediately when the user clicks Cancel, not something the sidecar reports.
@@ -433,7 +453,9 @@ export function ExportDialog({
       </p>
     ) : phase.kind === 'running' ? (
       <p className="export-status" role="status">
-        Rendering and validating the output…
+        {phase.progress !== undefined
+          ? `${stageLabel(phase.stage)} ${Math.round(phase.progress * 100)}%`
+          : 'Rendering and validating the output…'}
       </p>
     ) : phase.kind === 'cancelling' ? (
       <p className="export-status" role="status">

@@ -297,3 +297,25 @@ def test_master_audio_pass_filters_and_replaces(tmp_path: Path, monkeypatch: Any
     _apply_master_audio_pass(output, REELS, RenderOptions(loudness="social", denoise=True))
     assert "loudnorm" in seen["filter"] and "afftdn" in seen["filter"]
     assert output.read_bytes() == b"filtered"  # temp atomically replaced the output
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_render_reports_progress_through_every_stage(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    """The lifecycle and the encode both report (stage, fraction), monotonic, ending at 1."""
+    _place_asset(media_factory, tmp_project_dir, "clip.mp4", seconds=1.0, with_audio=False)
+    seen: list[tuple[str, float]] = []
+    job = render(
+        _video_project(),
+        RenderOptions(preview=True),
+        base_dir=tmp_project_dir,
+        progress=lambda stage, fraction: seen.append((stage, fraction)),
+    )
+    assert job.state == RenderState.COMPLETED, job.error
+    stages = [stage for stage, _ in seen]
+    assert stages[0] == "preparing_assets"
+    assert "encoding" in stages and "validating_output" in stages
+    fractions = [fraction for _, fraction in seen]
+    assert fractions == sorted(fractions)
+    assert job.progress == 1.0

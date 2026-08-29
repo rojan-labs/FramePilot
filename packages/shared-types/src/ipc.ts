@@ -188,6 +188,10 @@ export interface ExportProgressMessage {
   readonly requestId: string;
   readonly jobId?: string;
   readonly status?: ExportJobStatus;
+  /** Render stage while running (preparing_assets / rendering_frames / encoding / validating_output). */
+  readonly stage?: string;
+  /** 0..1 while running (plan/system-mission P7.6). */
+  readonly progress?: number;
   readonly result?: ExportResult;
 }
 

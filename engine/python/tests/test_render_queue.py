@@ -364,3 +364,37 @@ def test_default_subprocess_executor_real_render(
         assert Path(task.result.output_path).is_file()
     finally:
         q.shutdown()
+
+
+def test_task_exposes_live_progress_from_an_executor_that_reports_it() -> None:
+    """P7.6: an executor that accepts ``on_progress`` drives ``RenderTask.stage/progress``."""
+    seen: list[tuple[str | None, float]] = []
+    started = threading.Event()
+    release = threading.Event()
+
+    def reporting(
+        req: RenderRequest,
+        ev: threading.Event,
+        to: float | None,
+        on_progress: Callable[[str, float], None],
+    ) -> RenderJob:
+        on_progress("encoding", 0.42)
+        started.set()
+        release.wait(timeout=5)
+        on_progress("validating_output", 0.97)
+        return _completed_job()
+
+    q = RenderQueue(executor=reporting, workers=1)
+    try:
+        task_id = q.submit(_request())
+        assert started.wait(timeout=5)
+        task = q.get(task_id)
+        assert task is not None
+        seen.append((task.stage, task.progress))
+        release.set()
+        _wait_for(q, task_id, JobStatus.COMPLETED)
+        assert seen == [("encoding", 0.42)]
+        final = q.get(task_id)
+        assert final is not None and final.status == JobStatus.COMPLETED
+    finally:
+        q.shutdown()
