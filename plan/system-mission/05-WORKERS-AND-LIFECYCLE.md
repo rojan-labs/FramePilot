@@ -56,7 +56,7 @@ SIGTERMs its group (python + ffmpeg); the desktop spawns the sidecar `detached` 
 `stop()` kills the whole group (`killProcessGroup`, tested). Remaining: a single registry
 with owner/purpose/started-at per child and the `pgrep` e2e proof.
 
-## P5.4 — Backpressure, limits, duplicate suppression — `[ ]`
+## P5.4 — Backpressure, limits, duplicate suppression — `[~]`
 
 **Touches:** engine `render/queue.py`, media preparation queue (media-intelligence
 closure), `evidence-store.ts`. Concurrency caps by kind (analysis N, encode 1 by default,
@@ -65,6 +65,15 @@ existing job instead of starting another; queue depth and per-job state are read
 the sidebar (Phase 8) and by `debug:resources` (Phase 0).
 **Done when:** submitting the same analysis 5× concurrently runs it once; queue caps are
 respected under a 60-asset preparation burst.
+
+Landed 2026-08-29: `framepilot_engine/singleflight.py` (sync + async in-flight
+coalescing, keyed on the request's inputs, nothing memoised) wired into `/asset-media`,
+`/analyze-silence` and `/detect-beats`; six identical concurrent asset-media requests
+derive once and all six are served (test), the concurrency gate test now uses distinct
+requests so it measures the gate. Caps already existed: asset-media
+`FRAMEPILOT_ASSET_MEDIA_CONCURRENCY`, temporal evidence 1, visual index
+`visual_index_concurrency`, render queue 1 encode. Remaining: queue depth / per-job
+state readable by the sidebar (Phase 8 Doing) and the 60-asset burst measurement.
 
 ## P5.5 — Recovery — `[ ]`
 

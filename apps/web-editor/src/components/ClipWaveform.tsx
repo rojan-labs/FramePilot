@@ -31,6 +31,16 @@ import { LruCache } from '../editor/lruCache.js';
 const MAX_WAVEFORM_BITMAPS = 120;
 const bitmapCache = new LruCache<string, ImageBitmap>(MAX_WAVEFORM_BITMAPS, (bmp) => bmp.close());
 
+/** Drop every cached waveform bitmap (closing each) — called when the project changes (P6.2). */
+export function clearWaveformBitmapCache(): void {
+  bitmapCache.clear();
+}
+
+/** How many waveform bitmaps are cached right now (tests, resource probes). */
+export function waveformBitmapCacheSize(): number {
+  return bitmapCache.size;
+}
+
 /**
  * Cap on a waveform canvas's backing-store width (device px). A clip zoomed in
  * on a long timeline can be hundreds of thousands of CSS px wide; sizing the

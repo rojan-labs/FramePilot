@@ -206,6 +206,7 @@ from framepilot_engine.render.pipeline import RenderJob, RenderOptions, render
 from framepilot_engine.render.queue import JobStatus, RenderQueue, RenderTask
 from framepilot_engine.render.queue import RenderRequest as QueuedRenderRequest
 from framepilot_engine.safety import PathTraversalError, resolve_within
+from framepilot_engine.singleflight import AsyncSingleFlight, SingleFlight
 from framepilot_engine.timeline.models import Project, ProjectFile, ProjectFileError
 from framepilot_engine.validation.render_validation import (
     ExpectedRender,
@@ -1702,6 +1703,10 @@ def create_app(
     # ORIGINAL source. Not keyed by project for the same reason — the contended
     # resource is the machine, not the project. See the route.
     _asset_media_gate = asyncio.Semaphore(settings.asset_media_concurrency)
+    # P5.4: identical requests that arrive while one is already running share its answer
+    # instead of spawning their own ffmpeg. Keyed on the request's inputs; nothing cached.
+    _asset_media_flight: AsyncSingleFlight[AssetMediaResponse] = AsyncSingleFlight()
+    _analysis_flight: SingleFlight[Any] = SingleFlight()
 
     def _visual_index_lock(project_id: str) -> threading.Lock:
         with _visual_index_locks_guard:
@@ -4368,8 +4373,12 @@ def create_app(
         wait happens in the event loop, NOT on a threadpool thread: a queued caller
         costs nothing while it waits, which is the whole point of gating here rather
         than with a blocking semaphore inside the sync body."""
-        async with _asset_media_gate:
-            return await run_in_threadpool(_derive_asset_media, req)
+
+        async def _derive() -> AssetMediaResponse:
+            async with _asset_media_gate:
+                return await run_in_threadpool(_derive_asset_media, req)
+
+        return await _asset_media_flight.join(f"asset-media:{req.model_dump_json()}", _derive)
 
     def _derive_asset_media(req: AssetMediaRequest) -> AssetMediaResponse:
         """The derivation itself, run on a threadpool thread under the gate above."""
@@ -5129,11 +5138,14 @@ def create_app(
             else DEFAULT_MIN_SILENCE_SECONDS
         )
         try:
-            ranges = detect_silence(
-                media_path,
-                noise_floor_db=noise,
-                min_silence_seconds=min_gap,
-                timeout=timeout,
+            ranges = _analysis_flight.join(
+                f"silence:{media_path}:{noise}:{min_gap}",
+                lambda: detect_silence(
+                    media_path,
+                    noise_floor_db=noise,
+                    min_silence_seconds=min_gap,
+                    timeout=timeout,
+                ),
             )
         except NoAudioStreamError as exc:
             # A video-only asset is a fact about the file, not a decode fault — and "this
@@ -5169,7 +5181,10 @@ def create_app(
         )
         sensitivity = req.sensitivity if req.sensitivity is not None else DEFAULT_SENSITIVITY
         try:
-            analysis = detect_beats(media_path, sensitivity=sensitivity, timeout=timeout)
+            analysis = _analysis_flight.join(
+                f"beats:{media_path}:{sensitivity}",
+                lambda: detect_beats(media_path, sensitivity=sensitivity, timeout=timeout),
+            )
         except NoAudioStreamError as exc:
             # A silent clip is a fact about the asset, not a decode fault — and "this media
             # has no beats" is a RESULT, exactly like the empty `ranges` a fully-loud clip

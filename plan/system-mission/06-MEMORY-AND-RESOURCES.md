@@ -22,12 +22,20 @@ closing the project.
 **Done when:** counters flat across open → edit → close ×3; heap snapshot diff shows no
 retained detached DOM or clip arrays.
 
-## P6.2 — Renderer: bounded caches — `[ ]`
+## P6.2 — Renderer: bounded caches — `[~]`
 
 Every in-memory cache (thumbnails, waveforms, frame cache, footage map, transcript,
 query caches) gets a size bound in bytes or entries with LRU eviction, and a
 `clear()` on project close. Bounds are constants in one module, not magic numbers.
 **Done when:** each cache has a test for eviction and a project-close test for emptiness.
+
+Finding 2026-08-29: the renderer's real caches are already LRU-bounded with close-on-evict
+(`bitmapCache.ts` 256 decoded frames, `ClipWaveform.tsx` `MAX_WAVEFORM_BITMAPS`, both on
+`editor/lruCache.ts`); the other `Map`s are per-render memos, not caches. What was missing
+was the project-close path: nothing cleared them, so a previous project's bitmaps stayed
+resident until pressure evicted them. `App.tsx` now clears both when `project.id` changes.
+Remaining: the eviction/emptiness unit tests named in the done-when, and the footage-map /
+transcript query caches in the AI sidebar.
 
 ## P6.3 — Main process: IPC listeners, child processes, handles, temp files — `[~]`
 
@@ -58,6 +66,9 @@ composition and analysis caches bounded and evictable; long-lived emitters audit
 subscriber growth; streaming responses closed on client disconnect.
 **Done when:** sidecar RSS after 5 exports ≈ after 1 (±10%); no `ResourceWarning` under
 `-W error` in engine tests.
+
+Evidence 2026-08-29: `pytest -W error::ResourceWarning` over the whole engine suite —
+2,723 passed, 0 ResourceWarnings (P6.4's second done-when condition holds).
 
 Finding (2026-08-29): the composition cache is a bounded LRU with a build semaphore
 (`composition_cache.py`); the only process-lifetime dicts in `service.py` are per-project
