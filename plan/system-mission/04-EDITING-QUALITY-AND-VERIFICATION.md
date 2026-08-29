@@ -8,7 +8,7 @@
 > **Depends on:** Phase 1 (state, memory), Phase 3 (reference profiles).
 > **Schema/deps:** none — semantic ops compose existing operations into one patch.
 
-## P4.1 — Semantic operations — `[~]`
+## P4.1 — Semantic operations — `[x]`
 
 **Touches:** `packages/ai-sdk/src/domain-tools/*` (new tool specs), the controllers that
 implement them, `autonomous-tools.manifest.json` (regenerated), Python mirror
@@ -45,6 +45,66 @@ any word it lands in — a start moves to the word's end, an end to the word's s
 correction can only ever SHRINK the cut and never eat speech; a range a word swallows
 entirely is dropped. 7 tests. This is the finding the bounded verify loop reported and
 could not fix from inside a run, fixed at the source.
+
+Closed 2026-08-29: **one of the eight shipped, seven refused, and the refusal of each one
+is a measurement rather than a preference.** `remove_silences` was built because 6/6
+baseline runs died echoing ~110 ranges through an 8,192-token output window. Nothing in the
+measured after-runs produces that shape again, and the table's other seven were held to the
+same bar. What P4.1 owes at that point is not more tool surface but proof that the
+compositions those names describe land the timeline outcome the journey asks for — which is
+the Done-when, and it is now met.
+
+**`cut_to_beat` — refused, and the number is unambiguous.** beat-sync's only failing check
+is `cuts-on-beats` (9/12 and 8/11 in two of three runs; 0.78 p50). It is not the model's
+arithmetic. Reconstructing all 34 picture cuts the three runs applied and snapping each to
+the nearest onset `detect_beats` returned moves **every one of them by 0.000s** — they are
+already exactly on the detected grid, because `alignBeatBackedBoundaries` already snaps
+interior boundaries inside an 80 ms window and `beat-grid-wiring.test.ts` already proves it
+in a real run. The miss is in the evidence: running `analysis/beats.py` on
+`tests/fixtures/mission/music/beat-100bpm.wav` returns 50 onsets at ~99 BPM of which only
+**30 fall within 0.05 s of the click the fixture was generated with** (`fetch-fixtures.sh`
+writes it as `mod(t,0.6) < 0.05`), because the energy-flux detector reports a second,
+spurious ~1.0 s series. An op that snaps to those onsets reproduces the score exactly. The
+next move on beat sync is onset accuracy in the engine, not a new tool in the SDK.
+
+**`tighten_pacing` — refused; the two things that actually stopped the tighten turn are
+neither of them a missing op.** UC-08's refine turn failed `shorter` in 2/3 runs, so it
+looked like the strongest remaining candidate. Reading the rejections says otherwise: 11 of
+them (r1, r3) are `delete_range.end must be greater than start` — the sub-frame husk
+defect, **already fixed at source** in `domain-tools/timeline.ts#clipDeleteOp` after those
+runs were captured, and the sole reason r3 landed zero operations. The other 8 (r2) are
+transition integrity (`Transition on clip 'clip_003' must reference the adjacent earlier
+clip…`); a semantic op emits the same primitive operations into the same validator and hits
+the same wall. And r1 shortened 90.01 s → 74.77 s with the primitives as they stand, so the
+journey is reachable today. Re-measure after the husk fix before spending an op on this.
+
+**`emphasize_word` and `create_transition` — already shipped under other names.**
+`auto_emphasize_captions` (+ `caption-emphasis.ts`) and `add_transition` (+
+`discover_transitions` over the 70-odd-kind catalog) are the same capability. Registering a
+second name for each is duplicate infrastructure, which `CLAUDE.md` §2 forbids.
+
+**`match_reference_style` — its deterministic half is P4.2.** `references/directives.ts`
+already reduces attached profiles into the run's acceptance criteria and the
+`shot_length_target` Critic check. A tool wrapper over that adds a name, not a capability.
+
+**`create_hook`, `insert_broll`, `add_motion_graphic` — no measurement exists.** None of the
+six measured scenarios exercises them, so there is no failing run to point at, and mission
+rule 2 is measure-then-change. Each is reachable now: `get_transcript`/`read_edit_signals` +
+`move_clip`/`trim_clip`; `split_clip` + `delete_range` + `add_clip`/`add_stock` under
+ADR 0140; `add_text_layer` + `add_keyframes`/`punch_in`.
+
+**The Done-when, met:** `src/use-case-outcomes.test.ts` asserts the timeline outcome for
+every UC row that routes through P4.1 — **UC-01** (8 shots, 30 s ±1, every edge on the
+30 fps grid, contiguous, varied lengths, and the whole montage inverted back to an empty
+track), **UC-02** (a 60 s transcript-grounded window whose edges are not inside a word,
+with a guard test proving the mid-word case is detectable), **UC-10** (a cutaway occupying
+exactly the transcript-anchored range, overlapping no other picture clip per ADR 0140, and
+not rippling the take shorter), **UC-11** (a lower third plus opacity keyframes, each step
+inverting as a unit). **UC-05** is `beat-grid-wiring.test.ts` and **UC-03** is
+`remove-silences.test.ts` / `silence-cut.test.ts`; they are cited, not duplicated. Six new
+tests. No registry change, so the prompt and token goldens are byte-identical — the measured
+delta of this task is **zero tokens**, which is the point: the capability was already paid
+for.
 
 ## P4.2 — Reference-driven planning — `[x]`
 
@@ -151,3 +211,17 @@ Remaining for `[x]`: the ADR for semantic ops as compositions and the CHANGELOG 
 outside this change's file scope.
 
 ## Discovered
+
+- **Onset accuracy is the beat-sync ceiling, and it lives in the engine.** `detect_beats`
+  on the 100 BPM fixture returns 50 onsets at ~99 BPM, of which 20 are off the actual click
+  by more than 0.05 s — an energy-flux detector reporting a spurious ~1.0 s series alongside
+  the real 0.6 s one. Every cut the agent makes is already snapped to those onsets, so the
+  rubric's `cuts-on-beats` score is bounded by them. The fix is tempo-consistent onset
+  selection in `analysis/beats.py` (fit a period + phase to the onsets and keep the ones
+  that agree), measured against the fixture whose true grid is known by construction.
+  Owner: `render-debugger`/engine, not the AI layer. Not started.
+- **Nothing stops a mid-word trim except `remove_silences`.** `wordSafeRange` protects the
+  dead-air path; a plain `trim_clip` or `split_clip` on a transcript-bearing clip is
+  unchecked, and `no-mid-word-cuts` is a rubric check with no runtime counterpart. A Critic
+  check over the applied boundaries would report it while the run can still re-trim.
+  Not started.

@@ -14,7 +14,7 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 powerful if the editing engine is structured, testable, and deterministic.
 
 **Status snapshot (2026-08-29, SYSMISSION — system mission plan):** `[~]` **The end-to-end
-system mission is executed on `feat/system-mission`: 52 of 69 tasks `[x]`, 16 `[~]`, one
+system mission is executed on `feat/system-mission`: 53 of 69 tasks `[x]`, 15 `[~]`, one
 `[!]`, none unstarted. `pnpm verify` green.** All six scenarios are measured and every one
 improved — podcast 25 → 5 model calls and 1200s → 253s at held quality; montage, beat-sync,
 dead-air, refine-tighten and memory-captions all went from *not completing* or *zero

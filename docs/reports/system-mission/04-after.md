@@ -56,11 +56,39 @@ never eat speech. That fix is not in the table above: it landed after the measur
 claiming its effect without a re-run would be exactly the kind of unearned credit the rubric
 exists to prevent.
 
-`cut_to_beat`, `tighten_pacing`, `create_hook`, `insert_broll` and `match_reference_style`
-are **not built** as named semantic operations. Beat-sync scores 0.78 and montage 1.00
-without them, through the grounded beat grid (ADR 0157) and the primitive tool surface, so
-the case for promoting each composition to its own op is a quality case that has to be made
-against these numbers — not a completeness argument. P4.1 stays `[~]`.
+### The other seven, measured and refused (2026-08-29)
+
+The case for each remaining op was then made against these numbers, and each one lost.
+
+**`cut_to_beat`.** beat-sync's only failing check is `cuts-on-beats`. Reconstructing all 34
+picture cuts the three runs applied and snapping each to the nearest onset `detect_beats`
+returned moves **every one of them by 0.000 s**: they already sit on the detected grid,
+because `alignBeatBackedBoundaries` snaps interior boundaries inside an 80 ms window and
+`beat-grid-wiring.test.ts` proves it in a real run. The miss is in the evidence, not the
+edit — running `analysis/beats.py` on `tests/fixtures/mission/music/beat-100bpm.wav`
+returns 50 onsets at ~99 BPM of which only **30 are within 0.05 s of the click the fixture
+was generated with** (`fetch-fixtures.sh` writes it as `mod(t,0.6) < 0.05`); the energy-flux
+detector reports a spurious ~1.0 s series alongside the real 0.6 s one. An op snapping to
+those onsets reproduces 0.78 exactly. Onset accuracy in the engine is the next move.
+
+**`tighten_pacing`.** The refine turn failed `shorter` in 2 of 3 runs, which made it the
+strongest remaining candidate until the rejections were read. Eleven of them (r1, r3) are
+`delete_range.end must be greater than start` — the sub-frame husk defect, already fixed at
+source in `domain-tools/timeline.ts#clipDeleteOp` after these runs were captured, and the
+sole reason r3 landed zero operations. The other eight (r2) are transition integrity, which
+a semantic op would hit identically because it emits the same primitive operations into the
+same validator. r1 shortened 90.01 s → 74.77 s with the primitives as they stand.
+
+**`emphasize_word` and `create_transition`** are already shipped as
+`auto_emphasize_captions` and `add_transition`. **`match_reference_style`**'s deterministic
+half is P4.2's `references/directives.ts`. **`create_hook`, `insert_broll`,
+`add_motion_graphic`** have no measurement at all — no measured scenario exercises them.
+
+P4.1 closes `[x]` on its Done-when instead: `packages/ai-sdk/src/use-case-outcomes.test.ts`
+asserts the timeline outcome for UC-01, UC-02, UC-10 and UC-11, with UC-05
+(`beat-grid-wiring.test.ts`) and UC-03 (`remove-silences.test.ts`) cited rather than
+duplicated. No registry change, so the prompt and token goldens are byte-identical: the
+measured cost of the closure is **zero tokens**.
 
 ## Reference-driven planning (P4.2) and the verify loop (P4.3)
 
@@ -107,6 +135,7 @@ blocks.
   weakest row in the table and the most honest: one run, and its third turn scored 0.43
   having applied nothing. Carrying a decision to a third turn is a real gap, not a
   measurement artefact.
-- **Five of the eight semantic operations are unbuilt**, deliberately (above).
+- **Seven of the eight semantic operations are unbuilt**, deliberately and with the
+  measurement behind each refusal (above).
 - **The `wordSafeRange` fix is unmeasured** against the rubric. The dead-air row's 0.75 is
   the score *before* it, and the finding it fixes is the one that kept the score there.

@@ -45,6 +45,14 @@ UI entry (sidebar / menu / shortcut)        → Phase 8
 
 ## C. What "proven" requires per journey
 
+Two bars, and they are not the same one. The **deterministic** bar is a test that asserts
+the timeline outcome of a scripted run — that is what P4.1 closes on, and it lives in
+`packages/ai-sdk/src/use-case-outcomes.test.ts` (UC-01, UC-02, UC-10, UC-11),
+`beat-grid-wiring.test.ts` (UC-05) and `remove-silences.test.ts` (UC-03). The **proven**
+bar below is stricter and is Phase 9's: the desktop host, a real provider, real media. A row
+stays `[ ]` until that passes, however green the deterministic layer is.
+
+
 - The Phase 9 spec that names the journey passes on the desktop host (`tests/e2e-desktop`).
 - The timeline outcome is asserted (clip count, times, track content), not the chat text.
 - For UC-06/07/13 the media outcome is asserted with `ffprobe` or a rendered-frame check.
