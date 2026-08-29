@@ -60,8 +60,26 @@ import type { FetchLike } from './types.js';
 
 const log = createLogger('ai-sdk:providers:pexels-stock');
 
-export const PEXELS_PHOTO_SEARCH_URL = 'https://api.pexels.com/v1/search';
-export const PEXELS_VIDEO_SEARCH_URL = 'https://api.pexels.com/videos/search';
+/**
+ * Where the Pexels API lives, and how a test takes it away.
+ *
+ * The adapter binds `fetch` in its constructor, so patching `globalThis.fetch`
+ * after the app has started patches something nobody calls — an offline test
+ * written that way searches the live API and passes on real results. Overriding
+ * the origin is the one way to simulate an outage that the adapter cannot miss.
+ */
+export const PEXELS_API_BASE = 'https://api.pexels.com';
+
+export function pexelsApiBase(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env['FRAMEPILOT_PEXELS_BASE']?.trim();
+  return configured !== undefined && configured !== '' ? configured : PEXELS_API_BASE;
+}
+
+export const PEXELS_PHOTO_SEARCH_PATH = '/v1/search';
+export const PEXELS_VIDEO_SEARCH_PATH = '/videos/search';
+
+export const PEXELS_PHOTO_SEARCH_URL = `${PEXELS_API_BASE}${PEXELS_PHOTO_SEARCH_PATH}`;
+export const PEXELS_VIDEO_SEARCH_URL = `${PEXELS_API_BASE}${PEXELS_VIDEO_SEARCH_PATH}`;
 
 /**
  * Where an empty query goes.
@@ -72,8 +90,11 @@ export const PEXELS_VIDEO_SEARCH_URL = 'https://api.pexels.com/videos/search';
  * so browsing is the provider's own front page rather than a query invented here
  * and presented as if it were curation.
  */
-export const PEXELS_PHOTO_CURATED_URL = 'https://api.pexels.com/v1/curated';
-export const PEXELS_VIDEO_POPULAR_URL = 'https://api.pexels.com/videos/popular';
+export const PEXELS_PHOTO_CURATED_PATH = '/v1/curated';
+export const PEXELS_VIDEO_POPULAR_PATH = '/videos/popular';
+
+export const PEXELS_PHOTO_CURATED_URL = `${PEXELS_API_BASE}${PEXELS_PHOTO_CURATED_PATH}`;
+export const PEXELS_VIDEO_POPULAR_URL = `${PEXELS_API_BASE}${PEXELS_VIDEO_POPULAR_PATH}`;
 
 /**
  * Pexels asks integrators to identify themselves, and a generic agent string
@@ -369,8 +390,11 @@ function firstSafeUrl(candidates: readonly (string | null | undefined)[]): strin
 
 /** The endpoint for this kind, in the mode the caller is in. */
 function browseOrSearchUrl(kind: StockSearchQuery['kind'], browsing: boolean): string {
-  if (kind === 'video') return browsing ? PEXELS_VIDEO_POPULAR_URL : PEXELS_VIDEO_SEARCH_URL;
-  return browsing ? PEXELS_PHOTO_CURATED_URL : PEXELS_PHOTO_SEARCH_URL;
+  const base = pexelsApiBase();
+  if (kind === 'video') {
+    return `${base}${browsing ? PEXELS_VIDEO_POPULAR_PATH : PEXELS_VIDEO_SEARCH_PATH}`;
+  }
+  return `${base}${browsing ? PEXELS_PHOTO_CURATED_PATH : PEXELS_PHOTO_SEARCH_PATH}`;
 }
 
 // ---------------------------------------------------------------------------

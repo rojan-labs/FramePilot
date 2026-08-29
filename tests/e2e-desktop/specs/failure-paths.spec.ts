@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import {
@@ -107,24 +107,18 @@ function photoFixtures(): string[] {
 }
 
 /**
- * Cut the main process off from a set of hosts, from inside it.
+ * Is a run in flight?
  *
- * Stock and music are fetched by Electron's MAIN process (the renderer's CSP forbids
- * reaching a provider at all), so `page.context().setOffline()` cannot express this
- * failure — it only unplugs the renderer. Replacing `globalThis.fetch` in main with one
- * that throws the same `TypeError: fetch failed` undici throws when a host is unreachable
- * is the honest simulation, and it needs no product code to carry a test-only flag.
+ * The composer swaps Send for a Stop control for exactly as long as a run is
+ * running, so the presence of that one button is the honest answer — and unlike
+ * `getByRole('status')` it names one element. That locator matched SIX (the save
+ * chip, the fit chip, the playhead clock, the sidebar's live region, the activity
+ * label and the toast host), so every row that used it failed on strict mode
+ * before it could exercise anything. Waiting on the kill switch also matches what
+ * the rows are actually about: you can stop a run precisely while it is running.
  */
-async function goOffline(session: DesktopSession, hostPattern: string): Promise<void> {
-  await session.app.evaluate(({}, pattern: string) => {
-    const re = new RegExp(pattern);
-    const real = globalThis.fetch.bind(globalThis);
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      if (re.test(url)) throw new TypeError('fetch failed');
-      return real(input as RequestInfo, init);
-    }) as typeof globalThis.fetch;
-  }, hostPattern);
+function runIndicator(page: Page): Locator {
+  return page.getByRole('button', { name: 'Stop agent' });
 }
 
 test.describe('UC-15 failure paths', () => {
@@ -257,16 +251,23 @@ test.describe('UC-15 failure paths', () => {
   });
 
   test('stock search with the network down reports the outage instead of hanging', async () => {
-    test.skip(
-      !process.env.PEXELS_API_KEY,
-      'stock search needs PEXELS_API_KEY; without a key the panel shows the keyless state, not a network failure',
-    );
     test.setTimeout(4 * 60_000);
-    const session = await launchDesktop({ projectId: 'mission-montage', sidecarPort: 8796 });
+    // A key the provider will accept as present, pointed at an address that
+    // refuses. The row used to need a real PEXELS_API_KEY and then simulate the
+    // outage with goOffline — which cannot work here either, because the adapter
+    // binds fetch in its constructor. Overriding the origin makes the failure
+    // real and lets the row run on any machine, key or no key.
+    const session = await launchDesktop({
+      projectId: 'mission-montage',
+      sidecarPort: 8796,
+      extraEnv: {
+        PEXELS_API_KEY: 'e2e-unroutable',
+        FRAMEPILOT_PEXELS_BASE: 'http://127.0.0.1:9',
+      },
+    });
     try {
       const { page } = session;
       const before = await clipCount(session);
-      await goOffline(session, 'pexels\\.com');
 
       await page.getByRole('tab', { name: 'Stock' }).first().click();
       const search = page.getByPlaceholder(/Search (video|photos)…/).first();
@@ -471,12 +472,12 @@ test.describe('UC-15 failure paths', () => {
         const composer = page.getByRole('textbox', { name: 'Message FramePilot' });
         await composer.fill('Create a 30-second fast-paced social montage from the footage.');
         await composer.press('Enter');
-        await expect(page.getByRole('status')).toBeVisible({ timeout: 60_000 });
+        await expect(runIndicator(page)).toBeVisible({ timeout: 60_000 });
 
         // Let it commit to something, then stop it.
         await page.waitForTimeout(20_000);
-        await page.getByRole('button', { name: /Stop/i }).first().click();
-        await expect(page.getByRole('status')).toBeHidden({ timeout: 120_000 });
+        await runIndicator(page).click();
+        await expect(runIndicator(page)).toBeHidden({ timeout: 120_000 });
 
         // Cancellation is not failure: the run reports itself cancelled, and whatever it
         // had already applied is a complete, undoable edit — never a half-written patch.
@@ -495,7 +496,14 @@ test.describe('UC-15 failure paths', () => {
       // the run has already applied real work when the provider falls over, which is the
       // only version of this failure that can leave a half-applied timeline behind.
       const HEALTHY_CALLS = 2;
-      const upstream = process.env.MISSION_PROVIDER_UPSTREAM ?? 'https://api.deepseek.com';
+      // Default to whatever provider the run is ACTUALLY configured against, so the
+      // healthy calls in front of the injected 500 reach a provider that answers. A
+      // hard-coded vendor here made the row test that vendor's availability instead of
+      // FramePilot's behaviour when its own provider fails.
+      const upstream =
+        process.env.MISSION_PROVIDER_UPSTREAM ??
+        process.env.FRAMEPILOT_OPENAI_COMPATIBLE_BASE_URL?.replace(/\/v1\/?$/, '') ??
+        'https://api.deepseek.com';
       let seen = 0;
       const proxy = await startProxy(async (req, res, body) => {
         if (seen++ >= HEALTHY_CALLS) {
@@ -537,7 +545,7 @@ test.describe('UC-15 failure paths', () => {
         // The run must END, and say why. A provider outage that leaves the composer
         // disabled and a spinner turning is indistinguishable from a hang.
         await expect(page.getByRole('alert').first()).toBeVisible({ timeout: 6 * 60_000 });
-        await expect(page.getByRole('status')).toBeHidden({ timeout: 2 * 60_000 });
+        await expect(runIndicator(page)).toBeHidden({ timeout: 2 * 60_000 });
         await expect(composer).toBeEditable();
 
         const after = await clipCount(session);
@@ -571,7 +579,7 @@ test.describe('UC-15 failure paths', () => {
         await composer.fill('Look at the footage and cut a 20-second highlight.');
         await composer.press('Enter');
 
-        await expect(page.getByRole('status')).toBeHidden({ timeout: 8 * 60_000 });
+        await expect(runIndicator(page)).toBeHidden({ timeout: 8 * 60_000 });
         await expect(composer).toBeEditable();
         const after = await clipCount(session);
         expect(after === before || after > 0).toBe(true);
@@ -597,7 +605,7 @@ test.describe('UC-15 failure paths', () => {
         const composer = first.page.getByRole('textbox', { name: 'Message FramePilot' });
         await composer.fill('Create a 30-second fast-paced social montage from the footage.');
         await composer.press('Enter');
-        await expect(first.page.getByRole('status')).toBeVisible({ timeout: 60_000 });
+        await expect(runIndicator(first.page)).toBeVisible({ timeout: 60_000 });
         await first.page.waitForTimeout(20_000);
       } finally {
         // SIGKILL the app mid-run: no graceful shutdown, no chance to write "cancelled".
@@ -616,7 +624,7 @@ test.describe('UC-15 failure paths', () => {
         const composer = second.page.getByRole('textbox', { name: 'Message FramePilot' });
         await second.page.getByRole('tab', { name: 'AI' }).first().click();
         await expect(composer).toBeEditable({ timeout: 60_000 });
-        await expect(second.page.getByRole('status')).toBeHidden();
+        await expect(runIndicator(second.page)).toBeHidden();
         // And the project is a committed state, not a half-written one.
         expect(await clipCount(second)).toBeGreaterThanOrEqual(
           Math.min(clipsBefore, await clipCount(second)),

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -20,6 +20,20 @@ const RUN_TIMEOUT_MS = 25 * 60_000;
 
 test.skip(process.env.MISSION_AI !== '1', 'needs MISSION_AI=1 and a configured provider');
 
+/**
+ * Is a run in flight?
+ *
+ * The composer swaps Send for a Stop control for exactly as long as a run is
+ * running, so the presence of that one button is the honest answer — and unlike
+ * `getByRole('status')` it names one element. That locator matched SIX (the save
+ * chip, the fit chip, the playhead clock, the sidebar's live region, the activity
+ * label and the toast host), so every row that used it failed on strict mode
+ * before it could exercise anything.
+ */
+function runIndicator(page: Page): Locator {
+  return page.getByRole('button', { name: 'Stop agent' });
+}
+
 test('montage → refine → reference style → logo overlay on the desktop host', async () => {
   test.setTimeout(4 * RUN_TIMEOUT_MS);
   const session = await launchDesktop({ projectId: 'mission-montage', sidecarPort: 8796 });
@@ -34,8 +48,8 @@ test('montage → refine → reference style → logo overlay on the desktop hos
       await composer.fill(prompt);
       await composer.press('Enter');
       // The composer's activity strip appears while a run is live and disappears when it settles.
-      await expect(page.getByRole('status')).toBeVisible({ timeout: 60_000 });
-      await expect(page.getByRole('status')).toBeHidden({ timeout: RUN_TIMEOUT_MS });
+      await expect(runIndicator(page)).toBeVisible({ timeout: 60_000 });
+      await expect(runIndicator(page)).toBeHidden({ timeout: RUN_TIMEOUT_MS });
     };
 
     // UC-01: a 30-second montage from the raw assembly.

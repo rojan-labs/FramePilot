@@ -2808,6 +2808,10 @@ export class Orchestrator {
     return {
       project: input.project,
       ...(input.projectRevision === undefined ? {} : { projectRevision: input.projectRevision }),
+      // The turn number is the conversation's own clock: the user's messages so far
+      // plus the one being answered. Derived rather than plumbed, so every caller
+      // that passes history gets dated memory writes without changing its call.
+      turn: (input.history ?? []).filter((m) => m.role === 'user').length + 1,
       ...(input.selection ? { selection: input.selection } : {}),
       ...(input.interaction ? { interaction: input.interaction } : {}),
       // ADR 0057: hand the load_skill tool its lookup map. Bundled skills are the

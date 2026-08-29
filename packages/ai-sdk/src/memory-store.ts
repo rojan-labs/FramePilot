@@ -27,6 +27,31 @@ export interface MemoryEdit {
 
 const MemoryEditSchema = z.object({ patchId: z.string(), reason: z.string() });
 
+/**
+ * Where a remembered preference came from, and how long it is allowed to last.
+ *
+ * A preference the user *said* outranks one the agent *inferred* from the footage,
+ * and neither should outlive its usefulness — "punchier than that" is about the cut
+ * on screen, not about this project forever. Provenance is stored beside the values
+ * rather than replacing them so that every project file written before this existed
+ * still parses: an entry with no provenance is treated as a user statement that never
+ * expires, which is exactly what it was when it was written.
+ */
+export interface MemoryProvenance {
+  /** `user` — stated outright. `inferred` — the agent concluded it. `reference` — read off attached reference media. */
+  readonly source: 'user' | 'inferred' | 'reference';
+  /** The turn that wrote it; the clock TTL counts from. */
+  readonly turn: number;
+  /** Drop the entry once `turn + expiresAfterTurns` is behind us. Absent means it never expires. */
+  readonly expiresAfterTurns?: number;
+}
+
+const MemoryProvenanceSchema = z.object({
+  source: z.enum(['user', 'inferred', 'reference']),
+  turn: z.number().int().nonnegative(),
+  expiresAfterTurns: z.number().int().positive().optional(),
+});
+
 const ProjectMemorySchema = z.object({
   targetAudience: z.string().optional(),
   brandStyle: z.string().optional(),
@@ -35,6 +60,8 @@ const ProjectMemorySchema = z.object({
   exportPlatforms: z.array(z.string()).default([]),
   acceptedEdits: z.array(MemoryEditSchema).default([]),
   rejectedEdits: z.array(MemoryEditSchema).default([]),
+  /** Per-preference-key provenance. Keys with no entry are un-provenanced and permanent. */
+  provenance: z.record(z.string(), MemoryProvenanceSchema).default({}),
 });
 
 /** Typed view of `Project.aiMemory` (PRD §8.7). */
@@ -51,12 +78,49 @@ const EMPTY: ProjectMemory = {
   exportPlatforms: [],
   acceptedEdits: [],
   rejectedEdits: [],
+  provenance: {},
 };
 
-/** Parse a project's `aiMemory` into a typed {@link ProjectMemory} (never throws). */
-export function readMemory(project: Project): ProjectMemory {
+const PREFERENCE_KEYS = [
+  'targetAudience',
+  'brandStyle',
+  'captionStyle',
+  'preferredPacing',
+] as const satisfies readonly MemoryPreferenceKey[];
+
+/**
+ * Drop every preference whose TTL has run out as of `atTurn`.
+ *
+ * Expiry is applied on READ, never by rewriting the file. A stale entry is
+ * cheap to ignore and expensive to lose: if the turn counter is wrong, or the
+ * user reopens a project months later at turn 0, a read-side filter shows the
+ * memory again rather than having silently deleted it on some earlier turn.
+ */
+function withoutExpired(memory: ProjectMemory, atTurn: number): ProjectMemory {
+  const live: ProjectMemory = { ...memory, provenance: { ...memory.provenance } };
+  let dropped = false;
+  for (const key of PREFERENCE_KEYS) {
+    const entry = memory.provenance[key];
+    if (entry?.expiresAfterTurns === undefined) continue;
+    if (atTurn <= entry.turn + entry.expiresAfterTurns) continue;
+    delete live[key];
+    delete live.provenance[key];
+    dropped = true;
+  }
+  if (dropped) log.debug('memory read dropped expired preferences', { atTurn });
+  return live;
+}
+
+/**
+ * Parse a project's `aiMemory` into a typed {@link ProjectMemory} (never throws).
+ *
+ * @param atTurn - When given, preferences whose TTL has run out by this turn are
+ *   filtered out of the result. Omit it to read everything the file holds.
+ */
+export function readMemory(project: Project, atTurn?: number): ProjectMemory {
   const parsed = ProjectMemorySchema.safeParse(project.aiMemory);
-  return parsed.success ? parsed.data : { ...EMPTY };
+  const memory = parsed.success ? parsed.data : { ...EMPTY };
+  return atTurn === undefined ? memory : withoutExpired(memory, atTurn);
 }
 
 /** Return a new project with `aiMemory` replaced by `memory`. */
@@ -65,9 +129,25 @@ export function writeMemory(project: Project, memory: ProjectMemory): Project {
   return { ...project, aiMemory: { ...memory } as Record<string, unknown> };
 }
 
-/** Set one free-text preference (e.g. "User prefers bold yellow captions"). */
-export function setPreference(project: Project, key: MemoryPreferenceKey, value: string): Project {
-  return writeMemory(project, { ...readMemory(project), [key]: value });
+/**
+ * Set one free-text preference (e.g. "User prefers bold yellow captions").
+ *
+ * Writing a key REPLACES what was there, provenance included. That is what
+ * supersession means here: a contradicting instruction does not merge with the
+ * decision it contradicts, and the superseded entry is not kept as a rival the
+ * context builder might still surface.
+ */
+export function setPreference(
+  project: Project,
+  key: MemoryPreferenceKey,
+  value: string,
+  provenance?: MemoryProvenance,
+): Project {
+  const memory = readMemory(project);
+  const nextProvenance = { ...memory.provenance };
+  if (provenance === undefined) delete nextProvenance[key];
+  else nextProvenance[key] = provenance;
+  return writeMemory(project, { ...memory, [key]: value, provenance: nextProvenance });
 }
 
 /** Replace the list of target export platforms. */
@@ -103,10 +183,25 @@ export function recordRejected(project: Project, patch: Patch): Project {
  */
 export function summarizeMemory(memory: ProjectMemory): string {
   const lines: string[] = [];
-  if (memory.targetAudience) lines.push(`Target audience: ${memory.targetAudience}`);
-  if (memory.brandStyle) lines.push(`Brand style: ${memory.brandStyle}`);
-  if (memory.captionStyle) lines.push(`Caption style: ${memory.captionStyle}`);
-  if (memory.preferredPacing) lines.push(`Preferred pacing: ${memory.preferredPacing}`);
+  // The source is shown only when it is NOT the user, because "the user said so" is
+  // the default reading of a remembered preference and spending tokens to say it on
+  // every turn would tell the model nothing it did not already assume.
+  const note = (key: MemoryPreferenceKey): string => {
+    // Optional-chained because `summarizeMemory` renders whatever it is handed —
+    // including memory objects assembled in the host rather than parsed from a file.
+    const source = memory.provenance?.[key]?.source;
+    return source === undefined || source === 'user' ? '' : ` (${source})`;
+  };
+  if (memory.targetAudience) {
+    lines.push(`Target audience: ${memory.targetAudience}${note('targetAudience')}`);
+  }
+  if (memory.brandStyle) lines.push(`Brand style: ${memory.brandStyle}${note('brandStyle')}`);
+  if (memory.captionStyle) {
+    lines.push(`Caption style: ${memory.captionStyle}${note('captionStyle')}`);
+  }
+  if (memory.preferredPacing) {
+    lines.push(`Preferred pacing: ${memory.preferredPacing}${note('preferredPacing')}`);
+  }
   if (memory.exportPlatforms.length > 0) {
     lines.push(`Export platforms: ${memory.exportPlatforms.join(', ')}`);
   }

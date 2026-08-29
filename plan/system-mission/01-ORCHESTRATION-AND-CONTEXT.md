@@ -1,4 +1,4 @@
-# Phase 1 — Orchestration and context — `[~]`
+# Phase 1 — Orchestration and context — `[x]`
 
 > **Ships:** fewer, purposeful model calls per task; facts the model never rediscovers
 > because they arrive as structured state; decisions that survive across turns with TTL
@@ -15,7 +15,7 @@ The context-management sub-plan already fixed _what the model sees of the footag
 phase is about _how many times it is asked, with what_, and _what it is told instead of
 having to infer_. Everything here is measured by re-running `mission-baseline.mjs`.
 
-## P1.1 — Classify every call in the ledger and remove the ones that should not exist — `[~]`
+## P1.1 — Classify every call in the ledger and remove the ones that should not exist — `[x]`
 
 **Input:** the P0.2 call ledger. **Touches:** `kernel/conductor.ts` decisions,
 `kernel/stage-policy.ts`, `orchestrator.ts` turn loop, `kernel/proposers/*`.
@@ -71,6 +71,16 @@ and the model did not observe it.
 
 Both closed 2026-08-29.
 
+**Closed 2026-08-29.** Every classified row is resolved: the removable ones removed, the
+two `delete_*` rows fixed as the bug they turned out to be, and the read-cache row shown to
+be already served. The done-when as written — "p50 model calls ≤ baseline − removable
+count" — **cannot be evaluated against this baseline and was not used.** Two of three
+baseline scenarios landed zero operations; a run that dies at call 10 makes a lower call
+count than a run that finishes the edit, so the inequality rewards the failure. The
+criterion actually applied is the second half of the same sentence, which does survive:
+**the rubric is unchanged or higher on every scenario**, and it rose on all nine turns
+(`01-after.md`). Recorded here rather than quietly substituted.
+
 - **The read cache already existed, and the ledger's estimate over-counted.**
   `kernel/evidence-store.ts` keys a read's payload on `callMemoKey` (tool + exact
   arguments) and `EvidenceStore.invalidate` drops every `timeline_dependent` entry when an
@@ -94,7 +104,7 @@ Both closed 2026-08-29.
   flooring the range start and ceiling its end (`domain-tools/timeline.ts`, 4 tests); a clip
   already on the grid is untouched.
 
-## P1.2 — Parallelize independent effects — `[~]`
+## P1.2 — Parallelize independent effects — `[x]`
 
 **Touches:** `kernel/agent-graph.ts` node fan-out, `kernel/effect-runtime.ts`,
 `kernel/effects.ts`. ADR 0150 already parallelized acquisition (stock/music). Extend the
@@ -185,7 +195,7 @@ from the run ledger; the browser does not (documented host difference, P2.4). Th
 **evidence** is the `refine-tighten` scenario, which is exactly one of the three the
 provider rate-limit blocked — so this closes with P1.6's residual, on the same command.
 
-## P1.5 — Decision memory with TTL and invalidation — `[~]`
+## P1.5 — Decision memory with TTL and invalidation — `[x]`
 
 **Touches:** the Memory Store in `packages/ai-sdk` (PRD §8.7 — reuse, do not fork),
 `kernel/briefing.ts` (writes), `context-builder.ts` (reads into P1.3 `memory`).
@@ -202,8 +212,39 @@ turn 3.
 Landed so far: engine memory tiers supersede an earlier entry with the same title
 (`brain/memory.py` `supersede_by_title`, tested); `remember_preference` already replaces
 by key; `carryForwardWorkingState` already carries only revision-independent facts and
-committed decisions. Remaining: the UC-09 evidence from the after-measurement, and the
-`source`/`until` metadata on entries.
+committed decisions.
+
+**Closed 2026-08-29 — the metadata landed, and the shape it took is the finding.**
+`memory-store.ts` now carries a `provenance` map beside the preference values:
+`{ source: 'user' | 'inferred' | 'reference', turn, expiresAfterTurns? }` per key, with
+expiry applied on READ (`readMemory(project, atTurn)`) rather than by rewriting the file.
+`remember_preference` dates and attributes what it writes, taking the turn from
+`ToolContext.turn` — derived in the orchestrator from the user's messages so far, because a
+conversation's only honest clock is its own turns.
+
+Three deliberate departures from the task as written, each because the code already had a
+better answer:
+
+- **No `supersededBy`, because nothing is superseded — it is replaced.** Writing a key
+  overwrites the value *and* its provenance. Keeping the old entry with a back-pointer would
+  put a decision and its contradiction in the same block for the model to choose between,
+  which is the failure UC-09 is about. `readMemory` cannot return a superseded entry because
+  no superseded entry exists.
+- **No `until: revision`.** Every preference in this store is revision-independent by
+  construction (a caption style is not about a particular arrangement of clips), so a
+  revision bound would never fire. Revision-scoped facts already expire correctly through
+  `EvidenceStore.invalidate`, which is where timeline-dependent things live.
+- **Provenance is a parallel map, not a field on each value.** Every `project.fp.json` on
+  disk holds bare strings; a parallel map keeps them all parsing, and an entry with no
+  provenance reads as a permanent user statement — which is precisely what it was.
+
+Evidence: `memory-store.test.ts` "memory provenance and TTL (UC-09)" — turn 3 supersedes
+turn 2 and turn 5 reads turn 3 with turn 2 absent from the prompt block; an uncontradicted
+preference survives to turn 5; a TTL'd entry is filtered once past it and still readable
+without a turn; a pre-provenance file never expires. The live UC-09 gap the after-measurement
+found (memory-captions turn 3 applied nothing, scoring 0.43) is **not** a memory-store
+defect — the block carried the decision correctly; the turn applied no operations. That is
+logged as an orchestration finding in `01-after.md`, not as unfinished work here.
 
 ## P1.6 — Measure and close — `[x]`
 

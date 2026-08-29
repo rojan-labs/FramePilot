@@ -375,6 +375,15 @@ export const PROJECT_TOOLS: readonly ToolSpec[] = [
       const next: Record<string, unknown> = { ...memory };
       if (a.key !== undefined && a.value !== undefined) {
         next[a.key satisfies MemoryPreferenceKey] = a.value;
+        // Dated and attributed at the point of writing. `user` is the only honest
+        // source for this tool: the model is told to call it when the USER states a
+        // lasting preference, so anything it records here is the user talking. An
+        // inference the agent made about the footage is written by the code that made
+        // it, not through a tool the model can reach.
+        next['provenance'] = {
+          ...memory.provenance,
+          [a.key]: { source: 'user', turn: ctx.turn ?? 0 },
+        };
       }
       if (a.exportPlatforms !== undefined) next.exportPlatforms = [...a.exportPlatforms];
       return [{ type: 'set_ai_memory', memory: next }];

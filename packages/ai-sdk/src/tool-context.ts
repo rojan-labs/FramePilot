@@ -17,6 +17,14 @@ export interface ToolContext {
   readonly project: Project;
   /** Current host authority revision used to reject project-only stale interaction snapshots. */
   readonly projectRevision?: number;
+  /**
+   * Which turn of this conversation is running, counting the user's messages.
+   *
+   * Memory writes date themselves with it, so a preference can be given a TTL in
+   * turns rather than in wall-clock time — "punchier than that" should not outlive
+   * the cut it was said about, and turns are the only clock a conversation has.
+   */
+  readonly turn?: number;
   /** The user's current time selection, if any. */
   readonly selection?: { readonly start: Seconds; readonly end: Seconds };
   /** Authoritative live editor state captured for this turn; tools must not infer around it. */

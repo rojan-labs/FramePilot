@@ -74,6 +74,8 @@ export {
   createStockProvider,
   normalizePexelsPhoto,
   normalizePexelsVideo,
+  PEXELS_API_BASE,
+  pexelsApiBase,
   PEXELS_PHOTO_SEARCH_URL,
   PEXELS_VIDEO_SEARCH_URL,
 } from './pexels-stock.js';
