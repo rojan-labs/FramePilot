@@ -102,6 +102,7 @@ import { PlanAccordion } from './PlanAccordion.js';
 import type { StepOutcome } from './EventNode.js';
 import { SteeringInput } from './SteeringInput.js';
 import { explainRunFailure } from '../../ai/runFailure.js';
+import { starterPrompts } from '../../ai/starterPrompts.js';
 import {
   formatDurationDelta,
   formatRunChangeGroups,
@@ -153,13 +154,6 @@ function loadPlanFirst(): boolean {
   }
 }
 
-/** Starter prompts shown in the empty state — each maps to a real timeline capability. */
-const EXAMPLE_PROMPTS: readonly string[] = [
-  'Remove the silent gaps',
-  'Add captions from the transcript',
-  'Punch in on the intro',
-  'Mute the music track',
-];
 const newId = (): string => globalThis.crypto.randomUUID();
 /** True for the `AbortError` a Stop/close raises through the browser stream — a clean
     cancellation, not a run failure. */
@@ -545,6 +539,10 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     },
     [project, onProjectChange],
   );
+  // UX-02: the empty state's suggestions are derived from this project, not four
+  // hard-coded strings — the walkthrough caught it offering "Add captions from the
+  // transcript" on a project with no transcript.
+  const examplePrompts = useMemo(() => starterPrompts(project), [project]);
   const contextItems = useMemo(
     () =>
       buildContextItems(project, composerSelection, pinnedEntities, remembered).filter(
@@ -1817,7 +1815,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
                   Describe a change and FramePilot proposes a reviewable, reversible edit.
                 </p>
                 <div className="ai-empty-prompts">
-                  {EXAMPLE_PROMPTS.map((prompt) => (
+                  {examplePrompts.map((prompt) => (
                     <button
                       key={prompt}
                       type="button"

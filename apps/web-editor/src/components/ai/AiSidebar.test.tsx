@@ -237,10 +237,13 @@ describe('AiSidebar', () => {
   it('shows the empty state and switches mode', () => {
     renderSidebar();
     expect(screen.getByText(/Edit your video with AI/i)).toBeTruthy();
-    // Example starter prompts prefill the composer.
-    fireEvent.click(screen.getByRole('button', { name: 'Mute the music track' }));
+    // Example starter prompts prefill the composer. This fixture's timeline is
+    // empty, so the suggestions are the ones that apply to an empty project —
+    // "Mute the music track" is no longer among them (UX-02, `starterPrompts`).
+    expect(screen.queryByRole('button', { name: 'Mute the music track' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'What’s in my footage?' }));
     expect((screen.getByLabelText('Message FramePilot') as HTMLTextAreaElement).value).toBe(
-      'Mute the music track',
+      'What’s in my footage?',
     );
     // Mode is a single dropdown now: open it and pick Chat.
     fireEvent.click(screen.getByRole('button', { name: 'AI mode' }));

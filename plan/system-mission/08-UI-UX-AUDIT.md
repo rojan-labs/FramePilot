@@ -95,6 +95,13 @@ the sidebar can read each state off the screen — which is only true end to end
   own words** — folding a long or multi-line one to its first line — because guessing a
   friendlier phrase for an unknown error trades a true technical sentence for a vague
   false one.
+- **Knows, second half — UX-02.** The empty state's four starter prompts were hard-coded
+  strings, and the walkthrough caught them saying exactly the wrong thing: "Add captions
+  from the transcript" on a project with no transcript, "Mute the music track" on a project
+  with no music. `ai/starterPrompts.ts` gives each candidate the precondition that makes it
+  real and shows the first four that hold; the last two are unconditional so the panel's
+  first impression is never blank. A suggestion that cannot work is worse than no
+  suggestion — it teaches the user that the AI does not know what is in front of it.
 - **Doing** and **Needs** were already right and are now pinned by tests rather than by
   assumption: the activity rail names the phase and the composer holds a Stop; a blocked
   run renders the model's own question with its options as buttons. Raw tool JSON was
