@@ -20,7 +20,7 @@ bodies in `packages/ai-sdk/skills/*.md`, orchestrator mode instructions, Python
 came from the model layer. Table: location, tokens, consumer surfaces, last changed.
 **Done when:** `docs/reports/system-mission/02-prompt-inventory.md` exists.
 
-## P2.2 — Audit each prompt against the checklist — `[ ]`
+## P2.2 — Audit each prompt against the checklist — `[x]`
 
 Per entry: redundant instruction (already enforced in code or stated elsewhere) ·
 contradiction with another entry · verbosity · ambiguity in a tool contract · repeated
@@ -31,6 +31,11 @@ Fix in place. Prefer deleting to rewriting. Never lengthen a prompt to fix a beh
 that a validator can enforce.
 **Done when:** each inventory row has an audit outcome and the goldens are regenerated
 with the delta recorded.
+
+Landed 2026-08-29: `02-prompt-inventory.md` §7 holds the per-row outcomes. Two cuts —
+`auto_emphasize_captions` lost its duplicate 800-token `style` schema, `set_caption_style`
+lost the 45-name template list — −959 tokens per request on the golden sessions; all
+other rows kept with the reason recorded.
 
 ## P2.3 — Tool description parity (TS ↔ Python ↔ MCP) — `[x]`
 

@@ -619,8 +619,13 @@ def test_add_clips_places_a_sequence_in_one_patch(ctx: ToolContext, project: Pro
             "clips": [
                 {"assetId": "asset_001", "start": 10.0, "end": 11.0},
                 # A legacy caller's sourceEnd is ignored here exactly as it is in add_clip.
-                {"assetId": "asset_001", "start": 11.0, "end": 11.5, "sourceStart": 2.0,
-                 "sourceEnd": 5.0},
+                {
+                    "assetId": "asset_001",
+                    "start": 11.0,
+                    "end": 11.5,
+                    "sourceStart": 2.0,
+                    "sourceEnd": 5.0,
+                },
             ],
         },
         ctx,
@@ -1029,7 +1034,7 @@ def test_set_track_caption_style_emits_complete_composition(ctx: ToolContext) ->
     ]
 
 
-def test_auto_emphasize_captions_is_grounded_and_can_compose_layout(ctx: ToolContext) -> None:
+def test_auto_emphasize_captions_is_grounded_and_keeps_track_design(ctx: ToolContext) -> None:
     result = run_tool(
         "auto_emphasize_captions",
         {
@@ -1037,7 +1042,6 @@ def test_auto_emphasize_captions_is_grounded_and_can_compose_layout(ctx: ToolCon
             "keywords": ["HELLO"],
             "color": "#ff3b30",
             "fontScale": 1.35,
-            "style": {"fontFamily": "Poppins", "xPercent": 42, "yPercent": 68},
         },
         ctx,
     )
@@ -1046,9 +1050,6 @@ def test_auto_emphasize_captions_is_grounded_and_can_compose_layout(ctx: ToolCon
             "type": "set_track_caption_style",
             "trackId": "cap",
             "captionStyle": {
-                "fontFamily": "Poppins",
-                "xPercent": 42.0,
-                "yPercent": 68.0,
                 "accent": {
                     "mode": "keywords",
                     "keywords": ["hello"],
@@ -1441,8 +1442,10 @@ def test_get_timeline_windows_by_start_end(ctx: ToolContext) -> None:
     both times, and spent two of its seventeen model calls learning that a read
     it had every reason to expect did not exist.
     """
+
     def clip_ids(data: dict[str, Any]) -> list[list[str]]:
         return [[clip["id"] for clip in track["clips"]] for track in data["tracks"]]
+
     assert clip_ids(run_tool("get_timeline", {}, ctx).data) == [["A", "B"], ["AU"], [], []]
     assert clip_ids(run_tool("get_timeline", {"end": 4}, ctx).data) == [["A"], ["AU"], [], []]
     assert clip_ids(run_tool("get_timeline", {"start": 5}, ctx).data) == [["B"], [], [], []]

@@ -600,12 +600,11 @@ class SetTrackCaptionStyleArgs(BaseModel):
 
 
 class AutoEmphasizeCaptionsArgs(BaseModel):
-    """AI-selected, transcript-grounded emphasis plus optional track composition."""
+    """AI-selected, transcript-grounded emphasis on the track's existing design."""
 
     model_config = _STRICT
     track_id: str = Field(alias="trackId")
     keywords: list[str] = Field(min_length=1, max_length=12)
-    style: CaptionStyle | None = None
     color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$")
     font_scale: float | None = Field(default=None, alias="fontScale", ge=1.0, le=3.0)
 
@@ -1471,8 +1470,8 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "auto_emphasize_captions",
         "Apply AI-selected semantic emphasis to a caption track. Read the mapped transcript, "
         "then provide 1-12 sparse exact spoken keywords chosen for meaning, delivery and payoff. "
-        "Every term is grounded against caption/transcript text. Optional style simultaneously "
-        "sets font, template, x/y placement and the complete caption composition.",
+        "Every term is grounded against caption/transcript text. Existing track styling is "
+        "preserved; change the design itself with set_track_caption_style.",
         kind="mutate",
         input_model=AutoEmphasizeCaptionsArgs,
         mutating=True,

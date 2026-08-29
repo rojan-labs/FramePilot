@@ -517,15 +517,12 @@ def auto_emphasize_captions(args: AutoEmphasizeCaptionsArgs, ctx: ToolContext) -
         raise ValueError(f'Unknown track "{args.track_id}". Use get_timeline to list real ids.')
     if track.type != TrackType.CAPTION:
         raise ValueError(f'Track "{args.track_id}" is not a caption track.')
-    _assert_known_caption_style(args.style)
     keywords = _grounded_caption_keywords(track, ctx.project, args.keywords)
     caption_style = (
         track.caption_style.model_dump(by_alias=True, exclude_none=True)
         if track.caption_style is not None
         else {}
     )
-    if args.style is not None:
-        caption_style.update(args.style.model_dump(by_alias=True, exclude_none=True))
     accent = dict(caption_style.get("accent", {}))
     accent.update(
         {

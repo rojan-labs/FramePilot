@@ -86,3 +86,35 @@ so their wording is this wording (P2.3 extends the parity fixture to description
 3. The action log's growth inside `system` (2.2k → 5.8k) — `compactAgentLog` exists; check
    its window.
 4. Skills manifest 1.6k — fine; bodies are on demand.
+
+## 7. Audit outcomes (P2.2, 2026-08-29)
+
+Checklist applied per row: redundant · contradiction · verbosity · ambiguous contract ·
+repeated context · weak output schema · missing constraint · injection surface · rule that
+should be code. Outcome legend: **keep** (earns its tokens), **cut** (edited in this pass),
+**code** (moved or already enforced in code, prompt untouched).
+
+| Row | Outcome | Finding |
+| --- | --- | --- |
+| `SYSTEM_PROMPT` | keep | 135 tokens; every sentence names an authority rule the validator cannot express (who may edit, when to ask). |
+| `CRITIC_JUDGMENT_SYSTEM_PROMPT` | keep | advisory only; JSON output schema is parsed, not prose. |
+| `QUESTION_MODE_INSTRUCTION`, `AGENT_PLAN_DRAFT_INSTRUCTION`, `PLAN_MODE_INSTRUCTION` | keep | route-scoped; none repeats the contract. |
+| Context: project header / timeline / media bin | keep | facts, not instructions; P1.3a `source media` block added the missing per-asset facts (Phase 1). |
+| Context: session context / scoped memory / run briefing / action log | keep (code) | growth 2.2k→5.8k is the action log; `compactAgentLog` window is Phase 5's lever, not wording. |
+| Context: user request | keep | user text sits in the `user` turn, never concatenated into an instruction position — injection check passes. |
+| Skills manifest (21) | keep | all descriptions 122–260 chars, under the 300 cap; no two name the same situation (P2.5 evidence). |
+| `set_caption_style` | **cut** | description re-listed all 45 template names that `discover_caption_styles` already returns — repeated context. 321 → ~150 tokens. |
+| `auto_emphasize_captions` | **cut** | the optional `style` argument inlined the full 800-token caption schema a third time for a job (`set_track_caption_style`) another tool already owns — one responsibility per tool. Schema 864 → ~90 tokens; TS + Python handlers and tests simplified. |
+| `set_track_caption_style` | keep | the one place the full composition schema must live; 811 tokens is the schema, not padding. |
+| `professional_audio` | keep | the 698-token schema is a discriminated union of five sub-operations; the description names roles-vs-selection ducking, the failure the Critic caught late in the audio scenarios. |
+| `read_edit_signals` | keep | the "facts, never the move" contract is what stops the tool from being used as a planner. |
+| `professional_color`, `professional_edit` | keep | fail-closed evidence rules are stated once, here. |
+| `search_music`, `search_stock` | keep | the "phrase match / no tempo metadata / recall the remoteId" clauses each trace to a measured agent-log failure (see memory notes on remoteIds and novelty). |
+| `ask_user` | keep | the "this is the ONLY way to ask" clause exists because a prose question is not clickable; a code guarantee cannot replace it. |
+| `add_text_layer`, `add_clip`, `add_clips`, `add_track`, `add_transition` | keep | each restates exactly the invariant (no overlap, derived `sourceEnd`, id namespaces) that the validator rejects late; stating it early saves a round trip. Partly "rule that should be code": `sourceEnd` *is* derived in code — the sentence tells the model not to fight it. |
+| `map_footage`, `search_visual`, `get_mapped_transcript`, `track_subject_automatically` | keep | timeBase / asset-seconds distinction is the single most common wrong-time cause in the baseline ledgers. |
+| 66 remaining tools (≤ 250 tokens each) | keep | descriptions ≤ 250 tokens, parity-tested against the Python mirror (P2.3); no contradictions found between neighbours. |
+
+**Measured delta** (golden sessions, same fixture, same request): `usedTokens` 22,592 →
+21,633 per request (**−959, −4.2 %**) with the caption edits alone; every golden and both
+mirrors regenerated. The larger lever remains the stage-scoped tool set (P5), not wording.

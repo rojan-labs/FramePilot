@@ -134,7 +134,6 @@ const autoEmphasizeCaptionsSchema = z
   .object({
     trackId: z.string(),
     keywords: captionKeywordsSchema,
-    style: CaptionStyleSchema.nullable().optional(),
     color: z
       .string()
       .regex(/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/)
@@ -331,10 +330,8 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'Apply AI-selected semantic emphasis to a caption track as one reversible operation. ' +
         'First read get_mapped_transcript, reason about meaning, emotion, contrast, numbers, ' +
         'delivery and payoff, then submit 1-12 sparse exact spoken keywords. The tool grounds ' +
-        'every keyword against the captions/transcript and rejects invented text. Optional ' +
-        'style can simultaneously choose a discovered font/template and all composition ' +
-        'properties including xPercent/yPercent, size, rotation, width, alignment, spacing, ' +
-        'background and animation. Existing track styling is preserved for omitted fields.',
+        'every keyword against the captions/transcript and rejects invented text. Existing ' +
+        'track styling is preserved; change the design itself with set_track_caption_style.',
       capabilities: ['edit', 'captions', 'ai'],
     },
     autoEmphasizeCaptionsSchema,
@@ -346,23 +343,15 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
       if (track.type !== 'caption') {
         throw new Error(`Track "${a.trackId}" is not a caption track.`);
       }
-      assertKnownCaptionStyle(a.style ?? null);
       const keywords = groundedCaptionKeywords(track, ctx.project, a.keywords);
       const captionStyle = {
         ...(track.captionStyle ?? {}),
-        ...(a.style ?? {}),
         accent: {
           ...(track.captionStyle?.accent ?? {}),
-          ...(a.style?.accent ?? {}),
           mode: 'keywords' as const,
           keywords,
-          color:
-            a.color ?? a.style?.accent?.color ?? track.captionStyle?.accent?.color ?? '#ffd60a',
-          fontScale:
-            a.fontScale ??
-            a.style?.accent?.fontScale ??
-            track.captionStyle?.accent?.fontScale ??
-            1.18,
+          color: a.color ?? track.captionStyle?.accent?.color ?? '#ffd60a',
+          fontScale: a.fontScale ?? track.captionStyle?.accent?.fontScale ?? 1.18,
         },
       };
       return [{ type: 'set_track_caption_style', trackId: a.trackId, captionStyle }];
@@ -376,18 +365,10 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'composition surface: font/template, weight/style/scale, colors/outline, xPercent/' +
         'yPercent placement, rotation, maximum width, alignment, line height, safe area, ' +
         'letter spacing, background/padding, shadow, highlight, animation and accent. Prefer ' +
-        'captionStyle: ' +
-        '{ templateId } naming one of the ~45 caption templates — categories: one-word ' +
-        '(punchline, beast, impact, stamp), phrase (trio, duo, phrase-pop, duo-gold, ' +
-        'phrase-box, phrase-marker), karaoke (karaoke, broadcast, outline, glow, ' +
-        'minimal), build (hormozi, slide, bounce, typewriter, ticker), boxed (boxed, ' +
-        'tag), editorial (spotlight, headline, whisper), aesthetic (highlighter, pill, ' +
-        'ember, retro, caption-bar, pulse, negative, knockout, kinetic, cascade, ' +
-        'stacked), cinematic (soft-focus, soft-2, soft-3, soft-4, motion, ' +
-        'cinematic-cut, cinetop, real-estate, subtitle-pop). Any explicit field ' +
-        '(fontFamily/fontScale/colors/position/display/highlight/animation/accent) ' +
-        'overrides the template; call discover_caption_styles and load the caption-design ' +
-        'skill for selection guidance. Unbundled fonts and unknown templates are rejected. ' +
+        'captionStyle: { templateId } naming a template from discover_caption_styles (it ' +
+        'lists every template with its category); any explicit field overrides the ' +
+        'template. Load the caption-design skill for selection guidance. Unbundled fonts ' +
+        'and unknown templates are rejected. ' +
         'Pass captionStyle: null to clear styling back to unstyled. Meaningful on ' +
         'caption clips created by add_caption_layer.',
       capabilities: ['edit', 'captions'],

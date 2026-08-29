@@ -51,6 +51,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **AI tools:** `auto_emphasize_captions` no longer takes a `style` block (use `set_track_caption_style` for the design); `set_caption_style` points at `discover_caption_styles` instead of listing every template. About 960 fewer tokens on every agent request.
+
 - Platform export presets (Reels, TikTok, Shorts, YouTube, Square) are gone from the
   engine, the CLI (`--resolution/--fps/--quality/--codec/--container`), the dialog and
   the docs.

@@ -1342,22 +1342,18 @@ describe('per-clip styling edits (schema v5–v8) — caption/speed/crop/blend',
     ).toThrow(/must be unique/);
   });
 
-  it('auto_emphasize_captions falls back through style.accent, then the existing track style, for color/fontScale', () => {
+  it('auto_emphasize_captions falls back to the existing track style for color/fontScale', () => {
     const tool = getTool('auto_emphasize_captions');
     if (!tool?.buildOps) throw new Error('no buildOps for auto_emphasize_captions');
 
-    // No top-level color/fontScale: falls back to the per-call style.accent values.
-    const fromStyleAccent = tool.buildOps(
-      {
-        trackId: 'caption_1',
-        keywords: ['world'],
-        style: { accent: { mode: 'keywords', keywords: [], color: '#123456', fontScale: 2 } },
-      },
-      captionCtx,
-    );
-    expect(fromStyleAccent[0]).toMatchObject({
-      captionStyle: { accent: { color: '#123456', fontScale: 2 } },
-    });
+    // The per-call style block is gone (P2.2): design changes go through
+    // set_track_caption_style, so the only fallback is the track's existing accent.
+    expect(() =>
+      tool.buildOps?.(
+        { trackId: 'caption_1', keywords: ['world'], style: { accent: { mode: 'keywords', keywords: [] } } },
+        captionCtx,
+      ),
+    ).toThrow();
 
     // Neither top-level nor style.accent given: falls back to the track's existing style.
     const trackWithExistingAccent: ToolContext = {
@@ -1398,23 +1394,18 @@ describe('per-clip styling edits (schema v5–v8) — caption/speed/crop/blend',
     );
   });
 
-  it('AI auto emphasis grounds keywords and composes layout/font in the same track op', () => {
+  it('AI auto emphasis grounds keywords and keeps the existing track design', () => {
     const operations = buildCaption('auto_emphasize_captions', {
       trackId: 'caption_1',
       keywords: ['WORLD'],
       color: '#ff3b30',
       fontScale: 1.35,
-      style: { fontFamily: 'Poppins', xPercent: 42, yPercent: 68, textAlign: 'left' },
     });
     expect(operations).toEqual([
       {
         type: 'set_track_caption_style',
         trackId: 'caption_1',
         captionStyle: {
-          fontFamily: 'Poppins',
-          xPercent: 42,
-          yPercent: 68,
-          textAlign: 'left',
           accent: {
             mode: 'keywords',
             keywords: ['world'],
