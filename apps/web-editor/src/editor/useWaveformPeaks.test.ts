@@ -2,11 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   loadBrowserWaveformPeaks,
   readWaveformResponseBounded,
-  resetWaveformPeakCachesForTests,
+  clearWaveformPeakCache,
 } from './useWaveformPeaks.js';
 
 afterEach(() => {
-  resetWaveformPeakCachesForTests();
+  clearWaveformPeakCache();
   vi.restoreAllMocks();
 });
 

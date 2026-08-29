@@ -110,6 +110,7 @@ import {
   pinnableEntities,
 } from '../../ai/composerActions.js';
 import { recordProviderSuccess } from '../../editor/providerHealth.js';
+import { LruCache } from '../../editor/lruCache.js';
 import type { Attachment, ConversationUiState } from '../../ai/conversation.js';
 import { contextPhase, latestContextWindow } from './ContextWindowIndicator.js';
 import { type ContextDebugInfo, recentManifests } from './ContextDebugger.js';
@@ -187,15 +188,28 @@ const AI_STREAM_RENDER_SCHEDULER = createIntervalScheduler(50);
  * Same-document remounts are immediate, so carrying the exact live value across one is
  * a restore, never a guess. {@link ConversationUiState} keeps owning the COLD-start
  * (reload) case; this map only wins while the tab is alive.
+ *
+ * Bounded (P6.2): the key is a conversation id, so an unbounded Map would keep one
+ * entry per conversation ever opened for the life of the tab, across every project.
+ * Only the conversation being remounted can use its entry, so a small LRU loses
+ * nothing the cache was ever able to serve.
  */
-const scrollStateCache = new Map<string, { offset: number; stick: boolean }>();
+const MAX_CACHED_SCROLL_STATES = 32;
+const scrollStateCache = new LruCache<string, { offset: number; stick: boolean }>(
+  MAX_CACHED_SCROLL_STATES,
+);
 
 /**
- * Drop the cross-remount scroll cache. Tests only — it is module state that would
- * otherwise leak a previous test's scroll position into the next mount.
+ * Drop the cross-remount scroll cache — called on project switch (P6.2), and by tests,
+ * which would otherwise leak a previous mount's scroll position into the next.
  */
 export function resetAiSidebarScrollCache(): void {
   scrollStateCache.clear();
+}
+
+/** How many conversations' scroll states are cached right now (tests, resource probes). */
+export function aiSidebarScrollCacheSize(): number {
+  return scrollStateCache.size;
 }
 
 /** Order-insensitive equality for the two small id lists in {@link ConversationUiState}. */

@@ -11,8 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Patch } from '@framepilot/editor-core';
 import { createLogger, type CapabilityPackProjectResolutionWire } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
-import { clearBitmapCache } from './editor/bitmapCache.js';
-import { clearWaveformBitmapCache } from './components/ClipWaveform.js';
+import { clearProjectSessionCaches } from './editor/sessionCaches.js';
 import { ensureBaseTracks, newProject, uniqueProjectId } from './editor/project.js';
 import {
   getBridge,
@@ -237,16 +236,16 @@ export function App(): JSX.Element {
     return () => clearTimeout(timer);
   }, [project]);
 
-  // P6.2: the decoded-frame and waveform bitmap caches are keyed by asset URL, so a
-  // previous project's entries would sit in them until evicted by LRU pressure. Drop
-  // them the moment a different project is open — the memory goes back immediately
-  // and nothing from the old project can be served for the new one.
+  // P6.2: every session cache is keyed by something the OPEN project owns (asset URL,
+  // asset id, conversation id), so a previous project's entries would sit there until
+  // evicted by LRU pressure — which, for a user who opens one project at a time, is
+  // never. Drop them the moment a different project is open: the memory goes back
+  // immediately and nothing from the old project can be served for the new one.
   const cachedProjectId = useRef<string | null>(null);
   useEffect(() => {
     const id = project?.id ?? null;
     if (cachedProjectId.current !== null && cachedProjectId.current !== id) {
-      clearBitmapCache();
-      clearWaveformBitmapCache();
+      clearProjectSessionCaches();
     }
     cachedProjectId.current = id;
   }, [project?.id]);
