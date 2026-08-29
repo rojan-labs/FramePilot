@@ -3474,16 +3474,13 @@ input[type='checkbox']:focus-visible {
 /* Draggable divider between the top region and the timeline dock. It spans the
    MAIN column's width (the full-height right rail sits beside it, not above it). */
 .stage-splitter {
+  position: relative;
   height: var(--splitter-w);
   flex: none;
   cursor: row-resize;
   background: transparent;
   border-top: 1px solid var(--line);
   transition: background var(--dur-fast) var(--ease);
-}
-
-.stage-splitter {
-  position: relative;
 }
 
 /* Same as `.rail-splitter::before`: a wider grab area behind an unchanged hairline. */
