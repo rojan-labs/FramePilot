@@ -130,7 +130,10 @@ with startup latency, wall, CPU/GPU, RSS, intermediates, PSNR, progress accuracy
   faststart, hvc1, `FRAMEPILOT_HW_ENCODE`), encoder + args logged and on the job.
 - P7.6 progress channel from the render subprocess (stage + fraction), task
   `stage/progress`, client/hub/dialog show "Rendering… 42%", process-group SIGTERM on
-  cancel/timeout. Residual: ETA, export history list, plain-language encoder failure.
+  cancel/timeout. 2026-08-29 (later): "about Ns left" derived from the measured rate
+  after the first representative sample (never shown before 5 % has accrued — no fake
+  progress); a per-project "Recent exports" list (last 10, `useViewPreference`) with
+  Reveal per row. Residual: plain-language encoder failure line ("details" for stderr).
 - Measurement (P7.7, first pass, contaminated by a concurrent test run): 30 s 4K→1080p
   94.2 s → 92.6 s with VideoToolbox (ffmpeg CPU 146% → 48%): **the encoder was not the
   bottleneck; MoviePy's per-frame Python compositing is.** P7.5 targets that.

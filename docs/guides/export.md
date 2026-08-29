@@ -66,3 +66,14 @@ uv run framepilot render project.fp.json --resolution 1080p --fps source --quali
 
 The `/export` command and the `export_video` tool use the same engine path with the
 default settings; the agent never chooses a platform.
+
+## Progress, time left and recent exports
+
+While rendering, the status line shows the engine's stage and percentage, and — once
+enough of the render has run to measure its pace — "about N s left". The estimate is
+derived from progress the engine actually reported; it is never shown before there is a
+rate to derive it from.
+
+Each finished export is remembered per project (the last ten) under **Recent exports** in
+the Export dialog, with the resolution and container it was rendered at and a **Reveal**
+button that opens its folder.

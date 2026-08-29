@@ -7822,6 +7822,38 @@ details.inspector-panel[open] > .inspector-section-head::before {
   padding: var(--space-1) var(--space-3) var(--space-3);
 }
 
+/* Recent exports (P7.6): one row per remembered render — name, what it was, Reveal. */
+.export-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.export-history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.8rem;
+}
+
+.export-history-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.export-history-meta {
+  font-size: 0.74rem;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .export-field {
   display: flex;
   flex-direction: column;

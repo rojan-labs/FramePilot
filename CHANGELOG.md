@@ -28,6 +28,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Export:** the progress line now says about how long is left, measured from the render's own pace, and the dialog keeps a per-project list of recent exports with a Reveal button for each.
+
 - **Reference videos and images in the AI sidebar.** Attach a reference (📎 in the
   composer); it is copied into the project, analyzed once by the render engine (shot
   rhythm, tempo, speech share, look; image size, transparency, palette), given a role

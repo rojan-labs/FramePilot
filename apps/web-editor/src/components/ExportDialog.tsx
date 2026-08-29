@@ -109,7 +109,8 @@ function coerceExportSettings(raw: unknown): DialogExportSettings | undefined {
     resolution,
     fps: pick(r['fps'], FRAME_RATES) ?? 'source',
     quality: pick(r['quality'], QUALITIES) ?? 'recommended',
-    bitrateKbps: typeof r['bitrateKbps'] === 'number' && r['bitrateKbps'] > 0 ? r['bitrateKbps'] : null,
+    bitrateKbps:
+      typeof r['bitrateKbps'] === 'number' && r['bitrateKbps'] > 0 ? r['bitrateKbps'] : null,
     videoCodec: pick(r['videoCodec'], VIDEO_CODECS) ?? 'h264',
     container: pick(r['container'], CONTAINERS) ?? 'mp4',
   };
@@ -146,7 +147,11 @@ export function exportFrameFor(
   };
 }
 
-export function videoBitrateKbps(settings: DialogExportSettings, shortEdge: number, fps: number): number {
+export function videoBitrateKbps(
+  settings: DialogExportSettings,
+  shortEdge: number,
+  fps: number,
+): number {
   if (settings.bitrateKbps) return settings.bitrateKbps;
   const rungs = Object.keys(BITRATE_LADDER_KBPS)
     .map(Number)
@@ -167,7 +172,7 @@ export function estimateExportBytes(
   const kbps =
     videoBitrateKbps(settings, Math.min(target.width, target.height), target.fps) +
     AUDIO_BITRATE_KBPS[settings.quality];
-  return Math.round((kbps * 1000) / 8 * Math.max(0, durationSeconds));
+  return Math.round(((kbps * 1000) / 8) * Math.max(0, durationSeconds));
 }
 
 export function formatBytes(bytes: number): string {
@@ -194,7 +199,9 @@ export function settingsSummary(
 ): string {
   const target = exportFrameFor(settings, frame, maxSourceShortEdge);
   const codec = settings.videoCodec === 'hevc' ? 'HEVC (H.265)' : 'H.264';
-  const size = formatBytes(estimateExportBytes(settings, frame, maxSourceShortEdge, durationSeconds));
+  const size = formatBytes(
+    estimateExportBytes(settings, frame, maxSourceShortEdge, durationSeconds),
+  );
   const fps = Number.isInteger(target.fps) ? String(target.fps) : target.fps.toFixed(2);
   return `${target.width} × ${target.height} · ${fps} fps · ${settings.container.toUpperCase()} (${codec}) · about ${size}`;
 }
@@ -257,6 +264,53 @@ function suggestedFileName(outputPath: string): string {
   return outputPath.split(/[/\\]/).pop() || 'export.mp4';
 }
 
+/** One finished export, remembered per project (P7.6): where it went and what it was. */
+export interface ExportHistoryEntry {
+  readonly at: string;
+  readonly path: string;
+  readonly label: string;
+}
+const EXPORT_HISTORY_LIMIT = 10;
+
+export function coerceExportHistory(raw: unknown): ExportHistoryEntry[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const entries = raw.filter(
+    (e): e is ExportHistoryEntry =>
+      !!e &&
+      typeof e === 'object' &&
+      typeof (e as ExportHistoryEntry).at === 'string' &&
+      typeof (e as ExportHistoryEntry).path === 'string' &&
+      typeof (e as ExportHistoryEntry).label === 'string',
+  );
+  return entries.slice(0, EXPORT_HISTORY_LIMIT);
+}
+
+/**
+ * Time left, from the progress the engine actually reported — never a fabricated bar
+ * (this project's no-fake-progress invariant). Measured from the first sample after
+ * the run settled in (the preparing stage is not representative), and only once enough
+ * progress has accrued for the rate to mean something.
+ */
+export function estimateSecondsLeft(
+  first: { readonly at: number; readonly progress: number },
+  now: { readonly at: number; readonly progress: number },
+): number | undefined {
+  const advanced = now.progress - first.progress;
+  const elapsed = now.at - first.at;
+  if (advanced < 0.05 || elapsed <= 0 || now.progress >= 1) return undefined;
+  return (elapsed / 1000) * ((1 - now.progress) / advanced);
+}
+
+function formatSecondsLeft(seconds: number): string {
+  const whole = Math.max(1, Math.round(seconds));
+  if (whole < 60) return `about ${String(whole)}s left`;
+  const minutes = Math.floor(whole / 60);
+  const rest = whole % 60;
+  return rest === 0
+    ? `about ${String(minutes)}m left`
+    : `about ${String(minutes)}m ${String(rest)}s left`;
+}
+
 export function ExportDialog({
   ensureSaved,
   onReveal,
@@ -301,6 +355,14 @@ export function ExportDialog({
   const [eq, setEq] = useState<string>('');
   const [compression, setCompression] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
+  const [history, setHistory] = useViewPreference<ExportHistoryEntry[]>(
+    `export.history.${projectId ?? 'default'}`,
+    [],
+    coerceExportHistory,
+  );
+  // ETA (P7.6): the first representative progress sample of this run, and the latest.
+  const etaFirst = useRef<{ at: number; progress: number } | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState<number | undefined>(undefined);
 
   // Export progress arrives as main→renderer pushes scoped by requestId (H1.3b).
   // Subscribe once, up front, and buffer/replay by id — mirroring the desktop AI
@@ -329,9 +391,20 @@ export function ExportDialog({
       void (async () => {
         const savedPath = await promptSaveAs(result.outputPath);
         setPhase({ kind: 'done', outputPath: result.outputPath, savedPath });
+        const path = savedPath ?? result.outputPath;
+        setHistory((current) =>
+          [
+            {
+              at: new Date().toISOString(),
+              path,
+              label: `${settings.resolution} · ${settings.container.toUpperCase()}`,
+            },
+            ...current.filter((entry) => entry.path !== path),
+          ].slice(0, EXPORT_HISTORY_LIMIT),
+        );
       })();
     },
-    [promptSaveAs],
+    [promptSaveAs, setHistory, settings.container, settings.resolution],
   );
 
   const handleMessage = useCallback(
@@ -347,12 +420,18 @@ export function ExportDialog({
         return;
       }
       if (message.status === 'queued') setPhase({ kind: 'queued' });
-      else if (message.status === 'running')
+      else if (message.status === 'running') {
         setPhase({
           kind: 'running',
           ...(message.stage !== undefined ? { stage: message.stage } : {}),
           ...(message.progress !== undefined ? { progress: message.progress } : {}),
         });
+        if (message.progress !== undefined && message.stage !== 'preparing_assets') {
+          const sample = { at: Date.now(), progress: message.progress };
+          if (etaFirst.current === null) etaFirst.current = sample;
+          setSecondsLeft(estimateSecondsLeft(etaFirst.current, sample));
+        }
+      }
       // A terminal status (completed/failed/cancelled) always arrives with
       // `result` set (handled above); 'cancelling' is a purely local phase set
       // immediately when the user clicks Cancel, not something the sidecar reports.
@@ -363,6 +442,8 @@ export function ExportDialog({
   useEffect(() => onExportProgress(handleMessage), [handleMessage]);
 
   const run = useCallback(async () => {
+    etaFirst.current = null;
+    setSecondsLeft(undefined);
     setPhase({ kind: 'queued' });
     const projectPath = await ensureSaved();
     if (!projectPath) {
@@ -454,7 +535,9 @@ export function ExportDialog({
     ) : phase.kind === 'running' ? (
       <p className="export-status" role="status">
         {phase.progress !== undefined
-          ? `${stageLabel(phase.stage)} ${Math.round(phase.progress * 100)}%`
+          ? `${stageLabel(phase.stage)} ${Math.round(phase.progress * 100)}%${
+              secondsLeft !== undefined ? ` · ${formatSecondsLeft(secondsLeft)}` : ''
+            }`
           : 'Rendering and validating the output…'}
       </p>
     ) : phase.kind === 'cancelling' ? (
@@ -553,7 +636,9 @@ export function ExportDialog({
                   disabled={exporting}
                   onChange={(value) =>
                     patchSettings({
-                      fps: (value === 'source' ? 'source' : Number(value)) as DialogExportSettings['fps'],
+                      fps: (value === 'source'
+                        ? 'source'
+                        : Number(value)) as DialogExportSettings['fps'],
                     })
                   }
                   options={FRAME_RATES.map((f) => ({
@@ -569,7 +654,10 @@ export function ExportDialog({
                   value={settings.quality}
                   disabled={exporting}
                   onChange={(value) =>
-                    patchSettings({ quality: value as DialogExportSettings['quality'], bitrateKbps: null })
+                    patchSettings({
+                      quality: value as DialogExportSettings['quality'],
+                      bitrateKbps: null,
+                    })
                   }
                   options={QUALITIES.map((q) => ({
                     value: q,
@@ -688,6 +776,34 @@ export function ExportDialog({
             <CreditsSection assets={assets} />
           </div>
 
+          {history.length > 0 && (
+            <section className="export-section export-history" aria-label="Recent exports">
+              <h3 className="export-section-head">Recent exports</h3>
+              <ul className="export-history-list">
+                {history.map((entry) => {
+                  const name = suggestedFileName(entry.path);
+                  return (
+                    <li key={`${entry.at}:${entry.path}`} className="export-history-row">
+                      <span className="export-history-name" title={entry.path}>
+                        {name}
+                      </span>
+                      <span className="export-history-meta">
+                        {entry.label} · {new Date(entry.at).toLocaleString()}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        type="button"
+                        aria-label={`Reveal ${name} in folder`}
+                        onClick={() => onReveal(entry.path)}
+                      >
+                        Reveal
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
           {/* Pinned. Carries the live status too, so progress is legible without
               scrolling back down through the options. */}
           <footer className="export-foot">

@@ -95,7 +95,15 @@ const FRAME = { width: 1080, height: 1920, fps: 30 };
 
 describe('ExportDialog', () => {
   it('shows the trigger but keeps the popover closed until clicked', () => {
-    render(<ExportDialog frame={FRAME} durationSeconds={30} assets={[]} ensureSaved={vi.fn()} onReveal={vi.fn()} />);
+    render(
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
+        ensureSaved={vi.fn()}
+        onReveal={vi.fn()}
+      />,
+    );
     expect(screen.getByRole('button', { name: 'Export video' })).toBeDefined();
     expect(screen.queryByRole('dialog', { name: 'Export video' })).toBeNull();
     openExportMenu();
@@ -103,7 +111,15 @@ describe('ExportDialog', () => {
   });
 
   it('closes the popover on Escape', () => {
-    render(<ExportDialog frame={FRAME} durationSeconds={30} assets={[]} ensureSaved={vi.fn()} onReveal={vi.fn()} />);
+    render(
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
+        ensureSaved={vi.fn()}
+        onReveal={vi.fn()}
+      />,
+    );
     openExportMenu();
     expect(screen.getByRole('dialog', { name: 'Export video' })).toBeDefined();
     fireEvent.keyDown(document, { key: 'Escape' });
@@ -116,7 +132,10 @@ describe('ExportDialog', () => {
     // below the fold and the user had to scroll a settings list to reach the
     // button the popover exists for. The footer must be a SIBLING of the body.
     render(
-      <ExportDialog frame={FRAME} durationSeconds={30} assets={[creditedAsset('cc-by-1'), creditedAsset('cc-by-2')]}
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[creditedAsset('cc-by-1'), creditedAsset('cc-by-2')]}
         ensureSaved={vi.fn()}
         onReveal={vi.fn()}
       />,
@@ -132,7 +151,15 @@ describe('ExportDialog', () => {
   });
 
   it('summarises the audio section it collapses, so nothing set is hidden silently', () => {
-    render(<ExportDialog frame={FRAME} durationSeconds={30} assets={[]} ensureSaved={vi.fn()} onReveal={vi.fn()} />);
+    render(
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
+        ensureSaved={vi.fn()}
+        onReveal={vi.fn()}
+      />,
+    );
     openExportMenu();
     expect(screen.getByText('Unprocessed')).toBeDefined();
     fireEvent.click(screen.getByLabelText('Reduce background noise'));
@@ -142,7 +169,15 @@ describe('ExportDialog', () => {
   });
 
   it('states what the chosen settings actually render, in the project aspect, with a size estimate', () => {
-    render(<ExportDialog frame={FRAME} durationSeconds={30} assets={[]} ensureSaved={vi.fn()} onReveal={vi.fn()} />);
+    render(
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
+        ensureSaved={vi.fn()}
+        onReveal={vi.fn()}
+      />,
+    );
     openExportMenu();
     expect(screen.getByTestId('export-summary').textContent).toBe(
       '1080 × 1920 · 30 fps · MP4 (H.264) · about 31 MB',
@@ -159,16 +194,34 @@ describe('ExportDialog', () => {
     const assets = [
       { id: 'a', path: 'a.mp4', kind: 'video' as const, media: { width: 1280, height: 720 } },
     ];
-    render(<ExportDialog frame={FRAME} durationSeconds={30} assets={assets} ensureSaved={vi.fn()} onReveal={vi.fn()} />);
+    render(
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={assets}
+        ensureSaved={vi.fn()}
+        onReveal={vi.fn()}
+      />,
+    );
     openExportMenu();
     expect(screen.getByTestId('export-summary').textContent).toContain('720 × 1280');
     expect(screen.getByText(/capped there instead of being upscaled/)).toBeDefined();
     fireEvent.click(screen.getByRole('combobox', { name: 'Resolution' }));
-    expect(screen.getByRole('option', { name: '2160p (upscaled — sources are 720p)' })).toBeDefined();
+    expect(
+      screen.getByRole('option', { name: '2160p (upscaled — sources are 720p)' }),
+    ).toBeDefined();
   });
 
   it('shows a desktop-only note and disables Export in the browser', () => {
-    render(<ExportDialog frame={FRAME} durationSeconds={30} assets={[]} ensureSaved={vi.fn()} onReveal={vi.fn()} />);
+    render(
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
+        ensureSaved={vi.fn()}
+        onReveal={vi.fn()}
+      />,
+    );
     openExportMenu();
     expect(screen.getByRole('note').textContent).toContain('desktop app');
     expect((screen.getByRole('button', { name: 'Export' }) as HTMLButtonElement).disabled).toBe(
@@ -181,7 +234,15 @@ describe('ExportDialog', () => {
     const ensureSaved = vi.fn(async () => '/p/project.fp.json');
     const onReveal = vi.fn();
 
-    render(<ExportDialog frame={FRAME} durationSeconds={30} assets={[]} ensureSaved={ensureSaved} onReveal={onReveal} />);
+    render(
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
+        ensureSaved={ensureSaved}
+        onReveal={onReveal}
+      />,
+    );
     openExportMenu();
 
     fireEvent.click(screen.getByRole('combobox', { name: 'Format' }));
@@ -226,6 +287,68 @@ describe('ExportDialog', () => {
     expect(onReveal).toHaveBeenCalledWith('/out/final.mp4');
   });
 
+  it('shows a time-left estimate from measured progress and remembers the export (P7.6)', async () => {
+    const { emit } = installBridge();
+    const ensureSaved = vi.fn(async () => '/p/project.fp.json');
+    const onReveal = vi.fn();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(
+        <ExportDialog
+          frame={FRAME}
+          durationSeconds={30}
+          assets={[]}
+          ensureSaved={ensureSaved}
+          onReveal={onReveal}
+          projectId="proj_eta"
+        />,
+      );
+      openExportMenu();
+      expect(screen.queryByRole('region', { name: 'Recent exports' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+      await waitFor(() => expect(ensureSaved).toHaveBeenCalled());
+
+      vi.setSystemTime(new Date('2026-08-29T10:00:00Z'));
+      emit({
+        requestId: DEFAULT_REQUEST_ID,
+        status: 'running',
+        stage: 'rendering_frames',
+        progress: 0.1,
+      });
+      await waitFor(() => expect(screen.getByRole('status').textContent).toContain('10%'));
+      // Too little progress since the first sample → no estimate yet (never a guess).
+      expect(screen.getByRole('status').textContent).not.toContain('left');
+
+      vi.setSystemTime(new Date('2026-08-29T10:00:10Z'));
+      emit({
+        requestId: DEFAULT_REQUEST_ID,
+        status: 'running',
+        stage: 'rendering_frames',
+        progress: 0.5,
+      });
+      // 40% took 10 s → the remaining 50% takes about 12.5 s.
+      await waitFor(() =>
+        expect(screen.getByRole('status').textContent).toContain('about 13s left'),
+      );
+
+      emit({
+        requestId: DEFAULT_REQUEST_ID,
+        status: 'completed',
+        result: { ok: true, outputPath: '/out/final.mp4', state: 'completed' },
+      });
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Reveal in folder' })).toBeDefined(),
+      );
+      const recent = await screen.findByRole('region', { name: 'Recent exports' });
+      expect(recent.textContent).toContain('final.mp4');
+      expect(recent.textContent).toContain('1080p · MP4');
+      fireEvent.click(screen.getByRole('button', { name: 'Reveal final.mp4 in folder' }));
+      expect(onReveal).toHaveBeenCalledWith('/out/final.mp4');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('prompts Save As after export and reports the chosen destination', async () => {
     const exportSaveAs = vi.fn(async () => ({
       ok: true as const,
@@ -235,7 +358,10 @@ describe('ExportDialog', () => {
     const onReveal = vi.fn();
 
     render(
-      <ExportDialog frame={FRAME} durationSeconds={30} assets={[]}
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
         ensureSaved={async () => '/p/project.fp.json'}
         onReveal={onReveal}
       />,
@@ -270,7 +396,10 @@ describe('ExportDialog', () => {
     const { emit } = installBridge({ exportSaveAs });
 
     render(
-      <ExportDialog frame={FRAME} durationSeconds={30} assets={[]}
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
         ensureSaved={async () => '/p/project.fp.json'}
         onReveal={vi.fn()}
       />,
@@ -296,7 +425,10 @@ describe('ExportDialog', () => {
   it('forwards the chosen master-audio options', async () => {
     const { exportVideoStart } = installBridge();
     render(
-      <ExportDialog frame={FRAME} durationSeconds={30} assets={[]}
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
         ensureSaved={async () => '/p/project.fp.json'}
         onReveal={vi.fn()}
       />,
@@ -317,7 +449,10 @@ describe('ExportDialog', () => {
   it('forwards the chosen EQ preset and compression toggle (plan H1.4)', async () => {
     const { exportVideoStart } = installBridge();
     render(
-      <ExportDialog frame={FRAME} durationSeconds={30} assets={[]}
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
         ensureSaved={async () => '/p/project.fp.json'}
         onReveal={vi.fn()}
       />,
@@ -338,7 +473,15 @@ describe('ExportDialog', () => {
   it('reports when the project could not be saved before export', async () => {
     installBridge();
     const ensureSaved = vi.fn(async () => null);
-    render(<ExportDialog frame={FRAME} durationSeconds={30} assets={[]} ensureSaved={ensureSaved} onReveal={vi.fn()} />);
+    render(
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
+        ensureSaved={ensureSaved}
+        onReveal={vi.fn()}
+      />,
+    );
     openExportMenu();
     fireEvent.click(screen.getByRole('button', { name: 'Export' }));
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Could not save'));
@@ -347,7 +490,15 @@ describe('ExportDialog', () => {
   it('surfaces a render failure from the engine', async () => {
     const { emit } = installBridge();
     const ensureSaved = vi.fn(async () => '/p/project.fp.json');
-    render(<ExportDialog frame={FRAME} durationSeconds={30} assets={[]} ensureSaved={ensureSaved} onReveal={vi.fn()} />);
+    render(
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
+        ensureSaved={ensureSaved}
+        onReveal={vi.fn()}
+      />,
+    );
     openExportMenu();
     fireEvent.click(screen.getByRole('button', { name: 'Export' }));
 
@@ -365,7 +516,10 @@ describe('ExportDialog', () => {
   it('shows a Cancel export button while queued/running and wires it to exportVideoCancel', async () => {
     const { emit, exportVideoCancel } = installBridge();
     render(
-      <ExportDialog frame={FRAME} durationSeconds={30} assets={[]}
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
         ensureSaved={async () => '/p/project.fp.json'}
         onReveal={vi.fn()}
       />,
@@ -399,7 +553,10 @@ describe('ExportDialog', () => {
   it('stays open across a close/reopen and keeps in-progress state (never loses an export in flight)', async () => {
     const { emit } = installBridge();
     render(
-      <ExportDialog frame={FRAME} durationSeconds={30} assets={[]}
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
         ensureSaved={async () => '/p/project.fp.json'}
         onReveal={vi.fn()}
       />,
