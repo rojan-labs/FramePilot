@@ -82,7 +82,7 @@ no model fallback — an undecidable attachment is returned `ambiguous: true` wi
 `style` default, and the tile lets the editor change the role (P3.6). A per-turn model call
 to guess a purpose is exactly the kind of request this mission removes.
 
-## P3.3 — Reference profiles: analyze once, store, reuse — `[~]` (types + constraints landed; analysis route and cache next)
+## P3.3 — Reference profiles: analyze once, store, reuse — `[x]` (route + cache proven on real media)
 
 **Touches:** new `packages/ai-sdk/src/references/profile.ts` (types + builder),
 sidecar route `POST /references/analyze` in `service.py` (reuses scene detection, beat
@@ -107,6 +107,15 @@ sessions. **Persistence:** session store first; the project-file field needs the
 gate — write ADR + migration draft, mark `[!]`, continue.
 **Done when:** attaching `ref/fast-cut.mp4` twice runs analysis once (cache hit logged);
 the profile JSON snapshot matches for the fixture; `constraints` reads as editor language.
+
+
+**Closed 2026-08-30.** `references-analyze.spec.ts` runs green against the real `ref/`
+fixtures through the sidecar the desktop app itself spawned: a reference video is measured
+once and served from cache on the second call (asserted by COST — the second answer must
+come back in under half the first call's time, because a `cached` flag can be right while
+the work is done twice), `refresh: true` bypasses it, an image is measured for the fields
+the role classifier reads, and a path outside the sandbox is refused while a missing one is
+a 404. 3/3 rows, 10.0 s.
 
 ## P3.4 — Profiles enter context and the plan — `[~]`
 
@@ -178,7 +187,7 @@ handing back the same stale answer; changing the role re-measures under the new 
 4 tests. Also fixed on the way: `remove_silences` had no `toolMeta` entry, so its tool card
 would have rendered unnamed.
 
-## P3.7 — Tests, docs, close — `[~]` (everything but the two e2e runs, which need a provider and the maintainer's media)
+## P3.7 — Tests, docs, close — `[~]` (route test green on real media; the UC-06/07 journey leg still unrun)
 
 Unit: role table, profile builder, cache behaviour, context block. Sidecar: route test
 with the fixture. E2E hook for Phase 9 (UC-06/07). `docs/guides/reference-media.md`,

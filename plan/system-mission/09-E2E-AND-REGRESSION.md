@@ -68,12 +68,24 @@ Two rows had been "passing" because of defect 2 rather than on their merits: wit
 provider the run died instantly, which trivially satisfied "the run ends" without the run
 ever having started. They now fail honestly.
 
-**State at the end of the session: 2 of 4 provider rows green** (`a tool that throws
-mid-run`, `relaunching after a crash mid-run`). The remaining two — cancel mid-flight and
-the provider 5xx — have had their assertions corrected (see the cancel-settle finding in
-P9.2) but were not re-run: the session was stopped before the suite could be run again.
-Nothing here is claimed as passing that has not been seen to pass.
-## P9.2 — `failure-paths.spec.ts` — `[~]` (8/8 provider-free rows green incl. UC-16's real 4K/20-min file; 2 of 4 provider rows green)
+**Closed 2026-08-30 — 12 of 12 rows green**, the eight provider-free ones and all four
+under `MISSION_AI=1` against a real model provider. Two more corrections were needed on the
+way, both the same mistake in different clothes: an assertion that counted the app's own
+background media work as the thing under test.
+
+- The cancel row asserted `mediaChildren === 0` right after Stop and saw ten. Those ten are
+  one warm entry of the render composition cache (five sources x video + audio reader),
+  which `composition_cache.py` holds open deliberately and closes with the app. "No orphans"
+  means the work ENDS, so the row now waits for a quiet window with no NEW ffmpeg/ffprobe
+  and fails if the app is still starting work when the budget runs out.
+- The stock-outage row made the same claim and saw one, from the proxy work a 374-asset
+  project starts on open. It now samples before the search and asserts the search adds none.
+
+The 5xx row also hard-coded `FRAMEPILOT_AI_PROVIDER: 'deepseek'`, so on a machine configured
+for anything else the app started with a provider it had no key for and the row timed out
+having tested nothing. The proxy now sits in front of whichever provider the run would
+otherwise use.
+## P9.2 — `failure-paths.spec.ts` — `[x]` (12/12 rows green, including all four provider rows)
 
 UC-15 rows: provider 5xx mid-run, tool throw, sidecar kill, invalid media file, 4K
 20-minute file (UC-16), cancel mid-run, network offline for stock/music, export encoder
@@ -181,7 +193,7 @@ $ node packages/ai-sdk/scripts/mission-score.mjs reports/system-mission/.tmp-sco
 1 scenario(s) regressed by more than 0.05 …                             exit 2
 ```
 
-## P9.4 — Export tests — `[~]` (macOS hardware path green; the software-encoder path is runnable here via FRAMEPILOT_HW_ENCODE=0 and was not run)
+## P9.4 — Export tests — `[~]` (7/8 rows green on BOTH encoder paths; the reopen row is blocked on a real question about recents)
 
 UC-13 matrix (resolution × fps × codec × container, source-capped) against both fixture
 projects: `ffprobe` asserts dimensions, fps, codec, container, duration ±1 frame; cancel
@@ -222,20 +234,39 @@ of the file that was just written, not merely that a button exists. The renderer
 reloaded and the project reopened: the history entry and the chosen resolution both have to
 survive the window, because that is what the user comes back to.
 
-**Update 2026-08-29 — the second platform is not the blocker the note assumed.** The
-done-when says macOS (hardware) *and* Linux (software), but the variable that matters is the
-ENCODER PATH, not the kernel: `encoders.py` honours `FRAMEPILOT_HW_ENCODE=0`, which forces
-`libx264`/`libx265` on this machine. The whole matrix can therefore be run against the
-software path here, without a Linux runner and without the fixtures leaving the machine.
-That was set up (a sidecar on 8799 with `FRAMEPILOT_HW_ENCODE=0`) and **not run** — the
-session was stopped first. Running it is the remaining work, and it needs no new
-infrastructure.
+**Update 2026-08-30 — both encoder paths run, and running them found three real bugs.**
+The done-when's "macOS and Linux" was never about the kernel; it was about the hardware and
+software encoders, and `FRAMEPILOT_HW_ENCODE=0` forces `libx264`/`libx265` here. Running the
+matrix that way for the first time — and then again on hardware to check — turned up three
+defects, none of them in the code that computes the answer, all in the seams around it:
 
-`[~]`, not `[x]`, for one remaining honest reason: **the software-encoder half has
-not run.** The fixtures cannot reach a GitHub-hosted runner, so the matrix only runs where
-the media lives; it is green on macOS (hardware path) and the workflow is wired, but the
-two-platform "Done when" is not met until the self-hosted Linux runner exists.
+1. **A 360p source exported as a real 3840x2160 file, 148 MB of upscaled nothing.**
+   `project_for_render_worker` dropped `asset.media` from the spawn payload as
+   "timeline-preview metadata" that "cannot change render semantics". It can:
+   `source_facts` reads `media.width/height` for the cap that stops an upscale. The parent
+   resolved the target correctly throughout, so every in-process test agreed with itself
+   and only the spawned worker was blind. Fixed by keeping `media` minus its waveform
+   peaks, which are what actually made the payload big and which no render reads.
+2. **A cancelled export left a half-written file where the finished one goes.** Cancel
+   SIGTERMs the render's process group, so nothing in the worker runs on the way out —
+   including the pipeline's own partial-file discard, which only sees exceptions raised
+   inside the worker. The parent now cleans up, and has to recompute the default output
+   path because the HTTP API names none. Verified live: an 8 MB partial removed and logged.
+3. **Every dropdown in the export dialog closed the dialog.** `Select` portals its listbox
+   into `document.body`, putting the options outside the popover's subtree, and the
+   outside-press handler asked only whether the press landed inside that subtree — so
+   "picked 1080p" read as "clicked away". 32 existing tests missed it because
+   `fireEvent.click` never dispatches a `pointerdown`.
 
+**7 of 8 rows green on both paths.** The one that does not pass is the reopen leg of the
+history row, and it stops on something that is not an export question at all: after
+`page.goto` reloads the renderer, the home screen reports "No recent projects yet" for a
+project opened seconds earlier. The resource baseline (P6.1) stops on the same wall. It is
+recorded in §Discovered as a question for someone at the app, because whether that is a
+real defect or an artefact of reloading a renderer instead of restarting the app is not
+something the harness can answer.
+
+**Update 2026-08-29 — the second platform is not the blocker the note assumed.**
 ## P9.5 — Efficiency and resource gates — `[x]`
 
 `mission-baseline.mjs` in the nightly lane publishes tokens/turn, calls/task, context
@@ -322,6 +353,15 @@ media. `USE-CASES.md`'s own State column was left untouched (outside this task's
 `09-after.md` is the current answer.
 
 ## Discovered
+
+- [ ] **Recent projects is empty after a renderer reload.** Open a mission fixture project,
+  then reload the window: the home screen says "No recent projects yet" for a project opened
+  seconds earlier, even though `recentFiles.add(...)` runs on open and the store reads the
+  file on every render. Two independent rows stop here — the export history/reveal row
+  (P9.4) and the close/reopen leg of the resource baseline (P6.1). **Needs someone at the
+  app** to say whether a real user loses their recents (a defect) or whether reloading a
+  renderer is simply not the same as restarting the app (a harness artefact). Everything
+  either row asserts BEFORE the reload passes.
 
 - [ ] **The "unreadable media" row leaves a fixture directory at mode 000.** Found
   2026-08-29 the expensive way: `tests/fixtures/mission/projects/media/mission-montage/`
