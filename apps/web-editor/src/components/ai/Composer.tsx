@@ -10,7 +10,7 @@
  * parent owns the conversation + run.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { RunStatus } from '@framepilot/ai-sdk';
+import type { ReferenceRole, RunStatus } from '@framepilot/ai-sdk';
 import type { Attachment, ContextItem } from '../../ai/conversation.js';
 import {
   QUICK_ACTIONS,
@@ -86,6 +86,10 @@ export interface ComposerProps {
   readonly attachments: readonly Attachment[];
   readonly onAddAttachment: (attachment: Attachment) => void;
   readonly onRemoveAttachment: (id: string) => void;
+  /** Measure this reference again (P3.6) — e.g. after a failed analysis. */
+  readonly onReanalyzeAttachment?: (id: string) => void;
+  /** Correct the role the classifier guessed (P3.6). */
+  readonly onChangeAttachmentRole?: (id: string, role: ReferenceRole) => void;
   /**
    * Attach reference videos/images from a file picker (plan/system-mission P3.1). The
    * sidebar imports and analyzes them; the composer only collects the files.
@@ -99,6 +103,141 @@ export interface ComposerProps {
    */
   readonly atEntities: readonly PinnedEntity[];
   readonly onPinEntity: (entity: PinnedEntity) => void;
+}
+
+/** Every role the classifier can assign; the tile lets the editor correct it (P3.6). */
+const REFERENCE_ROLES: readonly ReferenceRole[] = [
+  'style',
+  'pacing',
+  'caption-style',
+  'color',
+  'brand-logo',
+  'thumbnail',
+  'b-roll',
+  'character',
+  'design',
+];
+
+/**
+ * One attached reference, with a disclosure showing what the AI actually learned from it
+ * (plan/system-mission P3.6).
+ *
+ * The chip alone said only "analyzing…" and then nothing — the editor attached a file,
+ * watched a spinner, and had no way to find out whether the thing was read as a pacing
+ * reference or a logo, or what it concluded. `constraints` is the exact text the planner
+ * reads, so showing that list is showing the truth rather than a summary of it. A failed
+ * analysis states its reason here too, with the retry next to it, instead of a toast that
+ * is gone by the time anyone reads it.
+ */
+function ReferenceChip(props: {
+  readonly attachment: Attachment;
+  readonly onRemove: (id: string) => void;
+  readonly onReanalyze?: (id: string) => void;
+  readonly onChangeRole?: (id: string, role: ReferenceRole) => void;
+}): JSX.Element {
+  const { attachment } = props;
+  const [open, setOpen] = useState(false);
+  const analyzed = attachment.profile?.analyzedAt;
+  const constraints = attachment.profile?.constraints ?? [];
+  const expandable = attachment.status === 'ready' || attachment.status === 'failed';
+
+  return (
+    <span className="ai-chip" data-kind={attachment.kind} data-open={open ? '' : undefined}>
+      {expandable ? (
+        <button
+          type="button"
+          className="ai-context-chip-label ai-chip-disclosure"
+          aria-expanded={open}
+          aria-label={`What FramePilot learned from ${attachment.name}`}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {attachment.name}
+        </button>
+      ) : (
+        <span className="ai-context-chip-label" title={attachment.name}>
+          {attachment.name}
+        </span>
+      )}
+      {attachment.role ? (
+        <span className="ai-chip-badge" data-role={attachment.role}>
+          {attachment.role}
+        </span>
+      ) : null}
+      {attachment.status && attachment.status !== 'ready' ? (
+        <span
+          className="ai-chip-status"
+          data-status={attachment.status}
+          title={attachment.error ?? attachment.status}
+        >
+          {attachment.status === 'analyzing' ? 'analyzing…' : attachment.status}
+        </span>
+      ) : null}
+      <button
+        type="button"
+        aria-label={`Remove ${attachment.name}`}
+        onClick={() => props.onRemove(attachment.id)}
+      >
+        <X size={12} aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="ai-chip-detail" role="group" aria-label={`${attachment.name} reference`}>
+          {attachment.status === 'failed' ? (
+            <p className="ai-chip-detail-error">
+              {attachment.error ?? 'The analysis did not finish.'}
+            </p>
+          ) : (
+            <>
+              <p className="ai-chip-detail-meta">
+                {analyzed === undefined
+                  ? 'Not analyzed yet.'
+                  : `Analyzed ${new Date(analyzed).toLocaleString()}`}
+              </p>
+              {constraints.length > 0 ? (
+                <ul className="ai-chip-detail-list">
+                  {constraints.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="ai-chip-detail-meta">
+                  Nothing measurable was found in this file, so it adds no constraints.
+                </p>
+              )}
+            </>
+          )}
+          <div className="ai-chip-detail-actions">
+            {props.onChangeRole && (
+              <label className="ai-chip-detail-role">
+                <span>Use as</span>
+                <select
+                  aria-label={`Role for ${attachment.name}`}
+                  value={attachment.role ?? 'style'}
+                  onChange={(event) =>
+                    props.onChangeRole?.(attachment.id, event.target.value as ReferenceRole)
+                  }
+                >
+                  {REFERENCE_ROLES.map((role) => (
+                    <option key={role} value={role}>
+                      {role}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {props.onReanalyze && attachment.path !== undefined && (
+              <button
+                type="button"
+                className="ai-btn ai-btn--quiet"
+                onClick={() => props.onReanalyze?.(attachment.id)}
+              >
+                Re-analyze
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </span>
+  );
 }
 
 export function Composer(props: ComposerProps): JSX.Element {
@@ -223,35 +362,15 @@ export function Composer(props: ComposerProps): JSX.Element {
       {props.attachments.length > 0 && (
         <div className="ai-attachments" aria-label="Attachments">
           {props.attachments.map((attachment) => (
-            <span
+            <ReferenceChip
               key={attachment.id}
-              className="ai-chip"
-              data-kind={attachment.kind}
-              title={attachment.name}
-            >
-              <span className="ai-context-chip-label">{attachment.name}</span>
-              {attachment.role ? (
-                <span className="ai-chip-badge" data-role={attachment.role}>
-                  {attachment.role}
-                </span>
-              ) : null}
-              {attachment.status && attachment.status !== 'ready' ? (
-                <span
-                  className="ai-chip-status"
-                  data-status={attachment.status}
-                  title={attachment.error ?? attachment.status}
-                >
-                  {attachment.status === 'analyzing' ? 'analyzing…' : attachment.status}
-                </span>
-              ) : null}
-              <button
-                type="button"
-                aria-label={`Remove ${attachment.name}`}
-                onClick={() => props.onRemoveAttachment(attachment.id)}
-              >
-                <X size={12} aria-hidden="true" />
-              </button>
-            </span>
+              attachment={attachment}
+              onRemove={props.onRemoveAttachment}
+              {...(props.onReanalyzeAttachment ? { onReanalyze: props.onReanalyzeAttachment } : {})}
+              {...(props.onChangeAttachmentRole
+                ? { onChangeRole: props.onChangeAttachmentRole }
+                : {})}
+            />
           ))}
         </div>
       )}

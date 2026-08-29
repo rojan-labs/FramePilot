@@ -112,13 +112,23 @@ with `source: reference`, `until: superseded`. Removing the tile supersedes it.
 **Done when:** UC-06 turn 3 without the attachment still applies the profile; removing the
 tile then asking again does not.
 
-## P3.6 — Sidebar shows what the AI knows about the reference — `[ ]`
+## P3.6 — Sidebar shows what the AI knows about the reference — `[x]`
 
 **Touches:** `AiSidebar.tsx` tile detail popover: role, the `constraints` lines, analyzed
 timestamp, "re-analyze" and "change role". Errors (unsupported codec, analysis failed)
 show on the tile, not as a toast.
 **Done when:** the popover renders the fixture profile; a failed analysis shows its reason
 and retries.
+
+Landed 2026-08-29: the attachment chip is a disclosure. Open it and it shows the profile's
+`constraints` verbatim — the exact lines the planner reads, not a summary of them — the
+analysis timestamp, a role selector (the classifier's guess is a guess), and Re-analyze.
+A failed analysis states its reason there with the retry beside it, instead of a toast
+that is gone by the time anyone reads it. Re-analysis goes through the imported copy under
+the projects root with `refresh: true`, so it bypasses the content-hash cache rather than
+handing back the same stale answer; changing the role re-measures under the new role.
+4 tests. Also fixed on the way: `remove_silences` had no `toolMeta` entry, so its tool card
+would have rendered unnamed.
 
 ## P3.7 — Tests, docs, close — `[ ]`
 

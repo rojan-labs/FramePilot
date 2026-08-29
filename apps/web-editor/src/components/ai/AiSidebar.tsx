@@ -70,7 +70,7 @@ import { useConversationView } from '../../ai/useConversationView.js';
 import { createFrameBatcher, createIntervalScheduler } from '../../ai/frameBatcher.js';
 import { emptyRunNotice, foldTurnEvent, initialTurnSignals } from '../../ai/runOutcome.js';
 import { latestStreamingAssistantText } from '../../ai/liveAnnouncement.js';
-import type { ReferenceProfile } from '@framepilot/ai-sdk';
+import type { ReferenceProfile, ReferenceRole } from '@framepilot/ai-sdk';
 import { analyzeReference, getBridge, isDesktop } from '../../editor/bridge.js';
 import { materializeImportedMedia, probeMediaFile } from '../../editor/import.js';
 import {
@@ -342,6 +342,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   const [historyOpen, setHistoryOpen] = useState(false);
   const [removedContext, setRemovedContext] = useState<readonly string[]>([]);
   const [attachments, setAttachments] = useState<readonly Attachment[]>([]);
+  // Read inside async callbacks (re-analyze) so they never close over a stale list.
+  const attachmentsRef = useRef<readonly Attachment[]>(attachments);
+  attachmentsRef.current = attachments;
   /**
    * Reference attachments (plan/system-mission P3.1–P3.4): copy the file into the project
    * through the same chunked import the media bin uses, let the host analyze it once, and
@@ -411,6 +414,56 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     },
     [draft],
   );
+
+  /**
+   * Measure an attached reference again (P3.6) — the analysis failed, or the editor
+   * changed its role and wants the constraints re-derived for it.
+   *
+   * The original `File` is long gone; the imported copy under the projects root is what
+   * the host analyzed and what it re-analyzes, with `refresh` so the content-hash cache
+   * is bypassed rather than handing back the same stale answer.
+   */
+  const reanalyzeReference = useCallback(async (id: string, roleOverride?: ReferenceRole) => {
+    const current = attachmentsRef.current.find((entry) => entry.id === id);
+    if (!current?.path || (current.kind !== 'image' && current.kind !== 'video')) return;
+    const role = roleOverride ?? current.role ?? 'style';
+    const update = (patch: Partial<Attachment>): void =>
+      setAttachments((list) => list.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+    // A retry starts clean: the previous failure's reason must not survive under a
+    // spinner, or the tile shows an error for an analysis that is running right now.
+    setAttachments((list) =>
+      list.map((a) =>
+        a.id === id
+          ? {
+              id: a.id,
+              kind: a.kind,
+              name: a.name,
+              ...(a.path !== undefined ? { path: a.path } : {}),
+              role,
+              status: 'analyzing' as const,
+            }
+          : a,
+      ),
+    );
+    try {
+      const result = await analyzeReference({
+        projectId: projectRef.current.id,
+        inputPath: current.path,
+        id,
+        fileName: current.name,
+        kind: current.kind,
+        role,
+        refresh: true,
+      });
+      if (!result.ok) {
+        update({ status: 'failed', error: result.error });
+        return;
+      }
+      update({ status: 'ready', profile: result.profile });
+    } catch (error) {
+      update({ status: 'failed', error: error instanceof Error ? error.message : String(error) });
+    }
+  }, []);
   // Event handlers and an imperative Cmd+K send can run between React commits. Keep
   // refs updated during render and dereference them only when the turn is submitted,
   // so the request never captures a previous render's empty asset array.
@@ -1865,6 +1918,8 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
             contextPhase={phase}
             {...(contextDebug ? { contextDebug } : {})}
             contextItems={contextItems}
+            onReanalyzeAttachment={(id) => void reanalyzeReference(id)}
+            onChangeAttachmentRole={(id, role) => void reanalyzeReference(id, role)}
             onRemoveContext={(id) =>
               id.startsWith(MEMORY_CHIP_PREFIX)
                 ? forgetDecision(id.slice(MEMORY_CHIP_PREFIX.length))

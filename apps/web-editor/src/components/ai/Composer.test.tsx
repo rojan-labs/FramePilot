@@ -58,7 +58,9 @@ describe('Composer', () => {
     const loader = document.querySelector('.ai-pixel-loader');
     expect(loader).toBeTruthy();
     expect(loader?.querySelectorAll('.ai-loader-pixel')).toHaveLength(9);
-    expect(document.querySelector('.ai-activity-elapsed')?.getAttribute('aria-hidden')).toBe('true');
+    expect(document.querySelector('.ai-activity-elapsed')?.getAttribute('aria-hidden')).toBe(
+      'true',
+    );
 
     expect(document.querySelector('.ai-activity-mark')).toBeNull();
     expect(document.querySelector('.ai-activity-dots')).toBeNull();
@@ -177,7 +179,14 @@ describe('Composer reference attachments (plan/system-mission P3.1)', () => {
     const attachments: Attachment[] = [
       { id: 'r1', kind: 'video', name: 'ref.mp4', role: 'pacing', status: 'analyzing' },
       { id: 'r2', kind: 'image', name: 'logo.png', role: 'brand-logo', status: 'ready' },
-      { id: 'r3', kind: 'image', name: 'bad.png', role: 'style', status: 'failed', error: 'ffmpeg exploded' },
+      {
+        id: 'r3',
+        kind: 'image',
+        name: 'bad.png',
+        role: 'style',
+        status: 'failed',
+        error: 'ffmpeg exploded',
+      },
     ];
     setup({ attachments, onAttachFiles: vi.fn() });
     expect(screen.getByText('pacing')).toBeTruthy();
@@ -190,5 +199,68 @@ describe('Composer reference attachments (plan/system-mission P3.1)', () => {
   it('has no picker when the host cannot take files', () => {
     setup();
     expect(screen.queryByRole('button', { name: 'Attach reference video or image' })).toBeNull();
+  });
+});
+
+describe('reference tiles (P3.6)', () => {
+  const ready = {
+    id: 'ref_1',
+    kind: 'video' as const,
+    name: 'fast-cut.mp4',
+    role: 'pacing' as const,
+    status: 'ready' as const,
+    path: 'media/p/fast-cut.mp4',
+    profile: {
+      id: 'ref_1',
+      role: 'pacing' as const,
+      kind: 'video' as const,
+      fileName: 'fast-cut.mp4',
+      contentHash: 'abcdef0123456789',
+      analyzedAt: '2026-08-29T10:00:00Z',
+      constraints: ['Pacing: fast — median shot 1.1s', 'Cuts on the beat'],
+    },
+  };
+
+  it('shows what the AI read from the reference, not just that it was attached', () => {
+    setup({ attachments: [ready] });
+    // Closed by default: the chip is a chip until someone asks.
+    expect(screen.queryByText('Pacing: fast — median shot 1.1s')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /What FramePilot learned from/ }));
+    expect(screen.getByText('Pacing: fast — median shot 1.1s')).toBeTruthy();
+    expect(screen.getByText('Cuts on the beat')).toBeTruthy();
+  });
+
+  it('lets the editor correct the guessed role and re-measure', () => {
+    const onChangeAttachmentRole = vi.fn();
+    const onReanalyzeAttachment = vi.fn();
+    setup({ attachments: [ready], onChangeAttachmentRole, onReanalyzeAttachment });
+    fireEvent.click(screen.getByRole('button', { name: /What FramePilot learned from/ }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Role for fast-cut.mp4' }), {
+      target: { value: 'color' },
+    });
+    expect(onChangeAttachmentRole).toHaveBeenCalledWith('ref_1', 'color');
+    fireEvent.click(screen.getByRole('button', { name: 'Re-analyze' }));
+    expect(onReanalyzeAttachment).toHaveBeenCalledWith('ref_1');
+  });
+
+  it('states why an analysis failed on the tile, with the retry next to it', () => {
+    const onReanalyzeAttachment = vi.fn();
+    const { profile: _dropped, ...withoutProfile } = ready;
+    setup({
+      attachments: [
+        { ...withoutProfile, status: 'failed' as const, error: 'Unsupported codec (prores 4444).' },
+      ],
+      onReanalyzeAttachment,
+    });
+    fireEvent.click(screen.getByRole('button', { name: /What FramePilot learned from/ }));
+    expect(screen.getByText('Unsupported codec (prores 4444).')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Re-analyze' })).toBeTruthy();
+  });
+
+  it('offers no disclosure while the reference is still being analyzed', () => {
+    const { profile: _unused, ...pending } = ready;
+    setup({ attachments: [{ ...pending, status: 'analyzing' as const }] });
+    expect(screen.queryByRole('button', { name: /What FramePilot learned from/ })).toBeNull();
+    expect(screen.getByText('analyzing…')).toBeTruthy();
   });
 });

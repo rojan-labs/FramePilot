@@ -28,6 +28,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **AI sidebar:** click an attached reference to see exactly what FramePilot measured from it, change what it should be used for, or analyze it again — and a reference that could not be read says why, right on the tile.
+
 - **Export:** the progress line now says about how long is left, measured from the render's own pace, and the dialog keeps a per-project list of recent exports with a Reveal button for each.
 
 - **Reference videos and images in the AI sidebar.** Attach a reference (📎 in the

@@ -94,6 +94,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   verify_captions: { label: 'Check caption sync', Icon: Captions },
   verify_transitions: { label: 'Check transitions', Icon: ArrowLeftRight },
   analyze_silence: { label: 'Analyze silence', Icon: AudioLines },
+  remove_silences: { label: 'Remove dead air', Icon: AudioLines },
   detect_scenes: { label: 'Detect scenes', Icon: Film },
   detect_beats: { label: 'Detect beats', Icon: Music },
   // Editor-facing labels, not tool names: the card says what the agent is doing,
