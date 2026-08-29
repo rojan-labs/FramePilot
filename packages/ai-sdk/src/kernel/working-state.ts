@@ -171,6 +171,37 @@ const DecisionSchema = z.object({
   status: z.enum(['tentative', 'committed', 'superseded']),
   reconsiderIf: z.string().min(1),
   supersededBy: z.string().optional(),
+  /**
+   * Where the decision came from (P1.5).
+   *
+   * Load-bearing at the run boundary, not documentation: an `inferred` decision is this
+   * run's own reasoning and dies with the question that prompted it; a `user` decision is
+   * an answer the editor gave and must never be re-asked; a `reference` decision is bound
+   * to an attachment and stops applying the moment that attachment is gone. Defaulted so
+   * every ledger written before this field existed still parses as what it was — a run's
+   * own inference.
+   */
+  source: z.enum(['user', 'inferred', 'reference']).default('inferred'),
+  /**
+   * When the decision stops binding.
+   *
+   * `superseded` (the default) means only an explicit replacement ends it. `revision` means
+   * it was true of the timeline as it stood, so the next run — which starts from a changed
+   * project — must not inherit it. Neither is a clock: nothing here expires on wall time,
+   * because a run that pauses for an hour has not changed its mind.
+   */
+  until: z.enum(['superseded', 'revision']).default('superseded'),
+  /** Drop the decision once it has been carried this many runs without being restated. */
+  expiresAfterTurns: z.number().int().positive().optional(),
+  /** How many run boundaries it has already crossed; {@link carryForwardWorkingState} bumps it. */
+  turnsCarried: z.number().int().nonnegative().default(0),
+  /**
+   * What the decision is ABOUT, when something outside the ledger owns it — today, the
+   * `ReferenceProfile.id` of the attachment a `reference` decision came from. It is how the
+   * carry-forward can tell "the editor did not re-attach the reel" (the tile is still
+   * there, the profile still arrives) from "the editor removed the tile" (it does not).
+   */
+  subject: z.string().optional(),
 });
 export type Decision = z.infer<typeof DecisionSchema>;
 
@@ -740,6 +771,10 @@ export function recordDecision(
     readonly reconsiderIf: string;
     readonly evidenceIds?: readonly string[];
     readonly committed?: boolean;
+    readonly source?: Decision['source'];
+    readonly until?: Decision['until'];
+    readonly expiresAfterTurns?: number;
+    readonly subject?: string;
   },
 ): RunWorkingState {
   const entry: Decision = {
@@ -749,8 +784,29 @@ export function recordDecision(
     stage: state.stage,
     status: decision.committed ? 'committed' : 'tentative',
     reconsiderIf: decision.reconsiderIf,
+    source: decision.source ?? 'inferred',
+    until: decision.until ?? 'superseded',
+    ...(decision.expiresAfterTurns === undefined
+      ? {}
+      : { expiresAfterTurns: decision.expiresAfterTurns }),
+    turnsCarried: 0,
+    ...(decision.subject === undefined ? {} : { subject: decision.subject }),
   };
   return bump(state, { decisions: [...state.decisions, entry] });
+}
+
+/**
+ * Has a decision outlived the condition it was recorded under?
+ *
+ * Only `expiresAfterTurns` is checked here; `until: 'revision'` is a question about a
+ * project revision the ledger alone cannot answer, and is settled at the run boundary by
+ * {@link carryForwardWorkingState}. Reads use this so nothing downstream has to remember
+ * which decisions have a shelf life.
+ */
+export function isDecisionExpired(decision: Decision): boolean {
+  return (
+    decision.expiresAfterTurns !== undefined && decision.turnsCarried >= decision.expiresAfterTurns
+  );
 }
 
 /** Promote a tentative decision. A superseded decision can never be re-committed. */
@@ -783,9 +839,16 @@ export function supersedeDecision(
   });
 }
 
-/** Decisions the briefing shows and the run is bound by. */
+/**
+ * Decisions the briefing shows and the run is bound by.
+ *
+ * Superseded decisions are dropped rather than merged (P1.5): a style decision the editor
+ * has replaced is not a second opinion to reconcile against the new one, it is wrong, and
+ * showing both is how a run splits the difference between what the editor asked for and
+ * what they asked for before. Expired ones go the same way.
+ */
 export function committedDecisions(state: RunWorkingState): readonly Decision[] {
-  return state.decisions.filter((d) => d.status === 'committed');
+  return state.decisions.filter((d) => d.status === 'committed' && !isDecisionExpired(d));
 }
 
 /**
@@ -859,6 +922,11 @@ export function commitExecutionPlan(
     stage: 'plan',
     status: 'committed',
     reconsiderIf: 'The project revision changes outside this run or verification disproves it.',
+    // The run's own reading of the request, and true only of the timeline it planned
+    // against — so the NEXT run gets a plan of its own rather than inheriting this one.
+    source: 'inferred',
+    until: 'revision',
+    turnsCarried: 0,
   }));
   const objectives: Objective[] = normalized.map((description, index) => ({
     id: `objective_${index + 1}`,
@@ -1243,6 +1311,18 @@ export const CARRIED_FACT_PREFIX = '(from an earlier session) ';
 export function carryForwardWorkingState(
   previous: RunWorkingState | null,
   fresh: RunWorkingState,
+  /**
+   * The `ReferenceProfile.id`s attached RIGHT NOW, or `undefined` when the caller has no
+   * reference awareness at all.
+   *
+   * The set is the complete live one, so an empty array means "the editor has removed
+   * every tile" and `undefined` means "this host does not send references" — two different
+   * facts that must not collapse into one. A carried `reference` decision whose subject is
+   * missing from a supplied set is superseded: the editor took the tile away, and a
+   * constraint they deleted must stop binding the next turn. `undefined` carries them all
+   * unchanged, because absence of information is not a removal.
+   */
+  activeReferenceIds?: readonly string[],
 ): RunWorkingState {
   if (!previous) return fresh;
   // Identity first: a ledger from a different conversation or project is not stale, it is
@@ -1276,14 +1356,34 @@ export function carryForwardWorkingState(
       stage: fresh.stage,
     }));
 
+  // What outlived the last run, in the order the questions are asked: is it still
+  // committed, has the project moved out from under it, has it been carried too long, and
+  // is the thing it is about still attached?
+  const revisionMoved = previous.currentProjectRevision !== fresh.baseProjectRevision;
+  const active = activeReferenceIds === undefined ? null : new Set(activeReferenceIds);
   const decisions = previous.decisions
-    .filter((decision) => decision.status === 'committed')
+    .filter((decision) => decision.status === 'committed' && !isDecisionExpired(decision))
+    // A decision true only of the timeline it was made against ("cut at 3.0s, where the
+    // sentence ends") is not a commitment the next run inherits once that timeline has
+    // changed. The previous run's own plan steps are exactly this.
+    .filter((decision) => !(decision.until === 'revision' && revisionMoved))
+    .filter(
+      (decision) =>
+        active === null ||
+        decision.source !== 'reference' ||
+        decision.subject === undefined ||
+        active.has(decision.subject),
+    )
     .map((decision) => ({
       ...decision,
       id: carriedId(decision.id),
       evidenceIds: [],
       stage: fresh.stage,
-    }));
+      // One more boundary crossed. This is what `expiresAfterTurns` counts: runs the
+      // decision has survived without anyone restating it, not seconds on a clock.
+      turnsCarried: decision.turnsCarried + 1,
+    }))
+    .filter((decision) => !isDecisionExpired(decision));
 
   if (facts.length === 0 && decisions.length === 0) return fresh;
   const known = new Set(fresh.decisions.map((decision) => decision.decision));

@@ -49,7 +49,10 @@
             "evidenceIds": [],
             "stage": "plan",
             "status": "committed",
-            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it.",
+            "source": "inferred",
+            "until": "revision",
+            "turnsCarried": 0
           }
         ],
         "plan": {
@@ -402,7 +405,10 @@
             "evidenceIds": [],
             "stage": "plan",
             "status": "committed",
-            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it.",
+            "source": "inferred",
+            "until": "revision",
+            "turnsCarried": 0
           }
         ],
         "plan": {
@@ -735,7 +741,10 @@
             "evidenceIds": [],
             "stage": "plan",
             "status": "committed",
-            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it.",
+            "source": "inferred",
+            "until": "revision",
+            "turnsCarried": 0
           }
         ],
         "plan": {
@@ -818,7 +827,10 @@
             "evidenceIds": [],
             "stage": "plan",
             "status": "committed",
-            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it.",
+            "source": "inferred",
+            "until": "revision",
+            "turnsCarried": 0
           }
         ],
         "plan": {
