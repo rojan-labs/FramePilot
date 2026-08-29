@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import statistics
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -135,7 +136,7 @@ def sample_video_rgb(path: Path, duration_s: float, *, timeout: float | None) ->
 def shot_statistics(cuts: list[float], duration_s: float) -> dict[str, float | int | None]:
     """Shot count and length percentiles from cut times (a cut list is shot boundaries)."""
     boundaries = sorted({0.0, *[c for c in cuts if 0.0 < c < duration_s], duration_s})
-    lengths = [b - a for a, b in zip(boundaries, boundaries[1:], strict=False) if b > a]
+    lengths = [b - a for a, b in pairwise(boundaries) if b > a]
     count = max(1, len(lengths))
     if len(lengths) < MIN_SHOTS_FOR_PERCENTILES:
         return {
