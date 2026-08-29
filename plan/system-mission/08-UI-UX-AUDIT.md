@@ -92,12 +92,30 @@ Landed 2026-08-29 (timeline navigation, UX-05/06/07):
 Remaining: UX-08 (clip context menu: trim-to-playhead, speed, transition, reveal in bin,
 disable) and UX-14 (preview fit/crop indication).
 
-## P8.4 — States: loading, empty, error, progress, destructive confirms — `[ ]`
+## P8.4 — States: loading, empty, error, progress, destructive confirms — `[~]`
 
 Every long operation has a skeleton or progress with cancel; every empty panel says what
 to do next; every destructive action (delete track, clear timeline, overwrite export)
 confirms or is undoable; errors never only toast.
 **Done when:** a state matrix per panel is in the report and each cell is implemented.
+
+Landed 2026-08-29 (UX-10, UX-11):
+
+- **UX-10 was a capture artifact, not a styling bug.** `--bg-elevated` is opaque
+  (`#212126` / `#ffffff`) and the scrim is `rgba(0,0,0,0.5)`; the screenshot shows the
+  dialog's text, chrome AND scrim all uniformly faded with the app behind *undimmed* —
+  the 0.14s fade-in caught mid-flight, because the walkthrough screenshots on the click.
+  Fixed where the fault is: `page.screenshot({ animations: 'disabled' })` in
+  `ux-walkthrough.spec.ts`. No CSS was changed, because none was wrong.
+- **UX-11 was real.** `AiProviderInfo.ready` means "a credential is stored", nothing more,
+  and the readiness panel rendered it as a green dot plus the provider's name — so a key
+  returning 410 on every call read as ready. `editor/providerHealth.ts` now records the
+  only evidence that settles it (a run that reached a terminal state without a provider
+  failure, per provider, per device); the row says "<provider> · key saved" in a neutral
+  tone until that provider has actually answered, with the reason in its tooltip, and
+  only then claims readiness. 5 + 1 tests.
+
+Remaining: the loading/empty/progress state matrix and destructive-action confirms.
 
 ## P8.5 — Focus, keyboard, accessibility, resizing — `[ ]`
 

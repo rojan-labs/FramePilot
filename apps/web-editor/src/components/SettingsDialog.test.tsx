@@ -2,8 +2,9 @@
  * Tests for the Settings dialog: section navigation, that each control writes
  * through the settings store (persisted), and the reset action.
  */
+import { clearProviderHealth, recordProviderSuccess } from '../editor/providerHealth.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SettingsProvider, loadSettings } from '../editor/useSettings.js';
 import { AiConfigProvider } from '../editor/useAiConfig.js';
 import { applyBrowserUpdate, loadBrowserAiConfig } from '../editor/aiConfigStorage.js';
@@ -573,8 +574,33 @@ describe('SettingsDialog', () => {
     );
     const readiness = screen.getByRole('complementary', { name: 'System readiness' });
     expect(readiness.textContent).toContain('PreferencesLocal');
-    expect(readiness.textContent).toContain('AI providerOffline mock');
+    // UX-11: a stored credential earns "key saved", not a claim that it works.
+    expect(readiness.textContent).toContain('AI providerOffline mock · key saved');
     expect(readiness.textContent).toContain('FootageProject open');
+  });
+
+  it('upgrades the provider row only once that provider has actually answered (UX-11)', () => {
+    recordProviderSuccess('mock', new Date('2026-08-29T10:00:00Z'));
+    render(
+      <SettingsProvider>
+        <SettingsDialog open projectId="project-1" onClose={() => {}} />
+      </SettingsProvider>,
+    );
+    const readiness = screen.getByRole('complementary', { name: 'System readiness' });
+    expect(readiness.textContent).toContain('AI providerOffline mock');
+    expect(readiness.textContent).not.toContain('key saved');
+    // A success for a DIFFERENT provider must not vouch for this one.
+    clearProviderHealth();
+    recordProviderSuccess('deepseek');
+    cleanup();
+    render(
+      <SettingsProvider>
+        <SettingsDialog open projectId="project-1" onClose={() => {}} />
+      </SettingsProvider>,
+    );
+    expect(screen.getByRole('complementary', { name: 'System readiness' }).textContent).toContain(
+      'key saved',
+    );
   });
 
   it('closes on Escape', () => {

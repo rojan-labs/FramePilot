@@ -109,6 +109,7 @@ import {
   buildContextItems,
   pinnableEntities,
 } from '../../ai/composerActions.js';
+import { recordProviderSuccess } from '../../editor/providerHealth.js';
 import type { Attachment, ConversationUiState } from '../../ai/conversation.js';
 import { contextPhase, latestContextWindow } from './ContextWindowIndicator.js';
 import { type ContextDebugInfo, recentManifests } from './ContextDebugger.js';
@@ -1099,6 +1100,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         // that dropped the request reports no usage, so a $0 total reads as a measured
         // zero under a run that in fact called the model and got nothing back. The
         // error/warning above is the honest account.
+        // UX-11: the provider actually answered. Settings' readiness panel reads this
+        // instead of claiming a provider is ready because a key happens to be stored.
+        if (!signals.failed && !signals.cancelled) recordProviderSuccess(activeProviderName);
         if (signals.cost && !signals.failed) {
           sessionCost.current = {
             tokens: sessionCost.current.tokens + signals.cost.tokens,

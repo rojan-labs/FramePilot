@@ -13,7 +13,12 @@ test('@ux desktop surfaces screenshot walkthrough', async () => {
   const session = await launchDesktop({ projectId: 'mission-montage', sidecarPort: 8797 });
   const { page } = session;
   mkdirSync(OUT, { recursive: true });
-  const shot = (name: string) => page.screenshot({ path: join(OUT, `${name}.png`), fullPage: false });
+  // `animations: 'disabled'` finishes every CSS animation/transition before the frame is
+  // taken. Without it a dialog captured on the click lands mid-fade and reads as a
+  // translucent surface with the video showing through it (the UX-10 finding, which was
+  // this and not a styling bug — the app behind it was not dimmed either).
+  const shot = (name: string) =>
+    page.screenshot({ path: join(OUT, `${name}.png`), fullPage: false, animations: 'disabled' });
   try {
     await page.waitForTimeout(6_000);
     await shot('01-editor-default');
@@ -25,18 +30,36 @@ test('@ux desktop surfaces screenshot walkthrough', async () => {
     await page.keyboard.press('Escape');
     for (const tab of ['Inspector', 'AI']) {
       const t = page.getByRole('tab', { name: tab });
-      if (await t.count()) { await t.first().click(); await shot(`04-right-${tab.toLowerCase()}`); }
+      if (await t.count()) {
+        await t.first().click();
+        await shot(`04-right-${tab.toLowerCase()}`);
+      }
     }
     for (const tab of ['Assets', 'Effects', 'Text', 'Captions']) {
       const t = page.getByRole('tab', { name: tab });
-      if (await t.count()) { await t.first().click(); await shot(`05-left-${tab.toLowerCase()}`); }
+      if (await t.count()) {
+        await t.first().click();
+        await shot(`05-left-${tab.toLowerCase()}`);
+      }
     }
     const transcription = page.getByRole('button', { name: 'Transcription' });
-    if (await transcription.count()) { await transcription.first().click(); await shot('06-transcription'); await page.keyboard.press('Escape'); }
+    if (await transcription.count()) {
+      await transcription.first().click();
+      await shot('06-transcription');
+      await page.keyboard.press('Escape');
+    }
     const exportBtn = page.getByRole('button', { name: /^Export/ });
-    if (await exportBtn.count()) { await exportBtn.first().click(); await shot('07-export-dialog'); await page.keyboard.press('Escape'); }
+    if (await exportBtn.count()) {
+      await exportBtn.first().click();
+      await shot('07-export-dialog');
+      await page.keyboard.press('Escape');
+    }
     const settings = page.getByRole('button', { name: /Settings/ });
-    if (await settings.count()) { await settings.first().click(); await shot('08-settings'); await page.keyboard.press('Escape'); }
+    if (await settings.count()) {
+      await settings.first().click();
+      await shot('08-settings');
+      await page.keyboard.press('Escape');
+    }
     await page.keyboard.press('?');
     await shot('09-shortcuts-or-help');
     await page.keyboard.press('Escape');

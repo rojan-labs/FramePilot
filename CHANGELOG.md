@@ -53,6 +53,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Settings:** the readiness panel no longer calls a provider "ready" just because a key is saved — it says "key saved" until that provider has actually answered a request, then reports when it last did.
+
 - **Timeline:** the mouse wheel now scrolls along the timeline (Cmd/Ctrl+wheel still zooms), every track in the project shows as a row — including empty ones, so there is somewhere to drop music — and moving the playhead brings it back into view.
 
 - **Desktop:** if the render engine stops unexpectedly, FramePilot now restarts it automatically (up to three times, with a short wait between) instead of failing every later render and analysis until the app is restarted.
