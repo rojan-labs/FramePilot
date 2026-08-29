@@ -34,7 +34,7 @@ loop": UX-03 (clipped placeholder), UX-09 (icon-only top bar), UX-12 (1024-wide 
 UX-13 (agent header over Inspector — fixed opportunistically if P8.2 touches that header),
 UX-15 (truncated filter tabs).
 
-## P8.2 — AI sidebar: knows / doing / changed / needs / failed — `[ ]`
+## P8.2 — AI sidebar: knows / doing / changed / needs / failed — `[~]`
 
 **Touches:** `AiSidebar.tsx`, `Composer.tsx`, run event rendering, `conversation.ts`.
 - **Knows:** a collapsible "Context" strip: selection, playhead, project facts, active
@@ -49,6 +49,15 @@ UX-15 (truncated filter tabs).
 - **Failed:** plain-language failure with the one action that helps (retry, attach,
   pick), FFmpeg/provider detail behind "details".
 **Done when:** each of the five states has an RTL test and a screenshot in the report.
+
+Landed 2026-08-29 (Knows, first slice): the included-context strip now shows every
+remembered project decision (audience / brand style / caption style / pacing) as its own
+"Remembers …" chip, and removing the chip FORGETS the decision (`writeMemory` through
+`onProjectChange`) rather than hiding it for a turn. References already appear as
+attachment chips with their role (Phase 3). Remaining: selection/playhead facts in the
+strip, Doing (queue/progress), Changed (per-run result card with "Show on timeline"),
+Needs (question with choices in the composer), Failed (plain line + details), and the
+five RTL tests + screenshots.
 
 ## P8.3 — Selection, drag/drop, context menus, shortcuts — `[ ]`
 

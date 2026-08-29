@@ -1467,6 +1467,31 @@ describe('AiSidebar', () => {
     );
   });
 
+  // P8.2 "knows": what the AI remembers is visible, and removing the chip forgets it —
+  // a hidden preference would keep steering every later turn with no way to see why.
+  it('shows a remembered decision as a chip and forgets it when the chip is removed', () => {
+    const remembering = parseProject({
+      ...project,
+      aiMemory: { captionStyle: 'bold yellow', preferredPacing: 'fast' },
+    });
+    const onProjectChange = vi.fn();
+    render(
+      <AiSidebar
+        project={remembering}
+        onProjectChange={onProjectChange}
+        session={new FakeSession()}
+        persistence={new MemoryPersistence()}
+      />,
+    );
+    expect(screen.getByText('Remembers caption style: bold yellow')).toBeTruthy();
+    expect(screen.getByText('Remembers pacing: fast')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Remove Remembers caption style: bold yellow'));
+    expect(onProjectChange).toHaveBeenCalledTimes(1);
+    const next = onProjectChange.mock.calls[0]![0] as { aiMemory?: Record<string, unknown> };
+    expect(next.aiMemory?.['captionStyle']).toBeUndefined();
+    expect(next.aiMemory?.['preferredPacing']).toBe('fast');
+  });
+
   it('stands the Undo-run button down once the run is no longer the top of the stack', async () => {
     const applyPatchChecked = vi.fn(() => []);
     // Someone edited after the run: undoing now would take back THEIR work, not the run's.

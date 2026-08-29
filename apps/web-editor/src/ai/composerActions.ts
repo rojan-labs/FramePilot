@@ -30,7 +30,10 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: 'add-captions', description: 'Generate and add a styled caption track' },
   { name: 'improve-pacing', description: 'Tighten slow parts and add punch-ins' },
   { name: 'add-hook', description: 'Restructure the opening as a stronger hook' },
-  { name: 'export', description: 'Export at a chosen resolution, quality and format through the engine' },
+  {
+    name: 'export',
+    description: 'Export at a chosen resolution, quality and format through the engine',
+  },
   { name: 'plan-edit', description: 'Produce a structured edit plan (no mutation)' },
 ];
 
@@ -158,10 +161,21 @@ export interface ComposerSelection {
  * unique `pin:<kind>:<id>` chip id per entity, so two pins never collide and each
  * removes independently of the selection chip and of each other).
  */
+/** A remembered project decision the sidebar shows as a removable "Remembers" chip (P8.2). */
+export interface RememberedDecision {
+  readonly key: string;
+  readonly label: string;
+  readonly value: string;
+}
+
+/** The chip id prefix for remembered decisions; removing one FORGETS it (see AiSidebar). */
+export const MEMORY_CHIP_PREFIX = 'memory:';
+
 export function buildContextItems(
   project: Project,
   selection?: ComposerSelection,
   pinned: readonly PinnedEntity[] = [],
+  remembered: readonly RememberedDecision[] = [],
 ): ContextItem[] {
   const items: ContextItem[] = [];
   if (selection) {
@@ -184,6 +198,14 @@ export function buildContextItems(
     { id: 'timeline', kind: 'timeline', label: 'Current Timeline' },
     { id: 'project', kind: 'project', label: `Project: ${project.name}` },
   );
+  // What the AI remembers about this project — visible, and removable (P8.2 "knows").
+  for (const decision of remembered) {
+    items.push({
+      id: `${MEMORY_CHIP_PREFIX}${decision.key}`,
+      kind: 'memory',
+      label: `Remembers ${decision.label}: ${decision.value}`,
+    });
+  }
   if (project.transcript.length > 0) {
     items.push({ id: 'transcript', kind: 'transcript', label: 'Transcript' });
   }

@@ -27,11 +27,14 @@ import {
   createPlanApprovalGate,
   createSteeringQueue,
   createTurnEmitter,
+  readMemory,
   recordAccepted,
   recordRejected,
   summarizeUsage,
+  writeMemory,
   type AiEvent,
   type InteractionKeyframeRef,
+  type MemoryPreferenceKey,
   type PlanApprovalGate,
   type SteeringQueue,
   type SourceMonitorInteraction,
@@ -98,6 +101,8 @@ import type { StepOutcome } from './EventNode.js';
 import { SteeringInput } from './SteeringInput.js';
 import { Composer } from './Composer.js';
 import {
+  MEMORY_CHIP_PREFIX,
+  type RememberedDecision,
   type ComposerSelection,
   type PinnedEntity,
   buildContextItems,
@@ -354,16 +359,28 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         if (kind !== 'image' && kind !== 'video') {
           setAttachments((list) => [
             ...list,
-            { id, kind, name: file.name, status: 'unsupported', error: 'Only video and image references are analyzed.' },
+            {
+              id,
+              kind,
+              name: file.name,
+              status: 'unsupported',
+              error: 'Only video and image references are analyzed.',
+            },
           ]);
           continue;
         }
         const decision = decideReferenceRole({ kind, fileName: file.name, promptText: draft });
-        setAttachments((list) => [...list, { id, kind, name: file.name, role: decision.role, status: 'analyzing' }]);
+        setAttachments((list) => [
+          ...list,
+          { id, kind, name: file.name, role: decision.role, status: 'analyzing' },
+        ]);
         const update = (patch: Partial<Attachment>): void =>
           setAttachments((list) => list.map((a) => (a.id === id ? { ...a, ...patch } : a)));
         if (!isDesktop()) {
-          update({ status: 'unsupported', error: 'Reference analysis requires the FramePilot desktop app.' });
+          update({
+            status: 'unsupported',
+            error: 'Reference analysis requires the FramePilot desktop app.',
+          });
           continue;
         }
         try {
@@ -383,7 +400,10 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
           }
           update({ status: 'ready', path: media.path, profile: result.profile });
         } catch (error) {
-          update({ status: 'failed', error: error instanceof Error ? error.message : String(error) });
+          update({
+            status: 'failed',
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
       }
     },
@@ -425,12 +445,35 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   const composerSelection: ComposerSelection | undefined = selectionRangeValue
     ? { range: selectionRangeValue, clipCount: selectedIds.length }
     : undefined;
+  // What the AI remembers about this project (P8.2 "knows"): each preference is a chip
+  // the editor can see and remove — and removing it forgets it, not just hides it.
+  const remembered = useMemo<readonly RememberedDecision[]>(() => {
+    const memory = readMemory(project);
+    const labels: Record<MemoryPreferenceKey, string> = {
+      targetAudience: 'audience',
+      brandStyle: 'brand style',
+      captionStyle: 'caption style',
+      preferredPacing: 'pacing',
+    };
+    return (Object.keys(labels) as MemoryPreferenceKey[])
+      .filter((key) => typeof memory[key] === 'string' && memory[key] !== '')
+      .map((key) => ({ key, label: labels[key], value: memory[key] as string }));
+  }, [project]);
+  const forgetDecision = useCallback(
+    (key: string) => {
+      const memory = readMemory(project);
+      if (!(key in memory)) return;
+      const { [key as MemoryPreferenceKey]: _forgotten, ...rest } = memory;
+      onProjectChange?.(writeMemory(project, rest as typeof memory));
+    },
+    [project, onProjectChange],
+  );
   const contextItems = useMemo(
     () =>
-      buildContextItems(project, composerSelection, pinnedEntities).filter(
+      buildContextItems(project, composerSelection, pinnedEntities, remembered).filter(
         (item) => !removedContext.includes(item.id),
       ),
-    [project, composerSelection, pinnedEntities, removedContext],
+    [project, composerSelection, pinnedEntities, remembered, removedContext],
   );
 
   const active = conversations.active;
@@ -1783,7 +1826,11 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
             contextPhase={phase}
             {...(contextDebug ? { contextDebug } : {})}
             contextItems={contextItems}
-            onRemoveContext={(id) => setRemovedContext((r) => [...r, id])}
+            onRemoveContext={(id) =>
+              id.startsWith(MEMORY_CHIP_PREFIX)
+                ? forgetDecision(id.slice(MEMORY_CHIP_PREFIX.length))
+                : setRemovedContext((r) => [...r, id])
+            }
             atEntities={atEntities}
             onPinEntity={onPinEntity}
             attachments={attachments}

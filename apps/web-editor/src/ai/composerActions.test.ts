@@ -56,6 +56,29 @@ describe('buildContextItems', () => {
     expect(rich.map((i) => i.id)).toEqual(['timeline', 'project', 'transcript', 'assets']);
   });
 
+  it('shows each remembered decision as its own removable chip after the project chip (P8.2)', () => {
+    const items = buildContextItems(
+      project(),
+      undefined,
+      [],
+      [
+        { key: 'captionStyle', label: 'caption style', value: 'bold yellow' },
+        { key: 'preferredPacing', label: 'pacing', value: 'fast' },
+      ],
+    );
+    expect(items.map((i) => i.id)).toEqual([
+      'timeline',
+      'project',
+      'memory:captionStyle',
+      'memory:preferredPacing',
+    ]);
+    expect(items[2]).toEqual({
+      id: 'memory:captionStyle',
+      kind: 'memory',
+      label: 'Remembers caption style: bold yellow',
+    });
+  });
+
   it('omits the selection chip with no selection (never claims context the AI does not get)', () => {
     expect(buildContextItems(project()).some((i) => i.id === 'selection')).toBe(false);
   });
