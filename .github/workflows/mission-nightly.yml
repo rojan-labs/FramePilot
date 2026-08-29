@@ -144,7 +144,9 @@ jobs:
     if: ${{ vars.MISSION_DESKTOP_RUNNER != '' }}
     runs-on: ${{ vars.MISSION_DESKTOP_RUNNER }}
     needs: [real-eval]
-    timeout-minutes: 180
+    # The UC-16 large-media row and the AI journey are both measured in tens of minutes,
+    # so this lane is budgeted in hours. It is nightly precisely so it can be.
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v7
         with:
@@ -164,12 +166,38 @@ jobs:
         run: uv sync --extra dev
       # Each spec skips itself with a stated reason when the fixtures it needs are
       # missing, so a runner without the media reports "skipped", never "failed".
+      #
+      # First, and cheapest: the proof that the P6.6 resource gate can go red at all. It
+      # launches nothing and reads the committed baseline, so if the gate's arithmetic is
+      # ever loosened into a no-op this lane says so in seconds rather than in hours.
+      - name: Resource-gate proof (P9.5)
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @framepilot/e2e-desktop exec playwright test specs/resource-gate.spec.ts
+      - name: Reference analysis route against the real fixtures (P3.7)
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @framepilot/e2e-desktop exec playwright test specs/references-analyze.spec.ts
       - name: Export matrix (P9.4)
         if: ${{ !cancelled() }}
         run: pnpm --filter @framepilot/e2e-desktop exec playwright test specs/export-matrix.spec.ts
+      # MISSION_AI=1 from here down: the provider-gated failure rows and the whole journey
+      # need a real model. They live in the nightly lane for exactly that reason.
       - name: Failure paths (P9.2)
         if: ${{ !cancelled() }}
+        env:
+          MISSION_AI: '1'
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: pnpm --filter @framepilot/e2e-desktop exec playwright test specs/failure-paths.spec.ts
+      - name: AI journey UC-01→08→09→06→07→13 (P9.1)
+        if: ${{ !cancelled() }}
+        env:
+          MISSION_AI: '1'
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: pnpm --filter @framepilot/e2e-desktop exec playwright test specs/ai-journey.spec.ts
       - name: Resource gate (P6.6)
         if: ${{ !cancelled() }}
         env:
