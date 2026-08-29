@@ -1,11 +1,25 @@
 import { expect, test } from '@playwright/test';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
-import { descendants, launchDesktop, FIXTURE_PROJECTS, type DesktopSession } from './launch.js';
+import {
+  descendants,
+  launchDesktop,
+  FIXTURE_PROJECTS,
+  REPO,
+  type DesktopSession,
+} from './launch.js';
 
 /**
  * UC-15 failure paths on the real desktop host (plan/system-mission P9.2).
@@ -35,6 +49,61 @@ async function clipCount(session: DesktopSession): Promise<number> {
 /** ffmpeg/ffprobe children of the app right now. */
 function mediaChildren(mainPid: number): number {
   return descendants(mainPid).filter((c) => /ffmpeg|ffprobe/.test(c.cmd)).length;
+}
+
+const MISSION_FIXTURES = join(REPO, 'tests', 'fixtures', 'mission');
+const PHOTOS_DIR = join(MISSION_FIXTURES, 'photos');
+const PHOTO_COUNT = 60;
+/** UC-16's large file. Never committed; `MISSION_LARGE_MEDIA` points the row elsewhere. */
+const LARGE_MEDIA =
+  process.env.MISSION_LARGE_MEDIA ?? join(MISSION_FIXTURES, 'camera-4k-20min.mov');
+const LARGE_MIN_SECONDS = 20 * 60;
+const LARGE_MIN_SHORT_EDGE = 2160;
+const LARGE_MEDIA_TIMEOUT_MS = 45 * 60_000;
+const LARGE_MEDIA_IMPORT_TIMEOUT_MS = 30 * 60_000;
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** What is really in a file, or `null` when it is absent or ffprobe cannot read it. */
+function probeShape(path: string): { seconds: number; width: number; height: number } | null {
+  if (!existsSync(path)) return null;
+  try {
+    const raw = execFileSync(
+      'ffprobe',
+      [
+        '-v',
+        'error',
+        '-show_entries',
+        'format=duration:stream=codec_type,width,height',
+        '-of',
+        'json',
+        path,
+      ],
+      { encoding: 'utf8' },
+    );
+    const json = JSON.parse(raw) as {
+      streams: { codec_type: string; width?: number; height?: number }[];
+      format: { duration?: string };
+    };
+    const video = json.streams.find((s) => s.codec_type === 'video');
+    if (!video) return null;
+    return {
+      seconds: Number(json.format.duration ?? 0),
+      width: video.width ?? 0,
+      height: video.height ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** The committed-photo fixture set, sorted, or `[]` when it was never fetched. */
+function photoFixtures(): string[] {
+  if (!existsSync(PHOTOS_DIR)) return [];
+  return readdirSync(PHOTOS_DIR)
+    .filter((f) => /\.(jpe?g|png)$/i.test(f))
+    .sort()
+    .map((f) => join(PHOTOS_DIR, f));
 }
 
 /**
@@ -260,6 +329,97 @@ test.describe('UC-15 failure paths', () => {
     } finally {
       await session.app.close();
       rmSync(binDir, { recursive: true, force: true });
+    }
+  });
+
+  // ── UC-16: large media ────────────────────────────────────────────────────
+  //
+  // The failure this pair is aimed at is not a crash — it is the app quietly giving up on
+  // a file that is merely big: an import that never resolves, a card that shimmers
+  // forever, an ffprobe left running after the user moved on. Preparation must reach a
+  // per-asset outcome, the edit must be untouched by an import, and nothing may outlive
+  // the work. UC-16's export half is covered by the export matrix (P9.4).
+
+  test('a 4K 20-minute camera file is prepared to a per-asset outcome, not an endless spinner', async () => {
+    const shape = probeShape(LARGE_MEDIA);
+    test.skip(
+      shape === null,
+      `UC-16 needs a 4K, 20-minute camera file at ${LARGE_MEDIA} (or MISSION_LARGE_MEDIA=<path>) ` +
+        'and ffprobe on PATH; fetch-fixtures.sh does not produce one — the largest real ' +
+        'camera file on this machine is 40 s (tests/fixtures/mission/README.md).',
+    );
+    test.skip(
+      shape !== null &&
+        (shape.seconds < LARGE_MIN_SECONDS ||
+          Math.min(shape.width, shape.height) < LARGE_MIN_SHORT_EDGE),
+      // Deliberately a skip and not a pass: a 40-second 1080p stand-in would make this row
+      // green while proving nothing about large media.
+      `${LARGE_MEDIA} is ${Math.round((shape?.seconds ?? 0) / 60)} min at ${shape?.width}x${shape?.height}; ` +
+        `UC-16 needs ≥ ${LARGE_MIN_SECONDS / 60} min and a short edge ≥ ${LARGE_MIN_SHORT_EDGE}.`,
+    );
+    test.setTimeout(LARGE_MEDIA_TIMEOUT_MS);
+    const session = await launchDesktop({ projectId: 'mission-montage', sidecarPort: 8787 });
+    try {
+      const { page } = session;
+      const before = await clipCount(session);
+      const name = basename(LARGE_MEDIA);
+
+      await page.getByLabel('import media').setInputFiles(LARGE_MEDIA);
+      // The bin announces the wait; it must also END it. A card that shimmers forever is
+      // indistinguishable from an app that has forgotten the file.
+      await expect(page.getByLabel('importing media')).toBeHidden({
+        timeout: LARGE_MEDIA_IMPORT_TIMEOUT_MS,
+      });
+      await expect(
+        page.getByRole('button', { name: new RegExp(`^Open ${escapeRegExp(name)}`) }).first(),
+      ).toBeVisible({ timeout: 60_000 });
+
+      // An import is not an edit: the timeline is exactly where the user left it.
+      expect(await clipCount(session)).toBe(before);
+      // And the derivation work is over, not merely off-screen.
+      await expect
+        .poll(() => mediaChildren(session.mainPid), {
+          timeout: 2 * 60_000,
+          message: 'no probe or thumbnailer may outlive the import',
+        })
+        .toBe(0);
+    } finally {
+      await session.app.close();
+    }
+  });
+
+  test('importing 60 photos at once drains to a card each, with the timeline untouched', async () => {
+    const photos = photoFixtures();
+    test.skip(
+      photos.length < PHOTO_COUNT,
+      `UC-16 needs ${PHOTO_COUNT} stills under ${PHOTOS_DIR}; found ${photos.length} ` +
+        '(tests/fixtures/mission/fetch-fixtures.sh).',
+    );
+    test.setTimeout(LARGE_MEDIA_TIMEOUT_MS);
+    const session = await launchDesktop({ projectId: 'mission-montage', sidecarPort: 8786 });
+    try {
+      const { page } = session;
+      const before = await clipCount(session);
+      const batch = photos.slice(0, PHOTO_COUNT);
+
+      await page.getByLabel('import media').setInputFiles(batch);
+      await expect(page.getByLabel('importing media')).toBeHidden({
+        timeout: LARGE_MEDIA_IMPORT_TIMEOUT_MS,
+      });
+
+      // Every file gets its own outcome — a batch that silently drops the tail is the
+      // failure here, and a count is the only assertion that catches it.
+      for (const first of [batch[0]!, batch.at(-1)!]) {
+        await expect(
+          page
+            .getByRole('button', { name: new RegExp(`^Open ${escapeRegExp(basename(first))}`) })
+            .first(),
+        ).toBeVisible({ timeout: 60_000 });
+      }
+      expect(await clipCount(session)).toBe(before);
+      await expect.poll(() => mediaChildren(session.mainPid), { timeout: 2 * 60_000 }).toBe(0);
+    } finally {
+      await session.app.close();
     }
   });
 
