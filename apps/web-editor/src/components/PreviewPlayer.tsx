@@ -99,6 +99,7 @@ import { CaptionOverlay } from './CaptionOverlay.js';
 import { PreviewTextEditor } from './PreviewTextEditor.js';
 import { PreviewCaptionEditor } from './PreviewCaptionEditor.js';
 import { Tooltip } from './Tooltip.js';
+import { describeFrameFit } from '../preview/frame-fit.js';
 import {
   ChevronLeft,
   ChevronRight,
@@ -300,6 +301,19 @@ export function PreviewPlayer({
   );
   const videoClip = videoLocation?.clip ?? null;
   const videoAsset = videoClip ? assetById.get(videoClip.assetId) : undefined;
+  // UX-14 — see `describeFrameFit`. Null whenever there is nothing to say: an
+  // exact fit, no picture clip, or a source the engine has not probed.
+  const frameFit = useMemo(
+    () =>
+      videoAsset
+        ? describeFrameFit(
+            videoAsset.media,
+            { width: resolution?.width ?? 1920, height: resolution?.height ?? 1080 },
+            videoClip?.crop,
+          )
+        : null,
+    [videoAsset, videoClip, resolution],
+  );
   // Footage audio honors the same flags as the render: a muted picture layer
   // (schema v4) or a clip whose `audio_gain` is muted silences the element; the
   // clip's gain scales its volume. Audio-only tracks are handled by the mixer.
@@ -885,6 +899,18 @@ export function PreviewPlayer({
         muted={muted}
       />
       <div className="preview-stage">
+        {/* UX-14: how the picture on screen meets the frame. The render CONTAINS a
+            clip, so a mismatched source ships with bars, and until now the monitor
+            said nothing — the fit was only discoverable by exporting. Indication,
+            not correction: filling the frame is a crop the user or the agent
+            chooses. */}
+        {frameFit && (
+          <Tooltip label={frameFit.detail}>
+            <span className="preview-fit-chip" data-fit={frameFit.kind} role="status">
+              {frameFit.label}
+            </span>
+          </Tooltip>
+        )}
         {/* --aspect drives the pure-CSS contain sizing (see .preview-frame); the
             frame reflows correctly on any resize and bounds the video exactly.
             previewZoom (Fit dropdown) scales the frame beyond its natural

@@ -608,3 +608,70 @@ describe('MediaBin import skeleton', () => {
     expect(view.getAllByLabelText(/^asset /).length).toBe(1);
   });
 });
+
+describe('MediaBin — reveal in bin (UX-08)', () => {
+  const assets: readonly Asset[] = [
+    { id: 'v_0', path: 'media/intro.mp4', kind: 'video' as const },
+    { id: 'v_1', path: 'media/broll.mp4', kind: 'video' as const },
+  ];
+
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  /** One mounted bin whose reveal request can be flipped, as the real host does. */
+  function renderRevealable() {
+    const project = parseProject({ ...newProject('Reveal Test'), assets: [...assets] });
+    function Host({ reveal }: { reveal?: { assetId: string; seq: number } }): JSX.Element {
+      const editor = useEditor(project.timeline, { assets: project.assets, folders: [] });
+      return (
+        <MediaBin
+          editor={editor}
+          project={project}
+          {...(reveal ? { revealRequest: reveal } : {})}
+        />
+      );
+    }
+    const view = render(<Host />);
+    return {
+      view,
+      reveal: async (assetId: string, seq: number) => {
+        view.rerender(<Host reveal={{ assetId, seq }} />);
+        await act(async () => {});
+      },
+    };
+  }
+
+  const opener = (id: string): Element | null =>
+    screen.getByLabelText(`asset ${id}`).querySelector('.bin-card-open');
+
+  it('gives the revealed card the grid’s focus', async () => {
+    const { reveal } = renderRevealable();
+    await reveal('v_1', 1);
+    expect(document.activeElement).toBe(opener('v_1'));
+  });
+
+  // The card the user asked for may be filtered out of the list entirely. A reveal
+  // that leaves the search box alone reveals nothing and looks broken — and the
+  // caller (the timeline) has no way to know the bin is filtered.
+  it('clears a search filter that is hiding the card', async () => {
+    const { reveal } = renderRevealable();
+    fireEvent.change(screen.getByLabelText('search media and transcript'), {
+      target: { value: 'nothing-matches-this' },
+    });
+    expect(screen.queryByLabelText('asset v_1')).toBeNull();
+
+    await reveal('v_1', 1);
+    expect(screen.getByLabelText('asset v_1')).toBeTruthy();
+    expect(document.activeElement).toBe(opener('v_1'));
+  });
+
+  // The second right-click on the same clip is exactly the case where the user has
+  // scrolled away since the first, so the id alone cannot be the trigger.
+  it('reveals the same asset again when the request repeats', async () => {
+    const { reveal } = renderRevealable();
+    await reveal('v_1', 1);
+    (document.activeElement as HTMLElement | null)?.blur();
+    await reveal('v_1', 2);
+    expect(document.activeElement).toBe(opener('v_1'));
+  });
+});

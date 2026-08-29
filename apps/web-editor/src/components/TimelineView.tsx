@@ -192,6 +192,11 @@ export interface TimelineViewProps {
    */
   readonly onAskAiForClip?: (clipId: string) => void;
   /**
+   * Show a clip's source footage in the media bin (UX-08) — forwarded to
+   * {@link ClipContextMenu}'s "Reveal in bin". Absent means this host has no bin.
+   */
+  readonly onRevealAssetInBin?: (assetId: string) => void;
+  /**
    * Switch the left rail to the transitions library. Offered by the on-cut
    * popover as its "there is more than this" escape hatch; absent means this
    * host has no such rail (the timeline is embedded in tests and in the AI
@@ -1085,6 +1090,7 @@ export function TimelineView({
   editMode = 'overwrite',
   trackLayout: trackLayoutProp,
   onAskAiForClip,
+  onRevealAssetInBin,
   onOpenTransitionLibrary,
   tool = 'select',
   selectedEffectLayerIds = [],
@@ -3115,6 +3121,8 @@ export function TimelineView({
           target={menu}
           onClose={() => setMenu(null)}
           {...(onAskAiForClip ? { onAskAi: onAskAiForClip } : {})}
+          onAddTransition={(fromClipId, x, y) => setTransitionPicker({ fromClipId, x, y })}
+          {...(onRevealAssetInBin ? { onRevealInBin: onRevealAssetInBin } : {})}
         />
       )}
       {trackMenu && (

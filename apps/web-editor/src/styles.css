@@ -3469,6 +3469,24 @@ input[type='checkbox']:focus-visible {
   background: var(--bg-panel);
 }
 
+/* UX-14: how the picture meets the frame, said in the monitor instead of only in
+   the export. Top-left over the void the frame floats on, not over the picture —
+   it is a note about the frame, and it must never cover the shot it is about. */
+.preview-fit-chip {
+  position: absolute;
+  z-index: 2;
+  top: var(--space-2);
+  left: var(--space-2);
+  padding: 0.15rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  pointer-events: auto;
+}
+
 .preview-stage {
   position: relative;
   flex: 1;
@@ -6558,6 +6576,39 @@ details.inspector-panel[open] > .inspector-section-head::before {
   height: 1px;
   margin: var(--space-1) 0;
   background: var(--line-soft);
+}
+
+/* Speed presets (UX-08). A row of rates rather than four full-width menu items:
+   they are one choice with four answers, and stacking them would make the speed
+   section taller than the rest of the menu put together. */
+.context-menu-group-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.4rem 0.55rem 0.2rem;
+  color: var(--muted);
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.context-menu-choices {
+  display: flex;
+  gap: var(--space-1);
+  padding: 0 0.3rem 0.2rem;
+}
+
+.context-menu-choices button {
+  justify-content: center;
+  width: auto;
+  flex: 1;
+  padding: 0.25rem 0.3rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.context-menu-choices button[aria-checked='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 /* On-cut transition popover: reuses .context-menu chrome, then becomes a compact

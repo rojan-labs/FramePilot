@@ -140,8 +140,42 @@ Landed 2026-08-29 (timeline navigation, UX-05/06/07):
   outside the viewport and leave it there. The view now follows a seek when — and only
   when — the playhead is actually out of view.
 
-Remaining: UX-08 (clip context menu: trim-to-playhead, speed, transition, reveal in bin,
-disable) and UX-14 (preview fit/crop indication).
+Landed 2026-08-29 (UX-08, UX-14):
+
+- **UX-08 — the clip menu.** Trim start / end to playhead, four speed presets, "Add
+  transition" (which opens the picker the timeline already owned, at the cut) and "Reveal
+  in bin" are now on the menu; every entry is gated on its patch builder actually
+  returning a patch, so the menu cannot offer an edit that would be refused — no trim with
+  the playhead outside the clip, no transition where nothing follows on the track. Reveal
+  is a real vertical slice rather than a tab switch: the bin **clears its search filter
+  and expands the containing folders first**, because the card the user asked for is
+  routinely the one the current filter is hiding, and the timeline has no way to know
+  what the bin is showing. It reveals by a bumped counter, not by asset id — the second
+  right-click on the same clip is exactly the case where the user has scrolled away since
+  the first.
+
+  **"Disable clip" is NOT shipped, and is not a UI gap.** There is no per-clip enabled
+  flag anywhere in the schema: `set_track_flags` is track-scope, `set_effect_layer_enabled`
+  is layer-scope, and `set_transition_disabled` is a transition's own. Adding one is a
+  timeline-schema change with a migration and a render-side meaning, which CLAUDE.md §5
+  says to ask about rather than slip into a context-menu task. Recorded here so the next
+  agent does not spend the afternoon looking for the flag.
+
+- **UX-14 — the fit the monitor kept to itself.** `_place_video_clip` FITS a clip into the
+  frame (`min(target_w/w, target_h/h)` — contain), so a 16:9 source in a 9:16 sequence
+  exports with bars unless the clip carries a crop. That is a decided, visible property of
+  the export from the moment the footage lands, and the only way to learn it was to export
+  and look. The monitor now carries a "Letterboxed" / "Pillarboxed" chip with the reason in
+  its tooltip ("16:9 footage in a 9:16 frame — the export has bars above and below").
+  Indication, not correction: filling the frame is a crop the user or the agent chooses,
+  and covering it here would show pixels the export drops — the divergence `crop-fill.ts`
+  exists to close. The comparison is against the **cropped** region, so a correctly
+  reframed clip says nothing; an asset the engine never probed also says nothing, because
+  an unprobed source is not a claim that it fits.
+
+Remaining: nothing in this task's own scope. The e2e legs the done-when names
+(`timeline-interaction`, `timeline-marquee`, the shortcut-list test) are outside
+`apps/web-editor/src` and belong with the e2e owner.
 
 ## P8.4 — States: loading, empty, error, progress, destructive confirms — `[~]`
 
