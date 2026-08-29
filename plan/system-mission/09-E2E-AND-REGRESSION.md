@@ -290,3 +290,17 @@ media. `USE-CASES.md`'s own State column was left untouched (outside this task's
 
 ## Discovered
 
+- [ ] **The "unreadable media" row leaves a fixture directory at mode 000.** Found
+  2026-08-29 the expensive way: `tests/fixtures/mission/projects/media/mission-montage/`
+  was left unreadable, so `ls` reported it empty, and it looked for a while as though a
+  `git filter-branch` checkout had deleted 15 GB of the maintainer's camera footage. It had
+  not — one `chmod 755` brought all 437 files back. The row must restore the mode in a
+  `finally`, and it should chmod the FILE it wants unreadable rather than the directory
+  holding every montage fixture.
+
+- [ ] **`brain.sqlite`, the derived thumbnail cache and the sidecar analysis caches under
+  `tests/fixtures/mission/projects/` are regenerated on every run.** They are now
+  gitignored. If any e2e row actually depends on pre-seeded analysis rather than
+  regenerating it, that dependency is now invisible and will show up as a slow first run —
+  worth confirming once.
+
