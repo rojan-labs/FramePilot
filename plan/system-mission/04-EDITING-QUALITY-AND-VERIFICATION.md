@@ -95,7 +95,7 @@ baseline actually produced — an unmet stated duration (`orchestrator-stream.te
 The rubric's overlap / frame-grid / valid-refs checks stay in `mission-rubric.ts` as the
 after-the-fact grade. Measured effect on the scenario scores: the Phase 4 after-report.
 
-## P4.4 — Scenario suite as the quality gate — `[~]` (floor committed and gate proven; CI lane remains)
+## P4.4 — Scenario suite as the quality gate — `[x]`
 
 **Touches:** `packages/ai-sdk/src/eval/mission-rubric.ts` (from P0.3),
 `eval/mission-scenarios.ts`, `pnpm eval:mission`. Scenarios: UC-01…UC-12 with fixture
@@ -118,8 +118,13 @@ prompt edit (the goldens already cover kernel replay).
 The floor is committed (`reports/system-mission/mission-score.json`, 2026-08-29): montage
 1.00, podcast 1.00, beat-sync 0.78, dead-air 0.75. **Proven both ways** — the gate exits 0
 with every scenario `held`, and lowering one scenario's recorded score by 0.17 makes it
-exit 2 with `REGRESSION` against that row. Remaining: the CI lane that runs it (P9.3), and
-floor rows for the two scenarios the provider rate-limit still blocks.
+exit 2 with `REGRESSION` against that row. The CI lane landed too: `ci.yml`'s `mission-gates` job runs both the rubric floor and the
+efficiency floor on every PR. It installs nothing — both scripts are dependency-free Node
+that resolve their argument against the repo root — and it **skips rather than fails** when
+no run JSON is present, because a red X meaning "no data" trains people to ignore red. The
+expensive half (producing a fresh run against a real provider) is the nightly job.
+
+All six scenarios now have floor rows; the last two were measured on 2026-08-29.
 
 ## P4.5 — Close — `[~]` (report written; ADR + CHANGELOG remain)
 

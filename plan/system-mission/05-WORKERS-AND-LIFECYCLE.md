@@ -20,7 +20,7 @@ context for the step is < 40% of the main turn's; the step can run concurrently 
 another; the step's error rate drops with a narrower prompt. Record the justification in
 the task.
 
-## P5.1 — Typed contracts for the existing specialists — `[~]` (landed for the seven in-package specialists; desktop's tracking executor remains)
+## P5.1 — Typed contracts for the existing specialists — `[x]`
 
 **Touches:** `packages/ai-sdk/src/controllers/*`, `kernel/proposers/types.ts`. One
 shared shape: `SpecialistInput { task, context, constraints, inputs }` →
@@ -28,6 +28,19 @@ shared shape: `SpecialistInput { task, context, constraints, inputs }` →
 boundary. Controllers stop reading the whole working state and receive only their slice.
 **Done when:** every controller and proposer is called through the contract and a test
 asserts its input contains no field outside its declared slice.
+
+Landed 2026-08-29. `packages/ai-sdk/src/specialists/`: one envelope —
+`SpecialistInput{task, context, constraints, inputs}` → `SpecialistOutput{outputs,
+artifacts[], confidence, errors[]}` — validated in **both** directions, because a contract
+enforced one way is a type annotation. Seven controllers and the Critic proposer declare a
+slice; `sliceOf` projects the `ToolContext` down to it, so a call site cannot hand a
+specialist state it never declared.
+
+The last production caller reaching past it was the desktop host's
+`automatic-tracking-executor.ts`, which called `resolveSubjectDetectionObjective` and
+`resolveAutomaticTrackingObjective` directly. Both now go through `runSpecialist`, which
+also made their failure handling uniform — a rejection is `errors[0]`, the same shape every
+other specialist reports. 23 + 4 tests; desktop 557, ai-sdk 3,859 green.
 
 Landed 2026-08-29: `packages/ai-sdk/src/specialists/` — the contract, seven declared
 specialists (audio, color, motion, timeline, tracking-mask, automatic-tracking,

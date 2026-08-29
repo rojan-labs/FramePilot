@@ -19,8 +19,10 @@ import {
   AutomaticTrackingObjectiveSchema,
   AutomaticTrackingMeasurementSchema,
   SubjectDetectionObjectiveSchema,
-  resolveAutomaticTrackingObjective,
-  resolveSubjectDetectionObjective,
+  AUTOMATIC_TRACKING_SPECIALIST,
+  SUBJECT_DETECTION_SPECIALIST,
+  runSpecialist,
+  sliceOf,
   silhouetteMasksToTrackSamples,
   type AutomaticTrackingMeasurement,
   type HostToolExecutor,
@@ -28,9 +30,7 @@ import {
   type HostExecutionContext,
 } from '@framepilot/ai-sdk';
 import type { CapabilityPackWorkerResult } from '@framepilot/capability-packs';
-import {
-  buildTrackingWorkerRequest,
-} from '../capability-packs/tracking-request.js';
+import { buildTrackingWorkerRequest } from '../capability-packs/tracking-request.js';
 import type { CapabilityPackTrackingService } from '../capability-packs/tracking.js';
 
 const log = createLogger('desktop:ai:automatic-tracking');
@@ -70,7 +70,12 @@ interface PackJobSuccess {
 /** A typed refusal from the authority, or from building the exact worker request. */
 type PackJobFailureOutcome =
   | Exclude<Awaited<ReturnType<CapabilityPackTrackingService['run']>>, { status: 'completed' }>
-  | { readonly status: 'failed'; readonly code: string; readonly detail: string; readonly retryable: false };
+  | {
+      readonly status: 'failed';
+      readonly code: string;
+      readonly detail: string;
+      readonly retryable: false;
+    };
 interface PackJobFailure {
   readonly ok: false;
   readonly outcome: PackJobFailureOutcome;
@@ -80,11 +85,16 @@ export function createAutomaticTrackingExecutor(
   options: AutomaticTrackingExecutorOptions,
 ): HostToolExecutor {
   return {
-    async run(call: ExecutorCall, ctx: HostExecutionContext, signal?: AbortSignal): Promise<HostToolOutcome> {
+    async run(
+      call: ExecutorCall,
+      ctx: HostExecutionContext,
+      signal?: AbortSignal,
+    ): Promise<HostToolOutcome> {
       if (!EXECUTOR_TOOLS.has(call.name)) {
         return failed(call.name, 'routing_error', 'This call was routed to the wrong executor.');
       }
-      if (call.name === DETECT_SUBJECTS_TOOL_NAME) return await runDetection(call, ctx, signal, options);
+      if (call.name === DETECT_SUBJECTS_TOOL_NAME)
+        return await runDetection(call, ctx, signal, options);
       return await runTracking(call, ctx, signal, options);
     },
   };
@@ -159,18 +169,32 @@ async function runDetection(
       'Subject detection needs a live editor selection — select one video clip in the timeline.',
     );
   }
-  const resolution = resolveSubjectDetectionObjective({
-    project: ctx.project,
-    interaction: ctx.interaction,
-    objective,
+  // Through the contract (P5.1), not the controller directly: `sliceOf` hands it only the
+  // fields it declared, and the envelope is validated in both directions. This was the
+  // last production caller reaching past it.
+  const resolution = runSpecialist(SUBJECT_DETECTION_SPECIALIST, {
+    task: DETECT_SUBJECTS_TOOL_NAME,
+    context: sliceOf(SUBJECT_DETECTION_SPECIALIST, ctx),
+    constraints: {},
+    inputs: objective,
   });
-  if (resolution.status === 'rejected') {
-    return failed(DETECT_SUBJECTS_TOOL_NAME, resolution.code, resolution.detail);
+  const detectionPlan = resolution.outputs.plan;
+  if (detectionPlan === undefined) {
+    const [first] = resolution.errors;
+    return failed(
+      DETECT_SUBJECTS_TOOL_NAME,
+      first?.code ?? 'target_unresolved',
+      first?.detail ?? 'Subject detection could not resolve a target.',
+    );
   }
-  const job = await runPackJob(call, ctx, signal, options, resolution.plan);
+  const job = await runPackJob(call, ctx, signal, options, detectionPlan);
   if (!job.ok) return mapJobFailure(DETECT_SUBJECTS_TOOL_NAME, job.outcome);
   if (!('detections' in job.result)) {
-    return failed(DETECT_SUBJECTS_TOOL_NAME, 'worker_failed', 'The worker returned no detection set.');
+    return failed(
+      DETECT_SUBJECTS_TOOL_NAME,
+      'worker_failed',
+      'The worker returned no detection set.',
+    );
   }
   const detections = job.result.detections;
   log.action('subjectDetectionComplete', { engine: job.engine, detections: detections.length });
@@ -190,7 +214,7 @@ async function runDetection(
         : `Detected ${labelSummary} across ${frames} frame${frames === 1 ? '' : 's'} with ${job.engine}`,
     data: {
       kind: 'detect_subjects',
-      clipId: resolution.plan.clipId,
+      clipId: detectionPlan.clipId,
       labels: objective.labels,
       totalDetections: detections.length,
       byLabel,
@@ -217,15 +241,21 @@ async function runTracking(
       'Automatic tracking needs a live editor selection — open the timeline and select the clip to track.',
     );
   }
-  const resolution = resolveAutomaticTrackingObjective({
-    project: ctx.project,
-    interaction: ctx.interaction,
-    objective,
+  const resolution = runSpecialist(AUTOMATIC_TRACKING_SPECIALIST, {
+    task: AUTOMATIC_TRACKING_TOOL_NAME,
+    context: sliceOf(AUTOMATIC_TRACKING_SPECIALIST, ctx),
+    constraints: {},
+    inputs: objective,
   });
-  if (resolution.status === 'rejected') {
-    return failed(AUTOMATIC_TRACKING_TOOL_NAME, resolution.code, resolution.detail);
+  const plan = resolution.outputs.plan;
+  if (plan === undefined) {
+    const [first] = resolution.errors;
+    return failed(
+      AUTOMATIC_TRACKING_TOOL_NAME,
+      first?.code ?? 'target_unresolved',
+      first?.detail ?? 'Automatic tracking could not resolve a target.',
+    );
   }
-  const { plan } = resolution;
   // The tracking controller guarantees a mask for every resolved track plan,
   // but the plan type is shared with detection (maskless) — make the
   // dependency explicit instead of asserting.
@@ -247,10 +277,18 @@ async function runTracking(
   } else if ('masks' in result) {
     samples = silhouetteMasksToTrackSamples(result.masks);
   } else {
-    return failed(AUTOMATIC_TRACKING_TOOL_NAME, 'worker_failed', 'The worker returned a non-tracking result.');
+    return failed(
+      AUTOMATIC_TRACKING_TOOL_NAME,
+      'worker_failed',
+      'The worker returned a non-tracking result.',
+    );
   }
   if (samples.length === 0) {
-    return failed(AUTOMATIC_TRACKING_TOOL_NAME, 'worker_failed', 'The worker returned no usable measurements.');
+    return failed(
+      AUTOMATIC_TRACKING_TOOL_NAME,
+      'worker_failed',
+      'The worker returned no usable measurements.',
+    );
   }
   const measurement: AutomaticTrackingMeasurement = {
     objective,
@@ -268,7 +306,11 @@ async function runTracking(
   // Refuse to hand the orchestrator anything it would reject anyway.
   const parsed = AutomaticTrackingMeasurementSchema.safeParse(measurement);
   if (!parsed.success) {
-    return failed(AUTOMATIC_TRACKING_TOOL_NAME, 'worker_failed', 'The worker returned a malformed sample set.');
+    return failed(
+      AUTOMATIC_TRACKING_TOOL_NAME,
+      'worker_failed',
+      'The worker returned a malformed sample set.',
+    );
   }
   log.action('automaticTrackingComplete', {
     engine: measurement.engine,
@@ -298,7 +340,11 @@ function mapJobFailure(toolName: string, outcome: PackJobFailureOutcome): HostTo
     if (outcome.code === 'cancelled') {
       return { status: 'cancelled', summary: `Stopped "${toolName}" — run cancelled` };
     }
-    return failed(toolName, outcome.code, `${outcome.detail}${outcome.retryable ? ' (Retryable.)' : ''}`);
+    return failed(
+      toolName,
+      outcome.code,
+      `${outcome.detail}${outcome.retryable ? ' (Retryable.)' : ''}`,
+    );
   }
   return failed(toolName, 'worker_failed', 'The pack job ended without a result.');
 }
