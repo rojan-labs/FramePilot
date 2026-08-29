@@ -97,16 +97,32 @@ actively dragged off the beat and onto a beep. Snapping to on-grid onsets moves 
 **100 % land on a beat.** So every beat-backed snap is now correct, and a cut that would
 have been misaligned is left where the model put it instead.
 
-That is a correctness win, not yet a rubric win, and the distinction is the point. Both a
-cut that never snapped and a cut snapped onto a beep score the same zero on
-`cuts-on-beats`, so this alone does not move the number. Moving it needs the snap WINDOW to
-widen toward half a beat period, so a cut near a beat is pulled onto it rather than
-requiring an onset within 80 ms — a change to `alignBeatBackedBoundaries` that affects
-every beat-backed edit, and a separate lever. Filed under §Discovered.
+I first called that "a correctness win, not yet a rubric win", reasoning that a cut which
+never snapped and a cut snapped onto a beep both score zero, so making the snaps correct
+could not move the number. **That was wrong, and the live runs say so.**
 
-One live re-run after the fix scored 0.56 with **2 operations and 4 cuts**; that is a run
-that barely edited, not a signal about the grid, and it is recorded here rather than
-presented as a before/after.
+| beat-sync | runs | ops | `cuts-on-beats` | rubric |
+| --- | --- | --- | --- | --- |
+| before | 3 | 34 | 9/12, 8/11, 10/12 | **0.78** |
+| after | 2 | 34, 28 | **13/13, 9/9 (100 %)** | **1.00** |
+
+The error was in the model of where cuts come from. My simulation drew them uniformly at
+random, and a random cut rarely finds any onset within 80 ms. The agent does not place cuts
+at random — it is handed the onset list and places them AT onsets, so nearly every cut
+snaps. Which means the 40 % that previously snapped onto a beep were not "left off-grid
+either way"; they were being actively moved off the beat, and that was the whole of the
+missing score.
+
+Worth recording precisely: **`hardSync` is still not declared in either run.** The
+improvement is entirely the on-grid filter. The `hardSync` wording fix (below) is a
+separate, still-unexercised lever, and the earlier note proposing a wider snap window is
+**withdrawn** — under hard sync the runtime already rejects rather than nudges, and widening
+the window for runs that never asked would impose a grid on picture-led edits, which
+`beat-alignment.ts` deliberately refuses to do.
+
+An intermediate re-run scored 0.56 with 2 operations and 4 cuts. That was a run that barely
+edited, not a signal about the grid; it is recorded here because it is the reason the
+measurement was repeated with comparable runs rather than reported from one.
 
 **`tighten_pacing` — refused; the two things that actually stopped the tighten turn are
 neither of them a missing op.** UC-08's refine turn failed `shorter` in 2/3 runs, so it
