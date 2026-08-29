@@ -121,7 +121,7 @@ def test_resolve_target_follows_settings_and_caps_at_the_sources() -> None:
 
 def test_unknown_settings_values_are_rejected_at_the_model() -> None:
     with pytest.raises(ValueError):
-        ExportSettings(resolution="8k")  # type: ignore[arg-type]
+        ExportSettings(resolution="8k")
 
 
 # --- failure paths (no real encode needed) -----------------------------------

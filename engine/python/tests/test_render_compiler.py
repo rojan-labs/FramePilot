@@ -2364,7 +2364,19 @@ class _SizedReader:
 def test_decode_cap_follows_the_frame_the_crop_and_animation() -> None:
     from framepilot_engine.render.compiler import decode_cap_for_clip
 
-    plain = Clip(id="c", assetId="a", trackId="t", start=0, end=1, sourceStart=0, sourceEnd=1)
+    # Built through `model_validate` so the aliases are what mypy checks against — the
+    # constructor's own signature takes the snake_case field names.
+    plain = Clip.model_validate(
+        {
+            "id": "c",
+            "assetId": "a",
+            "trackId": "t",
+            "start": 0,
+            "end": 1,
+            "sourceStart": 0,
+            "sourceEnd": 1,
+        }
+    )
     assert decode_cap_for_clip(plain, (1080, 1920)) == int(1920 * 1.25)
     cropped = Clip.model_validate(
         {

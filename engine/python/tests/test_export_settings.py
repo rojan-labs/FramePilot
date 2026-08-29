@@ -6,6 +6,7 @@ import pytest
 
 from framepilot_engine.render.export_settings import (
     ExportSettings,
+    Resolution,
     SourceFacts,
     estimate_size_bytes,
     resolve_export_target,
@@ -29,7 +30,9 @@ def facts(w: int, h: int, fps: float = 30.0, max_short: int | None = 2160) -> So
         (1080, 1350, "1080p", (1080, 1350)),
     ],
 )
-def test_frame_follows_project_aspect_at_every_resolution(w, h, res, expect) -> None:
+def test_frame_follows_project_aspect_at_every_resolution(
+    w: int, h: int, res: Resolution, expect: tuple[int, int]
+) -> None:
     width, height, effective, capped = resolve_frame(res, facts(w, h))
     assert (width, height) == expect
     assert effective == res and capped is False
