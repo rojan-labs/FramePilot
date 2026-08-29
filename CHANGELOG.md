@@ -53,6 +53,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Desktop:** if the render engine stops unexpectedly, FramePilot now restarts it automatically (up to three times, with a short wait between) instead of failing every later render and analysis until the app is restarted.
+
 - **Agent runs:** when the final self-check fails on something fixable, the agent now gets one bounded fix turn with the findings in front of it before the run is settled, instead of ending as failed.
 
 - **AI tools:** `auto_emphasize_captions` no longer takes a `style` block (use `set_track_caption_style` for the design); `set_caption_style` points at `discover_caption_styles` instead of listing every template. About 960 fewer tokens on every agent request.

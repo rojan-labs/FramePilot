@@ -400,6 +400,13 @@ const sidecar = new SidecarManager({
   host: engine.host,
   port: engine.port,
   startupTimeoutMs: Number(process.env.FRAMEPILOT_SIDECAR_TIMEOUT_MS) || 15_000,
+  // P5.5: an engine that dies under a running app restarts itself. Log every
+  // transition — a silent recovery is indistinguishable from a silent outage when
+  // someone is reading the log to explain why a render failed at 14:02.
+  onStatusChange: (status) => {
+    if (status.phase === 'failed') aiLog.error('sidecar failed', { detail: status.detail });
+    else aiLog.action('sidecar phase', { phase: status.phase, detail: status.detail });
+  },
 });
 const recentFiles = new RecentFilesStore(userDataFileIO('recent-projects.json'));
 const recovery = new RecoveryStore(userDataFileIO('recovery-snapshot.json'));

@@ -75,7 +75,7 @@ requests so it measures the gate. Caps already existed: asset-media
 `visual_index_concurrency`, render queue 1 encode. Remaining: queue depth / per-job
 state readable by the sidebar (Phase 8 Doing) and the 60-asset burst measurement.
 
-## P5.5 — Recovery — `[ ]`
+## P5.5 — Recovery — `[~]`
 
 **Touches:** `ai/durable-run-controls.ts`, `run-store.ts`, sidecar restart path.
 Sidecar crash mid-run → run enters `recovering`, sidecar restarts, analysis jobs resume
@@ -83,6 +83,16 @@ from persisted job state or are re-queued, the run continues or fails with a rea
 shown in the sidebar. App restart mid-run → run is shown as interrupted with a resume
 control.
 **Done when:** UC-15's sidecar-crash and restart rows pass in Phase 9.
+
+Landed 2026-08-29: `SidecarManager` now RECOVERS from an engine that dies after becoming
+ready — bounded restarts (default 3) with 1s/2s/4s backoff, the cause and attempt number
+in `status.detail`, `stop()` during the backoff cancels and resets the budget, an exit
+during startup is still a plain start failure, and every phase change is observable via
+`onStatusChange` (main logs it). Six tests. Note: the renderer has no production caller
+of `sidecarStatus` today — nothing shows the phase to the user — so the "reason shown in
+the sidebar" half of this task rides Phase 8's Doing strip rather than a new IPC push
+nobody reads. Remaining: run-level `recovering` state and job resume (`durable-run-controls`),
+and the UC-15 rows in Phase 9.
 
 ## P5.6 — Close — `[ ]`
 

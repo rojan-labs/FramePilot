@@ -51,12 +51,24 @@ export interface SidecarManagerOptions {
   startupTimeoutMs?: number;
   /** Delay between successive health probes. */
   probeIntervalMs?: number;
+  /**
+   * How many times an engine that dies AFTER becoming ready is restarted before the
+   * manager gives up (plan/system-mission P5.5). 0 disables recovery.
+   */
+  maxRestarts?: number;
+  /** Backoff before restart attempt n (1-based); default 1s, 2s, 4s, capped at 8s. */
+  restartDelayMs?: (attempt: number) => number;
+  /** Observed on every phase change — main logs it and tells the renderer. */
+  onStatusChange?: (status: SidecarStatus) => void;
 }
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 8765;
 const DEFAULT_STARTUP_TIMEOUT_MS = 10_000;
 const DEFAULT_PROBE_INTERVAL_MS = 200;
+const DEFAULT_MAX_RESTARTS = 3;
+const defaultRestartDelay = (attempt: number): number =>
+  Math.min(8_000, 1_000 * 2 ** (attempt - 1));
 
 const realSleep: Sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -74,6 +86,11 @@ export class SidecarManager {
   private readonly port: number;
   private readonly startupTimeoutMs: number;
   private readonly probeIntervalMs: number;
+  private readonly maxRestarts: number;
+  private readonly restartDelayMs: (attempt: number) => number;
+  private readonly onStatusChange: ((status: SidecarStatus) => void) | undefined;
+  /** Unexpected exits recovered from since the last stop(). */
+  private restarts = 0;
 
   private process: SidecarProcess | null = null;
   private phase: SidecarStatus['phase'] = 'stopped';
@@ -89,6 +106,22 @@ export class SidecarManager {
     this.port = options.port ?? DEFAULT_PORT;
     this.startupTimeoutMs = options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
     this.probeIntervalMs = options.probeIntervalMs ?? DEFAULT_PROBE_INTERVAL_MS;
+    this.maxRestarts = options.maxRestarts ?? DEFAULT_MAX_RESTARTS;
+    this.restartDelayMs = options.restartDelayMs ?? defaultRestartDelay;
+    this.onStatusChange = options.onStatusChange;
+  }
+
+  /** How many unexpected exits the manager has recovered from (tests, diagnostics). */
+  get restartCount(): number {
+    return this.restarts;
+  }
+
+  /** Single writer for phase/detail, so every transition can be observed. */
+  private setPhase(phase: SidecarStatus['phase'], detail: string | null): void {
+    const changed = phase !== this.phase || detail !== this.detail;
+    this.phase = phase;
+    this.detail = detail;
+    if (changed) this.onStatusChange?.(this.status);
   }
 
   /** The base URL the engine is reachable at once ready. */
@@ -118,8 +151,7 @@ export class SidecarManager {
       return this.status;
     }
 
-    this.phase = 'starting';
-    this.detail = null;
+    this.setPhase('starting', null);
     this.exited = false;
     const process = this.spawn();
     this.process = process;
@@ -132,21 +164,54 @@ export class SidecarManager {
       this.exited = true;
       // An exit while still starting/ready is a failure; an exit after an
       // intentional stop() has already moved us to 'stopped'.
-      if (this.phase === 'starting' || this.phase === 'ready') {
-        this.phase = 'failed';
-        this.detail = `Sidecar process exited (code ${code ?? 'null'}).`;
+      if (this.phase === 'ready') {
+        // P5.5: an engine that dies under a running app is restarted, bounded, with
+        // backoff. Without this every later render, analysis and agent tool call failed
+        // with a connection error until the user found "restart engine" in Settings.
+        this.recover(`Sidecar process exited (code ${code ?? 'null'}).`);
+      } else if (this.phase === 'starting') {
+        this.setPhase('failed', `Sidecar process exited (code ${code ?? 'null'}).`);
       }
     });
     process.onError((error) => {
       if (this.process !== process) return;
       this.exited = true;
       if (this.phase === 'starting' || this.phase === 'ready') {
-        this.phase = 'failed';
-        this.detail = `Sidecar failed to start: ${error.message}`;
+        this.setPhase('failed', `Sidecar failed to start: ${error.message}`);
       }
     });
 
     return this.pollUntilReady();
+  }
+
+  /**
+   * Bring the engine back after an unexpected exit, or say why we stopped trying.
+   *
+   * Bounded on purpose: an engine that dies on startup every time is a broken install,
+   * and an unbounded restart loop would hide that behind a spinner forever.
+   */
+  private recover(cause: string): void {
+    this.process = null;
+    if (this.restarts >= this.maxRestarts) {
+      this.setPhase(
+        'failed',
+        `${cause} Restarted ${String(this.restarts)} time(s) already; not restarting again.`,
+      );
+      return;
+    }
+    this.restarts += 1;
+    const attempt = this.restarts;
+    this.setPhase(
+      'starting',
+      `${cause} Restarting (attempt ${String(attempt)} of ${String(this.maxRestarts)})…`,
+    );
+    void (async () => {
+      await this.sleep(this.restartDelayMs(attempt));
+      // stop() (or a manual restart) during the backoff owns the process now.
+      if (this.phase !== 'starting' || this.process !== null) return;
+      this.phase = 'stopped';
+      await this.start();
+    })();
   }
 
   /** Terminate the sidecar and return to `stopped`. Idempotent. */
@@ -155,8 +220,8 @@ export class SidecarManager {
       this.process.kill();
       this.process = null;
     }
-    this.phase = 'stopped';
-    this.detail = null;
+    this.restarts = 0;
+    this.setPhase('stopped', null);
   }
 
   /** Probe `/health` on a fixed cadence until ready, the process dies, or timeout. */
@@ -168,8 +233,7 @@ export class SidecarManager {
         return this.status; // onExit already set phase='failed' with detail.
       }
       if (await this.healthy()) {
-        this.phase = 'ready';
-        this.detail = null;
+        this.setPhase('ready', null);
         return this.status;
       }
       await this.sleep(this.probeIntervalMs);
@@ -190,8 +254,7 @@ export class SidecarManager {
 
   /** Move to `failed`, recording why, and tear down any live process. */
   private fail(detail: string): void {
-    this.phase = 'failed';
-    this.detail = detail;
+    this.setPhase('failed', detail);
     if (this.process) {
       this.process.kill();
       this.process = null;
