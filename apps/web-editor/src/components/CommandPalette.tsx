@@ -15,6 +15,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SLASH_COMMANDS, type SlashCommand } from '../ai/composerActions.js';
+import { useModalFocusTrap } from './ai/useModalFocusTrap.js';
 import { ICON_SIZE, MessageSquare, Search, Send } from './icons.js';
 
 export interface CommandPaletteProps {
@@ -37,26 +38,42 @@ function matchesQuery(command: SlashCommand, query: string): boolean {
   return haystack.includes(query.toLowerCase());
 }
 
-export function CommandPalette({
-  open,
+export function CommandPalette(props: CommandPaletteProps): JSX.Element | null {
+  // Gate before the content so the focus trap's mount effect runs when the palette
+  // actually appears — a hook called above an `open` guard sees a null ref. Mounting
+  // per open also replaces the reset effect: the state starts fresh by construction.
+  if (!props.open) return null;
+  return <CommandPaletteContent {...props} />;
+}
+
+/** id for the highlighted row, so `aria-activedescendant` can point at it. */
+const optionId = (index: number): string => `command-palette-option-${index}`;
+
+function CommandPaletteContent({
   onClose,
   hasSelection,
   selectionLabel,
   onSubmitScopedEdit,
   onOpenAiSidebar,
-}: CommandPaletteProps): JSX.Element | null {
+}: CommandPaletteProps): JSX.Element {
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
+  const dialogRef = useModalFocusTrap<HTMLDivElement>();
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Reset on each open so a stale query/highlight never lingers across sessions.
   useEffect(() => {
-    if (open) {
-      setQuery('');
-      setActiveIndex(0);
-      inputRef.current?.focus();
-    }
-  }, [open]);
+    inputRef.current?.focus();
+  }, []);
+
+  // Escape on `document`: the React handler sat on the backdrop, so it only saw keys
+  // pressed inside the overlay — Escape stopped working the moment focus left it.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
 
   const filteredCommands = useMemo(
     () => SLASH_COMMANDS.filter((command) => matchesQuery(command, query)),
@@ -83,22 +100,15 @@ export function CommandPalette({
     else runCommand(filteredCommands[index - 1]!);
   };
 
-  if (!open) return null;
-
   return (
-    <div
-      className="overlay-backdrop"
-      role="presentation"
-      onClick={onClose}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') onClose();
-      }}
-    >
+    <div className="overlay-backdrop" role="presentation" onClick={onClose}>
       <div
+        ref={dialogRef}
         className="command-palette"
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
+        tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="command-palette-hint">
@@ -121,6 +131,14 @@ export function CommandPalette({
               hasSelection ? 'Describe the edit for the selected clip(s)…' : 'Search actions…'
             }
             aria-label="Command palette input"
+            // The arrow keys move a highlight the input owns, so the input is the
+            // combobox and the highlighted row has to be named — otherwise a screen
+            // reader user pressing Down hears nothing change.
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="command-palette-list"
+            aria-activedescendant={optionId(activeIndex)}
+            aria-autocomplete="list"
             onChange={(event) => {
               setQuery(event.target.value);
               setActiveIndex(0);
@@ -140,10 +158,16 @@ export function CommandPalette({
           />
         </div>
 
-        <ul className="command-palette-list" role="listbox" aria-label="Command palette actions">
+        <ul
+          id="command-palette-list"
+          className="command-palette-list"
+          role="listbox"
+          aria-label="Command palette actions"
+        >
           <li role="presentation">
             <button
               type="button"
+              id={optionId(0)}
               role="option"
               aria-selected={activeIndex === 0}
               className={`command-palette-item${activeIndex === 0 ? ' is-active' : ''}`}
@@ -169,6 +193,7 @@ export function CommandPalette({
               <li key={command.name} role="presentation">
                 <button
                   type="button"
+                  id={optionId(index)}
                   role="option"
                   aria-selected={activeIndex === index}
                   className={`command-palette-item${activeIndex === index ? ' is-active' : ''}`}
