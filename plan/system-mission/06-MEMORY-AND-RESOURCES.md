@@ -1,4 +1,4 @@
-# Phase 6 — Memory and resources — `[ ]`
+# Phase 6 — Memory and resources — `[~]`
 
 > **Ships:** an end-to-end leak audit with each finding fixed at its owner; caches with
 > bounds; a repeatable resource test.
@@ -48,6 +48,11 @@ composition and analysis caches bounded and evictable; long-lived emitters audit
 subscriber growth; streaming responses closed on client disconnect.
 **Done when:** sidecar RSS after 5 exports ≈ after 1 (±10%); no `ResourceWarning` under
 `-W error` in engine tests.
+
+Finding (2026-08-29): the composition cache is a bounded LRU with a build semaphore
+(`composition_cache.py`); the only process-lifetime dicts in `service.py` are per-project
+lock maps. Render children now die with their process group. Remaining: the 5-export RSS
+measurement and `-W error` run.
 
 ## P6.5 — FFmpeg / ffprobe / frame buffers — `[ ]`
 
