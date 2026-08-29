@@ -280,8 +280,13 @@ proves the gate in both directions in **0.4 s, 5 tests**:
 It runs first in the nightly lane. The bounds come from the 2026-08-29 baseline (heap
 43.7–48.7 MB, listeners 933–935, nodes 2,913–2,967 over 376 loops).
 
-## P6.7 — Close — `[ ]`
+## P6.7 — Close — `[x]`
 
 `06-after.md` with the P0.4 table re-run; each fix linked to its commit and root cause.
+
+Landed 2026-08-29: `docs/reports/system-mission/06-after.md` — four real defects with their
+root causes and commits, the list of what was audited and found clean (a result worth
+recording so nobody re-derives it), the RSS criterion that turned out to be unmeasurable as
+written, and the gate that is now provable in both directions.
 
 ## Discovered

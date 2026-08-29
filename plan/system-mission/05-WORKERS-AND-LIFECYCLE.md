@@ -221,8 +221,13 @@ known and one is not:
 Claiming P5.5 on the unit tests would be claiming exactly the thing the e2e just
 disproved once already. It stays `[~]` until the row runs green.
 
-## P5.6 — Close — `[ ]`
+## P5.6 — Close — `[x]`
 
 `05-after.md`, ADR for the lifecycle registry, `docs/runbooks/ai-run-lifecycle.md` update.
+
+Landed 2026-08-29: `docs/reports/system-mission/05-after.md` (the 585-request ledger, the
+specialist decisions with the arithmetic that accepted and rejected each, and the lifecycle
+summary) and **ADR 0161**, which records both the registry and the corollary the e2e
+taught: watching a process is not the same as watching a service.
 
 ## Discovered

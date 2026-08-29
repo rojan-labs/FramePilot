@@ -28,6 +28,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Clip right-click does more:** trim the start or end to the playhead, set a speed, add a transition at the cut, or reveal the clip in the media bin.
+- **The preview tells you when footage is being letterboxed or pillarboxed**, so a landscape shot in a vertical sequence is no longer a silent crop.
+- **The AI sidebar shows what it knows:** the playhead and the decisions it remembers, with starter prompts drawn from your actual project instead of a fixed list. Context chips that cannot be removed no longer pretend they can.
+- **A finished run says what changed** — operations grouped by what they did, with the change in programme length.
+
 - **AI sidebar:** click an attached reference to see exactly what FramePilot measured from it, change what it should be used for, or analyze it again — and a reference that could not be read says why, right on the tile.
 
 - **Export:** the progress line now says about how long is left, measured from the render's own pace, and the dialog keeps a per-project list of recent exports with a Reveal button for each.
@@ -103,6 +108,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   matches nothing says so instead of looking broken. (`apps/web-editor`)
 
 ### Fixed
+
+- **A failed AI run says what went wrong in one sentence**, with the provider's own text kept behind "Show details" instead of thrown at you as the headline.
+- Deleting a conversation now asks first — it is the one action in the sidebar that undo cannot take back.
+- The video preview releases its decoded frames when it shuts down, and the render engine closes the ffmpeg pipes it was leaving open at the end of every export.
 
 - **Removing dead air** no longer cuts inside a word when the silence detector mistakes a soft consonant or a breath for silence.
 

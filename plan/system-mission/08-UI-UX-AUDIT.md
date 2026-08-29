@@ -232,7 +232,14 @@ Landed 2026-08-29 (destructive confirms; matrix audited):
   matrix is written up in `docs/reports/system-mission/08-after.md` as the done-when asks,
   with the state each cell is in rather than a checklist of new work.
 
-Remaining: nothing in this task's scope. Export-overwrite confirmation is a desktop
+Remaining: nothing in this task's scope.
+
+Landed 2026-08-29: CHANGELOG entries for the clip-menu breadth, the preview fit chip, the
+sidebar's knows/changed/failed states, the non-removable context chips and the delete
+confirm — written as what the editor gets, not as what the code does.
+`docs/guides/reference-media.md` and `docs/guides/export.md` cover the two surfaces this
+mission actually changed the behaviour of; `ai-sidebar.md` already described the panel and
+needed no correction for these changes. Export-overwrite confirmation is a desktop
 save-dialog question (`apps/desktop`), not a renderer one.
 
 ### Discovered and fixed 2026-08-29 — the composer row was broken by its own attach button
@@ -332,7 +339,7 @@ playhead chip appeared, the run footer gained two spans), so
 reviewed regeneration by the e2e owner. Not done here: `tests/` is another agent's scope,
 and a baseline updated by the same change it is meant to catch is not a gate.
 
-## P8.7 — CHANGELOG and guides — `[ ]`
+## P8.7 — CHANGELOG and guides — `[x]`
 
 The user-facing changes from this phase (clip menu breadth, the preview fit chip, the
 sidebar's five states, the delete confirm) still need a `CHANGELOG.md` entry and a pass
