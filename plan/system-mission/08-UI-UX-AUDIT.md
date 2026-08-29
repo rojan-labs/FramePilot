@@ -1,4 +1,4 @@
-# Phase 8 — UI/UX audit and interaction fixes — `[ ]`
+# Phase 8 — UI/UX audit and interaction fixes — `[~]` (every renderer finding closed; the browser-only legs of P8.3/P8.5 and the CHANGELOG/guides pass remain)
 
 > **Ships:** the P0.6 findings fixed at the interaction level; an AI sidebar that shows
 > what the AI knows, is doing, changed, needs, and what failed; attachment UX from
@@ -312,8 +312,31 @@ Remaining for the done-when: axe on the main screens in e2e, the keyboard-only m
 journey, the five focus rings above, and the 1024 px layout check (UX-12) — all of which
 need a browser, not jsdom.
 
-## P8.6 — Close — `[ ]`
+## P8.6 — Close — `[x]` (report written; screenshots explicitly NOT taken — see below)
 
-`08-after.md` with before/after screenshots per fixed finding; CHANGELOG; guide updates.
+`docs/reports/system-mission/08-after.md`: the sixteen findings with where each landed,
+the five sidebar states with the test that pins each, the P8.4 state matrix panel by
+panel, and what P8.5 left for a browser.
+
+**No before/after screenshots, and the report says so in its own first section rather than
+burying it.** Every fix in this phase is asserted by an RTL test that fails on the previous
+code, which is stronger evidence for behaviour and the only kind jsdom can produce. Shots
+would have to come from `ux-walkthrough.spec.ts` in a real desktop host — the same harness
+that produced the "before" images in `docs/reports/system-mission/ux/` — so the "after"
+pass is a walkthrough re-run, not a renderer change, and it sits with the same owner as
+P8.5's remaining axe / keyboard-journey / 1024 px legs.
+
+**Visual baselines.** The AI sidebar's markup changed (four chips lost a remove button, a
+playhead chip appeared, the run footer gained two spans), so
+`tests/e2e/specs/visual.spec.ts-snapshots/ai-sidebar*.png` will differ and needs a
+reviewed regeneration by the e2e owner. Not done here: `tests/` is another agent's scope,
+and a baseline updated by the same change it is meant to catch is not a gate.
+
+## P8.7 — CHANGELOG and guides — `[ ]`
+
+The user-facing changes from this phase (clip menu breadth, the preview fit chip, the
+sidebar's five states, the delete confirm) still need a `CHANGELOG.md` entry and a pass
+over `docs/guides/`. Left open deliberately rather than marked done: neither file is in
+this task's scope.
 
 ## Discovered
