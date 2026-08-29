@@ -676,6 +676,48 @@ export interface AiStreamUserMemory {
  * opaque project JSON (re-validated in main); the conversation/turn ids stamp the
  * emitted events. Carries no secrets — the API key stays in the main process.
  */
+/**
+ * One analyzed reference attachment as it crosses the IPC bridge (plan/system-mission
+ * Phase 3). Structurally the ai-sdk `ReferenceProfile`; validated by its zod schema in the
+ * main process before it reaches the context builder.
+ */
+export interface AiStreamReferenceProfile {
+  readonly id: string;
+  readonly role:
+    | 'style'
+    | 'pacing'
+    | 'caption-style'
+    | 'color'
+    | 'brand-logo'
+    | 'thumbnail'
+    | 'b-roll'
+    | 'character'
+    | 'design';
+  readonly kind: 'video' | 'image';
+  readonly fileName: string;
+  readonly contentHash: string;
+  readonly analyzedAt: string;
+  readonly constraints: readonly string[];
+  readonly video?: Record<string, unknown> | undefined;
+  readonly image?: Record<string, unknown> | undefined;
+}
+
+/** `framepilot:references:analyze` — measure one attached reference file once. */
+export interface AnalyzeReferenceRequest {
+  readonly projectId: string;
+  /** Path returned by the media import (relative to the projects root, or absolute inside it). */
+  readonly inputPath: string;
+  readonly id: string;
+  readonly fileName: string;
+  readonly kind: 'video' | 'image';
+  readonly role: AiStreamReferenceProfile['role'];
+  readonly refresh?: boolean;
+}
+
+export type AnalyzeReferenceResult =
+  | { ok: true; profile: AiStreamReferenceProfile; cached: boolean }
+  | { ok: false; error: string };
+
 export interface AiStreamRequest {
   readonly mode: AiStreamMode;
   /** Legacy/browser compatibility document; desktop resolves authoritative state by id. */
@@ -704,6 +746,8 @@ export interface AiStreamRequest {
   /** The user's cross-project editorial defaults (K5.1b/K6.1). Sanitised in main. */
   readonly userMemory?: AiStreamUserMemory;
   /** Agent-mode tuning (plan/caps/auto-repair/duration). Ignored for non-agent modes. */
+  /** Analyzed reference attachments for this turn (Phase 3). */
+  readonly references?: readonly AiStreamReferenceProfile[];
   readonly agentOptions?: AiStreamAgentOptions;
 }
 
@@ -1659,6 +1703,8 @@ export interface FramePilotBridge {
   /** Derive engine media (waveform peaks + thumbnails) for an on-disk media file,
    * so the timeline draws real waveforms/frames. Non-fatal on engine failure. */
   importAsset(req: ImportAssetRequest): Promise<ImportAssetResult>;
+  /** Analyze one attached reference file (video/image) once, in the trusted host. */
+  analyzeReference(req: AnalyzeReferenceRequest): Promise<AnalyzeReferenceResult>;
   /** Run configured speech-to-text in the trusted host for one saved media asset. */
   transcribe(req: TranscriptionRequest): Promise<TranscriptionResult>;
   aiChat(req: AiRequest): Promise<AiTextResult>;

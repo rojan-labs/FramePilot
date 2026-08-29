@@ -24,6 +24,7 @@ export const IpcChannels = {
   /** Production bounded media data plane with first-class ordering metadata. */
   mediaImportChunk: 'framepilot:media:import-chunk',
   mediaImportAsset: 'framepilot:media:import-asset',
+  referencesAnalyze: 'framepilot:references:analyze',
   transcribe: 'framepilot:ai:transcribe',
   aiChat: 'framepilot:ai:chat',
   aiPlan: 'framepilot:ai:plan',

@@ -19,6 +19,7 @@
  *   so a closed window never leaks a running fetch.
  * - Only `AiEvent`s cross the bridge; the API key stays in main.
  */
+import type { AiStreamReferenceProfile } from '@framepilot/shared-types';
 import { randomUUID } from 'node:crypto';
 import {
   assertEditorInteractionReferences,
@@ -39,9 +40,12 @@ import {
   Orchestrator,
   PROVIDER_NAMES,
   createAskUserGate,
+  ReferenceProfileSchema,
 } from '@framepilot/ai-sdk';
 import { type Project, parseProject } from '@framepilot/timeline-schema';
-import type { PatchCommitLedger } from '@framepilot/ai-sdk';
+import type { PatchCommitLedger,
+  ReferenceProfile,
+} from '@framepilot/ai-sdk';
 import { createLogger } from '@framepilot/shared-types';
 import type {
   AiProviderName,
@@ -360,6 +364,29 @@ function boundedString(value: unknown): string | undefined {
  * non-empty strings, bounded in count. Drops malformed input rather than throwing (one bad
  * field must not fail a run). Returns `undefined` when nothing usable is present.
  */
+/**
+ * Reference profiles are produced by this host (`framepilot:references:analyze`), but a
+ * renderer could send anything; validate with the SDK schema so the context builder only
+ * ever sees a profile the analyzer could have made. Invalid → the request is refused.
+ */
+function parseReferences(value: unknown): readonly AiStreamReferenceProfile[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error('Invalid AI stream "references".');
+  if (value.length > MAX_REFERENCES_PER_TURN) {
+    throw new Error(`Too many references: at most ${String(MAX_REFERENCES_PER_TURN)} per turn.`);
+  }
+  const parsed = ReferenceProfileSchema.array().safeParse(value);
+  if (!parsed.success) throw new Error('Invalid AI stream "references".');
+  return parsed.data as readonly AiStreamReferenceProfile[];
+}
+
+/** The wire profiles, re-validated into the SDK type at the context boundary. */
+function toReferenceProfiles(value: readonly AiStreamReferenceProfile[]): readonly ReferenceProfile[] {
+  return ReferenceProfileSchema.array().parse(value);
+}
+
+const MAX_REFERENCES_PER_TURN = 8;
+
 export function parseUserMemory(value: unknown): AiStreamUserMemory | undefined {
   if (value === undefined) return undefined;
   if (!value || typeof value !== 'object') throw new Error('Invalid AI stream "userMemory".');
@@ -440,6 +467,7 @@ export function parseAiStreamRequest(value: unknown): AiStreamRequest {
   const selection = parseSelection(record['selection']);
   const interaction = parseInteraction(record['interaction']);
   const userMemory = parseUserMemory(record['userMemory']);
+  const references = parseReferences(record['references']);
   const agentOptions = parseAgentOptions(record['agentOptions']);
   // The deterministic recipe route is gone: a request still carrying its payload is a
   // stale renderer (or a probe), and silently ignoring an instruction we will not follow
@@ -476,6 +504,7 @@ export function parseAiStreamRequest(value: unknown): AiStreamRequest {
     ...(selection !== undefined ? { selection } : {}),
     ...(interaction !== undefined ? { interaction } : {}),
     ...(userMemory !== undefined ? { userMemory } : {}),
+    ...(references !== undefined ? { references } : {}),
     ...(agentOptions !== undefined ? { agentOptions } : {}),
     ...(durableRunId !== undefined ? { durableRunId } : {}),
   };
@@ -683,6 +712,9 @@ export async function runAiStream(
     ...(visualStatus === undefined ? {} : { visualStatus }),
     ...(footageMap === undefined ? {} : { footageMap }),
     ...(sessionContext === undefined ? {} : { sessionContext }),
+    ...(request.references === undefined
+      ? {}
+      : { references: toReferenceProfiles(request.references) }),
     ...(request.projectRevision === undefined ? {} : { projectRevision: request.projectRevision }),
     userPrompt: request.userPrompt,
     // The structural history/selection/userMemory shapes are validated in
