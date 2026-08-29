@@ -43,17 +43,17 @@ these; none of them is to be reinvented.
 
 | # | File | Ships | Depends on | Maintainer gate | State |
 | --- | --- | --- | --- | --- | --- |
-| 0 | [`00-BASELINE.md`](./00-BASELINE.md) | Numbers for every claim the mission will make; a system map | — | none | `[~]` P0.1 done |
-| 1 | [`01-ORCHESTRATION-AND-CONTEXT.md`](./01-ORCHESTRATION-AND-CONTEXT.md) | Fewer, purposeful model calls; structured state instead of prose; cross-turn decision memory | 0 | none unless a schema field is needed for persisted decisions (then `[!]`) | `[ ]` |
-| 2 | [`02-PROMPT-AUDIT-AND-PARITY.md`](./02-PROMPT-AUDIT-AND-PARITY.md) | Audited prompts, one source of truth per prompt/tool/schema across hosts | 0 | none | `[x]` 2026-08-29 |
-| 3 | [`03-REFERENCE-MEDIA-CONTEXT.md`](./03-REFERENCE-MEDIA-CONTEXT.md) | Reference videos + images attached in the sidebar reach the model as analyzed, reusable structured context | 1 | **yes** — a persisted `references` field is a schema change | `[ ]` |
-| 4 | [`04-EDITING-QUALITY-AND-VERIFICATION.md`](./04-EDITING-QUALITY-AND-VERIFICATION.md) | Semantic operations; bounded verify loop; a graded scenario suite | 1, 3 | none | `[ ]` |
-| 5 | [`05-WORKERS-AND-LIFECYCLE.md`](./05-WORKERS-AND-LIFECYCLE.md) | Specialization only where Phase 0/1 numbers earn it; typed contracts; lifecycle for every long-lived process | 1 | none | `[ ]` |
-| 6 | [`06-MEMORY-AND-RESOURCES.md`](./06-MEMORY-AND-RESOURCES.md) | Leak audit across renderer / main / sidecar / FFmpeg; fixes at the owner | 0 | none | `[ ]` |
-| 7 | [`07-EXPORT.md`](./07-EXPORT.md) | CapCut-style quality/resolution export; platform presets removed; hardware encode; faster and cancellable | 0 | none (render request shape changes are engine-internal, not the project schema) | `[ ]` |
-| 8 | [`08-UI-UX-AUDIT.md`](./08-UI-UX-AUDIT.md) | Interaction fixes against professional-tool standards; sidebar shows what the AI knows / does / changed / needs | 3, 7 | none | `[ ]` |
-| 9 | [`09-E2E-AND-REGRESSION.md`](./09-E2E-AND-REGRESSION.md) | Full desktop AI journey, failure paths, editing regression suite, efficiency gates in CI | 1–8 | none | `[ ]` |
-| 10 | [`10-FINAL-VERIFICATION.md`](./10-FINAL-VERIFICATION.md) | Definition of Done walked with evidence; final report | 0–9 | none | `[ ]` |
+| 0 | [`00-BASELINE.md`](./00-BASELINE.md) | Numbers for every claim the mission will make; a system map | — | none | `[x]` · 7/7 — every baseline measured and reported |
+| 1 | [`01-ORCHESTRATION-AND-CONTEXT.md`](./01-ORCHESTRATION-AND-CONTEXT.md) | Fewer, purposeful model calls; structured state instead of prose; cross-turn decision memory | 0 | none unless a schema field is needed for persisted decisions (then `[!]`) | `[~]` · 1 done · 4 partial · 1 `[!]` — 3 scenarios need provider headroom |
+| 2 | [`02-PROMPT-AUDIT-AND-PARITY.md`](./02-PROMPT-AUDIT-AND-PARITY.md) | Audited prompts, one source of truth per prompt/tool/schema across hosts | 0 | none | `[x]` · 6/6 — audit, parity and host differences closed |
+| 3 | [`03-REFERENCE-MEDIA-CONTEXT.md`](./03-REFERENCE-MEDIA-CONTEXT.md) | Reference videos + images attached in the sidebar reach the model as analyzed, reusable structured context | 1 | **yes** — a persisted `references` field is a schema change | `[~]` · 2 done · 3 partial — role ops and the UC-06/07 evidence remain |
+| 4 | [`04-EDITING-QUALITY-AND-VERIFICATION.md`](./04-EDITING-QUALITY-AND-VERIFICATION.md) | Semantic operations; bounded verify loop; a graded scenario suite | 1, 3 | none | `[~]` · 1 done · 2 partial — verify loop shipped, score floor needs a run |
+| 5 | [`05-WORKERS-AND-LIFECYCLE.md`](./05-WORKERS-AND-LIFECYCLE.md) | Specialization only where Phase 0/1 numbers earn it; typed contracts; lifecycle for every long-lived process | 1 | none | `[~]` · 3 partial — recovery + coalescing shipped; specialisation deliberately not built |
+| 6 | [`06-MEMORY-AND-RESOURCES.md`](./06-MEMORY-AND-RESOURCES.md) | Leak audit across renderer / main / sidecar / FFmpeg; fixes at the owner | 0 | none | `[~]` · 3 partial — IPC/cache/engine hygiene done; renderer leak sweep open |
+| 7 | [`07-EXPORT.md`](./07-EXPORT.md) | CapCut-style quality/resolution export; platform presets removed; hardware encode; faster and cancellable | 0 | none (render request shape changes are engine-internal, not the project schema) | `[x]` 3 · `[~]` 2 · CapCut export shipped; P7.5 compositing not started |
+| 8 | [`08-UI-UX-AUDIT.md`](./08-UI-UX-AUDIT.md) | Interaction fixes against professional-tool standards; sidebar shows what the AI knows / does / changed / needs | 3, 7 | none | `[~]` · 1 done · 3 partial — timeline/readiness/references fixed; UX-08, UX-14 open |
+| 9 | [`09-E2E-AND-REGRESSION.md`](./09-E2E-AND-REGRESSION.md) | Full desktop AI journey, failure paths, editing regression suite, efficiency gates in CI | 1–8 | none | `[~]` · 1 done · 2 partial — failure paths written; CI lanes open |
+| 10 | [`10-FINAL-VERIFICATION.md`](./10-FINAL-VERIFICATION.md) | Definition of Done walked with evidence; final report | 0–9 | none | `[~]` · DoD walked, report written; P10.2 adversarial day not performed |
 
 [`USE-CASES.md`](./USE-CASES.md) lists every end-to-end user journey the mission must
 prove, traces each through the system, and maps it to the phases and tests that cover it.

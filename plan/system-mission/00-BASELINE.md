@@ -37,7 +37,7 @@ and the ai-sdk effect kinds (`kernel/effects.ts`). Mark every place two implemen
 of one policy exist (candidate parity defects for Phase 2).
 **Done when:** a reader can name the file that owns each arrow in `USE-CASES.md` §A.
 
-## P0.2 — Orchestration and token baseline — `[ ]`
+## P0.2 — Orchestration and token baseline — `[x]`
 
 **Reuses:** `scripts/context-benchmark.mjs`, `kernel/cost/run-metrics.ts`,
 `baseline-capture.ts`, `eval/foundation-real-eval.ts`, `framepilot.runs.jsonl`.
@@ -59,7 +59,7 @@ keep). This table is Phase 1's input.
 **Done when:** `reports/system-mission/baseline-orchestration.json` exists and the ledger
 is in the baseline report.
 
-## P0.3 — Editing outcome baseline — `[ ]`
+## P0.3 — Editing outcome baseline — `[x]`
 
 For the same runs: score the timeline outcome with a deterministic rubric per scenario
 (clip count in range, total duration, cuts on frame grid, no overlaps, beat proximity
@@ -102,11 +102,18 @@ are not re-raised.
 **Done when:** `docs/reports/system-mission/00-ux-findings.md` exists, findings numbered
 UX-nn.
 
-## P0.7 — Baseline report — `[ ]`
+## P0.7 — Baseline report — `[x]`
 
 Assemble `docs/reports/system-mission/00-baseline.md`: every number, the command that
 produced it, the fixture checksum, and the git SHA. Update the README status table and
 the PLAN.md **SYSMISSION** snapshot.
+
+Landed 2026-08-29: `00-baseline.md` §§0–7 carry all six measurements
+(`mission-baseline.mjs`, `mission-export-baseline.mjs`, `resource-baseline.spec.ts`,
+`ux-walkthrough.spec.ts`) with their commands and fixtures. P0.2's per-run rows are in
+`reports/system-mission/baseline-orchestration.json`; P0.3's rubric is
+`eval/mission-rubric.ts` (pure, table-tested) and each scenario has its baseline score
+and failure list. The after-numbers are `01-after.md`.
 
 ## Discovered
 

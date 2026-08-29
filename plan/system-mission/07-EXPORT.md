@@ -22,7 +22,7 @@
 - Desktop: `render/export-client.ts`, `export-hub.ts`, `export-save.ts`.
 - `.agents/commands/export-reels.md` and PRD §9 describe platform export.
 
-## P7.1 — Export settings model — `[~]`
+## P7.1 — Export settings model — `[x]`
 
 **Touches:** `render/presets.py` → replace `ExportPreset` with `ExportSettings`:
 
@@ -49,7 +49,7 @@ about goes away.
 **Done when:** unit tests cover dimension derivation for 9:16, 16:9, 1:1, 4:5 at every
 resolution, source capping, and the ladder.
 
-## P7.2 — Remove platform presets everywhere — `[~]`
+## P7.2 — Remove platform presets everywhere — `[x]`
 
 Delete `EXPORT_PRESETS` (both sides), the `preset` field on `RenderRequest`/`RenderOptions`
 (replace with `settings`), the preset combobox and copy in `ExportDialog.tsx`, the
@@ -60,7 +60,7 @@ Delete `EXPORT_PRESETS` (both sides), the `preset` field on `RenderRequest`/`Ren
 must return only historical CHANGELOG/ADR lines.
 **Done when:** the grep is clean and `pnpm verify` is green.
 
-## P7.3 — Export dialog — `[~]`
+## P7.3 — Export dialog — `[~]` (residual: custom-bitrate field)
 
 **Touches:** `ExportDialog.tsx` (+ test), styles. Layout: aspect ratio (read-only, from
 project) · Resolution · Frame rate · Quality (with live estimated size from duration ×
@@ -72,7 +72,7 @@ exports, Esc cancels. RTL tests updated (labels change → check Playwright subs
 matching for e2e).
 **Done when:** UC-13's dialog rows pass in RTL tests.
 
-## P7.4 — Hardware encoding and codec args — `[~]`
+## P7.4 — Hardware encoding and codec args — `[x]`
 
 **Touches:** `render/compiler.py` / wherever `write_videofile` is called, new
 `render/encoders.py`. Probe once at sidecar start: `ffmpeg -encoders` for
@@ -95,7 +95,7 @@ only when a pass needs them and deleted after; single final encode.
 **Done when:** P0.5 "intermediate bytes" and "assets prepared but unreferenced" are 0 on
 the fixtures; encode count = 1.
 
-## P7.6 — Progress, ETA, cancellation, errors, history — `[~]`
+## P7.6 — Progress, ETA, cancellation, errors, history — `[~]` (residual: the < 5% progress-accuracy measurement)
 
 **Touches:** `render/pipeline.py` (progress callback from the MoviePy/FFmpeg writer via
 `-progress pipe:`), `service.py` job record (`framesDone`, `fps`, `etaS`), desktop

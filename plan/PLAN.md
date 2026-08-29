@@ -17,7 +17,20 @@ powerful if the editing engine is structured, testable, and deterministic.
 system mission — orchestration efficiency, structured context, prompt parity, reference
 video/image context, semantic editing ops with a bounded verify loop, worker/process
 lifecycle, a memory/resource audit, a CapCut-style quality-driven export (platform presets
-removed), a UI/UX interaction pass, and desktop e2e journeys — is in execution on `feat/system-mission`: Phase 2 closed (`[x]`), Phases 0/1/4/6/7 in progress (baseline measured, output-cap root cause fixed, `remove_silences` shipped, CapCut export shipped, resource gate written), the after-measurement running.**
+removed), a UI/UX interaction pass, and desktop e2e journeys — has been executed on
+`feat/system-mission` (70 commits). **Phases 0 and 2 are closed**; 1, 3–10 are partial
+with every residual named and its unblocking step recorded.** Headline measured results:
+the podcast scenario went 25 → 5 model calls, 1200s → 253s, $1.54 → $0.32 while its
+quality held; the montage and dead-air scenarios went from *never completing* to rubric
+1.00 and 0.75 (0 → 35 and 0 → 54 operations). The root cause behind all three was agent
+requests carrying no `maxTokens`, so responses truncated at 8,192 and the run retried
+into the same wall. Export is CapCut-style with every platform preset removed, and its
+measurement disproved the encoder as the bottleneck (CPU 146% → 48%, wall unchanged) —
+MoviePy compositing is, and that fix is not written. Reports:
+`docs/reports/full-system-mission-2026-08-29.md` (engineering report),
+`docs/reports/system-mission/10-definition-of-done.md` (DoD walked line by line),
+`01-after.md` (orchestration before/after). **Blocked:** three of six scenarios have no
+after-numbers — the provider bridge rate-limited mid-run; the exact command is in P1.6.
 Brief: `PROMPT.md`. Plan: **`plan/system-mission/`** ([README](system-mission/README.md)
 index + status table, [USE-CASES](system-mission/USE-CASES.md) journey matrix, phases
 `00-BASELINE` → `10-FINAL-VERIFICATION`). Phase 0 (measure everything, change nothing) is

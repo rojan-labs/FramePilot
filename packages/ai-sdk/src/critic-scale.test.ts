@@ -132,25 +132,44 @@ function project({ clips, words }: { clips: number; words: number }): Project {
   });
 }
 
+/** A timed span shorter than this is mostly clock resolution, not work. */
+const MIN_SAMPLE_MS = 5;
+
 /**
- * The cost of ONE critique at this size, taken as the fastest of `REPEATS` runs.
+ * The cost of ONE critique at this size, in milliseconds.
  *
- * The fastest run, not the total: a GC pause or a descheduled core can only ever ADD
- * time to a sample, never subtract it, so the minimum is the sample least contaminated
- * by whatever else the machine was doing. Summing the repeats does the opposite — it
- * collects every hiccup across all of them, and one stall in one large-size repeat is
- * enough to decide the verdict on its own. That is the flake this replaced: the ratio
- * is only as honest as its noisiest term.
+ * Two defences against measuring the machine instead of the code:
+ *
+ * 1. **Each sample times a BATCH, not a single call.** A small-project critique runs well
+ *    under the timer's resolution, so a one-call sample used to come back as ~0 and get
+ *    floored by the caller — which made the ratio's denominator a constant and let any
+ *    slow large-size sample explode it. (Observed: a 62.7x reading under a loaded,
+ *    coverage-instrumented suite, from a test that passes comfortably on its own.) The
+ *    batch grows until the span is worth reading, so both terms of the ratio are real.
+ * 2. **The fastest sample wins.** A GC pause or a descheduled core can only ever ADD time,
+ *    never subtract it, so the minimum is the sample least contaminated by whatever else
+ *    the machine was doing. Summing does the opposite: it collects every hiccup.
  */
 function costOf(size: { clips: number; words: number }): number {
   const built = project(size);
   // One warm-up, so JIT compilation is not billed to whichever size runs first.
   critique(built, { producedChanges: true });
-  let fastest = Infinity;
-  for (let i = 0; i < REPEATS; i += 1) {
+
+  // Calibrate the batch: enough calls that one sample clears MIN_SAMPLE_MS.
+  let batch = 1;
+  for (;;) {
     const started = performance.now();
-    critique(built, { producedChanges: true });
-    fastest = Math.min(fastest, performance.now() - started);
+    for (let i = 0; i < batch; i += 1) critique(built, { producedChanges: true });
+    const elapsed = performance.now() - started;
+    if (elapsed >= MIN_SAMPLE_MS || batch >= 4096) break;
+    batch *= 2;
+  }
+
+  let fastest = Infinity;
+  for (let repeat = 0; repeat < REPEATS; repeat += 1) {
+    const started = performance.now();
+    for (let i = 0; i < batch; i += 1) critique(built, { producedChanges: true });
+    fastest = Math.min(fastest, (performance.now() - started) / batch);
   }
   return fastest;
 }
@@ -166,7 +185,9 @@ describe('critique scales with the edit', () => {
 
     const small = costOf(SMALL);
     const large = costOf(LARGE);
-    const growth = large / Math.max(small, 0.1);
+    // No floor on the denominator: `costOf` guarantees both terms are real measurements
+    // (see MIN_SAMPLE_MS), so flooring here would only hide a genuine result.
+    const growth = large / small;
     expect(growth, `10x the project cost ${growth.toFixed(1)}x the time`).toBeLessThan(MAX_GROWTH);
   });
 });

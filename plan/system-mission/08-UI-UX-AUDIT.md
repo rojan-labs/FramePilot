@@ -82,7 +82,13 @@ Landed 2026-08-29 (timeline navigation, UX-05/06/07):
   scroll vertically, where stealing the gesture would be worse than the bug.
 - **UX-05** — every track in the project is now a row. Empty tracks were filtered out
   unless they were `layer_*` or effect lanes, so a project's own empty audio track had no
-  drop target and "Add track" was the only way to discover a lane.
+  drop target and "Add track" was the only way to discover a lane — including a lane the
+  AI had just created with `add_track` and not yet filled.
+  **This reverses a deliberate decision** ("CapCut-style: only tracks with clips are
+  rendered", `Editor.test.tsx`), so it is recorded here rather than quietly flipped: the
+  walkthrough measured what hiding them costs, Premiere/Resolve/Final Cut all show empty
+  tracks, and effect lanes were already an exception to the filter — which was the first
+  sign the rule was wrong. A later agent reading the old comment should read this too.
 - **UX-07** — half of this finding was a browser focus-scroll from clicking an off-screen
   clip, which is correct behaviour and is left alone. The real gap was the other half:
   playhead-follow ran only during playback, so a discrete seek could park the playhead
