@@ -6,10 +6,17 @@
  * tool calls, repeated tool calls, ops, wall, USD, rubric score, and the failure share.
  */
 import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 const files = process.argv.slice(2);
 if (files.length === 0) { console.error('usage: mission-report.mjs <baseline.json> [after.json]'); process.exit(1); }
-const load = (f) => JSON.parse(readFileSync(f, 'utf8'));
+// Paths resolve against the REPOSITORY ROOT, matching `mission-baseline.mjs --out` and
+// `mission-score.mjs`. One convention for all three: a `../../`-style path from
+// `packages/ai-sdk` once wrote a whole run's results outside the repo entirely.
+const load = (f) => JSON.parse(readFileSync(resolve(REPO, f), 'utf8'));
 const p50 = (xs) => { const a = xs.filter((x) => typeof x === 'number' && !Number.isNaN(x)).sort((x, y) => x - y); return a.length ? a[Math.floor((a.length - 1) / 2)] : null; };
 const fmt = (v, d = 0) => (v === null || v === undefined ? '—' : typeof v === 'number' ? v.toFixed(d) : String(v));
 

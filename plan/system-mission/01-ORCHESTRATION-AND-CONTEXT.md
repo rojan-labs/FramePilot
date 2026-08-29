@@ -116,7 +116,7 @@ asserted absent. `task` stays in the briefing and `memory` in its own tier — r
 ADR. P1.3a (earlier): the per-asset `source media` block. Cache-hit evidence rides the
 P1.6 after-measurement.
 
-## P1.4 — Refinement turns reuse the previous plan — `[~]`
+## P1.4 — Refinement turns reuse the previous plan — `[x]`
 
 **Touches:** `kernel/continuation.ts`, `kernel/briefing.ts`, wipe guard. A second-turn
 request ("tighten the middle") must start from the prior run's briefing + commit ledger,
@@ -127,7 +127,12 @@ re-planning).
 **Done when:** UC-08 call count ≤ UC-01 call count and the placed clips from UC-01 survive
 except the ones the request named.
 
-State 2026-08-29: the mechanism exists and is tested — `carryForwardWorkingState` passes
+Measured 2026-08-29: `refine-tighten` turn 2 scores **0.50 → 0.88** and applies **4**
+operations — it refines the placed cut instead of rebuilding it, and the clips it was told
+to keep survive (the rubric's `kept-clips-untouched` check is part of that 0.88). Turn 2's
+call count (12) is below turn 1's (18), satisfying the "UC-08 calls ≤ UC-01 calls" condition.
+
+State: the mechanism exists and is tested — `carryForwardWorkingState` passes
 the previous run's committed decisions and revision-independent facts into the new run's
 briefing, and the wipe guard blocks a full-track ripple delete. The desktop hub reads it
 from the run ledger; the browser does not (documented host difference, P2.4). The
@@ -154,7 +159,7 @@ by key; `carryForwardWorkingState` already carries only revision-independent fac
 committed decisions. Remaining: the UC-09 evidence from the after-measurement, and the
 `source`/`until` metadata on entries.
 
-## P1.6 — Measure and close — `[!]` (4 of 6 scenarios measured; 2 need provider headroom)
+## P1.6 — Measure and close — `[x]`
 
 Re-run P0.2/P0.3 with the same fixtures. Write `docs/reports/system-mission/01-after.md`
 with the per-scenario before/after table (calls, rounds, tokens, cache %, wall, USD,
@@ -177,21 +182,20 @@ before/after table. ADR 0158 covers the structured-state block.
 - `beat-sync`: rubric **0.22 → 0.78** (runs scored 0.78 / 0.67 / 1.00), **0 → 34** operations,
   3/3 unfinished → 0/3. Measured on the second attempt, 2026-08-29.
 
-**`[!]` residual:** `refine-tighten` and `memory-captions` have no after-numbers.
-The auth2api bridge 429s after roughly $4-8 of traffic. The second attempt cleared all of
-`beat-sync` and `refine-tighten`'s first turn (0.63, 22 operations) before hitting the wall
-again; every turn after that recorded `calls=1, prompt=0, ops=0` — a provider answering
-nothing, not a run doing badly. NOTE: `--out` and `--dump-events` resolve against the
-REPOSITORY ROOT, not the working directory.
-Unblocking step, verbatim:
-```
-cd packages/ai-sdk && node scripts/mission-baseline.mjs --runs 3 --label after \
-  --only beat-sync,refine-tighten,memory-captions \
-  --dump-events ../../reports/system-mission/runs \
-  --out ../../reports/system-mission/after-orchestration-rest.json
-```
-then `node scripts/mission-report.mjs ../../reports/system-mission/baseline-orchestration.json <merged>`
-and replace the placeholder rows in `01-after.md`. Needs a provider with headroom.
+**All six scenarios measured (2026-08-29), across three attempts** — the bridge 429s after
+roughly $4–8 of traffic, so each attempt cleared what it could and the next resumed with
+`--only`. Coverage is uneven and `01-after.md` states it per row: four scenarios have all
+three runs, remove-dead-air has two, memory-captions has one.
+
+- `beat-sync`: **0.22 → 0.78**, 0 → 34 ops, 3/3 unfinished → 0/3.
+- `refine-tighten`: t1 **0.25 → 0.63**, t2 **0.50 → 0.88** — and the refinement turn
+  touches only 4 operations rather than rebuilding the cut, which is what P1.4 asked for.
+- `memory-captions`: t1 **0.38 → 0.63**, t2 **0.29 → 0.71** (83 ops). t3 scored 0.43 having
+  applied nothing — carrying the decision to a third turn still does not work, which is a
+  real gap and is what P1.5's remaining work is for.
+
+Every scenario improved; seven of nine turns went from **zero operations** to a real edit.
+Prompt-cache share held throughout (0.87–1.00).
 
 Note on method: an earlier draft of `01-after.md` was rebuilt from the harness log by
 `mission-salvage.mjs`, on the mistaken belief that the harness only writes its JSON at the
