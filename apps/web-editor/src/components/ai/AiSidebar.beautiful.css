@@ -1377,7 +1377,8 @@
 .ai-composer {
   min-width: 0;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto 28px;
+  /* leading controls | input | send — see `.ai-composer-lead` in Composer.tsx. */
+  grid-template-columns: auto minmax(0, 1fr) 28px;
   align-items: end;
   gap: 4px;
 }

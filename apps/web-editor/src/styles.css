@@ -9576,6 +9576,12 @@ a.export-credits-license {
 }
 .ai-composer-input {
   flex: 1;
+  /* A flex item's default `min-width: auto` is its CONTENT width, and this one's content
+     is a long placeholder. With the attach control added beside the "+" the row ran out of
+     room, and because the textarea refused to shrink the send button was pushed out of the
+     row entirely — it wrapped to a second line and the placeholder rendered as its own
+     tail ("Me"). Letting it shrink is what keeps the row a row. */
+  min-width: 0;
   resize: none;
   border: 0;
   background: transparent;

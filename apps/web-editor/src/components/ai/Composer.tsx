@@ -434,42 +434,51 @@ export function Composer(props: ComposerProps): JSX.Element {
       )}
 
       <div className="ai-composer">
-        <button
-          type="button"
-          className="ai-icon-button"
-          aria-label="Quick actions"
-          title="Quick actions"
-          data-active={showQuick}
-          onClick={() => setShowQuick((v) => !v)}
-        >
-          +
-        </button>
-        {props.onAttachFiles ? (
-          <>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="video/*,image/*"
-              multiple
-              hidden
-              aria-label="Reference files"
-              onChange={(event) => {
-                const files = Array.from(event.target.files ?? []);
-                event.target.value = '';
-                if (files.length > 0) props.onAttachFiles?.(files);
-              }}
-            />
-            <button
-              type="button"
-              className="ai-icon-button"
-              aria-label="Attach reference video or image"
-              title="Attach a reference video or image"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <Paperclip size={ICON_SIZE.sm} aria-hidden="true" />
-            </button>
-          </>
-        ) : null}
+        {/* One element for every leading control, whatever their number.
+            The composer row is a THREE-column grid — leading | input | send — and the
+            template is positional, so adding the attach button as a fourth child pushed
+            the textarea into the send column (28px wide: the placeholder rendered as
+            "Me") and wrapped the send button onto a second row. Grouping the leading
+            controls keeps the grid's child count fixed at three however many of them
+            there are. */}
+        <div className="ai-composer-lead">
+          <button
+            type="button"
+            className="ai-icon-button"
+            aria-label="Quick actions"
+            title="Quick actions"
+            data-active={showQuick}
+            onClick={() => setShowQuick((v) => !v)}
+          >
+            +
+          </button>
+          {props.onAttachFiles ? (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="video/*,image/*"
+                multiple
+                hidden
+                aria-label="Reference files"
+                onChange={(event) => {
+                  const files = Array.from(event.target.files ?? []);
+                  event.target.value = '';
+                  if (files.length > 0) props.onAttachFiles?.(files);
+                }}
+              />
+              <button
+                type="button"
+                className="ai-icon-button"
+                aria-label="Attach reference video or image"
+                title="Attach a reference video or image"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Paperclip size={ICON_SIZE.sm} aria-hidden="true" />
+              </button>
+            </>
+          ) : null}
+        </div>
         <textarea
           ref={inputRef}
           className="ai-composer-input"

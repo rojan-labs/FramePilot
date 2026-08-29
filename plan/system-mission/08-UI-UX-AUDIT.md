@@ -123,6 +123,26 @@ Landed 2026-08-29 (UX-10, UX-11):
 
 Remaining: the loading/empty/progress state matrix and destructive-action confirms.
 
+### Discovered and fixed 2026-08-29 — the composer row was broken by its own attach button
+
+The Phase 3 attach control (commit `92efb5b`) added a fourth child to `.ai-composer`,
+which is a **positional three-column grid** (`leading | input | send`). The fourth child
+pushed the textarea into the 28px send column — its placeholder rendered as the two
+characters "Me" — and wrapped the send button onto a second row. Nobody saw it because the
+visual gate lives at the end of `pnpm verify`, and verify was failing earlier in the chain
+for unrelated reasons, so the e2e leg had not run since before that commit.
+
+Found by the committed visual baseline, diagnosed by measuring the grid in the browser
+(`grid-template-columns: 28px 243px 28px`, send on row 2), fixed structurally: the leading
+controls are now one `.ai-composer-lead` child, so the grid's child count is fixed at three
+however many leading buttons a build has, and the first column is `auto` rather than a
+hard-coded 28px. The baseline needed **no** update afterwards — the fix restored exactly
+the layout it already expected, which is the strongest evidence the baseline was right and
+the UI was wrong.
+
+Lesson recorded for the plan: a visual gate that only runs after everything else passes is
+a gate that stops running the moment anything else breaks.
+
 ## P8.5 — Focus, keyboard, accessibility, resizing — `[ ]`
 
 Focus management for dialogs/menus, roving tabindex in lists, ARIA on custom controls,
