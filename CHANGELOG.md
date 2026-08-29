@@ -28,6 +28,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Export takes a custom video bitrate** when the quality tiers are not what you want. Leave it empty to follow the tier — the field shows you the number that tier is using.
+
 - **Clip right-click does more:** trim the start or end to the playhead, set a speed, add a transition at the cut, or reveal the clip in the media bin.
 - **The preview tells you when footage is being letterboxed or pillarboxed**, so a landscape shot in a vertical sequence is no longer a silent crop.
 - **The AI sidebar shows what it knows:** the playhead and the decisions it remembers, with starter prompts drawn from your actual project instead of a fixed list. Context chips that cannot be removed no longer pretend they can.

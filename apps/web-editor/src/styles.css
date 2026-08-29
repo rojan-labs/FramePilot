@@ -7874,6 +7874,23 @@ details.inspector-panel[open] > .inspector-section-head::before {
 }
 
 /* Recent exports (P7.6): one row per remembered render — name, what it was, Reveal. */
+.export-bitrate {
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.export-bitrate:focus-visible {
+  outline: none;
+  border-color: var(--focus-ring);
+}
+
 .export-history-list {
   list-style: none;
   margin: 0;

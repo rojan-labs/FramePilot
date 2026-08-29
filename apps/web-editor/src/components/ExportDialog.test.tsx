@@ -212,6 +212,64 @@ describe('ExportDialog', () => {
     ).toBeDefined();
   });
 
+  it('takes a custom video bitrate and offers the tier it overrides as the placeholder (P7.3)', async () => {
+    const { exportVideoStart } = installBridge();
+    const ensureSaved = vi.fn(async () => '/p/project.fp.json');
+    render(
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
+        ensureSaved={ensureSaved}
+        onReveal={vi.fn()}
+      />,
+    );
+    openExportMenu();
+
+    const field = screen.getByLabelText('Video bitrate in kbit/s') as HTMLInputElement;
+    // Empty means "follow the tier", and the placeholder states what that tier resolves to.
+    expect(field.value).toBe('');
+    expect(field.placeholder).toMatch(/^\d+ \(recommended\)$/);
+
+    fireEvent.change(field, { target: { value: '12345' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    await waitFor(() => expect(exportVideoStart).toHaveBeenCalled());
+    expect(exportVideoStart).toHaveBeenCalledWith(
+      expect.objectContaining({ settings: expect.objectContaining({ bitrateKbps: 12345 }) }),
+    );
+  });
+
+  it('clearing the bitrate — or picking a quality — goes back to the ladder (P7.3)', async () => {
+    const { exportVideoStart } = installBridge();
+    render(
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
+        ensureSaved={vi.fn(async () => '/p/project.fp.json')}
+        onReveal={vi.fn()}
+      />,
+    );
+    openExportMenu();
+    const field = screen.getByLabelText('Video bitrate in kbit/s') as HTMLInputElement;
+
+    fireEvent.change(field, { target: { value: '9000' } });
+    fireEvent.change(field, { target: { value: '' } });
+    expect(field.value).toBe('');
+
+    // A stale override silently outranking a freshly chosen tier is the worst of both.
+    fireEvent.change(field, { target: { value: '9000' } });
+    fireEvent.click(screen.getByRole('combobox', { name: 'Quality' }));
+    fireEvent.click(screen.getByRole('option', { name: 'High' }));
+    expect((screen.getByLabelText('Video bitrate in kbit/s') as HTMLInputElement).value).toBe('');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    await waitFor(() => expect(exportVideoStart).toHaveBeenCalled());
+    const sent = exportVideoStart.mock.calls[0]![0] as { settings: Record<string, unknown> };
+    expect(sent.settings['bitrateKbps']).toBeUndefined();
+    expect(sent.settings['quality']).toBe('high');
+  });
+
   it('shows a desktop-only note and disables Export in the browser', () => {
     render(
       <ExportDialog

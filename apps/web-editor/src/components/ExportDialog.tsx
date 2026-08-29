@@ -346,6 +346,14 @@ export function ExportDialog({
     coerceExportSettings,
   );
   const sourceCap = maxSourceShortEdge(assets);
+  // What the chosen tier resolves to, ignoring any override — the number the custom
+  // bitrate field offers as its placeholder.
+  const exportFrame = exportFrameFor(settings, frame, sourceCap);
+  const ladderBitrateKbps = videoBitrateKbps(
+    { ...settings, bitrateKbps: null },
+    Math.min(exportFrame.width, exportFrame.height),
+    exportFrame.fps,
+  );
   const patchSettings = (patch: Partial<DialogExportSettings>): void =>
     setSettings((current) => ({ ...current, ...patch }));
   const [burnCaptions, setBurnCaptions] = useState(false);
@@ -673,6 +681,35 @@ export function ExportDialog({
                     value: q,
                     label: q === 'recommended' ? 'Recommended' : q === 'high' ? 'High' : 'Low',
                   }))}
+                />
+              </div>
+              <div className="export-field">
+                <span>Video bitrate</span>
+                {/* Empty means "follow the quality tier", and the placeholder shows what
+                    that tier currently resolves to — so the field states the default it is
+                    overriding instead of making the user guess at a number. Choosing a
+                    quality clears it again (see the Select above): a stale override that
+                    silently outranked the tier would be the worst of both. */}
+                <input
+                  type="number"
+                  className="export-bitrate"
+                  aria-label="Video bitrate in kbit/s"
+                  min={200}
+                  max={200_000}
+                  step={100}
+                  disabled={exporting}
+                  placeholder={`${String(ladderBitrateKbps)} (${settings.quality})`}
+                  value={settings.bitrateKbps ?? ''}
+                  onChange={(event) => {
+                    const raw = event.target.value.trim();
+                    const parsed = Number(raw);
+                    patchSettings({
+                      bitrateKbps:
+                        raw === '' || !Number.isFinite(parsed) || parsed <= 0
+                          ? null
+                          : Math.round(parsed),
+                    });
+                  }}
                 />
               </div>
               <div className="export-field">

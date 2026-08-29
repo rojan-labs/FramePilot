@@ -60,7 +60,7 @@ Delete `EXPORT_PRESETS` (both sides), the `preset` field on `RenderRequest`/`Ren
 must return only historical CHANGELOG/ADR lines.
 **Done when:** the grep is clean and `pnpm verify` is green.
 
-## P7.3 — Export dialog — `[~]` (residual: custom-bitrate field)
+## P7.3 — Export dialog — `[x]`
 
 **Touches:** `ExportDialog.tsx` (+ test), styles. Layout: aspect ratio (read-only, from
 project) · Resolution · Frame rate · Quality (with live estimated size from duration ×
@@ -164,7 +164,11 @@ and it is not one this phase's changes raise.
   tags and skill prose — none is an export preset.
 - P7.3 dialog: Resolution / Frame rate / Quality / Codec / Format, summary line with the
   exact frame + size estimate, upscale warning, per-project persistence
-  (`useViewPreference`). Residual: custom-bitrate field and export history (P7.6 tail).
+  (`useViewPreference`), export history, and a **custom video bitrate** field: empty means
+  "follow the quality tier", the placeholder states the number that tier currently resolves
+  to, and choosing a quality clears the override — a stale override silently outranking a
+  freshly chosen tier is the worst of both. The engine has taken `bitrate_kbps` since P7.1;
+  this is the control for it. 2 tests.
 - P7.4 `render/encoders.py` (VideoToolbox/NVENC/QSV or x264/x265 with tier presets,
   faststart, hvc1, `FRAMEPILOT_HW_ENCODE`), encoder + args logged and on the job.
 - P7.6 progress channel from the render subprocess (stage + fraction), task
