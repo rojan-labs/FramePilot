@@ -132,3 +132,7 @@ tests/fixtures/mission/**
 !tests/fixtures/mission/projects/
 !tests/fixtures/mission/projects/**
 tests/fixtures/mission/projects/*.fp.json
+# Rendered exports are test OUTPUT, not fixtures: `export-matrix.spec.ts` and the
+# benchmarks write them on every run, so tracking them added 376 MB of churning
+# binaries that nothing ever reads back.
+tests/fixtures/mission/projects/exports/

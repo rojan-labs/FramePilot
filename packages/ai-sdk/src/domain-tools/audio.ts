@@ -84,11 +84,12 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
         'detection) plus an estimated BPM. Use for beat-synced montage cuts. Returns ' +
         'beat times in seconds; does not edit the timeline. Needs an asset that has an ' +
         "audio track — silent footage has no beats, so pass the music asset's id. " +
-        'Set hardSync ONLY when you intend every interior picture cut to sit exactly on an ' +
-        'onset: the runtime then holds you to it and rejects a cut it cannot place there. ' +
-        'Leave it off — the default — for the far more common case where the music informs ' +
-        'the rhythm but the picture leads: near-misses are still snapped for you, and a cut ' +
-        'that is deliberately off the grid is reported to you rather than refused.',
+        'Set hardSync when the editor asked for cuts ON the beat — "cut to the beat", ' +
+        '"beat-synced", "on every drop" — because that is a promise about the rhythm and ' +
+        'the runtime then holds you to it, rejecting a cut it cannot place on an onset. ' +
+        'Leave it off — the default — when the music informs the rhythm but the picture ' +
+        'leads, which is the more common case: near-misses are still snapped for you, and ' +
+        'a cut deliberately off the grid is reported to you rather than refused.',
     },
     detectBeatsSchema,
   ),
