@@ -7,7 +7,7 @@ import {
 } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -135,6 +135,31 @@ async function openFromRecents(page: Page, projectId: string, attempts = 3): Pro
       if (attempt >= attempts) throw error;
     }
   }
+}
+
+/**
+ * Click a project on the home screen, by id OR by the name it displays.
+ *
+ * The recents list is seeded with `name: <projectId>` before launch, so the first
+ * open matches on the id. Opening it makes the app rewrite that entry with the
+ * project's OWN name — "Export baseline 30s (4K camera → 1080×1920 + music)" — so
+ * after a reload the button no longer says the id at all, and a row that reopens a
+ * project timed out looking for a label that only ever existed before the app had
+ * been told what the project is called. Matching either is what the user sees: one
+ * card for one project, whatever it is currently labelled.
+ */
+export async function openRecentProject(page: Page, projectId: string): Promise<void> {
+  const escape = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  let displayName = projectId;
+  try {
+    const raw = readFileSync(join(FIXTURE_PROJECTS, `${projectId}.fp.json`), 'utf8');
+    const parsed = JSON.parse(raw) as { name?: unknown };
+    if (typeof parsed.name === 'string' && parsed.name !== '') displayName = parsed.name;
+  } catch {
+    // No fixture to read: fall back to the id, which is what a fresh seed uses.
+  }
+  const pattern = new RegExp(`${escape(projectId)}|${escape(displayName)}`);
+  await page.getByRole('button', { name: pattern }).first().click();
 }
 
 export async function launchDesktop(options: LaunchOptions = {}): Promise<DesktopSession> {
@@ -338,12 +363,21 @@ export interface DialogExportChoice {
 }
 
 /** Pick one option from the editor's custom combobox (not a native `<select>`). */
+/**
+ * Pick an option from one of the dialog's selects.
+ *
+ * The COMBOBOX is inside the dialog; the OPTIONS are not. `Select` renders its
+ * listbox through `createPortal` into `document.body` so a dropdown is never
+ * clipped by an overflow-hidden panel, which puts the options outside the
+ * dialog's subtree entirely. Searching for them within `scope` therefore times
+ * out no matter how long it waits — the element is on the page, just not there.
+ * The combobox is still scoped, so two dialogs cannot be confused.
+ */
 async function choose(scope: Locator, label: string, option: string): Promise<void> {
-  await scope.getByRole('combobox', { name: label }).click();
-  await scope
-    .getByRole('option', { name: new RegExp(`^${option.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) })
-    .first()
-    .click();
+  const combobox = scope.getByRole('combobox', { name: label });
+  await combobox.click();
+  const pattern = new RegExp(`^${option.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
+  await combobox.page().getByRole('option', { name: pattern }).first().click();
 }
 
 /**

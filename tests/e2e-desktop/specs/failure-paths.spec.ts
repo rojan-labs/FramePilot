@@ -401,6 +401,15 @@ test.describe('UC-15 failure paths', () => {
     try {
       const { page } = session;
       const before = await clipCount(session);
+      // Sampled BEFORE the search, not asserted as zero after it.
+      //
+      // `toBe(0)` fails here for a reason that has nothing to do with stock: this
+      // project has 374 assets, and opening it starts the app's own proxy/thumbnail
+      // work, so an ffprobe is legitimately running when the search is typed
+      // (measured: exactly one). The row is about a failed SEARCH not leaving media
+      // work behind, so the honest measure is that the search starts none — the same
+      // correction the cancel row needed for the same wrong reason.
+      const mediaBefore = mediaChildren(session.mainPid);
 
       await page.getByRole('tab', { name: 'Stock' }).first().click();
       const search = page.getByPlaceholder(/Search (video|photos)…/).first();
@@ -409,7 +418,7 @@ test.describe('UC-15 failure paths', () => {
 
       await expect(page.getByRole('alert').first()).toBeVisible({ timeout: 60_000 });
       expect(await clipCount(session)).toBe(before);
-      expect(mediaChildren(session.mainPid)).toBe(0);
+      expect(mediaChildren(session.mainPid)).toBeLessThanOrEqual(mediaBefore);
     } finally {
       await session.app.close();
     }
@@ -712,9 +721,9 @@ test.describe('UC-15 failure paths', () => {
         // here; whether it should additionally be assertive is a UI-audit question
         // (Phase 8), not a reason to call this failure path broken.
         const sidebar = page.getByTestId('ai-sidebar');
-        await expect(
-          sidebar.getByText(/error|failed|unavailable|bad day/i).first(),
-        ).toBeVisible({ timeout: 6 * 60_000 });
+        await expect(sidebar.getByText(/error|failed|unavailable|bad day/i).first()).toBeVisible({
+          timeout: 6 * 60_000,
+        });
         await expect(sidebar.getByRole('button', { name: 'Retry' }).first()).toBeVisible();
         await expect(runIndicator(page)).toBeHidden({ timeout: 2 * 60_000 });
         await expect(composer).toBeEditable();

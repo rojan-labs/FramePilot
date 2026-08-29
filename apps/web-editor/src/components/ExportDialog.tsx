@@ -333,7 +333,16 @@ export function ExportDialog({
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (event: PointerEvent): void => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (rootRef.current?.contains(target)) return;
+      // A `Select` renders its listbox through a portal into `document.body` so the
+      // dropdown is never clipped by this popover's own overflow. That puts the
+      // options OUTSIDE `rootRef`, so a plain contains() check read "picked 1080p" as
+      // "clicked away" and closed the dialog before the choice could be applied —
+      // every dropdown in the export popover was unusable. The dropdown belongs to the
+      // dialog wherever the DOM happens to put it.
+      if (target instanceof Element && target.closest('.select-popover--portal')) return;
+      setOpen(false);
     };
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') setOpen(false);

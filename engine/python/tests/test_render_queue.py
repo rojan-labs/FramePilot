@@ -7,6 +7,8 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
@@ -19,7 +21,7 @@ from framepilot_engine.render.queue import (
     RenderRequest,
     subprocess_executor,
 )
-from framepilot_engine.timeline.models import Project
+from framepilot_engine.timeline.models import SCHEMA_VERSION, Project
 
 
 def _request(base_dir: str = "/tmp") -> RenderRequest:
@@ -43,6 +45,35 @@ def _completed_job() -> RenderJob:
 
 def _failed_job() -> RenderJob:
     return RenderJob(id="j", project_id="p1", state=RenderState.FAILED, error="bad render")
+
+
+
+def _project_with_source(
+    *, width: int, height: int, peaks: list[float] | None = None
+) -> Project:
+    """A minimal 1920x1080 project whose one video asset reports `width`x`height`."""
+    return Project.model_validate(
+        {
+            "schemaVersion": SCHEMA_VERSION,
+            "id": "p1",
+            "name": "cap",
+            "fps": 30,
+            "resolution": {"width": 1920, "height": 1080},
+            "assets": [
+                {
+                    "id": "a1",
+                    "path": "media/clip.mp4",
+                    "kind": "video",
+                    "media": {
+                        "width": width,
+                        "height": height,
+                        **({"peaks": peaks} if peaks is not None else {}),
+                    },
+                }
+            ],
+            "timeline": {"tracks": []},
+        }
+    )
 
 
 def test_submit_runs_to_completion() -> None:
@@ -398,3 +429,93 @@ def test_task_exposes_live_progress_from_an_executor_that_reports_it() -> None:
         assert final is not None and final.status == JobStatus.COMPLETED
     finally:
         q.shutdown()
+
+
+def test_cancelling_a_render_discards_the_partial_file(tmp_path: Path) -> None:
+    """A cancelled export must not leave a half-written file where a finished one goes.
+
+    The worker dies by SIGTERM to its process group, so nothing inside it runs on the
+    way out — not MoviePy's cleanup and not the pipeline's own discard, which only sees
+    exceptions raised inside the worker. MoviePy writes progressively into the
+    destination, so before this the desktop e2e found 4 MB of unplayable video sitting
+    exactly where the finished export goes.
+    """
+    from framepilot_engine.render.queue import _discard_cancelled_output
+
+    out = tmp_path / "exports" / "half-written.mp4"
+    out.parent.mkdir(parents=True)
+    out.write_bytes(b"\0" * 2048)
+
+    request = SimpleNamespace(
+        base_dir=str(tmp_path),
+        opts=SimpleNamespace(output_path="exports/half-written.mp4"),
+    )
+    _discard_cancelled_output(cast("Any", request))
+
+    assert not out.exists()
+
+
+def test_discarding_a_cancelled_output_ignores_a_path_outside_the_sandbox(
+    tmp_path: Path,
+) -> None:
+    """Cleanup is still a delete, so it obeys the same sandbox every other path does."""
+    from framepilot_engine.render.queue import _discard_cancelled_output
+
+    outside = tmp_path / "outside.mp4"
+    outside.write_bytes(b"\0" * 16)
+    sandbox = tmp_path / "sandbox"
+    sandbox.mkdir()
+
+    request = SimpleNamespace(
+        base_dir=str(sandbox), opts=SimpleNamespace(output_path="../outside.mp4")
+    )
+    _discard_cancelled_output(cast("Any", request))
+
+    assert outside.exists(), "cleanup must not escape the sandbox"
+
+
+def test_discarding_a_cancelled_output_is_a_no_op_without_a_path(tmp_path: Path) -> None:
+    """A render that never named an output has nothing to remove."""
+    from framepilot_engine.render.queue import _discard_cancelled_output
+
+    request = SimpleNamespace(base_dir=str(tmp_path), opts=SimpleNamespace(output_path=None))
+    _discard_cancelled_output(cast("Any", request))
+
+
+def test_render_worker_payload_keeps_source_dimensions_so_exports_cap(tmp_path: Path) -> None:
+    """The spawn projection must not drop the fact that stops an upscale.
+
+    `media` used to be dropped whole as "timeline-preview metadata" that "cannot change
+    render semantics". It can: `source_facts` reads media.width/height to find the largest
+    short edge the sources hold, and that is the cap. Without it a 2160p request against a
+    640x360 source rendered a real 3840x2160 file — 148 MB of upscaled nothing. The parent
+    resolved it correctly, so only the worker was ever wrong, which is how it survived.
+    """
+    from framepilot_engine.render.export_settings import ExportSettings
+    from framepilot_engine.render.pipeline import resolve_target, source_facts
+    from framepilot_engine.render.queue import project_for_render_worker
+
+    project = _project_with_source(width=640, height=360)
+    opts = RenderOptions(settings=ExportSettings(resolution="2160p"))
+
+    worker_project = project_for_render_worker(project, opts)
+
+    assert source_facts(worker_project).max_short_edge == 360
+    target = resolve_target(worker_project, opts)
+    assert (target.width, target.height) == (640, 360)
+    assert target.capped_to_source is True
+    # And the parent agrees — the two must never disagree about the target again.
+    assert resolve_target(project, opts).height == target.height
+
+
+def test_render_worker_payload_still_drops_the_waveform_peaks(tmp_path: Path) -> None:
+    """Peaks are what made the payload big, and nothing in the render reads them."""
+    from framepilot_engine.render.queue import project_for_render_worker
+
+    project = _project_with_source(width=640, height=360, peaks=[0.5] * 4096)
+    worker_project = project_for_render_worker(project, RenderOptions())
+
+    media = worker_project.assets[0].media
+    assert media is not None
+    assert media.peaks is None
+    assert media.width == 640

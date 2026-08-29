@@ -218,6 +218,54 @@ describe('ExportDialog', () => {
     expect(screen.getByTestId('export-summary').textContent).toContain('HEVC (H.265)');
   });
 
+  it('stays open when you press an option in one of its own dropdowns', () => {
+    // The regression this pins closed the dialog on every settings change. `Select`
+    // portals its listbox into `document.body` so the dropdown is not clipped by the
+    // popover's overflow, and the popover's outside-press handler asked only whether
+    // the press landed inside its own subtree — so picking "720p" read as "clicked
+    // away". Every dropdown in the export popover was unusable.
+    //
+    // It has to be a real `pointerdown`: the other tests here use `fireEvent.click`,
+    // which never dispatches one, which is exactly why this survived 32 tests and was
+    // only caught by the desktop e2e.
+    render(
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
+        ensureSaved={vi.fn()}
+        onReveal={vi.fn()}
+      />,
+    );
+    openExportMenu();
+    fireEvent.click(screen.getByRole('combobox', { name: 'Resolution' }));
+
+    const option = screen.getByRole('option', { name: '720p' });
+    fireEvent.pointerDown(option, { bubbles: true });
+    fireEvent.click(option);
+
+    expect(screen.queryByRole('dialog', { name: 'Export video' })).not.toBeNull();
+    expect(screen.getByTestId('export-summary').textContent).toContain('720 × 1280');
+  });
+
+  it('still closes when the press really is outside', () => {
+    render(
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
+        ensureSaved={vi.fn()}
+        onReveal={vi.fn()}
+      />,
+    );
+    openExportMenu();
+    expect(screen.queryByRole('dialog', { name: 'Export video' })).not.toBeNull();
+
+    fireEvent.pointerDown(document.body, { bubbles: true });
+
+    expect(screen.queryByRole('dialog', { name: 'Export video' })).toBeNull();
+  });
+
   it('caps the resolution at what the sources hold and says so instead of upscaling', () => {
     const assets = [
       { id: 'a', path: 'a.mp4', kind: 'video' as const, media: { width: 1280, height: 720 } },
