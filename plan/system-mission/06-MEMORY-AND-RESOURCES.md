@@ -67,9 +67,39 @@ the previous code.
   That is a React warning at worst, not retention, and fixing it would touch components
   the task says not to rewrite. Left, deliberately, and named here.
 
-Remaining for the done-when: the counter run itself (open → edit → close ×3 with the
-P0.4 script) and the heap-snapshot diff. Those need the desktop resource harness, not
-unit tests, and belong with P6.6.
+**Second pass 2026-08-29 — the sweep re-run against every primitive the task names, and
+one correction to the note above.** Repeating the balance diffs found nothing new:
+`setInterval`/`clearInterval` balances file by file (5 files), every non-one-shot
+`requestAnimationFrame` has its `cancelAnimationFrame` in the same cleanup, every
+`setTimeout` imbalance resolves to a ref cleared from an unmount effect
+(`ContextWindowIndicator`, `Tooltip`) or to the one-shot late-`setState` cases already
+named above, the only `new Worker` terminates from `DecodeWorkerClient.dispose()`, both
+`AudioContext`s close (`useWaveformPeaks` in a `finally`, the engine in `dispose`), the
+three `matchMedia` listeners all detach, and the drag-listener shape that produced the
+`PreviewTextEditor` leak exists in exactly one file — that one.
+
+The correction: this note claimed `webcodecs-preview-engine.dispose()` "clears its image
+map". It did not. `dispose()` released the ring, the worker, the GL chain, the sources and
+the `AudioContext`, but left `images` (decoded full-resolution `HTMLImageElement`s, one per
+still on the timeline) and `heldFrame` — a **detached `<canvas>`**, which is the exact
+shape the phase's heap criterion rules out. Whether that retains anything depends on
+whether the engine itself is unreferenced at that moment, and it often is not: the
+`loadQueue` chain, an in-flight `decodeAudioData` and a stale `engineRef` all outlive the
+unmount. Dispose now releases them (and `segments`) explicitly, so holding a disposed
+engine is cheap instead of merely usually-harmless. Two tests
+(`webcodecs-preview-engine.dispose.test.ts`), the first failing on the previous code.
+They read private fields through a cast, deliberately: releasing a cache has no public
+observable, and asserting on the public surface would assert nothing.
+
+**What is NOT proven here.** The done-when asks for counters flat across open → edit →
+close ×3 and a heap-snapshot diff. Neither was produced in this pass and neither can be:
+both need the desktop resource harness driving a real browser, not jsdom. What the unit
+tests prove is narrower and worth stating exactly: that the two release paths this phase
+changed do release — `PreviewTextEditor` detaches both window listeners on unmount
+mid-drag (and commits the drag it previously dropped), and `WebCodecsPreviewEngine.dispose`
+empties the image map, the held frame, the sources and the EDL. Everything else above is an
+_audit_ result — a claim that the code is balanced, checked by reading every site — not a
+measurement. The counter run and the snapshot diff stay with P6.6, which owns the harness.
 
 ## P6.2 — Renderer: bounded caches — `[x]`
 
@@ -148,14 +178,14 @@ Landed 2026-08-29. **A real leak found and fixed, and a measurement criterion co
 The leak: both `FFMPEG_VideoReader.close()` and `FFMPEG_AudioReader.close()` in MoviePy
 are written as `if self.proc.poll() is None: ...close pipes...; self.proc = None` — so a
 reader whose ffmpeg **already exited**, which is how every render ends, drops the reference
-*without closing stdout/stderr*, and the descriptors survive until the garbage collector
+_without closing stdout/stderr_, and the descriptors survive until the garbage collector
 runs `__del__`. `close_clip_tree` now releases those pipes before calling the node's own
 `close()` (after it, `proc` is `None` and they are unreachable). Two tests drive the exact
 shape; the whole suite runs clean under `-W error::ResourceWarning` (**2,733 passed**).
 
 The criterion: "RSS after 5 exports ≈ after 1 (±10%)" is not measurable as written, because
 a single RSS sample is noisy. Nine consecutive in-process exports of the 4K fixture gave
-**171, 192, 197, 171, 199, 228, 228, 204, 104 MB** — non-monotonic, ending *below* where it
+**171, 192, 197, 171, 199, 228, 228, 204, 104 MB** — non-monotonic, ending _below_ where it
 started, with peak plateauing at 258 MB. Two samples out of that series can be made to read
 +17%, +30% or −39% depending on which two. The honest test is whether it grows without
 bound over N runs, and it does not.
@@ -185,8 +215,8 @@ accumulation of frames or PIL images, and no `ResourceWarning` under `-W error`.
 
 **Audit of every real subprocess in the engine** (5 sites): all pass through
 `validate_safe_argv` and all use `capture_output=True`, which drains both pipes. Four had
-a timeout; **`audio/filters.py` had none** — and both of its calls run on the *render
-path*, over the file the export has just written, so a wedged ffmpeg there wedged the
+a timeout; **`audio/filters.py` had none** — and both of its calls run on the _render
+path_, over the file the export has just written, so a wedged ffmpeg there wedged the
 export with nothing to end it but killing the app. Both are now bounded by
 `MASTER_PASS_TIMEOUT_SECONDS` (generous, because a master pass over a long programme is
 legitimately slow; the point is that it terminates).
