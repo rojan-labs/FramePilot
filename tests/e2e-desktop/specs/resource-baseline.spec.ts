@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { launchDesktop, REPO, snapshot, type ResourceSnapshot } from './launch.js';
+import { resourceGateViolations } from './resource-gate.js';
 
 /**
  * Resource baseline (plan/system-mission P0.4, re-run as P6.6's gate). Opens the montage
@@ -97,16 +98,11 @@ test('@resources desktop resource baseline', async () => {
   }
   expect(snaps.length).toBeGreaterThanOrEqual(3);
   // P6.6 gate (RESOURCE_GATE=1): after warm-up, a scripted session must not grow. The
-  // bounds come from the 2026-08-29 baseline (heap 43.7–48.7 MB, listeners 933–935,
-  // nodes 2,913–2,967 over 376 loops) with room for ordinary variance.
+  // arithmetic lives in `resource-gate.ts` so it can be proven to fail on a seeded leak
+  // (resource-gate.spec.ts) instead of being trusted because it is written down.
   if (process.env.RESOURCE_GATE === '1') {
     const warm = snaps.find((s) => s.label.startsWith('session-loop-')) ?? snaps[0]!;
     const last = snaps.find((s) => s.label.startsWith('after-session')) ?? snaps.at(-1)!;
-    expect(last.renderer.jsHeapUsedMb).toBeLessThan(warm.renderer.jsHeapUsedMb * 1.3 + 10);
-    expect(last.renderer.listeners).toBeLessThan(warm.renderer.listeners * 1.1 + 20);
-    expect(last.renderer.nodes).toBeLessThan(warm.renderer.nodes * 1.2 + 200);
-    expect(last.renderer.documents).toBeLessThanOrEqual(warm.renderer.documents + 1);
-    expect(last.main.openFiles).toBeLessThan(warm.main.openFiles * 1.2 + 20);
-    expect(last.ffmpegCount).toBe(0);
+    expect(resourceGateViolations(warm, last).join('; ')).toBe('');
   }
 });
