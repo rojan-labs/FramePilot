@@ -112,6 +112,59 @@ jobs:
       - run: pnpm build
       - run: pnpm eval:professional:rendered
 
+  # ── Editing regression + efficiency gates (plan/system-mission P9.3, P9.5) ──
+  # Both gates read one committed mission-run JSON and compare it to a committed floor.
+  # They are pure JSON reductions — no provider, no sidecar, no media — which is the
+  # whole reason they belong in the PR lane: the expensive half (producing a fresh run)
+  # is the nightly job in `mission-nightly.yml`, and what lands here is its evidence.
+  #
+  # The run JSON is committed today, so these normally execute. They SKIP (not fail)
+  # when it is absent, because a checkout without a recorded run has nothing to say
+  # about a regression and a red X that means "no data" trains people to ignore red.
+  mission-gates:
+    name: Mission rubric + efficiency gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      # Both scripts are dependency-free Node and resolve their argument against the
+      # repository root, so this job deliberately skips `pnpm install` entirely.
+      # Locally the same two commands are `pnpm --filter @framepilot/ai-sdk eval:mission`
+      # and `node packages/ai-sdk/scripts/mission-efficiency-gate.mjs <run.json>`.
+      - id: run
+        name: Locate the committed mission run
+        run: |
+          if [ -f "$MISSION_RUN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          MISSION_RUN: reports/system-mission/after-orchestration-merged.json
+      - name: Rubric floor (P9.3)
+        if: steps.run.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -eo pipefail
+          node packages/ai-sdk/scripts/mission-score.mjs \
+            reports/system-mission/after-orchestration-merged.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Efficiency floor (P9.5)
+        if: steps.run.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -eo pipefail
+          node packages/ai-sdk/scripts/mission-efficiency-gate.mjs \
+            reports/system-mission/after-orchestration-merged.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: No mission run to gate
+        if: steps.run.outputs.present != 'true'
+        run: |
+          echo "No committed mission run JSON; rubric and efficiency gates skipped." \
+            >> "$GITHUB_STEP_SUMMARY"
+
   # ── License & dependency review ──────────────────────────────────────────
   license-scan:
     name: License scan
