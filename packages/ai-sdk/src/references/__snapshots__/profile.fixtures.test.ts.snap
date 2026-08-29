@@ -1,0 +1,181 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`profiles built from the real mission fixtures > reads caption-talk.mp4 as a flat, near-monochrome talking head 1`] = `
+{
+  "analyzedAt": "2026-08-29T00:00:00.000Z",
+  "constraints": [
+    "Pacing: one continuous take over 98.0s — no cuts to match",
+    "Frame: landscape 1920×1080",
+    "Look: neutral, desaturated, high-contrast",
+    "Apply: match the caption placement and rhythm; captions should read at this pace",
+  ],
+  "contentHash": "hash_caption-talk.mp4",
+  "fileName": "caption-talk.mp4",
+  "id": "ref_caption_talk_mp4",
+  "kind": "video",
+  "role": "caption-style",
+  "video": {
+    "color": {
+      "brightness": 0.4036930695976307,
+      "contrast": 0.30836348432226035,
+      "saturation": 0.008095610929557007,
+      "temperature": -0.00048055101670297734,
+    },
+    "cutsPerMinute": 0,
+    "durationS": 98.033333,
+    "fps": 30,
+    "height": 1080,
+    "medianShotS": 98.033333,
+    "shotCount": 1,
+    "width": 1920,
+  },
+}
+`;
+
+exports[`profiles built from the real mission fixtures > reads colorchart.png as a dark, flat grade target 1`] = `
+{
+  "analyzedAt": "2026-08-29T00:00:00.000Z",
+  "constraints": [
+    "Image: 607×403, transparent background",
+    "Palette: #222835 #1c222e #191e2a #3e4851",
+    "Look: neutral, desaturated, flat, low-contrast, dark",
+    "Apply: grade toward this look (apply_color_grade); keep skin tones natural",
+  ],
+  "contentHash": "hash_colorchart.png",
+  "fileName": "colorchart.png",
+  "id": "ref_colorchart_png",
+  "image": {
+    "color": {
+      "brightness": 0.17760235618512113,
+      "contrast": 0.10831737418973689,
+      "saturation": 0.07397635524798155,
+      "temperature": -0.14485366205305653,
+    },
+    "dominantColors": [
+      "#222835",
+      "#1c222e",
+      "#191e2a",
+      "#3e4851",
+    ],
+    "hasAlpha": true,
+    "height": 403,
+    "width": 607,
+  },
+  "kind": "image",
+  "role": "color",
+}
+`;
+
+exports[`profiles built from the real mission fixtures > reads fast-cut-vertical.mp4 as a fast reel with a beat 1`] = `
+{
+  "analyzedAt": "2026-08-29T00:00:00.000Z",
+  "constraints": [
+    "Pacing: rapid-fire — median shot 0.9s (most shots 0.6–0.9s), 72 cuts/min",
+    "Music: about 86 BPM with a clear beat",
+    "Dialogue-led: speech covers most of the runtime",
+    "Frame: portrait 1080×1920",
+    "Look: neutral, desaturated",
+    "Apply: match the shot-length range above; do not copy content",
+  ],
+  "contentHash": "hash_fast-cut-vertical.mp4",
+  "fileName": "fast-cut-vertical.mp4",
+  "id": "ref_fast_cut_vertical_mp4",
+  "kind": "video",
+  "role": "pacing",
+  "video": {
+    "color": {
+      "brightness": 0.3526937896850992,
+      "contrast": 0.2073716306407929,
+      "saturation": 0.10460893604517829,
+      "temperature": 0.11191251719986242,
+    },
+    "cutsPerMinute": 72,
+    "durationS": 20,
+    "fps": 119.90008326394671,
+    "height": 1920,
+    "medianShotS": 0.891667,
+    "music": {
+      "beatCount": 29,
+      "bpm": 86.1,
+    },
+    "shotCount": 25,
+    "shotLengthP10S": 0.5750000000000002,
+    "shotLengthP90S": 0.9083329999999998,
+    "speechShare": 1,
+    "width": 1080,
+  },
+}
+`;
+
+exports[`profiles built from the real mission fixtures > reads logo.png as an image with a palette and an overlay instruction 1`] = `
+{
+  "analyzedAt": "2026-08-29T00:00:00.000Z",
+  "constraints": [
+    "Image: 1254×1254",
+    "Palette: #f1f0e9 #422e24 #120905 #a89784",
+    "Look: warm, desaturated, high-contrast",
+    "Apply: place as an overlay (add_text_layer/add_clip on an overlay track), keep proportions, never stretch",
+  ],
+  "contentHash": "hash_logo.png",
+  "fileName": "logo.png",
+  "id": "ref_logo_png",
+  "image": {
+    "color": {
+      "brightness": 0.4503878178615196,
+      "contrast": 0.36766947120173554,
+      "saturation": 0.0922427906709559,
+      "temperature": 0.16904057521446078,
+    },
+    "dominantColors": [
+      "#f1f0e9",
+      "#422e24",
+      "#120905",
+      "#a89784",
+    ],
+    "hasAlpha": false,
+    "height": 1254,
+    "width": 1254,
+  },
+  "kind": "image",
+  "role": "brand-logo",
+}
+`;
+
+exports[`profiles built from the real mission fixtures > reads slow-cinematic-4k.mov as one held take, with no pace to match 1`] = `
+{
+  "analyzedAt": "2026-08-29T00:00:00.000Z",
+  "constraints": [
+    "Pacing: one continuous take over 21.6s — no cuts to match",
+    "Music: about 185 BPM with a clear beat",
+    "Dialogue-led: speech covers most of the runtime",
+    "Frame: landscape 3840×2160",
+    "Look: neutral",
+    "Apply: match pacing and look above; do not copy content",
+  ],
+  "contentHash": "hash_slow-cinematic-4k.mov",
+  "fileName": "slow-cinematic-4k.mov",
+  "id": "ref_slow_cinematic_4k_mov",
+  "kind": "video",
+  "role": "style",
+  "video": {
+    "color": {
+      "brightness": 0.5343726899330639,
+      "contrast": 0.16951604967930026,
+      "saturation": 0.2555434171109965,
+      "temperature": -0.0278967434927187,
+    },
+    "cutsPerMinute": 0,
+    "durationS": 21.631667,
+    "fps": 47.06063641266662,
+    "height": 2160,
+    "medianShotS": 21.631667,
+    "music": {
+      "beatCount": 55,
+      "bpm": 184.6,
+    },
+    "shotCount": 1,
+    "speechShare": 1,
+    "width": 3840,
+  },
+}
+`;
