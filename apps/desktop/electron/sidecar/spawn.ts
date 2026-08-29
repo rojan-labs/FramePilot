@@ -68,6 +68,8 @@ export interface SidecarSpawnContext {
    * a sidecar that could not open a single one of their own media files.
    */
   readonly projectsRoot: string;
+  /** `process.pid` of the Electron main process — the owner the engine must not outlive. */
+  readonly parentPid: number;
 }
 
 /** Bundle directory name under Resources; must match electron-builder.yml `extraResources.to`. */
@@ -139,7 +141,28 @@ export function resolveSidecarCommand(
  * disagree about where the user's projects live.
  */
 function projectsRootEnv(context: SidecarSpawnContext): Record<string, string> {
-  return { FRAMEPILOT_PROJECTS_ROOT: context.projectsRoot };
+  return { FRAMEPILOT_PROJECTS_ROOT: context.projectsRoot, ...parentPidEnv(context) };
+}
+
+/**
+ * The pid the engine must outlive nothing beyond.
+ *
+ * The sidecar is spawned `detached`, in its own process group, so that a running encode
+ * can be signalled as a group (see `killProcessGroup`). The price of detaching is that a
+ * HARD death of this app — `kill -9`, Force Quit, a crash — never runs our shutdown, and
+ * the engine survives still holding its port. The next launch then cannot bind: the
+ * manager spends its entire restart budget losing to a process nobody owns, and the user's
+ * app comes back with no engine (no render, no analysis, no agent) after nothing worse
+ * than a force-quit. Handing the engine our pid lets it notice and exit on its own
+ * (`framepilot_engine.service.start_parent_watchdog`), which is the only place the
+ * observation can be made — by then this process no longer exists.
+ *
+ * Never overrides a value the environment already carries: a developer running the engine
+ * by hand against a different owner is making a deliberate choice.
+ */
+function parentPidEnv(context: SidecarSpawnContext): Record<string, string> {
+  if (context.env.FRAMEPILOT_PARENT_PID?.trim()) return {};
+  return { FRAMEPILOT_PARENT_PID: String(context.parentPid) };
 }
 
 /**

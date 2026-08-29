@@ -79,8 +79,67 @@ function seedProviderConfig(userDataDir: string, overrides: Record<string, strin
   );
 }
 
+/**
+ * Wait for `port` to be free, and say who is holding it when it never is.
+ *
+ * Each row gives its app instance its own sidecar port. When a previous row's app was
+ * killed (or leaked), its engine could still be bound to that port, and the app launched
+ * here then spends its whole restart budget failing to bind — with the visible symptom
+ * that the project never opens. Every assertion after that describes a squatted port
+ * rather than the product, so this fails first, with the pid to kill.
+ */
+async function awaitFreePort(port: number, timeoutMs = 30_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    let holder = '';
+    try {
+      holder = execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+    } catch {
+      return; // lsof exits non-zero when nothing is listening: the port is free.
+    }
+    if (!holder) return;
+    if (Date.now() > deadline) {
+      throw new Error(
+        `sidecar port ${String(port)} is still held after ${String(timeoutMs / 1000)}s, so the ` +
+          `app launched here cannot start its engine and the project will never open:\n${holder}`,
+      );
+    }
+    await new Promise((r) => setTimeout(r, 1_000));
+  }
+}
+
+/**
+ * Click a project in Recent until the editor is actually up.
+ *
+ * The retry is not padding. The launch screen renders its Recent list from the on-disk
+ * file and then re-renders it once the main process has answered about each entry, which
+ * REPLACES the button node. A click that lands in that window hits an element React has
+ * already discarded: Playwright reports a successful click, no error appears anywhere,
+ * and the app simply stays on the launch screen — every later assertion in the row then
+ * describes a project that was never opened. (Measured: clicking immediately after
+ * `domcontentloaded` left the launch screen up for 60 s; a 3 s settle opened it in 2 s.)
+ *
+ * A broken open still fails this: the loop asserts the editor, not the click.
+ */
+async function openFromRecents(page: Page, projectId: string, attempts = 3): Promise<void> {
+  const timeline = page.locator('section[aria-label="timeline"]');
+  for (let attempt = 1; ; attempt++) {
+    await page.getByRole('button', { name: projectId }).first().click();
+    try {
+      await expect(timeline).toBeVisible({ timeout: attempt === attempts ? 60_000 : 20_000 });
+      return;
+    } catch (error) {
+      if (attempt >= attempts) throw error;
+    }
+  }
+}
+
 export async function launchDesktop(options: LaunchOptions = {}): Promise<DesktopSession> {
   const sidecarPort = options.sidecarPort ?? 8798;
+  await awaitFreePort(sidecarPort);
   const projectsRoot = options.projectsRoot ?? FIXTURE_PROJECTS;
   const userDataDir = options.userDataDir ?? mkdtempSync(join(tmpdir(), 'framepilot-e2e-desktop-'));
   if (options.projectId) {
@@ -110,9 +169,17 @@ export async function launchDesktop(options: LaunchOptions = {}): Promise<Deskto
   await page.waitForLoadState('domcontentloaded');
   const mainPid = await app.evaluate(() => process.pid);
   if (options.projectId) {
-    await page.getByRole('button', { name: options.projectId }).first().click();
-    await expect(page.locator('section[aria-label="timeline"]')).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByLabel('project name')).not.toBeEmpty();
+    try {
+      await openFromRecents(page, options.projectId);
+      await expect(page.getByLabel('project name')).not.toBeEmpty();
+    } catch (error) {
+      // A launch that fails here must not leave the app running. It used to: the throw
+      // escaped before any caller had a session to close in its `finally`, so the app and
+      // its engine survived the run and squatted the port — which made the NEXT row fail
+      // for a reason that had nothing to do with it.
+      await app.close().catch(() => undefined);
+      throw error;
+    }
   }
   return { app, page, userDataDir, sidecarPort, mainPid };
 }

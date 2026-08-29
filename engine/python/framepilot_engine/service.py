@@ -24,6 +24,7 @@ import hashlib
 import json
 import logging
 import os
+import signal
 import threading
 import time
 from collections.abc import Callable, Iterable, Sequence
@@ -5404,6 +5405,71 @@ def _run_render(
     return job
 
 
+PARENT_PID_ENV = "FRAMEPILOT_PARENT_PID"
+_PARENT_WATCH_INTERVAL_SECONDS = 2.0
+_PARENT_WATCH_GRACE_SECONDS = 10.0
+
+
+def _parent_is_alive(pid: int) -> bool:
+    """Is ``pid`` still a live process this user can signal?"""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Alive, owned by someone else (a pid the OS has already recycled). Treat as
+        # alive: exiting on a recycled pid would kill a healthy engine.
+        return True
+    return True
+
+
+def start_parent_watchdog(
+    pid: int | None = None,
+    *,
+    interval_seconds: float = _PARENT_WATCH_INTERVAL_SECONDS,
+    grace_seconds: float = _PARENT_WATCH_GRACE_SECONDS,
+) -> threading.Thread | None:
+    """Exit when the process that spawned this engine is gone.
+
+    WHY: the desktop app spawns the engine detached, in its own process group, so that a
+    running encode can be signalled as a group. The cost of that is that a hard death of
+    the app — ``kill -9``, Force Quit, a crash — leaves the engine alive and still holding
+    its port. The next launch then cannot bind: the sidecar manager burns its whole restart
+    budget losing to a process nobody owns, and the user's app comes back with no engine at
+    all (no render, no analysis, no agent). The engine is the only process that can notice
+    this, because it is the one that outlived its owner.
+
+    Deliberately a poll on ``os.kill(pid, 0)`` rather than reading stdin or ``os.getppid``:
+    the immediate parent in dev is the ``uv`` wrapper, not the app, so ``getppid`` watches
+    the wrong process; and the engine's stdio is inherited, not a pipe we can watch.
+
+    :param pid: The pid to watch; defaults to ``FRAMEPILOT_PARENT_PID``.
+    :returns: The watcher thread, or ``None`` when no parent pid was configured.
+    """
+    raw = str(pid) if pid is not None else os.environ.get(PARENT_PID_ENV, "").strip()
+    if not raw.isdigit() or int(raw) <= 1:
+        return None
+    watched = int(raw)
+
+    def _watch() -> None:
+        while _parent_is_alive(watched):
+            time.sleep(interval_seconds)
+        _log.warning(
+            "ACT parent process %d is gone; shutting the engine down so its port is freed",
+            watched,
+        )
+        # SIGTERM first so uvicorn runs its shutdown (in-flight renders get their own
+        # cleanup); _exit only if that does not finish, because an engine that refuses to
+        # die is the exact failure this watchdog exists to prevent.
+        os.kill(os.getpid(), signal.SIGTERM)
+        time.sleep(grace_seconds)
+        os._exit(1)
+
+    thread = threading.Thread(target=_watch, name="framepilot-parent-watchdog", daemon=True)
+    thread.start()
+    return thread
+
+
 def serve(host: str | None = None, port: int | None = None) -> None:
     """Run the sidecar via uvicorn using configured host/port.
 
@@ -5412,6 +5478,7 @@ def serve(host: str | None = None, port: int | None = None) -> None:
     """
     import uvicorn  # Local import keeps CLI --help fast and import graph lean.
 
+    start_parent_watchdog()
     settings = get_settings()
     uvicorn.run(
         create_app(settings),
