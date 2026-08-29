@@ -41,9 +41,19 @@ persist (session store).
 `ReferenceTile.tsx` renders the first frame for a video and the image itself for a picture,
 with name, duration and role badge, and files can be dropped straight onto the composer.
 Typecheck is clean and the tests written alongside it are committed, but **the suite was not
-run against it**, so none of it is claimed as verified. The third piece of the done-when —
-attachments surviving a reload through the session store — is **not built**. That, and
-running the web-editor suite, is what stands between P3.1 and `[x]`.
+run against it**, so none of it is claimed as verified.
+
+**Correction to the line above (also 2026-08-29):** I first wrote that the third piece of
+the done-when — attachments surviving a reload — was "not built". It is. Persistence landed
+earlier in `b3bf02e`: `AiSidebar` seeds `attachments` from `uiState` on load, dropping any
+entry still `analyzing` when the state was saved (it can only be re-attached), and writes
+them back on change; `ConversationUiState.attachments` round-trips through
+`conversationPersistence`, and `AiSidebar.test.tsx` has "reference tiles survive a reload
+(P3.1)". So **all three done-when items exist in code** — tiles, drag-and-drop and
+persistence.
+
+What separates P3.1 from `[x]` is therefore only that the web-editor suite has not been run
+against this state. No code is missing.
 
 The stale note that P3.3/P3.7 need "the maintainer's media" is **wrong**: `tests/fixtures/
 mission/ref/` holds all nine reference fixtures on disk. Those two tasks need
