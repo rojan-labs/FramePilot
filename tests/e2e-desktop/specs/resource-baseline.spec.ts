@@ -1,7 +1,13 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { launchDesktop, REPO, snapshot, type ResourceSnapshot } from './launch.js';
+import {
+  launchDesktop,
+  REPO,
+  snapshot,
+  type ResourceSnapshot,
+  openRecentProject,
+} from './launch.js';
 import { resourceGateViolations } from './resource-gate.js';
 
 /**
@@ -33,12 +39,22 @@ test('@resources desktop resource baseline', async () => {
     const clips = page.getByRole('button', { name: /^clip clip_/ });
     const clipCount = await clips.count();
     const playhead = page.getByLabel('playhead', { exact: true });
+    // Seek WITHIN the timeline. The scripted session used `5 + i * 20`, which walks off
+    // the end of any sequence shorter than the clip count demands — the montage fixture
+    // is 20 s, so the second clip asked for 25 s and `fill` refused the out-of-range
+    // value outright ("Malformed value"), taking the whole resource baseline with it.
+    // The point of this loop is to make the app work, not to reach a particular second.
+    const duration = Number((await playhead.getAttribute('max')) ?? '0') || 0;
+    // Whole seconds: `fill` on a range input rejects "5.00" as malformed even though
+    // the step is 0.01 and the value is in range, while "5" is accepted.
+    const seekTo = (index: number): string =>
+      duration > 0 ? String(Math.floor((5 + index * 20) % duration)) : '0';
     const end = Date.now() + SESSION_MINUTES * 60_000;
     let loops = 0;
     while (Date.now() < end) {
       for (let i = 0; i < clipCount; i++) {
         await clips.nth(i).click();
-        await playhead.fill(String(5 + i * 20));
+        await playhead.fill(seekTo(i));
         await page.keyboard.press('Space');
         await page.waitForTimeout(400);
         await page.keyboard.press('Space');
@@ -75,7 +91,7 @@ test('@resources desktop resource baseline', async () => {
     for (let r = 1; r <= 3; r++) {
       await page.keyboard.press('Meta+W').catch(() => undefined);
       await page.goto('http://127.0.0.1:5173/');
-      await page.getByRole('button', { name: 'mission-montage' }).first().click();
+      await openRecentProject(page, 'mission-montage');
       await expect(page.locator('section[aria-label="timeline"]')).toBeVisible({ timeout: 60_000 });
       await page.waitForTimeout(5_000);
       snaps.push(await snapshot(session, `reopen-${r}`, started));

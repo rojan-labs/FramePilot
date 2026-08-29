@@ -126,8 +126,13 @@ async function awaitFreePort(port: number, timeoutMs = 30_000): Promise<void> {
  */
 async function openFromRecents(page: Page, projectId: string, attempts = 3): Promise<void> {
   const timeline = page.locator('section[aria-label="timeline"]');
+  const card = recentProjectCard(page, projectId);
   for (let attempt = 1; ; attempt++) {
-    await page.getByRole('button', { name: projectId }).first().click();
+    // Wait for the card before clicking. The Recent list is read from disk on every
+    // render, so straight after a reload it is briefly empty and a click that does not
+    // wait fails on "no such button" rather than retrying.
+    await card.waitFor({ state: 'visible', timeout: attempt === attempts ? 60_000 : 20_000 });
+    await card.click();
     try {
       await expect(timeline).toBeVisible({ timeout: attempt === attempts ? 60_000 : 20_000 });
       return;
@@ -138,17 +143,17 @@ async function openFromRecents(page: Page, projectId: string, attempts = 3): Pro
 }
 
 /**
- * Click a project on the home screen, by id OR by the name it displays.
+ * The Recent-projects card for a project, matched by id OR by the name it displays.
  *
- * The recents list is seeded with `name: <projectId>` before launch, so the first
- * open matches on the id. Opening it makes the app rewrite that entry with the
- * project's OWN name — "Export baseline 30s (4K camera → 1080×1920 + music)" — so
- * after a reload the button no longer says the id at all, and a row that reopens a
- * project timed out looking for a label that only ever existed before the app had
- * been told what the project is called. Matching either is what the user sees: one
- * card for one project, whatever it is currently labelled.
+ * The list is seeded with `name: <projectId>` before launch, so the first open matches
+ * on the id. Opening it makes the app rewrite that entry with the project's OWN name —
+ * "Mission montage (raw camera + b-roll + music)" — so after a reload the card no longer
+ * says the id at all, and a row that reopens a project waited out its timeout looking for
+ * a label that only existed before the app had been told what the project is called.
+ * Matching either is what the user sees: one card for one project, however it is
+ * currently labelled.
  */
-export async function openRecentProject(page: Page, projectId: string): Promise<void> {
+function recentProjectCard(page: Page, projectId: string): Locator {
   const escape = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   let displayName = projectId;
   try {
@@ -158,8 +163,14 @@ export async function openRecentProject(page: Page, projectId: string): Promise<
   } catch {
     // No fixture to read: fall back to the id, which is what a fresh seed uses.
   }
-  const pattern = new RegExp(`${escape(projectId)}|${escape(displayName)}`);
-  await page.getByRole('button', { name: pattern }).first().click();
+  return page
+    .getByRole('button', { name: new RegExp(`${escape(projectId)}|${escape(displayName)}`) })
+    .first();
+}
+
+/** Open a project from the home screen's Recent list, retrying the on-disk read. */
+export async function openRecentProject(page: Page, projectId: string): Promise<void> {
+  await openFromRecents(page, projectId);
 }
 
 export async function launchDesktop(options: LaunchOptions = {}): Promise<DesktopSession> {
