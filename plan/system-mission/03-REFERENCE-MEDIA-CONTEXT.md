@@ -130,11 +130,18 @@ handing back the same stale answer; changing the role re-measures under the new 
 4 tests. Also fixed on the way: `remove_silences` had no `toolMeta` entry, so its tool card
 would have rendered unnamed.
 
-## P3.7 — Tests, docs, close — `[ ]`
+## P3.7 — Tests, docs, close — `[~]` (guide written; route test + UC-06/07 evidence remain)
 
 Unit: role table, profile builder, cache behaviour, context block. Sidecar: route test
 with the fixture. E2E hook for Phase 9 (UC-06/07). `docs/guides/reference-media.md`,
 CHANGELOG, ADR for the profile contract. Report `03-after.md`.
+
+Landed 2026-08-29: `docs/guides/reference-media.md` — attaching, what the measurement
+produces (the actual constraint lines, since those are what the model reads), roles and
+correcting them, failure and re-analysis, and an explicit Limits section naming what is
+read but not yet acted on (P3.4) and what is per-turn only (P3.5). Unit tests for the role
+table, profile builder and context block exist; the sidecar route test and the UC-06/07
+e2e evidence remain, so this stays `[~]`.
 
 ## Discovered
 

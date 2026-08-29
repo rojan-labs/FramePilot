@@ -36,8 +36,8 @@ reference media, export, and the sidebar.
 Landed 2026-08-29: README status table rewritten with per-phase done/partial/blocked
 counts; PLAN.md SYSMISSION snapshot updated; system map carries the intentional host
 differences; ADRs 0158/0159 added; CHANGELOG has an entry per user-facing change;
-`docs/guides/export.md` documents progress, ETA and history. Residual: a
-`docs/guides/reference-media.md` (P3.7) has not been written.
+`docs/guides/export.md` documents progress, ETA and history, and
+`docs/guides/reference-media.md` covers attaching, roles, failures and the known limits.
 
 ## P10.4 — Final report — `[x]`
 
