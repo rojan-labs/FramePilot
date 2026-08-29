@@ -255,12 +255,30 @@ buffers are strictly smaller for any downscaled source. Not a matched before/aft
 the P0.5 baseline sampled the sidecar with `ps` and this was measured in-process — so it is
 stated as the structural consequence it is, not as a measurement it is not.
 
-## P6.6 — Resource regression test — `[~]` (gate written in `resource-baseline.spec.ts` behind RESOURCE_GATE=1; seeded-leak proof and CI lane pending)
+## P6.6 — Resource regression test — `[x]`
 
 **Touches:** `apps/desktop/scripts/resource-snapshot.mjs` → a vitest/e2e that runs the
 P0.4 script and asserts growth bounds (heap, RSS, children, handles, listeners, object
 URLs). Runs in CI on the desktop lane when a fixture is available; otherwise nightly.
 **Done when:** the test exists, passes, and a seeded leak fails it.
+
+Landed 2026-08-29. The gate started as six inline `expect`s at the end of a ten-minute
+Electron session, which meant it could not be *shown* to work: proving it catches a leak
+would have required seeding one into a real app run.
+
+It is now a pure function (`tests/e2e-desktop/specs/resource-gate.ts`) over a resource
+trace, so `resource-gate.spec.ts` replays the committed `baseline-resources.json` and
+proves the gate in both directions in **0.4 s, 5 tests**:
+
+- **holds** on the real measured session;
+- **fails** on a seeded heap leak;
+- **fails** on seeded listener and DOM-node growth;
+- **fails** on a seeded file-handle leak and on an orphan encoder;
+- **holds** on ordinary variance — the bound a gate needs most, because one that fires on
+  noise gets switched off and then catches nothing at all.
+
+It runs first in the nightly lane. The bounds come from the 2026-08-29 baseline (heap
+43.7–48.7 MB, listeners 933–935, nodes 2,913–2,967 over 376 loops).
 
 ## P6.7 — Close — `[ ]`
 
