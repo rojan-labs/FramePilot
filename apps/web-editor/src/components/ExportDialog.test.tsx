@@ -265,7 +265,9 @@ describe('ExportDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Export' }));
     await waitFor(() => expect(exportVideoStart).toHaveBeenCalled());
-    const sent = exportVideoStart.mock.calls[0]![0] as { settings: Record<string, unknown> };
+    const sent = vi.mocked(exportVideoStart).mock.calls[0]![0] as unknown as {
+      settings: Record<string, unknown>;
+    };
     expect(sent.settings['bitrateKbps']).toBeUndefined();
     expect(sent.settings['quality']).toBe('high');
   });
