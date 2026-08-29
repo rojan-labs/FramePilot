@@ -330,9 +330,7 @@ describe('Editor workspace', () => {
     const tablist = screen.getByRole('tablist', { name: 'library tabs' });
 
     expect(screen.getByRole('button', { name: 'Collapse library panel' })).toBeDefined();
-    expect(
-      within(tablist).queryByRole('button', { name: 'Collapse library panel' }),
-    ).toBeNull();
+    expect(within(tablist).queryByRole('button', { name: 'Collapse library panel' })).toBeNull();
     // A tablist should contain tabs and nothing else.
     expect(within(tablist).queryAllByRole('button')).toHaveLength(0);
   });
