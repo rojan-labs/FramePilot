@@ -14,11 +14,17 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 powerful if the editing engine is structured, testable, and deterministic.
 
 **Status snapshot (2026-08-29, SYSMISSION — system mission plan):** `[~]` **The end-to-end
-system mission is executed on `feat/system-mission`: 53 of 69 tasks `[x]`, 15 `[~]`, one
-`[!]`, none unstarted. `pnpm verify` green.** All six scenarios are measured and every one
+system mission is executed on `feat/system-mission`: 59 of 69 tasks `[x]`, 9 `[~]`, one
+`[!]`, none unstarted. Every one of the ten open tasks is code-complete and waiting on a
+test run, not on implementation — they are deliberately not ticked, because this mission
+found three separate rows that "passed" while proving nothing (a locator matching six
+elements, a provider the app never used, an assertion counting a deliberate cache as
+orphans), and a typecheck is not evidence. `pnpm verify` was last green earlier in the
+session; the final commits are validated by typecheck only.** All six scenarios are measured and every one
 improved — podcast 25 → 5 model calls and 1200s → 253s at held quality; montage, beat-sync,
 dead-air, refine-tighten and memory-captions all went from *not completing* or *zero
-operations* to real edits (rubric 1.00 / 0.78 / 0.75 / 0.63–0.88 / 0.63–0.71). Seven of
+operations* to real edits (rubric 1.00 / **1.00** / 0.75 / 0.63–0.88 / 0.63–0.71 — beat-sync
+reached 1.00 once `detect_beats` learned which onsets are beats rather than transients). Seven of
 nine turns went 0 → real operations. The root cause behind most of it was agent requests
 carrying no `maxTokens`, truncating at 8,192 and retrying into the same wall. A 30s 4K
 export went **48.2s → 11.5s** once profiling showed 69% of it was one PIL resize discarding
