@@ -69,7 +69,7 @@ const LARGE = { clips: 900, words: 9_000 };
  */
 const MAX_GROWTH = 25;
 
-/** Timed runs per size. The fastest one is kept — see `costOf`. */
+/** Interleaved rounds per comparison. The cleanest one is kept — see `growthFactor`. */
 const REPEATS = 5;
 
 function project({ clips, words }: { clips: number; words: number }): Project {
@@ -135,43 +135,62 @@ function project({ clips, words }: { clips: number; words: number }): Project {
 /** A timed span shorter than this is mostly clock resolution, not work. */
 const MIN_SAMPLE_MS = 5;
 
-/**
- * The cost of ONE critique at this size, in milliseconds.
- *
- * Two defences against measuring the machine instead of the code:
- *
- * 1. **Each sample times a BATCH, not a single call.** A small-project critique runs well
- *    under the timer's resolution, so a one-call sample used to come back as ~0 and get
- *    floored by the caller — which made the ratio's denominator a constant and let any
- *    slow large-size sample explode it. (Observed: a 62.7x reading under a loaded,
- *    coverage-instrumented suite, from a test that passes comfortably on its own.) The
- *    batch grows until the span is worth reading, so both terms of the ratio are real.
- * 2. **The fastest sample wins.** A GC pause or a descheduled core can only ever ADD time,
- *    never subtract it, so the minimum is the sample least contaminated by whatever else
- *    the machine was doing. Summing does the opposite: it collects every hiccup.
- */
-function costOf(size: { clips: number; words: number }): number {
-  const built = project(size);
-  // One warm-up, so JIT compilation is not billed to whichever size runs first.
-  critique(built, { producedChanges: true });
+/** One size, prepared once: the project and the batch size that makes it measurable. */
+interface Subject {
+  readonly project: ReturnType<typeof project>;
+  readonly batch: number;
+}
 
-  // Calibrate the batch: enough calls that one sample clears MIN_SAMPLE_MS.
+/** Time `batch` critiques of `subject`, returning the per-call milliseconds. */
+function sample(subject: Subject): number {
+  const started = performance.now();
+  for (let i = 0; i < subject.batch; i += 1) {
+    critique(subject.project, { producedChanges: true });
+  }
+  return (performance.now() - started) / subject.batch;
+}
+
+/**
+ * Prepare a size for measurement: build it, warm the JIT, and calibrate a batch big
+ * enough that one timed span clears {@link MIN_SAMPLE_MS}. A single small-project
+ * critique runs below the clock's resolution, and a sample of ~0 makes any ratio
+ * meaningless.
+ */
+function prepare(size: { clips: number; words: number }): Subject {
+  const built = project(size);
+  critique(built, { producedChanges: true });
   let batch = 1;
   for (;;) {
+    const subject = { project: built, batch };
     const started = performance.now();
     for (let i = 0; i < batch; i += 1) critique(built, { producedChanges: true });
-    const elapsed = performance.now() - started;
-    if (elapsed >= MIN_SAMPLE_MS || batch >= 4096) break;
+    if (performance.now() - started >= MIN_SAMPLE_MS || batch >= 4096) return subject;
     batch *= 2;
   }
+}
 
-  let fastest = Infinity;
-  for (let repeat = 0; repeat < REPEATS; repeat += 1) {
-    const started = performance.now();
-    for (let i = 0; i < batch; i += 1) critique(built, { producedChanges: true });
-    fastest = Math.min(fastest, (performance.now() - started) / batch);
+/**
+ * How much more one critique costs at `LARGE` than at `SMALL` — the smallest ratio seen
+ * across {@link REPEATS} interleaved rounds.
+ *
+ * **Interleaved, and that is the whole point.** Measuring all the small samples and then
+ * all the large ones puts them in different time windows, so on a busy machine — a full
+ * `pnpm verify`, seven packages testing at once — the two sizes are compared under
+ * different amounts of contention. The large sample runs longer per call, so it absorbs
+ * more descheduling, and the ratio inflates for reasons that have nothing to do with the
+ * code. (Observed twice: 62.7x and 56.1x under a loaded coverage run, from a test that
+ * reports ~4x on an idle machine.) Timing both sizes back to back inside one round means
+ * whatever the machine is doing, it is doing it to both.
+ *
+ * The MINIMUM ratio, not the mean: contention can only ever inflate a round, so the
+ * cleanest round is the most honest one.
+ */
+function growthFactor(small: Subject, large: Subject): number {
+  let best = Infinity;
+  for (let round = 0; round < REPEATS; round += 1) {
+    best = Math.min(best, sample(large) / sample(small));
   }
-  return fastest;
+  return best;
 }
 
 describe('critique scales with the edit', () => {
@@ -183,11 +202,9 @@ describe('critique scales with the edit', () => {
       expect(report.checks.find((c) => c.id === id)?.status, id).not.toBe('skipped');
     }
 
-    const small = costOf(SMALL);
-    const large = costOf(LARGE);
-    // No floor on the denominator: `costOf` guarantees both terms are real measurements
+    // No floor on the denominator: `prepare` guarantees both terms are real measurements
     // (see MIN_SAMPLE_MS), so flooring here would only hide a genuine result.
-    const growth = large / small;
+    const growth = growthFactor(prepare(SMALL), prepare(LARGE));
     expect(growth, `10x the project cost ${growth.toFixed(1)}x the time`).toBeLessThan(MAX_GROWTH);
   });
 });
