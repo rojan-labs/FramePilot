@@ -156,6 +156,7 @@ import {
   agentActionsBlock,
   framesBlock,
   agentActionRecoveryBlock,
+  agentVerifyFixBlock,
   agentModeInstruction,
   agentPlanBlock,
   agentSkillsBlock,
@@ -3333,6 +3334,8 @@ export class Orchestrator {
     );
     const steeringBlock = agentSteeringBlock(steeringMessage);
     const recoveryBlock = agentActionRecoveryBlock(actionRecovery);
+    // P4.3: a run in the `repair` stage is on a bounded verification fix turn.
+    const fixBlock = agentVerifyFixBlock(taskMemory?.stage === 'repair');
     // The structured briefing (ADR 0075 §3.3) is the run's MEMORY; the action log that
     // follows it is only continuity of prose. That ordering matters: the log is a rolling
     // window whose payloads age out, so anything the run must not forget has to live in
@@ -3349,7 +3352,7 @@ export class Orchestrator {
       : '';
     const turnMessage: AiMessage = {
       role: 'user',
-      content: `${volatileContext}${briefing}${steeringBlock}${recoveryBlock}\n\n${history}${framesBlock(frames)}`,
+      content: `${volatileContext}${briefing}${steeringBlock}${recoveryBlock}${fixBlock}\n\n${history}${framesBlock(frames)}`,
       // Deliberately on the LAST message: it is the only one that varies per turn, so an
       // image attached here can never invalidate the cached prefix above it.
       ...(frames && frames.length > 0 ? { images: frames } : {}),
@@ -3646,14 +3649,20 @@ export class Orchestrator {
         // The measurement came back; the cuts are arithmetic (plan/system-mission P4.1).
         const parsed = SilenceRangesPayloadSchema.safeParse(outcome.data);
         if (!parsed.success) {
-          const note = 'Rejected "remove_silences" — the silence analysis returned no usable ranges.';
+          const note =
+            'Rejected "remove_silences" — the silence analysis returned no usable ranges.';
           return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
         }
         const args = (call.arguments ?? {}) as Record<string, unknown>;
         const options = {
           minSilenceSeconds:
-            typeof args.minSilenceSeconds === 'number' ? args.minSilenceSeconds : DEFAULT_SILENCE_CUT.minSilenceSeconds,
-          keepSeconds: typeof args.keepSeconds === 'number' ? args.keepSeconds : DEFAULT_SILENCE_CUT.keepSeconds,
+            typeof args.minSilenceSeconds === 'number'
+              ? args.minSilenceSeconds
+              : DEFAULT_SILENCE_CUT.minSilenceSeconds,
+          keepSeconds:
+            typeof args.keepSeconds === 'number'
+              ? args.keepSeconds
+              : DEFAULT_SILENCE_CUT.keepSeconds,
           ...(typeof args.trackId === 'string' ? { trackId: args.trackId } : {}),
         };
         const { ops, cuts, removedSeconds } = silenceCutOps(ctx.project, parsed.data, options);

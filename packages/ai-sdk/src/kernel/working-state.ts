@@ -1042,6 +1042,32 @@ export function recordVerification(
   return bump(state, { verifications: [...state.verifications, entry], objectives });
 }
 
+/**
+ * A later self-check no longer reports these criteria (plan/system-mission P4.3): flip
+ * their standing FAIL records to PASS, keeping the original finding in the detail so the
+ * briefing still shows what was wrong and that it was cleared. Records are otherwise
+ * append-only; this is the one correction, and it only ever moves a record from
+ * failed to passed at a newer revision — never the other way.
+ */
+export function clearVerifications(
+  state: RunWorkingState,
+  criteria: ReadonlySet<string>,
+  note: string,
+): RunWorkingState {
+  let changed = false;
+  const verifications = state.verifications.map((v) => {
+    if (v.passed || !criteria.has(v.criterion)) return v;
+    changed = true;
+    return {
+      ...v,
+      passed: true,
+      atRevision: state.currentProjectRevision,
+      detail: `${note}${v.detail ? ` (was: ${v.detail})` : ''}`,
+    };
+  });
+  return changed ? bump(state, { verifications }) : state;
+}
+
 // ---------------------------------------------------------------------------
 // Revision awareness (§3.7)
 // ---------------------------------------------------------------------------

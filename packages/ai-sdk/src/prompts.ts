@@ -341,6 +341,30 @@ export function agentSteeringBlock(message: string | undefined): string {
  * were novel, just unproductive — and stating a false premise invites the model to argue
  * with it instead of acting on it.
  */
+/**
+ * The one instruction a verification fix turn carries (plan/system-mission P4.3).
+ *
+ * WHY a block and not a new prompt: the findings themselves are already in the briefing's
+ * VERIFIED section (one FAIL line per deterministic check). What the model lacks at this
+ * point is the frame — that this turn exists only to clear those lines, that re-planning
+ * the cut is not on the table, and that the loop is bounded so "try something else" is
+ * not a strategy. Rendered only while the run is in the `repair` stage.
+ */
+export function agentVerifyFixBlock(enabled: boolean): string {
+  if (!enabled) return '';
+  return [
+    '',
+    '',
+    'VERIFICATION FIX TURN: the deterministic self-check failed on the lines marked FAIL',
+    'under VERIFIED above. Fix exactly those — trim, move or remove the offending clips,',
+    're-snap to the frame grid, fill or close the gap — with the smallest edit that clears',
+    'each finding. Do not re-plan the cut, do not undo work the checks did not flag, and',
+    'do not read more of the footage. When the findings are addressed, stop; the self-check',
+    'runs again on its own. If a finding cannot be fixed with the tools you have, say which',
+    'one and why instead of making an unrelated edit.',
+  ].join('\n');
+}
+
 export function agentActionRecoveryBlock(enabled: boolean): string {
   if (!enabled) return '';
   return [

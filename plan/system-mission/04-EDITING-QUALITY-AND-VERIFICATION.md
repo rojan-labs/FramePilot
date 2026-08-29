@@ -44,7 +44,7 @@ constraints it is applying and which it is ignoring (with a reason) — this is 
 sidebar shows in Phase 8 and what the Critic checks.
 **Done when:** UC-06 plan output cites ≥3 profile constraints on the fast-cut fixture.
 
-## P4.3 — Bounded verify loop — `[ ]`
+## P4.3 — Bounded verify loop — `[~]`
 
 **Touches:** `kernel/proposers/critic.ts`, `kernel/conductor.ts` verify stage,
 `kernel/stage-policy.ts`. Sequence: execute → deterministic critique (`src/critic.ts`
@@ -55,6 +55,15 @@ again → stop. Max two fix turns; on the third finding set, surface to the user
 list. Advisory LLM judgment stays advisory.
 **Done when:** a seeded broken patch (overlap + off-grid cut) is fixed in one loop
 iteration in the test; the loop never exceeds two fix turns (test).
+
+Landed 2026-08-29 (ADR 0159): the conductor routes a failed self-check on a run that
+landed work into ONE findings-scoped `repair`-stage model turn (the runtime's repair pass
+is attempt one, this is attempt two), records each finding as a FAIL row the briefing
+shows, clears the rows the turn fixed, and settles with the list if a finding survives.
+Tests pin routing, completion after a fix, the bound and the nothing-landed exclusion.
+Remaining: the seeded overlap + off-grid patch through the full runtime (needs the
+Critic battery to carry the rubric's overlap/frame-grid checks — P4.3b), and the
+after-measurement.
 
 ## P4.4 — Scenario suite as the quality gate — `[ ]`
 

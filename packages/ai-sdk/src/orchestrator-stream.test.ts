@@ -2243,10 +2243,11 @@ describe('streamAgent robustness (parity with agent())', () => {
         maxSteps: 4,
       }),
     );
-    // Four model calls: the edit, the two declarations, and the repair. The middle one is
-    // the bounded unmet-request recovery — a stated 1s target the timeline does not meet
-    // buys exactly one more turn before the run is allowed to stop.
-    expect(provider.requests).toHaveLength(4);
+    // Six model calls: the edit, the two declarations, the repair pass — and, because the
+    // 1s target is still unmet after the repair, the P4.3 findings-scoped fix turn plus the
+    // repair pass of its re-verify (the script is exhausted, so both replay 'fix'). The
+    // middle declaration is the bounded unmet-request recovery turn.
+    expect(provider.requests).toHaveLength(6);
     expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Repair pass'))).toBe(
       true,
     );
@@ -3294,7 +3295,9 @@ describe('streamAgent usage (C1)', () => {
       true,
     );
     const usage = usageOf(events);
-    expect(usage?.tokens).toBe(60); // turn 1 (12) + the repair pass (48)
+    // turn 1 (12) + the repair pass (48) + the P4.3 fix turn and its re-verify repair pass,
+    // which replay the exhausted script's last entry (48 each).
+    expect(usage?.tokens).toBe(156);
   });
 
   it("defaults a missing side of a turn's partial usage to 0 (complete()-drain fallback)", async () => {
@@ -3718,7 +3721,7 @@ describe('streamAgent prompt-prefix stability (E3)', () => {
         maxSteps: 4,
       }),
     );
-    expect(provider.requests.length).toBe(4);
+    expect(provider.requests.length).toBe(6);
     const turn2 = provider.requests[2]!;
     const repair = provider.requests[3]!;
     // Repair = the same agentMessages + one extra instruction message on the end.

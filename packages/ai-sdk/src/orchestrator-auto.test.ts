@@ -177,8 +177,14 @@ describe('Orchestrator.streamAuto', () => {
     });
     const provider = new ScriptedProvider([
       { text: '{"route":"edit"}' },
-      { text: '', toolCalls: [{ id: 'beats', name: 'detect_beats', arguments: { assetId: 'music' } }] },
-      { text: '', toolCalls: [{ id: 'scenes', name: 'detect_scenes', arguments: { assetId: 'broll' } }] },
+      {
+        text: '',
+        toolCalls: [{ id: 'beats', name: 'detect_beats', arguments: { assetId: 'music' } }],
+      },
+      {
+        text: '',
+        toolCalls: [{ id: 'scenes', name: 'detect_scenes', arguments: { assetId: 'broll' } }],
+      },
       {
         text: '',
         toolCalls: [addClip(0, 0.75, 0), addClip(0.75, 1.75, 2), addClip(1.75, 3, 4)],
@@ -247,9 +253,10 @@ describe('Orchestrator.streamAuto', () => {
     expect(adds).toHaveLength(3);
     // One classification call plus the agent's turns. Bounded rather than exact so a
     // harmless extra settle turn is not a failure, but a spin loop still is.
-    // 7, not 6: the model's "done" now answers to the request's own stated conditions, and
-    // an unmet one buys exactly one bounded recovery turn before the run may stop.
-    expect(provider.calls).toBeLessThanOrEqual(7);
+    // 9, not 7: the model's "done" answers to the request's own stated conditions — an
+    // unmet one buys one bounded recovery turn — and a self-check finding that survives
+    // the repair pass buys one findings-scoped fix turn plus its re-verify (P4.3).
+    expect(provider.calls).toBeLessThanOrEqual(9);
 
     const after = applyProjectPatch(beatProject, diff!.edit.patch as never);
     const restored = applyProjectPatch(
@@ -321,7 +328,6 @@ describe('Orchestrator.streamAuto', () => {
     // `failed`, not `completed`: the timeline is untouched, whatever the reason.
     expect(statuses(events).at(-1)).toBe('failed');
   });
-
 
   it('falls back to the edit (agent) route when classification is unparseable', async () => {
     // MockProvider never returns classification JSON, so parseClassification → null →

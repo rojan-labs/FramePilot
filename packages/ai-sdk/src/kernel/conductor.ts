@@ -66,6 +66,8 @@ import {
   type RunStage,
   type RunWorkingState,
   advanceStage,
+  canAdvance,
+  clearVerifications,
   addDiagnostic,
   commitExecutionPlan,
   carryForwardWorkingState,
@@ -394,6 +396,12 @@ export interface ConductorState {
   /** Integrity failure is terminal and distinct from creator cancellation. */
   readonly integrityFailed: boolean;
   /**
+   * Verification fix turns spent (plan/system-mission P4.3). A failed self-check on a
+   * run that landed work buys one findings-scoped model turn, then verifies again; at
+   * most {@link MAX_VERIFY_FIX_TURNS}, after which the run settles with the list.
+   */
+  readonly verifyFixTurns: number;
+  /**
    * The action log the handlers build (byte-identical to streamAgent's), mirrored
    * here so the resume {@link CheckpointEvent} the reducer emits carries it.
    */
@@ -457,6 +465,7 @@ export function initialConductorState(turnRef: TurnRef): ConductorState {
     noProgressStreak: 0,
     cancelled: false,
     integrityFailed: false,
+    verifyFixTurns: 0,
     log: [],
     planSteps: [],
     ledgerLength: 0,
@@ -892,6 +901,18 @@ function withStep(steps: readonly PlanStep[], index: number, next: PlanStep): re
 // ---------------------------------------------------------------------------
 
 /** Emit the next `run_turn` effect carrying the current ledger snapshot. */
+/**
+ * How many findings-scoped fix turns a failed self-check may buy (P4.3).
+ *
+ * One, not two: the verify effect already runs the runtime's bounded repair pass (a
+ * narrow model proposer) before it reports, so by the time a finding reaches this
+ * reducer it has survived one correction attempt. This turn is the second — the model
+ * with its full tool surface and the findings in front of it. A finding that survives
+ * both is one the run does not understand, and the editor should see the list rather
+ * than pay for a third guess.
+ */
+export const MAX_VERIFY_FIX_TURNS = 1;
+
 function runTurnEffect(state: ConductorState, stepIndex: number): RunTurnEffect {
   return {
     kind: 'run_turn',
@@ -1178,6 +1199,7 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
     lastRejectionReason: '',
     cancelled: false,
     integrityFailed: false,
+    verifyFixTurns: 0,
     log: [],
     planSteps: [],
     ledgerLength: 0,
@@ -2093,6 +2115,28 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
       });
     }
   }
+  // A fix turn (P4.3) returns here from `repair`; the stage machine's only exit from
+  // repair is back into verify, and everything below reasons from `verify`. Findings the
+  // fix turn cleared are marked cleared — a standing FAIL row would otherwise bar
+  // `complete` forever, and the briefing would keep reporting a problem that is gone.
+  if (working.stage === 'repair') {
+    working = advanceStage(working, 'verify', state.stepIndex);
+  }
+  if (state.verifyFixTurns > 0) {
+    const stillFailing = new Set(r.failedChecks.map((check) => check.label));
+    const cleared = new Set(
+      working.verifications
+        .filter((v) => !v.passed && !stillFailing.has(v.criterion))
+        .map((v) => v.criterion),
+    );
+    if (cleared.size > 0) {
+      working = clearVerifications(
+        working,
+        cleared,
+        `cleared on fix turn ${String(state.verifyFixTurns)}`,
+      );
+    }
+  }
   if (working.operations.some((operation) => operation.status === 'succeeded')) {
     const from = RUN_STAGES.indexOf(working.stage) + 1;
     const throughVerify = RUN_STAGES.indexOf('verify') + 1;
@@ -2148,6 +2192,50 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
     if (!deliverableReached) return 'This deliverable was not completed by the run.';
     return undefined;
   };
+  // P4.3 — bounded verify loop. Only a run that landed work has something to fix, and
+  // only a deterministic finding (not a plan-reconciliation gap) is something a scoped
+  // turn can act on. The fix turn is its own budget, deliberately outside `maxSteps`:
+  // the step cap bounds exploration, this bounds correction.
+  const fixable =
+    deliveredWork &&
+    !r.ok &&
+    r.failedChecks.length > 0 &&
+    !state.cancelled &&
+    state.verifyFixTurns < MAX_VERIFY_FIX_TURNS &&
+    canAdvance(working.stage, 'repair');
+  if (fixable) {
+    for (const check of r.failedChecks) {
+      working = recordVerification(working, {
+        criterion: check.label,
+        passed: false,
+        detail: check.detail,
+      });
+    }
+    working = advanceStage(working, 'repair', state.stepIndex);
+    if (working.stage === 'repair') {
+      const fixTurn = state.verifyFixTurns + 1;
+      const stepIndex = state.stepIndex + 1;
+      const next: ConductorState = {
+        ...state,
+        working,
+        phase: 'executing',
+        stepIndex,
+        verifyFixTurns: fixTurn,
+        cumulativeOps: [...state.cumulativeOps, ...r.repairOps],
+        seq: em.seq(),
+      };
+      return {
+        state: next,
+        effects: [runTurnEffect(next, stepIndex)],
+        events: [
+          ...events,
+          em.notification(
+            `Verification fix turn ${String(fixTurn)} of ${String(MAX_VERIFY_FIX_TURNS)}: ${r.failedChecks.map((c) => c.label).join(', ')}.`,
+          ),
+        ],
+      };
+    }
+  }
   for (const [index, objective] of working.objectives.entries()) {
     const deliverableReached =
       state.ledgerLength === 0 ? deliveredWork : state.planSteps[index]?.status === 'completed';
