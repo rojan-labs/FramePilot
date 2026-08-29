@@ -11339,6 +11339,31 @@ a.export-credits-license {
   align-items: center;
   gap: var(--space-2);
   padding: 0 var(--space-2);
+  /* The delete confirm is a second line under the row, so the row has to be able
+     to wrap rather than squeezing the title out of the way (P8.4). */
+  flex-wrap: wrap;
+}
+/* Deleting a conversation is not undoable and not a patch — the one destructive
+   action in the app that needs an explicit yes. Inline rather than modal: the
+   thing being destroyed is right here and named, and a dialog would cover it. */
+.ai-hist-confirm {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.ai-hist-confirm > span {
+  flex: 1;
+  min-width: 0;
+}
+.ai-btn--danger {
+  color: var(--danger);
+}
+.ai-btn--danger:hover:not(:disabled) {
+  background: var(--danger-subtle);
 }
 .ai-hist-row:hover {
   background: var(--bg-hover);

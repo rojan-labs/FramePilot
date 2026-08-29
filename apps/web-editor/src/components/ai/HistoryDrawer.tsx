@@ -69,6 +69,17 @@ function Row({
 }): JSX.Element {
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(conversation.title);
+  /**
+   * P8.4: deleting a conversation is the one destructive action in this app that
+   * is neither a patch nor undoable — `conversations.remove` drops the whole
+   * transcript from state AND from persistence, and nothing brings it back. It
+   * sat one click deep in a menu, directly below "Copy Markdown".
+   *
+   * An inline confirm on the row rather than a modal: the thing being destroyed is
+   * right there and named, which a dialog would cover up, and the row already owns
+   * an inline mode (rename) so nothing new is introduced.
+   */
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const commitRename = (): void => {
     const title = draft.trim();
     if (title.length > 0) conversations.rename(conversation.id, title);
@@ -167,7 +178,7 @@ function Row({
               <MenuItem
                 icon={<Trash2 size={ICON_SIZE.sm} aria-hidden="true" />}
                 onSelect={() => {
-                  conversations.remove(conversation.id);
+                  setConfirmingDelete(true);
                   close();
                 }}
               >
@@ -177,6 +188,29 @@ function Row({
           )}
         </Menu>
       </div>
+      {confirmingDelete && (
+        <div className="ai-hist-confirm" role="alertdialog" aria-label="Delete conversation">
+          <span>Delete “{conversation.title}”? This cannot be undone.</span>
+          <button
+            type="button"
+            className="ai-btn ai-btn--quiet"
+            onClick={() => setConfirmingDelete(false)}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="ai-btn ai-btn--danger"
+            autoFocus
+            onClick={() => {
+              conversations.remove(conversation.id);
+              setConfirmingDelete(false);
+            }}
+          >
+            Delete
+          </button>
+        </div>
+      )}
     </li>
   );
 }

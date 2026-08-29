@@ -64,9 +64,33 @@ describe('HistoryDrawer', () => {
     fireEvent.click(within(row).getByText('Pin'));
     fireEvent.click(within(row).getByLabelText('Row actions'));
     fireEvent.click(within(row).getByText('Delete'));
+    // P8.4: the menu item asks; the confirm deletes.
+    fireEvent.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete' }),
+    );
     expect(conversations.duplicate).toHaveBeenCalledWith('Alpha');
     expect(conversations.togglePinned).toHaveBeenCalledWith('Alpha');
     expect(conversations.remove).toHaveBeenCalledWith('Alpha');
+  });
+
+  // P8.4: deleting a conversation drops the whole transcript from state AND from
+  // persistence. It is not a patch and there is no undo, so it is the one action in
+  // the app that has to be confirmed rather than merely reversible.
+  it('does not delete a conversation until the confirm is accepted', () => {
+    const conversations = fakeConversations([conv('Alpha')]);
+    render(<HistoryDrawer conversations={conversations} onClose={vi.fn()} />);
+    const row = screen.getByText('Alpha').closest('li') as HTMLElement;
+    fireEvent.click(within(row).getByLabelText('Row actions'));
+    fireEvent.click(within(row).getByText('Delete'));
+    expect(conversations.remove).not.toHaveBeenCalled();
+    // The confirm names what is about to go, and says the word "undone".
+    const confirm = screen.getByRole('alertdialog', { name: 'Delete conversation' });
+    expect(confirm.textContent).toContain('Alpha');
+    expect(confirm.textContent).toContain('cannot be undone');
+
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Cancel' }));
+    expect(conversations.remove).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 
   it('renames a conversation inline on Enter', () => {

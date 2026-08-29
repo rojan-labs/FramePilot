@@ -107,7 +107,7 @@ state; a jsdom suite cannot produce them and a hand-posed picture would prove no
 assertions do not. If the report needs images, they come from the e2e walkthrough, which
 is where a real browser already is.
 
-## P8.3 — Selection, drag/drop, context menus, shortcuts — `[~]`
+## P8.3 — Selection, drag/drop, context menus, shortcuts — `[~]` (every renderer-side finding closed; the e2e legs of the done-when belong to the e2e owner)
 
 Standardize on the model professional NLEs use: click selects, shift-click extends,
 cmd-click toggles, marquee in timeline and bin, drag from bin to timeline with insert/
@@ -177,7 +177,7 @@ Remaining: nothing in this task's own scope. The e2e legs the done-when names
 (`timeline-interaction`, `timeline-marquee`, the shortcut-list test) are outside
 `apps/web-editor/src` and belong with the e2e owner.
 
-## P8.4 — States: loading, empty, error, progress, destructive confirms — `[~]`
+## P8.4 — States: loading, empty, error, progress, destructive confirms — `[x]`
 
 Every long operation has a skeleton or progress with cancel; every empty panel says what
 to do next; every destructive action (delete track, clear timeline, overwrite export)
@@ -200,7 +200,33 @@ Landed 2026-08-29 (UX-10, UX-11):
   tone until that provider has actually answered, with the reason in its tooltip, and
   only then claims readiness. 5 + 1 tests.
 
-Remaining: the loading/empty/progress state matrix and destructive-action confirms.
+Landed 2026-08-29 (destructive confirms; matrix audited):
+
+- **Deleting a conversation was the one destructive action in the renderer with neither a
+  confirm nor an undo.** Every timeline mutation is a patch, so "destructive" there means
+  "one Cmd+Z away"; `conversations.remove` is not — it drops the whole transcript from
+  state AND from persistence, and nothing brings it back. It sat one click deep in a row
+  menu, immediately below "Copy Markdown". It now asks first, inline on the row rather
+  than in a modal: the thing being destroyed is right there and named, a dialog would
+  cover it up, and the row already had an inline mode (rename) so nothing new was
+  introduced. The confirm names the conversation and says "cannot be undone". Two tests.
+
+- **The rest of the matrix was already implemented.** Auditing every panel for its
+  loading / empty / error / progress cells found real states almost everywhere and no new
+  cell worth inventing: the bin ("No media yet" + the import hint, plus per-file import
+  skeletons), Effects and Transitions (`EmptyState` differentiated **by cause** — no
+  selection vs a query that matched nothing vs "nothing to transition between yet"),
+  Sounds and Stock (skeleton rows/tiles at real row height during the first search,
+  per-item download progress with cancel), Transcription and Footage understanding
+  (staged loading copy with anti-flash, and empty states ordered by the sequence an
+  editor actually hits them), History ("No edits yet" and a distinct no-match state, added
+  because a filter matching nothing used to be indistinguishable from a broken panel),
+  Inspector ("It's empty here"), Overlays, and the AI sidebar's starter prompts. The
+  matrix is written up in `docs/reports/system-mission/08-after.md` as the done-when asks,
+  with the state each cell is in rather than a checklist of new work.
+
+Remaining: nothing in this task's scope. Export-overwrite confirmation is a desktop
+save-dialog question (`apps/desktop`), not a renderer one.
 
 ### Discovered and fixed 2026-08-29 — the composer row was broken by its own attach button
 
