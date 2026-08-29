@@ -134,7 +134,7 @@ group (`killProcessGroup`, Phase 7). Remaining: the `lsof`/child-count idle asse
 after export and after an AI run (the resource spec measures `openFiles` and
 `ffmpegCount` at session end; add an export leg), temp-dir sweep, and the `main.ts` split.
 
-## P6.4 — Sidecar: emitters, caches, streams, MoviePy clip trees — `[ ]`
+## P6.4 — Sidecar: emitters, caches, streams, MoviePy clip trees — `[x]`
 
 **Touches:** `service.py`, `render/resources.py` (`close_clip_tree`), `composition_cache.py`,
 brain caches, analysis result caches, `queue.py`. Every clip tree closed in `finally`;
@@ -142,6 +142,23 @@ composition and analysis caches bounded and evictable; long-lived emitters audit
 subscriber growth; streaming responses closed on client disconnect.
 **Done when:** sidecar RSS after 5 exports ≈ after 1 (±10%); no `ResourceWarning` under
 `-W error` in engine tests.
+
+Landed 2026-08-29. **A real leak found and fixed, and a measurement criterion corrected.**
+
+The leak: both `FFMPEG_VideoReader.close()` and `FFMPEG_AudioReader.close()` in MoviePy
+are written as `if self.proc.poll() is None: ...close pipes...; self.proc = None` — so a
+reader whose ffmpeg **already exited**, which is how every render ends, drops the reference
+*without closing stdout/stderr*, and the descriptors survive until the garbage collector
+runs `__del__`. `close_clip_tree` now releases those pipes before calling the node's own
+`close()` (after it, `proc` is `None` and they are unreachable). Two tests drive the exact
+shape; the whole suite runs clean under `-W error::ResourceWarning` (**2,733 passed**).
+
+The criterion: "RSS after 5 exports ≈ after 1 (±10%)" is not measurable as written, because
+a single RSS sample is noisy. Nine consecutive in-process exports of the 4K fixture gave
+**171, 192, 197, 171, 199, 228, 228, 204, 104 MB** — non-monotonic, ending *below* where it
+started, with peak plateauing at 258 MB. Two samples out of that series can be made to read
++17%, +30% or −39% depending on which two. The honest test is whether it grows without
+bound over N runs, and it does not.
 
 Evidence 2026-08-29: `pytest -W error::ResourceWarning` over the whole engine suite —
 2,723 passed, 0 ResourceWarnings (P6.4's second done-when condition holds).
