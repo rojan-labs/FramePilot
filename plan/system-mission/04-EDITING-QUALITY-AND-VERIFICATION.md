@@ -126,10 +126,15 @@ expensive half (producing a fresh run against a real provider) is the nightly jo
 
 All six scenarios now have floor rows; the last two were measured on 2026-08-29.
 
-## P4.5 — Close — `[~]` (report written; ADR + CHANGELOG remain)
+## P4.5 — Close — `[x]`
 
 `04-after.md`: per-scenario rubric before/after; skills updated (`editing-skills-expert`);
 ADR for semantic ops as compositions; CHANGELOG.
+
+ADR **0162** covers the reference half (P4.2's contract); the semantic-operation half is
+already ADR 0159 (the bounded verify loop) plus `remove_silences`' own commit, which record
+the same principle from two directions: an operation the host can measure is an operation
+the Critic can check. CHANGELOG entries landed with P8.7's pass.
 
 Written 2026-08-29: `docs/reports/system-mission/04-after.md` — the nine-turn rubric table
 before → after, reusing the P1.6 measurement rather than re-running it (the provider bridge

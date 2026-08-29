@@ -144,11 +144,20 @@ handing back the same stale answer; changing the role re-measures under the new 
 4 tests. Also fixed on the way: `remove_silences` had no `toolMeta` entry, so its tool card
 would have rendered unnamed.
 
-## P3.7 — Tests, docs, close — `[~]` (guide, route test on real media and the UC-06/07 hook all landed; ADR + CHANGELOG remain, and neither e2e has run)
+## P3.7 — Tests, docs, close — `[~]` (everything but the two e2e runs, which need a provider and the maintainer's media)
 
 Unit: role table, profile builder, cache behaviour, context block. Sidecar: route test
 with the fixture. E2E hook for Phase 9 (UC-06/07). `docs/guides/reference-media.md`,
 CHANGELOG, ADR for the profile contract. Report `03-after.md`.
+
+ADR **0162** records the profile contract: a reference is measurements the run is graded
+on, not a mood — `constraints` for the model, `directives.ts` for the deterministic side,
+tolerance taken from the reference's own p10–p90 spread, and a reference that cannot drive
+anything saying so by name. CHANGELOG entry landed with P8.7's pass.
+
+What remains is not writing: `references-analyze.spec.ts` and the UC-06/07 journey are
+written and wired into the nightly lane but have **never been run green**, because they
+need a billed provider and the maintainer's media. A spec that compiles is not evidence.
 
 Landed 2026-08-29: `docs/guides/reference-media.md` — attaching, what the measurement
 produces (the actual constraint lines, since those are what the model reads), roles and
