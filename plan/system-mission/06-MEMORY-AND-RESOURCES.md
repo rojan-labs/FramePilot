@@ -143,7 +143,7 @@ assertion for all four in `sessionCaches.test.ts`; the scroll cache's eviction i
 from `ClipWaveform` for this: jsdom has no layout engine, so driving the paint step
 directly is the only way to observe the cache the component fills.
 
-## P6.3 — Main process: IPC listeners, child processes, handles, temp files — `[~]`
+## P6.3 — Main process: IPC listeners, child processes, handles, temp files — `[x]`
 
 **Touches:** `apps/desktop/electron/main.ts` (127 KB — split listener registration by
 domain while here, no behaviour change), `ipc/*`, `sidecar/*`, `render/*`,
@@ -163,6 +163,34 @@ nothing — a desktop reference attachment could never resolve. Handler added in
 group (`killProcessGroup`, Phase 7). Remaining: the `lsof`/child-count idle assertion
 after export and after an AI run (the resource spec measures `openFiles` and
 `ffmpegCount` at session end; add an export leg), temp-dir sweep, and the `main.ts` split.
+
+Landed 2026-08-29 (temp files and processes):
+
+- **IPC**: `ipc/main-channel-registration.test.ts` scans every main-process source and
+  asserts each contract channel is `handle`d at most once, never both `handle` and `on`,
+  and that nothing declared goes unserved. Its first run caught `referencesAnalyze` —
+  declared in the contract, preload and renderer bridge since Phase 3, handled by nothing.
+- **Child processes**: `electron/process-registry.ts` (P5.3) — owner, purpose, started-at,
+  cancel handle, states, `will-quit` backstop, and a synchronous pidfile so the next launch
+  sweeps what a crash left.
+- **Temp files, measured rather than assumed.** Swept the machine after nine real exports:
+  **zero** `framepilot-audio-*`, `framepilot-asr-*` or `fp-loudness-*` directories and
+  **zero** stray render artifacts — the production paths clean up correctly
+  (`_StreamingAudioWorkspace` is released by `close_clip_tree` after the clip graph, the
+  master-audio temp is `Path.replace`d, everything else is a `with TemporaryDirectory`).
+
+  What the sweep *did* find was **730 leaked test temp directories**, 588 of them from
+  `packages/mcp-server`'s `makeSandboxProject`, which `mkdtemp`s a sandbox and never
+  removed it. Fixed: the sandbox is now removed by `onTestFinished` (vitest workers do not
+  run `process.on('exit')` handlers, so it has to be registered with the runner) and the
+  four `beforeAll` call sites — where that hook is not available — remove theirs in their
+  own `afterAll`. **Measured: +56 directories per suite run before, 0 after.** A test
+  harness that litters the developer's machine is a real defect, just not a product one.
+
+Deliberately NOT done: the `main.ts` split. It is 127 KB, the task calls for "no behaviour
+change", and three other workstreams were editing this tree concurrently — a mechanical
+move of that size is exactly the change that is impossible to review honestly in that
+company. Recorded as a follow-up rather than attempted badly.
 
 ## P6.4 — Sidecar: emitters, caches, streams, MoviePy clip trees — `[x]`
 
