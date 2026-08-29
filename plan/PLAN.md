@@ -14,29 +14,21 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 powerful if the editing engine is structured, testable, and deterministic.
 
 **Status snapshot (2026-08-29, SYSMISSION — system mission plan):** `[~]` **The end-to-end
-system mission — orchestration efficiency, structured context, prompt parity, reference
-video/image context, semantic editing ops with a bounded verify loop, worker/process
-lifecycle, a memory/resource audit, a CapCut-style quality-driven export (platform presets
-removed), a UI/UX interaction pass, and desktop e2e journeys — has been executed on
-`feat/system-mission` (70 commits). **Phases 0 and 2 are closed**; 1, 3–10 are partial
-with every residual named and its unblocking step recorded.** Headline measured results:
-the podcast scenario went 25 → 5 model calls, 1200s → 253s, $1.54 → $0.32 while its
-quality held; the montage and dead-air scenarios went from *never completing* to rubric
-1.00 and 0.75 (0 → 35 and 0 → 54 operations). The root cause behind all three was agent
-requests carrying no `maxTokens`, so responses truncated at 8,192 and the run retried
-into the same wall. Export is CapCut-style with every platform preset removed, and its
-measurement disproved the encoder as the bottleneck (CPU 146% → 48%, wall unchanged) —
-MoviePy compositing is, and that fix is not written. Reports:
-`docs/reports/full-system-mission-2026-08-29.md` (engineering report),
-`docs/reports/system-mission/10-definition-of-done.md` (DoD walked line by line),
-`01-after.md` (orchestration before/after). **Blocked:** three of six scenarios have no
-after-numbers — the provider bridge rate-limited mid-run; the exact command is in P1.6.
-Brief: `PROMPT.md`. Plan: **`plan/system-mission/`** ([README](system-mission/README.md)
-index + status table, [USE-CASES](system-mission/USE-CASES.md) journey matrix, phases
-`00-BASELINE` → `10-FINAL-VERIFICATION`). Phase 0 (measure everything, change nothing) is
-the first thing to run; two `[!]` maintainer gates are flagged inside (P1.5 decision-memory
-persistence if the Memory Store shape must grow; P3.3 persisting reference profiles in the
-project file). Evidence lands in `docs/reports/system-mission/` and `reports/system-mission/`.
+system mission is executed on `feat/system-mission`: 52 of 69 tasks `[x]`, 16 `[~]`, one
+`[!]`, none unstarted. `pnpm verify` green.** All six scenarios are measured and every one
+improved — podcast 25 → 5 model calls and 1200s → 253s at held quality; montage, beat-sync,
+dead-air, refine-tighten and memory-captions all went from *not completing* or *zero
+operations* to real edits (rubric 1.00 / 0.78 / 0.75 / 0.63–0.88 / 0.63–0.71). Seven of
+nine turns went 0 → real operations. The root cause behind most of it was agent requests
+carrying no `maxTokens`, truncating at 8,192 and retrying into the same wall. A 30s 4K
+export went **48.2s → 11.5s** once profiling showed 69% of it was one PIL resize discarding
+pixels ffmpeg had just produced. Export is CapCut-style with every platform preset gone.
+Reports: `docs/reports/full-system-mission-2026-08-29.md`,
+`docs/reports/system-mission/10-definition-of-done.md` (7 of 12 DoD lines met), and
+`00-baseline` → `0X-after` per phase. **What remains** is evidence that needs a billed
+provider (the AI journey and four failure rows are written and wired, never run green), one
+aggregate measurement needing the desktop harness, the engine-kill e2e that still does not
+pass, and a day of adversarial use.
 
 **Status snapshot (2026-08-29, run `ea8e46ec` — the beat-grid evidence deadlock):** `[x]`
 **A beat-synced montage can no longer be deadlocked by the run's own beat evidence.** The
