@@ -47,6 +47,38 @@ export interface LaunchOptions {
  * the sandboxed projects root, with a throwaway user-data dir seeded so the fixture project
  * appears under Recent on the launch screen.
  */
+/**
+ * Configure the app's model provider the way a user would, before it starts.
+ *
+ * The desktop app reads its provider from `ai-config.json` in the app data dir and
+ * defaults to `nvidia`; `FRAMEPILOT_AI_PROVIDER` is not consulted for the active
+ * choice. So every AI e2e row launched with a mission provider in the environment
+ * was still talking to whatever the default was — the failing runs reported
+ * `nvidia API error 410` while the environment said `openai-compatible`. Seeding the
+ * file is what "configured with a provider" actually means for this app.
+ *
+ * Does nothing when no provider is configured in the environment: the rows that need
+ * one are gated on MISSION_AI anyway, and a fresh user-data dir with no file is the
+ * right state for every other row.
+ */
+function seedProviderConfig(userDataDir: string, overrides: Record<string, string>): void {
+  // `overrides` first: a row that puts a proxy in front of the provider passes the
+  // proxy's URL as extraEnv, and seeding the real endpoint here would route straight
+  // past it — the row would then test the provider being healthy.
+  const env = { ...process.env, ...overrides };
+  const baseUrl = env['FRAMEPILOT_OPENAI_COMPATIBLE_BASE_URL'];
+  const apiKey = env['FRAMEPILOT_OPENAI_COMPATIBLE_API_KEY'];
+  const model = env['FRAMEPILOT_OPENAI_COMPATIBLE_MODEL'];
+  if (!baseUrl || !apiKey) return;
+  writeFileSync(
+    join(userDataDir, 'ai-config.json'),
+    JSON.stringify({
+      activeProvider: 'openai-compatible',
+      'openai-compatible': { baseUrl, apiKey, ...(model ? { model } : {}) },
+    }),
+  );
+}
+
 export async function launchDesktop(options: LaunchOptions = {}): Promise<DesktopSession> {
   const sidecarPort = options.sidecarPort ?? 8798;
   const projectsRoot = options.projectsRoot ?? FIXTURE_PROJECTS;
@@ -58,6 +90,7 @@ export async function launchDesktop(options: LaunchOptions = {}): Promise<Deskto
       JSON.stringify([{ path: projectPath, name: options.projectId, openedAt: Date.now() }]),
     );
   }
+  seedProviderConfig(userDataDir, options.extraEnv ?? {});
   const electronPath = require('electron') as unknown as string;
   const app = await electron.launch({
     executablePath: electronPath,

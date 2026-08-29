@@ -107,6 +107,37 @@ function photoFixtures(): string[] {
 }
 
 /**
+ * The provider this run is configured against, with its API path prefix removed.
+ *
+ * The proxy forwards the request path it receives verbatim, so the upstream it
+ * forwards TO must be an origin, not an origin plus `/v1` — otherwise `/v1` is
+ * either doubled or dropped depending on which end carries it.
+ */
+function providerUpstream(): string {
+  const configured =
+    process.env.MISSION_PROVIDER_UPSTREAM ??
+    process.env.FRAMEPILOT_OPENAI_COMPATIBLE_BASE_URL ??
+    process.env.DEEPSEEK_BASE_URL ??
+    'https://api.deepseek.com';
+  return configured.replace(/\/v1\/?$/, '');
+}
+
+/**
+ * Point the app at the proxy instead of its real provider.
+ *
+ * This row used to hard-code `FRAMEPILOT_AI_PROVIDER: 'deepseek'`, which meant that
+ * on a machine configured for any other provider the app started with a provider it
+ * had no key for, made no calls at all, and the row timed out having tested nothing.
+ * The proxy has to sit in front of whichever provider the run would otherwise use.
+ */
+function proxyEnv(proxyUrl: string): Record<string, string> {
+  const provider = process.env.FRAMEPILOT_AI_PROVIDER ?? 'deepseek';
+  return provider === 'openai-compatible'
+    ? { FRAMEPILOT_OPENAI_COMPATIBLE_BASE_URL: `${proxyUrl}/v1` }
+    : { FRAMEPILOT_AI_PROVIDER: provider, DEEPSEEK_BASE_URL: proxyUrl };
+}
+
+/**
  * Is a run in flight?
  *
  * The composer swaps Send for a Stop control for exactly as long as a run is
@@ -474,8 +505,30 @@ test.describe('UC-15 failure paths', () => {
         await composer.press('Enter');
         await expect(runIndicator(page)).toBeVisible({ timeout: 60_000 });
 
-        // Let it commit to something, then stop it.
-        await page.waitForTimeout(20_000);
+        // Stop it once it has COMMITTED to something, not after an arbitrary wait.
+        // A fixed sleep gets this wrong in both directions: too short and there is
+        // nothing half-done to be consistent about, too long and a run that finished
+        // or died leaves no Stop button to click — which is what happened here, and
+        // the 30 s click timeout reported it as "button missing" rather than "the run
+        // ended". Poll for the first applied edit, and if the run ends first, say so
+        // with what the sidebar said.
+        const deadline = Date.now() + 120_000;
+        let committed = false;
+        while (Date.now() < deadline) {
+          if ((await clipCount(session)) !== before) {
+            committed = true;
+            break;
+          }
+          if (!(await runIndicator(page).isVisible())) break;
+          await page.waitForTimeout(1_000);
+        }
+        if (!committed && !(await runIndicator(page).isVisible())) {
+          const said = await page.getByTestId('ai-sidebar').innerText();
+          throw new Error(
+            `the run ended before it applied anything, so there was nothing to cancel. ` +
+              `The sidebar said:\n${said.slice(-1_500)}`,
+          );
+        }
         await runIndicator(page).click();
         await expect(runIndicator(page)).toBeHidden({ timeout: 120_000 });
 
@@ -500,10 +553,7 @@ test.describe('UC-15 failure paths', () => {
       // healthy calls in front of the injected 500 reach a provider that answers. A
       // hard-coded vendor here made the row test that vendor's availability instead of
       // FramePilot's behaviour when its own provider fails.
-      const upstream =
-        process.env.MISSION_PROVIDER_UPSTREAM ??
-        process.env.FRAMEPILOT_OPENAI_COMPATIBLE_BASE_URL?.replace(/\/v1\/?$/, '') ??
-        'https://api.deepseek.com';
+      const upstream = providerUpstream();
       let seen = 0;
       const proxy = await startProxy(async (req, res, body) => {
         if (seen++ >= HEALTHY_CALLS) {
@@ -529,10 +579,7 @@ test.describe('UC-15 failure paths', () => {
       const session = await launchDesktop({
         projectId: 'mission-montage',
         sidecarPort: 8798,
-        extraEnv: {
-          FRAMEPILOT_AI_PROVIDER: 'deepseek',
-          DEEPSEEK_BASE_URL: proxy.url,
-        },
+        extraEnv: proxyEnv(proxy.url),
       });
       try {
         const { page } = session;
