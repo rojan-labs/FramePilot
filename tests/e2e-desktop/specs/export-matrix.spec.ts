@@ -3,7 +3,14 @@ import { existsSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 
-import { descendants, launchDesktop, FIXTURE_PROJECTS, type DesktopSession } from './launch.js';
+import {
+  descendants,
+  exportThroughDialog,
+  launchDesktop,
+  recordReveals,
+  FIXTURE_PROJECTS,
+  type DesktopSession,
+} from './launch.js';
 
 /**
  * UC-13 export matrix on the real desktop host (plan/system-mission P9.4).
@@ -30,6 +37,8 @@ import { descendants, launchDesktop, FIXTURE_PROJECTS, type DesktopSession } fro
 const PROJECT_30S = 'mission-export-30s';
 const PROJECT_60S = 'mission-export-60s';
 const SIDECAR_PORT = 8796;
+/** The history/reveal row runs its own app instance with the project open in the UI. */
+const UI_SIDECAR_PORT = 8785;
 
 /** ffprobe tolerance: the container duration must land within one frame of the timeline. */
 const DURATION_TOLERANCE_FRAMES = 1;
@@ -369,6 +378,55 @@ test.describe('UC-13 export matrix', () => {
         message: 'the encoder must die with the job',
       })
       .toBe(0);
+  });
+
+  /**
+   * UC-13's last two promises, which only exist in the UI: after an export finishes the
+   * user can find the file again, and the app remembers what they chose.
+   *
+   * This row goes through the export popover rather than the sidecar, on its own app
+   * instance with the project actually open, because "Recent exports" and "Reveal" are
+   * renderer state that the HTTP contract knows nothing about. The native Save-As modal
+   * is cancelled and `shell.showItemInFolder` is recorded instead of opening Finder: the
+   * assertion is that Reveal hands the OS the exact path of the file that was produced.
+   */
+  test('a finished export is remembered, revealable, and its settings survive a reload', async () => {
+    test.setTimeout(20 * 60_000);
+    const ui = await launchDesktop({ projectId: PROJECT_30S, sidecarPort: UI_SIDECAR_PORT });
+    try {
+      const reveals = await recordReveals(ui);
+      const outputPath = await exportThroughDialog(ui, {
+        resolution: '720p',
+        quality: 'Low',
+        container: 'MP4',
+      });
+      expect(existsSync(outputPath), `${outputPath} should exist on disk`).toBe(true);
+      expect(probe(outputPath).height).toBeGreaterThan(0);
+
+      const dialog = ui.page.getByRole('dialog', { name: 'Export video' });
+      const name = outputPath.split('/').pop()!;
+      await expect(dialog.getByRole('region', { name: 'Recent exports' })).toBeVisible();
+      await dialog.getByRole('button', { name: `Reveal ${name} in folder` }).click();
+      // Reveal must point at the file that was just written — not the folder, not a
+      // stale entry from an earlier run.
+      await expect.poll(async () => await reveals()).toContain(outputPath);
+
+      // Reload the whole renderer and reopen the project: history and the chosen
+      // settings are what the user comes back to, so they have to outlive the window.
+      await ui.page.goto('http://127.0.0.1:5173/');
+      await ui.page.getByRole('button', { name: PROJECT_30S }).first().click();
+      await expect(ui.page.locator('section[aria-label="timeline"]')).toBeVisible({
+        timeout: 60_000,
+      });
+      await ui.page.getByRole('button', { name: 'Export video' }).click();
+      const reopened = ui.page.getByRole('dialog', { name: 'Export video' });
+      await expect(
+        reopened.getByRole('button', { name: `Reveal ${name} in folder` }),
+      ).toBeVisible();
+      await expect(reopened.getByRole('combobox', { name: 'Resolution' })).toHaveText(/720p/);
+    } finally {
+      await ui.app.close();
+    }
   });
 
   test('reported progress tracks the real elapsed fraction after the first 10%', async () => {
