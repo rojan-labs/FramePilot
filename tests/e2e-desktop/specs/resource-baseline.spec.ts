@@ -76,6 +76,18 @@ test('@resources desktop resource baseline', async () => {
     writeFileSync(OUT, JSON.stringify({ generatedAt: new Date().toISOString(), sessionMinutes: SESSION_MINUTES, snapshots: snaps }, null, 2));
     await session.app.close();
   }
-  // Every checkpoint must exist; growth bounds are Phase 6's job (P6.6), not the baseline's.
   expect(snaps.length).toBeGreaterThanOrEqual(3);
+  // P6.6 gate (RESOURCE_GATE=1): after warm-up, a scripted session must not grow. The
+  // bounds come from the 2026-08-29 baseline (heap 43.7–48.7 MB, listeners 933–935,
+  // nodes 2,913–2,967 over 376 loops) with room for ordinary variance.
+  if (process.env.RESOURCE_GATE === '1') {
+    const warm = snaps.find((s) => s.label.startsWith('session-loop-')) ?? snaps[0]!;
+    const last = snaps.find((s) => s.label.startsWith('after-session')) ?? snaps.at(-1)!;
+    expect(last.renderer.jsHeapUsedMb).toBeLessThan(warm.renderer.jsHeapUsedMb * 1.3 + 10);
+    expect(last.renderer.listeners).toBeLessThan(warm.renderer.listeners * 1.1 + 20);
+    expect(last.renderer.nodes).toBeLessThan(warm.renderer.nodes * 1.2 + 200);
+    expect(last.renderer.documents).toBeLessThanOrEqual(warm.renderer.documents + 1);
+    expect(last.main.openFiles).toBeLessThan(warm.main.openFiles * 1.2 + 20);
+    expect(last.ffmpegCount).toBe(0);
+  }
 });

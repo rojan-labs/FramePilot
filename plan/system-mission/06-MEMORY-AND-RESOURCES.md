@@ -62,7 +62,7 @@ accumulate; no per-frame PIL images retained past the call.
 **Done when:** P0.5 peak RSS for FFmpeg and sidecar during export is not higher after
 Phase 7's changes, and 100 consecutive `get_frame` calls hold RSS flat.
 
-## P6.6 — Resource regression test — `[ ]`
+## P6.6 — Resource regression test — `[~]` (gate written in `resource-baseline.spec.ts` behind RESOURCE_GATE=1; seeded-leak proof and CI lane pending)
 
 **Touches:** `apps/desktop/scripts/resource-snapshot.mjs` → a vitest/e2e that runs the
 P0.4 script and asserts growth bounds (heap, RSS, children, handles, listeners, object
