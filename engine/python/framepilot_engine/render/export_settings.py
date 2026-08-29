@@ -30,10 +30,10 @@ RESOLUTION_SHORT_EDGE: dict[str, int] = {
     "2160p": 2160,
 }
 
-#: Video bitrate ladder in kbit/s by short edge × quality tier, for H.264 at ≤30 fps.
+#: Video bitrate ladder in kbit/s by short edge and quality tier, for H.264 at <=30 fps.
 #: Values follow the widely published delivery recommendations (YouTube/Apple): 1080p
-#: ~8 Mbit/s standard, ~12 high; 4K ~35–45 Mbit/s. HEVC takes ~65% of H.264 at equal
-#: quality; >30 fps takes ~1.5×. Both factors are applied in :func:`video_bitrate_kbps`.
+#: ~8 Mbit/s standard, ~12 high; 4K ~35-45 Mbit/s. HEVC takes ~65% of H.264 at equal
+#: quality; >30 fps takes ~1.5x. Both factors are applied in :func:`video_bitrate_kbps`.
 BITRATE_LADDER_KBPS: dict[int, dict[str, int]] = {
     480: {"low": 1_200, "recommended": 2_500, "high": 4_000},
     720: {"low": 2_500, "recommended": 5_000, "high": 7_500},
@@ -132,7 +132,7 @@ def video_bitrate_kbps(short_edge: int, quality: QualityTier, codec: VideoCodec,
     factor = (HEVC_BITRATE_FACTOR if codec == "hevc" else 1.0) * (
         HIGH_FPS_BITRATE_FACTOR if fps > 30 else 1.0
     )
-    return int(round(base * factor))
+    return round(base * factor)
 
 
 def resolve_export_target(settings: ExportSettings, facts: SourceFacts) -> ExportTarget:
@@ -157,6 +157,6 @@ def resolve_export_target(settings: ExportSettings, facts: SourceFacts) -> Expor
 
 
 def estimate_size_bytes(target: ExportTarget, duration_seconds: float) -> int:
-    """Rough file-size estimate the dialog shows live: (video + audio) kbit/s × seconds."""
+    """Rough file-size estimate the dialog shows live: (video + audio) kbit/s x seconds."""
     kbps = target.video_bitrate_kbps + target.audio_bitrate_kbps
     return int(kbps * 1000 / 8 * max(0.0, duration_seconds))

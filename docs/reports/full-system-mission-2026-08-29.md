@@ -58,15 +58,21 @@ Four root causes, all found by measurement (`docs/reports/system-mission/00-base
 `mission-baseline.mjs --runs 3`, real desktop sidecar, real media, p50, scored by
 `eval/mission-rubric.ts`. Full table and caveats: `docs/reports/system-mission/01-after.md`.
 
-| scenario | model calls | prompt tokens | wall | USD | rubric | runs that never completed |
-| --- | --- | --- | --- | --- | --- | --- |
-| podcast-highlight-60s | **25 → 5** | **804k → 173k** | **1200s → 253s** | **$1.54 → $0.32** | 1.00 → 1.00 | **3/3 → 0/3** |
-| montage-30s | 10 → 31 | 332k → 963k | 424s → 1070s | $0.57 → $1.52 | **0.25 → 1.00** | **2/3 → 0/3** |
-| remove-dead-air | 1 → 7 | 0 → 180k | 0s → 584s | $0.00 → $0.94 | **0.25 → 0.75** | **3/3 → 0/1** |
+| scenario | model calls | prompt tokens | cache | wall | USD | rubric | did not complete |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| podcast-highlight-60s | **25 → 5** | **804k → 173k** | 0.99 → 1.00 | **1200s → 253s** | **$1.54 → $0.32** | 1.00 → 1.00 | **3/3 → 0/3** |
+| montage-30s | 10 → 31 | 332k → 963k | 0.99 → 0.99 | 424s → 1070s | $0.57 → $1.52 | **0.25 → 1.00** | 2/3 → 1/3 (a cancel at the harness's own 1200s cap) |
+| remove-dead-air | 1 → 7 | 0 → 180k | — → 0.97 | 0s → 584s | $0.00 → $0.94 | **0.25 → 0.75** | 3/3 → 1/1 (settled `failed` *after* landing 54 edits) |
+
+All three montage runs scored **1.00** with 30–44 operations, the cancelled one included:
+that cancellation is the harness's clock, not the edit's quality. The dead-air run reports
+`failed` because the bounded verify loop could not clear its last rubric finding (a
+mid-word cut) and settled honestly instead of claiming success — the designed behaviour.
+Prompt-cache share held throughout (0.97–1.00); none of this was bought by giving up cache.
 
 **Read the last two columns first.** The baseline was cheap because it was failing: every
-baseline row has runs that never completed, and two of three scenarios landed zero
-operations. montage costs 3× more now and produces a montage that exists; comparing its
+baseline row has runs that never completed, and two of three scenarios landed **zero**
+operations. montage costs 3x more now and produces a montage that exists; comparing its
 token count without its outcome would have been the easiest wrong conclusion available.
 
 Prompt-side reductions independent of the scenarios: **−959 tokens on every request**
@@ -76,9 +82,10 @@ Prompt-side reductions independent of the scenarios: **−959 tokens on every re
 
 ## 4. Editing quality
 
-- **Dead air**: 0 → 54 operations, rubric 0.25 → 0.75. The remaining point is a mid-word
-  cut — a breath-padding tuning question, not a structural failure.
-- **Montage**: 0 → 35 operations, rubric 0.25 → **1.00**, no run leaving work unfinished.
+- **Dead air**: 0 → 54 operations, rubric 0.25 → 0.75. The run still ends `failed`: the
+  verify loop could not clear the last finding (a mid-word cut) and said so rather than
+  claiming success. Breath-padding tuning, not structure.
+- **Montage**: 0 → 35 operations, rubric 0.25 → **1.00** on all three runs.
 - **Bounded verify loop** (ADR 0159): a deterministic finding that survives the runtime's
   repair pass now buys one model turn scoped to the findings, with the FAIL lines in the
   briefing, before the run is settled. Bounded to one; a finding that survives both

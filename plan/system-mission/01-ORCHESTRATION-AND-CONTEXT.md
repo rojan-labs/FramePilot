@@ -144,12 +144,16 @@ rubric score). ADR for the structured-state block. Update README/PLAN snapshot.
 Landed 2026-08-29: `docs/reports/system-mission/01-after.md` with the measured
 before/after table. ADR 0158 covers the structured-state block.
 
-**Measured (3 runs each, real sidecar, real media):**
+**Measured (3 runs each, real sidecar, real media; from
+`reports/system-mission/after-orchestration.json`, which the harness writes incrementally):**
 - `podcast-highlight-60s`: 25 → 5 model calls, 804k → 173k prompt tokens, 1200s → 253s,
-  $1.54 → $0.32, and 3/3 runs that never completed → 0/3.
-- `remove-dead-air`: 0 → 54 operations, rubric 0.25 → 0.75, 3/3 unfinished → 0/1.
-- `montage-30s`: 0 → 35 operations, rubric 0.25 → 1.00, 2/3 unfinished → 0/3, at a real
-  cost increase (10 → 31 calls) — the baseline was cheap because it was failing.
+  $1.54 → $0.32, and 3/3 runs that never completed → 0/3. Cache 0.99 → 1.00.
+- `remove-dead-air`: 0 → 54 operations, rubric 0.25 → 0.75. Still ends `failed` — the
+  verify loop could not clear a mid-word-cut finding and settled honestly.
+- `montage-30s`: 0 → 35 operations, rubric **1.00 on all three runs**, at a real cost
+  increase (10 → 31 calls) — the baseline was cheap because it was failing. One run was
+  cancelled at the harness's own 1200s cap and still scored 1.00 with 30 operations.
+- Prompt-cache share held throughout (0.97–1.00); none of the gain came from losing cache.
 
 **`[!]` residual:** `beat-sync`, `refine-tighten`, `memory-captions` have no after-numbers.
 The auth2api bridge began 429ing after ~3h and the harness exhausted its retries mid-run.
@@ -163,10 +167,10 @@ cd packages/ai-sdk && node scripts/mission-baseline.mjs --runs 3 --label after \
 then `node scripts/mission-report.mjs ../../reports/system-mission/baseline-orchestration.json <merged>`
 and replace the placeholder rows in `01-after.md`. Needs a provider with headroom.
 
-Cache-share is `—` in the after column: the completed turns were recovered from the
-harness log by `mission-salvage.mjs` (the harness only writes its JSON after every
-scenario finishes) and the log does not carry the cache-read split. Not a regression,
-not a measurement.
+Note on method: an earlier draft of `01-after.md` was rebuilt from the harness log by
+`mission-salvage.mjs`, on the mistaken belief that the harness only writes its JSON at the
+end. It writes incrementally. The corrected table comes from the real file; the salvage
+script stays because it is still the right tool for a run killed before any write.
 
 ## Discovered
 
