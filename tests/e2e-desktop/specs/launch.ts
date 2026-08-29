@@ -86,7 +86,7 @@ export function descendants(rootPid: number): { pid: number; rssMb: number; cpu:
     const p = frontier.pop()!;
     for (const r of rows) if (r.ppid === p) { out.push(r); frontier.push(r.pid); }
   }
-  return out.map(({ pid, rssMb, cpu, cmd }) => ({ pid, rssMb: Number(rssMb.toFixed(1)), cpu, cmd: cmd.slice(0, 80) }));
+  return out.map(({ pid, rssMb, cpu, cmd }) => ({ pid, rssMb: Number(rssMb.toFixed(1)), cpu, cmd: (cmd ?? '').slice(0, 80) }));
 }
 
 export function openFileCount(pid: number): number {
