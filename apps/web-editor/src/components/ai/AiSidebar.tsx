@@ -802,6 +802,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     seededConversationId.current = id;
     const uiState = active?.uiState;
     setDraft(uiState?.composerDraft ?? '');
+    // Reference chips survive a reload with their analyzed profiles (P3.1); an attachment
+    // still `analyzing` when the state was saved can only be re-attached, so it is dropped.
+    setAttachments((uiState?.attachments ?? []).filter((a) => a.status !== 'analyzing'));
     setExpandedNodes(
       uiState && uiState.expandedToolIds.length > 0
         ? Object.fromEntries(uiState.expandedToolIds.map((nodeId) => [nodeId, true]))
@@ -869,20 +872,22 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     const unchanged =
       draft === active.uiState.composerDraft &&
       persistedOffset === active.uiState.scrollOffset &&
-      sameIdSet(expandedToolIds, active.uiState.expandedToolIds);
+      sameIdSet(expandedToolIds, active.uiState.expandedToolIds) &&
+      attachments === active.uiState.attachments;
     if (unchanged) return;
     const nextUiState: ConversationUiState = {
       ...active.uiState,
       composerDraft: draft,
       expandedToolIds,
       scrollOffset: persistedOffset,
+      attachments,
     };
     conversations.setUiState(active.id, nextUiState);
     // `conversations.setUiState` alone (a `useMemo`-stabilized reference, not the
     // whole `conversations` object, which is a fresh object every render) — so
     // this effect is only ever SCHEDULED when something it actually reads
     // changed, not on every unrelated re-render of the sidebar.
-  }, [active, atBottom, draft, expandedNodes, scrollOffset, conversations.setUiState]);
+  }, [active, atBottom, draft, expandedNodes, scrollOffset, attachments, conversations.setUiState]);
 
   // UI lifecycle is not cancellation authority. A sidebar remount, tab switch, project
   // refresh, or renderer navigation detaches this projection while the durable host run
