@@ -1433,7 +1433,7 @@ def test_detect_beats_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert resp.status_code == 200
     body = resp.json()
     assert body["assetId"] == "mus"
-    assert body["beats"] == [{"time": 0.5, "strength": 1.0}]
+    assert body["beats"] == [{"time": 0.5, "strength": 1.0, "on_grid": True}]
     assert body["bpm"] == 120.0
     assert seen["sensitivity"] == 2.0
     assert seen["timeout"] == 9.0

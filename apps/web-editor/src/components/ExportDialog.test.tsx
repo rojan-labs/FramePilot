@@ -126,6 +126,34 @@ describe('ExportDialog', () => {
     expect(screen.queryByRole('dialog', { name: 'Export video' })).toBeNull();
   });
 
+  it('traps focus inside the popover and returns it to the Export button', () => {
+    render(
+      <ExportDialog
+        frame={FRAME}
+        durationSeconds={30}
+        assets={[]}
+        ensureSaved={vi.fn()}
+        onReveal={vi.fn()}
+      />,
+    );
+    const trigger = screen.getByRole('button', { name: 'Export video' });
+    trigger.focus();
+    openExportMenu();
+    const popover = screen.getByRole('dialog', { name: 'Export video' });
+    expect(popover.contains(document.activeElement)).toBe(true);
+
+    // Tab from the last control wraps back into the popover rather than walking
+    // out into the topbar behind it.
+    const inside = [...popover.querySelectorAll<HTMLElement>('button, input, select')];
+    const last = inside.at(-1)!;
+    last.focus();
+    fireEvent.keyDown(last, { key: 'Tab' });
+    expect(document.activeElement).toBe(inside[0]);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it('keeps the action bar out of the scrolling body, whatever the options add', () => {
     // Regression: the popover itself was the scroller, so the footer scrolled
     // with the options — a project with a credits list pushed the Export button

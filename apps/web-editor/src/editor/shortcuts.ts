@@ -529,8 +529,13 @@ export const SHORTCUTS: readonly Shortcut[] = [
     },
   },
   {
+    // NOT Tab. `timelineFocus` is true when nothing has focus yet (`document.body`),
+    // and nothing autofocuses at mount — so binding Tab here preventDefault()ed the
+    // very first Tab a keyboard user pressed and moved the model selection instead
+    // of DOM focus, for as long as the app was open. ⌥←/⌥→ are free chords and read
+    // as "step through the cut", which is what this does.
     id: 'select.next',
-    keys: ['tab'],
+    keys: ['alt+right'],
     when: 'timelineFocus',
     group: 'Selection',
     label: 'Select next clip',
@@ -541,7 +546,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   },
   {
     id: 'select.prev',
-    keys: ['shift+tab'],
+    keys: ['alt+left'],
     when: 'timelineFocus',
     group: 'Selection',
     label: 'Select previous clip',

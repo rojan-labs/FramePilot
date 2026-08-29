@@ -47,6 +47,7 @@ import {
   Volume2,
   VolumeX,
 } from './icons.js';
+import { hintFor } from '../editor/shortcuts.js';
 
 export interface PreviewTransportProps {
   readonly editor: UseEditor;
@@ -104,7 +105,7 @@ export function PreviewTransport({ editor, durationSec, fps }: PreviewTransportP
       />
 
       <div className="transport-nav">
-        <Tooltip label="Go to start" shortcut="Home">
+        <Tooltip label="Go to start" shortcut={hintFor('transport.start')}>
           <button
             type="button"
             className="transport-btn"
@@ -114,7 +115,7 @@ export function PreviewTransport({ editor, durationSec, fps }: PreviewTransportP
             <SkipBack size={ICON_SIZE.md} aria-hidden="true" />
           </button>
         </Tooltip>
-        <Tooltip label="Previous edit point" shortcut="⇧↑">
+        <Tooltip label="Previous edit point" shortcut={hintFor('transport.prevEdit')}>
           <button
             type="button"
             className="transport-btn"
@@ -124,7 +125,7 @@ export function PreviewTransport({ editor, durationSec, fps }: PreviewTransportP
             <ChevronFirst size={ICON_SIZE.md} aria-hidden="true" />
           </button>
         </Tooltip>
-        <Tooltip label="Step back one frame" shortcut="←">
+        <Tooltip label="Step back one frame" shortcut={hintFor('transport.frameBack')}>
           <button
             type="button"
             className="transport-btn"
@@ -134,7 +135,7 @@ export function PreviewTransport({ editor, durationSec, fps }: PreviewTransportP
             <ChevronLeft size={ICON_SIZE.md} aria-hidden="true" />
           </button>
         </Tooltip>
-        <Tooltip label="Play / Pause" shortcut="Space">
+        <Tooltip label="Play / Pause" shortcut={hintFor('transport.playpause')}>
           <button
             type="button"
             className="transport-play"
@@ -149,7 +150,7 @@ export function PreviewTransport({ editor, durationSec, fps }: PreviewTransportP
             )}
           </button>
         </Tooltip>
-        <Tooltip label="Step forward one frame" shortcut="→">
+        <Tooltip label="Step forward one frame" shortcut={hintFor('transport.frameFwd')}>
           <button
             type="button"
             className="transport-btn"
@@ -159,7 +160,7 @@ export function PreviewTransport({ editor, durationSec, fps }: PreviewTransportP
             <ChevronRight size={ICON_SIZE.md} aria-hidden="true" />
           </button>
         </Tooltip>
-        <Tooltip label="Next edit point" shortcut="⇧↓">
+        <Tooltip label="Next edit point" shortcut={hintFor('transport.nextEdit')}>
           <button
             type="button"
             className="transport-btn"
@@ -169,7 +170,7 @@ export function PreviewTransport({ editor, durationSec, fps }: PreviewTransportP
             <ChevronLast size={ICON_SIZE.md} aria-hidden="true" />
           </button>
         </Tooltip>
-        <Tooltip label="Go to end" shortcut="End">
+        <Tooltip label="Go to end" shortcut={hintFor('transport.end')}>
           <button
             type="button"
             className="transport-btn"

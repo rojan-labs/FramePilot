@@ -30,6 +30,7 @@ import {
   Save,
   Settings,
 } from './icons.js';
+import { hintFor } from '../editor/shortcuts.js';
 
 const FEEDBACK_URL = 'https://github.com/rjach/FramePilot/issues/new';
 
@@ -323,7 +324,7 @@ export function Topbar({
             <Captions size={ICON_SIZE.md} aria-hidden="true" />
           </Button>
         </Tooltip>
-        <Tooltip label="History" shortcut="⌘⇧H" placement="bottom">
+        <Tooltip label="History" shortcut={hintFor('history.panel')} placement="bottom">
           <Button
             variant="ghost"
             className={historyOpen ? 'icon-btn is-active' : 'icon-btn'}
@@ -335,7 +336,7 @@ export function Topbar({
             <History size={ICON_SIZE.md} aria-hidden="true" />
           </Button>
         </Tooltip>
-        <Tooltip label="Keyboard shortcuts" shortcut="?" placement="bottom">
+        <Tooltip label="Keyboard shortcuts" shortcut={hintFor('help.toggle')} placement="bottom">
           <Button
             variant="ghost"
             className="icon-btn"
@@ -346,7 +347,7 @@ export function Topbar({
             <Keyboard size={ICON_SIZE.md} aria-hidden="true" />
           </Button>
         </Tooltip>
-        <Tooltip label="Settings" shortcut="⌘," placement="bottom">
+        <Tooltip label="Settings" shortcut={hintFor('settings.open')} placement="bottom">
           <Button
             variant="ghost"
             className="icon-btn"

@@ -60,12 +60,34 @@ arithmetic. Reconstructing all 34 picture cuts the three runs applied and snappi
 the nearest onset `detect_beats` returned moves **every one of them by 0.000s** — they are
 already exactly on the detected grid, because `alignBeatBackedBoundaries` already snaps
 interior boundaries inside an 80 ms window and `beat-grid-wiring.test.ts` already proves it
-in a real run. The miss is in the evidence: running `analysis/beats.py` on
+in a real run. The miss is in the evidence — and the first reading of that evidence was
+wrong, so both readings are recorded here.
+
+**First reading (incorrect):** `analysis/beats.py` on
 `tests/fixtures/mission/music/beat-100bpm.wav` returns 50 onsets at ~99 BPM of which only
-**30 fall within 0.05 s of the click the fixture was generated with** (`fetch-fixtures.sh`
-writes it as `mod(t,0.6) < 0.05`), because the energy-flux detector reports a second,
-spurious ~1.0 s series. An op that snaps to those onsets reproduces the score exactly. The
-next move on beat sync is onset accuracy in the engine, not a new tool in the SDK.
+30 fall within 0.05 s of a `mod(t,0.6) < 0.05` click, so the detector emits a spurious
+~1.0 s series and the next move is onset accuracy. That took the fixture's ground truth
+from half its generator line. `fetch-fixtures.sh` builds it by mixing a 1 kHz click every
+0.6 s **with a `sine=frequency=60:beep_factor=8` bed, which beeps once a second.** Decoding
+the wav and locating the transients directly finds **70** of them — exactly the union of
+the 0.6 s clicks (50) and the 1.0 s beeps (30), less the 10 coincidences at multiples of
+3 s.
+
+**Second reading (measured):** against that true set the detector scores **50 of 70 onsets
+with ZERO false positives.** Precision is 100 %; every onset it reports is a real event.
+The defect was never accuracy — it was that `detect_beats` returned onsets and every caller
+read them as beats. A montage cut on the 1.0 s beeps is on a real transient and off the
+100 BPM grid, which is precisely what `cuts-on-beats` scores against.
+
+**Fixed 2026-08-29** (`analysis/beats.py` `mark_on_grid`, `beat-evidence.ts`
+`readOnsetTimes`): each onset now carries `on_grid`, set by fitting the tempo grid's phase
+**and period** to the onsets themselves, and the cut grid prefers the on-grid ones. Period
+fitting is not a refinement for its own sake: the tempo estimate is a median of intervals,
+so 99.4 against a true 100 BPM is 3.6 ms per beat and 0.18 s of drift across 30 s — a grid
+pinned to the estimate fits the opening and has walked off the music by the end. On the
+fixture the split is now exact: **all 30 detected clicks on-grid, all 20 beeps off-grid.**
+Three tests, plus the fallback that an older sidecar or a track with no derivable tempo
+still yields every onset, which is the previous behaviour rather than an empty grid.
 
 **`tighten_pacing` — refused; the two things that actually stopped the tighten turn are
 neither of them a missing op.** UC-08's refine turn failed `shorter` in 2/3 runs, so it

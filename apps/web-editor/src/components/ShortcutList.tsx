@@ -16,8 +16,16 @@ import {
 } from '../editor/shortcuts.js';
 import { ICON_SIZE, Search } from './icons.js';
 
-/** Display order of the registry groups. */
-const GROUP_ORDER: readonly ShortcutGroup[] = [
+/**
+ * Display order of the registry groups.
+ *
+ * Exported so a test can assert it covers every group the registry declares:
+ * 'Tools' was missing here for as long as the Blade tool has existed, and the
+ * only symptom was that B simply did not appear in the `?` overlay or in
+ * Settings — a shortcut nobody could discover.
+ */
+export const GROUP_ORDER: readonly ShortcutGroup[] = [
+  'Tools',
   'Transport',
   'Editing',
   'Selection',

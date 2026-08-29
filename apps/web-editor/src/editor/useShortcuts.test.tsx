@@ -286,19 +286,31 @@ describe('editor keyboard shortcuts', () => {
     expect(screen.getByLabelText('marker at 4s')).toBeDefined();
   });
 
-  it('selects the first clip with Tab (focus rests on the body)', () => {
+  it('leaves Tab to the browser (it is focus traversal, never clip selection)', () => {
     render(<Host />);
     key({ key: 'Tab' });
-    // Tab navigation is allowed while focus is on the body; first clip is selected.
+    // Nothing autofocuses at mount, so focus rests on the body and `timelineFocus`
+    // is true — which is exactly why binding Tab here trapped the first Tab of the
+    // session. Tab must move DOM focus, not the model selection.
+    expect(screen.getByLabelText('clip clip_intro').getAttribute('data-selected')).toBe('false');
+  });
+
+  it('selects the first clip with ⌥→ and steps back with ⌥←', () => {
+    render(<Host />);
+    key({ key: 'ArrowRight', altKey: true });
+    expect(screen.getByLabelText('clip clip_intro').getAttribute('data-selected')).toBe('true');
+    key({ key: 'ArrowRight', altKey: true });
+    expect(screen.getByLabelText('clip clip_intro').getAttribute('data-selected')).toBe('false');
+    key({ key: 'ArrowLeft', altKey: true });
     expect(screen.getByLabelText('clip clip_intro').getAttribute('data-selected')).toBe('true');
   });
 
-  it('ignores Tab for clip-nav while focus is on a control outside the timeline', () => {
+  it('ignores ⌥→ for clip-nav while focus is on a control outside the timeline', () => {
     render(<Host />);
     const pick = screen.getByRole('button', { name: 'pick intro' });
     pick.focus();
-    fireEvent.keyDown(pick, { key: 'Tab' });
-    // No clip became selected — the browser's normal focus traversal is preserved.
+    fireEvent.keyDown(pick, { key: 'ArrowRight', altKey: true });
+    // No clip became selected — the shortcut is timeline-scoped.
     expect(screen.getByLabelText('clip clip_intro').getAttribute('data-selected')).toBe('false');
   });
 

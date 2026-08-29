@@ -35,6 +35,24 @@ describe('Tooltip', () => {
     expect(screen.queryByRole('tooltip')).toBeNull();
   });
 
+  it('dismisses on Escape without moving the pointer (WCAG 1.4.13)', () => {
+    render(
+      <Tooltip label="Undo" delay={0}>
+        <button type="button" aria-label="Undo">
+          ↩
+        </button>
+      </Tooltip>,
+    );
+    const anchor = screen.getByRole('button', { name: 'Undo' }).parentElement!;
+    fireEvent.mouseEnter(anchor);
+    act(() => vi.advanceTimersByTime(0));
+    expect(screen.getByRole('tooltip')).toBeDefined();
+    // `.tooltip` is pointer-events: none, so a bubble covering the control could
+    // not even be moved out of the way — Escape is the only exit.
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
   it('still reveals for a disabled control', () => {
     render(
       <Tooltip label="Undo" delay={0}>

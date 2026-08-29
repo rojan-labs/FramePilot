@@ -55,6 +55,7 @@ import {
   X,
 } from './icons.js';
 import { useModalFocusTrap } from './ai/useModalFocusTrap.js';
+import { hintFor } from '../editor/shortcuts.js';
 
 /** Who a patch came from — drives the author badge + the You/AI filter. */
 type Author = 'user' | 'agent';
@@ -477,7 +478,7 @@ export function HistoryPanel({
                 <SkipBack size={ICON_SIZE.sm} aria-hidden="true" />
               </button>
             </Tooltip>
-            <Tooltip label="Undo" shortcut="⌘Z" placement="bottom">
+            <Tooltip label="Undo" shortcut={hintFor('history.undo')} placement="bottom">
               <button
                 type="button"
                 className="history-btn"
@@ -488,7 +489,7 @@ export function HistoryPanel({
                 <Undo2 size={ICON_SIZE.sm} aria-hidden="true" />
               </button>
             </Tooltip>
-            <Tooltip label="Redo" shortcut="⌘⇧Z" placement="bottom">
+            <Tooltip label="Redo" shortcut={hintFor('history.redo')} placement="bottom">
               <button
                 type="button"
                 className="history-btn"

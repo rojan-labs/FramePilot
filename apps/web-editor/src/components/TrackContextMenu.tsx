@@ -40,6 +40,17 @@ export function TrackContextMenu({
   const ref = useRef<HTMLDivElement>(null);
   const { timeline } = editor.state;
 
+  // Focus on mount, restore on unmount — same contract as the clip menu, and for
+  // the same reason: a `role="menu"` nothing can focus is a menu no keyboard user
+  // can enter, and one that drops focus at the top of the document on close.
+  useEffect(() => {
+    const opener = document.activeElement;
+    ref.current?.focus();
+    return () => {
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+    };
+  }, []);
+
   // Close on any outside pointer press or Escape (same contract as the clip menu).
   useEffect(() => {
     const onDown = (event: PointerEvent): void => {
@@ -82,6 +93,7 @@ export function TrackContextMenu({
       className="context-menu"
       role="menu"
       aria-label="track actions"
+      tabIndex={-1}
       style={{ left: target.x, top: target.y }}
     >
       <button type="button" role="menuitem" onClick={() => addAt(index)}>

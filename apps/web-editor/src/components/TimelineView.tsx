@@ -52,6 +52,7 @@ import {
   layerKind,
   nextAutoScrollLeft,
   pxToSeconds,
+  orderedClips,
   rollBounds,
   rulerTicks,
   secondsToPx,
@@ -495,6 +496,9 @@ const PICTURE_LAYER_MIN_CLIP_PX = 24;
  *  Audio panel ScrubNumber cap, H8). */
 const FADE_MAX_SECONDS = 5;
 
+/** Shift+Arrow step on a fade handle — the coarse move next to the frame nudge. */
+const FADE_COARSE_STEP_SECONDS = 0.5;
+
 /** Below this clip width (px) fade handles are hidden — too narrow to grab. */
 const FADE_HANDLE_MIN_CLIP_PX = 20;
 
@@ -772,6 +776,12 @@ interface TimelineClipProps {
   readonly pulseAgent?: boolean;
   /** Restarts the overlay animation when the same clip pulses twice in a row. */
   readonly pulseToken?: number;
+  /**
+   * This clip holds the timeline's single clip tab stop (roving tabindex, the
+   * pattern the bin / Sounds / Stock already use). Everything focusable *inside*
+   * a clip is `-1` and is reached from the clip's own keydown.
+   */
+  readonly tabbable: boolean;
   /** Whether this clip's per-property keyframe lanes are open (Phase 6). */
   readonly lanesOpen?: boolean;
   /** Open/close the lanes. Absent = the surface does not offer them. */
@@ -799,12 +809,16 @@ const TimelineClip = memo(function TimelineClip({
   onSelectClip,
   openClipMenu,
   onFadeCommit,
+  tabbable,
   pulseKind = null,
   pulseAgent = false,
   pulseToken = 0,
   lanesOpen = false,
   onToggleLanes,
 }: TimelineClipProps): JSX.Element {
+  const blockRef = useRef<HTMLButtonElement>(null);
+  const fadeInRef = useRef<HTMLSpanElement>(null);
+  const fadeOutRef = useRef<HTMLSpanElement>(null);
   const clipWidthPx = secondsToPx(end - start, pxPerSecond);
   const keyframeMarkers = clipKeyframeMarkers(clip);
   // Colour/label each clip by its OWN kind (Phase 2), so a clip reads correctly on
@@ -869,16 +883,103 @@ const TimelineClip = memo(function TimelineClip({
     onFadeCommit(clip.id, g.edge, g.current);
   };
 
+  /**
+   * Keyboard on the fade handles. They have announced themselves as `role="slider"`
+   * with live aria values since H8 and did nothing at all — and once Tab stopped
+   * being swallowed by `select.next`, the arrows fell straight through to the global
+   * handler and moved the PLAYHEAD while the user believed they were adjusting a
+   * fade. `stopPropagation` is what keeps them off that path, exactly as
+   * `PreviewScrubBar` does for its own arrows.
+   */
+  const onFadeKeyDown = (event: React.KeyboardEvent, edge: 'in' | 'out'): void => {
+    const current = edge === 'in' ? fadeInSeconds : fadeOutSeconds;
+    const limit = Math.min(FADE_MAX_SECONDS, clipSeconds);
+    const step = event.shiftKey ? FADE_COARSE_STEP_SECONDS : 1 / Math.max(fps, 1);
+    // The out handle grows leftwards, the way its pointer drag does, so "towards
+    // the middle of the clip" is a longer fade on both edges.
+    const grow = edge === 'in' ? 'ArrowRight' : 'ArrowLeft';
+    const shrink = edge === 'in' ? 'ArrowLeft' : 'ArrowRight';
+    let next: number;
+    switch (event.key) {
+      case grow:
+      case 'ArrowUp':
+        next = current + step;
+        break;
+      case shrink:
+      case 'ArrowDown':
+        next = current - step;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = limit;
+        break;
+      case 'Escape':
+        // Leave the handle rather than stranding the user on a control nothing
+        // else in the tab ring points back to.
+        event.preventDefault();
+        event.stopPropagation();
+        blockRef.current?.focus();
+        return;
+      default:
+        return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    onFadeCommit(clip.id, edge, Math.min(limit, Math.max(0, next)));
+  };
+
+  /**
+   * The clip is the timeline's single clip tab stop, so it is also the way in to
+   * the controls it contains — all of which are `tabIndex={-1}` (G2). Every branch
+   * stops propagation so the global registry never sees the key.
+   */
+  const onClipKeyDown = (event: React.KeyboardEvent): void => {
+    const openMenuAtClip = (): void => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      openClipMenu(clip.id, rect.left, rect.bottom);
+    };
+    if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
+      event.preventDefault();
+      event.stopPropagation();
+      openMenuAtClip();
+      return;
+    }
+    if (event.key === 'f' || event.key === 'F') {
+      const handle = event.shiftKey ? fadeOutRef.current : fadeInRef.current;
+      if (!handle) return;
+      event.preventDefault();
+      event.stopPropagation();
+      handle.focus();
+      return;
+    }
+    if ((event.key === 'd' || event.key === 'D') && onToggleLanes && clip.keyframes.length > 0) {
+      event.preventDefault();
+      event.stopPropagation();
+      onToggleLanes(clip.id);
+    }
+  };
+
   return (
     <button
+      ref={blockRef}
       type="button"
       className={`clip-block ${KIND_META[kind].cls} ${isGhost && ghostKind ? `is-${ghostKind}` : ''}${
         isGhost && ghostDuplicate ? ' is-duplicate' : ''
       }${isGhost && ghostRoll ? ' is-roll' : ''}`}
+      // The id, not the name: every test in the repo and both e2e suites address
+      // clips by it, and Playwright substring-matches where RTL exact-matches, so
+      // changing this text breaks one suite or the other. The human name reaches
+      // assistive technology through `aria-describedby` on the visible label below.
       aria-label={`clip ${clip.id}`}
+      aria-describedby={density.showHeader ? `${clip.id}-label` : undefined}
       aria-pressed={selected}
+      aria-keyshortcuts="Shift+F10 F D"
+      tabIndex={tabbable ? 0 : -1}
       data-selected={selected}
       data-pulse={pulseKind ?? undefined}
+      onKeyDown={onClipKeyDown}
       onPointerDown={(event) => beginGesture(event, 'move', clip, track)}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -949,17 +1050,19 @@ const TimelineClip = memo(function TimelineClip({
             style={{ width: `${secondsToPx(fadeInSeconds, pxPerSecond)}px` }}
           />
           <span
+            ref={fadeInRef}
             className="clip-fade-handle clip-fade-handle-in"
             role="slider"
             aria-label="Fade in duration"
             aria-valuemin={0}
             aria-valuemax={FADE_MAX_SECONDS}
             aria-valuenow={Math.round(fadeInSeconds * 100) / 100}
-            tabIndex={0}
+            tabIndex={-1}
             style={{ left: `${secondsToPx(fadeInSeconds, pxPerSecond)}px` }}
             onPointerDown={(event) => beginFadeDrag(event, 'in')}
             onPointerMove={onFadePointerMove}
             onPointerUp={onFadePointerUp}
+            onKeyDown={(event) => onFadeKeyDown(event, 'in')}
           />
           <span
             className="clip-fade-overlay clip-fade-overlay-out"
@@ -967,17 +1070,19 @@ const TimelineClip = memo(function TimelineClip({
             style={{ width: `${secondsToPx(fadeOutSeconds, pxPerSecond)}px` }}
           />
           <span
+            ref={fadeOutRef}
             className="clip-fade-handle clip-fade-handle-out"
             role="slider"
             aria-label="Fade out duration"
             aria-valuemin={0}
             aria-valuemax={FADE_MAX_SECONDS}
             aria-valuenow={Math.round(fadeOutSeconds * 100) / 100}
-            tabIndex={0}
+            tabIndex={-1}
             style={{ right: `${secondsToPx(fadeOutSeconds, pxPerSecond)}px` }}
             onPointerDown={(event) => beginFadeDrag(event, 'out')}
             onPointerMove={onFadePointerMove}
             onPointerUp={onFadePointerUp}
+            onKeyDown={(event) => onFadeKeyDown(event, 'out')}
           />
         </>
       )}
@@ -995,19 +1100,20 @@ const TimelineClip = memo(function TimelineClip({
       )}
       {density.showHeader && (
         <div className="clip-header">
-          <span className="clip-label" title={name}>
+          <span className="clip-label" id={`${clip.id}-label`} title={name}>
             {name}
           </span>
           {density.showTime && (
             <span className="clip-time tabular">{clipDurationLabel(clip, fps, timeDisplay)}</span>
           )}
           {density.showMenu && (
-            // A focusable span, not a <button>: the clip itself is a <button>, and
-            // nested buttons are invalid HTML. role/tabIndex + the keydown handler
-            // keep it keyboard-activatable.
+            // A span, not a <button>: the clip itself is a <button>, and nested
+            // buttons are invalid HTML. Out of the tab ring (roving tabindex, G2) —
+            // 200 clips would otherwise be 200 extra stops; from the keyboard the
+            // menu opens with Shift+F10 on the clip, the platform convention.
             <span
               role="button"
-              tabIndex={0}
+              tabIndex={-1}
               className="clip-menu-btn"
               aria-label="Clip actions"
               onPointerDown={(event) => event.stopPropagation()}
@@ -1057,6 +1163,9 @@ const TimelineClip = memo(function TimelineClip({
         <button
           type="button"
           className="clip-lanes-toggle"
+          // Out of the tab ring for the same reason as the ⋯ span; D on the focused
+          // clip toggles the lanes.
+          tabIndex={-1}
           aria-label={`${lanesOpen ? 'Hide' : 'Show'} keyframes for ${name}`}
           aria-expanded={lanesOpen}
           title={lanesOpen ? 'Hide keyframe lanes' : 'Show keyframe lanes'}
@@ -1201,6 +1310,15 @@ export function TimelineView({
   // Membership lookup for the lanes' `data-selected`; a Set keeps the per-clip
   // check O(1) and only changes identity when the selection actually changes.
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  // Roving tabindex over the clips — the pattern the bin, Sounds and Stock already
+  // use. The timeline is ONE tab stop, not one per clip: a 200-cut montage would
+  // otherwise sit 200 stops deep between the panel above it and the one below.
+  // The stop rides the selection, falling back to the first clip so a timeline that
+  // has never been clicked is still reachable from the keyboard.
+  const tabbableClipId = useMemo(
+    () => selection ?? orderedClips(timeline)[0]?.clip.id ?? null,
+    [selection, timeline],
+  );
   // --- Effect layers (schema v13, ADR 0088) --------------------------------
   //
   // The selection itself is lifted to `Editor` (see its props) because the
@@ -2565,6 +2683,7 @@ export function TimelineView({
                   onSelectClip={onClipClick}
                   openClipMenu={openClipMenu}
                   onFadeCommit={onFadeCommit}
+                  tabbable={tabbableClipId === clip.id}
                   pulseKind={pulse?.clipIds.has(clip.id) ? pulse.kind : null}
                   pulseAgent={pulse?.author === 'agent'}
                   pulseToken={pulse?.token ?? 0}

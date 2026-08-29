@@ -26,6 +26,7 @@
  * in-progress export; reopening the dropdown shows it mid-flight.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useModalFocusTrap } from './ai/useModalFocusTrap.js';
 import { useViewPreference } from '../editor/useViewPreference.js';
 import type { Asset } from '@framepilot/timeline-schema';
 import { Button } from '@framepilot/ui';
@@ -321,6 +322,11 @@ export function ExportDialog({
 }: ExportDialogProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  // The popover declares `role="dialog"`, and until now Tab walked straight out of
+  // it into the topbar behind, with nothing bringing focus back to the Export
+  // button on close. Keyed on `open` because the popover is rendered from inside
+  // this always-mounted component rather than through a gate + content pair.
+  const popoverRef = useModalFocusTrap<HTMLDivElement>(open);
   const onClose = useCallback(() => setOpen(false), []);
 
   // Dismiss on an outside press or Escape while open (mirrors Menu.tsx).
@@ -597,7 +603,13 @@ export function ExportDialog({
         </Button>
       </Tooltip>
       {open && (
-        <div className="export-popover" role="dialog" aria-label="Export video">
+        <div
+          ref={popoverRef}
+          className="export-popover"
+          role="dialog"
+          aria-label="Export video"
+          tabIndex={-1}
+        >
           <header className="settings-head">
             <h2>Export video</h2>
             <button

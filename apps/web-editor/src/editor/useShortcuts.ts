@@ -65,9 +65,12 @@ function rangeOwnsKey(target: EventTarget | null, key: string): boolean {
 
 /**
  * Whether focus rests in the timeline (or nowhere in particular). Shortcuts the
- * browser also claims — Tab/Shift+Tab focus traversal, ⌘A/Ctrl+A select-all-text —
- * are only stolen here; elsewhere the native behaviour is preserved so global
- * keyboard accessibility and text selection keep working.
+ * browser also claims — ⌘A/Ctrl+A select-all-text, Delete — are only stolen here;
+ * elsewhere the native behaviour is preserved so text selection keeps working.
+ *
+ * The `document.body` arm is load-bearing: after a marquee drag or a lane click
+ * focus rests on the body, and ⌘A / Delete must still reach the timeline there.
+ * It is also why NOTHING in this registry may bind Tab — see `select.next`.
  */
 function timelineFocused(active: Element | null): boolean {
   return active === null || active === document.body || active.closest('.timeline') !== null;

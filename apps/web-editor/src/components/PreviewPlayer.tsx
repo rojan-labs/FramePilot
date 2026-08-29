@@ -110,6 +110,7 @@ import {
   SkipBack,
   SkipForward,
 } from './icons.js';
+import { hintFor } from '../editor/shortcuts.js';
 
 export interface PreviewPlayerProps {
   readonly editor: UseEditor;
@@ -1189,7 +1190,7 @@ export function PreviewPlayer({
             unit. Flat, they were eleven equally-weighted controls in one
             non-wrapping row that overflowed a narrow center column. */}
         <div className="transport-nav">
-          <Tooltip label="Go to start" shortcut="Home">
+          <Tooltip label="Go to start" shortcut={hintFor('transport.start')}>
             <button
               type="button"
               className="transport-btn"
@@ -1202,7 +1203,7 @@ export function PreviewPlayer({
               <SkipBack size={ICON_SIZE.md} aria-hidden="true" />
             </button>
           </Tooltip>
-          <Tooltip label="Step back one frame" shortcut="←">
+          <Tooltip label="Step back one frame" shortcut={hintFor('transport.frameBack')}>
             <button
               type="button"
               className="transport-btn"
@@ -1212,7 +1213,7 @@ export function PreviewPlayer({
               <ChevronLeft size={ICON_SIZE.md} aria-hidden="true" />
             </button>
           </Tooltip>
-          <Tooltip label="Play / Pause" shortcut="Space">
+          <Tooltip label="Play / Pause" shortcut={hintFor('transport.playpause')}>
             <button
               type="button"
               className="transport-play"
@@ -1227,7 +1228,7 @@ export function PreviewPlayer({
               )}
             </button>
           </Tooltip>
-          <Tooltip label="Step forward one frame" shortcut="→">
+          <Tooltip label="Step forward one frame" shortcut={hintFor('transport.frameFwd')}>
             <button
               type="button"
               className="transport-btn"
@@ -1237,7 +1238,7 @@ export function PreviewPlayer({
               <ChevronRight size={ICON_SIZE.md} aria-hidden="true" />
             </button>
           </Tooltip>
-          <Tooltip label="Go to end" shortcut="End">
+          <Tooltip label="Go to end" shortcut={hintFor('transport.end')}>
             <button
               type="button"
               className="transport-btn"

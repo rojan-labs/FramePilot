@@ -14,6 +14,8 @@
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { TIMELINE_MIN, maxDockHeight } from './useDockHeight.js';
+import { RAIL_BOUNDS } from './useRailLayout.js';
 import { WorkspaceShell, type WorkspaceRailSlot } from './WorkspaceShell.js';
 
 function baseRail(
@@ -192,6 +194,69 @@ describe('WorkspaceShell', () => {
       />,
     );
     expect((container.querySelector('.framepilot-body') as HTMLElement).dataset.railAnim).toBe('false');
+  });
+
+  it('gives the program monitor a main landmark', () => {
+    renderShell();
+    const main = screen.getByRole('main', { name: 'Program monitor' });
+    expect(main.className).toBe('stage-col');
+    expect(main.contains(screen.getByTestId('center-content'))).toBe(true);
+  });
+
+  it('announces each splitter\'s value and bounds', () => {
+    renderShell();
+    const left = screen.getByRole('separator', { name: 'Resize left panel' });
+    expect(left.getAttribute('aria-valuenow')).toBe('288');
+    expect(left.getAttribute('aria-valuemin')).toBe(String(RAIL_BOUNDS.left.min));
+    expect(left.getAttribute('aria-valuemax')).toBe(String(RAIL_BOUNDS.left.max));
+    expect(left.tabIndex).toBe(0);
+
+    const stage = screen.getByRole('separator', { name: 'Resize timeline' });
+    expect(stage.getAttribute('aria-valuenow')).toBe('260');
+    expect(stage.getAttribute('aria-valuemin')).toBe(String(TIMELINE_MIN));
+    expect(stage.getAttribute('aria-valuemax')).toBe(String(maxDockHeight()));
+    expect(stage.tabIndex).toBe(0);
+  });
+
+  it('resizes the rails from the keyboard, in the direction each rail grows', () => {
+    const leftResize = vi.fn();
+    const rightResize = vi.fn();
+    renderShell({ left: { onResize: leftResize }, right: { onResize: rightResize } });
+    const left = screen.getByRole('separator', { name: 'Resize left panel' });
+    const right = screen.getByRole('separator', { name: 'Resize right panel' });
+
+    fireEvent.keyDown(left, { key: 'ArrowRight' });
+    expect(leftResize).toHaveBeenLastCalledWith(288 + 16);
+    fireEvent.keyDown(left, { key: 'ArrowLeft', shiftKey: true });
+    expect(leftResize).toHaveBeenLastCalledWith(288 - 64);
+    fireEvent.keyDown(left, { key: 'Home' });
+    expect(leftResize).toHaveBeenLastCalledWith(RAIL_BOUNDS.left.min);
+    fireEvent.keyDown(left, { key: 'End' });
+    expect(leftResize).toHaveBeenLastCalledWith(RAIL_BOUNDS.left.max);
+
+    // The right rail grows leftwards, so ArrowLeft widens it.
+    fireEvent.keyDown(right, { key: 'ArrowLeft' });
+    expect(rightResize).toHaveBeenLastCalledWith(288 + 16);
+  });
+
+  it('clamps a keyboard resize to the rail bounds rather than running past them', () => {
+    const onResize = vi.fn();
+    renderShell({ left: { width: RAIL_BOUNDS.left.max, onResize } });
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize left panel' }), {
+      key: 'ArrowRight',
+    });
+    expect(onResize).toHaveBeenLastCalledWith(RAIL_BOUNDS.left.max);
+  });
+
+  it('resizes the timeline dock from the keyboard (up grows it)', () => {
+    const { dockResize } = renderShell();
+    const stage = screen.getByRole('separator', { name: 'Resize timeline' });
+    fireEvent.keyDown(stage, { key: 'ArrowUp' });
+    expect(dockResize).toHaveBeenLastCalledWith(260 + 16);
+    fireEvent.keyDown(stage, { key: 'ArrowDown', shiftKey: true });
+    expect(dockResize).toHaveBeenLastCalledWith(260 - 64);
+    fireEvent.keyDown(stage, { key: 'Home' });
+    expect(dockResize).toHaveBeenLastCalledWith(TIMELINE_MIN);
   });
 
   it('renders the overlay slot as the shell\'s last child', () => {

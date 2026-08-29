@@ -801,6 +801,21 @@ input[type='checkbox']:focus-visible {
   color: var(--muted);
 }
 
+/* The chord a menu row advertises (P8.3). Pushed to the trailing edge and kept
+   quiet — it is a reminder for next time, not a second label competing with the
+   action. Used by `MenuItem` and by the timeline's context menus, whose rows are
+   `.context-menu button` rather than `.menu-item`. */
+.menu-item-kbd {
+  margin-inline-start: auto;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
 .menu-field {
   display: flex;
   flex-direction: column;
@@ -1407,6 +1422,20 @@ input[type='checkbox']:focus-visible {
 .rail-splitter:hover,
 .rail-splitter:active {
   background: var(--accent);
+}
+
+/* The hairline stays 2px; only the HIT AREA grows (P8.5). A 2px grab target is a
+   precision task on a trackpad and a miss on a touchscreen, and widening the
+   visible divider instead would put a fat grey bar down the middle of the editor. */
+.rail-splitter::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline: -5px;
+}
+
+.rail-splitter.is-hidden::before {
+  content: none;
 }
 
 /* Hidden while its rail is collapsed (B1): zero width, no hit target, no gutter. */
@@ -3451,6 +3480,18 @@ input[type='checkbox']:focus-visible {
   background: transparent;
   border-top: 1px solid var(--line);
   transition: background var(--dur-fast) var(--ease);
+}
+
+.stage-splitter {
+  position: relative;
+}
+
+/* Same as `.rail-splitter::before`: a wider grab area behind an unchanged hairline. */
+.stage-splitter::before {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  inset-block: -5px;
 }
 
 .stage-splitter:hover,
@@ -6795,6 +6836,14 @@ details.inspector-panel[open] > .inspector-section-head::before {
   outline: none;
 }
 
+/* P8.5: the field cleared its outline with nothing in its place, so the only way
+   to tell it had focus was to type. The ring goes on the WELL — the shape the
+   user perceives as the control — exactly as `.bin-search:focus-within` does. */
+.transcript-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
 .transcript-lines {
   list-style: none;
   margin: 0;
@@ -7468,6 +7517,12 @@ details.inspector-panel[open] > .inspector-section-head::before {
   outline: none;
 }
 
+/* P8.5, as above. Inset because this row is flush with an `overflow: hidden`
+   overlay, which would clip an outer ring away on three sides. */
+.shortcut-search:focus-within {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
+}
+
 .shortcut-groups {
   padding: var(--space-2) var(--space-4) var(--space-4);
   overflow-y: auto;
@@ -7567,6 +7622,11 @@ details.inspector-panel[open] > .inspector-section-head::before {
 
 .command-palette-search input:focus-visible {
   outline: none;
+}
+
+/* P8.5, inset for the same reason as `.shortcut-search:focus-within`. */
+.command-palette-search:focus-within {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
 }
 
 .command-palette-list {
@@ -11337,7 +11397,16 @@ a.export-credits-license {
   flex: 1;
   font: inherit;
   font-size: 13px;
+}
+.ai-history-search input:focus-visible {
   outline: none;
+}
+/* P8.5: the field cleared its outline with nothing in its place, so the only way
+   to tell it had focus was to type. The ring goes on the WELL — the shape the
+   user perceives as the control — exactly as `.bin-search:focus-within` does. */
+.ai-history-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 .ai-history-list ul {
   list-style: none;
@@ -12877,8 +12946,16 @@ a.export-credits-license {
   color: var(--text-primary);
   font-size: var(--font-size-sm, 13px);
 }
-.transcription-search input:focus {
+.transcription-search input:focus-visible {
   outline: none;
+}
+
+/* P8.5: the field cleared its outline with nothing in its place, so the only way
+   to tell it had focus was to type. The ring goes on the WELL — the shape the
+   user perceives as the control — exactly as `.bin-search:focus-within` does. */
+.transcription-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 /* One clip's section: a sticky-ish header (name + span + copy) over its lines. */

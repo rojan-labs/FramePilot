@@ -39,6 +39,7 @@ import {
   Sparkles,
   Trash2,
 } from './icons.js';
+import { MenuShortcut } from './Menu.js';
 
 /** Where the menu opened, and on which clip. */
 export interface ClipMenuTarget {
@@ -88,6 +89,18 @@ export function ClipContextMenu({
   const ref = useRef<HTMLDivElement>(null);
   const { timeline, playhead } = editor.state;
 
+  // Focus the menu on mount and give focus back to whatever opened it on unmount.
+  // It has declared `role="menu"` since it was written and could not be entered
+  // from the keyboard at all — which matters here more than anywhere, because the
+  // clip's ⋯ control opens this menu with Shift+F10 and had nowhere to send you.
+  useEffect(() => {
+    const opener = document.activeElement;
+    ref.current?.focus();
+    return () => {
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+    };
+  }, []);
+
   // Close on any outside pointer press or Escape.
   useEffect(() => {
     const onDown = (event: PointerEvent): void => {
@@ -123,6 +136,7 @@ export function ClipContextMenu({
       className="context-menu"
       role="menu"
       aria-label="clip actions"
+      tabIndex={-1}
       style={{ left: target.x, top: target.y }}
     >
       <button
@@ -132,6 +146,7 @@ export function ClipContextMenu({
         onClick={() => act(splitClipPatch(timeline, target.clipId, playhead))}
       >
         <Scissors size={ICON_SIZE.sm} aria-hidden="true" /> Split at playhead
+        <MenuShortcut shortcutId="edit.split" />
       </button>
       <button
         type="button"
@@ -140,6 +155,7 @@ export function ClipContextMenu({
         onClick={() => clip && act(trimClipPatch(timeline, target.clipId, playhead, clip.end))}
       >
         <Scissors size={ICON_SIZE.sm} aria-hidden="true" /> Trim start to playhead
+        <MenuShortcut shortcutId="edit.trimIn" />
       </button>
       <button
         type="button"
@@ -148,6 +164,7 @@ export function ClipContextMenu({
         onClick={() => clip && act(trimClipPatch(timeline, target.clipId, clip.start, playhead))}
       >
         <Scissors size={ICON_SIZE.sm} aria-hidden="true" /> Trim end to playhead
+        <MenuShortcut shortcutId="edit.trimOut" />
       </button>
       <div className="context-menu-sep" role="separator" />
       <div className="context-menu-group" role="group" aria-label="Speed">
@@ -202,6 +219,7 @@ export function ClipContextMenu({
         onClick={() => act(duplicateClipPatch(timeline, target.clipId))}
       >
         <Copy size={ICON_SIZE.sm} aria-hidden="true" /> Duplicate
+        <MenuShortcut shortcutId="edit.duplicate" />
       </button>
       <button
         type="button"
@@ -209,6 +227,7 @@ export function ClipContextMenu({
         onClick={() => act(deleteClipPatch(timeline, target.clipId))}
       >
         <Trash2 size={ICON_SIZE.sm} aria-hidden="true" /> Delete
+        <MenuShortcut shortcutId="edit.delete" />
       </button>
       <button
         type="button"
@@ -216,6 +235,7 @@ export function ClipContextMenu({
         onClick={() => act(rippleDeleteClipPatch(timeline, target.clipId))}
       >
         <ListX size={ICON_SIZE.sm} aria-hidden="true" /> Ripple delete
+        <MenuShortcut shortcutId="edit.ripple" />
       </button>
       {onAskAi && (
         <>
