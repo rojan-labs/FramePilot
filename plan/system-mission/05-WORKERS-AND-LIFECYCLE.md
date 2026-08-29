@@ -20,7 +20,7 @@ context for the step is < 40% of the main turn's; the step can run concurrently 
 another; the step's error rate drops with a narrower prompt. Record the justification in
 the task.
 
-## P5.1 — Typed contracts for the existing specialists — `[ ]`
+## P5.1 — Typed contracts for the existing specialists — `[~]` (landed for the seven in-package specialists; desktop's tracking executor remains)
 
 **Touches:** `packages/ai-sdk/src/controllers/*`, `kernel/proposers/types.ts`. One
 shared shape: `SpecialistInput { task, context, constraints, inputs }` →
@@ -29,7 +29,29 @@ boundary. Controllers stop reading the whole working state and receive only thei
 **Done when:** every controller and proposer is called through the contract and a test
 asserts its input contains no field outside its declared slice.
 
-## P5.2 — Bounded-context model specialists (only where earned) — `[~]` (evaluated on 585 real requests; planner accepted, summarizer rejected, critic already one)
+Landed 2026-08-29: `packages/ai-sdk/src/specialists/` — the contract, seven declared
+specialists (audio, color, motion, timeline, tracking-mask, automatic-tracking,
+subject-detection) and the Critic proposer. `sliceOf` projects the `ToolContext` down to a
+specialist's declared slice, so a call site never sees the context to over-share from it;
+the envelope is `.strict()`, so an undeclared field is a `SpecialistContractError` naming
+the specialist. The five `professional_*` tools call their controller through
+`runSpecialist`; `resolve*Objective` stays exported and pure for the eval cases.
+
+The declaration that earns the change: `professional_color` is the only tool permitted to
+read run-scoped host measurements, and a test now asserts that across all seven rather than
+leaving it to the shape of one object literal. 23 tests, including the Done-when in both
+directions — the built input carries no field outside the slice, and an input carrying one
+is refused.
+
+`Project` and the interaction snapshot are NOT re-parsed at the boundary: both were
+validated by the schema that owns them, and a deep parse of a minutes-long timeline per
+tool call would spend real time re-deriving that. The envelope checks identity and shape.
+
+Remaining for `[x]`: `apps/desktop/electron/ai/automatic-tracking-executor.ts` is the only
+production caller of the two tracking controllers and still calls them directly — outside
+this change's scope.
+
+## P5.2 — Bounded-context model specialists (only where earned) — `[x]` (evaluated on 585 + 706 real requests; planner already shipped, summarizer rejected, critic already one)
 
 Candidates to evaluate with the ledger — implement only those that pass the rule:
 media-analysis summarizer (turns raw footage map into the P1.3 facts, small tier),
@@ -44,11 +66,21 @@ mission runs) — `docs/reports/system-mission/05-after.md` carries the table.
 
 - **planner — PASSES.** A request without the tool block is 7,002 tokens, **30.9 %** of a
   main turn, under the 40 % rule. Refinement the data suggests: a planner needs tool
-  *descriptions* (8,748) but not *parameter schemas* (7,553), because it emits prose, not
+  _descriptions_ (8,748) but not _parameter schemas_ (7,553), because it emits prose, not
   tool calls — so a third of every planning request is JSON Schema that buys nothing.
-  **Accepted, not yet landed:** it changes the proposer layer in `packages/ai-sdk`, which
-  concurrent work in the same session was already editing, and landing two changes to
-  prompt assembly at once regenerates goldens against a moving target.
+  **Already shipped, and the refinement is rejected by the same rule that accepted it**
+  (2026-08-29). `Orchestrator.generateAgentPlan` already sends **no tools at all** — the
+  7,002-token / 30.9 % plan turn is production, not a projection. Re-measured over 706
+  manifests rather than 585: p50 total 19,172, tool definitions 14,939 (77.9 %), request
+  without the tool block 5,187 (27.1 %). Adding the descriptions back is therefore a COST
+  against 7,002, not a saving against 22,671: it lands the plan turn at **15,750 tokens,
+  69.5 % of a main turn**, over the 40 % threshold that admitted the specialist. Not
+  implemented. The real gap it points at — the plan turn is told nothing about the tool
+  surface — has 2,066 tokens of headroom under the rule and tool NAMES cost 339, so a
+  bounded capability digest fits; it is deferred to Phase 2 because its benefit is plan
+  quality and this session cannot measure that (the provider bridge rate-limits), and
+  landing an unmeasurable prompt change to close a task is the failure mode this phase
+  exists to avoid.
 - **media-analysis summarizer — REJECTED.** The footage map is not in the ten largest
   sections at all and `source media` is **240 tokens, 1.1 %** of a request. There is
   nothing to save; a specialist would add a call, a contract and a failure mode for a fifth
@@ -122,7 +154,7 @@ Caps that already existed and were verified rather than added: asset-media
 (`visual_index_concurrency`), render queue (one encode). Duplicate suppression was the
 missing half.
 
-Queue depth being *readable by the sidebar* belongs to Phase 8's "Doing" strip and is
+Queue depth being _readable by the sidebar_ belongs to Phase 8's "Doing" strip and is
 tracked there, not here.
 
 Landed 2026-08-29: `framepilot_engine/singleflight.py` (sync + async in-flight
@@ -158,4 +190,3 @@ and the UC-15 rows in Phase 9.
 `05-after.md`, ADR for the lifecycle registry, `docs/runbooks/ai-run-lifecycle.md` update.
 
 ## Discovered
-

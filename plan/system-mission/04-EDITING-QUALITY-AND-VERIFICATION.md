@@ -15,16 +15,16 @@ implement them, `autonomous-tools.manifest.json` (regenerated), Python mirror
 (generated, P2.3). Each op is a pure planner from (project, evidence, args) → one
 editor-core patch, validated before apply, invertible as a unit:
 
-| Op | Composes | Evidence it needs |
-| --- | --- | --- |
-| `cut_to_beat` | split/trim/ripple on the picture to the grounded beat grid | beat ledger of the placed track (ADR 0157), `hardSync` |
-| `create_hook` | move/trim the strongest line to the head | full transcript + edit signals |
-| `tighten_pacing` | trims + silence removal within a range, target shot length | transcript, silences, reference `medianShotS` if present |
-| `insert_broll` | place a non-overlapping cutaway over a transcript-anchored range (ADR 0140) | transcript anchor, asset roles |
-| `emphasize_word` | caption-emphasis op on matched words | transcript words + caption track |
-| `match_reference_style` | orchestrates shot-length, transitions, grade, caption style from a `ReferenceProfile` | Phase 3 profile |
-| `create_transition` | transition op from the catalog by intent word | transition catalog |
-| `add_motion_graphic` | motion controller lower-third/title with keyframes | text + position intent |
+| Op                      | Composes                                                                              | Evidence it needs                                        |
+| ----------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `cut_to_beat`           | split/trim/ripple on the picture to the grounded beat grid                            | beat ledger of the placed track (ADR 0157), `hardSync`   |
+| `create_hook`           | move/trim the strongest line to the head                                              | full transcript + edit signals                           |
+| `tighten_pacing`        | trims + silence removal within a range, target shot length                            | transcript, silences, reference `medianShotS` if present |
+| `insert_broll`          | place a non-overlapping cutaway over a transcript-anchored range (ADR 0140)           | transcript anchor, asset roles                           |
+| `emphasize_word`        | caption-emphasis op on matched words                                                  | transcript words + caption track                         |
+| `match_reference_style` | orchestrates shot-length, transitions, grade, caption style from a `ReferenceProfile` | Phase 3 profile                                          |
+| `create_transition`     | transition op from the catalog by intent word                                         | transition catalog                                       |
+| `add_motion_graphic`    | motion controller lower-third/title with keyframes                                    | text + position intent                                   |
 
 Each op ships with: table tests over fixtures, a golden patch snapshot, an invert test,
 a skill line in the matching `skills/*.md`.
@@ -111,7 +111,7 @@ committed floor `reports/system-mission/mission-score.json` (tolerance 0.05 — 
 check on a 3-run sample), exits 2 on a regression, `--write` accepts a new floor.
 `pnpm --filter @framepilot/ai-sdk eval:mission` (offline, reads `after-orchestration.json`)
 and `eval:mission:real` (the 3-run harness). Decision: the offline gate scores the
-harness's *recorded outcomes*, not a provider replay — recording provider streams for
+harness's _recorded outcomes_, not a provider replay — recording provider streams for
 minutes-long fixture projects would be hundreds of MB per scenario and drift with every
 prompt edit (the goldens already cover kernel replay).
 
@@ -121,10 +121,23 @@ with every scenario `held`, and lowering one scenario's recorded score by 0.17 m
 exit 2 with `REGRESSION` against that row. Remaining: the CI lane that runs it (P9.3), and
 floor rows for the two scenarios the provider rate-limit still blocks.
 
-## P4.5 — Close — `[ ]`
+## P4.5 — Close — `[~]` (report written; ADR + CHANGELOG remain)
 
 `04-after.md`: per-scenario rubric before/after; skills updated (`editing-skills-expert`);
 ADR for semantic ops as compositions; CHANGELOG.
 
-## Discovered
+Written 2026-08-29: `docs/reports/system-mission/04-after.md` — the nine-turn rubric table
+before → after, reusing the P1.6 measurement rather than re-running it (the provider bridge
+rate-limits; a second run would have measured the bridge). **Nine turns improved, seven went
+from zero operations to a real edit**; the operations column beside the rubric is the check
+that the score is grading an edit and not an opinion. It also records what the phase did not
+close: five of the eight semantic operations are unbuilt (deliberately — beat-sync 0.78 and
+montage 1.00 are reached through the grounded beat grid and the primitive tools, so
+promoting each composition to its own op is a quality case to be argued against those
+numbers), two scenarios have no floor row, and the `wordSafeRange` mid-word fix landed after
+the measured runs and so is unscored.
 
+Remaining for `[x]`: the ADR for semantic ops as compositions and the CHANGELOG entry — both
+outside this change's file scope.
+
+## Discovered

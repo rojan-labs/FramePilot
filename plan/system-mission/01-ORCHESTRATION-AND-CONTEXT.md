@@ -11,15 +11,15 @@
 > the project file — if the existing Memory Store cannot carry it, that is a schema
 > change → `[!]`, ADR + migration first.
 
-The context-management sub-plan already fixed *what the model sees of the footage*. This
-phase is about *how many times it is asked, with what*, and *what it is told instead of
-having to infer*. Everything here is measured by re-running `mission-baseline.mjs`.
+The context-management sub-plan already fixed _what the model sees of the footage_. This
+phase is about _how many times it is asked, with what_, and _what it is told instead of
+having to infer_. Everything here is measured by re-running `mission-baseline.mjs`.
 
 ## P1.1 — Classify every call in the ledger and remove the ones that should not exist — `[~]`
 
 **Input:** the P0.2 call ledger. **Touches:** `kernel/conductor.ts` decisions,
 `kernel/stage-policy.ts`, `orchestrator.ts` turn loop, `kernel/proposers/*`.
-For each ledger row marked *deterministic* / *cache* / *keep-but-shrink*: implement in
+For each ledger row marked _deterministic_ / _cache_ / _keep-but-shrink_: implement in
 code, not prompt. Expected candidates (verify against the ledger, do not assume):
 
 - Analysis re-runs on unchanged assets → serve from the evidence store
@@ -32,6 +32,7 @@ code, not prompt. Expected candidates (verify against the ledger, do not assume)
 Each removal is one commit with the ledger row id in the message.
 
 Landed so far:
+
 - **P1.1a — output room on every agent request** (`orchestrator.ts` `outputRoomFor`,
   `orchestrator.output-room.test.ts`). Root cause of 2/3 failed montage runs and the
   failed smoke run: no `maxTokens` on the wire → bridge default 8,192 → truncated tool
@@ -49,8 +50,8 @@ Landed so far:
   short tool calls now. Ledger: five 8,192-token cut-offs, each retried identically.
 - Goldens (`golden-corpus`, `langchain-anthropic-sessions`, `streamAgent-golden`)
   regenerated after each; the diffs are the measured prompt/request deltas.
-**Done when:** p50 model calls per scenario ≤ baseline − (count of rows classified
-removable) and the P0.3 rubric score is unchanged or higher.
+  **Done when:** p50 model calls per scenario ≤ baseline − (count of rows classified
+  removable) and the P0.3 rubric score is unchanged or higher.
 
 Ledger classified 2026-08-29 — `docs/reports/system-mission/01-call-classification.md`.
 **684 calls, 116 identical repeats (17 %)**, and the shape of them is the finding: the model
@@ -68,8 +69,30 @@ Two rows are not caching problems and are flagged for a look rather than a fix h
 same clip deleted twice — either the first did not land and nothing said so, or it landed
 and the model did not observe it.
 
-Remaining for `[x]`: implementing the read cache and the `delete_*` investigation, both in
-`packages/ai-sdk`.
+Both closed 2026-08-29.
+
+- **The read cache already existed, and the ledger's estimate over-counted.**
+  `kernel/evidence-store.ts` keys a read's payload on `callMemoKey` (tool + exact
+  arguments) and `EvidenceStore.invalidate` drops every `timeline_dependent` entry when an
+  applied patch moves the arrangement — which is what "project revision" means for a read,
+  expressed as the thing that actually moves it. `read-cache.test.ts` pins the pair end to
+  end (repeat served and announced; re-executed after an edit; two different arguments never
+  confused). Re-measuring the runs: **every one of the identical repeats is inside a single
+  turn**, and only **27 of the 66 identical read repeats** have no completed mutation
+  between them. The other 39 are correct re-reads of a timeline that moved, which a
+  `(tool, args, revision)` key excludes by construction. All 27 cacheable ones were already
+  free. Nothing to add; the ~50-call estimate counted repeats no revision key can serve.
+- **The `delete_*` repeats were a bug, not a cache miss.** `assembleEdit` quantizes to the
+  frame grid with _nearest_ rounding, and `delete_clip`/`delete_clips` built their range
+  from the clip's own `start`/`end`. A clip whose `end` sat off the grid had its delete range
+  rounded back INSIDE itself: the clip survived as a sub-frame husk while the tool card
+  reported success, and the husk was then undeletable — its edges round to one frame, so
+  every later attempt assembled a zero-length range and the validator answered
+  `delete_range.end must be greater than start.` **29 of the 48 failed delete calls in the
+  after-runs carry exactly that message**, and the montage run's own `get_timeline` shows
+  the husk it re-deleted four times: `clip_005`, 8 ms wide, at 134.6667–134.6747s. Fixed by
+  flooring the range start and ceiling its end (`domain-tools/timeline.ts`, 4 tests); a clip
+  already on the grid is untouched.
 
 ## P1.2 — Parallelize independent effects — `[~]`
 
@@ -78,6 +101,29 @@ Remaining for `[x]`: implementing the read cache and the `delete_*` investigatio
 same mechanism to independent analysis effects the plan schedules (e.g. `detect_beats` on
 the placed track and `analyze_silence` on the picture) and to per-asset reads. Keep the
 GraphEventQueue ordering contract documented at the top of `agent-graph.ts`.
+
+Closed 2026-08-29 as **already covered, with the measurement that says so.** Independent
+analysis effects are not a missing mechanism: `detect_beats`, `analyze_silence`,
+`detect_scenes`, `describe_footage`, `map_footage`, `find_similar` and the per-asset reads
+are all `pure_read` in `tool-contract.ts`, so the E1 batching in `concurrency.ts` already
+runs consecutive ones against the bounded pool. `analysis-parallel.test.ts` pins it —
+`detect_beats` + `analyze_silence` + `detect_scenes` in one turn overlap (peak in-flight > 1)
+— and pins the bound: a mutation between two reads ends the batch, because the turn's
+speculative working copy is threaded call-to-call and a read hoisted across a mutation would
+answer about a timeline that no longer exists.
+
+The one extension that would go further — warming asset-content analyses across a mutation,
+the way ADR 0150 warms acquisitions — **has no ledger row**. Across the 19 after-run turns
+there are **6** such calls, in 3 turns, and every one is already contiguous: 3 batches
+actual, 3 ideal, 0 splits. The 44 batch splits the runs do show are all
+`get_frame`/`get_clip`-class reads, which are revision-dependent and _must_ not be hoisted.
+Building the warm path would be a mechanism with nothing to run through it, which is the
+thing Phase 5's rule forbids.
+
+`agent-graph.ts`'s contract block now carries the ordering rule as point 4: `GraphEventQueue`
+order is the run's order of INTENT, never of completion — `mapBounded` returns input order
+and `executeToolCalls` folds a batch in original call order, so the observable event sequence
+is byte-identical to serial execution and concurrency changes wall-clock only.
 **Done when:** scenarios with ≥2 independent analyses show wall-time reduction equal to
 the overlap, with call count unchanged.
 
@@ -170,6 +216,7 @@ before/after table. ADR 0158 covers the structured-state block.
 
 **Measured (3 runs each, real sidecar, real media; from
 `reports/system-mission/after-orchestration.json`, which the harness writes incrementally):**
+
 - `podcast-highlight-60s`: 25 → 5 model calls, 804k → 173k prompt tokens, 1200s → 253s,
   $1.54 → $0.32, and 3/3 runs that never completed → 0/3. Cache 0.99 → 1.00.
 - `remove-dead-air`: 0 → 54 operations, rubric 0.25 → 0.75. Still ends `failed` — the
@@ -203,4 +250,3 @@ end. It writes incrementally. The corrected table comes from the real file; the 
 script stays because it is still the right tool for a run killed before any write.
 
 ## Discovered
-
