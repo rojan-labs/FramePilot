@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { Project } from '@framepilot/timeline-schema';
 import { makeProject } from './__fixtures__/project.js';
-import { silenceCutOps, silenceCuts } from './silence-cut.js';
+import { silenceCutOps, silenceCuts, wordSafeRange } from './silence-cut.js';
 
 const snap = (seconds: number): number => Math.round(seconds * 30) / 30;
 
-function projectWithClip(start: number, sourceStart: number, length: number, speed?: number): Project {
+function projectWithClip(
+  start: number,
+  sourceStart: number,
+  length: number,
+  speed?: number,
+): Project {
   const base = makeProject();
   return {
     ...base,
@@ -72,7 +77,53 @@ describe('silenceCutOps', () => {
       ],
     });
     expect(ops.map((o) => (o as { start: number }).start)).toEqual([snap(20.15), snap(5.15)]);
-    expect(ops[0]).toEqual({ type: 'ripple_delete', trackId: 'video_1', start: snap(20.15), end: snap(22.85) });
+    expect(ops[0]).toEqual({
+      type: 'ripple_delete',
+      trackId: 'video_1',
+      start: snap(20.15),
+      end: snap(22.85),
+    });
     expect(removedSeconds).toBeCloseTo(snap(22.85) - snap(20.15) + (snap(6.85) - snap(5.15)), 5);
+  });
+});
+
+describe('wordSafeRange — a cut never opens inside a word (P4.1)', () => {
+  const words = [
+    { start: 1.0, end: 1.4 },
+    { start: 2.0, end: 2.5 },
+    { start: 5.0, end: 5.6 },
+  ];
+
+  it('leaves a cut that already sits in a gap exactly where it is', () => {
+    expect(wordSafeRange(2.6, 4.9, words)).toEqual({ start: 2.6, end: 4.9 });
+  });
+
+  it("moves a start inside a word to that word's end", () => {
+    // silencedetect heard the trailing sibilant of "…ss" as silence.
+    expect(wordSafeRange(2.2, 4.0, words)).toEqual({ start: 2.5, end: 4.0 });
+  });
+
+  it("moves an end inside a word to that word's start", () => {
+    expect(wordSafeRange(3.0, 5.3, words)).toEqual({ start: 3.0, end: 5.0 });
+  });
+
+  it('only ever shrinks the cut — it never eats into speech', () => {
+    const corrected = wordSafeRange(1.2, 5.2, words)!;
+    expect(corrected.start).toBeGreaterThanOrEqual(1.2);
+    expect(corrected.end).toBeLessThanOrEqual(5.2);
+    expect(corrected).toEqual({ start: 1.4, end: 5.0 });
+  });
+
+  it('drops a range that a word swallows entirely', () => {
+    // Wholly inside one word: start → 2.5, end → 2.0, nothing left.
+    expect(wordSafeRange(2.1, 2.4, words)).toBeNull();
+  });
+
+  it('treats a boundary-exact edge as already clean', () => {
+    expect(wordSafeRange(1.4, 2.0, words)).toEqual({ start: 1.4, end: 2.0 });
+  });
+
+  it('is the identity with no transcript', () => {
+    expect(wordSafeRange(1.2, 5.2, [])).toEqual({ start: 1.2, end: 5.2 });
   });
 });

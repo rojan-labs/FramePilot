@@ -41,6 +41,38 @@ export interface SilenceCut {
 
 const EPS = 1e-6;
 
+/**
+ * Pull a cut's edges out of any word they land inside (plan/system-mission P4.1).
+ *
+ * `silencedetect` measures energy, not speech. A trailing sibilant, a soft plosive or a
+ * breath inside a sentence reads as silence, so a cut trimmed only by `keepSeconds` can
+ * still open inside a word — which is exactly the rubric check `no-mid-word-cuts`, and the
+ * one finding the measured dead-air run could not clear (it landed 54 edits and still
+ * scored 0.75).
+ *
+ * The correction can only ever SHRINK the cut: a start inside a word moves to that word's
+ * end, an end inside a word moves to that word's start. It never extends into speech, so
+ * the worst case is that less dead air is removed — never that a word is.
+ *
+ * Times are the asset's own source seconds, which is the domain `project.transcript`
+ * carries and the domain the rubric checks against. Returns `null` when nothing of the
+ * range survives.
+ */
+export function wordSafeRange(
+  start: number,
+  end: number,
+  words: readonly { readonly start: number; readonly end: number }[],
+): { readonly start: number; readonly end: number } | null {
+  let s = start;
+  let e = end;
+  for (const word of words) {
+    // Strictly inside — a cut that begins exactly at a word boundary is already clean.
+    if (s > word.start + EPS && s < word.end - EPS) s = word.end;
+    if (e > word.start + EPS && e < word.end - EPS) e = word.start;
+  }
+  return e - s > EPS ? { start: s, end: e } : null;
+}
+
 function frameSnap(seconds: number, fps: number): number {
   return Math.round(seconds * fps) / fps;
 }
@@ -65,8 +97,12 @@ export function silenceCuts(
       const speed = (clip as { speed?: number }).speed ?? 1;
       if (speed !== 1) continue;
       for (const range of payload.ranges) {
-        const s = Math.max(range.start + options.keepSeconds, clip.sourceStart);
-        const e = Math.min(range.end - options.keepSeconds, clip.sourceEnd);
+        const trimmedStart = Math.max(range.start + options.keepSeconds, clip.sourceStart);
+        const trimmedEnd = Math.min(range.end - options.keepSeconds, clip.sourceEnd);
+        // Never open a cut inside a spoken word, whatever the energy said.
+        const safe = wordSafeRange(trimmedStart, trimmedEnd, project.transcript);
+        if (safe === null) continue;
+        const { start: s, end: e } = safe;
         if (e - s < options.minSilenceSeconds - EPS) continue;
         const start = frameSnap(clip.start + (s - clip.sourceStart), project.fps);
         const end = frameSnap(clip.start + (e - clip.sourceStart), project.fps);

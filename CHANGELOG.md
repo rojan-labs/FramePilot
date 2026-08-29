@@ -102,6 +102,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Removing dead air** no longer cuts inside a word when the silence detector mistakes a soft consonant or a breath for silence.
+
 - **The assistant can compare tracks and still cut to the one it chose.** Ask for a
   beat-synced montage and the assistant will audition a few songs before picking the best —
   which is what you want it to do. It could only remember one of them, and not reliably the

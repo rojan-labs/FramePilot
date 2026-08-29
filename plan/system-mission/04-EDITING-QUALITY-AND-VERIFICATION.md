@@ -37,6 +37,15 @@ tests assert the ripple deletes and the seconds removed). Baseline evidence: 6/6
 remove-dead-air runs died echoing ~110 ranges. Next: `cut_to_beat`, `tighten_pacing`,
 `create_hook`, `insert_broll`, `match_reference_style`.
 
+Landed 2026-08-29 (measurement-driven follow-up): the measured dead-air run landed 54
+edits and still scored 0.75 on `no-mid-word-cuts`. `silencedetect` measures energy, not
+speech, so a trailing sibilant or a soft plosive reads as silence and a cut trimmed only
+by `keepSeconds` can open inside a word. `wordSafeRange` now pulls each cut edge out of
+any word it lands in — a start moves to the word's end, an end to the word's start, so the
+correction can only ever SHRINK the cut and never eat speech; a range a word swallows
+entirely is dropped. 7 tests. This is the finding the bounded verify loop reported and
+could not fix from inside a run, fixed at the source.
+
 ## P4.2 — Reference-driven planning — `[ ]`
 
 **Touches:** proposers' plan prompt + `match_reference_style`. The plan must state which
