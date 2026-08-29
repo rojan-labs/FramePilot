@@ -505,12 +505,19 @@ describe('ExportDialog', () => {
     emit({
       requestId: DEFAULT_REQUEST_ID,
       status: 'failed',
-      result: { ok: false, error: 'black frames detected' },
+      result: {
+        ok: false,
+        error: "The video encoder failed. Open details for the encoder's own message.",
+        detail: 'ffmpeg: Error while opening encoder for output stream #0:0',
+      },
     });
 
     await waitFor(() =>
-      expect(screen.getByRole('alert').textContent).toContain('black frames detected'),
+      expect(screen.getByRole('alert').textContent).toContain('The video encoder failed'),
     );
+    // The raw encoder text is there for whoever needs it, behind a disclosure.
+    expect(screen.getByText('Details')).toBeDefined();
+    expect(screen.getByText(/Error while opening encoder/)).toBeDefined();
   });
 
   it('shows a Cancel export button while queued/running and wires it to exportVideoCancel', async () => {

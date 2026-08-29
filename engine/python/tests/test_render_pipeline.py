@@ -319,3 +319,23 @@ def test_render_reports_progress_through_every_stage(
     fractions = [fraction for _, fraction in seen]
     assert fractions == sorted(fractions)
     assert job.progress == 1.0
+
+
+def test_plain_render_error_keeps_the_sentence_and_hides_the_stderr() -> None:
+    from framepilot_engine.render.pipeline import RenderError, plain_render_error
+
+    assert plain_render_error(RenderError("Render produced an invalid output.")) == (
+        "Render produced an invalid output."
+    )
+    noisy = OSError(
+        "MoviePy error: FFMPEG encountered the following error while writing:\n" + "x" * 900
+    )
+    assert plain_render_error(noisy).startswith("The video encoder failed.")
+    assert plain_render_error(OSError("[Errno 28] No space left on device")).startswith(
+        "The disk is full"
+    )
+    assert plain_render_error(PermissionError("Permission denied: '/out'")).startswith(
+        "FramePilot cannot write"
+    )
+    assert plain_render_error(MemoryError()).startswith("The render ran out of memory")
+    assert plain_render_error(ValueError("first line\nsecond line")) == "first line"

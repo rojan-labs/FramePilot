@@ -52,6 +52,26 @@ describe('exportViaSidecar — /render/preview (unchanged synchronous contract)'
     expect(result).toEqual({ ok: false, error: 'black frames detected' });
   });
 
+  it('carries the raw encoder text as detail behind the plain error line (P7.6)', async () => {
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({
+        state: 'failed',
+        error: "The video encoder failed. Open details for the encoder's own message.",
+        error_detail: 'ffmpeg: Error while opening encoder for output stream #0:0',
+      }),
+    );
+    const result = await exportViaSidecar(
+      BASE,
+      { projectPath: '/p/project.fp.json', preview: true },
+      fetchFn as unknown as typeof fetch,
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: "The video encoder failed. Open details for the encoder's own message.",
+      detail: 'ffmpeg: Error while opening encoder for output stream #0:0',
+    });
+  });
+
   it('maps a non-2xx preview response to an error', async () => {
     const fetchFn = vi.fn(async () => jsonResponse('project not found', false, 400));
     const result = await exportViaSidecar(
@@ -106,7 +126,13 @@ describe('exportViaSidecar — /render (async submit + poll contract, H1.3a)', (
       BASE,
       {
         projectPath: '/p/project.fp.json',
-        settings: { resolution: '1080p', fps: 'source', quality: 'recommended', videoCodec: 'h264', container: 'mp4' },
+        settings: {
+          resolution: '1080p',
+          fps: 'source',
+          quality: 'recommended',
+          videoCodec: 'h264',
+          container: 'mp4',
+        },
         burnCaptions: true,
       },
       fetchFn as unknown as typeof fetch,

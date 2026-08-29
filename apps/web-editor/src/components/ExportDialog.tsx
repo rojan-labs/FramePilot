@@ -242,7 +242,7 @@ type Phase =
    * dismissed that dialog (the render is still safe in `outputPath`).
    */
   | { kind: 'done'; outputPath: string; savedPath: string | null }
-  | { kind: 'error'; message: string };
+  | { kind: 'error'; message: string; detail?: string };
 
 /** The dialog's own file name suggestion — the last path segment of `outputPath`. */
 /** Plain words for the engine's render stages (P7.6). */
@@ -385,7 +385,11 @@ export function ExportDialog({
     (result: ExportResult) => {
       activeRequestId.current = null;
       if (!result.ok) {
-        setPhase({ kind: 'error', message: result.error });
+        setPhase({
+          kind: 'error',
+          message: result.error,
+          ...(result.detail !== undefined ? { detail: result.detail } : {}),
+        });
         return;
       }
       void (async () => {
@@ -555,9 +559,15 @@ export function ExportDialog({
         </p>
       )
     ) : phase.kind === 'error' ? (
-      <p className="export-status export-status--error" role="alert">
-        {phase.message}
-      </p>
+      <div className="export-status export-status--error" role="alert">
+        <p>{phase.message}</p>
+        {phase.detail !== undefined && (
+          <details className="export-error-detail">
+            <summary>Details</summary>
+            <pre>{phase.detail}</pre>
+          </details>
+        )}
+      </div>
     ) : null;
 
   return (

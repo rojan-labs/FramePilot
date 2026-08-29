@@ -133,7 +133,11 @@ with startup latency, wall, CPU/GPU, RSS, intermediates, PSNR, progress accuracy
   cancel/timeout. 2026-08-29 (later): "about Ns left" derived from the measured rate
   after the first representative sample (never shown before 5 % has accrued — no fake
   progress); a per-project "Recent exports" list (last 10, `useViewPreference`) with
-  Reveal per row. Residual: plain-language encoder failure line ("details" for stderr).
+  Reveal per row. A failed render now carries one plain sentence (`plain_render_error`:
+  encoder / disk full / permission / missing source / out of memory) plus the raw cause
+  (`error_detail`, ffmpeg stderr tail) that the dialog shows behind "Details". Residual
+  for `[x]`: the progress-accuracy measurement (< 5 % after the first 10 %) and the
+  cancel-leaves-no-partial-file proof, both in the P7.7 / P9.4 export runs.
 - Measurement (P7.7, first pass, contaminated by a concurrent test run): 30 s 4K→1080p
   94.2 s → 92.6 s with VideoToolbox (ffmpeg CPU 146% → 48%): **the encoder was not the
   bottleneck; MoviePy's per-frame Python compositing is.** P7.5 targets that.

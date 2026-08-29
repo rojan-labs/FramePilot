@@ -122,7 +122,10 @@ class RenderJob(BaseModel):
     state: RenderState = RenderState.QUEUED
     progress: float = Field(default=0.0, ge=0.0, le=1.0)
     output_path: str | None = None
+    #: One plain sentence the editor can act on (P7.6); the raw cause is ``error_detail``.
     error: str | None = None
+    #: The underlying exception text (ffmpeg stderr tail included), for a "details" view.
+    error_detail: str | None = None
     validation: ValidationReport | None = None
     #: The encode target actually used (resolution/fps/codec/bitrate, source cap).
     target: ExportPreset | None = None
@@ -275,9 +278,40 @@ def render(
         job.progress = 1.0
     except Exception as exc:  # any stage failure is reported as a FAILED job, not raised
         job.state = RenderState.FAILED
-        job.error = str(exc)
+        job.error = plain_render_error(exc)
+        job.error_detail = str(exc)[-ERROR_DETAIL_CHARS:]
 
     return job
+
+
+#: How much of the raw cause to keep on the job — enough for the ffmpeg stderr tail.
+ERROR_DETAIL_CHARS = 2000
+
+
+def plain_render_error(exc: BaseException) -> str:
+    """The one line the editor reads when a render fails (P7.6).
+
+    MoviePy and ffmpeg raise with their whole stderr in the message — hundreds of lines
+    of encoder chatter in front of the sentence that matters. The dialog shows this line
+    and keeps the raw text behind "details"; nothing is lost, and nothing is thrown at
+    someone who just wanted to know whether to retry.
+    """
+    if isinstance(exc, RenderError):
+        return str(exc)
+    text = str(exc)
+    lowered = text.lower()
+    if isinstance(exc, MemoryError):
+        return "The render ran out of memory. Try a lower resolution or close other apps."
+    if "no space left" in lowered:
+        return "The disk is full. Free some space and export again."
+    if "permission denied" in lowered:
+        return "FramePilot cannot write the export file. Check the destination folder."
+    if "ffmpeg" in lowered or "encoder" in lowered or "moviepy" in lowered:
+        return "The video encoder failed. Open details for the encoder's own message."
+    if "no such file" in lowered or "not found" in lowered:
+        return "A source file the export needs is missing. Relink it and export again."
+    first_line = text.strip().splitlines()[0] if text.strip() else exc.__class__.__name__
+    return first_line[:200]
 
 
 def _encode(

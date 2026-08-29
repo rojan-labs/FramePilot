@@ -30,6 +30,8 @@ interface RenderJobResponse {
   state?: string;
   output_path?: string | null;
   error?: string | null;
+  /** The raw cause (ffmpeg stderr tail) behind the plain `error` line (P7.6). */
+  error_detail?: string | null;
 }
 
 /** Minimal shape of the sidecar's `202` response from `POST /render`. */
@@ -95,7 +97,14 @@ function toExportResult(
   if (job?.state === 'completed' && job.output_path) {
     return { ok: true, outputPath: job.output_path, state: job.state };
   }
-  return { ok: false, error: job?.error ?? fallbackError };
+  const detail = job?.error_detail;
+  return {
+    ok: false,
+    error: job?.error ?? fallbackError,
+    ...(typeof detail === 'string' && detail.trim() !== '' && detail !== job?.error
+      ? { detail }
+      : {}),
+  };
 }
 
 /** POST the shared render request body to `route` (`/render` or `/render/preview`). */
@@ -146,7 +155,11 @@ async function fetchJobStatus(
 }
 
 /** `POST /render/jobs/{jobId}/cancel` — best-effort; a failure just stops polling anyway. */
-async function cancelRenderJob(baseUrl: string, jobId: string, fetchFn: typeof fetch): Promise<void> {
+async function cancelRenderJob(
+  baseUrl: string,
+  jobId: string,
+  fetchFn: typeof fetch,
+): Promise<void> {
   try {
     await fetchFn(`${baseUrl}/render/jobs/${jobId}/cancel`, { method: 'POST' });
   } catch {
@@ -236,10 +249,12 @@ async function renderFullAsync(
     if (options.signal?.aborted) {
       await cancelRenderJob(baseUrl, jobId, fetchFn);
       const cancelled = await fetchJobStatus(baseUrl, jobId, fetchFn);
-      return reportAndCheckTerminal(cancelled ?? { status: 'cancelled' }) ?? {
-        ok: false,
-        error: 'Export cancelled.',
-      };
+      return (
+        reportAndCheckTerminal(cancelled ?? { status: 'cancelled' }) ?? {
+          ok: false,
+          error: 'Export cancelled.',
+        }
+      );
     }
 
     await sleep(pollIntervalMs);

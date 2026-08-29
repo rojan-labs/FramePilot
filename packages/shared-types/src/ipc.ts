@@ -166,7 +166,8 @@ export interface ExportRequest {
  */
 export type ExportResult =
   | { ok: true; outputPath: string; state: string }
-  | { ok: false; error: string };
+  /** `error` is one plain sentence; `detail` is the encoder's own text, shown on demand. */
+  | { ok: false; error: string; detail?: string };
 
 /**
  * Queue-level status of a submitted (non-preview) render job (H1.3a/H1.3b).
