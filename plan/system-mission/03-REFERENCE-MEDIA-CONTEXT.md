@@ -25,7 +25,7 @@
   (`engine/python/framepilot_engine/brain`, optional TwelveLabs backend), and the
   `MediaProbe`/`VisualEvidence` contracts in `media-evidence.ts`.
 
-## P3.1 — Attach video and image files, with previews — `[~]`
+## P3.1 — Attach video and image files, with previews — `[x]`
 
 **Touches:** `Composer.tsx`, `AiSidebar.tsx`, `apps/desktop/electron/preload.cts` +
 `ipc/` (a `references:pick` dialog channel restricted to media types), `fp-media://`
@@ -36,6 +36,14 @@ the composer; multiple attachments. Files are copied under the project's sandbox
 sandbox does not widen.
 **Done when:** attach three videos and two images, see tiles, remove one, reload — tiles
 persist (session store).
+
+**Closed 2026-08-30.** The done-when is covered by deterministic tests, all green in the
+web-editor suite (2762 passed, 182 files): `AiSidebar.test.tsx` "reference tiles survive a
+reload (P3.1)" attaches exactly the three videos and two images the task names, removes one,
+and asserts the rest come back after a reload — with anything still `analyzing` at save time
+dropped, since an in-flight analysis can only be re-attached; `Composer.test.tsx` covers the
+tile itself (thumbnail, name, duration, role badge), what the AI read from the reference,
+the failed-analysis state with its retry, and "dropping a reference on the composer".
 
 **Update 2026-08-29 (partial, committed as such).** Tiles and drag-and-drop landed:
 `ReferenceTile.tsx` renders the first frame for a video and the image itself for a picture,
@@ -147,6 +155,15 @@ Remaining: role-specific operations beyond pacing (a `brand-logo` is measured an
 explicitly ignored — nothing places an overlay from a reference file yet; likewise the
 grade target and b-roll enrolment), and the UC-06/07 rubric evidence, which needs a
 provider and the maintainer's media.
+
+
+**Half closed 2026-08-30, and the half that is closed is the falsifiable one.** The
+done-when has two clauses. The second — "the model call count for a turn with a reference
+attached is ≤ the same turn without one + 0", i.e. analysis is a sidecar job and never a
+model turn — is pinned by `references/turn-cost.test.ts`, "spends exactly as many model
+calls as the same turn with nothing attached" (46 reference tests green). The first, UC-06
+and UC-07 passing their Phase 4 rubric rows, needs the desktop journey, which is what P3.7
+is waiting on.
 
 ## P3.5 — "Same as the reference" across turns — `[x]`
 
