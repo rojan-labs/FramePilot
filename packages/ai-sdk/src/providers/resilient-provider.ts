@@ -86,15 +86,39 @@ export class ResilientProvider implements AiProvider {
    * optional `signal` is forwarded to the inner provider (so an abort cancels the
    * upstream fetch, not just the caller's await) and to the retry loop (so a
    * cancelled run stops retrying instead of burning attempts in the background).
+   *
+   * The timeout ABORTS the request rather than only racing it. `withConnectTimeout`
+   * alone is a `Promise.race`: the losing promise keeps running, so a timed-out
+   * completion left its fetch in flight and `withRetry` started another — up to three
+   * concurrent, separately billed calls to the same model for one logical request. That
+   * was survivable only while `connectMs` was 0 and the race never fired; arming a real
+   * budget made it live. Combining the caller's signal with a timeout-driven one is the
+   * same shape `stream()` already uses for its idle watchdog just below.
    */
   public async complete(request: AiCompletionRequest, signal?: AbortSignal): Promise<AiResponse> {
     return withRetry(
-      () =>
-        withConnectTimeout(
-          this.inner.complete(request, signal),
-          this.timeouts.connectMs,
-          'connect',
-        ),
+      async () => {
+        const budget = this.timeouts.connectMs;
+        if (budget <= 0) return await this.inner.complete(request, signal);
+        const deadline = new AbortController();
+        const combined = combineSignals(signal, deadline.signal);
+        const handle = setTimeout(() => {
+          deadline.abort(timeoutError('connect', budget));
+        }, budget);
+        try {
+          // Still raced, so the rejection is the typed, RETRYABLE timeout error the
+          // caller expects — an aborted fetch rejects with whatever the transport
+          // chooses, which is not a contract this layer can rely on.
+          return await withConnectTimeout(
+            this.inner.complete(request, combined.signal),
+            budget,
+            'connect',
+          );
+        } finally {
+          clearTimeout(handle);
+          combined.dispose();
+        }
+      },
       {
         policy: this.policy,
         ...(signal ? { signal } : {}),
