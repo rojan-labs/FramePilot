@@ -53,9 +53,7 @@ describe('captionSegmentConfig', () => {
   });
 
   it('defaults to the short-form preset', () => {
-    expect(captionSegmentConfig()).toEqual(
-      CAPTION_SEGMENT_PRESETS[DEFAULT_CAPTION_SEGMENT_PRESET],
-    );
+    expect(captionSegmentConfig()).toEqual(CAPTION_SEGMENT_PRESETS[DEFAULT_CAPTION_SEGMENT_PRESET]);
   });
 
   it('applies overrides over the preset', () => {
@@ -392,9 +390,7 @@ describe('enforceReadingSpeed', () => {
       const hasHoldableBreak = c
         .slice(1)
         .some((word) => word.start - c[0]!.start >= config.minCueSeconds);
-      expect(
-        c.length === 1 || density <= config.maxCharsPerSecond || !hasHoldableBreak,
-      ).toBe(true);
+      expect(c.length === 1 || density <= config.maxCharsPerSecond || !hasHoldableBreak).toBe(true);
     }
   });
 
@@ -440,9 +436,7 @@ describe('coalesceSubFrameCues', () => {
 
   it('leaves cues that start on distinct frames alone', () => {
     const words = speak('one two three four', { wordSeconds: 0.6 });
-    expect(segmentCaptions(words, config, 30).length).toBe(
-      segmentCaptions(words, config).length,
-    );
+    expect(segmentCaptions(words, config, 30).length).toBe(segmentCaptions(words, config).length);
   });
 
   it('emits no cue that quantises to zero length, at any project frame rate', () => {
@@ -459,8 +453,7 @@ describe('coalesceSubFrameCues', () => {
     for (const fps of [24, 25, 29.97, 30, 50, 60]) {
       for (const preset of ['short-form', 'subtitle', 'one-word'] as const) {
         for (const cue of segmentCaptions(words, captionSegmentConfig(preset), fps)) {
-          const frames =
-            secondsToFrame(cue.end, fps) - secondsToFrame(cue.start, fps);
+          const frames = secondsToFrame(cue.end, fps) - secondsToFrame(cue.start, fps);
           expect(frames).toBeGreaterThanOrEqual(1);
         }
       }
@@ -523,10 +516,7 @@ describe('layoutLines', () => {
       maxLines: 2,
       emphasisWords: ['breakthrough'],
     });
-    const text = layoutLines(
-      speak('breakthrough day one breakthrough moment truly here'),
-      config,
-    );
+    const text = layoutLines(speak('breakthrough day one breakthrough moment truly here'), config);
     expect(flat(text)).toBe('breakthrough day one breakthrough moment truly here');
   });
 
@@ -654,9 +644,7 @@ describe('segmentCaptions', () => {
     const words = speak('I shipped it on a Friday. that was a mistake. never again.', {
       wordSeconds: 0.4,
     });
-    const texts = segmentCaptions(words, captionSegmentConfig('subtitle')).map((c) =>
-      flat(c.text),
-    );
+    const texts = segmentCaptions(words, captionSegmentConfig('subtitle')).map((c) => flat(c.text));
     expect(texts).toEqual(['I shipped it on a Friday.', 'that was a mistake.', 'never again.']);
   });
 
@@ -701,9 +689,7 @@ describe('segmentCaptions', () => {
     });
     const config = captionSegmentConfig('short-form', { emphasisWords: ['breakthrough'] });
     const cues = segmentCaptions(words, config);
-    expect(cues.flatMap((cue) => cue.words.map((w) => w.word))).toEqual(
-      words.map((w) => w.word),
-    );
+    expect(cues.flatMap((cue) => cue.words.map((w) => w.word))).toEqual(words.map((w) => w.word));
   });
 
   it('honours the minimum hold even for a single clipped word', () => {

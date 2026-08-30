@@ -166,9 +166,7 @@ export function captionSegmentConfig(
  * one-word register, a couple of words means short-form, and anything longer is
  * reading material and wants subtitle timing.
  */
-export function presetForWordsPerLine(
-  suggestedWordsPerLine: number,
-): CaptionSegmentPresetName {
+export function presetForWordsPerLine(suggestedWordsPerLine: number): CaptionSegmentPresetName {
   if (suggestedWordsPerLine <= 1) return 'one-word';
   return suggestedWordsPerLine >= 7 ? 'subtitle' : 'short-form';
 }
@@ -208,18 +206,85 @@ const ABBREVIATION = /^(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|e\.g|i\.e|fig|approx
  */
 const TRAILING_FUNCTION_WORDS = new Set([
   // Articles and determiners
-  'a', 'an', 'the', 'this', 'that', 'these', 'those', 'my', 'your', 'his',
-  'her', 'its', 'our', 'their', 'some', 'any', 'no', 'every', 'each',
+  'a',
+  'an',
+  'the',
+  'this',
+  'that',
+  'these',
+  'those',
+  'my',
+  'your',
+  'his',
+  'her',
+  'its',
+  'our',
+  'their',
+  'some',
+  'any',
+  'no',
+  'every',
+  'each',
   // Prepositions
-  'of', 'to', 'in', 'on', 'at', 'by', 'for', 'with', 'from', 'into', 'onto',
-  'over', 'under', 'about', 'as', 'than', 'through', 'between', 'against',
+  'of',
+  'to',
+  'in',
+  'on',
+  'at',
+  'by',
+  'for',
+  'with',
+  'from',
+  'into',
+  'onto',
+  'over',
+  'under',
+  'about',
+  'as',
+  'than',
+  'through',
+  'between',
+  'against',
   // Auxiliaries and copulas
-  'is', 'are', 'was', 'were', 'be', 'been', 'being', 'am', 'do', 'does',
-  'did', 'has', 'have', 'had', 'will', 'would', 'can', 'could', 'should',
-  'shall', 'may', 'might', 'must',
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'been',
+  'being',
+  'am',
+  'do',
+  'does',
+  'did',
+  'has',
+  'have',
+  'had',
+  'will',
+  'would',
+  'can',
+  'could',
+  'should',
+  'shall',
+  'may',
+  'might',
+  'must',
   // Coordinators and subordinators
-  'and', 'or', 'but', 'nor', 'so', 'yet', 'if', 'because', 'while', 'when',
-  'which', 'who', 'whom', 'whose', 'not',
+  'and',
+  'or',
+  'but',
+  'nor',
+  'so',
+  'yet',
+  'if',
+  'because',
+  'while',
+  'when',
+  'which',
+  'who',
+  'whom',
+  'whose',
+  'not',
 ]);
 
 /**
@@ -227,9 +292,28 @@ const TRAILING_FUNCTION_WORDS = new Set([
  * the seam where a reader expects a new thought to start.
  */
 const CLAUSE_STARTERS = new Set([
-  'and', 'but', 'or', 'so', 'because', 'although', 'though', 'while', 'when',
-  'if', 'unless', 'until', 'since', 'whereas', 'however', 'therefore', 'then',
-  'that', 'which', 'who', 'after', 'before',
+  'and',
+  'but',
+  'or',
+  'so',
+  'because',
+  'although',
+  'though',
+  'while',
+  'when',
+  'if',
+  'unless',
+  'until',
+  'since',
+  'whereas',
+  'however',
+  'therefore',
+  'then',
+  'that',
+  'which',
+  'who',
+  'after',
+  'before',
 ]);
 
 /** Strip punctuation and case, so "The," and "the" classify the same. */
@@ -383,7 +467,9 @@ const renderedLength = (
 ): number => {
   const emphasized = new Set(emphasisWords);
   return words.reduce((total, word, index) => {
-    const visualWeight = emphasized.has(bareWord(word.word)) ? Math.ceil(word.word.length * 0.45) : 0;
+    const visualWeight = emphasized.has(bareWord(word.word))
+      ? Math.ceil(word.word.length * 0.45)
+      : 0;
     return total + word.word.length + visualWeight + (index > 0 ? 1 : 0);
   }, 0);
 };
@@ -574,7 +660,8 @@ export function layoutLines(
 ): string {
   const tokens = words.map((word) => word.word);
   if (config.maxLines <= 1 || tokens.length < 2) return tokens.join(' ');
-  if (renderedLength(words, config.emphasisWords) <= config.maxCharsPerLine) return tokens.join(' ');
+  if (renderedLength(words, config.emphasisWords) <= config.maxCharsPerLine)
+    return tokens.join(' ');
 
   let bestIndex = 0;
   let bestScore = -Infinity;
@@ -631,9 +718,7 @@ export function enforceTiming(
 
     // Bridge a small gap entirely (no blink); otherwise hold for the minimum.
     const wanted =
-      gap <= config.bridgeGapSeconds
-        ? ceiling
-        : Math.max(spokenEnd, start + config.minCueSeconds);
+      gap <= config.bridgeGapSeconds ? ceiling : Math.max(spokenEnd, start + config.minCueSeconds);
 
     // Never overlap the next cue, and never end before the words finish. Finite
     // even for the last cue: an unbounded `ceiling` only ever widens the `min`.
@@ -675,7 +760,10 @@ export function coalesceSubFrameCues(
   const merged: TranscriptWord[][] = [];
   for (const cue of cues) {
     const open = merged[merged.length - 1];
-    if (open !== undefined && secondsToFrame(open[0]!.start, fps) === secondsToFrame(cue[0]!.start, fps)) {
+    if (
+      open !== undefined &&
+      secondsToFrame(open[0]!.start, fps) === secondsToFrame(cue[0]!.start, fps)
+    ) {
       open.push(...cue);
       continue;
     }
