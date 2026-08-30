@@ -75,13 +75,33 @@ DEPTH_KINDS: dict[AnalysisDepth, tuple[AnalysisKind, ...]] = {
 #: Bump an analyzer's version whenever its output shape or detection behaviour
 #: changes — the version participates in the cache key (plan B1.3), so a bump
 #: invalidates stale cached results instead of silently serving them.
-ANALYZER_VERSIONS: dict[AnalysisKind, int] = {kind: 1 for kind in AnalysisKind}
-#: silence v2 (2026-08-30): the analyzer now measures at a fixed low probe floor and
-#: reports what it found BELOW the reporting threshold (``measuredCount`` /
-#: ``longestSeconds`` / ``belowThresholdSeconds``). A cached v1 row carries none of
-#: those, and an absent measurement reads to the agent as "no dead air" — the exact
-#: confident negative this change exists to remove — so v1 rows must not be served.
-ANALYZER_VERSIONS[AnalysisKind.SILENCE] = 2
+#:
+#: Spelled out one kind at a time rather than derived from a default, so the version
+#: a reader looks up is the version written next to the analyzer's name. (It was a
+#: comprehension with a later override, which meant every lookup read `1` first and
+#: only the bottom of the block revealed which analyzers were not.)
+ANALYZER_VERSIONS: dict[AnalysisKind, int] = {
+    AnalysisKind.PROBE: 1,
+    # v2 (2026-08-30): silence now measures at a fixed low probe floor and reports
+    # what it found BELOW the reporting threshold (``measuredCount`` /
+    # ``longestSeconds`` / ``belowThresholdSeconds``). A cached v1 row carries none
+    # of those, and an absent measurement reads to the agent as "no dead air" — the
+    # exact confident negative this change exists to remove — so v1 must not be served.
+    AnalysisKind.SILENCE: 2,
+    AnalysisKind.SCENES: 1,
+    AnalysisKind.LOUDNESS: 1,
+    AnalysisKind.BLACK: 1,
+    AnalysisKind.BEATS: 1,
+    AnalysisKind.FREEZE: 1,
+    AnalysisKind.TRANSCRIPTION: 1,
+}
+
+# An analyzer missing a version would only surface as a KeyError inside the cache
+# key, at run time, on whichever call first requested that kind. Catch it at import.
+assert set(ANALYZER_VERSIONS) == set(AnalysisKind), (
+    "every AnalysisKind needs an ANALYZER_VERSIONS entry: missing "
+    f"{sorted(set(AnalysisKind) - set(ANALYZER_VERSIONS))}"
+)
 
 
 def kinds_for(
