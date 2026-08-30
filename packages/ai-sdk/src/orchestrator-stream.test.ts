@@ -4091,8 +4091,8 @@ describe('streamAgent host commit verdict', () => {
  * `runAgentCall` wrapped the whole read branch and the whole mutate branch in one catch
  * each, and both answered every throw with `Invalid arguments for "X"` plus
  * `deterministicFailure: true`. But those blocks also contain orchestrator plumbing — the
- * evidence lookup/put/invalidate, `evidencePayload`, `summarizeReadResult`, the wipe guard,
- * `assembleEdit`, `applyProjectPatch`. A defect in any of them was therefore reported to
+ * evidence lookup/put/invalidate, `evidencePayload`, `summarizeReadResult`, `assembleEdit`,
+ * `applyProjectPatch`. A defect in any of them was therefore reported to
  * the model as a mistake in arguments that were fine, AND banked into `seenFailureKeys`, so
  * `repeatedFailureOutcome` refused the tool for the rest of the run with "Retrying it
  * cannot succeed." A transient fault of ours became permanent capability loss.

@@ -920,10 +920,10 @@ several are recent fixes worth confirming by hand.
     timeline consistency only and should be labelled as such.
   - Result: __/__/____ · PASS / FAIL · notes:
 
-- [ ] **18.11 Wipe guard** (negative test)
-  - Do: *"Start over."* / *"Clear the timeline and begin again."*
-  - Expect: a full-track ripple delete is **blocked**; you get a confirmation or a refusal, not a
-    wiped project.
+- [ ] **18.11 Full-track clear is allowed and reversible** (ADR 0166)
+  - Do: *"Clear the video track."* / *"Start over."* — then press undo.
+  - Expect: the clear **applies** (no refusal — the wipe guard was removed because it blocked
+    legitimate edits), and undo restores the timeline exactly as it was.
   - Result: __/__/____ · PASS / FAIL · notes:
 
 - [ ] **18.12 Ask-the-user round trip**

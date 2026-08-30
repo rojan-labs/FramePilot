@@ -247,7 +247,7 @@ Order honors the build rule: engine substrate first, AI layer last.
 
 ### Phase MI6 — Orchestrator grounding (ai-sdk) `[x]`
 - [x] **MI6.1** Tools `search_visual`, `describe_footage`, `index_media` in the
-      canonical registry (+ MCP parity, tool-scope, wipe-guard review).
+      canonical registry (+ MCP parity, tool-scope).
 - [x] **MI6.2** Context-builder visual-status line; honest-unavailable string.
 - [x] **MI6.3** Prompt guidance pass (lead-prompt-engineer): retrieve-before-
       assume for content-dependent decisions; golden orchestrator-stream tests

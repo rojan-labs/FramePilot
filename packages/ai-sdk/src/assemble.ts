@@ -187,7 +187,7 @@ export function describeValidationIssue(
  * Build, normalize, validate, and diff a patch from typed operations.
  *
  * Ordering is deliberate:
- * 1. semantic contract on RAW intent — what the model MEANT (wipe guards, referents);
+ * 1. semantic contract on RAW intent — what the model MEANT (referents, empty ranges);
  * 2. frame quantization;
  * 3. semantic + structural validation on normalized values;
  * 4. canonical project apply + canonical project diff.

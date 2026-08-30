@@ -77,7 +77,7 @@ attempt") · rubric 0.25. `reports/system-mission/smoke.json`.
 | 3 | `detect_scenes` ×7 (serial, 0.15 s each from brain) + `get_transcript` | first look at the footage | **deterministic prefetch** — scene/beat/silence facts for placed assets computed before the first call |
 | 5, 7 | `get_frame` ×5 at 640 px, then ×6 at the same timestamps at 480 px | look at the footage | keep one; **cache** by (time, ≤dimension) — 11 renders ≈ 50 s |
 | 6, 8, 12, 27, 30, 34, 36, 43 | `list_assets` / `get_clips` / `get_clip` | re-read the timeline after every edit | **structured state** — timeline block refreshed per edit; zero calls |
-| 9 | `delete_clips` → "would wipe existing work" | wipe guard refused a rebuild | keep guard; the model then spent 3 requests routing around it |
+| 9 | `delete_clips` → "would wipe existing work" | wipe guard refused a rebuild | ~~keep guard~~; the model then spent 3 requests routing around it — **this row is why the guard was removed on 2026-08-30 (ADR 0166)** |
 | 11, 13, 14, 18, 21 | output hit 8,192 with a partial tool batch (`__partial`) | no `maxTokens` on the wire | **fixed (P1.1a)** — 5 requests, ~7.5 min, ≈$0.60 |
 | 13 ×2, 16 | `trim_clip` "invalid source range", `delete_clips` "end must be greater than start" | timeline-domain times passed as source times; a zero-length clip | contract clarity (Phase 2) + **defect**: degenerate clip (below) |
 | 15, 22, 23, 32, 37, 38, 40 | `recall_evidence` ×7, five of them the same `ev_14` "orientation aspect letterbox" | the asset orientation fact was not in context | **structured state** — asset dimensions/orientation are project facts |

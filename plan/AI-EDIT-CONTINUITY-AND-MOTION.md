@@ -37,7 +37,13 @@
       timeline is the user's work so far (earlier runs and manual edits included);
       CONTINUE from it; never clear a track to rebuild; if the state looks wrong,
       fix the specific clips. (`packages/ai-sdk/src/prompts.ts`)
-- [x] **A2. Wipe guard (deterministic backstop).** New
+> **REMOVED 2026-08-30 — ADR 0166.** A2/A3/A5/A6 below are the historical record of a
+> guard that no longer exists. It refused legitimate user-intended track clears because
+> its reset-intent regex could not enumerate every way an editor asks for one, and the
+> default on no match was refusal. A1's continuity instruction stays; the deterministic
+> refusal is gone, and a full-track clear is now an ordinary reversible operation.
+
+- [x] ~~**A2. Wipe guard (deterministic backstop).**~~ New
       `packages/ai-sdk/src/wipe-guard.ts`:
   - `wipeGuardFor(userPrompt, baseline)` snapshots run-start clip ids per track;
     returns `undefined` (guard off) when the user's own prompt expresses
@@ -66,8 +72,8 @@
 - [ ] A5. Golden transcript test: a two-run conversation fixture where run 2's
       provider tries a full-track ripple_delete and the run must settle with the
       rejection note and a non-destructive follow-up.
-- [ ] A6. Consider surfacing the wipe-guard rejection in the UI as a distinct
-      "protected your timeline" notice (today it renders as a failed tool card).
+- [~] ~~A6. Consider surfacing the wipe-guard rejection in the UI as a distinct
+      "protected your timeline" notice~~ — moot: the guard is removed (ADR 0166).
 
 ---
 
