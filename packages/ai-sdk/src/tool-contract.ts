@@ -118,13 +118,48 @@ export const TOOL_CONTRACT_DECLARATIONS: Readonly<Record<string, ToolContract>> 
     stateDependency: 'project_revision',
     cacheScope: 'none',
   },
+  // `get_frame` and `measure_color` are PICTURE measurements, and `Timeline.revision` is
+  // not a picture counter.
+  //
+  // `applyOperation` (editor-core/operations.ts) bumps the revision only when
+  // `mappingChanged` — i.e. only when clip TIMING moves — because its job is to tell
+  // mapping-derived state (captions above all, ADR 0076) that it needs remapping. A colour
+  // grade, an effect, an opacity/scale keyframe, a `punch_in`, a mask: every one of them
+  // rewrites the picture and leaves the revision exactly where it was.
+  //
+  // So a `project_revision` cacheScope keyed a picture memo on a mapping counter. The
+  // effect runtime's memo (`kernel/effect-runtime.ts#idempotencyKeyFor`) hit on the
+  // unchanged revision, `runAgentCall` read that hit as proof of freshness and re-attached
+  // the STORED image as the current frame, and the model reasoned about the pre-grade
+  // picture — on the exact call it had made to verify the grade. `measure_color` is the
+  // same defect with the same trigger: apply a grade, re-measure, get the old numbers.
+  //
+  // Not fixed by threading a run-scoped edit counter instead. The obvious candidate,
+  // `cumulativeOps.length`, is not monotonic — `reconcileHostVerdicts` splices it when the
+  // host refuses a patch, so one key value can denote two different timelines inside one
+  // run — and a correct counter would still be a SECOND cache running beside the
+  // EvidenceStore on its own staleness rules, which is the structure that produced this
+  // bug. The EvidenceStore already splits picture from structure and drops the picture
+  // facet on any picture-changing op; one authority is the fix.
+  //
+  // The cost is a re-render (~1.2s) when a run asks for the identical frame twice with no
+  // edit between. That is the correct thing to pay: the image is the one part of the answer
+  // that must be current.
   get_frame: {
     executionPlane: 'host',
     effectClass: 'pure_read',
     permissions: ['analysis'],
     concurrency: 'parallel',
     stateDependency: 'project_revision',
-    cacheScope: 'project_revision',
+    cacheScope: 'none',
+  },
+  measure_color: {
+    executionPlane: 'host',
+    effectClass: 'pure_read',
+    permissions: ['analysis'],
+    concurrency: 'parallel',
+    stateDependency: 'project_revision',
+    cacheScope: 'none',
   },
   render_preview: {
     executionPlane: 'host',

@@ -32,16 +32,23 @@ describe('first-class tool execution contracts', () => {
     });
   });
 
-  it('scopes get_frame to the current project revision', () => {
-    expect(contract('get_frame')).toEqual({
-      executionPlane: 'host',
-      effectClass: 'pure_read',
-      permissions: ['analysis'],
-      concurrency: 'parallel',
-      stateDependency: 'project_revision',
-      cacheScope: 'project_revision',
-    });
-  });
+  it.each(['get_frame', 'measure_color'])(
+    'ties %s to the current project revision but never memoizes it',
+    (name) => {
+      // `stateDependency` and `cacheScope` say different things here, deliberately. The
+      // result DEPENDS on the timeline, but `Timeline.revision` is a mapping counter that
+      // stands still through every picture-only edit, so it cannot be used as the memo
+      // key for a picture measurement — see the declaration's own note.
+      expect(contract(name)).toEqual({
+        executionPlane: 'host',
+        effectClass: 'pure_read',
+        permissions: ['analysis'],
+        concurrency: 'parallel',
+        stateDependency: 'project_revision',
+        cacheScope: 'none',
+      });
+    },
+  );
 
   it('never caches export actions', () => {
     expect(contract('export_video')).toMatchObject({

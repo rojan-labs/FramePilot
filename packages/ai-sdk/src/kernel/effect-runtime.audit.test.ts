@@ -15,10 +15,19 @@ const project = {
 
 const provider = { name: 'unused-host-test-provider' } as AiProvider;
 
+/**
+ * The exemplar CACHEABLE project-dependent host read.
+ *
+ * Was `get_frame`, which no longer qualifies: a picture memo cannot be keyed on
+ * `Timeline.revision`, because that counter tracks the source↔sequence mapping and stands
+ * still through every picture-only edit (see `tool-contract.ts`'s declaration). These tests
+ * are about the RUNTIME's memo semantics, not about frames, so they now stand on
+ * `search_media` — still `cacheScope: 'project_revision'`, and legitimately so.
+ */
 const hostEffect = (
   idempotencyKey?: string,
-  name = 'get_frame',
-  arguments_: Readonly<Record<string, unknown>> = { timeSeconds: 1 },
+  name = 'search_media',
+  arguments_: Readonly<Record<string, unknown>> = { query: 'b-roll' },
 ): HostToolEffect => ({
   kind: 'host_tool',
   call: { id: 'host-call', name, arguments: arguments_ },

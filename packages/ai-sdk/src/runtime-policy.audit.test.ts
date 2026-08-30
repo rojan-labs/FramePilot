@@ -116,3 +116,74 @@ describe('assembly boundaries', () => {
     expect(result.patch.operations[0]).toMatchObject({ durationSeconds: 1 / 30 });
   });
 });
+
+/**
+ * A picture memo must not be keyed on a MAPPING counter (P1-1).
+ *
+ * `applyOperation` bumps `Timeline.revision` only when clip timing moves, because its job
+ * is to tell mapping-derived state (captions, ADR 0076) to remap. Every picture-only edit
+ * — grade, effect, keyframe, punch-in, mask — leaves it standing still. `get_frame` and
+ * `measure_color` used to declare `cacheScope: 'project_revision'`, so the effect memo hit
+ * across exactly the edits those two tools exist to verify and replayed the pre-edit
+ * picture as the current one.
+ */
+describe('picture reads are never memoized across a picture-only edit', () => {
+  const graded = (source: Project): Project => {
+    const clipId = source.timeline.tracks[0]!.clips[0]!.id;
+    const ops: AnyOperation[] = [
+      {
+        type: 'apply_color_grade',
+        clipId,
+        effect: {
+          id: `grade_${clipId}`,
+          type: 'color_grade',
+          params: { saturation: 1.4 },
+          keyframes: [],
+        },
+      } as unknown as AnyOperation,
+    ];
+    const { patch, validation, diff } = assembleEdit(source, ops, 'grade');
+    expect(validation.valid).toBe(true);
+    expect(patch.operations).toHaveLength(1);
+    return { ...source, timeline: diff!.after };
+  };
+
+  it('leaves the timeline revision untouched when only the picture changed', () => {
+    const before = project();
+    const after = graded(before);
+    // The root cause, pinned: the counter the old cache key carried does not move here,
+    // so the pre-grade and post-grade keys were byte-identical.
+    expect(after.timeline.revision).toBe(before.timeline.revision);
+    expect(after.timeline.tracks[0]!.clips[0]!.effects).toHaveLength(1);
+  });
+
+  it.each(['get_frame', 'measure_color'])('%s declares no cache scope at all', (name) => {
+    const tool = getTool(name);
+    expect(tool, `${name} must still be a registered tool`).toBeDefined();
+    expect(toolContract(tool!).cacheScope).toBe('none');
+  });
+
+  it.each([
+    { name: 'get_frame', args: { timeSeconds: 2 } },
+    { name: 'measure_color', args: { clipId: 'clip-a' } },
+  ])('produces no memo key for $name, before or after a grade', ({ name, args }) => {
+    const before = project();
+    const effectFor = (source: Project): HostToolEffect =>
+      ({ kind: 'host_tool', call: { id: 'c', name, arguments: args }, project: source }) as
+        HostToolEffect;
+    // No key ⇒ `runEffect` never consults or populates the memo, so the frame/measurement
+    // is taken against the timeline as it is now rather than replayed from a stale one.
+    expect(idempotencyKeyFor(effectFor(before))).toBeUndefined();
+    expect(idempotencyKeyFor(effectFor(graded(before)))).toBeUndefined();
+  });
+
+  it('still memoizes a read whose contract genuinely permits a replay', () => {
+    // Guard that the fix is targeted, not a blanket disabling of the host memo.
+    const effect = {
+      kind: 'host_tool',
+      call: { id: 'c', name: 'detect_scenes', arguments: { assetId: 'asset-1' } },
+      project: project(),
+    } as HostToolEffect;
+    expect(idempotencyKeyFor(effect)).toBeDefined();
+  });
+});

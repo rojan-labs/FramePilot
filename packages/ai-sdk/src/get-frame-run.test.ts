@@ -171,12 +171,25 @@ describe('get_frame through a question run', () => {
     expect(blind.agentTools('question').map((t) => t.name)).not.toContain('get_frame');
   });
 
-  it('re-attaches the picture when the memo answers a repeated look', async () => {
-    // The memo key for get_frame carries the timeline REVISION, so a hit proves the frame
-    // still shows the timeline as it is now. Frames ride one request and are then stripped,
-    // so a replay that dropped the picture left the model with no image and a note telling
-    // it to answer from one it had been shown two turns ago — which is how the captured run
-    // produced a confident, wrong reading of its own framing.
+  it('renders a fresh picture for a repeated look instead of replaying a memo', async () => {
+    // This used to assert the opposite: that the memo answered the repeat, on the grounds
+    // that `get_frame`'s key carried the timeline REVISION and so a hit proved the picture
+    // was current. It did not. `applyOperation` bumps the revision only when clip TIMING
+    // moves, so a grade, an effect, a keyframe or a punch-in left the key untouched and the
+    // memo replayed a pre-edit frame at exactly the call made to verify the edit
+    // (tool-contract.ts, `cacheScope: 'none'`).
+    //
+    // What the run actually needs is preserved, and is what this pins: a look always ends
+    // with a REAL picture on the next request. Frames ride one request and are then
+    // stripped, so a second look with no image is how the captured run ended up reasoning
+    // confidently about framing it could not see.
+    const rendered: number[] = [];
+    const countingExecutor: HostToolExecutor = {
+      async run(call): Promise<HostToolOutcome> {
+        rendered.push(rendered.length);
+        return notedFrameExecutor.run(call);
+      },
+    };
     const provider = new ScriptedProvider([
       {
         text: 'Looking.',
@@ -188,19 +201,19 @@ describe('get_frame through a question run', () => {
       },
       { text: 'All good. Done.' },
     ]);
-    const orchestrator = new Orchestrator(provider, { executor: notedFrameExecutor });
-    // `get_frame` is memoized per project REVISION, so the run memo can only answer the
-    // repeat when the timeline names one (see `idempotencyKeyFor`).
+    const orchestrator = new Orchestrator(provider, { executor: countingExecutor });
+    // `versioned` names a revision, which is what the old memo key needed to hit at all.
     await drainChat(orchestrator, versioned);
 
-    // Both the fresh look and the replay carry the picture.
+    // Both looks carry a picture, and the second one was actually taken.
     expect(imagesIn(provider.requests[1]!)).toEqual([FRAME_BASE64]);
     expect(imagesIn(provider.requests[2]!)).toEqual([FRAME_BASE64]);
-    // The replay says it is served from the memo, and its attachment claim is TRUE again.
+    expect(rendered).toHaveLength(2);
     const replayNote = provider.requests[2]!.messages.filter((m) => m.role === 'tool').at(
       -1,
     )!.content;
-    expect(replayNote).toContain('(cached)');
+    // Never announced as a memo hit — nothing was replayed.
+    expect(replayNote).not.toContain('(cached)');
     // P1.1 gave get_frame a digest, so the facts read as prose rather than as a JSON
     // preview — the claim that matters is still that the note describes the attached frame.
     expect(replayNote).toContain('frame at 2s');

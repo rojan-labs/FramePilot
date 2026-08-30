@@ -3931,13 +3931,19 @@ export class Orchestrator {
       // summary text — the summary can be data-derived ("No silent ranges") and would
       // otherwise read as a freshly fabricated result rather than a served-from-cache one.
       const base = runtimeCached ? desc : outcome.summary;
-      // A CACHED REPLAY RE-ATTACHES ITS PICTURE. The memo key for an image-bearing read
-      // carries the timeline revision (`idempotencyKeyFor`'s `project_revision` scope), so a
-      // hit is proof the timeline has not moved since the frame was rendered — the stored
-      // picture IS the current one, and the "a frame is only worth looking at as the
-      // timeline is now" objection cannot apply to a hit by construction.
+      // A CACHED REPLAY RE-ATTACHES ITS PICTURE, and the freshness of that picture is now
+      // the CONTRACT's problem, not this line's.
       //
-      // Dropping it was the more expensive mistake. Frames ride ONE request and are then
+      // This used to argue that a hit proves the picture is current, because the memo key
+      // carries `timeline.revision`. It does not: the revision tracks the source↔sequence
+      // MAPPING and stands still through every picture-only edit (grade, effect, keyframe,
+      // punch-in, mask), so the memo happily replayed a pre-grade frame at the call made to
+      // check the grade. `get_frame` and `measure_color` therefore declare
+      // `cacheScope: 'none'` (tool-contract.ts) and never reach this branch at all.
+      //
+      // What survives here are the reads whose contract genuinely permits a replay. For
+      // those the re-attach is still right, and dropping it was the more expensive mistake.
+      // Frames ride ONE request and are then
       // stripped from the transcript, so from the turn after a look the model has no image
       // and no way to get one: the replay told it "you were shown this, answer from what you
       // saw" about a picture that had already left its context, and said asking again was
