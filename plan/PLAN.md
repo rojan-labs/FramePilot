@@ -112,7 +112,44 @@ contaminated one. Same load, same estimator: **11.8x, 13.5x, 14.8x, 16.3x**, all
 exists to catch a change in shape (the version it was written against measured 67x), not to
 police millisecond drift. ai-sdk coverage gate still green (3687 pass, 94.46%).
 
-**Last updated:** 2026-08-28
+**Last updated:** 2026-08-30
+
+**Status snapshot (2026-08-30, runs `2d0b0395` / `145ec3f3` — the talking-head mission):**
+Two runs of the same end-to-end "cut my talking-head footage" prompt (`run.md`, `run1.md` at
+the repo root). One was **cancelled** by the editor after 36 model calls / 354,707 tokens
+produced almost no edit; the other **failed** on a provider key limit after 33 model calls /
+402,506 tokens and 315 applied edits, with the editor's own verdict: *"no proper caption
+handling creative way with emphasis / and also the background music is so loud that my actual
+voice is not audible."* Three root causes are `[x]` fixed at source (PR #67):
+
+- `[x]` **Captioning had no bulk path.** 107 `add_caption_layer` calls for one 47 s video,
+  hand-segmenting ~35 cues and being rejected mid-run for >12-word spans and cues crossing a
+  cut; then a later cut made every cue stale and the only repair was to delete all 106 and
+  re-add them (190 more ops). `deriveCaptionCues` in editor-core already did all of this
+  correctly and idempotently — **only the web-editor UI could reach it.** New
+  `caption_the_edit` exposes it: one call captions the edit, and re-running it *is* the
+  repair path for what `verify_captions` reports. Measured: **107 tool calls → 1**, at
+  +369 tokens/request of tool description (17,795 → 18,164, read off the regenerated
+  goldens).
+- `[x]` **Emphasis could not name a phrase.** `auto_emphasize_captions` grounded keywords
+  against a *bag* of single spoken words and both renderers matched one bare token at a
+  time, so `"stop scrolling"` — plainly spoken — folded to `stopscrolling` and was rejected.
+  The model asked twice across two turns and was refused both times by a rule it could not
+  satisfy. Now grounded and rendered as a consecutive run over word ORDER, in parity across
+  all three sites (ai-sdk grounding, `accentRunIndices`, `_accent_indices`) per the
+  `captionStyle.ts` ↔ `captions.py` contract. +38 tokens/request.
+- `[x]` **The preview mixer lied about the mix.** It played every clip at flat gain, so a bed
+  authored *with* a duck was loudest exactly where the render is quietest — that is the
+  "music is drowning my voice" complaint, about a mix the render already had right. The agent
+  then cut the bed's clip gain to -16 dB: a destructive edit stacked on a working duck. A
+  monitor that lies does not just mislead the person, it teaches the agent to damage the
+  edit. `previewClipVolume` now samples the engine's own envelope (`fade_gain_at` ×
+  `duck_gain_at`, ramp included); tests assert the engine's own numbers to 9 dp.
+
+Open from the same runs, **not** addressed here: the orchestration spin in `145ec3f3`
+(13 `recall_evidence`, 9 `get_project`, 6+6 timeline reads, four "that last look turned up
+nothing new" notices before the editor gave up), and the fact that a retryable provider 403
+ended a run holding 315 applied edits.
 
 **Status snapshot (2026-08-28, run `bfb5c75b` memory spike):** `[x]` **Sourced assets were
 throwing away the proxy the engine had just built for them.** A 50+ clip nature montage
