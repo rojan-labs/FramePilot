@@ -4,6 +4,9 @@
  * time: a param the shader never receives, a direction the kind ignores, an id
  * that silently stopped matching what is stored in existing project files.
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   ALL_TRANSITION_PARAM_NAMES,
@@ -256,5 +259,34 @@ describe('transition params', () => {
   it('collects every param name for the validator', () => {
     expect(ALL_TRANSITION_PARAM_NAMES.has('blockPx')).toBe(true);
     expect(ALL_TRANSITION_PARAM_NAMES.has('nonsense')).toBe(false);
+  });
+});
+
+describe('committed schema/transition-catalog.json (cross-language contract)', () => {
+  // `test_transition_catalog.py` compares the engine's copy to this committed
+  // artifact — both of them generated. Without this assertion nothing tied
+  // either one back to the TypeScript source, so a catalog edit without
+  // `schema:generate` shipped a transition the preview knows and the export
+  // does not: the exact "previews as one thing, exports as another" failure the
+  // engine-side test exists to prevent, arriving through the door it left open.
+  it('matches the TS source (run `schema:generate` after editing the catalog or its params)', () => {
+    const committed = JSON.parse(
+      readFileSync(
+        path.join(
+          path.dirname(fileURLToPath(import.meta.url)),
+          '..',
+          'schema',
+          'transition-catalog.json',
+        ),
+        'utf-8',
+      ),
+    ) as unknown;
+    expect({
+      categories: TRANSITION_CATEGORIES,
+      params: TRANSITION_PARAMS,
+      directions: TRANSITION_DIRECTIONS,
+      applyPath: TRANSITION_APPLY_PATH,
+      transitions: TRANSITION_CATALOG,
+    }).toEqual(committed);
   });
 });

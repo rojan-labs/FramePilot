@@ -7,6 +7,9 @@
  * render for a param no shader reads — both are silent visual bugs rather than
  * crashes, which is exactly why they are asserted here.
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   EFFECT_CATALOG,
@@ -411,5 +414,33 @@ describe('activeEffectLayersAt', () => {
   it('ignores clip-bearing tracks that carry no effect layers', () => {
     const video = TrackSchema.parse({ id: 'v1', type: 'video', clips: [] });
     expect(activeEffectLayersAt(timelineOf(video), 1)).toEqual([]);
+  });
+});
+
+describe('committed schema/effect-catalog.json (cross-language contract)', () => {
+  // The engine renders from its own copy of this catalog, and
+  // `test_effect_catalog.py` only proves that copy is byte-identical to the
+  // committed artifact — two generated files agreeing with each other. Nothing
+  // pinned the TypeScript source they are BOTH generated from, so editing
+  // `effect-catalog.ts` or `effect-params.ts` and forgetting `schema:generate`
+  // left the whole suite green while the Inspector offered an effect the render
+  // passes had never heard of.
+  it('matches the TS source (run `schema:generate` after editing the catalog or its params)', () => {
+    const committed = JSON.parse(
+      readFileSync(
+        path.join(
+          path.dirname(fileURLToPath(import.meta.url)),
+          '..',
+          'schema',
+          'effect-catalog.json',
+        ),
+        'utf-8',
+      ),
+    ) as unknown;
+    expect({
+      categories: EFFECT_CATEGORIES,
+      params: EFFECT_PARAMS,
+      effects: EFFECT_CATALOG,
+    }).toEqual(committed);
   });
 });
