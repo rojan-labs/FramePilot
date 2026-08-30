@@ -15,7 +15,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@framepilot/ui';
 import type { UseEditor } from '../editor/useEditor.js';
 import type { EditMode } from '../editor/useEditMode.js';
-import type { Tool } from '../editor/shortcuts.js';
+import { hintFor, type Tool } from '../editor/shortcuts.js';
 import { Tooltip, TooltipInfo } from './Tooltip.js';
 import { Menu, MenuItem } from './Menu.js';
 import {
@@ -155,7 +155,7 @@ export function Toolbar({
               timeline.
             </TooltipInfo>
           }
-          shortcut="A"
+          shortcut={hintFor('tool.select')}
         >
           <Button
             variant="ghost"
@@ -176,7 +176,7 @@ export function Toolbar({
               until you switch back to Selection.
             </TooltipInfo>
           }
-          shortcut="B"
+          shortcut={hintFor('tool.blade')}
         >
           <Button
             variant="ghost"
@@ -264,7 +264,7 @@ export function Toolbar({
                   you can edit or remove just one part.
                 </TooltipInfo>
               }
-              shortcut="S"
+              shortcut={hintFor('edit.split')}
             >
               <Button
                 variant="ghost"
@@ -284,7 +284,7 @@ export function Toolbar({
                   Ripple delete if you want the gap closed automatically.
                 </TooltipInfo>
               }
-              shortcut="Del"
+              shortcut={hintFor('edit.delete')}
             >
               <Button
                 variant="ghost"
@@ -304,7 +304,7 @@ export function Toolbar({
                   gap, so your timeline stays continuous.
                 </TooltipInfo>
               }
-              shortcut="⇧Del"
+              shortcut={hintFor('edit.ripple')}
             >
               <Button
                 variant="ghost"
@@ -323,7 +323,7 @@ export function Toolbar({
                   Places a copy of the selected clip right after it on the same track.
                 </TooltipInfo>
               }
-              shortcut="⌘D"
+              shortcut={hintFor('edit.duplicate')}
             >
               <Button
                 variant="ghost"
@@ -367,7 +367,7 @@ export function Toolbar({
                     useful for flagging a spot to revisit.
                   </TooltipInfo>
                 }
-                shortcut="M"
+                shortcut={hintFor('marker.toggle')}
               >
                 <Button
                   variant="ghost"
@@ -438,7 +438,7 @@ export function Toolbar({
               history.
             </TooltipInfo>
           }
-          shortcut="⌘Z"
+          shortcut={hintFor('history.undo')}
         >
           <Button
             variant="ghost"
@@ -453,7 +453,7 @@ export function Toolbar({
         </Tooltip>
         <Tooltip
           label={<TooltipInfo term="Redo">Re-applies an edit you just undid.</TooltipInfo>}
-          shortcut="⌘⇧Z"
+          shortcut={hintFor('history.redo')}
         >
           <Button
             variant="ghost"
@@ -477,7 +477,7 @@ export function Toolbar({
                 playhead. Hold Alt to invert this for one gesture.
               </TooltipInfo>
             }
-            shortcut="N"
+            shortcut={hintFor('view.snapToggle')}
           >
             <button
               type="button"
@@ -497,7 +497,7 @@ export function Toolbar({
               at once.
             </TooltipInfo>
           }
-          shortcut="⇧Z"
+          shortcut={hintFor('view.zoomFit')}
         >
           <button
             type="button"

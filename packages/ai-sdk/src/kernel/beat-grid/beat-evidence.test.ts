@@ -317,3 +317,39 @@ describe('resolveBeatGrid', () => {
     });
   });
 });
+
+describe('readOnsetTimes prefers beats over transients', () => {
+  it('keeps the on-grid onsets and drops the off-beat ones', () => {
+    // The mission fixture's shape: a 0.6 s click mixed with a 1.0 s beep. Both are
+    // real events, so the detector is right to report both — but a montage cut on a
+    // beep is off the beat, and before the engine distinguished them every caller
+    // treated the whole list as a cut grid.
+    const payload = {
+      assetId: 'music',
+      beats: [
+        { time: 0, strength: 1, on_grid: true },
+        { time: 0.6, strength: 1, on_grid: true },
+        { time: 1.0, strength: 1, on_grid: false },
+        { time: 1.2, strength: 1, on_grid: true },
+        { time: 2.0, strength: 1, on_grid: false },
+      ],
+    };
+    expect(readOnsetTimes(payload)).toEqual([0, 0.6, 1.2]);
+  });
+
+  it('falls back to every onset when nothing is marked', () => {
+    // An older sidecar, or a track whose tempo is not derivable. Returning an empty
+    // grid there would silently disable beat alignment; the previous behaviour —
+    // every onset — is the right thing to fall back to.
+    const payload = { assetId: 'music', beats: [{ time: 0.5 }, { time: 1.5 }] };
+    expect(readOnsetTimes(payload)).toEqual([0.5, 1.5]);
+  });
+
+  it('keeps an onset that is explicitly on the grid alongside unmarked ones', () => {
+    const payload = {
+      assetId: 'music',
+      beats: [{ time: 0.5, on_grid: true }, { time: 1.5 }, { time: 2.5, on_grid: false }],
+    };
+    expect(readOnsetTimes(payload)).toEqual([0.5, 1.5]);
+  });
+});

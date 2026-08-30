@@ -64,6 +64,25 @@ export function TransitionPicker({
   const reducedMotion = usePrefersReducedMotion();
   const [activeId, setActiveId] = useState<string | null>(null);
 
+  // Restore focus to whatever opened the picker, and only that. NOT a focus trap:
+  // this is a popover that dismisses on an outside press, so trapping Tab inside
+  // it would fight its own dismissal contract. The search field autofocuses on
+  // mount already; what was missing was the way back — closing it dropped focus at
+  // the top of the document, which for a picker opened from the clip menu meant
+  // losing the timeline entirely.
+  // Captured during the FIRST RENDER, not in the effect: the search field below
+  // carries `autoFocus`, which lands before effects run, so an effect would
+  // capture the picker's own input as "the opener" and restore nothing.
+  const openerRef = useRef<Element | null>(null);
+  if (openerRef.current === null) openerRef.current = document.activeElement;
+  useEffect(
+    () => () => {
+      const opener = openerRef.current;
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+    },
+    [],
+  );
+
   useEffect(() => {
     const onDown = (event: PointerEvent): void => {
       if (!ref.current?.contains(event.target as Node)) onClose();

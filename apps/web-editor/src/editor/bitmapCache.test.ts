@@ -5,7 +5,12 @@
  * load/error on its own, so the tests drive it explicitly.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { bitmapCacheSize, clearBitmapCache, getFrameBitmap } from './bitmapCache.js';
+import {
+  MAX_DECODED_BITMAPS,
+  bitmapCacheSize,
+  clearBitmapCache,
+  getFrameBitmap,
+} from './bitmapCache.js';
 
 /** Install an Image stub whose load/error we control; returns created instances. */
 function stubImage(): Array<{ src: string; fireLoad: () => void; fireError: () => void }> {
@@ -74,5 +79,51 @@ describe('getFrameBitmap', () => {
     getFrameBitmap('b');
     expect(instances).toHaveLength(2);
     expect(bitmapCacheSize()).toBe(2);
+  });
+
+  it('stops growing at the bound, closing the bitmap it evicts (plan P6.2)', async () => {
+    const instances = stubImage();
+    const closed: string[] = [];
+    // `createImageBitmap` is what turns a loaded image into the GPU-backed handle the
+    // eviction hook has to release; jsdom has none, so the decode path gets one here.
+    vi.stubGlobal('createImageBitmap', (image: { src: string }) =>
+      Promise.resolve({ close: () => closed.push(image.src), width: 160, height: 90 }),
+    );
+
+    const pending: Array<Promise<unknown>> = [];
+    for (let i = 0; i <= MAX_DECODED_BITMAPS; i += 1) {
+      pending.push(getFrameBitmap(`frame-${i}.jpg`));
+      instances[i]!.fireLoad();
+    }
+    await Promise.all(pending);
+
+    expect(bitmapCacheSize()).toBe(MAX_DECODED_BITMAPS);
+    // The oldest source is the one that goes, and its decoded pixels are released
+    // immediately rather than waiting on a GC that never sees GPU memory.
+    expect(closed).toEqual(['frame-0.jpg']);
+  });
+
+  it('is empty and fully released after a project close (plan P6.2)', async () => {
+    const instances = stubImage();
+    const closed: string[] = [];
+    vi.stubGlobal('createImageBitmap', (image: { src: string }) =>
+      Promise.resolve({ close: () => closed.push(image.src), width: 160, height: 90 }),
+    );
+
+    const a = getFrameBitmap('a.jpg');
+    instances[0]!.fireLoad();
+    const b = getFrameBitmap('b.jpg');
+    instances[1]!.fireLoad();
+    await Promise.all([a, b]);
+    expect(bitmapCacheSize()).toBe(2);
+
+    clearBitmapCache();
+    // `clear()` runs the eviction hook per entry, so the close is asynchronous —
+    // the promise it awaits has already resolved, one microtask is enough.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(bitmapCacheSize()).toBe(0);
+    expect(closed.sort()).toEqual(['a.jpg', 'b.jpg']);
   });
 });

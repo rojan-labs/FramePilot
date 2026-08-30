@@ -62,6 +62,7 @@ import {
   subscribeTranscriptionJobs,
 } from '../editor/transcriptionJobs.js';
 import { useSettings } from '../editor/useSettings.js';
+import { useModalFocusTrap } from './ai/useModalFocusTrap.js';
 
 const log = createLogger('web-editor:transcription-panel');
 
@@ -348,6 +349,12 @@ export function TranscriptionPanel({
     }
   }, []);
 
+  // The panel dims and blocks the app behind it, so it is modal in fact — it just
+  // never said so. Without the trap, Tab walks out under the backdrop onto controls
+  // the user cannot see; without `aria-modal`, a screen reader never learns the rest
+  // of the page is out of play.
+  const panelRef = useModalFocusTrap<HTMLElement>(open);
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -434,10 +441,7 @@ export function TranscriptionPanel({
       const issues = editor.applyPatchChecked(setTranscriptPatch(result.assetId, result.words));
       if (issues.length > 0) {
         await settleTranscriptionWait(startedAt);
-        failTranscriptionJob(
-          asset.id,
-          issues.map((issue) => issue.message).join(' '),
-        );
+        failTranscriptionJob(asset.id, issues.map((issue) => issue.message).join(' '));
         return;
       }
       log.action('transcribed clip', { assetId: asset.id, words: result.words.length });
@@ -455,7 +459,14 @@ export function TranscriptionPanel({
   return (
     <>
       <div className="understanding-backdrop" onClick={onClose} aria-hidden="true" />
-      <aside className="understanding-panel" role="dialog" aria-label="Transcription">
+      <aside
+        ref={panelRef}
+        className="understanding-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Transcription"
+        tabIndex={-1}
+      >
         <header className="understanding-head">
           <div className="understanding-title-group">
             <h2 className="understanding-title">

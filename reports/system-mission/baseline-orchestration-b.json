@@ -1,0 +1,3721 @@
+{
+  "label": "baseline",
+  "generatedAt": "2026-08-29T03:54:22.268Z",
+  "provider": "openai-compatible",
+  "model": "claude-sonnet-5",
+  "runsPerScenario": 3,
+  "results": [
+    {
+      "scenario": "remove-dead-air",
+      "project": "mission-podcast",
+      "run": 1,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Remove the dead air and long pauses from this recording.",
+          "rubric": "remove-dead-air",
+          "score": 0.25,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "shorter",
+              "ok": false,
+              "detail": "575.85s → 575.85s"
+            },
+            {
+              "id": "no-mid-word-cuts",
+              "ok": false,
+              "detail": "1 edge(s) inside a word"
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "1 picture clip(s), need ≥ 2"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 193008,
+            "modelCalls": 5,
+            "tokens": {
+              "prompt": 152843,
+              "input": 373,
+              "output": 18051,
+              "cacheRead": 152470,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 7689,
+                "wallMs": 7689,
+                "input": 373,
+                "output": 615,
+                "cacheRead": 0
+              },
+              {
+                "ttftMs": 8152,
+                "wallMs": 8152,
+                "input": 0,
+                "output": 661,
+                "cacheRead": 30457
+              },
+              {
+                "ttftMs": 3664,
+                "wallMs": 5026,
+                "input": 0,
+                "output": 391,
+                "cacheRead": 40671
+              },
+              {
+                "ttftMs": 81802,
+                "wallMs": 81802,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 40671
+              },
+              {
+                "ttftMs": 89879,
+                "wallMs": 89879,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 40671
+              }
+            ],
+            "summary": {
+              "turnCount": 5,
+              "ttftMs": {
+                "p50": 8152,
+                "p95": 89879,
+                "min": 3664,
+                "max": 89879
+              },
+              "wallMs": {
+                "p50": 8152,
+                "p95": 89879,
+                "min": 5026,
+                "max": 89879
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 373,
+                "min": 0,
+                "max": 373
+              },
+              "outputTokensPerTurn": {
+                "p50": 661,
+                "p95": 8192,
+                "min": 391,
+                "max": 8192
+              },
+              "cacheHitRate": 0.9975595872889174,
+              "cacheReportingTurns": 5
+            },
+            "usd": 0.271884,
+            "usageTokens": 18424,
+            "toolCalls": 3,
+            "toolCallsByName": {
+              "load_skill": 1,
+              "list_assets": 1,
+              "analyze_silence": 1
+            },
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 10,
+            "contextByType": [
+              {
+                "system": 2169,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2169,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2836,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2836,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2870,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2870,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3631,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3631,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3644,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3644,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              25487,
+              373,
+              26154,
+              0,
+              26188,
+              0,
+              26949,
+              0,
+              26962,
+              0
+            ],
+            "contextCachedTokens": [
+              null,
+              0,
+              null,
+              30457,
+              null,
+              40671,
+              null,
+              40671,
+              null,
+              40671
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "The model returned an empty response — no answer and no tool call, on every attempt. This is usually the provider dropping the request (overloaded or rate-limited)."
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 575.854875,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "remove-dead-air",
+      "project": "mission-podcast",
+      "run": 2,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Remove the dead air and long pauses from this recording.",
+          "rubric": "remove-dead-air",
+          "score": 0.25,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "shorter",
+              "ok": false,
+              "detail": "575.85s → 575.85s"
+            },
+            {
+              "id": "no-mid-word-cuts",
+              "ok": false,
+              "detail": "1 edge(s) inside a word"
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "1 picture clip(s), need ≥ 2"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 202869,
+            "modelCalls": 4,
+            "tokens": {
+              "prompt": 161868,
+              "input": 0,
+              "output": 17809,
+              "cacheRead": 161868,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 7851,
+                "wallMs": 7851,
+                "input": 0,
+                "output": 661,
+                "cacheRead": 39855
+              },
+              {
+                "ttftMs": 8750,
+                "wallMs": 8750,
+                "input": 0,
+                "output": 764,
+                "cacheRead": 40671
+              },
+              {
+                "ttftMs": 94720,
+                "wallMs": 94720,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 40671
+              },
+              {
+                "ttftMs": 91098,
+                "wallMs": 91098,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 40671
+              }
+            ],
+            "summary": {
+              "turnCount": 4,
+              "ttftMs": {
+                "p50": 8750,
+                "p95": 94720,
+                "min": 7851,
+                "max": 94720
+              },
+              "wallMs": {
+                "p50": 8750,
+                "p95": 94720,
+                "min": 7851,
+                "max": 94720
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 764,
+                "p95": 8192,
+                "min": 661,
+                "max": 8192
+              },
+              "cacheHitRate": 1,
+              "cacheReportingTurns": 4
+            },
+            "usd": 0.267135,
+            "usageTokens": 17809,
+            "toolCalls": 4,
+            "toolCallsByName": {
+              "load_skill": 1,
+              "list_assets": 1,
+              "analyze_silence": 1,
+              "get_mapped_transcript": 1
+            },
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 8,
+            "contextByType": [
+              {
+                "system": 2169,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2169,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2868,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2868,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4154,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4154,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4167,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4167,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              25487,
+              0,
+              26186,
+              0,
+              27472,
+              0,
+              27485,
+              0
+            ],
+            "contextCachedTokens": [
+              null,
+              39855,
+              null,
+              40671,
+              null,
+              40671,
+              null,
+              40671
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "The model returned an empty response — no answer and no tool call, on every attempt. This is usually the provider dropping the request (overloaded or rate-limited)."
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 575.854875,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "remove-dead-air",
+      "project": "mission-podcast",
+      "run": 3,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Remove the dead air and long pauses from this recording.",
+          "rubric": "remove-dead-air",
+          "score": 0.25,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "shorter",
+              "ok": false,
+              "detail": "575.85s → 575.85s"
+            },
+            {
+              "id": "no-mid-word-cuts",
+              "ok": false,
+              "detail": "1 edge(s) inside a word"
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "1 picture clip(s), need ≥ 2"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 185669,
+            "modelCalls": 4,
+            "tokens": {
+              "prompt": 153116,
+              "input": 0,
+              "output": 17785,
+              "cacheRead": 153116,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 5412,
+                "wallMs": 5412,
+                "input": 0,
+                "output": 470,
+                "cacheRead": 39855
+              },
+              {
+                "ttftMs": 11362,
+                "wallMs": 11362,
+                "input": 0,
+                "output": 931,
+                "cacheRead": 30457
+              },
+              {
+                "ttftMs": 84627,
+                "wallMs": 84627,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 41402
+              },
+              {
+                "ttftMs": 83660,
+                "wallMs": 83660,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 41402
+              }
+            ],
+            "summary": {
+              "turnCount": 4,
+              "ttftMs": {
+                "p50": 11362,
+                "p95": 84627,
+                "min": 5412,
+                "max": 84627
+              },
+              "wallMs": {
+                "p50": 11362,
+                "p95": 84627,
+                "min": 5412,
+                "max": 84627
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 931,
+                "p95": 8192,
+                "min": 470,
+                "max": 8192
+              },
+              "cacheHitRate": 1,
+              "cacheReportingTurns": 4
+            },
+            "usd": 0.266775,
+            "usageTokens": 17785,
+            "toolCalls": 5,
+            "toolCallsByName": {
+              "load_skill": 2,
+              "list_assets": 1,
+              "analyze_silence": 1,
+              "get_transcript": 1
+            },
+            "repeatedToolCalls": 1,
+            "analysisFromCache": 0,
+            "contextRequests": 8,
+            "contextByType": [
+              {
+                "system": 2169,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2169,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3449,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3449,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4488,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4488,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4501,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4501,
+                "retrieved_evidence": 3186,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              25487,
+              0,
+              26767,
+              0,
+              27806,
+              0,
+              27819,
+              0
+            ],
+            "contextCachedTokens": [
+              null,
+              39855,
+              null,
+              30457,
+              null,
+              41402,
+              null,
+              41402
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "The model returned an empty response — no answer and no tool call, on every attempt. This is usually the provider dropping the request (overloaded or rate-limited)."
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 575.854875,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "beat-sync",
+      "project": "mission-montage",
+      "run": 1,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Put the 100 BPM music track (beat-100bpm) under the footage and cut the picture to the beat. Aim for about 30 seconds.",
+          "rubric": "beat-sync",
+          "score": 0.2222222222222222,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "has-music",
+              "ok": false,
+              "detail": "0 music clip(s)"
+            },
+            {
+              "id": "cuts-on-beats",
+              "ok": false,
+              "detail": "no music placed",
+              "weight": 2
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "5 picture clip(s), need ≥ 6"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 369698,
+            "modelCalls": 6,
+            "tokens": {
+              "prompt": 213850,
+              "input": 0,
+              "output": 33894,
+              "cacheRead": 213850,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 23642,
+                "wallMs": 23642,
+                "input": 0,
+                "output": 1982,
+                "cacheRead": 30457
+              },
+              {
+                "ttftMs": 85434,
+                "wallMs": 85434,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 30457
+              },
+              {
+                "ttftMs": 49863,
+                "wallMs": 49863,
+                "input": 0,
+                "output": 4388,
+                "cacheRead": 38234
+              },
+              {
+                "ttftMs": 30813,
+                "wallMs": 33357,
+                "input": 0,
+                "output": 2948,
+                "cacheRead": 38234
+              },
+              {
+                "ttftMs": 87133,
+                "wallMs": 87133,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 38234
+              },
+              {
+                "ttftMs": 84173,
+                "wallMs": 84173,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 38234
+              }
+            ],
+            "summary": {
+              "turnCount": 6,
+              "ttftMs": {
+                "p50": 49863,
+                "p95": 87133,
+                "min": 23642,
+                "max": 87133
+              },
+              "wallMs": {
+                "p50": 49863,
+                "p95": 87133,
+                "min": 23642,
+                "max": 87133
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 4388,
+                "p95": 8192,
+                "min": 1982,
+                "max": 8192
+              },
+              "cacheHitRate": 1,
+              "cacheReportingTurns": 6
+            },
+            "usd": 0.50841,
+            "usageTokens": 33894,
+            "toolCalls": 9,
+            "toolCallsByName": {
+              "load_skill": 1,
+              "detect_beats": 1,
+              "get_frame": 5,
+              "get_clips": 1,
+              "list_assets": 1
+            },
+            "repeatedToolCalls": 4,
+            "analysisFromCache": 0,
+            "contextRequests": 12,
+            "contextByType": [
+              {
+                "system": 2233,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2233,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3622,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3622,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3635,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3635,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3973,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3973,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4090,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4090,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4103,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4103,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              23109,
+              0,
+              24498,
+              0,
+              24511,
+              0,
+              24849,
+              0,
+              24966,
+              0,
+              24979,
+              0
+            ],
+            "contextCachedTokens": [
+              null,
+              30457,
+              null,
+              30457,
+              null,
+              38234,
+              null,
+              38234,
+              null,
+              38234,
+              null,
+              38234
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "The model returned an empty response — no answer and no tool call, on every attempt. This is usually the provider dropping the request (overloaded or rate-limited)."
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "beat-sync",
+      "project": "mission-montage",
+      "run": 2,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Put the 100 BPM music track (beat-100bpm) under the footage and cut the picture to the beat. Aim for about 30 seconds.",
+          "rubric": "beat-sync",
+          "score": 0.4444444444444444,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": true,
+              "detail": "changed",
+              "weight": 2
+            },
+            {
+              "id": "has-music",
+              "ok": false,
+              "detail": "0 music clip(s)"
+            },
+            {
+              "id": "cuts-on-beats",
+              "ok": false,
+              "detail": "no music placed",
+              "weight": 2
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "5 picture clip(s), need ≥ 6"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 340242,
+            "modelCalls": 6,
+            "tokens": {
+              "prompt": 221627,
+              "input": 0,
+              "output": 31170,
+              "cacheRead": 221627,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 24632,
+                "wallMs": 24632,
+                "input": 0,
+                "output": 2151,
+                "cacheRead": 30457
+              },
+              {
+                "ttftMs": 89186,
+                "wallMs": 89186,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 38234
+              },
+              {
+                "ttftMs": 28499,
+                "wallMs": 30692,
+                "input": 0,
+                "output": 2909,
+                "cacheRead": 38234
+              },
+              {
+                "ttftMs": 89723,
+                "wallMs": 89723,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 38234
+              },
+              {
+                "ttftMs": 90313,
+                "wallMs": 90892,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 38234
+              },
+              {
+                "ttftMs": 13292,
+                "wallMs": 13292,
+                "input": 0,
+                "output": 1534,
+                "cacheRead": 38234
+              }
+            ],
+            "summary": {
+              "turnCount": 6,
+              "ttftMs": {
+                "p50": 28499,
+                "p95": 90313,
+                "min": 13292,
+                "max": 90313
+              },
+              "wallMs": {
+                "p50": 30692,
+                "p95": 90892,
+                "min": 13292,
+                "max": 90892
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 2909,
+                "p95": 8192,
+                "min": 1534,
+                "max": 8192
+              },
+              "cacheHitRate": 1,
+              "cacheReportingTurns": 6
+            },
+            "usd": 0.55959,
+            "usageTokens": 31170,
+            "toolCalls": 9,
+            "toolCallsByName": {
+              "load_skill": 1,
+              "detect_beats": 1,
+              "get_frame": 7
+            },
+            "repeatedToolCalls": 6,
+            "analysisFromCache": 0,
+            "contextRequests": 10,
+            "contextByType": [
+              {
+                "system": 2233,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2233,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3632,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3632,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3645,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3645,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4095,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4095,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4109,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4109,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              23109,
+              0,
+              24508,
+              0,
+              24521,
+              0,
+              24971,
+              0,
+              24985,
+              0
+            ],
+            "contextCachedTokens": [
+              null,
+              30457,
+              null,
+              38234,
+              null,
+              38234,
+              null,
+              38234,
+              null,
+              38234
+            ],
+            "diffs": 1,
+            "validDiffs": 1,
+            "operations": 5,
+            "errors": [],
+            "finalStatus": "completed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "beat-sync",
+      "project": "mission-montage",
+      "run": 3,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Put the 100 BPM music track (beat-100bpm) under the footage and cut the picture to the beat. Aim for about 30 seconds.",
+          "rubric": "beat-sync",
+          "score": 0.2222222222222222,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "has-music",
+              "ok": false,
+              "detail": "0 music clip(s)"
+            },
+            {
+              "id": "cuts-on-beats",
+              "ok": false,
+              "detail": "no music placed",
+              "weight": 2
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "5 picture clip(s), need ≥ 6"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 255112,
+            "modelCalls": 4,
+            "tokens": {
+              "prompt": 145159,
+              "input": 0,
+              "output": 22610,
+              "cacheRead": 145159,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 33646,
+                "wallMs": 33646,
+                "input": 0,
+                "output": 2926,
+                "cacheRead": 30457
+              },
+              {
+                "ttftMs": 35969,
+                "wallMs": 35969,
+                "input": 0,
+                "output": 3300,
+                "cacheRead": 38234
+              },
+              {
+                "ttftMs": 93410,
+                "wallMs": 93410,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 38234
+              },
+              {
+                "ttftMs": 89881,
+                "wallMs": 89881,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 38234
+              }
+            ],
+            "summary": {
+              "turnCount": 4,
+              "ttftMs": {
+                "p50": 35969,
+                "p95": 93410,
+                "min": 33646,
+                "max": 93410
+              },
+              "wallMs": {
+                "p50": 35969,
+                "p95": 93410,
+                "min": 33646,
+                "max": 93410
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 3300,
+                "p95": 8192,
+                "min": 2926,
+                "max": 8192
+              },
+              "cacheHitRate": 1,
+              "cacheReportingTurns": 4
+            },
+            "usd": 0.33915,
+            "usageTokens": 22610,
+            "toolCalls": 7,
+            "toolCallsByName": {
+              "load_skill": 1,
+              "detect_beats": 1,
+              "get_frame": 5
+            },
+            "repeatedToolCalls": 4,
+            "analysisFromCache": 0,
+            "contextRequests": 8,
+            "contextByType": [
+              {
+                "system": 2233,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2233,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3632,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3632,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3971,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3971,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3984,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3984,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 33,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              23109,
+              0,
+              24508,
+              0,
+              24847,
+              0,
+              24860,
+              0
+            ],
+            "contextCachedTokens": [
+              null,
+              30457,
+              null,
+              38234,
+              null,
+              38234,
+              null,
+              38234
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "The model returned an empty response — no answer and no tool call, on every attempt. This is usually the provider dropping the request (overloaded or rate-limited)."
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "refine-tighten",
+      "project": "mission-montage",
+      "run": 1,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Create a 30-second fast-paced social montage from the raw footage on the timeline.",
+          "rubric": "montage-30s",
+          "score": 0.5,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": true,
+              "detail": "changed",
+              "weight": 2
+            },
+            {
+              "id": "duration-within",
+              "ok": false,
+              "detail": "134.67s vs 30s ±3s",
+              "weight": 2
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "5 picture clip(s), need ≥ 6"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 417806,
+            "modelCalls": 7,
+            "tokens": {
+              "prompt": 140703,
+              "input": 2077,
+              "output": 29724,
+              "cacheRead": 138626,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 40722,
+                "wallMs": 40722,
+                "input": 0,
+                "output": 3872,
+                "cacheRead": 30457
+              },
+              {
+                "ttftMs": 89115,
+                "wallMs": 89115,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 30457
+              },
+              {
+                "ttftMs": 28792,
+                "wallMs": 28792,
+                "input": 0,
+                "output": 2478,
+                "cacheRead": 38856
+              },
+              {
+                "ttftMs": 67679,
+                "wallMs": 70258,
+                "input": 0,
+                "output": 6990,
+                "cacheRead": 38856
+              },
+              {
+                "ttftMs": 86576,
+                "wallMs": 86576,
+                "input": 2077,
+                "output": 8192,
+                "cacheRead": 0
+              },
+              {
+                "ttftMs": 101730,
+                "wallMs": 101730,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              },
+              {
+                "ttftMs": 10,
+                "wallMs": 10,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 7,
+              "ttftMs": {
+                "p50": 67679,
+                "p95": 101730,
+                "min": 10,
+                "max": 101730
+              },
+              "wallMs": {
+                "p50": 70258,
+                "p95": 101730,
+                "min": 10,
+                "max": 101730
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 2077,
+                "min": 0,
+                "max": 2077
+              },
+              "outputTokensPerTurn": {
+                "p50": 3872,
+                "p95": 8192,
+                "min": 0,
+                "max": 8192
+              },
+              "cacheHitRate": 0.985238409984151,
+              "cacheReportingTurns": 5
+            },
+            "usd": 0.452091,
+            "usageTokens": 31801,
+            "toolCalls": 11,
+            "toolCallsByName": {
+              "load_skill": 2,
+              "get_frame": 5,
+              "detect_beats": 1,
+              "get_clips": 1,
+              "delete_clips": 1,
+              "add_clip": 1
+            },
+            "repeatedToolCalls": 5,
+            "analysisFromCache": 0,
+            "contextRequests": 11,
+            "contextByType": [
+              {
+                "system": 2259,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 24,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2259,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 24,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4503,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 24,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4503,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 24,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4516,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 24,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4516,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 24,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4534,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 24,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4534,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 24,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 4550,
+                "retrieved_evidence": 223,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 24,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4550,
+                "retrieved_evidence": 223,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 24,
+                "tool_schemas": 15448
+              },
+              {
+                "system": 4563,
+                "retrieved_evidence": 223,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 24,
+                "tool_schemas": 15448
+              }
+            ],
+            "contextUsedTokens": [
+              23126,
+              0,
+              25370,
+              0,
+              25383,
+              0,
+              25401,
+              0,
+              22411,
+              2077,
+              22424
+            ],
+            "contextCachedTokens": [
+              null,
+              30457,
+              null,
+              30457,
+              null,
+              38856,
+              null,
+              38856,
+              null,
+              0,
+              null
+            ],
+            "diffs": 1,
+            "validDiffs": 1,
+            "operations": 1,
+            "errors": [
+              "openai-compatible API error 503: 503 Upstream network temporarily unavailable"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 1
+              }
+            ]
+          }
+        },
+        {
+          "turnIndex": 1,
+          "prompt": "Tighten the middle section so it moves faster, but keep the first and last clips exactly as they are.",
+          "rubric": "refine-tighten",
+          "score": 0.5,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "shorter",
+              "ok": false,
+              "detail": "134.67s → 134.67s"
+            },
+            {
+              "id": "kept-clips-untouched",
+              "ok": true,
+              "detail": "0/2 named clip(s) altered",
+              "weight": 2
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 11,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 4,
+                "wallMs": 4,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 4,
+                "p95": 4,
+                "min": 4,
+                "max": 4
+              },
+              "wallMs": {
+                "p50": 4,
+                "p95": 4,
+                "min": 4,
+                "max": 4
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2401,
+                "retrieved_evidence": 223,
+                "project_memory": 521,
+                "skill": 1645,
+                "conversation": 96,
+                "latest_user_message": 29,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              23384
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 503: 503 Upstream network temporarily unavailable"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 1
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "refine-tighten",
+      "project": "mission-montage",
+      "run": 2,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Create a 30-second fast-paced social montage from the raw footage on the timeline.",
+          "rubric": "montage-30s",
+          "score": 0.25,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "duration-within",
+              "ok": false,
+              "detail": "134.67s vs 30s ±3s",
+              "weight": 2
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "5 picture clip(s), need ≥ 6"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 7,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2259,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 24,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              23126
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 503: 503 Upstream network temporarily unavailable"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        },
+        {
+          "turnIndex": 1,
+          "prompt": "Tighten the middle section so it moves faster, but keep the first and last clips exactly as they are.",
+          "rubric": "refine-tighten",
+          "score": 0.5,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "shorter",
+              "ok": false,
+              "detail": "134.67s → 134.67s"
+            },
+            {
+              "id": "kept-clips-untouched",
+              "ok": true,
+              "detail": "0/2 named clip(s) altered",
+              "weight": 2
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 7,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 3,
+                "wallMs": 3,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 3,
+                "p95": 3,
+                "min": 3,
+                "max": 3
+              },
+              "wallMs": {
+                "p50": 3,
+                "p95": 3,
+                "min": 3,
+                "max": 3
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2290,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "conversation": 25,
+                "latest_user_message": 29,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              23187
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 503: 503 Upstream network temporarily unavailable"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "refine-tighten",
+      "project": "mission-montage",
+      "run": 3,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Create a 30-second fast-paced social montage from the raw footage on the timeline.",
+          "rubric": "montage-30s",
+          "score": 0.25,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "duration-within",
+              "ok": false,
+              "detail": "134.67s vs 30s ±3s",
+              "weight": 2
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "5 picture clip(s), need ≥ 6"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 6,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 3,
+                "wallMs": 3,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 3,
+                "p95": 3,
+                "min": 3,
+                "max": 3
+              },
+              "wallMs": {
+                "p50": 3,
+                "p95": 3,
+                "min": 3,
+                "max": 3
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2259,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "latest_user_message": 24,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              23126
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 503: 503 Upstream network temporarily unavailable"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        },
+        {
+          "turnIndex": 1,
+          "prompt": "Tighten the middle section so it moves faster, but keep the first and last clips exactly as they are.",
+          "rubric": "refine-tighten",
+          "score": 0.5,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "shorter",
+              "ok": false,
+              "detail": "134.67s → 134.67s"
+            },
+            {
+              "id": "kept-clips-untouched",
+              "ok": true,
+              "detail": "0/2 named clip(s) altered",
+              "weight": 2
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "5 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2290,
+                "retrieved_evidence": 208,
+                "project_memory": 521,
+                "skill": 1645,
+                "conversation": 25,
+                "latest_user_message": 29,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              23187
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 503: 503 Upstream network temporarily unavailable"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "memory-captions",
+      "project": "mission-talk",
+      "run": 1,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Cut this down to the best 45 seconds.",
+          "rubric": "podcast-highlight-60s",
+          "score": 0.375,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "duration-within",
+              "ok": false,
+              "detail": "528.74s vs 60s ±10s",
+              "weight": 2
+            },
+            {
+              "id": "no-mid-word-cuts",
+              "ok": true,
+              "detail": "0 edge(s) inside a word"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 6,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 3,
+                "wallMs": 3,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 3,
+                "p95": 3,
+                "min": 3,
+                "max": 3
+              },
+              "wallMs": {
+                "p50": 3,
+                "p95": 3,
+                "min": 3,
+                "max": 3
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2173,
+                "retrieved_evidence": 2172,
+                "skill": 1645,
+                "latest_user_message": 13,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              24472
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 503: 503 Upstream network temporarily unavailable"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 528.741587,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        },
+        {
+          "turnIndex": 1,
+          "prompt": "Add captions in a bold, uppercase, centered style.",
+          "rubric": "memory-captions",
+          "score": 0.2857142857142857,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "has-captions",
+              "ok": false,
+              "detail": "0 caption clip(s)",
+              "weight": 2
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 6,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2218,
+                "retrieved_evidence": 2169,
+                "skill": 1645,
+                "conversation": 14,
+                "latest_user_message": 16,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              24531
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 503: 503 Upstream network temporarily unavailable"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 528.741587,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        },
+        {
+          "turnIndex": 2,
+          "prompt": "Trim the last clip by two seconds and keep the captions in the same style.",
+          "rubric": "memory-captions",
+          "score": 0.2857142857142857,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "has-captions",
+              "ok": false,
+              "detail": "0 caption clip(s)",
+              "weight": 2
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2255,
+                "retrieved_evidence": 2169,
+                "skill": 1645,
+                "conversation": 31,
+                "latest_user_message": 22,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              24591
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 503: 503 Upstream network temporarily unavailable"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 528.741587,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "memory-captions",
+      "project": "mission-talk",
+      "run": 2,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Cut this down to the best 45 seconds.",
+          "rubric": "podcast-highlight-60s",
+          "score": 0.375,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "duration-within",
+              "ok": false,
+              "detail": "528.74s vs 60s ±10s",
+              "weight": 2
+            },
+            {
+              "id": "no-mid-word-cuts",
+              "ok": true,
+              "detail": "0 edge(s) inside a word"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 7,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 3,
+                "wallMs": 3,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 3,
+                "p95": 3,
+                "min": 3,
+                "max": 3
+              },
+              "wallMs": {
+                "p50": 3,
+                "p95": 3,
+                "min": 3,
+                "max": 3
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2173,
+                "retrieved_evidence": 2169,
+                "skill": 1645,
+                "latest_user_message": 13,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              24469
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 503: 503 Upstream network temporarily unavailable"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 528.741587,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        },
+        {
+          "turnIndex": 1,
+          "prompt": "Add captions in a bold, uppercase, centered style.",
+          "rubric": "memory-captions",
+          "score": 0.2857142857142857,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "has-captions",
+              "ok": false,
+              "detail": "0 caption clip(s)",
+              "weight": 2
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2218,
+                "retrieved_evidence": 2169,
+                "skill": 1645,
+                "conversation": 14,
+                "latest_user_message": 16,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              24531
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 503: 503 Upstream network temporarily unavailable"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 528.741587,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        },
+        {
+          "turnIndex": 2,
+          "prompt": "Trim the last clip by two seconds and keep the captions in the same style.",
+          "rubric": "memory-captions",
+          "score": 0.2857142857142857,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "has-captions",
+              "ok": false,
+              "detail": "0 caption clip(s)",
+              "weight": 2
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2255,
+                "retrieved_evidence": 2169,
+                "skill": 1645,
+                "conversation": 31,
+                "latest_user_message": 22,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              24591
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 503: 503 Upstream network temporarily unavailable"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 528.741587,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "memory-captions",
+      "project": "mission-talk",
+      "run": 3,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Cut this down to the best 45 seconds.",
+          "rubric": "podcast-highlight-60s",
+          "score": 0.375,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "duration-within",
+              "ok": false,
+              "detail": "528.74s vs 60s ±10s",
+              "weight": 2
+            },
+            {
+              "id": "no-mid-word-cuts",
+              "ok": true,
+              "detail": "0 edge(s) inside a word"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 5,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2173,
+                "retrieved_evidence": 2169,
+                "skill": 1645,
+                "latest_user_message": 13,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              24469
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 503: 503 Upstream network temporarily unavailable"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 528.741587,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        },
+        {
+          "turnIndex": 1,
+          "prompt": "Add captions in a bold, uppercase, centered style.",
+          "rubric": "memory-captions",
+          "score": 0.2857142857142857,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "has-captions",
+              "ok": false,
+              "detail": "0 caption clip(s)",
+              "weight": 2
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 6,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 3,
+                "wallMs": 3,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 3,
+                "p95": 3,
+                "min": 3,
+                "max": 3
+              },
+              "wallMs": {
+                "p50": 3,
+                "p95": 3,
+                "min": 3,
+                "max": 3
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2218,
+                "retrieved_evidence": 2169,
+                "skill": 1645,
+                "conversation": 14,
+                "latest_user_message": 16,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              24531
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 503: 503 Upstream network temporarily unavailable"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 528.741587,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        },
+        {
+          "turnIndex": 2,
+          "prompt": "Trim the last clip by two seconds and keep the captions in the same style.",
+          "rubric": "memory-captions",
+          "score": 0.2857142857142857,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "has-captions",
+              "ok": false,
+              "detail": "0 caption clip(s)",
+              "weight": 2
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 6,
+            "modelCalls": 1,
+            "tokens": {
+              "prompt": 0,
+              "input": 0,
+              "output": 0,
+              "cacheRead": null,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 2,
+                "wallMs": 2,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 1,
+              "ttftMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "wallMs": {
+                "p50": 2,
+                "p95": 2,
+                "min": 2,
+                "max": 2
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "outputTokensPerTurn": {
+                "p50": 0,
+                "p95": 0,
+                "min": 0,
+                "max": 0
+              },
+              "cacheReportingTurns": 0
+            },
+            "usd": 0,
+            "usageTokens": 0,
+            "toolCalls": 0,
+            "toolCallsByName": {},
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 1,
+            "contextByType": [
+              {
+                "system": 2255,
+                "retrieved_evidence": 2169,
+                "skill": 1645,
+                "conversation": 31,
+                "latest_user_message": 22,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              24591
+            ],
+            "contextCachedTokens": [
+              null
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "openai-compatible API error 503: 503 Upstream network temporarily unavailable"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 528.741587,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

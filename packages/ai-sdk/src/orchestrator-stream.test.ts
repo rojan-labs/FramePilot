@@ -11,6 +11,7 @@ import type { AnyOperation } from '@framepilot/editor-core';
 import { MockProvider } from './providers/mock.js';
 import { reduceEvents, type AiEvent } from './events.js';
 import { InMemoryPatchCommitLedger } from './kernel/commit-ledger.js';
+import { ProviderError } from './reliability/types.js';
 import { createAskUserGate, createPlanApprovalGate, createSteeringQueue } from './run-controls.js';
 import { DIMINISHING_RETURNS_TURNS, PLAN_APPROVAL_STEP_THRESHOLD } from './kernel/conductor.js';
 
@@ -1578,6 +1579,48 @@ describe('streamAgent', () => {
     expect(events.at(-1)).toMatchObject({ type: 'status', status: 'failed' });
   });
 
+  it('offers a retry only when the failure is actually transient', async () => {
+    // The captured run ended on `openrouter API error 403: Key limit exceeded (total
+    // limit)` — a quota wall, classified `auth`, permanent by construction — and the
+    // card still said "Retryable: true", inviting the editor to re-run a request that
+    // could not succeed until they changed something outside the app. `settle` was
+    // hardcoding `retryable: true` for every throw, re-guessing a classification
+    // ProviderError derives exactly once so downstream code does not have to.
+    const throwing = (error: unknown): AiProvider =>
+      new (class implements AiProvider {
+        public readonly name = 'mock' as const;
+        public async complete(): Promise<AiResponse> {
+          throw error;
+        }
+      })();
+
+    const permanent = await drain(
+      new Orchestrator(
+        throwing(new ProviderError('openrouter API error 403: Key limit exceeded', 'auth')),
+      ).streamAgent(input, opts()),
+    );
+    expect(permanent.find((e) => e.type === 'error')).toMatchObject({
+      message: expect.stringContaining('Key limit exceeded'),
+      retryable: false,
+    });
+    expect(permanent.at(-1)).toMatchObject({ status: 'failed' });
+
+    // A transient one still offers the retry it always did.
+    const transient = await drain(
+      new Orchestrator(
+        throwing(new ProviderError('openrouter API error 529: overloaded', 'overloaded')),
+      ).streamAgent(input, opts()),
+    );
+    expect(transient.find((e) => e.type === 'error')).toMatchObject({ retryable: true });
+
+    // And an unclassified throw keeps the optimistic default: with nothing to go on,
+    // offering a retry beats refusing one that might have worked.
+    const unknown = await drain(
+      new Orchestrator(throwing(new Error('network exploded'))).streamAgent(input, opts()),
+    );
+    expect(unknown.find((e) => e.type === 'error')).toMatchObject({ retryable: true });
+  });
+
   it('settles with a generic message when a non-Error value is thrown mid-run', async () => {
     class ThrowNonError implements AiProvider {
       public readonly name = 'mock' as const;
@@ -2243,10 +2286,11 @@ describe('streamAgent robustness (parity with agent())', () => {
         maxSteps: 4,
       }),
     );
-    // Four model calls: the edit, the two declarations, and the repair. The middle one is
-    // the bounded unmet-request recovery — a stated 1s target the timeline does not meet
-    // buys exactly one more turn before the run is allowed to stop.
-    expect(provider.requests).toHaveLength(4);
+    // Six model calls: the edit, the two declarations, the repair pass — and, because the
+    // 1s target is still unmet after the repair, the P4.3 findings-scoped fix turn plus the
+    // repair pass of its re-verify (the script is exhausted, so both replay 'fix'). The
+    // middle declaration is the bounded unmet-request recovery turn.
+    expect(provider.requests).toHaveLength(6);
     expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Repair pass'))).toBe(
       true,
     );
@@ -3294,7 +3338,9 @@ describe('streamAgent usage (C1)', () => {
       true,
     );
     const usage = usageOf(events);
-    expect(usage?.tokens).toBe(60); // turn 1 (12) + the repair pass (48)
+    // turn 1 (12) + the repair pass (48) + the P4.3 fix turn and its re-verify repair pass,
+    // which replay the exhausted script's last entry (48 each).
+    expect(usage?.tokens).toBe(156);
   });
 
   it("defaults a missing side of a turn's partial usage to 0 (complete()-drain fallback)", async () => {
@@ -3718,7 +3764,7 @@ describe('streamAgent prompt-prefix stability (E3)', () => {
         maxSteps: 4,
       }),
     );
-    expect(provider.requests.length).toBe(4);
+    expect(provider.requests.length).toBe(6);
     const turn2 = provider.requests[2]!;
     const repair = provider.requests[3]!;
     // Repair = the same agentMessages + one extra instruction message on the end.

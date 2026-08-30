@@ -801,6 +801,21 @@ input[type='checkbox']:focus-visible {
   color: var(--muted);
 }
 
+/* The chord a menu row advertises (P8.3). Pushed to the trailing edge and kept
+   quiet — it is a reminder for next time, not a second label competing with the
+   action. Used by `MenuItem` and by the timeline's context menus, whose rows are
+   `.context-menu button` rather than `.menu-item`. */
+.menu-item-kbd {
+  margin-inline-start: auto;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
 .menu-field {
   display: flex;
   flex-direction: column;
@@ -1407,6 +1422,20 @@ input[type='checkbox']:focus-visible {
 .rail-splitter:hover,
 .rail-splitter:active {
   background: var(--accent);
+}
+
+/* The hairline stays 2px; only the HIT AREA grows (P8.5). A 2px grab target is a
+   precision task on a trackpad and a miss on a touchscreen, and widening the
+   visible divider instead would put a fat grey bar down the middle of the editor. */
+.rail-splitter::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline: -5px;
+}
+
+.rail-splitter.is-hidden::before {
+  content: none;
 }
 
 /* Hidden while its rail is collapsed (B1): zero width, no hit target, no gutter. */
@@ -3445,12 +3474,21 @@ input[type='checkbox']:focus-visible {
 /* Draggable divider between the top region and the timeline dock. It spans the
    MAIN column's width (the full-height right rail sits beside it, not above it). */
 .stage-splitter {
+  position: relative;
   height: var(--splitter-w);
   flex: none;
   cursor: row-resize;
   background: transparent;
   border-top: 1px solid var(--line);
   transition: background var(--dur-fast) var(--ease);
+}
+
+/* Same as `.rail-splitter::before`: a wider grab area behind an unchanged hairline. */
+.stage-splitter::before {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  inset-block: -5px;
 }
 
 .stage-splitter:hover,
@@ -3467,6 +3505,24 @@ input[type='checkbox']:focus-visible {
   min-height: 0;
   min-width: 0;
   background: var(--bg-panel);
+}
+
+/* UX-14: how the picture meets the frame, said in the monitor instead of only in
+   the export. Top-left over the void the frame floats on, not over the picture —
+   it is a note about the frame, and it must never cover the shot it is about. */
+.preview-fit-chip {
+  position: absolute;
+  z-index: 2;
+  top: var(--space-2);
+  left: var(--space-2);
+  padding: 0.15rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  pointer-events: auto;
 }
 
 .preview-stage {
@@ -6560,6 +6616,39 @@ details.inspector-panel[open] > .inspector-section-head::before {
   background: var(--line-soft);
 }
 
+/* Speed presets (UX-08). A row of rates rather than four full-width menu items:
+   they are one choice with four answers, and stacking them would make the speed
+   section taller than the rest of the menu put together. */
+.context-menu-group-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.4rem 0.55rem 0.2rem;
+  color: var(--muted);
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.context-menu-choices {
+  display: flex;
+  gap: var(--space-1);
+  padding: 0 0.3rem 0.2rem;
+}
+
+.context-menu-choices button {
+  justify-content: center;
+  width: auto;
+  flex: 1;
+  padding: 0.25rem 0.3rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.context-menu-choices button[aria-checked='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 /* On-cut transition popover: reuses .context-menu chrome, then becomes a compact
    version of the transitions panel. Sized so three tiles fit across — enough to
    compare at a glance, small enough never to cover the cut it is about. */
@@ -6742,6 +6831,14 @@ details.inspector-panel[open] > .inspector-section-head::before {
 
 .transcript-search input:focus-visible {
   outline: none;
+}
+
+/* P8.5: the field cleared its outline with nothing in its place, so the only way
+   to tell it had focus was to type. The ring goes on the WELL — the shape the
+   user perceives as the control — exactly as `.bin-search:focus-within` does. */
+.transcript-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 .transcript-lines {
@@ -7417,6 +7514,12 @@ details.inspector-panel[open] > .inspector-section-head::before {
   outline: none;
 }
 
+/* P8.5, as above. Inset because this row is flush with an `overflow: hidden`
+   overlay, which would clip an outer ring away on three sides. */
+.shortcut-search:focus-within {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
+}
+
 .shortcut-groups {
   padding: var(--space-2) var(--space-4) var(--space-4);
   overflow-y: auto;
@@ -7516,6 +7619,11 @@ details.inspector-panel[open] > .inspector-section-head::before {
 
 .command-palette-search input:focus-visible {
   outline: none;
+}
+
+/* P8.5, inset for the same reason as `.shortcut-search:focus-within`. */
+.command-palette-search:focus-within {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
 }
 
 .command-palette-list {
@@ -7820,6 +7928,55 @@ details.inspector-panel[open] > .inspector-section-head::before {
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-1) var(--space-3) var(--space-3);
+}
+
+/* Recent exports (P7.6): one row per remembered render — name, what it was, Reveal. */
+.export-bitrate {
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.export-bitrate:focus-visible {
+  outline: none;
+  border-color: var(--focus-ring);
+}
+
+.export-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.export-history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.8rem;
+}
+
+.export-history-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.export-history-meta {
+  font-size: 0.74rem;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .export-field {
@@ -9544,6 +9701,12 @@ a.export-credits-license {
 }
 .ai-composer-input {
   flex: 1;
+  /* A flex item's default `min-width: auto` is its CONTENT width, and this one's content
+     is a long placeholder. With the attach control added beside the "+" the row ran out of
+     room, and because the textarea refused to shrink the send button was pushed out of the
+     row entirely — it wrapped to a second line and the placeholder rendered as its own
+     tail ("Me"). Letting it shrink is what keeps the row a row. */
+  min-width: 0;
   resize: none;
   border: 0;
   background: transparent;
@@ -10231,6 +10394,195 @@ a.export-credits-license {
   color: var(--text-tertiary);
 }
 
+/* Reference tile disclosure (P3.6): what the AI actually read from an attachment. */
+.ai-chip {
+  position: relative;
+}
+
+.ai-chip-disclosure {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.ai-chip-detail {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: var(--z-popover, 400);
+  width: min(340px, 80vw);
+  max-height: 320px;
+  overflow-y: auto;
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px color-mix(in srgb, #000 22%, transparent);
+  text-align: left;
+  white-space: normal;
+}
+
+.ai-chip-detail-meta {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--text-tertiary);
+}
+
+.ai-chip-detail-error {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--danger, #d92d20);
+}
+
+.ai-chip-detail-list {
+  margin: 0;
+  padding-left: 1.1em;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.ai-chip-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.ai-chip-detail-role {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.74rem;
+  color: var(--text-tertiary);
+}
+
+/* Reference TILES (P3.1). A reference is a picture before it is a filename, so the
+   tile leads with the frame and lets the name truncate under it — the pill chip this
+   replaces made three attached videos indistinguishable at a glance. */
+.ai-ref-tile {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 220px;
+  padding: 4px 4px 4px 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 8px);
+}
+.ai-ref-tile[data-status='failed'] {
+  border-color: color-mix(in srgb, var(--danger, #d92d20) 45%, var(--border-subtle));
+}
+.ai-ref-tile-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 30px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--bg-active);
+  color: var(--text-tertiary);
+}
+.ai-ref-tile-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ai-ref-tile[data-status='analyzing'] .ai-ref-tile-thumb {
+  opacity: 0.6;
+}
+.ai-ref-tile-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.ai-ref-tile-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 130px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  text-align: left;
+}
+.ai-ref-tile-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+.ai-chip-badge {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--bg-active);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.ai-chip-status {
+  white-space: nowrap;
+}
+.ai-ref-tile[data-status='failed'] .ai-chip-status,
+.ai-ref-tile[data-status='unsupported'] .ai-chip-status {
+  color: var(--danger, #d92d20);
+}
+.ai-ref-tile-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 0;
+  opacity: 0.55;
+}
+.ai-ref-tile-remove:hover {
+  opacity: 1;
+  background: var(--bg-active);
+}
+
+/* Drop target (P3.1): the whole composer takes a dragged reference, so the cue
+   covers the whole well rather than hiding in a corner of it. */
+.ai-composer-shell[data-dragging] {
+  border-color: var(--focus-ring);
+}
+.ai-composer-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  border: 1px dashed var(--focus-ring);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
 /* Tool-call details modal (#9) — reuses the app's .overlay-backdrop. */
 .ai-tool-modal {
   display: flex;
@@ -10868,6 +11220,22 @@ a.export-credits-license {
   color: var(--text-secondary);
   font-size: 12px;
 }
+/* What the run changed, in editing terms, and by how much the programme moved
+   (P8.2 "changed"). Quieter than the count: the count is the headline, these are
+   the account. `min-width: 0` so a long group list truncates instead of forcing
+   the Undo/Show buttons onto a second row. */
+.ai-run-footer-changes {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+.ai-run-footer-duration {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
 .ai-run-footer-note {
   color: var(--text-tertiary);
   font-size: 12px;
@@ -11142,7 +11510,16 @@ a.export-credits-license {
   flex: 1;
   font: inherit;
   font-size: 13px;
+}
+.ai-history-search input:focus-visible {
   outline: none;
+}
+/* P8.5: the field cleared its outline with nothing in its place, so the only way
+   to tell it had focus was to type. The ring goes on the WELL — the shape the
+   user perceives as the control — exactly as `.bin-search:focus-within` does. */
+.ai-history-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 .ai-history-list ul {
   list-style: none;
@@ -11161,6 +11538,31 @@ a.export-credits-license {
   align-items: center;
   gap: var(--space-2);
   padding: 0 var(--space-2);
+  /* The delete confirm is a second line under the row, so the row has to be able
+     to wrap rather than squeezing the title out of the way (P8.4). */
+  flex-wrap: wrap;
+}
+/* Deleting a conversation is not undoable and not a patch — the one destructive
+   action in the app that needs an explicit yes. Inline rather than modal: the
+   thing being destroyed is right here and named, and a dialog would cover it. */
+.ai-hist-confirm {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.ai-hist-confirm > span {
+  flex: 1;
+  min-width: 0;
+}
+.ai-btn--danger {
+  color: var(--danger);
+}
+.ai-btn--danger:hover:not(:disabled) {
+  background: var(--danger-subtle);
 }
 .ai-hist-row:hover {
   background: var(--bg-hover);
@@ -11352,11 +11754,11 @@ a.export-credits-license {
   letter-spacing: 0.04em;
   color: var(--text-tertiary);
 }
-/* Context / attachment chips read as proper pill BADGES (product ask #4/#6):
-   a soft filled capsule with a truncating label and an inline dismiss — not the
-   bare "label ×" text the old chip rendered. */
-.ai-context-chip,
-.ai-attachments .ai-chip {
+/* Context chips read as proper pill BADGES (product ask #4/#6): a soft filled
+   capsule with a truncating label and an inline dismiss — not the bare "label ×"
+   text the old chip rendered. Reference attachments are TILES now (P3.1), not
+   chips, and are styled above. */
+.ai-context-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -11375,8 +11777,7 @@ a.export-credits-license {
   white-space: nowrap;
   max-width: 180px;
 }
-.ai-context-chip button,
-.ai-attachments .ai-chip button {
+.ai-context-chip button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -11391,8 +11792,7 @@ a.export-credits-license {
   opacity: 0.55;
   flex: 0 0 auto;
 }
-.ai-context-chip button:hover,
-.ai-attachments .ai-chip button:hover {
+.ai-context-chip button:hover {
   opacity: 1;
   background: var(--bg-active);
 }
@@ -12657,8 +13057,16 @@ a.export-credits-license {
   color: var(--text-primary);
   font-size: var(--font-size-sm, 13px);
 }
-.transcription-search input:focus {
+.transcription-search input:focus-visible {
   outline: none;
+}
+
+/* P8.5: the field cleared its outline with nothing in its place, so the only way
+   to tell it had focus was to type. The ring goes on the WELL — the shape the
+   user perceives as the control — exactly as `.bin-search:focus-within` does. */
+.transcription-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 /* One clip's section: a sticky-ish header (name + span + copy) over its lines. */

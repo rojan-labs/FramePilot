@@ -60,11 +60,7 @@ import { sharedTransitionChain } from '../transitions/gl-transition-chain.js';
 import type { ResolvedTransition } from '../transitions/transition-engine.js';
 import { transitionProgressAt } from '@framepilot/editor-core';
 import { paintTextOverlay } from './overlay-painter.js';
-import {
-  activeTimedItemsAt,
-  buildTemporalIndex,
-  type TemporalIndex,
-} from '../temporal-index.js';
+import { activeTimedItemsAt, buildTemporalIndex, type TemporalIndex } from '../temporal-index.js';
 
 /** Project canvas dimensions, for the transform px→frame-fraction conversion
  * (H4 transforms author `x`/`y` in project-canvas pixels). */
@@ -1296,6 +1292,16 @@ export class WebCodecsPreviewEngine {
     // ordinary AI edit can do (a speed ramp is enough), so an unclosed context is
     // not a once-per-session cost.
     this.sources.clear();
+    // Decoded stills and the held cut frame are full-resolution pixel buffers,
+    // and `heldFrame.canvas` is a detached `<canvas>` — exactly the retention
+    // the P6.1 heap-snapshot criterion looks for. They survive dispose whenever
+    // anything still points at the engine: the `loadQueue` chain, an in-flight
+    // `decodeAudioData`, or a stale `engineRef` on a component React has not
+    // yet collected. Releasing them here makes the engine cheap to hold onto
+    // rather than relying on nobody holding it.
+    this.images.clear();
+    this.heldFrame = null;
+    this.segments = [];
     void this.audioCtx?.close().catch(() => undefined);
     this.audioCtx = undefined;
     this.disposed = true;

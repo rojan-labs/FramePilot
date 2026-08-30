@@ -84,6 +84,8 @@ export class ExportHub {
     const push = (message: {
       jobId?: string | undefined;
       status?: RenderJobStatus | undefined;
+      stage?: string | undefined;
+      progress?: number | undefined;
       result?: ExportResult | undefined;
     }): void => {
       if (message.jobId) lastJobId = message.jobId;
@@ -93,6 +95,8 @@ export class ExportHub {
           requestId,
           ...(message.jobId !== undefined ? { jobId: message.jobId } : {}),
           ...(message.status !== undefined ? { status: message.status } : {}),
+          ...(message.stage !== undefined ? { stage: message.stage } : {}),
+          ...(message.progress !== undefined ? { progress: message.progress } : {}),
           ...(message.result !== undefined ? { result: message.result } : {}),
         });
       }
@@ -108,7 +112,13 @@ export class ExportHub {
             ? { pollIntervalMs: this.options.pollIntervalMs }
             : {}),
           ...(this.options.sleepFn ? { sleepFn: this.options.sleepFn } : {}),
-          onProgress: (progress) => push({ jobId: progress.jobId, status: progress.status }),
+          onProgress: (progress) =>
+            push({
+              jobId: progress.jobId,
+              status: progress.status,
+              ...(progress.stage !== undefined ? { stage: progress.stage } : {}),
+              ...(progress.progress !== undefined ? { progress: progress.progress } : {}),
+            }),
         });
         push({ jobId: lastJobId, status: lastStatus, result });
       } catch (error) {

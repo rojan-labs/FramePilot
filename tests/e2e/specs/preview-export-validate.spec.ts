@@ -44,9 +44,14 @@ test.describe('preview + export boundary', () => {
     await expect(dialog.getByRole('note')).toContainText('only available in the');
     await expect(dialog.getByRole('button', { name: 'Export', exact: true })).toBeDisabled();
 
-    // Presets are still selectable (the dialog is real UI, just not wired to an
+    // The settings are still selectable (the dialog is real UI, just not wired to an
     // engine here). Real render + output validation is covered by the Python
     // engine tests and the desktop harness — out of scope for browser e2e.
-    await expect(dialog.getByLabel('Export preset')).toBeEnabled();
+    //
+    // "Export preset" is gone: P7.2 replaced the platform presets with the CapCut-style
+    // quality controls, so the thing to assert is that those are live.
+    await expect(dialog.getByRole('combobox', { name: 'Resolution' })).toBeEnabled();
+    await expect(dialog.getByRole('combobox', { name: 'Quality' })).toBeEnabled();
+    await expect(dialog.getByRole('combobox', { name: 'Format' })).toBeEnabled();
   });
 });

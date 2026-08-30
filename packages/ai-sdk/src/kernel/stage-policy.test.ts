@@ -12,6 +12,7 @@ import {
   stageAdvanceFor,
   stageAllowsRole,
   stageAllowsTool,
+  VERIFICATION_LOOK_TOOL_NAMES,
   toolRole,
 } from './stage-policy.js';
 import { TOOL_REGISTRY, getTool } from '../tool-registry.js';
@@ -164,9 +165,14 @@ describe('the locked plan is actually closed to re-analysis', () => {
     );
     // The carve-out must not become a hole: the reconnaissance lockout is the whole point
     // of the execution stages, and only the tools a guard actually reads may step past it.
-    expect(analysisTools.length).toBeGreaterThan(VALIDATOR_INPUT_TOOL_NAMES.size);
+    expect(analysisTools.length).toBeGreaterThan(
+      VALIDATOR_INPUT_TOOL_NAMES.size + VERIFICATION_LOOK_TOOL_NAMES.size,
+    );
     for (const tool of analysisTools) {
       if (VALIDATOR_INPUT_TOOL_NAMES.has(tool.name)) continue;
+      // The picture look is the other named carve-out (P1.1b) — verification of an edit,
+      // not reconnaissance of the material.
+      if (VERIFICATION_LOOK_TOOL_NAMES.has(tool.name)) continue;
       for (const stage of RUN_STAGES.filter(isExecutionStage)) {
         expect(
           stageAllowsTool(stage, tool.name, tool.mutates),
@@ -268,5 +274,20 @@ describe('settledStageFor — every transition a turn earns', () => {
   it('stays put when a turn earns nothing', () => {
     expect(settledStageFor('analyze', ['recall'], false)).toBe('analyze');
     expect(settledStageFor('apply', [], false)).toBe('apply');
+  });
+});
+
+describe('verification looks in execution stages (plan/system-mission P1.1b)', () => {
+  it('offers get_frame in apply/enhance/repair so a run can check the edit it just made', () => {
+    for (const stage of ['apply', 'enhance', 'repair'] as const) {
+      expect(stageAllowsTool(stage, 'get_frame', false)).toBe(true);
+      // The rule is narrow: other analysis stays withheld in execution stages.
+      expect(stageAllowsTool(stage, 'map_footage', false)).toBe(false);
+      expect(stageAllowsTool(stage, 'describe_footage', false)).toBe(false);
+    }
+  });
+
+  it('keeps the set minimal — one tool, the picture look', () => {
+    expect([...VERIFICATION_LOOK_TOOL_NAMES]).toEqual(['get_frame']);
   });
 });

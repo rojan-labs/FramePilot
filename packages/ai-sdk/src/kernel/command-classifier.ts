@@ -32,6 +32,7 @@ import type { TargetPlatform } from '../context-builder.js';
 import { classifierSystemPrompt } from '../prompts.js';
 import type { AiMessage } from '../providers/types.js';
 import type { TimeRange } from './semantic-index/semantic-index.js';
+import { timelineDurationSeconds } from '../state-block.js';
 
 /**
  * A **tiny** project header — the only project context the classifier sees. Never the
@@ -51,14 +52,8 @@ export interface ProjectHeader {
 
 /** Derive the tiny {@link ProjectHeader} from a project (pure). */
 export function projectHeaderOf(project: Project, platform?: TargetPlatform): ProjectHeader {
-  let end = 0;
-  for (const track of project.timeline.tracks) {
-    for (const clip of track.clips) {
-      if (clip.end > end) end = clip.end;
-    }
-  }
   return {
-    durationSeconds: end,
+    durationSeconds: timelineDurationSeconds(project.timeline),
     resolution: { width: project.resolution.width, height: project.resolution.height },
     layerCount: project.timeline.tracks.length,
     ...(platform !== undefined ? { platform } : {}),
@@ -179,8 +174,12 @@ export function parseClassification(raw: string): CommandClassification | null {
 /** Strip a ```json code fence a model may wrap structured output in (mirrors proposers). */
 function stripFence(raw: string): string {
   const trimmed = raw.trim();
-  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/.exec(trimmed);
-  return fenced?.[1] ?? trimmed;
+  // Plain slicing, not a `\s*([\s\S]*?)\s*` regex: that shape is catastrophically
+  // backtracking on unclosed fences padded with whitespace (model output is
+  // untrusted length/content), and adds nothing a fixed-anchor match doesn't.
+  const open = /^```(?:json)?\s*/.exec(trimmed);
+  if (!open || !trimmed.endsWith('```')) return trimmed;
+  return trimmed.slice(open[0].length, -3).trim();
 }
 
 /** The safe fallback when classification is unavailable or unparseable: treat as an edit. */

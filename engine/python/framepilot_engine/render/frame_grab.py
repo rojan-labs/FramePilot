@@ -33,7 +33,7 @@ from typing import Any
 from framepilot_engine.media.assets import index_assets
 from framepilot_engine.render.compiler import compile_timeline, timeline_duration
 from framepilot_engine.render.composition_cache import COMPOSITION_CACHE, composition_key
-from framepilot_engine.render.presets import EXPORT_PRESETS, REELS, ExportPreset
+from framepilot_engine.render.presets import ExportPreset
 from framepilot_engine.timeline.models import Project
 
 _log = logging.getLogger(__name__)
@@ -73,43 +73,24 @@ class GrabbedFrame:
         return base64.b64encode(self.data).decode("ascii")
 
 
-def _resolve_preset(
-    project: Project,
-    preset_id: str | None,
-    max_dimension: int,
-) -> ExportPreset:
-    """The frame shape to composite at.
+def _resolve_preset(project: Project, max_dimension: int) -> ExportPreset:
+    """The frame shape to composite at: the PROJECT'S OWN aspect, capped to the answer.
 
-    Defaults to the PROJECT'S OWN aspect rather than an export preset: the model
-    is being shown the edit as the user sees it in the preview, and compositing
-    a 16:9 project into a 9:16 Reels frame would show it letterboxed content it
-    would then, reasonably, report as a framing problem.
-
-    It composites at the project's *aspect* but not necessarily its *resolution*.
-    The result of this function is downscaled to ``max_dimension`` before it is
-    ever returned (see :func:`grab_frame`), so compositing a UHD frame to answer
-    a request for a 512px JPEG decodes ~25 MB and 16x the pixels in order to
-    throw all of them away. Capping here makes the composite the size of the
-    answer. An explicitly named export preset is left exactly as authored — a
-    caller naming one is asking about that format specifically.
+    The model is shown the edit as the user sees it in the preview. It composites at the
+    project's *aspect* but not necessarily its *resolution*: the result is downscaled to
+    ``max_dimension`` before it is returned (see :func:`grab_frame`), so compositing a UHD
+    frame to answer a request for a 512px JPEG would decode ~25 MB and 16x the pixels in
+    order to throw all of them away. Capping here makes the composite the size of the answer.
     """
-    if preset_id is None:
-        width, height = _fit_within(
-            project.resolution.width, project.resolution.height, max_dimension
-        )
-        return ExportPreset(
-            id="project",
-            label="Project resolution",
-            # Even on both axes: the decoders feeding this composite are yuv420p.
-            width=max(2, width - width % 2),
-            height=max(2, height - height % 2),
-            fps=project.fps or REELS.fps,
-        )
-    preset = EXPORT_PRESETS.get(preset_id)
-    if preset is None:
-        known = ", ".join(sorted(EXPORT_PRESETS)) or "none"
-        raise FrameGrabError(f"Unknown export preset {preset_id!r}. Known presets: {known}.")
-    return preset
+    width, height = _fit_within(project.resolution.width, project.resolution.height, max_dimension)
+    return ExportPreset(
+        id="project",
+        label="Project resolution",
+        # Even on both axes: the decoders feeding this composite are yuv420p.
+        width=max(2, width - width % 2),
+        height=max(2, height - height % 2),
+        fps=project.fps or 30,
+    )
 
 
 def _fit_within(width: int, height: int, max_dimension: int) -> tuple[int, int]:
@@ -131,7 +112,6 @@ def grab_frame(
     base_dir: Path,
     time_seconds: float,
     *,
-    preset_id: str | None = None,
     max_dimension: int = DEFAULT_MAX_DIMENSION,
     image_format: str = "jpeg",
     burn_captions: bool = True,
@@ -144,8 +124,6 @@ def grab_frame(
         ``[0, duration)`` rather than rejected — a model asking for the frame at
         the very end of a 12.0s timeline should see the last frame, not an error
         about floating-point boundaries.
-    :param preset_id: Export preset to composite at; defaults to the project's
-        own resolution (see :func:`_resolve_preset`).
     :param max_dimension: Longest edge of the returned image, clamped to
         :data:`MAX_ALLOWED_DIMENSION`.
     :param image_format: ``"jpeg"`` (default, small) or ``"png"`` (lossless —
@@ -178,7 +156,7 @@ def grab_frame(
     at = min(max(0.0, float(time_seconds)), last_frame_time)
 
     requested_dimension = min(max(1, int(max_dimension)), MAX_ALLOWED_DIMENSION)
-    preset = _resolve_preset(project, preset_id, requested_dimension)
+    preset = _resolve_preset(project, requested_dimension)
     asset_index = index_assets([asset.model_dump() for asset in project.assets], base_dir=base_dir)
     # No source is decoded larger than the frame it is being composited into. The
     # export path deliberately reads camera masters; a picture for a model to look

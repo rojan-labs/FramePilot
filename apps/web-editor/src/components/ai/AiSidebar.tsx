@@ -27,15 +27,21 @@ import {
   createPlanApprovalGate,
   createSteeringQueue,
   createTurnEmitter,
+  projectNames,
+  readMemory,
   recordAccepted,
   recordRejected,
   summarizeUsage,
+  writeMemory,
   type AiEvent,
   type InteractionKeyframeRef,
+  type Reference,
+  type MemoryPreferenceKey,
   type PlanApprovalGate,
   type SteeringQueue,
   type SourceMonitorInteraction,
   type ViewNode,
+  decideReferenceRole,
 } from '@framepilot/ai-sdk';
 import type { AnyOperation } from '@framepilot/editor-core';
 import { safeParseProject, type Project } from '@framepilot/timeline-schema';
@@ -65,7 +71,9 @@ import { useConversationView } from '../../ai/useConversationView.js';
 import { createFrameBatcher, createIntervalScheduler } from '../../ai/frameBatcher.js';
 import { emptyRunNotice, foldTurnEvent, initialTurnSignals } from '../../ai/runOutcome.js';
 import { latestStreamingAssistantText } from '../../ai/liveAnnouncement.js';
-import { getBridge } from '../../editor/bridge.js';
+import type { ReferenceProfile, ReferenceRole } from '@framepilot/ai-sdk';
+import { analyzeReference, getBridge, isDesktop } from '../../editor/bridge.js';
+import { materializeImportedMedia, probeMediaFile } from '../../editor/import.js';
 import {
   ArrowDown,
   Copy,
@@ -93,14 +101,26 @@ import { PlanApprovalCard } from './PlanApprovalCard.js';
 import { PlanAccordion } from './PlanAccordion.js';
 import type { StepOutcome } from './EventNode.js';
 import { SteeringInput } from './SteeringInput.js';
+import { explainRunFailure } from '../../ai/runFailure.js';
+import { starterPrompts } from '../../ai/starterPrompts.js';
+import {
+  formatDurationDelta,
+  formatRunChangeGroups,
+  summarizeRunChanges,
+} from '../../ai/runSummary.js';
+import { PlayheadContextChip } from './PlayheadContextChip.js';
 import { Composer } from './Composer.js';
 import {
+  MEMORY_CHIP_PREFIX,
+  type RememberedDecision,
   type ComposerSelection,
   type PinnedEntity,
   buildContextItems,
   pinnableEntities,
 } from '../../ai/composerActions.js';
-import type { Attachment, ConversationUiState } from '../../ai/conversation.js';
+import { recordProviderSuccess } from '../../editor/providerHealth.js';
+import { LruCache } from '../../editor/lruCache.js';
+import { isDefaultUiState, type Attachment, type ConversationUiState } from '../../ai/conversation.js';
 import { contextPhase, latestContextWindow } from './ContextWindowIndicator.js';
 import { type ContextDebugInfo, recentManifests } from './ContextDebugger.js';
 
@@ -134,13 +154,6 @@ function loadPlanFirst(): boolean {
   }
 }
 
-/** Starter prompts shown in the empty state — each maps to a real timeline capability. */
-const EXAMPLE_PROMPTS: readonly string[] = [
-  'Remove the silent gaps',
-  'Add captions from the transcript',
-  'Punch in on the intro',
-  'Mute the music track',
-];
 const newId = (): string => globalThis.crypto.randomUUID();
 /** True for the `AbortError` a Stop/close raises through the browser stream — a clean
     cancellation, not a run failure. */
@@ -177,15 +190,28 @@ const AI_STREAM_RENDER_SCHEDULER = createIntervalScheduler(50);
  * Same-document remounts are immediate, so carrying the exact live value across one is
  * a restore, never a guess. {@link ConversationUiState} keeps owning the COLD-start
  * (reload) case; this map only wins while the tab is alive.
+ *
+ * Bounded (P6.2): the key is a conversation id, so an unbounded Map would keep one
+ * entry per conversation ever opened for the life of the tab, across every project.
+ * Only the conversation being remounted can use its entry, so a small LRU loses
+ * nothing the cache was ever able to serve.
  */
-const scrollStateCache = new Map<string, { offset: number; stick: boolean }>();
+const MAX_CACHED_SCROLL_STATES = 32;
+const scrollStateCache = new LruCache<string, { offset: number; stick: boolean }>(
+  MAX_CACHED_SCROLL_STATES,
+);
 
 /**
- * Drop the cross-remount scroll cache. Tests only — it is module state that would
- * otherwise leak a previous test's scroll position into the next mount.
+ * Drop the cross-remount scroll cache — called on project switch (P6.2), and by tests,
+ * which would otherwise leak a previous mount's scroll position into the next.
  */
 export function resetAiSidebarScrollCache(): void {
   scrollStateCache.clear();
+}
+
+/** How many conversations' scroll states are cached right now (tests, resource probes). */
+export function aiSidebarScrollCacheSize(): number {
+  return scrollStateCache.size;
 }
 
 /** Order-insensitive equality for the two small id lists in {@link ConversationUiState}. */
@@ -332,6 +358,128 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   const [historyOpen, setHistoryOpen] = useState(false);
   const [removedContext, setRemovedContext] = useState<readonly string[]>([]);
   const [attachments, setAttachments] = useState<readonly Attachment[]>([]);
+  // Read inside async callbacks (re-analyze) so they never close over a stale list.
+  const attachmentsRef = useRef<readonly Attachment[]>(attachments);
+  attachmentsRef.current = attachments;
+  /**
+   * Reference attachments (plan/system-mission P3.1–P3.4): copy the file into the project
+   * through the same chunked import the media bin uses, let the host analyze it once, and
+   * hold the profile on the chip so the next turn sends it as `references`. The role is
+   * decided from the words in the draft and the file; the chip shows it.
+   */
+  const attachReferenceFiles = useCallback(
+    async (files: readonly File[]) => {
+      const projectId = projectRef.current.id;
+      for (const file of files) {
+        const kind: Attachment['kind'] = file.type.startsWith('image/')
+          ? 'image'
+          : file.type.startsWith('video/')
+            ? 'video'
+            : 'document';
+        const id = `ref_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+        if (kind !== 'image' && kind !== 'video') {
+          setAttachments((list) => [
+            ...list,
+            {
+              id,
+              kind,
+              name: file.name,
+              status: 'unsupported',
+              error: 'Only video and image references are analyzed.',
+            },
+          ]);
+          continue;
+        }
+        const decision = decideReferenceRole({ kind, fileName: file.name, promptText: draft });
+        setAttachments((list) => [
+          ...list,
+          { id, kind, name: file.name, role: decision.role, status: 'analyzing' },
+        ]);
+        const update = (patch: Partial<Attachment>): void =>
+          setAttachments((list) => list.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+        if (!isDesktop()) {
+          update({
+            status: 'unsupported',
+            error: 'Reference analysis requires the FramePilot desktop app.',
+          });
+          continue;
+        }
+        try {
+          const probed = await probeMediaFile(file);
+          const media = await materializeImportedMedia(probed, file, projectId);
+          const result = await analyzeReference({
+            projectId,
+            inputPath: media.path,
+            id,
+            fileName: file.name,
+            kind,
+            role: decision.role,
+          });
+          if (!result.ok) {
+            update({ status: 'failed', error: result.error, path: media.path });
+            continue;
+          }
+          update({ status: 'ready', path: media.path, profile: result.profile });
+        } catch (error) {
+          update({
+            status: 'failed',
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    },
+    [draft],
+  );
+
+  /**
+   * Measure an attached reference again (P3.6) — the analysis failed, or the editor
+   * changed its role and wants the constraints re-derived for it.
+   *
+   * The original `File` is long gone; the imported copy under the projects root is what
+   * the host analyzed and what it re-analyzes, with `refresh` so the content-hash cache
+   * is bypassed rather than handing back the same stale answer.
+   */
+  const reanalyzeReference = useCallback(async (id: string, roleOverride?: ReferenceRole) => {
+    const current = attachmentsRef.current.find((entry) => entry.id === id);
+    if (!current?.path || (current.kind !== 'image' && current.kind !== 'video')) return;
+    const role = roleOverride ?? current.role ?? 'style';
+    const update = (patch: Partial<Attachment>): void =>
+      setAttachments((list) => list.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+    // A retry starts clean: the previous failure's reason must not survive under a
+    // spinner, or the tile shows an error for an analysis that is running right now.
+    setAttachments((list) =>
+      list.map((a) =>
+        a.id === id
+          ? {
+              id: a.id,
+              kind: a.kind,
+              name: a.name,
+              ...(a.path !== undefined ? { path: a.path } : {}),
+              role,
+              status: 'analyzing' as const,
+            }
+          : a,
+      ),
+    );
+    try {
+      const result = await analyzeReference({
+        projectId: projectRef.current.id,
+        inputPath: current.path,
+        id,
+        fileName: current.name,
+        kind: current.kind,
+        role,
+        refresh: true,
+      });
+      if (!result.ok) {
+        update({ status: 'failed', error: result.error });
+        return;
+      }
+      update({ status: 'ready', profile: result.profile });
+    } catch (error) {
+      update({ status: 'failed', error: error instanceof Error ? error.message : String(error) });
+    }
+  }, []);
   // Event handlers and an imperative Cmd+K send can run between React commits. Keep
   // refs updated during render and dereference them only when the turn is submitted,
   // so the request never captures a previous render's empty asset array.
@@ -368,12 +516,39 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   const composerSelection: ComposerSelection | undefined = selectionRangeValue
     ? { range: selectionRangeValue, clipCount: selectedIds.length }
     : undefined;
+  // What the AI remembers about this project (P8.2 "knows"): each preference is a chip
+  // the editor can see and remove — and removing it forgets it, not just hides it.
+  const remembered = useMemo<readonly RememberedDecision[]>(() => {
+    const memory = readMemory(project);
+    const labels: Record<MemoryPreferenceKey, string> = {
+      targetAudience: 'audience',
+      brandStyle: 'brand style',
+      captionStyle: 'caption style',
+      preferredPacing: 'pacing',
+    };
+    return (Object.keys(labels) as MemoryPreferenceKey[])
+      .filter((key) => typeof memory[key] === 'string' && memory[key] !== '')
+      .map((key) => ({ key, label: labels[key], value: memory[key] as string }));
+  }, [project]);
+  const forgetDecision = useCallback(
+    (key: string) => {
+      const memory = readMemory(project);
+      if (!(key in memory)) return;
+      const { [key as MemoryPreferenceKey]: _forgotten, ...rest } = memory;
+      onProjectChange?.(writeMemory(project, rest as typeof memory));
+    },
+    [project, onProjectChange],
+  );
+  // UX-02: the empty state's suggestions are derived from this project, not four
+  // hard-coded strings — the walkthrough caught it offering "Add captions from the
+  // transcript" on a project with no transcript.
+  const examplePrompts = useMemo(() => starterPrompts(project), [project]);
   const contextItems = useMemo(
     () =>
-      buildContextItems(project, composerSelection, pinnedEntities).filter(
+      buildContextItems(project, composerSelection, pinnedEntities, remembered).filter(
         (item) => !removedContext.includes(item.id),
       ),
-    [project, composerSelection, pinnedEntities, removedContext],
+    [project, composerSelection, pinnedEntities, remembered, removedContext],
   );
 
   const active = conversations.active;
@@ -738,13 +913,37 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   // reset what the reviewer is mid-typing/mid-scrolling. A `useLayoutEffect` (not
   // `useEffect`) so the scroll restore below lands before the browser paints, and
   // before the auto-scroll-to-bottom effect above can fight it.
+  //
+  // One conversation gets seeded TWICE, on purpose. A conversation opened from history
+  // after a cold start arrives as a stub — its log and its `uiState` are still being read
+  // from disk — so the first seed sees the default state and restores nothing. The load
+  // that follows replaces `uiState` wholesale, and that single transition must re-seed or
+  // a real reload loses the draft, the expanded cards, the scroll position and (P3.1) the
+  // reference tiles, all of which were saved correctly and simply never read back. The
+  // re-seed is refused the moment the reviewer has anything of their own in the composer,
+  // so a load that lands late can never overwrite live typing.
   const seededConversationId = useRef<string | null>(null);
+  const seededDefaultUiState = useRef(false);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   useLayoutEffect(() => {
     const id = active?.id ?? null;
-    if (seededConversationId.current === id) return;
-    seededConversationId.current = id;
     const uiState = active?.uiState;
+    const switched = seededConversationId.current !== id;
+    const arrivedFromDisk =
+      !switched &&
+      seededDefaultUiState.current &&
+      uiState !== undefined &&
+      !isDefaultUiState(uiState) &&
+      draftRef.current === '' &&
+      attachmentsRef.current.length === 0;
+    if (!switched && !arrivedFromDisk) return;
+    seededConversationId.current = id;
+    seededDefaultUiState.current = uiState === undefined || isDefaultUiState(uiState);
     setDraft(uiState?.composerDraft ?? '');
+    // Reference chips survive a reload with their analyzed profiles (P3.1); an attachment
+    // still `analyzing` when the state was saved can only be re-attached, so it is dropped.
+    setAttachments((uiState?.attachments ?? []).filter((a) => a.status !== 'analyzing'));
     setExpandedNodes(
       uiState && uiState.expandedToolIds.length > 0
         ? Object.fromEntries(uiState.expandedToolIds.map((nodeId) => [nodeId, true]))
@@ -771,8 +970,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     // auto-scroll effect above immediately yank it back down.
     stickRef.current = stick;
     setAtBottom(stick);
-    // Deliberately keyed on the id alone — see the comment above.
-  }, [active?.id]);
+    // The id decides a SWITCH; `uiState` is here only so the one late load above can
+    // re-seed — every other change to it returns at the guard.
+  }, [active?.id, active?.uiState]);
 
   // The stream ELEMENT can be replaced without the conversation changing: opening and
   // closing the History drawer swaps `.ai-stream` out and back, and a host auto-commit
@@ -812,20 +1012,22 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     const unchanged =
       draft === active.uiState.composerDraft &&
       persistedOffset === active.uiState.scrollOffset &&
-      sameIdSet(expandedToolIds, active.uiState.expandedToolIds);
+      sameIdSet(expandedToolIds, active.uiState.expandedToolIds) &&
+      attachments === active.uiState.attachments;
     if (unchanged) return;
     const nextUiState: ConversationUiState = {
       ...active.uiState,
       composerDraft: draft,
       expandedToolIds,
       scrollOffset: persistedOffset,
+      attachments,
     };
     conversations.setUiState(active.id, nextUiState);
     // `conversations.setUiState` alone (a `useMemo`-stabilized reference, not the
     // whole `conversations` object, which is a fresh object every render) — so
     // this effect is only ever SCHEDULED when something it actually reads
     // changed, not on every unrelated re-render of the sidebar.
-  }, [active, atBottom, draft, expandedNodes, scrollOffset, conversations.setUiState]);
+  }, [active, atBottom, draft, expandedNodes, scrollOffset, attachments, conversations.setUiState]);
 
   // UI lifecycle is not cancellation authority. A sidebar remount, tab switch, project
   // refresh, or renderer navigation detaches this projection while the durable host run
@@ -909,6 +1111,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       const steeringQueue = createSteeringQueue();
       planApprovalGateRef.current = planApprovalGate;
       steeringQueueRef.current = steeringQueue;
+      const readyReferences = attachments.flatMap((a) =>
+        a.status === 'ready' && a.profile ? [a.profile as unknown as ReferenceProfile] : [],
+      );
       const runInputFor = (runMode: AiSessionMode): AiSessionInput => {
         const currentEditor = editorRef.current;
         const projectSnapshot = projectSnapshotForAiRun(projectRef.current, currentEditor);
@@ -935,6 +1140,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
           turnId,
           ...(history.length > 0 ? { history } : {}),
           userMemory: loadUserMemory(),
+          ...(readyReferences.length > 0 ? { references: readyReferences } : {}),
           ...(activeProviderName !== 'mock' ? { provider: activeProviderName } : {}),
           ...(sendSelection ? { selection: sendSelection } : {}),
           interaction,
@@ -989,6 +1195,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         // that dropped the request reports no usage, so a $0 total reads as a measured
         // zero under a run that in fact called the model and got nothing back. The
         // error/warning above is the honest account.
+        // UX-11: the provider actually answered. Settings' readiness panel reads this
+        // instead of claiming a provider is ready because a key happens to be stored.
+        if (!signals.failed && !signals.cancelled) recordProviderSuccess(activeProviderName);
         if (signals.cost && !signals.failed) {
           sessionCost.current = {
             tokens: sessionCost.current.tokens + signals.cost.tokens,
@@ -1029,8 +1238,16 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
           // transport error before any event) surfaces as a throw from the session
           // iterable, not an in-stream error event. Render it — otherwise the run just
           // stops with no explanation (an unhandled rejection).
-          const message = error instanceof Error ? error.message : String(error);
-          conversations.append(conversation.id, emitter.error(message, { retryable: true }));
+          // Plain sentence up front, provider/FFmpeg text behind "Show details"
+          // (P8.2 "failed") — the raw message is evidence, not the message.
+          const failure = explainRunFailure(error instanceof Error ? error.message : String(error));
+          conversations.append(
+            conversation.id,
+            emitter.error(failure.text, {
+              retryable: true,
+              ...(failure.detail === undefined ? {} : { detail: failure.detail }),
+            }),
+          );
           conversations.append(conversation.id, emitter.status('failed'));
         }
         finalized = true;
@@ -1129,8 +1346,14 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     } catch (error) {
       // Same run-level failure surfacing as runTurn (hub timeout / transport throw).
       batcher.flush();
-      const message = error instanceof Error ? error.message : String(error);
-      conversations.append(conversation.id, emitter.error(message, { retryable: true }));
+      const failure = explainRunFailure(error instanceof Error ? error.message : String(error));
+      conversations.append(
+        conversation.id,
+        emitter.error(failure.text, {
+          retryable: true,
+          ...(failure.detail === undefined ? {} : { detail: failure.detail }),
+        }),
+      );
       conversations.append(conversation.id, emitter.status('failed'));
     } finally {
       batcher.flush();
@@ -1290,6 +1513,52 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     return lastTurnId === undefined
       ? []
       : diffs.filter((n) => n.turnId === lastTurnId).map((n) => n.edit.patch.patchId);
+  }, [view.nodes]);
+  // What the last run changed, said in editing terms (P8.2 "changed"): the operations
+  // grouped by semantic action and the programme-length delta. "Made N edits" is a
+  // count of patches; this is an account of the cut.
+  const lastRunSummary = useMemo(() => {
+    const diffs = view.nodes.filter(
+      (n): n is Extract<typeof n, { kind: 'diff' }> => n.kind === 'diff' && n.edit.validation.valid,
+    );
+    const lastTurnId = diffs.at(-1)?.turnId;
+    if (lastTurnId === undefined) return null;
+    const edits = diffs
+      .filter((n) => n.turnId === lastTurnId)
+      .map((n) => {
+        const card = toReviewCard(n.edit);
+        return {
+          operations: n.edit.patch.operations as readonly AnyOperation[],
+          before: card.before,
+          after: card.after,
+        };
+      });
+    return summarizeRunChanges(edits, projectNames(project));
+  }, [view.nodes, project]);
+  // Where the last run's edits landed (P8.2 "changed"): the first clip an operation
+  // names, else the first track — enough for "Show on timeline" to put the editor's eyes
+  // on the affected range instead of leaving them to hunt for what changed.
+  const lastRunReference = useMemo<Reference | null>(() => {
+    const diffs = view.nodes.filter(
+      (n): n is Extract<typeof n, { kind: 'diff' }> => n.kind === 'diff' && n.edit.validation.valid,
+    );
+    const lastTurnId = diffs.at(-1)?.turnId;
+    if (lastTurnId === undefined) return null;
+    let track: Reference | null = null;
+    for (const node of diffs.filter((n) => n.turnId === lastTurnId)) {
+      for (const op of node.edit.patch.operations as unknown as readonly Record<
+        string,
+        unknown
+      >[]) {
+        const clipId = op['clipId'];
+        if (typeof clipId === 'string') return { kind: 'clip', id: clipId, label: clipId };
+        const trackId = op['trackId'];
+        if (track === null && typeof trackId === 'string') {
+          track = { kind: 'track', id: trackId, label: trackId };
+        }
+      }
+    }
+    return track;
   }, [view.nodes]);
   // How many entries at the TOP of the undo stack this run owns, counted contiguously
   // from the newest backwards.
@@ -1568,7 +1837,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
                   Describe a change and FramePilot proposes a reviewable, reversible edit.
                 </p>
                 <div className="ai-empty-prompts">
-                  {EXAMPLE_PROMPTS.map((prompt) => (
+                  {examplePrompts.map((prompt) => (
                     <button
                       key={prompt}
                       type="button"
@@ -1628,6 +1897,26 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
                     ? 'Made 1 edit'
                     : `Made ${String(lastRunPatchIds.length)} edits`}
                 </span>
+                {lastRunSummary && lastRunSummary.groups.length > 0 && (
+                  <span className="ai-run-footer-changes">
+                    {formatRunChangeGroups(lastRunSummary.groups)}
+                  </span>
+                )}
+                {lastRunSummary?.durationDeltaSeconds !== undefined &&
+                  formatDurationDelta(lastRunSummary.durationDeltaSeconds) !== null && (
+                    <span className="ai-run-footer-duration tabular">
+                      {`${formatDurationDelta(lastRunSummary.durationDeltaSeconds) ?? ''} · now ${(lastRunSummary.durationAfterSeconds ?? 0).toFixed(1)}s`}
+                    </span>
+                  )}
+                {onReveal && lastRunReference && (
+                  <button
+                    type="button"
+                    className="ai-btn ai-btn--quiet"
+                    onClick={() => onReveal(lastRunReference)}
+                  >
+                    Show on timeline
+                  </button>
+                )}
                 {undoableRunEdits > 0 ? (
                   <button type="button" className="ai-btn ai-btn--quiet" onClick={undoRun}>
                     Undo run
@@ -1717,11 +2006,19 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
             contextPhase={phase}
             {...(contextDebug ? { contextDebug } : {})}
             contextItems={contextItems}
-            onRemoveContext={(id) => setRemovedContext((r) => [...r, id])}
+            {...(editor ? { playheadChip: <PlayheadContextChip editor={editor} /> } : {})}
+            onReanalyzeAttachment={(id) => void reanalyzeReference(id)}
+            onChangeAttachmentRole={(id, role) => void reanalyzeReference(id, role)}
+            onRemoveContext={(id) =>
+              id.startsWith(MEMORY_CHIP_PREFIX)
+                ? forgetDecision(id.slice(MEMORY_CHIP_PREFIX.length))
+                : setRemovedContext((r) => [...r, id])
+            }
             atEntities={atEntities}
             onPinEntity={onPinEntity}
             attachments={attachments}
             onAddAttachment={(a) => setAttachments((list) => [...list, a])}
+            onAttachFiles={(files) => void attachReferenceFiles(files)}
             onRemoveAttachment={(id) => setAttachments((list) => list.filter((a) => a.id !== id))}
           />
         </>

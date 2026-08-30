@@ -222,6 +222,11 @@ def inspect_media(
     :raises FileNotFoundError: If ``path`` does not exist.
     :raises FFmpegError: If ffprobe fails or returns unparseable output.
     """
+    # `path` is contractually pre-sandboxed by the caller (see the docstring's
+    # `resolve_within` note) before it ever reaches this primitive. CodeQL cannot
+    # model that cross-function barrier, so this documented suppression stands in
+    # for its taint analysis.
+    # codeql[py/path-injection]
     if not path.exists():
         raise FileNotFoundError(f"Media file does not exist: {path}")
 

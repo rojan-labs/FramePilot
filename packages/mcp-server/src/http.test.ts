@@ -9,6 +9,7 @@
 import type { AddressInfo } from 'node:net';
 import { createServer as createNetServer } from 'node:net';
 import type { Server as HttpServer } from 'node:http';
+import { rmSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { resolveHttpConfig, startHttpServer } from './http.js';
 import { EditorSession } from './session.js';
@@ -103,11 +104,13 @@ describe('resolveHttpConfig', () => {
 
 describe('startHttpServer session routing', () => {
   let server: HttpServer;
+  let sandboxRoot: string;
   let url: string;
   let origin: string;
 
   beforeAll(async () => {
     const { root } = await makeSandboxProject();
+    sandboxRoot = root;
     const port = await reserveFreePort();
     server = await startHttpServer(
       { session: new EditorSession(root), renderClient: null, analysisClient: null },
@@ -127,6 +130,7 @@ describe('startHttpServer session routing', () => {
   });
 
   afterAll(() => {
+    rmSync(sandboxRoot, { recursive: true, force: true });
     server.close();
   });
 
@@ -211,11 +215,13 @@ describe('startHttpServer session routing', () => {
 
 describe('startHttpServer request hygiene', () => {
   let server: HttpServer;
+  let sandboxRoot: string;
   let url: string;
   let origin: string;
 
   beforeAll(async () => {
     const { root } = await makeSandboxProject();
+    sandboxRoot = root;
     const port = await reserveFreePort();
     server = await startHttpServer(
       { session: new EditorSession(root), renderClient: null, analysisClient: null },
@@ -236,6 +242,7 @@ describe('startHttpServer request hygiene', () => {
   });
 
   afterAll(() => {
+    rmSync(sandboxRoot, { recursive: true, force: true });
     server.close();
   });
 
@@ -251,11 +258,13 @@ describe('startHttpServer request hygiene', () => {
 
 describe('startHttpServer session cap', () => {
   let server: HttpServer;
+  let sandboxRoot: string;
   let url: string;
   let origin: string;
 
   beforeAll(async () => {
     const { root } = await makeSandboxProject();
+    sandboxRoot = root;
     const port = await reserveFreePort();
     server = await startHttpServer(
       { session: new EditorSession(root), renderClient: null, analysisClient: null },
@@ -275,6 +284,7 @@ describe('startHttpServer session cap', () => {
   });
 
   afterAll(() => {
+    rmSync(sandboxRoot, { recursive: true, force: true });
     server.close();
   });
 
@@ -298,11 +308,13 @@ describe('startHttpServer session cap', () => {
 describe('startHttpServer optional bearer auth', () => {
   const TOKEN = 'super-secret-token';
   let server: HttpServer;
+  let sandboxRoot: string;
   let url: string;
   let origin: string;
 
   beforeAll(async () => {
     const { root } = await makeSandboxProject();
+    sandboxRoot = root;
     const port = await reserveFreePort();
     server = await startHttpServer(
       { session: new EditorSession(root), renderClient: null, analysisClient: null },
@@ -322,6 +334,7 @@ describe('startHttpServer optional bearer auth', () => {
   });
 
   afterAll(() => {
+    rmSync(sandboxRoot, { recursive: true, force: true });
     server.close();
   });
 

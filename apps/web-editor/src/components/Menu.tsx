@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { hintFor } from '../editor/shortcuts.js';
 import { ChevronDown, ICON_SIZE } from './icons.js';
 
 export interface MenuProps {
@@ -67,15 +68,37 @@ export function Menu({ trigger, label, children, className }: MenuProps): JSX.El
   );
 }
 
+/**
+ * The chord a menu row advertises, read from the shortcut registry rather than
+ * typed into the markup — the same source the `?` overlay renders from, so it is
+ * right on Windows and Linux too. Renders nothing when the id is unknown.
+ *
+ * Shared by {@link MenuItem} and the timeline's context menus so there is one
+ * rendering of a menu shortcut in the app.
+ */
+export function MenuShortcut({ shortcutId }: { readonly shortcutId: string }): JSX.Element | null {
+  const hint = hintFor(shortcutId);
+  if (hint === null) return null;
+  return <kbd className="menu-item-kbd">{hint}</kbd>;
+}
+
 export interface MenuItemProps {
   readonly onSelect: () => void;
   readonly icon?: ReactNode;
   readonly children: ReactNode;
   readonly disabled?: boolean;
+  /** Registry id of the shortcut that runs this same action, shown on the row. */
+  readonly shortcutId?: string;
 }
 
 /** A single actionable row inside a {@link Menu}. */
-export function MenuItem({ onSelect, icon, children, disabled }: MenuItemProps): JSX.Element {
+export function MenuItem({
+  onSelect,
+  icon,
+  children,
+  disabled,
+  shortcutId,
+}: MenuItemProps): JSX.Element {
   return (
     <button
       type="button"
@@ -90,6 +113,7 @@ export function MenuItem({ onSelect, icon, children, disabled }: MenuItemProps):
         </span>
       )}
       <span className="menu-item-label">{children}</span>
+      {shortcutId !== undefined && <MenuShortcut shortcutId={shortcutId} />}
     </button>
   );
 }

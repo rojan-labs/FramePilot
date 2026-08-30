@@ -6,6 +6,7 @@
  * user workflow: semantic features prepare unchanged media in the background or
  * on first need, then reuse it.
  */
+import { lastProviderSuccess } from '../editor/providerHealth.js';
 import {
   useCallback,
   useEffect,
@@ -1430,6 +1431,19 @@ function SettingsDialogContent({
   const dialogRef = useModalFocusTrap<HTMLDivElement>();
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const activeProvider = config.providers.find(({ name }) => name === config.activeProvider);
+  // Re-read on every open: a run in the sidebar can prove the provider between opens.
+  const answeredAt = activeProvider ? lastProviderSuccess(activeProvider.name) : undefined;
+  const providerTone = !activeProvider?.ready ? 'attention' : answeredAt ? 'ready' : 'idle';
+  const providerReadinessText = !activeProvider?.ready
+    ? 'Set up'
+    : answeredAt
+      ? activeProvider.label
+      : `${activeProvider.label} · key saved`;
+  const providerReadinessHint = !activeProvider?.ready
+    ? 'No credential is stored for this provider yet.'
+    : answeredAt
+      ? `Last answered ${answeredAt.toLocaleString()}.`
+      : 'A key is stored, but this provider has not answered a request on this device yet.';
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -1531,9 +1545,14 @@ function SettingsDialogContent({
                 <strong>Local</strong>
               </div>
               <div>
-                <i data-tone={activeProvider?.ready ? 'ready' : 'attention'} />
+                {/* UX-11: a stored key is not a working provider. `ready` only means a
+                    credential exists — the walkthrough caught this row reporting a
+                    provider as ready while the configured key returned 410 on every
+                    call. `ready` is now the floor, and the claim is only upgraded once
+                    the provider has actually answered a run on this device. */}
+                <i data-tone={providerTone} />
                 <span>AI provider</span>
-                <strong>{activeProvider?.ready ? activeProvider.label : 'Set up'}</strong>
+                <strong title={providerReadinessHint}>{providerReadinessText}</strong>
               </div>
               <div>
                 <i data-tone={projectId ? 'ready' : 'idle'} />

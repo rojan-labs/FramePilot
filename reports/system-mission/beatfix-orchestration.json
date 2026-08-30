@@ -1,0 +1,369 @@
+{
+  "label": "beatfix",
+  "generatedAt": "2026-08-29T16:28:33.998Z",
+  "provider": "openai-compatible",
+  "model": "claude-sonnet-5",
+  "runsPerScenario": 1,
+  "results": [
+    {
+      "scenario": "beat-sync",
+      "project": "mission-montage",
+      "run": 1,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Put the 100 BPM music track (beat-100bpm) under the footage and cut the picture to the beat. Aim for about 30 seconds.",
+          "rubric": "beat-sync",
+          "score": 0.5555555555555556,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": true,
+              "detail": "changed",
+              "weight": 2
+            },
+            {
+              "id": "has-music",
+              "ok": true,
+              "detail": "1 music clip(s)"
+            },
+            {
+              "id": "cuts-on-beats",
+              "ok": false,
+              "detail": "1/4 cuts within 0.05s of a beat (25%)",
+              "weight": 2
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "5 picture clip(s), need ≥ 6"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "4 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 455641,
+            "modelCalls": 9,
+            "tokens": {
+              "prompt": 247375,
+              "input": 24023,
+              "output": 26499,
+              "cacheRead": 223352,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 6030,
+                "wallMs": 6030,
+                "input": 7613,
+                "output": 374,
+                "cacheRead": 0
+              },
+              {
+                "ttftMs": 44969,
+                "wallMs": 46506,
+                "input": 0,
+                "output": 4183,
+                "cacheRead": 28981
+              },
+              {
+                "ttftMs": 38287,
+                "wallMs": 40030,
+                "input": 7991,
+                "output": 3434,
+                "cacheRead": 0
+              },
+              {
+                "ttftMs": 9167,
+                "wallMs": 10053,
+                "input": 0,
+                "output": 838,
+                "cacheRead": 66136
+              },
+              {
+                "ttftMs": 75292,
+                "wallMs": 77563,
+                "input": 8419,
+                "output": 7249,
+                "cacheRead": 0
+              },
+              {
+                "ttftMs": 78103,
+                "wallMs": 80024,
+                "input": 0,
+                "output": 7338,
+                "cacheRead": 62099
+              },
+              {
+                "ttftMs": 33731,
+                "wallMs": 34341,
+                "input": 0,
+                "output": 3083,
+                "cacheRead": 66136
+              },
+              {
+                "ttftMs": 160938,
+                "wallMs": 160938,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              },
+              {
+                "ttftMs": 19,
+                "wallMs": 19,
+                "input": 0,
+                "output": 0,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 9,
+              "ttftMs": {
+                "p50": 38287,
+                "p95": 160938,
+                "min": 19,
+                "max": 160938
+              },
+              "wallMs": {
+                "p50": 40030,
+                "p95": 160938,
+                "min": 19,
+                "max": 160938
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 8419,
+                "min": 0,
+                "max": 8419
+              },
+              "outputTokensPerTurn": {
+                "p50": 3083,
+                "p95": 7338,
+                "min": 0,
+                "max": 7338
+              },
+              "cacheHitRate": 0.9028883274381001,
+              "cacheReportingTurns": 7
+            },
+            "usd": 0.46955399999999997,
+            "usageTokens": 50522,
+            "toolCalls": 14,
+            "toolCallsByName": {
+              "load_skill": 1,
+              "add_clip": 1,
+              "detect_beats": 4,
+              "get_frame": 6,
+              "delete_clips": 1,
+              "trim_clip": 1
+            },
+            "repeatedToolCalls": 8,
+            "analysisFromCache": 0,
+            "contextRequests": 16,
+            "contextByType": [
+              {
+                "system": 2277,
+                "retrieved_evidence": 3555,
+                "project_memory": 18186,
+                "skill": 1649,
+                "latest_user_message": 33,
+                "tool_schemas": 17739
+              },
+              {
+                "system": 2277,
+                "retrieved_evidence": 3555,
+                "project_memory": 18186,
+                "skill": 1649,
+                "latest_user_message": 33,
+                "tool_schemas": 17739
+              },
+              {
+                "system": 3531,
+                "retrieved_evidence": 3555,
+                "project_memory": 18186,
+                "skill": 1649,
+                "latest_user_message": 33,
+                "tool_schemas": 17739
+              },
+              {
+                "system": 3531,
+                "retrieved_evidence": 3555,
+                "project_memory": 18186,
+                "skill": 1649,
+                "latest_user_message": 33,
+                "tool_schemas": 17739
+              },
+              {
+                "system": 3631,
+                "retrieved_evidence": 3569,
+                "project_memory": 18186,
+                "skill": 1649,
+                "latest_user_message": 33,
+                "tool_schemas": 14939
+              },
+              {
+                "system": 3631,
+                "retrieved_evidence": 3569,
+                "project_memory": 18186,
+                "skill": 1649,
+                "latest_user_message": 33,
+                "tool_schemas": 14939
+              },
+              {
+                "system": 3711,
+                "retrieved_evidence": 3569,
+                "project_memory": 18186,
+                "skill": 1649,
+                "latest_user_message": 33,
+                "tool_schemas": 14939
+              },
+              {
+                "system": 3711,
+                "retrieved_evidence": 3569,
+                "project_memory": 18186,
+                "skill": 1649,
+                "latest_user_message": 33,
+                "tool_schemas": 14939
+              },
+              {
+                "system": 3931,
+                "retrieved_evidence": 3569,
+                "project_memory": 18186,
+                "skill": 1649,
+                "latest_user_message": 33,
+                "tool_schemas": 12210
+              },
+              {
+                "system": 3931,
+                "retrieved_evidence": 3569,
+                "project_memory": 18186,
+                "skill": 1649,
+                "latest_user_message": 33,
+                "tool_schemas": 12210
+              },
+              {
+                "system": 4002,
+                "retrieved_evidence": 3569,
+                "project_memory": 18186,
+                "skill": 1649,
+                "latest_user_message": 33,
+                "tool_schemas": 12210
+              },
+              {
+                "system": 4002,
+                "retrieved_evidence": 3569,
+                "project_memory": 18186,
+                "skill": 1649,
+                "latest_user_message": 33,
+                "tool_schemas": 12210
+              },
+              {
+                "system": 3906,
+                "retrieved_evidence": 3568,
+                "project_memory": 18186,
+                "skill": 1649,
+                "latest_user_message": 33,
+                "tool_schemas": 14939
+              },
+              {
+                "system": 3906,
+                "retrieved_evidence": 3568,
+                "project_memory": 18186,
+                "skill": 1649,
+                "latest_user_message": 33,
+                "tool_schemas": 14939
+              },
+              {
+                "system": 3902,
+                "retrieved_evidence": 3568,
+                "project_memory": 18186,
+                "skill": 1649,
+                "latest_user_message": 33,
+                "tool_schemas": 14939
+              },
+              {
+                "system": 3855,
+                "retrieved_evidence": 3568,
+                "project_memory": 18186,
+                "skill": 1649,
+                "latest_user_message": 33,
+                "tool_schemas": 14939
+              }
+            ],
+            "contextUsedTokens": [
+              43439,
+              7613,
+              44693,
+              0,
+              42007,
+              7991,
+              42087,
+              0,
+              39578,
+              8419,
+              39649,
+              0,
+              42281,
+              0,
+              42277,
+              42230
+            ],
+            "contextCachedTokens": [
+              null,
+              0,
+              null,
+              28981,
+              null,
+              0,
+              null,
+              66136,
+              null,
+              0,
+              null,
+              62099,
+              null,
+              66136,
+              null,
+              null
+            ],
+            "diffs": 2,
+            "validDiffs": 2,
+            "operations": 2,
+            "errors": [
+              "openai-compatible API error 503: 503 Upstream network temporarily unavailable"
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.674735,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 1
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

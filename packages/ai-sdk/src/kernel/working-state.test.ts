@@ -40,6 +40,7 @@ import {
   stageEntryViolation,
   supersedeDecision,
   type RunWorkingState,
+  clearVerifications,
 } from './working-state.js';
 
 const base = (): RunWorkingState =>
@@ -1025,5 +1026,22 @@ describe('D4 — the brief is not stored twice', () => {
       provisional: false,
     });
     expect(state.objective.outcome).toBe(interpretation);
+  });
+});
+
+describe('clearVerifications (P4.3)', () => {
+  it('flips only the named standing failures to passed, keeping the original finding', () => {
+    let state = initialWorkingState({ runId: 'run_x', request: 'r' });
+    state = recordVerification(state, { criterion: 'No overlaps', passed: false, detail: 'a' });
+    state = recordVerification(state, { criterion: 'Duration', passed: false, detail: 'b' });
+    state = recordVerification(state, { criterion: 'Refs', passed: true });
+    const next = clearVerifications(state, new Set(['No overlaps']), 'cleared on fix turn 1');
+    expect(next.verifications.map((v) => [v.criterion, v.passed, v.detail])).toEqual([
+      ['No overlaps', true, 'cleared on fix turn 1 (was: a)'],
+      ['Duration', false, 'b'],
+      ['Refs', true, undefined],
+    ]);
+    // Nothing to clear → the same state object, no version bump.
+    expect(clearVerifications(next, new Set(['Refs', 'ghost']), 'n')).toBe(next);
   });
 });

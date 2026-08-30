@@ -14,7 +14,11 @@ from typing import Any
 _log = logging.getLogger(__name__)
 
 _CHILD_ATTRS = ("audio", "mask", "bg")
-_CHILD_SEQUENCE_ATTRS = ("clips",)
+#: ``clips`` is MoviePy's own composite-membership attribute; ``_framepilot_children`` is this
+#: module's escape hatch for a clip whose real children are captured in a closure rather than
+#: exposed as an attribute (e.g. a blend-mode ``frame_function`` closing over the layers it
+#: blends) — those layers are attached here purely so this walk can find and close them too.
+_CHILD_SEQUENCE_ATTRS = ("clips", "_framepilot_children")
 _RESOURCE_SEQUENCE_ATTRS = ("_framepilot_resources",)
 
 
@@ -38,6 +42,48 @@ def _resources(node: Any) -> list[Any]:
         if isinstance(sequence, (list, tuple)):
             found.extend(resource for resource in sequence if resource is not None)
     return found
+
+
+#: Attributes on a MoviePy clip that hold an ffmpeg reader owning OS pipes.
+_READER_ATTRS = ("reader", "audio_reader")
+
+
+def _release_reader_pipes(node: Any) -> None:
+    """Close the ffmpeg pipes MoviePy's own ``close()`` leaves open.
+
+    Both `FFMPEG_VideoReader.close()` and `FFMPEG_AudioReader.close()` are written as::
+
+        if self.proc:
+            if self.proc.poll() is None:   # only when STILL RUNNING
+                self.proc.terminate()
+                self.proc.stdout.close()
+                self.proc.stderr.close()
+                self.proc.wait()
+            self.proc = None
+
+    A reader whose ffmpeg has already exited — the normal end of a render, where the
+    process finished on its own — therefore drops the reference **without closing
+    `stdout`/`stderr`**, and the file descriptors survive until the garbage collector
+    happens to run the reader's ``__del__``. Under `-W error::ResourceWarning` that
+    surfaces as `unclosed file <_io.BufferedReader>`; in a long-lived sidecar it surfaces
+    as RSS that climbs export after export.
+
+    Called BEFORE the node's own ``close()``, because that method nulls ``proc`` and the
+    handles become unreachable afterwards.
+    """
+    for attr in _READER_ATTRS:
+        reader = getattr(node, attr, None)
+        proc = getattr(reader, "proc", None) if reader is not None else None
+        if proc is None:
+            continue
+        for pipe_name in ("stdout", "stderr", "stdin"):
+            pipe = getattr(proc, pipe_name, None)
+            if pipe is None or getattr(pipe, "closed", True):
+                continue
+            try:
+                pipe.close()
+            except Exception:  # pragma: no cover - teardown must keep walking
+                _log.debug("close_clip_tree: %s.%s.close() failed", attr, pipe_name, exc_info=True)
 
 
 def close_clip_tree(clip: Any) -> int:
@@ -69,6 +115,8 @@ def close_clip_tree(clip: Any) -> int:
         if not callable(close):
             continue
         try:
+            # Before close(), which nulls `proc` and makes the pipes unreachable.
+            _release_reader_pipes(node)
             close()
             closed += 1
         except Exception:  # pragma: no cover - teardown must keep walking

@@ -33,7 +33,7 @@ Choose the strongest visual moment near the most meaningful supported musical ev
 ## Professional heuristics
 
 - `detect_beats` supplies onset times and estimated BPM—not musical semantics. Label inferred regions neutrally by density/spacing/strength change.
-- Declare `hardSync` on `detect_beats` only when you mean every interior cut to sit exactly on an onset; the runtime then refuses one that cannot. Leave it off when the picture leads—near-misses are still snapped for you, and a cut you place deliberately off the grid is reported, not refused.
+- Declare `hardSync` on `detect_beats` when the editor asked for cuts *on the beat*—that is the request this skill is named for, and the runtime then refuses a cut it cannot place on an onset. Leave it off when the picture leads—near-misses are still snapped for you, and a cut you place deliberately off the grid is reported, not refused.
 - Map source events into sequence time with tools; never calculate offsets in prose.
 - Build footage candidates at action starts, peaks, completions, reveals, reactions, scene boundaries, and strong compositions—not only asset heads.
 - Compare pairings by story/payoff, action quality, event importance, motion/eye-flow continuity, novelty, and retiming cost. A strong onset cannot rescue a bad visual cut.

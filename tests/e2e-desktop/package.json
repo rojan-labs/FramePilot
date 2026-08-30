@@ -1,0 +1,17 @@
+{
+  "name": "@framepilot/e2e-desktop",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Desktop-host (Electron + sidecar) end-to-end tests and resource baselines for FramePilot (plan/system-mission)",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test --workers=1",
+    "test:headed": "playwright test --workers=1 --headed",
+    "resources": "playwright test --workers=1 --grep @resources"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0",
+    "@types/node": "^20.14.0",
+    "electron": "^39.8.10"
+  }
+}

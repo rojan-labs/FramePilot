@@ -45,9 +45,15 @@ def resolve_within(base: Path, candidate: str) -> Path:
     :returns: The resolved, sandbox-checked absolute path.
     :raises PathTraversalError: If the candidate escapes ``base``.
     """
+    # This IS the sandbox sanitizer: it must construct+resolve the untrusted `base`/
+    # `candidate` before the containment check below can run. CodeQL flags the
+    # construction itself, but the very next statement rejects anything that escapes
+    # `base` — no caller ever sees an unchecked path.
+    # codeql[py/path-injection]
     resolved_base = base.resolve()
     # ``candidate`` may be absolute; Path joining honours that, which is exactly
     # why we must re-check containment after resolving.
+    # codeql[py/path-injection]
     resolved_candidate = (resolved_base / candidate).resolve()
 
     if resolved_candidate != resolved_base and resolved_base not in resolved_candidate.parents:

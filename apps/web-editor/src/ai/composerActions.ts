@@ -30,7 +30,10 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: 'add-captions', description: 'Generate and add a styled caption track' },
   { name: 'improve-pacing', description: 'Tighten slow parts and add punch-ins' },
   { name: 'add-hook', description: 'Restructure the opening as a stronger hook' },
-  { name: 'export-reels', description: 'Export for Reels (9:16) through the engine' },
+  {
+    name: 'export',
+    description: 'Export at a chosen resolution, quality and format through the engine',
+  },
   { name: 'plan-edit', description: 'Produce a structured edit plan (no mutation)' },
 ];
 
@@ -158,10 +161,21 @@ export interface ComposerSelection {
  * unique `pin:<kind>:<id>` chip id per entity, so two pins never collide and each
  * removes independently of the selection chip and of each other).
  */
+/** A remembered project decision the sidebar shows as a removable "Remembers" chip (P8.2). */
+export interface RememberedDecision {
+  readonly key: string;
+  readonly label: string;
+  readonly value: string;
+}
+
+/** The chip id prefix for remembered decisions; removing one FORGETS it (see AiSidebar). */
+export const MEMORY_CHIP_PREFIX = 'memory:';
+
 export function buildContextItems(
   project: Project,
   selection?: ComposerSelection,
   pinned: readonly PinnedEntity[] = [],
+  remembered: readonly RememberedDecision[] = [],
 ): ContextItem[] {
   const items: ContextItem[] = [];
   if (selection) {
@@ -171,6 +185,7 @@ export function buildContextItems(
       id: 'selection',
       kind: 'selection',
       label: `Selected: ${clipsLabel}, ${round1(range.start)}–${round1(range.end)}s`,
+      removable: true,
     });
   }
   for (const entity of pinned) {
@@ -178,17 +193,32 @@ export function buildContextItems(
       id: `pin:${entity.kind}:${entity.id}`,
       kind: `pinned-${entity.kind}`,
       label: entity.label,
+      removable: true,
     });
   }
   items.push(
-    { id: 'timeline', kind: 'timeline', label: 'Current Timeline' },
-    { id: 'project', kind: 'project', label: `Project: ${project.name}` },
+    { id: 'timeline', kind: 'timeline', label: 'Current Timeline', removable: false },
+    { id: 'project', kind: 'project', label: `Project: ${project.name}`, removable: false },
   );
+  // What the AI remembers about this project — visible, and removable (P8.2 "knows").
+  for (const decision of remembered) {
+    items.push({
+      id: `${MEMORY_CHIP_PREFIX}${decision.key}`,
+      kind: 'memory',
+      label: `Remembers ${decision.label}: ${decision.value}`,
+      removable: true,
+    });
+  }
   if (project.transcript.length > 0) {
-    items.push({ id: 'transcript', kind: 'transcript', label: 'Transcript' });
+    items.push({ id: 'transcript', kind: 'transcript', label: 'Transcript', removable: false });
   }
   if (project.assets.length > 0) {
-    items.push({ id: 'assets', kind: 'assets', label: `Open Assets (${project.assets.length})` });
+    items.push({
+      id: 'assets',
+      kind: 'assets',
+      label: `Open Assets (${project.assets.length})`,
+      removable: false,
+    });
   }
   return items;
 }

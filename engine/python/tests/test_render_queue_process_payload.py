@@ -42,7 +42,12 @@ def test_process_payload_size_is_independent_of_derived_media_and_history() -> N
     parsed = RenderProcessRequest.model_validate_json(payload)
 
     assert len(payload) < 10_000
-    assert parsed.project.assets[0].media is None
+    # `media` itself is KEPT — the worker needs width/height to cap an upscale (see
+    # `project_for_render_worker`'s docstring) — but the derived, render-irrelevant fields
+    # that actually make it heavy (peaks, thumbnails) are stripped.
+    assert parsed.project.assets[0].media is not None
+    assert parsed.project.assets[0].media.peaks is None
+    assert parsed.project.assets[0].media.thumbnail_paths is None
     assert parsed.project.assets[0].folder_id is None
     assert parsed.project.folders == []
     assert parsed.project.markers == []
@@ -62,4 +67,6 @@ def test_burned_caption_worker_payload_keeps_transcript() -> None:
     parsed = RenderProcessRequest.model_validate_json(request.process_payload_json())
 
     assert [word.word for word in parsed.project.transcript] == ["hello"]
-    assert parsed.project.assets[0].media is None
+    assert parsed.project.assets[0].media is not None
+    assert parsed.project.assets[0].media.peaks is None
+    assert parsed.project.assets[0].media.thumbnail_paths is None

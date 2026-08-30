@@ -514,6 +514,19 @@ export function Editor({
     [editor.select],
   );
 
+  /**
+   * "Reveal in bin" (UX-08): switch the rail to the media bin and ask it to bring
+   * the asset's card into view. The counter matters — revealing the same asset a
+   * second time must move again, and by then the user has usually scrolled away.
+   */
+  const [revealRequest, setRevealRequest] = useState<
+    { readonly assetId: string; readonly seq: number } | undefined
+  >(undefined);
+  const revealAssetInBin = useCallback((assetId: string) => {
+    setLeftTab('media');
+    setRevealRequest((previous) => ({ assetId, seq: (previous?.seq ?? 0) + 1 }));
+  }, []);
+
   const mediaBinEl = useMemo(
     () => (
       <MediaBin
@@ -525,9 +538,18 @@ export function Editor({
         {...(onProjectChange ? { onProjectChange } : {})}
         {...(onProjectCommit ? { onProjectCommit } : {})}
         {...(ensureSavedForTranscription ? { ensureSavedForTranscription } : {})}
+        {...(revealRequest ? { revealRequest } : {})}
       />
     ),
-    [nonPlayheadKey, project, editMode, onProjectChange, openInSource, ensureSavedForTranscription],
+    [
+      nonPlayheadKey,
+      project,
+      editMode,
+      onProjectChange,
+      openInSource,
+      ensureSavedForTranscription,
+      revealRequest,
+    ],
   );
   const effectsEl = useMemo(() => <EffectsPanel editor={editor} />, [nonPlayheadKey]);
   const overlaysEl = useMemo(() => <OverlaysPanel editor={editor} />, [nonPlayheadKey]);
@@ -664,6 +686,7 @@ export function Editor({
         editMode={editMode}
         trackLayout={trackLayout}
         onAskAiForClip={onAskAiForClip}
+        onRevealAssetInBin={revealAssetInBin}
         onOpenTransitionLibrary={openTransitionLibrary}
         tool={tool}
         selectedEffectLayerIds={selectedEffectLayerIds}
@@ -678,6 +701,7 @@ export function Editor({
       editMode,
       trackLayout,
       onAskAiForClip,
+      revealAssetInBin,
       openTransitionLibrary,
       tool,
       selectedEffectLayerIds,

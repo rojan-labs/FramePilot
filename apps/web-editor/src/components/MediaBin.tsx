@@ -118,6 +118,20 @@ export interface MediaBinProps {
    * panel uses; absent ⇒ auto-transcribe is skipped (browser has no trusted-host ASR).
    */
   readonly ensureSavedForTranscription?: () => Promise<string | null>;
+  /**
+   * "Reveal in bin" (UX-08): scroll the asset's card into view and give it the
+   * grid's tab stop.
+   *
+   * A bumped `seq` rather than a bare id, so revealing the same asset twice in a
+   * row still moves — the second right-click is exactly the case where the user
+   * has scrolled away since the first.
+   *
+   * Revealing has to clear whatever is hiding the card first: a live search
+   * filter, or a collapsed folder. Both are reset here rather than at the caller,
+   * because the caller (the timeline) has no idea what the bin is currently
+   * showing.
+   */
+  readonly revealRequest?: { readonly assetId: string; readonly seq: number };
 }
 
 /** Lucide glyph per asset kind (Part D iconography mapping — no emoji). */
@@ -629,6 +643,7 @@ export function MediaBin({
   editMode = 'overwrite',
   onOpenInSource,
   ensureSavedForTranscription,
+  revealRequest,
 }: MediaBinProps): JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -1043,6 +1058,44 @@ export function MediaBin({
     },
     [rows, virtualizer],
   );
+
+  /**
+   * "Reveal in bin" (UX-08), in two steps because they cannot happen in one render.
+   *
+   * Step 1 clears whatever is hiding the card — the search filter and the
+   * collapsed ancestor folders. Step 2 waits until the row actually exists in
+   * `rows` (the grid is windowed AND filtered, so the card may not have been in
+   * the list a moment ago) and only then scrolls to it and takes the tab stop.
+   * Doing both in one effect would call `focusCard` against the pre-reset `rows`
+   * and reveal nothing at all.
+   */
+  const [pendingReveal, setPendingReveal] = useState<string | null>(null);
+  const revealSeq = revealRequest?.seq;
+  const revealAssetId = revealRequest?.assetId;
+  useEffect(() => {
+    if (revealAssetId === undefined) return;
+    setQuery('');
+    const ancestors = new Set<string>();
+    let folderId = assets.find((a) => a.id === revealAssetId)?.folderId ?? null;
+    while (folderId !== null) {
+      ancestors.add(folderId);
+      folderId = folders.find((f) => f.id === folderId)?.parentId ?? null;
+    }
+    if (ancestors.size > 0) {
+      setCollapsed((previous) => new Set([...previous].filter((id) => !ancestors.has(id))));
+    }
+    setPendingReveal(revealAssetId);
+    // Keyed on the counter: the same asset revealed twice must move twice.
+  }, [revealSeq, revealAssetId, assets, folders, setCollapsed]);
+  useEffect(() => {
+    if (pendingReveal === null) return;
+    const present = rows.some(
+      (row) => row.kind === 'assetpair' && row.assets.some((a) => a.id === pendingReveal),
+    );
+    if (!present) return;
+    focusCard(pendingReveal);
+    setPendingReveal(null);
+  }, [pendingReveal, rows, focusCard]);
 
   const cardActions = useMemo<AssetCardActions>(
     () => ({

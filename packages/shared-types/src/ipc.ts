@@ -119,14 +119,30 @@ export interface ProjectChangedEvent {
 export type RevealResult = { ok: true } | { ok: false; error: string };
 
 /**
+ * Quality-driven export settings (plan/system-mission Phase 7) — the same fields the
+ * engine's `render/export_settings.py` `ExportSettings` validates. The output frame
+ * follows the project's aspect ratio; the engine caps the resolution at what the sources
+ * hold and reports the target actually used on the job.
+ */
+export interface ExportSettings {
+  resolution?: '480p' | '720p' | '1080p' | '1440p' | '2160p' | 'source';
+  fps?: 24 | 25 | 30 | 50 | 60 | 'source';
+  quality?: 'low' | 'recommended' | 'high';
+  /** Explicit video bitrate in kbit/s; overrides the quality ladder. */
+  bitrateKbps?: number;
+  videoCodec?: 'h264' | 'hevc';
+  container?: 'mp4' | 'mov';
+}
+
+/**
  * Request to export (render) a saved project to a video file. The sidecar loads
  * the project from `projectPath` on disk, so the project MUST be saved first.
  */
 export interface ExportRequest {
   /** Absolute path of the saved `project.fp.json` the sidecar should render. */
   projectPath: string;
-  /** Export preset id (see `render.presets`); omit for the engine default. */
-  preset?: string;
+  /** Resolution/fps/quality/codec/container; omit for 1080p, project fps, recommended, H.264, MP4. */
+  settings?: ExportSettings;
   /** Burn caption-track text into the output (PRD §6.2, plan 3.3). */
   burnCaptions?: boolean;
   /** Master-bus broadband de-noise (ffmpeg afftdn, plan Phase 6). */
@@ -150,7 +166,8 @@ export interface ExportRequest {
  */
 export type ExportResult =
   | { ok: true; outputPath: string; state: string }
-  | { ok: false; error: string };
+  /** `error` is one plain sentence; `detail` is the encoder's own text, shown on demand. */
+  | { ok: false; error: string; detail?: string };
 
 /**
  * Queue-level status of a submitted (non-preview) render job (H1.3a/H1.3b).
@@ -172,6 +189,10 @@ export interface ExportProgressMessage {
   readonly requestId: string;
   readonly jobId?: string;
   readonly status?: ExportJobStatus;
+  /** Render stage while running (preparing_assets / rendering_frames / encoding / validating_output). */
+  readonly stage?: string;
+  /** 0..1 while running (plan/system-mission P7.6). */
+  readonly progress?: number;
   readonly result?: ExportResult;
 }
 
@@ -676,6 +697,48 @@ export interface AiStreamUserMemory {
  * opaque project JSON (re-validated in main); the conversation/turn ids stamp the
  * emitted events. Carries no secrets — the API key stays in the main process.
  */
+/**
+ * One analyzed reference attachment as it crosses the IPC bridge (plan/system-mission
+ * Phase 3). Structurally the ai-sdk `ReferenceProfile`; validated by its zod schema in the
+ * main process before it reaches the context builder.
+ */
+export interface AiStreamReferenceProfile {
+  readonly id: string;
+  readonly role:
+    | 'style'
+    | 'pacing'
+    | 'caption-style'
+    | 'color'
+    | 'brand-logo'
+    | 'thumbnail'
+    | 'b-roll'
+    | 'character'
+    | 'design';
+  readonly kind: 'video' | 'image';
+  readonly fileName: string;
+  readonly contentHash: string;
+  readonly analyzedAt: string;
+  readonly constraints: readonly string[];
+  readonly video?: Record<string, unknown> | undefined;
+  readonly image?: Record<string, unknown> | undefined;
+}
+
+/** `framepilot:references:analyze` — measure one attached reference file once. */
+export interface AnalyzeReferenceRequest {
+  readonly projectId: string;
+  /** Path returned by the media import (relative to the projects root, or absolute inside it). */
+  readonly inputPath: string;
+  readonly id: string;
+  readonly fileName: string;
+  readonly kind: 'video' | 'image';
+  readonly role: AiStreamReferenceProfile['role'];
+  readonly refresh?: boolean;
+}
+
+export type AnalyzeReferenceResult =
+  | { ok: true; profile: AiStreamReferenceProfile; cached: boolean }
+  | { ok: false; error: string };
+
 export interface AiStreamRequest {
   readonly mode: AiStreamMode;
   /** Legacy/browser compatibility document; desktop resolves authoritative state by id. */
@@ -704,7 +767,20 @@ export interface AiStreamRequest {
   /** The user's cross-project editorial defaults (K5.1b/K6.1). Sanitised in main. */
   readonly userMemory?: AiStreamUserMemory;
   /** Agent-mode tuning (plan/caps/auto-repair/duration). Ignored for non-agent modes. */
+  /** Analyzed reference attachments for this turn (Phase 3). */
+  readonly references?: readonly AiStreamReferenceProfile[];
+  /** Clips/assets the user pinned via the composer's "@" picker (P8.7); desktop parity P2.4. */
+  readonly pinned?: readonly AiStreamPinnedEntity[];
+  /** `edit` mode only: propose candidate takes instead of one edit (P13.1). */
+  readonly variations?: boolean;
   readonly agentOptions?: AiStreamAgentOptions;
+}
+
+/** One entity pinned as extra model context — mirrors the SDK's `PinnedEntity`. */
+export interface AiStreamPinnedEntity {
+  readonly kind: 'clip' | 'asset';
+  readonly id: string;
+  readonly label: string;
 }
 
 /**
@@ -1659,6 +1735,8 @@ export interface FramePilotBridge {
   /** Derive engine media (waveform peaks + thumbnails) for an on-disk media file,
    * so the timeline draws real waveforms/frames. Non-fatal on engine failure. */
   importAsset(req: ImportAssetRequest): Promise<ImportAssetResult>;
+  /** Analyze one attached reference file (video/image) once, in the trusted host. */
+  analyzeReference?(req: AnalyzeReferenceRequest): Promise<AnalyzeReferenceResult>;
   /** Run configured speech-to-text in the trusted host for one saved media asset. */
   transcribe(req: TranscriptionRequest): Promise<TranscriptionResult>;
   aiChat(req: AiRequest): Promise<AiTextResult>;

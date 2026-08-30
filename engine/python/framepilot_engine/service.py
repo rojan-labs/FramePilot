@@ -21,8 +21,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import json
 import logging
 import os
+import signal
 import threading
 import time
 from collections.abc import Callable, Iterable, Sequence
@@ -38,7 +40,7 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic import ValidationError as PydanticValidationError
 
 from framepilot_engine import __version__
@@ -55,6 +57,13 @@ from framepilot_engine.analysis.freeze import (
     detect_freezes,
 )
 from framepilot_engine.analysis.loudness import measure_loudness
+from framepilot_engine.analysis.reference import (
+    analysis_to_dict,
+    analyze_reference_video,
+)
+from framepilot_engine.analysis.reference import (
+    analyze_reference_image as analyze_reference_image,
+)
 from framepilot_engine.analysis.scenes import DEFAULT_SCENE_THRESHOLD, SceneCut, detect_scenes
 from framepilot_engine.analysis.silence import (
     DEFAULT_MIN_SILENCE_SECONDS,
@@ -190,6 +199,7 @@ from framepilot_engine.media.derive import PROXY_ENCODE_VERSION, generate_proxy,
 from framepilot_engine.media.ffmpeg import FFmpegError, NoAudioStreamError
 from framepilot_engine.media.probe import MediaInfo, inspect_media
 from framepilot_engine.media.waveform import extract_waveform
+from framepilot_engine.render.export_settings import ExportSettings
 from framepilot_engine.render.frame_grab import (
     DEFAULT_MAX_DIMENSION,
     FrameGrabError,
@@ -199,6 +209,7 @@ from framepilot_engine.render.pipeline import RenderJob, RenderOptions, render
 from framepilot_engine.render.queue import JobStatus, RenderQueue, RenderTask
 from framepilot_engine.render.queue import RenderRequest as QueuedRenderRequest
 from framepilot_engine.safety import PathTraversalError, resolve_within
+from framepilot_engine.singleflight import AsyncSingleFlight, SingleFlight
 from framepilot_engine.timeline.models import Project, ProjectFile, ProjectFileError
 from framepilot_engine.validation.render_validation import (
     ExpectedRender,
@@ -260,7 +271,13 @@ class RenderRequest(BaseModel):
     """Request body for ``POST /render`` (final export, PRD §9.3)."""
 
     project_path: str = Field(description="Path to the project.fp.json to render.")
-    preset: str | None = Field(default=None, description="Export preset id (see render.presets).")
+    settings: ExportSettings | None = Field(
+        default=None,
+        description=(
+            "Quality-driven export settings; omit for 1080p / source fps / recommended / "
+            "H.264 / MP4."
+        ),
+    )
     burn_captions: bool = Field(
         default=False, description="Burn caption-track text into the output (plan 3.3)."
     )
@@ -281,7 +298,13 @@ class RenderPreviewRequest(BaseModel):
     """Request body for ``POST /render/preview`` (fast, low-res)."""
 
     project_path: str = Field(description="Path to the project.fp.json to preview.")
-    preset: str | None = Field(default=None, description="Export preset id (see render.presets).")
+    settings: ExportSettings | None = Field(
+        default=None,
+        description=(
+            "Quality-driven export settings; omit for 1080p / source fps / recommended / "
+            "H.264 / MP4."
+        ),
+    )
     burn_captions: bool = Field(
         default=False, description="Burn caption-track text into the output (plan 3.3)."
     )
@@ -317,6 +340,31 @@ class InspectMediaRequest(BaseModel):
     """Request body for ``POST /inspect-media`` (plan 2.1)."""
 
     input_path: str = Field(description="Path to the media file to probe.")
+
+
+class ReferenceAnalysisRequest(BaseModel):
+    """Request body for ``POST /references/analyze`` (plan/system-mission P3.3)."""
+
+    input_path: str = Field(description="Path to the reference file inside the projects sandbox.")
+    kind: Literal["video", "image"] | None = Field(
+        default=None, description="Override the kind inferred from the file extension."
+    )
+    refresh: bool = Field(default=False, description="Recompute even when a cached result exists.")
+
+
+class ReferenceAnalysisResponse(BaseModel):
+    """Measured reference facts (camelCase payloads mirror the TS ``ReferenceProfile``)."""
+
+    kind: Literal["video", "image"]
+    content_hash: str = Field(alias="contentHash")
+    video: dict[str, Any] | None = None
+    image: dict[str, Any] | None = None
+    cached: bool = False
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"})
 
 
 class AssetMediaRequest(BaseModel):
@@ -583,10 +631,6 @@ class RenderFrameRequest(AnalysisProjectSource):
 
     time_seconds: float = Field(
         description="Timeline time to grab, in seconds. Clamped into the timeline.",
-    )
-    preset: str | None = Field(
-        default=None,
-        description="Export preset id; omit to composite at the project's own resolution.",
     )
     max_dimension: int = Field(
         default=DEFAULT_MAX_DIMENSION,
@@ -1662,6 +1706,10 @@ def create_app(
     # ORIGINAL source. Not keyed by project for the same reason — the contended
     # resource is the machine, not the project. See the route.
     _asset_media_gate = asyncio.Semaphore(settings.asset_media_concurrency)
+    # P5.4: identical requests that arrive while one is already running share its answer
+    # instead of spawning their own ffmpeg. Keyed on the request's inputs; nothing cached.
+    _asset_media_flight: AsyncSingleFlight[AssetMediaResponse] = AsyncSingleFlight()
+    _analysis_flight: SingleFlight[Any] = SingleFlight()
 
     def _visual_index_lock(project_id: str) -> threading.Lock:
         with _visual_index_locks_guard:
@@ -4090,7 +4138,7 @@ def create_app(
         project_path = sandbox(req.project_path)
         project = _load_project(project_path)
         opts = RenderOptions(
-            preset_id=req.preset,
+            settings=req.settings or ExportSettings(),
             preview=False,
             burn_captions=req.burn_captions,
             denoise=req.denoise,
@@ -4103,9 +4151,9 @@ def create_app(
             QueuedRenderRequest(project=project, opts=opts, base_dir=str(project_path.parent))
         )
         _log.info(
-            "ACT export queued: job=%s preset=%s burn_captions=%s path=%s",
+            "ACT export queued: job=%s settings=%s burn_captions=%s path=%s",
             task_id,
-            req.preset,
+            (req.settings or ExportSettings()).model_dump(),
             req.burn_captions,
             project_path.name,
         )
@@ -4149,7 +4197,7 @@ def create_app(
         export has no such bound, which is why it moved to the async queue.
         """
         return _run_render(
-            sandbox(req.project_path), req.preset, preview=True, burn_captions=req.burn_captions
+            sandbox(req.project_path), req.settings, preview=True, burn_captions=req.burn_captions
         )
 
     @app.post("/render/frame", response_model=RenderFrameResponse)
@@ -4167,7 +4215,6 @@ def create_app(
                 project,
                 media_base,
                 req.time_seconds,
-                preset_id=req.preset,
                 max_dimension=req.max_dimension,
                 image_format=req.image_format,
                 burn_captions=req.burn_captions,
@@ -4263,6 +4310,60 @@ def create_app(
         except FFmpegError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
+    @app.post("/references/analyze", response_model=ReferenceAnalysisResponse)
+    def references_analyze_route(req: ReferenceAnalysisRequest) -> ReferenceAnalysisResponse:
+        """Measure a reference video/image once (plan/system-mission P3.3).
+
+        The file must live inside the projects sandbox (the host copies attachments
+        under the project's media dir). The result is cached beside the file, keyed by
+        the file's content hash, so re-attaching or re-asking never re-analyzes.
+        """
+        # `media_path` is `sandbox()`-resolved above (PRD §18.1 boundary — see its
+        # docstring): every use below is a file already proven to live inside the
+        # projects root, not the raw `req.input_path`. CodeQL cannot model that
+        # cross-function barrier, so this documented suppression stands in for its
+        # taint analysis on each read/stat that follows.
+        media_path = sandbox(req.input_path)
+        if not media_path.is_file():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Reference not found: {req.input_path}")
+        # codeql[py/path-injection]
+        content_hash = _sha256_file(media_path)
+        cache_path = media_path.with_name(f"{media_path.name}.reference.json")
+        # codeql[py/path-injection]
+        if not req.refresh and cache_path.is_file():
+            try:
+                cached = json.loads(cache_path.read_text(encoding="utf-8"))
+                if cached.get("contentHash") == content_hash:
+                    _log.info("ACT references/analyze: cache hit %s", media_path.name)
+                    return ReferenceAnalysisResponse.model_validate({**cached, "cached": True})
+            except (OSError, ValueError) as exc:
+                _log.warning("reference cache unreadable for %s: %s", media_path.name, exc)
+        timeout = float(settings.asset_media_timeout_seconds)
+        kind = req.kind or ("image" if media_path.suffix.lower() in _IMAGE_SUFFIXES else "video")
+        try:
+            if kind == "image":
+                payload = analysis_to_dict(analyze_reference_image(media_path))
+                response = ReferenceAnalysisResponse(
+                    kind="image", content_hash=content_hash, image=payload, cached=False
+                )
+            else:
+                payload = analysis_to_dict(analyze_reference_video(media_path, timeout=timeout))
+                response = ReferenceAnalysisResponse(
+                    kind="video", content_hash=content_hash, video=payload, cached=False
+                )
+        except (FFmpegError, OSError, ValueError) as exc:
+            # codeql[py/path-injection]
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        try:
+            # codeql[py/path-injection]
+            cache_path.write_text(
+                json.dumps(response.model_dump(by_alias=True, exclude_none=True)), encoding="utf-8"
+            )
+        except OSError as exc:
+            _log.warning("reference cache not written for %s: %s", media_path.name, exc)
+        _log.info("ACT references/analyze: %s %s analyzed", kind, media_path.name)
+        return response
+
     @app.post("/asset-media", response_model=AssetMediaResponse)
     async def asset_media_route(req: AssetMediaRequest) -> AssetMediaResponse:
         """Probe an imported asset and derive read-only media for the timeline
@@ -4284,8 +4385,12 @@ def create_app(
         wait happens in the event loop, NOT on a threadpool thread: a queued caller
         costs nothing while it waits, which is the whole point of gating here rather
         than with a blocking semaphore inside the sync body."""
-        async with _asset_media_gate:
-            return await run_in_threadpool(_derive_asset_media, req)
+
+        async def _derive() -> AssetMediaResponse:
+            async with _asset_media_gate:
+                return await run_in_threadpool(_derive_asset_media, req)
+
+        return await _asset_media_flight.join(f"asset-media:{req.model_dump_json()}", _derive)
 
     def _derive_asset_media(req: AssetMediaRequest) -> AssetMediaResponse:
         """The derivation itself, run on a threadpool thread under the gate above."""
@@ -5045,11 +5150,14 @@ def create_app(
             else DEFAULT_MIN_SILENCE_SECONDS
         )
         try:
-            ranges = detect_silence(
-                media_path,
-                noise_floor_db=noise,
-                min_silence_seconds=min_gap,
-                timeout=timeout,
+            ranges = _analysis_flight.join(
+                f"silence:{media_path}:{noise}:{min_gap}",
+                lambda: detect_silence(
+                    media_path,
+                    noise_floor_db=noise,
+                    min_silence_seconds=min_gap,
+                    timeout=timeout,
+                ),
             )
         except NoAudioStreamError as exc:
             # A video-only asset is a fact about the file, not a decode fault — and "this
@@ -5085,7 +5193,10 @@ def create_app(
         )
         sensitivity = req.sensitivity if req.sensitivity is not None else DEFAULT_SENSITIVITY
         try:
-            analysis = detect_beats(media_path, sensitivity=sensitivity, timeout=timeout)
+            analysis = _analysis_flight.join(
+                f"beats:{media_path}:{sensitivity}",
+                lambda: detect_beats(media_path, sensitivity=sensitivity, timeout=timeout),
+            )
         except NoAudioStreamError as exc:
             # A silent clip is a fact about the asset, not a decode fault — and "this media
             # has no beats" is a RESULT, exactly like the empty `ranges` a fully-loud clip
@@ -5270,7 +5381,7 @@ def _load_project(project_path: Path) -> Project:
 
 def _run_render(
     project_path: Path,
-    preset: str | None,
+    settings: ExportSettings | None,
     *,
     preview: bool,
     burn_captions: bool = False,
@@ -5286,7 +5397,7 @@ def _run_render(
     path = project_path
     project = _load_project(path)
     opts = RenderOptions(
-        preset_id=preset,
+        settings=settings or ExportSettings(),
         preview=preview,
         burn_captions=burn_captions,
         denoise=denoise,
@@ -5294,8 +5405,8 @@ def _run_render(
         limiter=limiter,
     )
     _log.info(
-        "ACT render start: preset=%s preview=%s burn_captions=%s path=%s",
-        preset,
+        "ACT render start: settings=%s preview=%s burn_captions=%s path=%s",
+        opts.settings.model_dump(),
         preview,
         burn_captions,
         path.name,
@@ -5303,6 +5414,71 @@ def _run_render(
     job = render(project, opts, base_dir=path.parent)
     _log.info("ACT render done: state=%s output=%s", job.state, getattr(job, "output_path", None))
     return job
+
+
+PARENT_PID_ENV = "FRAMEPILOT_PARENT_PID"
+_PARENT_WATCH_INTERVAL_SECONDS = 2.0
+_PARENT_WATCH_GRACE_SECONDS = 10.0
+
+
+def _parent_is_alive(pid: int) -> bool:
+    """Is ``pid`` still a live process this user can signal?"""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Alive, owned by someone else (a pid the OS has already recycled). Treat as
+        # alive: exiting on a recycled pid would kill a healthy engine.
+        return True
+    return True
+
+
+def start_parent_watchdog(
+    pid: int | None = None,
+    *,
+    interval_seconds: float = _PARENT_WATCH_INTERVAL_SECONDS,
+    grace_seconds: float = _PARENT_WATCH_GRACE_SECONDS,
+) -> threading.Thread | None:
+    """Exit when the process that spawned this engine is gone.
+
+    WHY: the desktop app spawns the engine detached, in its own process group, so that a
+    running encode can be signalled as a group. The cost of that is that a hard death of
+    the app — ``kill -9``, Force Quit, a crash — leaves the engine alive and still holding
+    its port. The next launch then cannot bind: the sidecar manager burns its whole restart
+    budget losing to a process nobody owns, and the user's app comes back with no engine at
+    all (no render, no analysis, no agent). The engine is the only process that can notice
+    this, because it is the one that outlived its owner.
+
+    Deliberately a poll on ``os.kill(pid, 0)`` rather than reading stdin or ``os.getppid``:
+    the immediate parent in dev is the ``uv`` wrapper, not the app, so ``getppid`` watches
+    the wrong process; and the engine's stdio is inherited, not a pipe we can watch.
+
+    :param pid: The pid to watch; defaults to ``FRAMEPILOT_PARENT_PID``.
+    :returns: The watcher thread, or ``None`` when no parent pid was configured.
+    """
+    raw = str(pid) if pid is not None else os.environ.get(PARENT_PID_ENV, "").strip()
+    if not raw.isdigit() or int(raw) <= 1:
+        return None
+    watched = int(raw)
+
+    def _watch() -> None:
+        while _parent_is_alive(watched):
+            time.sleep(interval_seconds)
+        _log.warning(
+            "ACT parent process %d is gone; shutting the engine down so its port is freed",
+            watched,
+        )
+        # SIGTERM first so uvicorn runs its shutdown (in-flight renders get their own
+        # cleanup); _exit only if that does not finish, because an engine that refuses to
+        # die is the exact failure this watchdog exists to prevent.
+        os.kill(os.getpid(), signal.SIGTERM)
+        time.sleep(grace_seconds)
+        os._exit(1)
+
+    thread = threading.Thread(target=_watch, name="framepilot-parent-watchdog", daemon=True)
+    thread.start()
+    return thread
 
 
 def serve(host: str | None = None, port: int | None = None) -> None:
@@ -5313,6 +5489,7 @@ def serve(host: str | None = None, port: int | None = None) -> None:
     """
     import uvicorn  # Local import keeps CLI --help fast and import graph lean.
 
+    start_parent_watchdog()
     settings = get_settings()
     uvicorn.run(
         create_app(settings),

@@ -28,8 +28,19 @@ import { LruCache } from '../editor/lruCache.js';
 // levels reuse one bitmap (blitted scaled to the exact size — imperceptible for a
 // waveform), and (2) bound the cache with an LRU that closes each evicted bitmap
 // so its backing memory is freed immediately.
-const MAX_WAVEFORM_BITMAPS = 120;
+/** Cap on decoded waveform bitmaps kept alive (LRU-evicted, each `close()`d, beyond this). */
+export const MAX_WAVEFORM_BITMAPS = 120;
 const bitmapCache = new LruCache<string, ImageBitmap>(MAX_WAVEFORM_BITMAPS, (bmp) => bmp.close());
+
+/** Drop every cached waveform bitmap (closing each) — called when the project changes (P6.2). */
+export function clearWaveformBitmapCache(): void {
+  bitmapCache.clear();
+}
+
+/** How many waveform bitmaps are cached right now (tests, resource probes). */
+export function waveformBitmapCacheSize(): number {
+  return bitmapCache.size;
+}
 
 /**
  * Cap on a waveform canvas's backing-store width (device px). A clip zoomed in
@@ -58,7 +69,15 @@ function cacheKey(assetId: string, bucketW: number, physH: number): string {
 
 // ── Render pipeline ────────────────────────────────────────────────────────
 
-async function paintCanvas(
+/**
+ * Paint one waveform canvas, serving and populating the bounded bitmap cache.
+ *
+ * Exported because the cache's bound and its release-on-evict behaviour are the
+ * only things standing between a zoom gesture and hundreds of retained GPU
+ * bitmaps — and jsdom has no layout engine, so the only way to test them is to
+ * drive this step directly with a canvas whose size is declared.
+ */
+export async function paintCanvas(
   canvas: HTMLCanvasElement,
   peaks: readonly number[],
   markers: readonly number[],

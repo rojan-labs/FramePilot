@@ -517,15 +517,12 @@ def auto_emphasize_captions(args: AutoEmphasizeCaptionsArgs, ctx: ToolContext) -
         raise ValueError(f'Unknown track "{args.track_id}". Use get_timeline to list real ids.')
     if track.type != TrackType.CAPTION:
         raise ValueError(f'Track "{args.track_id}" is not a caption track.')
-    _assert_known_caption_style(args.style)
     keywords = _grounded_caption_keywords(track, ctx.project, args.keywords)
     caption_style = (
         track.caption_style.model_dump(by_alias=True, exclude_none=True)
         if track.caption_style is not None
         else {}
     )
-    if args.style is not None:
-        caption_style.update(args.style.model_dump(by_alias=True, exclude_none=True))
     accent = dict(caption_style.get("accent", {}))
     accent.update(
         {
@@ -728,6 +725,11 @@ def _model_asset(asset: Asset) -> dict[str, Any]:
     return dumped
 
 
+#: Words previewed by `get_project_state` before it defers to `get_mapped_transcript`.
+#: Mirrors `TRANSCRIPT_PREVIEW_WORDS` in `tool-registry.ts`.
+TRANSCRIPT_PREVIEW_WORDS = 12
+
+
 def get_project_state(args: Any, ctx: ToolContext) -> dict[str, Any]:
     dumped = ctx.project.model_dump(by_alias=True)
     # Undo entries can carry large inverse patches and are editor recovery state, not
@@ -737,7 +739,7 @@ def get_project_state(args: Any, ctx: ToolContext) -> dict[str, Any]:
     # The bin comes back as a TALLY, not a listing — `list_assets` returns the same array,
     # and a run that calls both pays for the asset ids twice and files two evidence
     # handles for one fact. What this tool adds over `list_assets` is everything else:
-    # fps, resolution, the timeline, the transcript, markers, memory. Mirrors
+    # fps, resolution, the timeline, markers, memory. Mirrors
     # `tool-registry.ts`'s `assetTally`; the two surfaces must return the same shape.
     dumped.pop("assets", None)
     by_kind: dict[str, int] = {}
@@ -747,6 +749,26 @@ def get_project_state(args: Any, ctx: ToolContext) -> dict[str, Any]:
         "total": len(ctx.project.assets),
         "byKind": by_kind,
         "note": "Asset ids are not listed here — call list_assets for them.",
+    }
+    # And so does the transcript, for the same measured reason. In run `145ec3f3` the
+    # transcript was 19,219 of this payload's 21,000 characters — 91% — for a 47-second
+    # video, and the run read it nine times. `get_mapped_transcript` returns the words
+    # windowed, and returns them as they play AFTER the edit, which is the version worth
+    # reasoning about. Mirrors `tool-registry.ts`'s `transcriptTally`.
+    dumped.pop("transcript", None)
+    words = ctx.project.transcript
+    preview = " ".join(word.word for word in words[:TRANSCRIPT_PREVIEW_WORDS])
+    dumped["transcriptSummary"] = {
+        "words": len(words),
+        "startSeconds": words[0].start if words else None,
+        "endSeconds": words[-1].end if words else None,
+        "preview": f"{preview}…" if len(words) > TRANSCRIPT_PREVIEW_WORDS else preview,
+        "note": (
+            "This project has no transcript yet — call transcribe to create one."
+            if not words
+            else "Words are not listed here — call get_mapped_transcript for the "
+            "transcript as it plays after your edits."
+        ),
     }
     return dumped
 

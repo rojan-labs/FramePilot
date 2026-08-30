@@ -29,11 +29,18 @@ describe('Editor workspace', () => {
     renderEditor();
     showInspector();
     expect(screen.getByRole('region', { name: 'preview' })).toBeDefined();
-    // CapCut-style: only tracks with clips are rendered. demo has video_1 +
-    // audio_1 with clips; caption_1 is empty and hidden until it has content.
+    // Every track in the project is a row, empty ones included (UX-05, 2026-08-29).
+    //
+    // This REVERSES the earlier "CapCut-style: only tracks with clips are rendered"
+    // decision, deliberately. The walkthrough found the cost of hiding them: a project's
+    // own empty audio track did not exist as far as the editor was concerned, so there
+    // was nowhere to drop music and "Add track" was the only way to discover a lane at
+    // all — including a lane the AI had just created with `add_track` and not yet filled.
+    // Premiere, Resolve and Final Cut all show empty tracks; effect lanes (ADR 0088)
+    // were already an exception to the filter, which was the first sign it was wrong.
     expect(screen.getByLabelText('track video_1')).toBeDefined();
     expect(screen.getByLabelText('track audio_1')).toBeDefined();
-    expect(screen.queryByLabelText('track caption_1')).toBeNull();
+    expect(screen.getByLabelText('track caption_1')).toBeDefined();
     expect(
       screen.getByText('Choose a clip, transition, text layer, or effect from the timeline.'),
     ).toBeDefined();
@@ -323,9 +330,7 @@ describe('Editor workspace', () => {
     const tablist = screen.getByRole('tablist', { name: 'library tabs' });
 
     expect(screen.getByRole('button', { name: 'Collapse library panel' })).toBeDefined();
-    expect(
-      within(tablist).queryByRole('button', { name: 'Collapse library panel' }),
-    ).toBeNull();
+    expect(within(tablist).queryByRole('button', { name: 'Collapse library panel' })).toBeNull();
     // A tablist should contain tabs and nothing else.
     expect(within(tablist).queryAllByRole('button')).toHaveLength(0);
   });

@@ -32,6 +32,7 @@ from framepilot_engine.audio.asr import (
 )
 from framepilot_engine.media.ffmpeg import FFmpegError
 from framepilot_engine.media.probe import inspect_media
+from framepilot_engine.render.export_settings import ExportSettings
 from framepilot_engine.render.pipeline import RenderOptions, RenderState, render
 from framepilot_engine.timeline.models import ProjectFile, ProjectFileError
 from framepilot_engine.validation.render_validation import ExpectedRender, validate_render
@@ -47,7 +48,13 @@ def _cmd_render(args: argparse.Namespace) -> int:
         return 1
 
     opts = RenderOptions(
-        preset_id=args.preset,
+        settings=ExportSettings(
+            resolution=args.resolution,
+            fps=args.fps if args.fps == "source" else int(args.fps),
+            quality=args.quality,
+            video_codec=args.codec,
+            container=args.container,
+        ),
         output_path=args.output,
         preview=args.preview,
         burn_captions=args.burn_captions,
@@ -157,8 +164,22 @@ def build_parser() -> argparse.ArgumentParser:
     render_cmd = subparsers.add_parser("render", help="Render/export a project timeline.")
     render_cmd.add_argument("project", help="Path to a project.fp.json file.")
     render_cmd.add_argument(
-        "--preset", default=None, help="Export preset id (default: reels)."
+        "--resolution",
+        default="1080p",
+        choices=["480p", "720p", "1080p", "1440p", "2160p", "source"],
+        help="Output resolution (short edge); capped at what the sources hold.",
     )
+    render_cmd.add_argument(
+        "--fps",
+        default="source",
+        choices=["source", "24", "25", "30", "50", "60"],
+        help="Output frame rate (default: the project's).",
+    )
+    render_cmd.add_argument(
+        "--quality", default="recommended", choices=["low", "recommended", "high"]
+    )
+    render_cmd.add_argument("--codec", default="h264", choices=["h264", "hevc"])
+    render_cmd.add_argument("--container", default="mp4", choices=["mp4", "mov"])
     render_cmd.add_argument("--output", default=None, help="Output path (within the project dir).")
     render_cmd.add_argument(
         "--preview", action="store_true", help="Fast, downscaled preview render."

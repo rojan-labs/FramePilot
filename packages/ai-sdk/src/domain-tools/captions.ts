@@ -19,7 +19,13 @@ import {
   CAPTION_TEMPLATE_CATALOG,
   getCaptionTemplate,
 } from '@framepilot/timeline-schema/caption-templates';
-import { buildTimelineMap, mapTranscript } from '@framepilot/editor-core';
+import {
+  buildTimelineMap,
+  captionSegmentConfig,
+  deriveCaptionCues,
+  mapTranscript,
+  type CaptionSegmentPresetName,
+} from '@framepilot/editor-core';
 import type { ToolSpec } from '../tool-registry.js';
 import { DEFAULT_CAPTION_TOLERANCE_SECONDS, verifyCaptions } from '../verify.js';
 import { mutateTool, readTool } from './tool-factories.js';
@@ -51,36 +57,62 @@ function assertKnownCaptionStyle(style: z.infer<typeof CaptionStyleSchema> | nul
   }
 }
 
+/** Split a keyword into the bare tokens it must match consecutively. */
+const keywordTokens = (keyword: string): string[] =>
+  keyword
+    .split(/\s+/)
+    .map(normalizeCaptionWord)
+    .filter((token) => token !== '');
+
+/**
+ * Ground each requested emphasis keyword against what is actually spoken.
+ *
+ * A keyword may be a PHRASE. The renderers accent the whole run of consecutive
+ * words that speaks one (see `accentRunIndices` / `_accent_indices`), so this
+ * check has to ground it the same way: as a consecutive token sequence over the
+ * spoken word ORDER, not as a lookup in a bag of single words. Grounding against
+ * a bag is what rejected "stop scrolling" — a phrase the editor plainly says —
+ * and sent the model into a retry loop against a rule it could not satisfy.
+ */
 function groundedCaptionKeywords(
   track: Track,
   project: Project,
   requested: readonly string[],
 ): string[] {
-  const vocabulary = new Map<string, string>();
+  // Every ordered run of spoken words a phrase could match: each caption cue's
+  // own words and text, plus the project transcript. Kept as separate sequences
+  // so a phrase can never match across the seam between two of them.
+  const sequences: string[][] = [];
   for (const clip of track.clips) {
-    for (const word of clip.captionCue?.words ?? []) {
-      const key = normalizeCaptionWord(word.word);
-      if (key !== '' && !vocabulary.has(key)) vocabulary.set(key, word.word);
-    }
-    for (const word of clip.captionCue?.text.split(/\s+/) ?? []) {
-      const key = normalizeCaptionWord(word);
-      if (key !== '' && !vocabulary.has(key)) vocabulary.set(key, word);
-    }
+    const cue = clip.captionCue;
+    if (cue === undefined) continue;
+    sequences.push(cue.words.map((word) => word.word));
+    sequences.push(cue.text.split(/\s+/));
   }
-  for (const word of project.transcript) {
-    const key = normalizeCaptionWord(word.word);
-    if (key !== '' && !vocabulary.has(key)) vocabulary.set(key, word.word);
-  }
-  const grounded = requested.map((word) => {
-    const exact = vocabulary.get(normalizeCaptionWord(word));
-    if (exact === undefined) {
+  sequences.push(project.transcript.map((word) => word.word));
+
+  const bared = sequences.map((sequence) => sequence.map(normalizeCaptionWord));
+
+  return requested.map((keyword) => {
+    const phrase = keywordTokens(keyword);
+    const found = phrase.length > 0 && bared.some((tokens) => containsRun(tokens, phrase));
+    if (!found) {
       throw new Error(
-        `Emphasis keyword "${word}" is not present in the caption text or transcript. Read get_mapped_transcript and choose exact spoken words.`,
+        `Emphasis keyword "${keyword}" is not present in the caption text or transcript. Read get_mapped_transcript and choose exact spoken words — a multi-word keyword must be spoken as consecutive words.`,
       );
     }
-    return exact.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+    // Store the bare token sequence: it is exactly what both renderers compare
+    // against, so what is persisted cannot drift from what is highlighted.
+    return phrase.join(' ');
   });
-  return grounded;
+}
+
+/** Does `tokens` contain `phrase` as a consecutive run? */
+function containsRun(tokens: readonly string[], phrase: readonly string[]): boolean {
+  for (let i = 0; i + phrase.length <= tokens.length; i += 1) {
+    if (phrase.every((part, offset) => tokens[i + offset] === part)) return true;
+  }
+  return false;
 }
 
 /**
@@ -134,7 +166,6 @@ const autoEmphasizeCaptionsSchema = z
   .object({
     trackId: z.string(),
     keywords: captionKeywordsSchema,
-    style: CaptionStyleSchema.nullable().optional(),
     color: z
       .string()
       .regex(/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/)
@@ -162,8 +193,10 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'several picture cuts is fine and is not reported — only an audio discontinuity ' +
         'is. Returns { ok, cueCount, issues[] }. Run this before saying captions are ' +
         'done: an operation returning "applied" is not evidence that anything is ' +
-        'synchronized. It checks TIMING only — it cannot see whether a cue is legible, ' +
-        'clipped by the frame edge, or sitting on a face.',
+        'synchronized. Repair whatever it reports by re-running caption_the_edit, which ' +
+        're-derives every cue from the current timeline in one call — do not delete and ' +
+        're-add cues one at a time. It checks TIMING only — it cannot see whether a cue ' +
+        'is legible, clipped by the frame edge, or sitting on a face.',
       capabilities: ['captions'],
     },
     z.object({ toleranceSeconds: seconds.optional() }).strict(),
@@ -246,12 +279,124 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
   ),
   mutateTool(
     {
+      name: 'caption_the_edit',
+      description:
+        'Caption the WHOLE edit in one call. Reads the mapped transcript, segments the ' +
+        'retained speech into readable phrase cues at linguistic breaks, and writes every ' +
+        'cue on the track — replacing whatever cues are already there. This is the tool to ' +
+        'use for "add captions"; it is also how you REPAIR captions that verify_captions ' +
+        'reports as stale or out of sync after a cut, because re-running it re-derives every ' +
+        'cue from the current timeline. Words in deleted footage are dropped and no cue can ' +
+        'span a cut, so it cannot produce the errors hand-placed cues do. preset picks the ' +
+        'register: short-form (default, punchy 1-2 lines), subtitle (broadcast, longer ' +
+        'reading lines), one-word (one word per cue, for the one-word template family). ' +
+        'Style the finished track with set_track_caption_style and emphasise with ' +
+        'auto_emphasize_captions. Requires a transcript — run transcribe first.',
+      capabilities: ['edit', 'captions'],
+      // Not mirrored into the Python sidecar registry. Where a caption cue breaks
+      // is a linguistic decision and `segmentCaptions` is deliberately its single
+      // authority (ADR 0071); a Python re-implementation would disagree with it
+      // word by word, which is the drift the caption parity contract exists to
+      // prevent. Registering a spec the sidecar dispatcher could never honour is,
+      // per that parity test, the inverse of the gap it closes — so the flag that
+      // means "resolved outside the sidecar" is the honest one.
+      //
+      // This tool is NOT UI-dependent, though, so MCP still serves it — see
+      // `UI_INDEPENDENT_HOST_TOOLS` in packages/mcp-server.
+      hostUiOnly: true,
+    },
+    z
+      .object({
+        trackId: z.string(),
+        preset: z.enum(['short-form', 'subtitle', 'one-word']).optional(),
+        maxWordsPerCue: numeric(z.number().int().min(1).max(MAX_CAPTION_CUE_WORDS)).optional(),
+      })
+      .strict(),
+    (a, ctx) => {
+      const track = ctx.project.timeline.tracks.find((candidate) => candidate.id === a.trackId);
+      if (track === undefined) {
+        throw new Error(`Unknown track "${a.trackId}". Use get_timeline to list real ids.`);
+      }
+      if (track.type !== 'caption') {
+        throw new Error(`Track "${a.trackId}" is not a caption track.`);
+      }
+      if (ctx.project.transcript.length === 0) {
+        throw new Error(
+          'This project has no transcript yet, so there is no speech to caption. Run transcribe first.',
+        );
+      }
+
+      const config = captionSegmentConfig(
+        (a.preset ?? 'short-form') as CaptionSegmentPresetName,
+        a.maxWordsPerCue === undefined ? {} : { maxWordsPerCue: a.maxWordsPerCue },
+      );
+      const cues = deriveCaptionCues(
+        buildTimelineMap(ctx.project.timeline),
+        ctx.project.transcript,
+        config,
+      );
+      if (cues.length === 0 && track.clips.length === 0) {
+        throw new Error(
+          'No speech survives on the timeline to caption. Check the transcript covers the footage that is still in the edit.',
+        );
+      }
+
+      // Clear first, in the same patch, so one undo restores the previous
+      // captions. Back-to-front so each delete_range names a range that is still
+      // present in the timeline the validator replays against.
+      const clears = [...track.clips]
+        .sort((left, right) => right.start - left.start)
+        .map((clip) => ({
+          type: 'delete_range' as const,
+          trackId: a.trackId,
+          start: clip.start,
+          end: clip.end,
+        }));
+
+      return [
+        ...clears,
+        ...cues.flatMap((cue) => {
+          // Ids embed the cue start in ms: stable across re-runs of the same
+          // transcript, and unique within one.
+          const clipId = `caption_${a.trackId}_${Math.round(cue.start * 1000)}`;
+          return [
+            {
+              type: 'add_caption_layer' as const,
+              trackId: a.trackId,
+              start: cue.start,
+              end: cue.end,
+              clipId,
+            },
+            {
+              type: 'set_caption_cue' as const,
+              clipId,
+              captionCue: {
+                text: cue.text,
+                words: [...cue.words],
+                derivedFromRevision: cue.revision,
+                source: {
+                  assetId: cue.assetId,
+                  clipId: cue.clipId,
+                  start: cue.sourceStart,
+                  end: cue.sourceEnd,
+                },
+              },
+            },
+          ];
+        }),
+      ];
+    },
+  ),
+  mutateTool(
+    {
       name: 'add_caption_layer',
       description:
         'Add ONE short transcript-driven caption cue on a track over a timeline range ' +
-        '(start/end seconds). Never use one call for a whole recording or song: first ' +
-        'read get_mapped_transcript, then add separate readable phrase cues (normally ' +
-        '3–7 words, never more than 12). Style the completed set track-wide.',
+        '(start/end seconds). To caption a whole recording use caption_the_edit instead — ' +
+        'it segments and writes every cue in a single call. Reach for this one only to ' +
+        'patch a specific gap by hand: it needs get_mapped_transcript first, and a range ' +
+        'longer than one readable phrase (3–7 words, never more than 12) is rejected. ' +
+        'Style the completed set track-wide.',
     },
     z.object({ trackId: z.string(), start: seconds, end: seconds }).strict(),
     (a, ctx) => {
@@ -260,13 +405,13 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
       const mappedWords = mapped.words.filter((word) => word.start < a.end && word.end > a.start);
       if (duration > MAX_CAPTION_CUE_SECONDS || mappedWords.length > MAX_CAPTION_CUE_WORDS) {
         throw new Error(
-          `add_caption_layer creates one readable cue, but ${a.start}s–${a.end}s spans ${+duration.toFixed(3)}s and ${mappedWords.length} mapped words. Split it into separate 3–7 word phrase cues; never use one layer for a whole recording or song.`,
+          `add_caption_layer creates one readable cue, but ${a.start}s–${a.end}s spans ${+duration.toFixed(3)}s and ${mappedWords.length} mapped words. To caption a stretch this long call caption_the_edit, which segments the whole edit in one call; to place this cue by hand, split it into separate 3–7 word phrases.`,
         );
       }
       const clipIds = new Set(mappedWords.map((word) => word.clipId));
       if (clipIds.size > 1) {
         throw new Error(
-          `add_caption_layer cannot cross an edit boundary (${a.start}s–${a.end}s contains words from ${clipIds.size} clips). Split the cue at the cut.`,
+          `add_caption_layer cannot cross an edit boundary (${a.start}s–${a.end}s contains words from ${clipIds.size} clips). Split the cue at the cut, or call caption_the_edit, which never places a cue across one.`,
         );
       }
 
@@ -330,11 +475,11 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
       description:
         'Apply AI-selected semantic emphasis to a caption track as one reversible operation. ' +
         'First read get_mapped_transcript, reason about meaning, emotion, contrast, numbers, ' +
-        'delivery and payoff, then submit 1-12 sparse exact spoken keywords. The tool grounds ' +
-        'every keyword against the captions/transcript and rejects invented text. Optional ' +
-        'style can simultaneously choose a discovered font/template and all composition ' +
-        'properties including xPercent/yPercent, size, rotation, width, alignment, spacing, ' +
-        'background and animation. Existing track styling is preserved for omitted fields.',
+        'delivery and payoff, then submit 1-12 sparse exact spoken keywords. A keyword may be ' +
+        'a phrase ("stop scrolling"), which emphasises the whole run of words that speaks it. ' +
+        'The tool grounds every keyword against the captions/transcript and rejects invented ' +
+        'text; a phrase must be spoken as consecutive words. Existing ' +
+        'track styling is preserved; change the design itself with set_track_caption_style.',
       capabilities: ['edit', 'captions', 'ai'],
     },
     autoEmphasizeCaptionsSchema,
@@ -346,23 +491,15 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
       if (track.type !== 'caption') {
         throw new Error(`Track "${a.trackId}" is not a caption track.`);
       }
-      assertKnownCaptionStyle(a.style ?? null);
       const keywords = groundedCaptionKeywords(track, ctx.project, a.keywords);
       const captionStyle = {
         ...(track.captionStyle ?? {}),
-        ...(a.style ?? {}),
         accent: {
           ...(track.captionStyle?.accent ?? {}),
-          ...(a.style?.accent ?? {}),
           mode: 'keywords' as const,
           keywords,
-          color:
-            a.color ?? a.style?.accent?.color ?? track.captionStyle?.accent?.color ?? '#ffd60a',
-          fontScale:
-            a.fontScale ??
-            a.style?.accent?.fontScale ??
-            track.captionStyle?.accent?.fontScale ??
-            1.18,
+          color: a.color ?? track.captionStyle?.accent?.color ?? '#ffd60a',
+          fontScale: a.fontScale ?? track.captionStyle?.accent?.fontScale ?? 1.18,
         },
       };
       return [{ type: 'set_track_caption_style', trackId: a.trackId, captionStyle }];
@@ -376,18 +513,10 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'composition surface: font/template, weight/style/scale, colors/outline, xPercent/' +
         'yPercent placement, rotation, maximum width, alignment, line height, safe area, ' +
         'letter spacing, background/padding, shadow, highlight, animation and accent. Prefer ' +
-        'captionStyle: ' +
-        '{ templateId } naming one of the ~45 caption templates — categories: one-word ' +
-        '(punchline, beast, impact, stamp), phrase (trio, duo, phrase-pop, duo-gold, ' +
-        'phrase-box, phrase-marker), karaoke (karaoke, broadcast, outline, glow, ' +
-        'minimal), build (hormozi, slide, bounce, typewriter, ticker), boxed (boxed, ' +
-        'tag), editorial (spotlight, headline, whisper), aesthetic (highlighter, pill, ' +
-        'ember, retro, caption-bar, pulse, negative, knockout, kinetic, cascade, ' +
-        'stacked), cinematic (soft-focus, soft-2, soft-3, soft-4, motion, ' +
-        'cinematic-cut, cinetop, real-estate, subtitle-pop). Any explicit field ' +
-        '(fontFamily/fontScale/colors/position/display/highlight/animation/accent) ' +
-        'overrides the template; call discover_caption_styles and load the caption-design ' +
-        'skill for selection guidance. Unbundled fonts and unknown templates are rejected. ' +
+        'captionStyle: { templateId } naming a template from discover_caption_styles (it ' +
+        'lists every template with its category); any explicit field overrides the ' +
+        'template. Load the caption-design skill for selection guidance. Unbundled fonts ' +
+        'and unknown templates are rejected. ' +
         'Pass captionStyle: null to clear styling back to unstyled. Meaningful on ' +
         'caption clips created by add_caption_layer.',
       capabilities: ['edit', 'captions'],

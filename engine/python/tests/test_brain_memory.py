@@ -301,6 +301,38 @@ def test_append_creates_the_file_with_header_and_entry(tmp_path: Path) -> None:
     assert "Cut felt abrupt." in text
 
 
+def test_append_supersedes_an_earlier_entry_with_the_same_title(tmp_path: Path) -> None:
+    """A decision is a current fact: the newest same-titled entry replaces the older one
+    (plan/system-mission P1.5), while unrelated entries stay put, oldest first."""
+    append_memory_entry(
+        tmp_path,
+        entry(
+            MemoryTier.DECISIONS,
+            title="Caption style",
+            body="bold uppercase",
+            ts="2026-07-15T12:00:00Z",
+        ),
+    )
+    append_memory_entry(
+        tmp_path,
+        entry(MemoryTier.DECISIONS, title="Pacing", body="fast", ts="2026-07-15T12:30:00Z"),
+    )
+    append_memory_entry(
+        tmp_path,
+        entry(
+            MemoryTier.DECISIONS,
+            title="caption style",
+            body="small lowercase",
+            ts="2026-07-15T13:00:00Z",
+        ),
+    )
+    text = read_tier(tmp_path, MemoryTier.DECISIONS)
+    entries = parse_entries(text)
+    assert len(entries) == 2
+    assert "bold uppercase" not in text
+    assert text.index("Pacing") < text.index("small lowercase")
+
+
 def test_append_preserves_prior_entries_oldest_first(tmp_path: Path) -> None:
     append_memory_entry(tmp_path, entry(title="first", ts="2026-07-15T12:00:00Z"))
     append_memory_entry(tmp_path, entry(title="second", ts="2026-07-15T13:00:00Z"))

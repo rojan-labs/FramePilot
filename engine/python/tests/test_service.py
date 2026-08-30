@@ -322,8 +322,13 @@ async def _gathered_asset_media(
     from framepilot_engine.service import AssetMediaRequest
 
     endpoint = _asset_media_endpoint(app)
-    request = AssetMediaRequest(input_path=str(source))
-    tasks = [asyncio.create_task(endpoint(request)) for _ in range(callers)]
+    # Distinct requests on purpose: identical ones are coalesced into a single derivation
+    # (P5.4, `test_asset_media_coalesces_identical_concurrent_requests`), which would make
+    # the gate look tighter than it is.
+    tasks = [
+        asyncio.create_task(endpoint(AssetMediaRequest(input_path=str(source), buckets=400 + i)))
+        for i in range(callers)
+    ]
     # Let the admitted callers pile up against the gate before releasing them, so the
     # peak is a real measurement rather than an artefact of how fast they were served.
     await asyncio.sleep(0.3)
@@ -331,6 +336,80 @@ async def _gathered_asset_media(
     hold.set()
     results = await asyncio.gather(*tasks, return_exceptions=True)
     return observed, results
+
+
+@pytest.mark.asyncio
+async def test_asset_media_gate_holds_under_a_sixty_asset_burst(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P5.4: importing a folder is a burst, and the cap must hold for all of it.
+
+    Six callers proves the gate exists; sixty proves it does not sag under the load it was
+    actually built for — a user dragging in a shoot, or the agent warming a sourcing pass.
+    Every request is distinct (different bucket counts) so this measures the CAP and not
+    the in-flight coalescing, which has its own test.
+    """
+    hold = threading.Event()
+    peak = _concurrency_probe(monkeypatch, hold)
+    src = tmp_path / "vid.mp4"
+    src.write_bytes(b"fake media bytes")
+    app = create_app(Settings(projects_root=tmp_path, asset_media_concurrency=3))
+    endpoint = _asset_media_endpoint(app)
+
+    from framepilot_engine.service import AssetMediaRequest
+
+    tasks = [
+        asyncio.create_task(endpoint(AssetMediaRequest(input_path=str(src), buckets=100 + i)))
+        for i in range(60)
+    ]
+    await asyncio.sleep(0.5)
+    observed = peak()
+    hold.set()
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    assert observed == 3, f"the gate admitted {observed} derivations, not 3"
+    assert peak() == 3
+    # The gate queues, it never sheds: all sixty are served.
+    assert len(results) == 60
+
+
+@pytest.mark.asyncio
+async def test_asset_media_coalesces_identical_concurrent_requests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Six identical requests in flight together derive ONCE and all get the answer (P5.4).
+
+    The sidebar, the agent and a retry can all ask for the same asset's media within a
+    second of each other; each used to be its own ffmpeg pipeline producing the same
+    peaks. Keyed on the request's inputs, so a different bucket count is a different job.
+    """
+    import framepilot_engine.service as service_module
+    from framepilot_engine.service import AssetMediaRequest
+
+    calls = 0
+    hold = threading.Event()
+
+    def _counting_inspect(_p: Path, *, timeout: float | None = None) -> object:
+        nonlocal calls
+        calls += 1
+        hold.wait(timeout=10)
+        raise FileNotFoundError("probe stops here; coalescing is what is under test")
+
+    monkeypatch.setattr(service_module, "inspect_media", _counting_inspect)
+    src = tmp_path / "vid.mp4"
+    src.write_bytes(b"fake media bytes")
+    app = create_app(Settings(projects_root=tmp_path, asset_media_concurrency=4))
+    endpoint = _asset_media_endpoint(app)
+    request = AssetMediaRequest(input_path=str(src))
+    tasks = [asyncio.create_task(endpoint(request)) for _ in range(6)]
+    await asyncio.sleep(0.3)
+    hold.set()
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    assert calls == 1
+    assert len(results) == 6
+    # Every caller saw the leader's outcome — the same failure here, the same media in life.
+    assert {type(r).__name__ for r in results} == {type(results[0]).__name__}
 
 
 @pytest.mark.asyncio
@@ -1354,7 +1433,7 @@ def test_detect_beats_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert resp.status_code == 200
     body = resp.json()
     assert body["assetId"] == "mus"
-    assert body["beats"] == [{"time": 0.5, "strength": 1.0}]
+    assert body["beats"] == [{"time": 0.5, "strength": 1.0, "on_grid": True}]
     assert body["bpm"] == 120.0
     assert seen["sensitivity"] == 2.0
     assert seen["timeout"] == 9.0

@@ -265,3 +265,88 @@ class TestFailedCompileLeavesNoFfmpegBehind:
                 compile_timeline(project, assets, preset, burn_captions=False)
 
         assert len(_live_children()) <= baseline
+
+
+class _FakePipe:
+    """A pipe that records whether it was closed."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _ExitedProc:
+    """An ffmpeg process that has already finished — `poll()` returns a code."""
+
+    def __init__(self) -> None:
+        self.stdout = _FakePipe()
+        self.stderr = _FakePipe()
+        self.stdin = _FakePipe()
+
+    def poll(self) -> int:
+        return 0
+
+
+class _MoviePyReader:
+    """MoviePy's own close(): it only closes pipes while the process is STILL running."""
+
+    def __init__(self) -> None:
+        self.proc: _ExitedProc | None = _ExitedProc()
+
+    def close(self) -> None:
+        if self.proc:
+            if self.proc.poll() is None:
+                self.proc.stdout.close()
+                self.proc.stderr.close()
+            self.proc = None
+
+
+class _ClipWithReader:
+    def __init__(self, attr: str) -> None:
+        setattr(self, attr, _MoviePyReader())
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_close_clip_tree_closes_pipes_moviepy_leaves_open_when_ffmpeg_already_exited() -> None:
+    """P6.4: an exited reader drops `proc` without closing stdout/stderr — we close them.
+
+    This is the shape that produced `ResourceWarning: unclosed file <_io.BufferedReader>`
+    at the end of every export: ffmpeg finishes on its own, so `poll()` is not None, so
+    MoviePy's own `close()` skips straight to `self.proc = None` and the descriptors live
+    until the garbage collector runs `__del__`.
+    """
+    from framepilot_engine.render.resources import close_clip_tree
+
+    for attr in ("reader", "audio_reader"):
+        clip = _ClipWithReader(attr)
+        reader = getattr(clip, attr)
+        proc = reader.proc
+        assert proc is not None
+
+        close_clip_tree(clip)
+
+        assert clip.closed, "the clip itself must still be closed"
+        assert proc.stdout.closed, f"{attr}.proc.stdout was left open"
+        assert proc.stderr.closed, f"{attr}.proc.stderr was left open"
+        assert proc.stdin.closed, f"{attr}.proc.stdin was left open"
+
+
+def test_close_clip_tree_is_unbothered_by_a_clip_with_no_reader() -> None:
+    """Most nodes in the graph are plain clips; the pipe sweep must not care."""
+    from framepilot_engine.render.resources import close_clip_tree
+
+    class Plain:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    clip = Plain()
+    assert close_clip_tree(clip) == 1
+    assert clip.closed

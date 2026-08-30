@@ -151,7 +151,7 @@ editing"), default **on**, persisted in `localStorage`.
 ### About the composer's slash commands
 
 Typing `/` in the AI composer offers seven commands: `/create-short`, `/remove-silence`,
-`/add-captions`, `/improve-pacing`, `/add-hook`, `/export-reels`, `/plan-edit`.
+`/add-captions`, `/improve-pacing`, `/add-hook`, `/export`, `/plan-edit`.
 
 **Be honest about what these are.** Selecting one only **prefills the text box** with
 `/<name> ` (`Composer.tsx` → `onChange('/' + command.name + ' ')`). There is no special routing,
@@ -997,7 +997,7 @@ browser build cannot export, and cannot generate proxies. This is an accepted br
   - Result: __/__/____ · PASS / FAIL · notes:
 
 - [ ] **19.4 Export by asking** — `AI`
-  - Do: *"Export this for Reels."* (or `/export-reels`).
+  - Do: *"Export this at 1080p."* (or `/export`).
   - Expect: an **Export video** action card and a real file. The AI requests the export; the host
     performs it.
   - Result: __/__/____ · PASS / FAIL · notes:

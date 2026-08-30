@@ -170,16 +170,40 @@ describe('SidecarManager', () => {
     expect(manager.status).toEqual({ phase: 'stopped', baseUrl: null, detail: null });
   });
 
-  it('marks failed if the process exits after becoming ready', async () => {
+  // Was "marks failed": since P5.5 an exit after ready is RECOVERABLE, so the manager
+  // reports what it is doing about it rather than a dead end. Exhausting the budget
+  // still ends in `failed` — see the recovery block below.
+  it('reports an exit after becoming ready as a restart in progress, naming the cause', async () => {
     const proc = fakeProcess();
     const manager = new SidecarManager({
       spawn: () => proc,
       probe: async () => true,
-      sleep: noSleep,
+      sleep: () => new Promise(() => undefined), // hold the backoff open
+      maxRestarts: 1,
     });
 
     await manager.start();
     proc.emitExit(null);
+
+    expect(manager.status.phase).toBe('starting');
+    expect(manager.status.detail).toContain('exited');
+    expect(manager.status.detail).toContain('Restarting (attempt 1 of 1)');
+  });
+
+  it('marks failed when the engine keeps dying past the restart budget', async () => {
+    const processes = [fakeProcess(), fakeProcess()];
+    let spawned = 0;
+    const manager = new SidecarManager({
+      spawn: () => processes[spawned++]!,
+      probe: async () => true,
+      sleep: noSleep,
+      maxRestarts: 1,
+    });
+
+    await manager.start();
+    processes[0]!.emitExit(null);
+    await vi.waitFor(() => expect(manager.status.phase).toBe('ready'));
+    processes[1]!.emitExit(null);
 
     expect(manager.status.phase).toBe('failed');
     expect(manager.status.detail).toContain('exited');
@@ -204,5 +228,195 @@ describe('SidecarManager', () => {
     const status = await manager.start();
 
     expect(status.phase).toBe('ready');
+  });
+
+  // P5.5 — recovery. An engine that dies under a running app comes back on its own,
+  // a bounded number of times, and every phase change is observable.
+  describe('recovery (P5.5)', () => {
+    it('restarts an engine that exits after becoming ready and becomes ready again', async () => {
+      const processes = [fakeProcess(), fakeProcess()];
+      let spawned = 0;
+      const spawn = vi.fn(() => processes[spawned++]!);
+      const phases: string[] = [];
+      const manager = new SidecarManager({
+        spawn,
+        probe: scriptedProbe([true]),
+        sleep: noSleep,
+        onStatusChange: (status) => phases.push(status.phase),
+      });
+      await manager.start();
+      expect(manager.status.phase).toBe('ready');
+
+      processes[0]!.emitExit(137);
+      expect(manager.status.phase).toBe('starting');
+      expect(manager.status.detail).toContain('attempt 1 of 3');
+      await vi.waitFor(() => expect(manager.status.phase).toBe('ready'));
+      expect(spawn).toHaveBeenCalledTimes(2);
+      expect(manager.restartCount).toBe(1);
+      // Ready, lost, ready again — the exact intermediate `starting` notifications are
+      // an implementation detail (cause line, then the fresh start), the shape is not.
+      expect(phases.at(0)).toBe('starting');
+      expect(phases.at(-1)).toBe('ready');
+      expect(phases.filter((p) => p === 'ready')).toHaveLength(2);
+    });
+
+    it('gives up after maxRestarts and says so instead of looping', async () => {
+      const processes = [fakeProcess(), fakeProcess()];
+      let spawned = 0;
+      const spawn = vi.fn(() => processes[spawned++]!);
+      const manager = new SidecarManager({
+        spawn,
+        probe: scriptedProbe([true]),
+        sleep: noSleep,
+        maxRestarts: 1,
+      });
+      await manager.start();
+
+      processes[0]!.emitExit(1);
+      await vi.waitFor(() => expect(manager.status.phase).toBe('ready'));
+      expect(spawn).toHaveBeenCalledTimes(2);
+
+      processes[1]!.emitExit(1);
+      expect(manager.status.phase).toBe('failed');
+      expect(manager.status.detail).toContain('not restarting again');
+      expect(spawn).toHaveBeenCalledTimes(2);
+    });
+
+    it('stop() during the backoff cancels the restart and resets the budget', async () => {
+      let release: () => void = () => undefined;
+      const sleep = (): Promise<void> =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      const proc = fakeProcess();
+      const spawn = vi.fn(() => proc);
+      const manager = new SidecarManager({ spawn, probe: scriptedProbe([true]), sleep });
+      await manager.start();
+
+      proc.emitExit(9);
+      expect(manager.status.phase).toBe('starting');
+      manager.stop();
+      release();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(manager.status.phase).toBe('stopped');
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(manager.restartCount).toBe(0);
+    });
+
+    it('does not restart an engine that exits during startup — that is a failure to start', async () => {
+      const proc = fakeProcess();
+      const spawn = vi.fn(() => proc);
+      const manager = new SidecarManager({ spawn, probe: scriptedProbe([false]), sleep: noSleep });
+      const pending = manager.start();
+      proc.emitExit(2);
+      const status = await pending;
+      expect(status.phase).toBe('failed');
+      expect(spawn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // The case the process-exit path structurally cannot catch: the engine launches as
+  // `uv run framepilot serve`, so the server that answers is a GRANDCHILD. Kill it and the
+  // wrapper survives — no exit event, and the manager would go on reporting `ready` while
+  // every request failed. A desktop e2e SIGKILLing the real engine is what exposed this.
+  describe('liveness (P5.5)', () => {
+    /**
+     * A clock that ticks `times` and then stops forever.
+     *
+     * The watch loop is `while (ready) { await sleep(); probe(); }`. A sleep that always
+     * resolves immediately turns that into a spin that never yields — it starves the
+     * event loop and kills the worker. Bounding the ticks is what makes the loop
+     * observable instead of infinite.
+     */
+    function steppedSleep(times: number): () => Promise<void> {
+      let remaining = times;
+      return () => (remaining-- > 0 ? Promise.resolve() : new Promise<void>(() => undefined));
+    }
+
+    it('restarts an engine that stops answering even though its process never exits', async () => {
+      const processes = [fakeProcess(), fakeProcess()];
+      let spawned = 0;
+      const spawn = vi.fn(() => processes[spawned++]!);
+      // Ready, then dead to every probe afterwards.
+      const probe = scriptedProbe([true, false, false, false, true]);
+      const details: (string | null)[] = [];
+      const manager = new SidecarManager({
+        spawn,
+        probe,
+        sleep: steppedSleep(6),
+        livenessIntervalMs: 1,
+        livenessFailures: 3,
+        onStatusChange: (status) => details.push(status.detail),
+      });
+
+      await manager.start();
+      expect(manager.status.phase).toBe('ready');
+      // The first process is never told to exit — it is the wrapper, still alive.
+      expect(processes[0]!.killed).toBe(false);
+
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2));
+      // The wedged group is killed before the restart, so the port is actually free.
+      expect(processes[0]!.killed).toBe(true);
+      expect(manager.restartCount).toBe(1);
+      // The reason is stated when it happens; `ready` clears it again, so the assertion
+      // is on what was reported, not on what is left over afterwards.
+      expect(details.some((d) => d?.includes('stopped answering'))).toBe(true);
+    });
+
+    it('forgives a missed probe — a busy engine is not a dead one', async () => {
+      const spawn = vi.fn(() => fakeProcess());
+      // One failure then healthy again: the counter resets and nothing restarts.
+      const probe = scriptedProbe([true, false, true, true, true]);
+      const manager = new SidecarManager({
+        spawn,
+        probe,
+        sleep: steppedSleep(4),
+        livenessIntervalMs: 1,
+        livenessFailures: 3,
+      });
+
+      await manager.start();
+      await vi.waitFor(() => expect(probe.mock.calls.length).toBeGreaterThan(4));
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(manager.status.phase).toBe('ready');
+    });
+
+    it('stops watching once the manager is stopped', async () => {
+      const spawn = vi.fn(() => fakeProcess());
+      const probe = scriptedProbe([true, false, false, false, false]);
+      const manager = new SidecarManager({
+        spawn,
+        probe,
+        sleep: steppedSleep(6),
+        livenessIntervalMs: 1,
+        livenessFailures: 2,
+      });
+
+      await manager.start();
+      manager.stop();
+      const spawnsAtStop = spawn.mock.calls.length;
+
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+      expect(manager.status.phase).toBe('stopped');
+      expect(spawn).toHaveBeenCalledTimes(spawnsAtStop);
+    });
+
+    it('can be switched off entirely', async () => {
+      const spawn = vi.fn(() => fakeProcess());
+      const probe = scriptedProbe([true, false, false, false, false]);
+      const manager = new SidecarManager({
+        spawn,
+        probe,
+        sleep: steppedSleep(6),
+        livenessIntervalMs: 0,
+      });
+
+      await manager.start();
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(manager.status.phase).toBe('ready');
+    });
   });
 });

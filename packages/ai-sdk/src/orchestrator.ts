@@ -11,6 +11,7 @@
  * Modes implemented here: chat, plan, edit, autocomplete (plan/PLAN.md §4.2) and —
  * Phase 7 — the multi-step `agent` loop and the `review` critic pass.
  */
+import { DEFAULT_SILENCE_CUT, SilenceRangesPayloadSchema, silenceCutOps } from './silence-cut.js';
 import { type AnyOperation, applyProjectPatch } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
 import {
@@ -36,6 +37,7 @@ import {
 } from '@framepilot/timeline-schema';
 import type { AgentOptions, AgentRun, AgentStep, ReviewResult } from './agent.js';
 import { asksForRenderedFile, checkableAcceptance } from './acceptance.js';
+import { referenceDirectives, shotLengthTolerance } from './references/directives.js';
 import { type EditResult, assembleEdit } from './assemble.js';
 import {
   TOOL_CONCURRENCY_ENV,
@@ -155,6 +157,7 @@ import {
   agentActionsBlock,
   framesBlock,
   agentActionRecoveryBlock,
+  agentVerifyFixBlock,
   agentModeInstruction,
   agentPlanBlock,
   agentSkillsBlock,
@@ -293,6 +296,19 @@ function contextWindowFor(input: ContextInput, provider?: AiProvider): number {
 function reservedOutputFor(input: ContextInput, provider?: AiProvider): number {
   if (input.budget?.maxOutputTokens !== undefined) return input.budget.maxOutputTokens;
   return capabilitiesFor(provider?.name, provider?.modelId).maxOutputTokens;
+}
+
+/**
+ * The `maxTokens` to put on the wire for one model call: the room the manifest reserved,
+ * never more than the model's real output ceiling. Exported for tests.
+ */
+export function outputRoomFor(
+  provider: AiProvider | undefined,
+  modelCall: { readonly reservedOutputTokens?: number },
+): number {
+  const ceiling = capabilitiesFor(provider?.name, provider?.modelId).maxOutputTokens;
+  const reserved = modelCall.reservedOutputTokens ?? ceiling;
+  return Math.max(1, Math.min(reserved, ceiling));
 }
 
 /**
@@ -498,6 +514,22 @@ function bankedSearchCount(working: RunWorkingState | undefined): number {
  *   judging the prose instead would retry finished two-word answers ("all done") and still
  *   miss a fragment that happens to end on a period.
  */
+/**
+ * The message appended to a retry after a cut-off reply. Exported for tests.
+ *
+ * WHY a message and not a silent retry: the model has no way to know its last reply was
+ * truncated — from its side the conversation simply continues — so an identical retry
+ * produces an identical, identically cut-off reply. Telling it, and asking for smaller
+ * steps, is what turns the second attempt into a different one.
+ */
+export function truncationRetryHint(): string {
+  return (
+    'Your previous reply was cut off before any tool call completed, so nothing was ' +
+    'applied. Do the same work in smaller pieces: make at most four tool calls now, ' +
+    'with short arguments, and continue with the rest on the next turn.'
+  );
+}
+
 export function unusableTurnReason(
   turn: { readonly text: string; readonly calls: readonly unknown[]; readonly truncated?: boolean },
   appliedOpsSoFar: number,
@@ -605,12 +637,9 @@ export const AGENT_LOG_PAYLOAD_FRESH = 2;
 /** Payloads shorter than this are kept — clearing them saves nothing worth a re-read. */
 const MIN_CLEARABLE_PAYLOAD_CHARS = 160;
 
-/**
- * One ` → payload` segment of a log entry, bounded by the `'; '` note joiner (or end
- * of entry). Dot-all so the multiline digests (search hits, extracted frames) clear as
- * one payload rather than leaking their tail lines.
- */
-const NOTE_PAYLOAD = / → (.*?)(?=; |$)/gs;
+/** The ` → payload` marker and the `'; '` note joiner that bounds a payload's end. */
+const NOTE_PAYLOAD_MARKER = ' → ';
+const NOTE_JOINER = '; ';
 
 /**
  * Clear the re-derivable payloads of ONE old log entry in place (E2.1/E2.2), keeping
@@ -626,14 +655,32 @@ const NOTE_PAYLOAD = / → (.*?)(?=; |$)/gs;
  */
 export function clearNotePayloads(entry: string): string {
   if (entry.startsWith('Steering:')) return entry;
-  return entry.replace(NOTE_PAYLOAD, (match, payload: string) => {
-    if (payload.startsWith('they answered:')) return match;
-    if (payload.length < MIN_CLEARABLE_PAYLOAD_CHARS) return match;
-    // The payload goes; its HANDLE stays. Clearing the citation along with the content is
-    // what left the model holding an offer to "re-read" with no address to read from.
-    const cited = NOTE_EVIDENCE_HANDLE.exec(payload);
-    return ` → ${cited?.[1] ? clearedWithHandle(cited[1]) : CLEARED_RESULT_MARKER}`;
-  });
+  // Indexed scanning, not a `(.*?)(?=; |$)` regex: that shape is polynomial on
+  // adversarial-length payloads (untrusted tool output), and a fixed marker/joiner
+  // pair is all this ever needed to find the same boundaries.
+  let result = '';
+  let cursor = 0;
+  for (;;) {
+    const markerAt = entry.indexOf(NOTE_PAYLOAD_MARKER, cursor);
+    if (markerAt === -1) {
+      result += entry.slice(cursor);
+      return result;
+    }
+    const payloadStart = markerAt + NOTE_PAYLOAD_MARKER.length;
+    const joinerAt = entry.indexOf(NOTE_JOINER, payloadStart);
+    const payloadEnd = joinerAt === -1 ? entry.length : joinerAt;
+    const payload = entry.slice(payloadStart, payloadEnd);
+    result += entry.slice(cursor, markerAt);
+    if (payload.startsWith('they answered:') || payload.length < MIN_CLEARABLE_PAYLOAD_CHARS) {
+      result += NOTE_PAYLOAD_MARKER + payload;
+    } else {
+      // The payload goes; its HANDLE stays. Clearing the citation along with the content is
+      // what left the model holding an offer to "re-read" with no address to read from.
+      const cited = NOTE_EVIDENCE_HANDLE.exec(payload);
+      result += ` → ${cited?.[1] ? clearedWithHandle(cited[1]) : CLEARED_RESULT_MARKER}`;
+    }
+    cursor = payloadEnd;
+  }
 }
 
 /**
@@ -1178,7 +1225,20 @@ function identifyingArgs(call: ToolCall, drop: ReadonlySet<string>): string {
  * from `{start:0,end:60}`. Correctness first: novelty accounting is allowed to be
  * approximate, cached data never is.
  */
-function callMemoKey(call: ToolCall): string {
+/**
+ * Identity of a call for the redundant-call memo. Exported for tests.
+ *
+ * `get_frame` is keyed by WHAT it looks at, not how large the picture is: the mission
+ * montage ledger shows the model rendering the same six timestamps at 640 px and again at
+ * 480 px (11 renders, ~50 s) because the second batch had a different `maxDimension` and so
+ * a different memo key. A smaller re-render of a frame the run already holds is redundant
+ * by any editorial standard; the stored evidence is recalled instead.
+ */
+export function callMemoKey(call: ToolCall): string {
+  if (call.name === 'get_frame' && call.arguments && typeof call.arguments === 'object') {
+    const { maxDimension: _size, ...rest } = call.arguments as Record<string, unknown>;
+    return `${call.name}:${JSON.stringify(rest)}`;
+  }
   return `${call.name}:${JSON.stringify(call.arguments)}`;
 }
 
@@ -2763,6 +2823,10 @@ export class Orchestrator {
     return {
       project: input.project,
       ...(input.projectRevision === undefined ? {} : { projectRevision: input.projectRevision }),
+      // The turn number is the conversation's own clock: the user's messages so far
+      // plus the one being answered. Derived rather than plumbed, so every caller
+      // that passes history gets dated memory writes without changing its call.
+      turn: (input.history ?? []).filter((m) => m.role === 'user').length + 1,
       ...(input.selection ? { selection: input.selection } : {}),
       ...(input.interaction ? { interaction: input.interaction } : {}),
       // ADR 0057: hand the load_skill tool its lookup map. Bundled skills are the
@@ -2834,6 +2898,14 @@ export class Orchestrator {
     // reading is recorded on the run's objective, so the criterion the ledger reports against
     // and the check that settles it can never be two different things.
     const { minShotCount, coverage } = checkableAcceptance(objectiveText, durationTargetSeconds);
+    // The measured half of "make it feel like this" (P3.4). The reference's numbers reach
+    // the Critic WITHOUT passing through the model: a run cannot forget, round or re-derive
+    // a target it never had to restate, and the check the run is graded by and the target
+    // the plan was given are one reading of one analysis.
+    const directives = referenceDirectives(input.references ?? []);
+    const medianShotTargetSeconds = directives.medianShotSeconds;
+    const medianShotToleranceSeconds = shotLengthTolerance(directives);
+    const medianShotSource = directives.applied.find((c) => c.line.startsWith('Pacing:'));
     return {
       userPrompt: input.userPrompt,
       // The resolved request, so `checkShotCount` can tell "no count was asked for" apart
@@ -2843,6 +2915,11 @@ export class Orchestrator {
       ...(durationTargetSeconds !== undefined ? { durationTargetSeconds } : {}),
       ...(durationToleranceSeconds !== undefined ? { durationToleranceSeconds } : {}),
       ...(minShotCount !== undefined ? { minShotCount } : {}),
+      ...(medianShotTargetSeconds !== undefined ? { medianShotTargetSeconds } : {}),
+      ...(medianShotToleranceSeconds !== undefined ? { medianShotToleranceSeconds } : {}),
+      ...(medianShotSource !== undefined
+        ? { medianShotSource: `${medianShotSource.profileId}: ${medianShotSource.line}` }
+        : {}),
       ...(coverage !== undefined ? { coverage } : {}),
       ...(options.targetPlatform !== undefined ? { targetPlatform: options.targetPlatform } : {}),
       ...(options.render !== undefined ? { render: options.render } : {}),
@@ -3290,6 +3367,8 @@ export class Orchestrator {
     );
     const steeringBlock = agentSteeringBlock(steeringMessage);
     const recoveryBlock = agentActionRecoveryBlock(actionRecovery);
+    // P4.3: a run in the `repair` stage is on a bounded verification fix turn.
+    const fixBlock = agentVerifyFixBlock(taskMemory?.stage === 'repair');
     // The structured briefing (ADR 0075 §3.3) is the run's MEMORY; the action log that
     // follows it is only continuity of prose. That ordering matters: the log is a rolling
     // window whose payloads age out, so anything the run must not forget has to live in
@@ -3306,7 +3385,7 @@ export class Orchestrator {
       : '';
     const turnMessage: AiMessage = {
       role: 'user',
-      content: `${volatileContext}${briefing}${steeringBlock}${recoveryBlock}\n\n${history}${framesBlock(frames)}`,
+      content: `${volatileContext}${briefing}${steeringBlock}${recoveryBlock}${fixBlock}\n\n${history}${framesBlock(frames)}`,
       // Deliberately on the LAST message: it is the only one that varies per turn, so an
       // image attached here can never invalidate the cached prefix above it.
       ...(frames && frames.length > 0 ? { images: frames } : {}),
@@ -3599,6 +3678,50 @@ export class Orchestrator {
       // downloads and materializes the file, and the orchestrator turns what came
       // back into the SAME reversible operations the Sounds panel builds by hand.
       // The host never edits the timeline (AGENTS.md invariant 5).
+      if (call.name === 'remove_silences' && outcome.status === 'completed') {
+        // The measurement came back; the cuts are arithmetic (plan/system-mission P4.1).
+        const parsed = SilenceRangesPayloadSchema.safeParse(outcome.data);
+        if (!parsed.success) {
+          const note =
+            'Rejected "remove_silences" — the silence analysis returned no usable ranges.';
+          return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
+        }
+        const args = (call.arguments ?? {}) as Record<string, unknown>;
+        const options = {
+          minSilenceSeconds:
+            typeof args.minSilenceSeconds === 'number'
+              ? args.minSilenceSeconds
+              : DEFAULT_SILENCE_CUT.minSilenceSeconds,
+          keepSeconds:
+            typeof args.keepSeconds === 'number'
+              ? args.keepSeconds
+              : DEFAULT_SILENCE_CUT.keepSeconds,
+          ...(typeof args.trackId === 'string' ? { trackId: args.trackId } : {}),
+        };
+        const { ops, cuts, removedSeconds } = silenceCutOps(ctx.project, parsed.data, options);
+        if (ops.length === 0) {
+          const note = `No dead air to cut: ${String(parsed.data.ranges.length)} silence(s) measured, none longer than ${String(options.minSilenceSeconds)}s where the asset plays.`;
+          return { ops: [], note, summary: note, status: 'warning', data: outcome.data };
+        }
+        const probe = assembleEdit(ctx.project, ops, 'Remove dead air', 'agent');
+        if (!probe.validation.valid) {
+          const problems = probe.validation.issues
+            .filter((issue) => issue.severity === 'error')
+            .map((issue) => issue.message)
+            .join('; ');
+          const note = `Rejected "remove_silences" — ${problems}`;
+          return { ops: [], note, summary: note, status: 'failed', data: problems };
+        }
+        const summary = `Removed ${String(cuts.length)} silence(s), ${removedSeconds.toFixed(1)}s in total`;
+        return {
+          ops,
+          note: `${summary}. Breath of ${String(options.keepSeconds)}s kept on each side; the timeline is ${removedSeconds.toFixed(1)}s shorter.`,
+          summary,
+          status: 'completed',
+          project: applyProjectPatch(ctx.project, probe.patch),
+          data: outcome.data,
+        };
+      }
       if (call.name === 'add_music' && outcome.status === 'completed') {
         const parsed = MusicAssetPayloadSchema.safeParse(outcome.data);
         if (!parsed.success) {
@@ -4873,9 +4996,18 @@ export class Orchestrator {
     // was never the bug, the unasked-for thinking was. Asked for only on the calls whose
     // thinking is displayed (never the classifier/critic calls, which have nowhere to
     // show it), and degraded by the provider when a model refuses the parameter.
+    // Ask the provider for the output room the manifest reserved. Without an explicit
+    // `maxTokens` every adapter/bridge falls back to its own default (8,192 on the
+    // OpenAI-compatible path), so a long tool-call batch was cut mid-JSON, classified
+    // "truncated", retried once at the same cap, and the run failed — while the window
+    // accounting believed 128k of output was available (plan/system-mission P1.1).
+    const withOutputRoom: AiCompletionRequest =
+      request.maxTokens !== undefined
+        ? request
+        : { ...request, maxTokens: outputRoomFor(this.provider, modelCall) };
     const modelRequest: AiCompletionRequest = captureReasoning
-      ? { ...request, reasoningEffort: request.reasoningEffort ?? 'medium' }
-      : request;
+      ? { ...withOutputRoom, reasoningEffort: withOutputRoom.reasoningEffort ?? 'medium' }
+      : withOutputRoom;
     let reasoning = '';
     let reasoningOpened = false;
     // Settle the reasoning row (stops the "Thinking…" shimmer) — on normal end and on an
@@ -6938,6 +7070,14 @@ export class Orchestrator {
           attempt += 1
         ) {
           log.push(`Step ${index}: ${unusable} model response — retrying (attempt ${attempt}).`);
+          // A cut-off reply retried verbatim is cut off again at the same place (both
+          // montage baseline failures, plan/system-mission P1.1e). The retry says why the
+          // last attempt was unusable and asks for the same work in smaller pieces.
+          const retryPrompt = built();
+          const retryMessages =
+            unusable === 'truncated'
+              ? [...retryPrompt.messages, { role: 'user' as const, content: truncationRetryHint() }]
+              : retryPrompt.messages;
           // The attempt being replaced was still billed, so fold its usage in before it is
           // overwritten; the surviving attempt is folded in by the block below, once.
           if (turn.usage) {
@@ -6945,7 +7085,7 @@ export class Orchestrator {
             usageTokens += supersededCost.tokens;
             usageUsd += supersededCost.usd;
           }
-          turn = yield* streamOnce(attempt);
+          turn = yield* streamOnce(attempt, { ...retryPrompt, messages: retryMessages });
           modelCalls += 1;
           unusable = unusableTurnReason(turn, state.cumulativeOps.length, effect.stage);
         }
@@ -7368,16 +7508,27 @@ export class Orchestrator {
     // Reproduce the old loop's catch/finally: a provider call threw mid-run. An abort
     // that raced a non-streaming call (the up-front plan / repair `complete()`) is the
     // user's cancellation, not a failure — no error card, terminal `cancelled`. Any
-    // other throw surfaces a retryable error card and settles `failed`. Partial work is
+    // other throw surfaces an error card and settles `failed`. Partial work is
     // already represented by the per-turn diffs emitted before the throw (ADR 0056) —
     // no trailing combined diff. Seeded at `seqAtThrow()` so ids continue the sequence.
+    //
+    // Whether the card offers a retry comes from the error itself when it knows.
+    // `ProviderError.retryable` is derived once at classification time so that
+    // "downstream code never re-guesses it" — and this was downstream code
+    // re-guessing it, hardcoding `true` for everything. A captured run ended on
+    // `openrouter API error 403: Key limit exceeded (total limit)` — a quota wall
+    // classified `auth`, permanent by construction — and was still presented as
+    // retryable, inviting the editor to re-run a request that could not succeed
+    // until they changed something outside the app. An unrecognised throw keeps the
+    // optimistic default: without a classification, offering the retry is kinder
+    // than refusing one that might have worked.
     const settle = async function* (error: unknown): AsyncGenerator<AiEvent> {
       const emit = createTurnEmitter(options, seqAtThrow());
       const aborted = options.signal?.aborted ?? false;
       if (!aborted) {
         yield emit.error(
           error instanceof Error ? error.message : 'The agent run failed unexpectedly.',
-          { retryable: true },
+          { retryable: error instanceof ProviderError ? error.retryable : true },
         );
       }
       // C1: a run that threw mid-flight can still have spent real tokens (the classifier,

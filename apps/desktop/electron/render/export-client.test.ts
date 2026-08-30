@@ -16,7 +16,7 @@ const jsonResponse = (body: unknown, ok = true, status = 200): Response =>
 const noSleep = async (): Promise<void> => {};
 
 describe('exportViaSidecar — /render/preview (unchanged synchronous contract)', () => {
-  it('POSTs to /render/preview when preview is requested, defaulting preset/captions', async () => {
+  it('POSTs to /render/preview when preview is requested, defaulting settings/captions', async () => {
     const fetchFn = vi.fn(async () =>
       jsonResponse({ state: 'completed', output_path: '/p/preview.mp4' }),
     );
@@ -30,7 +30,7 @@ describe('exportViaSidecar — /render/preview (unchanged synchronous contract)'
     expect(url).toBe(`${BASE}/render/preview`);
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({
       project_path: '/p/project.fp.json',
-      preset: null,
+      settings: null,
       burn_captions: false,
       denoise: false,
       eq: null,
@@ -50,6 +50,26 @@ describe('exportViaSidecar — /render/preview (unchanged synchronous contract)'
       fetchFn as unknown as typeof fetch,
     );
     expect(result).toEqual({ ok: false, error: 'black frames detected' });
+  });
+
+  it('carries the raw encoder text as detail behind the plain error line (P7.6)', async () => {
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({
+        state: 'failed',
+        error: "The video encoder failed. Open details for the encoder's own message.",
+        error_detail: 'ffmpeg: Error while opening encoder for output stream #0:0',
+      }),
+    );
+    const result = await exportViaSidecar(
+      BASE,
+      { projectPath: '/p/project.fp.json', preview: true },
+      fetchFn as unknown as typeof fetch,
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: "The video encoder failed. Open details for the encoder's own message.",
+      detail: 'ffmpeg: Error while opening encoder for output stream #0:0',
+    });
   });
 
   it('maps a non-2xx preview response to an error', async () => {
@@ -104,7 +124,17 @@ describe('exportViaSidecar — /render (async submit + poll contract, H1.3a)', (
     const onProgress = vi.fn();
     const result = await exportViaSidecar(
       BASE,
-      { projectPath: '/p/project.fp.json', preset: 'reels', burnCaptions: true },
+      {
+        projectPath: '/p/project.fp.json',
+        settings: {
+          resolution: '1080p',
+          fps: 'source',
+          quality: 'recommended',
+          videoCodec: 'h264',
+          container: 'mp4',
+        },
+        burnCaptions: true,
+      },
       fetchFn as unknown as typeof fetch,
       { sleepFn: noSleep, onProgress },
     );
@@ -122,7 +152,13 @@ describe('exportViaSidecar — /render (async submit + poll contract, H1.3a)', (
     expect(postUrl).toBe(`${BASE}/render`);
     expect(JSON.parse((postInit as RequestInit).body as string)).toEqual({
       project_path: '/p/project.fp.json',
-      preset: 'reels',
+      settings: {
+        resolution: '1080p',
+        fps: 'source',
+        quality: 'recommended',
+        video_codec: 'h264',
+        container: 'mp4',
+      },
       burn_captions: true,
       denoise: false,
       eq: null,

@@ -24,16 +24,42 @@ import {
   mapTranscript,
 } from '@framepilot/editor-core';
 import type { Operation } from '@framepilot/editor-core';
-import { secondsToFrame } from '../frame-time.js';
+import { frameToSeconds, secondsToFrame } from '../frame-time.js';
 import { readEditSignals } from '../proposers/edit-signals.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
 import { boolean, filterString, numeric, seconds } from './tool-args.js';
 
+/**
+ * The range that removes a whole clip — **snapped outward to the frame grid**.
+ *
+ * WHY outward, and not the clip's own numbers. `assembleEdit` quantizes every operation
+ * to the frame grid before it validates and applies (`normalizeOperationTimes`), and its
+ * rounding is *nearest*. A clip whose `end` sits off the grid — every clip a
+ * non-frame-aligned import or an off-grid authoring path produced — therefore had its
+ * delete range rounded back INSIDE itself, and the "delete" left a sub-frame husk of the
+ * clip on the track while the tool card reported success.
+ *
+ * The husk is then undeletable: its own start and end round to the same frame, so the
+ * next `delete_clip` on it assembles a zero-length range and the validator refuses it
+ * with `delete_range.end must be greater than start.` The model, told the clip is still
+ * there and that deleting it failed for a reason it cannot act on, asks again. That is
+ * the `delete_clip` 48 % / `delete_clips` 33 % identical-repeat row in
+ * `docs/reports/system-mission/01-call-classification.md`: in the mission runs, **29 of
+ * 48** failed delete calls carry exactly that validator message, and the montage run's
+ * own `get_timeline` shows the husk it kept re-deleting — `clip_005`, 8 ms wide, at
+ * 134.6667–134.6747 s.
+ *
+ * Flooring the start and ceiling the end makes the range cover the clip's every frame, so
+ * normalization is a no-op on it and the clip is actually gone. A clip already on the grid
+ * is unaffected — floor and ceil of a grid value are that value — so this only ever
+ * changes the off-grid case that was broken.
+ */
 const clipDeleteOp = (
   timeline: Timeline,
   clipId: string,
   ripple: boolean,
+  fps: number,
 ): { type: 'delete_range' | 'ripple_delete'; trackId: string; start: number; end: number } => {
   const found = findClipById(timeline, clipId);
   if (!found) {
@@ -42,8 +68,8 @@ const clipDeleteOp = (
   return {
     type: ripple ? 'ripple_delete' : 'delete_range',
     trackId: found.track.id,
-    start: found.clip.start,
-    end: found.clip.end,
+    start: frameToSeconds(secondsToFrame(found.clip.start, fps, 'floor'), fps),
+    end: frameToSeconds(secondsToFrame(found.clip.end, fps, 'ceil'), fps),
   };
 };
 
@@ -568,7 +594,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         'ripple_delete when you mean a specific clip — no hand-computed times.',
     },
     z.object({ clipId: z.string(), ripple: boolean().optional() }).strict(),
-    (a, ctx) => [clipDeleteOp(ctx.project.timeline, a.clipId, a.ripple ?? false)],
+    (a, ctx) => [clipDeleteOp(ctx.project.timeline, a.clipId, a.ripple ?? false, ctx.project.fps)],
   ),
   mutateTool(
     {
@@ -587,7 +613,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     (a, ctx) => {
       const ripple = a.ripple ?? false;
       const ops = [...new Set(a.clipIds)].map((clipId) =>
-        clipDeleteOp(ctx.project.timeline, clipId, ripple),
+        clipDeleteOp(ctx.project.timeline, clipId, ripple, ctx.project.fps),
       );
       // Ripple shifts everything after each cut earlier, so delete back-to-front:
       // the ranges were computed against the CURRENT timeline and stay correct

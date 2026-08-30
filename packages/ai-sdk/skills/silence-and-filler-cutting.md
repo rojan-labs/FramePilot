@@ -1,7 +1,7 @@
 ---
 name: silence-and-filler-cutting
 description: Remove hesitation, filler, and false starts while protecting performance, word boundaries, breaths, and speech continuity.
-tools: [analyze_silence, get_transcript, get_mapped_transcript, get_timeline_map, map_time, ripple_delete, punch_in]
+tools: [remove_silences, analyze_silence, get_transcript, get_mapped_transcript, get_timeline_map, map_time, ripple_delete, punch_in]
 ---
 
 # Silence and filler cutting
@@ -43,7 +43,13 @@ Remove hesitation; preserve intention.
 
 ## Decision framework
 
-Detect → classify keep/cut → map current times → protect word edges → ripple from latest to earliest → review seams.
+For dead air, call `remove_silences` once: it measures the recording and ripple-deletes every
+silence longer than `minSilenceSeconds` where that asset plays, keeping `keepSeconds` of
+breath on each side, in one reversible patch. Do not `analyze_silence` and then echo the
+ranges back as dozens of `delete_range` calls — that is the failure this tool exists to
+prevent. Reserve the manual route (detect → classify keep/cut → map current times → protect
+word edges → ripple from latest to earliest) for filler words and false starts, where the
+transcript decides what goes.
 
 ## Common mistakes
 

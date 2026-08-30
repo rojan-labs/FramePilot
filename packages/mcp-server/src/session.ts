@@ -51,6 +51,7 @@ import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveWithin } from './safety.js';
+import { servableOverMcp } from './tools.js';
 
 /** Why a tool call could not be honoured — the tool boundary gate (PRD §8.3). */
 export type SessionErrorCode =
@@ -320,7 +321,7 @@ export class EditorSession {
     // source-monitor snapshot a human is looking at. This surface has no such snapshot, so the
     // tool list omits them. Refuse them here too: hiding a tool from the advertised list is not
     // enforcement when any client can still name it directly.
-    if (tool.hostUiOnly) {
+    if (!servableOverMcp(tool)) {
       throw new SessionError(
         'host_ui_only',
         `Tool "${name}" requires live FramePilot editor interaction state and is not available over MCP.`,

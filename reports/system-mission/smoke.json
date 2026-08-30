@@ -1,0 +1,242 @@
+{
+  "label": "smoke",
+  "generatedAt": "2026-08-28T21:39:45.844Z",
+  "provider": "openai-compatible",
+  "model": "claude-sonnet-5",
+  "runsPerScenario": 1,
+  "results": [
+    {
+      "scenario": "remove-dead-air",
+      "project": "mission-podcast",
+      "run": 1,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Remove the dead air and long pauses from this recording.",
+          "rubric": "remove-dead-air",
+          "score": 0.25,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": false,
+              "detail": "unchanged",
+              "weight": 2
+            },
+            {
+              "id": "shorter",
+              "ok": false,
+              "detail": "575.85s → 575.85s"
+            },
+            {
+              "id": "no-mid-word-cuts",
+              "ok": false,
+              "detail": "1 edge(s) inside a word"
+            },
+            {
+              "id": "min-clips",
+              "ok": false,
+              "detail": "1 picture clip(s), need ≥ 2"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": false,
+              "detail": "1 clip edge(s) off the 30 fps grid"
+            }
+          ],
+          "metrics": {
+            "wallMs": 184120,
+            "modelCalls": 4,
+            "tokens": {
+              "input": 303,
+              "output": 17179,
+              "cacheRead": 111799,
+              "cacheCreate": null
+            },
+            "perCall": [
+              {
+                "ttftMs": 6144,
+                "wallMs": 6144,
+                "input": 303,
+                "output": 501,
+                "cacheRead": 0
+              },
+              {
+                "ttftMs": 3851,
+                "wallMs": 3851,
+                "input": 0,
+                "output": 294,
+                "cacheRead": 30457
+              },
+              {
+                "ttftMs": 90954,
+                "wallMs": 90954,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 40671
+              },
+              {
+                "ttftMs": 82682,
+                "wallMs": 82682,
+                "input": 0,
+                "output": 8192,
+                "cacheRead": 40671
+              }
+            ],
+            "summary": {
+              "turnCount": 4,
+              "ttftMs": {
+                "p50": 6144,
+                "p95": 90954,
+                "min": 3851,
+                "max": 90954
+              },
+              "wallMs": {
+                "p50": 6144,
+                "p95": 90954,
+                "min": 3851,
+                "max": 90954
+              },
+              "inputTokensPerTurn": {
+                "p50": 0,
+                "p95": 303,
+                "min": 0,
+                "max": 303
+              },
+              "outputTokensPerTurn": {
+                "p50": 501,
+                "p95": 8192,
+                "min": 294,
+                "max": 8192
+              },
+              "cacheHitRate": 0.9972971044227579,
+              "cacheReportingTurns": 4
+            },
+            "usd": 0.258594,
+            "usageTokens": 17482,
+            "toolCalls": 8,
+            "toolCallsByName": {
+              "load_skill": 2,
+              "list_assets": 2,
+              "get_clip": 2,
+              "analyze_silence": 2
+            },
+            "repeatedToolCalls": 4,
+            "analysisFromCache": 0,
+            "contextRequests": 8,
+            "contextByType": [
+              {
+                "system": 2169,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2169,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2925,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 2925,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3687,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3687,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3700,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              },
+              {
+                "system": 3700,
+                "retrieved_evidence": 3133,
+                "skill": 1645,
+                "latest_user_message": 18,
+                "tool_schemas": 18469
+              }
+            ],
+            "contextUsedTokens": [
+              25434,
+              303,
+              26190,
+              0,
+              26952,
+              0,
+              26965,
+              0
+            ],
+            "contextCachedTokens": [
+              null,
+              0,
+              null,
+              30457,
+              null,
+              40671,
+              null,
+              40671
+            ],
+            "diffs": 0,
+            "validDiffs": 0,
+            "operations": 0,
+            "errors": [
+              "The model returned an empty response — no answer and no tool call, on every attempt. This is usually the provider dropping the request (overloaded or rate-limited)."
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 575.854875,
+            "pictureClips": 1,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 1
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -613,3 +613,51 @@ describe('track solo drives actual playback mute (H0.4 J2 — session state, nev
     expect(JSON.stringify(mutedVideoTrackTimeline)).toBe(before);
   });
 });
+
+/**
+ * UX-14 — the fit the monitor used to keep to itself. The render CONTAINS a clip,
+ * so a 16:9 source in a 9:16 sequence exports with bars; the monitor now says so
+ * instead of leaving the export to be the first place the user finds out.
+ */
+describe('program monitor — frame fit (UX-14)', () => {
+  const portrait = { width: 1080, height: 1920 };
+
+  function FitHost({ media }: { readonly media?: { width: number; height: number } }): JSX.Element {
+    const editor = useEditor(timeline, ['a']);
+    return (
+      <SettingsProvider>
+        <PreviewPlayer
+          editor={editor}
+          assets={[
+            {
+              id: 'a',
+              path: 'media/wide.mp4',
+              kind: 'video' as const,
+              ...(media ? { media } : {}),
+            },
+          ]}
+          fps={30}
+          aspect={9 / 16}
+          resolution={portrait}
+        />
+      </SettingsProvider>
+    );
+  }
+
+  it('says a landscape source is letterboxed in a portrait sequence', () => {
+    render(<FitHost media={{ width: 3840, height: 2160 }} />);
+    expect(screen.getByText('Letterboxed')).toBeTruthy();
+  });
+
+  it('says nothing when the source fills the frame', () => {
+    render(<FitHost media={{ width: 1080, height: 1920 }} />);
+    expect(screen.queryByText('Letterboxed')).toBeNull();
+    expect(screen.queryByText('Pillarboxed')).toBeNull();
+  });
+
+  // An unprobed asset is not a claim that it fits; silence is the honest answer.
+  it('says nothing about an asset whose dimensions were never probed', () => {
+    render(<FitHost />);
+    expect(screen.queryByText('Letterboxed')).toBeNull();
+  });
+});

@@ -17,6 +17,7 @@ import {
   MIN_TRANSCRIPT_WORDS,
   allocateGroundingSlice,
   summarizeMediaBin,
+  summarizeSourceMedia,
   summarizeTimeline,
   summarizeTranscript,
 } from './context-builder.js';
@@ -131,8 +132,11 @@ describe('editor interaction context', () => {
     });
 
     const assembled = assembleContext({ project, userPrompt: 'move this', interaction });
-    expect(assembled.messages.at(-1)?.content).toContain('Editor state (revision 8');
-    expect(assembled.messages.at(-1)?.content).toContain('Playhead: frame 30');
+    // Revision and playhead are stated once, in the STATE block (P1.3) — not repeated
+    // by the interaction summary.
+    expect(assembled.messages.at(-1)?.content).toContain('playhead: 1s, revision: 8 }');
+    expect(assembled.messages.at(-1)?.content).not.toContain('Playhead: frame');
+    expect(assembled.messages.at(-1)?.content).toContain('Editor state (timeline revision');
     expect(assembled.messages.at(-1)?.content).toContain('Selected effect layers: fx_layer_1');
     expect(assembled.messages.at(-1)?.content).toContain('clip_a:x@1s');
     expect(assembled.messages.at(-1)?.content).toContain('Source marks: frames 30–90');
@@ -161,7 +165,7 @@ describe('buildContext', () => {
     expect(messages).toHaveLength(2);
     expect(messages[0]).toEqual({ role: 'system', content: SYSTEM_PROMPT });
     expect(messages[1]?.content).toContain('User request:\ntighten the intro');
-    expect(messages[1]?.content).toContain('Project: "Demo"');
+    expect(messages[1]?.content).toContain('STATE\nproject  { id: ');
   });
 
   it('includes selection, platform, and learned memory when present', () => {
@@ -173,7 +177,8 @@ describe('buildContext', () => {
       targetPlatform: 'reels',
     });
     const content = messages[1]?.content ?? '';
-    expect(content).toContain('Selected range: 1.2–3.4s');
+    expect(content).toContain('timeline { selection: 1.2s–3.4s,');
+    expect(content).not.toContain('Selected range:');
     expect(content).toContain('Target platform: reels');
     expect(content).toContain('Caption style: bold yellow');
   });
@@ -574,22 +579,23 @@ describe('token budgeting (B2)', () => {
     expect(trimmed).toContain('timeline');
     const content = messages.at(-1)?.content ?? '';
     expect(content).toContain('User request:\ntighten');
-    expect(content).toContain('Project:');
+    expect(content).toContain('STATE\nproject  {');
     expect(content).not.toContain('word399');
   });
 
-  it('drops history and selection only under extreme pressure, reporting each', () => {
+  it('drops history only under extreme pressure, never the selection (it lives in STATE)', () => {
     const budget: ContextBudget = { contextWindow: 1, maxOutputTokens: 0, headroom: 0 };
-    const { trimmed } = assembleContext({
+    const { trimmed, messages } = assembleContext({
       project: makeProject(),
       userPrompt: 'x',
       selection: { start: 0, end: 1 },
       history: [{ role: 'user', content: 'earlier turn' }],
       budget,
     });
-    expect(trimmed).toEqual(
-      expect.arrayContaining(['transcript', 'timeline', 'history', 'selection']),
-    );
+    expect(trimmed).toEqual(expect.arrayContaining(['transcript', 'timeline', 'history']));
+    // P1.3: the selected range is a mandatory STATE fact, so no budget can drop it.
+    expect(trimmed).not.toContain('selection');
+    expect(messages.at(-1)?.content).toContain('timeline { selection: 0s–1s,');
   });
 
   it('injects the skills manifest as its own tier and omits it when absent (ADR 0057)', () => {
@@ -638,18 +644,18 @@ describe('token budgeting (B2)', () => {
     expect(messages.at(-1)?.content).not.toContain('no captions over faces');
   });
 
-  it('drops pinned before selection under extreme pressure (pinned ranks just below selection)', () => {
+  it('drops pinned under extreme pressure while the selection stays in STATE', () => {
     const budget: ContextBudget = { contextWindow: 1, maxOutputTokens: 0, headroom: 0 };
-    const { trimmed } = assembleContext({
+    const { trimmed, messages } = assembleContext({
       project: makeProject(),
       userPrompt: 'x',
       selection: { start: 0, end: 1 },
       pinned: [{ kind: 'clip', id: 'c1', label: 'intro.mp4 0–5s' }],
       budget,
     });
-    expect(trimmed).toEqual(expect.arrayContaining(['pinned', 'selection']));
-    // pinned is dropped before selection — verify by relative order in the drop list.
-    expect(trimmed.indexOf('pinned')).toBeLessThan(trimmed.indexOf('selection'));
+    expect(trimmed).toContain('pinned');
+    expect(trimmed).not.toContain('selection');
+    expect(messages.at(-1)?.content).toContain('timeline { selection: 0s–1s,');
   });
 });
 
@@ -762,6 +768,97 @@ describe('per-section accounting (ADR 0080)', () => {
     });
   });
 
+  it('shows attached reference profiles as a fixed block the planner can cite (P3.4)', () => {
+    const project = makeProject();
+    const messages = buildContext({
+      project,
+      userPrompt: 'make it feel like the reference',
+      references: [
+        {
+          id: 'ref_1',
+          role: 'style',
+          kind: 'video',
+          fileName: 'ref.mp4',
+          contentHash: 'abcdef0123456789',
+          analyzedAt: '2026-08-29T00:00:00Z',
+          constraints: ['Pacing: fast — median shot 1.1s', 'Look: warm, saturated'],
+        },
+      ],
+    });
+    const all = messages.map((m) => m.content).join('\n');
+    expect(all).toContain('References the editor attached');
+    expect(all).toContain('- ref_1 · ref.mp4 · style');
+    expect(all).toContain('  Pacing: fast — median shot 1.1s');
+  });
+
+  describe('summarizeSourceMedia', () => {
+    it('states file, dimensions and whether the source fits the sequence orientation', () => {
+      const project = makeProject({
+        resolution: { width: 1080, height: 1920 },
+        assets: [
+          {
+            id: 'a1',
+            path: 'media/p/camera.mov',
+            kind: 'video',
+            durationSeconds: 40,
+            media: { width: 3840, height: 2160 },
+          },
+          {
+            id: 'a2',
+            path: 'media/p/vertical.mp4',
+            kind: 'video',
+            durationSeconds: 30,
+            media: { width: 1080, height: 1920 },
+          },
+          { id: 'a3', path: 'media/p/beat.wav', kind: 'audio', durationSeconds: 30 },
+          { id: 'a4', path: 'media/p/unknown.mp4', kind: 'video' },
+        ],
+      } as never);
+      const text = summarizeSourceMedia(project);
+      expect(text).toContain(
+        '- a1 camera.mov · 3840×2160 landscape — sequence is portrait: fills the frame only with a crop, else letterboxed',
+      );
+      expect(text).toContain('- a2 vertical.mp4 · 1080×1920 portrait — matches the sequence');
+      expect(text).toContain('- a3 beat.wav · audio');
+      expect(text).toContain('- a4 unknown.mp4');
+      expect(text).not.toContain('a4 unknown.mp4 ·');
+    });
+
+    it('is absent with no assets and bounds itself with a route to the rest', () => {
+      expect(summarizeSourceMedia(makeProject({ assets: [] } as never))).toBe('');
+      const many = makeProject({
+        assets: Array.from({ length: 200 }, (_, i) => ({
+          id: `p${i}`,
+          path: `media/x/photo-${i}.jpg`,
+          kind: 'image',
+          media: { width: 4000, height: 3000 },
+        })),
+      } as never);
+      const text = summarizeSourceMedia(many);
+      expect(text.length).toBeLessThan(2100);
+      expect(text).toMatch(/…and \d+ more — call list_assets/);
+    });
+
+    it('reaches the assembled context beside the media bin', () => {
+      const project = makeProject({
+        resolution: { width: 1080, height: 1920 },
+        assets: [
+          {
+            id: 'asset_1',
+            path: 'media/a.mp4',
+            kind: 'video',
+            durationSeconds: 30,
+            media: { width: 1920, height: 1080 },
+          },
+        ],
+      } as never);
+      const messages = buildContext({ project, userPrompt: 'make it vertical' });
+      const all = messages.map((m) => m.content).join('\n');
+      expect(all).toContain('Source media');
+      expect(all).toContain('1920×1080 landscape — sequence is portrait');
+    });
+  });
+
   it('distinguishes blocks that share a tier, so the UI can name what took the room', () => {
     const project = makeProject();
     const { sections } = assembleContext({
@@ -773,7 +870,12 @@ describe('per-section accounting (ADR 0080)', () => {
     const timeline = sections.filter((s) => s.tier === 'timeline').map((s) => s.label);
     // No media-bin block here: this fixture's only asset is already on the timeline, so
     // the bin has nothing to add (GAP-012).
-    expect(timeline).toEqual(['timeline summary', 'visual index status', 'footage map']);
+    expect(timeline).toEqual([
+      'timeline summary',
+      'source media',
+      'visual index status',
+      'footage map',
+    ]);
   });
 
   it('adds the media bin to the timeline tier when material is waiting to be placed', () => {
@@ -789,7 +891,7 @@ describe('per-section accounting (ADR 0080)', () => {
     const timeline = sections.filter((s) => s.tier === 'timeline').map((s) => s.label);
     // Directly under the timeline summary: together they are "what has been placed" and
     // "what there is to place", which is the pair a montage reasons over.
-    expect(timeline).toEqual(['timeline summary', 'media bin']);
+    expect(timeline).toEqual(['timeline summary', 'media bin', 'source media']);
   });
 
   it('keeps a dropped section in the account, marked not-included', () => {

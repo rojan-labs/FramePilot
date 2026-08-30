@@ -500,7 +500,6 @@ class _AutoEmphasizeCaptionsArgs(BaseModel):
     model_config = _STRICT
     track_id: str = Field(alias="trackId")
     keywords: list[str] = Field(min_length=1, max_length=12)
-    style: _CaptionStyle | None = None
     color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$")
     font_scale: float | None = Field(default=None, alias="fontScale", ge=1.0, le=3.0)
 

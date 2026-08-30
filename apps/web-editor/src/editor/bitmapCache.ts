@@ -18,7 +18,7 @@ import { LruCache } from './lruCache.js';
 export type FrameBitmap = ImageBitmap | HTMLImageElement;
 
 /** Ceiling on distinct decoded sources kept alive (LRU-evicted beyond this). */
-const MAX_DECODED_BITMAPS = 256;
+export const MAX_DECODED_BITMAPS = 256;
 
 const cache = new LruCache<string, Promise<FrameBitmap>>(MAX_DECODED_BITMAPS, (promise) => {
   // Release the decoded pixels as soon as the entry falls out of the LRU. A

@@ -52,10 +52,12 @@ import {
   layerKind,
   nextAutoScrollLeft,
   pxToSeconds,
+  orderedClips,
   rollBounds,
   rulerTicks,
   secondsToPx,
   shouldAutoFollow,
+  wheelIntent,
   snap,
   spanInRenderWindow,
   snapTargets,
@@ -190,6 +192,11 @@ export interface TimelineViewProps {
    * command palette ⌘K opens.
    */
   readonly onAskAiForClip?: (clipId: string) => void;
+  /**
+   * Show a clip's source footage in the media bin (UX-08) — forwarded to
+   * {@link ClipContextMenu}'s "Reveal in bin". Absent means this host has no bin.
+   */
+  readonly onRevealAssetInBin?: (assetId: string) => void;
   /**
    * Switch the left rail to the transitions library. Offered by the on-cut
    * popover as its "there is more than this" escape hatch; absent means this
@@ -489,6 +496,9 @@ const PICTURE_LAYER_MIN_CLIP_PX = 24;
  *  Audio panel ScrubNumber cap, H8). */
 const FADE_MAX_SECONDS = 5;
 
+/** Shift+Arrow step on a fade handle — the coarse move next to the frame nudge. */
+const FADE_COARSE_STEP_SECONDS = 0.5;
+
 /** Below this clip width (px) fade handles are hidden — too narrow to grab. */
 const FADE_HANDLE_MIN_CLIP_PX = 20;
 
@@ -766,6 +776,12 @@ interface TimelineClipProps {
   readonly pulseAgent?: boolean;
   /** Restarts the overlay animation when the same clip pulses twice in a row. */
   readonly pulseToken?: number;
+  /**
+   * This clip holds the timeline's single clip tab stop (roving tabindex, the
+   * pattern the bin / Sounds / Stock already use). Everything focusable *inside*
+   * a clip is `-1` and is reached from the clip's own keydown.
+   */
+  readonly tabbable: boolean;
   /** Whether this clip's per-property keyframe lanes are open (Phase 6). */
   readonly lanesOpen?: boolean;
   /** Open/close the lanes. Absent = the surface does not offer them. */
@@ -793,12 +809,16 @@ const TimelineClip = memo(function TimelineClip({
   onSelectClip,
   openClipMenu,
   onFadeCommit,
+  tabbable,
   pulseKind = null,
   pulseAgent = false,
   pulseToken = 0,
   lanesOpen = false,
   onToggleLanes,
 }: TimelineClipProps): JSX.Element {
+  const blockRef = useRef<HTMLButtonElement>(null);
+  const fadeInRef = useRef<HTMLSpanElement>(null);
+  const fadeOutRef = useRef<HTMLSpanElement>(null);
   const clipWidthPx = secondsToPx(end - start, pxPerSecond);
   const keyframeMarkers = clipKeyframeMarkers(clip);
   // Colour/label each clip by its OWN kind (Phase 2), so a clip reads correctly on
@@ -863,16 +883,117 @@ const TimelineClip = memo(function TimelineClip({
     onFadeCommit(clip.id, g.edge, g.current);
   };
 
+  /**
+   * Keyboard on the fade handles. They have announced themselves as `role="slider"`
+   * with live aria values since H8 and did nothing at all — and once Tab stopped
+   * being swallowed by `select.next`, the arrows fell straight through to the global
+   * handler and moved the PLAYHEAD while the user believed they were adjusting a
+   * fade. `stopPropagation` is what keeps them off that path, exactly as
+   * `PreviewScrubBar` does for its own arrows.
+   */
+  const onFadeKeyDown = (event: React.KeyboardEvent, edge: 'in' | 'out'): void => {
+    const current = edge === 'in' ? fadeInSeconds : fadeOutSeconds;
+    const limit = Math.min(FADE_MAX_SECONDS, clipSeconds);
+    const step = event.shiftKey ? FADE_COARSE_STEP_SECONDS : 1 / Math.max(fps, 1);
+    // The out handle grows leftwards, the way its pointer drag does, so "towards
+    // the middle of the clip" is a longer fade on both edges.
+    const grow = edge === 'in' ? 'ArrowRight' : 'ArrowLeft';
+    const shrink = edge === 'in' ? 'ArrowLeft' : 'ArrowRight';
+    let next: number;
+    switch (event.key) {
+      case grow:
+      case 'ArrowUp':
+        next = current + step;
+        break;
+      case shrink:
+      case 'ArrowDown':
+        next = current - step;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = limit;
+        break;
+      case 'Escape':
+        // Leave the handle rather than stranding the user on a control nothing
+        // else in the tab ring points back to.
+        event.preventDefault();
+        event.stopPropagation();
+        blockRef.current?.focus();
+        return;
+      default:
+        return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    onFadeCommit(clip.id, edge, Math.min(limit, Math.max(0, next)));
+  };
+
+  /** Which of the clip's own controls are actually on screen for this clip. */
+  const hasFadeHandles = kind === 'audio' && clipWidthPx >= FADE_HANDLE_MIN_CLIP_PX;
+  const hasLanesToggle =
+    onToggleLanes !== undefined && clip.keyframes.length > 0 && density.showHeader;
+  // Advertised only where the key does something. A clip that promises D and has
+  // no lanes to open teaches the user the shortcut does not work.
+  const keyShortcuts = [
+    density.showMenu ? 'Shift+F10' : null,
+    hasFadeHandles ? 'F' : null,
+    hasLanesToggle ? 'D' : null,
+  ]
+    .filter((key): key is string => key !== null)
+    .join(' ');
+
+  /**
+   * The clip is the timeline's single clip tab stop, so it is also the way in to
+   * the controls it contains — all of which are `tabIndex={-1}` (G2). Every branch
+   * stops propagation so the global registry never sees the key.
+   */
+  const onClipKeyDown = (event: React.KeyboardEvent): void => {
+    const openMenuAtClip = (): void => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      openClipMenu(clip.id, rect.left, rect.bottom);
+    };
+    if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
+      event.preventDefault();
+      event.stopPropagation();
+      openMenuAtClip();
+      return;
+    }
+    if (event.key === 'f' || event.key === 'F') {
+      const handle = event.shiftKey ? fadeOutRef.current : fadeInRef.current;
+      if (!handle) return;
+      event.preventDefault();
+      event.stopPropagation();
+      handle.focus();
+      return;
+    }
+    if ((event.key === 'd' || event.key === 'D') && hasLanesToggle && onToggleLanes) {
+      event.preventDefault();
+      event.stopPropagation();
+      onToggleLanes(clip.id);
+    }
+  };
+
   return (
     <button
+      ref={blockRef}
       type="button"
       className={`clip-block ${KIND_META[kind].cls} ${isGhost && ghostKind ? `is-${ghostKind}` : ''}${
         isGhost && ghostDuplicate ? ' is-duplicate' : ''
       }${isGhost && ghostRoll ? ' is-roll' : ''}`}
+      // The id, not the name: every test in the repo and both e2e suites address
+      // clips by it, and Playwright substring-matches where RTL exact-matches, so
+      // changing this text breaks one suite or the other. The human name reaches
+      // assistive technology through `aria-describedby` on the visible label below.
       aria-label={`clip ${clip.id}`}
+      aria-describedby={density.showHeader ? `${clip.id}-label` : undefined}
       aria-pressed={selected}
+      aria-keyshortcuts={keyShortcuts === '' ? undefined : keyShortcuts}
+      tabIndex={tabbable ? 0 : -1}
       data-selected={selected}
       data-pulse={pulseKind ?? undefined}
+      onKeyDown={onClipKeyDown}
       onPointerDown={(event) => beginGesture(event, 'move', clip, track)}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -943,17 +1064,19 @@ const TimelineClip = memo(function TimelineClip({
             style={{ width: `${secondsToPx(fadeInSeconds, pxPerSecond)}px` }}
           />
           <span
+            ref={fadeInRef}
             className="clip-fade-handle clip-fade-handle-in"
             role="slider"
             aria-label="Fade in duration"
             aria-valuemin={0}
             aria-valuemax={FADE_MAX_SECONDS}
             aria-valuenow={Math.round(fadeInSeconds * 100) / 100}
-            tabIndex={0}
+            tabIndex={-1}
             style={{ left: `${secondsToPx(fadeInSeconds, pxPerSecond)}px` }}
             onPointerDown={(event) => beginFadeDrag(event, 'in')}
             onPointerMove={onFadePointerMove}
             onPointerUp={onFadePointerUp}
+            onKeyDown={(event) => onFadeKeyDown(event, 'in')}
           />
           <span
             className="clip-fade-overlay clip-fade-overlay-out"
@@ -961,17 +1084,19 @@ const TimelineClip = memo(function TimelineClip({
             style={{ width: `${secondsToPx(fadeOutSeconds, pxPerSecond)}px` }}
           />
           <span
+            ref={fadeOutRef}
             className="clip-fade-handle clip-fade-handle-out"
             role="slider"
             aria-label="Fade out duration"
             aria-valuemin={0}
             aria-valuemax={FADE_MAX_SECONDS}
             aria-valuenow={Math.round(fadeOutSeconds * 100) / 100}
-            tabIndex={0}
+            tabIndex={-1}
             style={{ right: `${secondsToPx(fadeOutSeconds, pxPerSecond)}px` }}
             onPointerDown={(event) => beginFadeDrag(event, 'out')}
             onPointerMove={onFadePointerMove}
             onPointerUp={onFadePointerUp}
+            onKeyDown={(event) => onFadeKeyDown(event, 'out')}
           />
         </>
       )}
@@ -989,19 +1114,20 @@ const TimelineClip = memo(function TimelineClip({
       )}
       {density.showHeader && (
         <div className="clip-header">
-          <span className="clip-label" title={name}>
+          <span className="clip-label" id={`${clip.id}-label`} title={name}>
             {name}
           </span>
           {density.showTime && (
             <span className="clip-time tabular">{clipDurationLabel(clip, fps, timeDisplay)}</span>
           )}
           {density.showMenu && (
-            // A focusable span, not a <button>: the clip itself is a <button>, and
-            // nested buttons are invalid HTML. role/tabIndex + the keydown handler
-            // keep it keyboard-activatable.
+            // A span, not a <button>: the clip itself is a <button>, and nested
+            // buttons are invalid HTML. Out of the tab ring (roving tabindex, G2) —
+            // 200 clips would otherwise be 200 extra stops; from the keyboard the
+            // menu opens with Shift+F10 on the clip, the platform convention.
             <span
               role="button"
-              tabIndex={0}
+              tabIndex={-1}
               className="clip-menu-btn"
               aria-label="Clip actions"
               onPointerDown={(event) => event.stopPropagation()}
@@ -1051,6 +1177,9 @@ const TimelineClip = memo(function TimelineClip({
         <button
           type="button"
           className="clip-lanes-toggle"
+          // Out of the tab ring for the same reason as the ⋯ span; D on the focused
+          // clip toggles the lanes.
+          tabIndex={-1}
           aria-label={`${lanesOpen ? 'Hide' : 'Show'} keyframes for ${name}`}
           aria-expanded={lanesOpen}
           title={lanesOpen ? 'Hide keyframe lanes' : 'Show keyframe lanes'}
@@ -1084,6 +1213,7 @@ export function TimelineView({
   editMode = 'overwrite',
   trackLayout: trackLayoutProp,
   onAskAiForClip,
+  onRevealAssetInBin,
   onOpenTransitionLibrary,
   tool = 'select',
   selectedEffectLayerIds = [],
@@ -1130,21 +1260,16 @@ export function TimelineView({
   // CapCut-style: hide pre-seeded empty tracks; only show a track when it has
   // clips OR was explicitly created by the user (IDs from the patch engine start
   // with "layer_"; pre-seeded tracks use "video_1", "audio_1", etc.).
-  const visibleTracks = useMemo(
-    () =>
-      timeline.tracks.filter(
-        (t) =>
-          t.clips.length > 0 ||
-          t.id.startsWith('layer_') ||
-          // Effect lanes (schema v13, ADR 0088) carry `effectLayers`, never clips,
-          // so the clip-count test excludes them and the lane would never render
-          // at all — the effect would apply invisibly. An EMPTY effect lane stays
-          // visible too, so it remains a drop target after its last layer is
-          // deleted.
-          t.type === 'effect',
-      ),
-    [timeline.tracks],
-  );
+  // Every track in the project is a row (UX-05).
+  //
+  // Empty tracks used to be filtered out unless they were `layer_*` or effect lanes,
+  // which meant a project's own empty audio track — the obvious place to drop music —
+  // did not exist as far as the editor was concerned, and "Add track" was the only way
+  // to discover a lane at all. A track in the timeline is a track the user or the AI
+  // declared; hiding it hides a drop target, and an empty row is exactly what every
+  // NLE shows there. Effect lanes (schema v13, ADR 0088) carry `effectLayers` and never
+  // clips, so they were the exception that first proved the filter wrong.
+  const visibleTracks = timeline.tracks;
   // Transient highlight over the clips the last committed edit touched (AI apply,
   // undo, redo — manual edits too). Derived purely from the edit history; while a
   // pulse is live the root gains `is-edit-pulse`, which turns on left/width
@@ -1199,6 +1324,15 @@ export function TimelineView({
   // Membership lookup for the lanes' `data-selected`; a Set keeps the per-clip
   // check O(1) and only changes identity when the selection actually changes.
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  // Roving tabindex over the clips — the pattern the bin, Sounds and Stock already
+  // use. The timeline is ONE tab stop, not one per clip: a 200-cut montage would
+  // otherwise sit 200 stops deep between the panel above it and the one below.
+  // The stop rides the selection, falling back to the first clip so a timeline that
+  // has never been clicked is still reachable from the keyboard.
+  const tabbableClipId = useMemo(
+    () => selection ?? orderedClips(timeline)[0]?.clip.id ?? null,
+    [selection, timeline],
+  );
   // --- Effect layers (schema v13, ADR 0088) --------------------------------
   //
   // The selection itself is lifted to `Editor` (see its props) because the
@@ -1898,7 +2032,23 @@ export function TimelineView({
       });
     };
     const onWheel = (event: WheelEvent): void => {
-      if (!event.metaKey && !event.ctrlKey) return; // plain scroll: leave to browser
+      const intent = wheelIntent({
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        zoomModifier: event.metaKey || event.ctrlKey,
+        shiftKey: event.shiftKey,
+        canScrollVertically: sc.scrollHeight - sc.clientHeight > 1,
+      });
+      if (intent === 'browser') return;
+      if (intent === 'scroll-horizontal') {
+        // UX-06: the bare wheel moves along the timeline, the axis it actually has.
+        // Counts as a manual scroll, so playback follow stands down exactly as it does
+        // for a drag of the scrollbar — otherwise the two fight for `scrollLeft`.
+        event.preventDefault();
+        userScrollUntilRef.current = performance.now() + MANUAL_SCROLL_SUSPEND_MS;
+        sc.scrollLeft += event.deltaY;
+        return;
+      }
       event.preventDefault();
       const ed = editorRef.current;
       const rect = sc.getBoundingClientRect();
@@ -1913,6 +2063,29 @@ export function TimelineView({
       if (raf !== 0) cancelAnimationFrame(raf);
     };
   }, []);
+  /* v8 ignore stop */
+
+  // --- Seek follow: a playhead you moved is a playhead you can see (UX-07) ---
+  //
+  // The follow loop below runs only during playback, so a discrete seek — the ruler,
+  // a keyboard nudge, "Show on timeline", a jump from the transcript — could park the
+  // playhead outside the viewport and leave it there. The view then showed one part of
+  // the cut while every edit applied at another, which is the coupling the walkthrough
+  // caught. Scrolls ONLY when the playhead is actually out of view (`nextAutoScrollLeft`
+  // returns `null` inside the dead-band), never during playback (the loop owns it then)
+  // and never while scrubbing (the drag owns it).
+  /* v8 ignore start -- real scroll geometry; jsdom has no layout. The decision
+     (`nextAutoScrollLeft`) is unit-tested in selectors.test.ts. */
+  useEffect(() => {
+    if (editor.state.playing || playheadDragRef.current) return;
+    const sc = scrollRef.current;
+    if (!sc) return;
+    const playheadPx = secondsToPx(editor.state.playhead, editor.state.pxPerSecond);
+    const next = nextAutoScrollLeft(playheadPx, sc.scrollLeft, sc.clientWidth, sc.scrollWidth);
+    if (next === null) return;
+    programmaticScrollRef.current = true;
+    sc.scrollLeft = next;
+  }, [editor.state.playhead, editor.state.pxPerSecond, editor.state.playing]);
   /* v8 ignore stop */
 
   // --- Auto-scroll / playhead-follow on playback (M2b-2) --------------------
@@ -2524,6 +2697,7 @@ export function TimelineView({
                   onSelectClip={onClipClick}
                   openClipMenu={openClipMenu}
                   onFadeCommit={onFadeCommit}
+                  tabbable={tabbableClipId === clip.id}
                   pulseKind={pulse?.clipIds.has(clip.id) ? pulse.kind : null}
                   pulseAgent={pulse?.author === 'agent'}
                   pulseToken={pulse?.token ?? 0}
@@ -3080,6 +3254,8 @@ export function TimelineView({
           target={menu}
           onClose={() => setMenu(null)}
           {...(onAskAiForClip ? { onAskAi: onAskAiForClip } : {})}
+          onAddTransition={(fromClipId, x, y) => setTransitionPicker({ fromClipId, x, y })}
+          {...(onRevealAssetInBin ? { onRevealInBin: onRevealAssetInBin } : {})}
         />
       )}
       {trackMenu && (

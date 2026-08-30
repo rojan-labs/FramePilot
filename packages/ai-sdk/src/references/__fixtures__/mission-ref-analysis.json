@@ -1,0 +1,100 @@
+{
+  "_comment": [
+    "Real measurements from `tests/fixtures/mission/ref/`, produced by running",
+    "framepilot_engine.analysis.reference over the media on 2026-08-29 (P3.3).",
+    "The media itself is never committed (it is the maintainer's, and gigabytes of it);",
+    "this is the sidecar's actual `POST /references/analyze` payload for each file, so the",
+    "TS profile builder can be held to what the engine really produces rather than to a",
+    "hand-written shape that drifts. Regenerate with the command in profile.fixtures.test.ts."
+  ],
+  "fast-cut-vertical.mp4": {
+    "kind": "video",
+    "video": {
+      "durationS": 20.0,
+      "fps": 119.90008326394671,
+      "width": 1080,
+      "height": 1920,
+      "shotCount": 25,
+      "medianShotS": 0.891667,
+      "shotLengthP10S": 0.5750000000000002,
+      "shotLengthP90S": 0.9083329999999998,
+      "cutsPerMinute": 72.0,
+      "speechShare": 1.0,
+      "music": { "bpm": 86.1, "beatCount": 29 },
+      "color": {
+        "brightness": 0.3526937896850992,
+        "contrast": 0.2073716306407929,
+        "saturation": 0.10460893604517829,
+        "temperature": 0.11191251719986242
+      }
+    }
+  },
+  "slow-cinematic-4k.mov": {
+    "kind": "video",
+    "video": {
+      "durationS": 21.631667,
+      "fps": 47.06063641266662,
+      "width": 3840,
+      "height": 2160,
+      "shotCount": 1,
+      "medianShotS": 21.631667,
+      "cutsPerMinute": 0.0,
+      "speechShare": 1.0,
+      "music": { "bpm": 184.6, "beatCount": 55 },
+      "color": {
+        "brightness": 0.5343726899330639,
+        "contrast": 0.16951604967930026,
+        "saturation": 0.2555434171109965,
+        "temperature": -0.0278967434927187
+      }
+    }
+  },
+  "caption-talk.mp4": {
+    "kind": "video",
+    "video": {
+      "durationS": 98.033333,
+      "fps": 30.0,
+      "width": 1920,
+      "height": 1080,
+      "shotCount": 1,
+      "medianShotS": 98.033333,
+      "cutsPerMinute": 0.0,
+      "color": {
+        "brightness": 0.4036930695976307,
+        "contrast": 0.30836348432226035,
+        "saturation": 0.008095610929557007,
+        "temperature": -0.00048055101670297734
+      }
+    }
+  },
+  "logo.png": {
+    "kind": "image",
+    "image": {
+      "width": 1254,
+      "height": 1254,
+      "hasAlpha": false,
+      "dominantColors": ["#f1f0e9", "#422e24", "#120905", "#a89784"],
+      "color": {
+        "brightness": 0.4503878178615196,
+        "contrast": 0.36766947120173554,
+        "saturation": 0.0922427906709559,
+        "temperature": 0.16904057521446078
+      }
+    }
+  },
+  "colorchart.png": {
+    "kind": "image",
+    "image": {
+      "width": 607,
+      "height": 403,
+      "hasAlpha": true,
+      "dominantColors": ["#222835", "#1c222e", "#191e2a", "#3e4851"],
+      "color": {
+        "brightness": 0.17760235618512113,
+        "contrast": 0.10831737418973689,
+        "saturation": 0.07397635524798155,
+        "temperature": -0.14485366205305653
+      }
+    }
+  }
+}

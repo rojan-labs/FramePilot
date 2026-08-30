@@ -56,6 +56,20 @@ export function PreviewTextEditor({
   // Live override during a drag so the box tracks the pointer before the commit.
   const [live, setLive] = useState<Partial<TextOverlayParams> | null>(null);
   const dragRef = useRef<Drag | null>(null);
+  // The pointer listeners live on `window` and are registered ONCE per drag, so the
+  // `endDrag` that eventually runs is the closure captured at pointer-down — where
+  // `live` is still null. Reading the live params through a ref is what makes the
+  // commit see what the drag actually produced instead of the pre-drag state.
+  const liveRef = useRef<Partial<TextOverlayParams> | null>(null);
+  const setLiveTracked = (next: Partial<TextOverlayParams>): void => {
+    liveRef.current = next;
+    setLive(next);
+  };
+  // Stable handler identities: `beginMove`/`beginResize` add these to `window` and
+  // `endDrag` removes them by identity, so both must survive the re-renders a drag
+  // causes — and the unmount cleanup below must be able to remove the same pair.
+  const onPointerMoveRef = useRef<(event: PointerEvent) => void>();
+  const endDragRef = useRef<() => void>();
 
   const shown: TextOverlayParams = { ...params, ...live };
 
@@ -70,21 +84,47 @@ export function PreviewTextEditor({
     if (drag.kind === 'move') {
       const dxPct = ((event.clientX - drag.startX) / rect.width) * 100;
       const dyPct = ((event.clientY - drag.startY) / rect.height) * 100;
-      setLive({ xPercent: clampPct(drag.baseX + dxPct), yPercent: clampPct(drag.baseY + dyPct) });
+      setLiveTracked({
+        xPercent: clampPct(drag.baseX + dxPct),
+        yPercent: clampPct(drag.baseY + dyPct),
+      });
     } else {
       // Dragging a side handle changes width symmetrically about the centre, so the
       // box grows/shrinks around its anchor. `dir` makes both handles feel natural.
       const dPct = ((event.clientX - drag.startX) / rect.width) * 100 * 2 * drag.dir;
-      setLive({ boxWidthPercent: clampPct(drag.baseWidth + dPct, 5, 100) });
+      setLiveTracked({ boxWidthPercent: clampPct(drag.baseWidth + dPct, 5, 100) });
     }
+  };
+  onPointerMoveRef.current = onPointerMove;
+
+  /** Remove the window drag listeners. Safe to call when no drag is running. */
+  const detachDragListeners = (): void => {
+    if (onPointerMoveRef.current) {
+      window.removeEventListener('pointermove', onPointerMoveRef.current);
+    }
+    if (endDragRef.current) window.removeEventListener('pointerup', endDragRef.current);
   };
 
   const endDrag = (): void => {
-    if (dragRef.current && live) onCommit(live);
+    const committed = liveRef.current;
+    if (dragRef.current && committed) onCommit(committed);
     dragRef.current = null;
+    liveRef.current = null;
     setLive(null);
-    window.removeEventListener('pointermove', onPointerMove);
-    window.removeEventListener('pointerup', endDrag);
+    detachDragListeners();
+  };
+  endDragRef.current = endDrag;
+
+  // A drag registers listeners on `window`, which outlives this component. Unmounting
+  // mid-drag (the clip is deselected, the AI applies a patch, the panel closes) would
+  // otherwise leave a pointermove handler on `window` forever, pinning this component's
+  // whole closure — including `params` and the preview frame — for the life of the tab.
+  useEffect(() => detachDragListeners, []);
+
+  const attachDragListeners = (): void => {
+    detachDragListeners();
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', endDrag);
   };
 
   const beginMove = (event: React.PointerEvent): void => {
@@ -97,8 +137,8 @@ export function PreviewTextEditor({
       baseX: params.xPercent,
       baseY: params.yPercent,
     };
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', endDrag);
+    liveRef.current = null;
+    attachDragListeners();
   };
 
   const beginResize = (event: React.PointerEvent, dir: 1 | -1): void => {
@@ -110,8 +150,8 @@ export function PreviewTextEditor({
       baseWidth: params.boxWidthPercent,
       dir,
     };
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', endDrag);
+    liveRef.current = null;
+    attachDragListeners();
   };
 
   // Focus the editable region when entering edit mode.

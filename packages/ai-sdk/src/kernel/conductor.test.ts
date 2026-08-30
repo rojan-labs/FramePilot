@@ -32,6 +32,7 @@ import {
   initialConductorState,
   onCommand,
   onEffectResult,
+  MAX_VERIFY_FIX_TURNS,
 } from './conductor.js';
 import { SEMANTIC_LOOP_TURNS } from './loop-detector.js';
 
@@ -832,7 +833,11 @@ describe('onEffectResult — turn stop/continue decisions', () => {
         applied: true,
         turnOpCount: 1,
         appliedOps: [
-          { type: 'apply_color_grade', clipId: 'clip_a', effect: { id: 'g', type: 'color_grade', params: {}, keyframes: [] } },
+          {
+            type: 'apply_color_grade',
+            clipId: 'clip_a',
+            effect: { id: 'g', type: 'color_grade', params: {}, keyframes: [] },
+          },
         ] as never,
       }),
     ).state;
@@ -1491,9 +1496,7 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
       verify({ ok: false, summary: 'one issue', repairOutcome: { kind: 'no_calls' } }),
     );
     expect(
-      events.some(
-        (e) => e.type === 'notification' && e.text.includes('proposed no change'),
-      ),
+      events.some((e) => e.type === 'notification' && e.text.includes('proposed no change')),
     ).toBe(true);
   });
 
@@ -1508,9 +1511,7 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
       }),
     );
     expect(
-      events.some(
-        (e) => e.type === 'notification' && e.text.includes('overlaps neighbour'),
-      ),
+      events.some((e) => e.type === 'notification' && e.text.includes('overlaps neighbour')),
     ).toBe(true);
   });
 
@@ -1529,6 +1530,109 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
     );
     expect(step.state.integrityFailed).toBe(true);
     expect(step.effects[0]).toMatchObject({ kind: 'finalize', failed: true });
+  });
+
+  // P4.3 — the bounded verify loop. A failed self-check on a run that did land work gets
+  // ONE model turn scoped to the findings, then verifies again; two such turns at most,
+  // after which the run settles honestly with the list.
+  /** A turn that landed an edit the ledger can trace (an operation row needs a described action). */
+  const landed = (over: Partial<AgentTurnResult> = {}): AgentTurnResult =>
+    turn({
+      applied: true,
+      appliedOps: ops(1),
+      turnOpCount: 1,
+      describedActions: [{ action: 'Placed a clip', detail: 'clip_1 on video_1' }],
+      ...over,
+    });
+
+  it('routes a failed self-check into a findings-scoped fix turn instead of failing outright', () => {
+    const applied = onEffectResult(started(), landed()).state;
+    const step = onEffectResult(
+      { ...applied, phase: 'verifying' },
+      verify({
+        ok: false,
+        summary: '2 check(s) failed',
+        failedChecks: [
+          { label: 'No overlaps', detail: 'clip_2 overlaps clip_1 by 0.4s' },
+          { label: 'Cuts on frame grid', detail: 'clip_3 ends off-grid' },
+        ],
+      }),
+    );
+    expect(step.state.phase).toBe('executing');
+    expect(step.state.verifyFixTurns).toBe(1);
+    expect(step.state.integrityFailed).toBe(false);
+    expect(step.state.working.stage).toBe('repair');
+    expect(step.effects[0]).toMatchObject({ kind: 'run_turn', stage: 'repair' });
+    // The findings are in the run's memory, one FAIL line each, for the briefing to show.
+    const failed = step.state.working.verifications.filter((v) => !v.passed);
+    expect(failed.map((v) => `${v.criterion} — ${v.detail ?? ''}`)).toEqual([
+      'No overlaps — clip_2 overlaps clip_1 by 0.4s',
+      'Cuts on frame grid — clip_3 ends off-grid',
+    ]);
+    expect(
+      step.events.some((e) => e.type === 'notification' && e.text.includes('fix turn 1 of 1')),
+    ).toBe(true);
+  });
+
+  it('a fixed run passes the second self-check and completes', () => {
+    const applied = onEffectResult(started(), landed()).state;
+    const fixing = onEffectResult(
+      { ...applied, phase: 'verifying' },
+      verify({
+        ok: false,
+        summary: '1 failed',
+        failedChecks: [{ label: 'No overlaps', detail: 'x' }],
+      }),
+    ).state;
+    // The fix turn lands an edit and declares itself done → back to verify.
+    const fixed = onEffectResult(fixing, landed({ done: true, stepIndex: fixing.stepIndex }));
+    expect(fixed.effects[0]).toMatchObject({ kind: 'run_verify' });
+    const done = onEffectResult(fixed.state, verify({ ok: true, summary: 'all checks passed' }));
+    expect(done.state.working.stage).toBe('complete');
+    expect(done.state.integrityFailed).toBe(false);
+    expect(done.effects[0]).toMatchObject({ kind: 'finalize', failed: false });
+  });
+
+  it('never spends more than MAX_VERIFY_FIX_TURNS — the next failing self-check settles the run', () => {
+    const failing = verify({
+      ok: false,
+      summary: 'still failing',
+      failedChecks: [{ label: 'Duration', detail: '6s of 30s' }],
+    });
+    let state = onEffectResult(started(), landed()).state;
+    state = { ...state, phase: 'verifying' };
+    for (let fix = 1; fix <= MAX_VERIFY_FIX_TURNS; fix += 1) {
+      const step = onEffectResult(state, failing);
+      expect(step.effects[0]).toMatchObject({ kind: 'run_turn' });
+      expect(step.state.verifyFixTurns).toBe(fix);
+      const back = onEffectResult(
+        step.state,
+        landed({ done: true, stepIndex: step.state.stepIndex }),
+      );
+      expect(back.effects[0]).toMatchObject({ kind: 'run_verify' });
+      state = back.state;
+    }
+    const settled = onEffectResult(state, failing);
+    expect(settled.state.verifyFixTurns).toBe(MAX_VERIFY_FIX_TURNS);
+    expect(settled.state.integrityFailed).toBe(true);
+    expect(settled.effects[0]).toMatchObject({ kind: 'finalize', failed: true });
+    expect(settled.events.some((e) => e.type === 'warning' && e.text.includes('6s of 30s'))).toBe(
+      true,
+    );
+  });
+
+  it('does not open a fix turn when nothing landed — there is nothing to fix', () => {
+    const s = started({ phase: 'verifying' });
+    const step = onEffectResult(
+      s,
+      verify({
+        ok: false,
+        summary: 'no edit',
+        failedChecks: [{ label: 'Changed', detail: 'unchanged' }],
+      }),
+    );
+    expect(step.state.verifyFixTurns ?? 0).toBe(0);
+    expect(step.effects[0]).toMatchObject({ kind: 'finalize' });
   });
 
   it('folds the repair pass ops into the finalized combined patch', () => {

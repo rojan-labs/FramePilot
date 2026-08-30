@@ -53,6 +53,7 @@ def _ts_sources() -> list[str]:
     )
     return sources
 
+
 # Matches a tool spec's `name: 'snake_case_name'` declaration. Tool names are
 # always lower-snake-case (PRD §8.3), which lets this regex skip unrelated
 # `name: '...'` object-literal fields elsewhere in the file (e.g. the by-kind
@@ -107,11 +108,18 @@ def test_host_ui_only_tools_are_detected_and_excluded() -> None:
     assert host_ui_only == {
         "ask_user",
         "measure_color",
+        # Where a caption cue breaks is a linguistic decision and `segmentCaptions`
+        # is deliberately its single authority (ADR 0071). Mirroring it here would
+        # mean a second segmenter disagreeing with the first word by word — so this
+        # one is resolved outside the sidecar. MCP still serves it (it needs no UI
+        # state); see UI_INDEPENDENT_HOST_TOOLS in packages/mcp-server.
+        "caption_the_edit",
         # Main-process only: the provider network and the project media directory
         # live in Electron main, and there is no sidecar route to fall back to
         # (ADR 0139). Desktop Agent mode still offers them.
         "search_music",
         "add_music",
+        "remove_silences",
         "search_stock",
         "add_stock",
         "professional_audio",
@@ -153,3 +161,19 @@ def test_python_registry_matches_ts_tool_names() -> None:
     assert not only_in_python, (
         f"Tools registered in Python but missing from TS: {sorted(only_in_python)}"
     )
+
+
+def test_every_tool_description_is_the_generated_ts_text() -> None:
+    """The model must read one description per tool on every surface (plan/system-mission
+    P2.3). Python's registry takes its text from the generated mirror; a literal that
+    survives here means a tool TS does not define, which is the only allowed exception."""
+    from framepilot_engine.ai_tools.registry import TOOL_REGISTRY
+    from framepilot_engine.ai_tools.tool_descriptions_generated import TOOL_DESCRIPTIONS
+
+    shared = [name for name in TOOL_REGISTRY if name in TOOL_DESCRIPTIONS]
+    assert len(shared) >= 70
+    for name in shared:
+        assert TOOL_REGISTRY[name].description == TOOL_DESCRIPTIONS[name], name
+    # Every Python tool has a TS text: a name here would be a tool the desktop cannot see.
+    only_python = sorted(name for name in TOOL_REGISTRY if name not in TOOL_DESCRIPTIONS)
+    assert only_python == [], only_python

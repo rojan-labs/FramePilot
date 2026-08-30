@@ -1,14 +1,11 @@
 /** Controller-backed professional primary color-correction tool. */
 import { z } from 'zod/v4';
 import { compileColorCommand } from '@framepilot/editor-core';
-import {
-  ColorObjectiveSchema,
-  parseColorObjective,
-  resolveColorObjective,
-} from '../controllers/color-controller.js';
+import { ColorObjectiveSchema, parseColorObjective } from '../controllers/color-controller.js';
 import type { ToolContext } from '../tool-context.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { validateProfessionalOperationBatch } from './professional-batch.js';
+import { COLOR_SPECIALIST, runSpecialist, sliceOf } from '../specialists/index.js';
 
 function jsonSchema(schema: z.ZodType): Record<string, unknown> {
   const { $schema: _dialect, ...parameters } = z.toJSONSchema(schema) as Record<string, unknown>;
@@ -20,19 +17,17 @@ function buildProfessionalColor(rawArgs: unknown, ctx: ToolContext) {
   if (!ctx.interaction) {
     throw new Error('professional_color requires a live editor interaction snapshot.');
   }
-  const resolution = resolveColorObjective({
-    project: ctx.project,
-    ...(ctx.projectRevision === undefined ? {} : { projectRevision: ctx.projectRevision }),
-    interaction: ctx.interaction,
-    objective,
-    ...(ctx.evidence ? { evidence: ctx.evidence } : {}),
+  const resolution = runSpecialist(COLOR_SPECIALIST, {
+    task: 'professional_color',
+    context: sliceOf(COLOR_SPECIALIST, ctx),
+    constraints: {},
+    inputs: objective,
   });
-  if (resolution.status === 'rejected') {
-    throw new Error(
-      `professional_color controller rejected ${resolution.code}: ${resolution.detail}`,
-    );
+  const [failure] = resolution.errors;
+  if (failure) {
+    throw new Error(`professional_color controller rejected ${failure.code}: ${failure.detail}`);
   }
-  const operations = resolution.commands.flatMap((command) => {
+  const operations = resolution.outputs.commands.flatMap((command) => {
     const result = compileColorCommand({
       timeline: ctx.project.timeline,
       assets: ctx.project.assets,

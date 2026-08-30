@@ -7,6 +7,7 @@ import type {
   CapabilityPackProjectResolutionWire,
 } from '@framepilot/shared-types';
 import { getBridge } from '../editor/bridge.js';
+import { useModalFocusTrap } from './ai/useModalFocusTrap.js';
 
 export interface CapabilityPackDependencyDialogProps {
   readonly projectId: string;
@@ -33,6 +34,14 @@ export function CapabilityPackDependencyDialog({
   const [progress, setProgress] = useState<CapabilityPackProgressWire | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // It declared `aria-modal="true"` and trapped nothing: Tab walked straight out
+  // onto the editor behind a gate the user cannot dismiss. Keyed on `open` rather
+  // than on mount, because this component is mounted long before the gate has
+  // anything to show — a trap installed at mount would find a null ref and
+  // silently do nothing. Deliberately NO Escape handler: this is a gate, and its
+  // only exit is the explicit "Open degraded" decision.
+  const open = resolution !== null && unavailable.length > 0;
+  const dialogRef = useModalFocusTrap<HTMLDivElement>(open);
 
   useEffect(() => {
     if (!bridge?.onCapabilityPackProgress) return;
@@ -53,7 +62,7 @@ export function CapabilityPackDependencyDialog({
     });
   }, [bridge, onResolutionChange, operationId, projectId]);
 
-  if (resolution === null || unavailable.length === 0) return null;
+  if (!open) return null;
 
   const reviewDownload = async (dependency: CapabilityPackProjectDependencyWire): Promise<void> => {
     if (!bridge?.capabilityPackProposeProjectDependency) return;
@@ -103,10 +112,12 @@ export function CapabilityPackDependencyDialog({
   return (
     <div className="overlay-backdrop" role="presentation">
       <div
+        ref={dialogRef}
         className="new-project-dialog"
         role="dialog"
         aria-modal="true"
         aria-label="Project capabilities required"
+        tabIndex={-1}
       >
         <header className="new-project-dialog-head">
           <div>
@@ -151,7 +162,7 @@ export function CapabilityPackDependencyDialog({
           ) : null}
 
           {progress !== null ? (
-            <div className="capability-pack-progress" role="status">
+            <div className="capability-pack-progress" role="status" aria-label="Download progress">
               <span>{progress.phase.replaceAll('_', ' ')}</span>
               <strong>{formatBytes(progress.completedBytes)} / {formatBytes(progress.totalBytes)}</strong>
               {progress.detail ? <small>{progress.detail}</small> : null}

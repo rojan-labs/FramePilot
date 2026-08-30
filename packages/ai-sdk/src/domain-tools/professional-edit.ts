@@ -7,9 +7,9 @@ import { rationalFrameRate } from '../frame-time.js';
 import {
   TIMELINE_EDIT_INTENTS,
   TimelineEditObjectiveSchema,
-  resolveTimelineObjective,
 } from '../controllers/timeline-controller.js';
 import { validateProfessionalOperationBatch } from './professional-batch.js';
+import { TIMELINE_SPECIALIST, runSpecialist, sliceOf } from '../specialists/index.js';
 
 export const PROFESSIONAL_EDIT_INTENTS = TIMELINE_EDIT_INTENTS;
 
@@ -23,18 +23,17 @@ function buildProfessionalEdit(rawArgs: unknown, ctx: ToolContext) {
   if (!ctx.interaction) {
     throw new Error('professional_edit requires a live editor interaction snapshot.');
   }
-  const resolution = resolveTimelineObjective({
-    project: ctx.project,
-    ...(ctx.projectRevision === undefined ? {} : { projectRevision: ctx.projectRevision }),
-    interaction: ctx.interaction,
-    objective,
+  const resolution = runSpecialist(TIMELINE_SPECIALIST, {
+    task: 'professional_edit',
+    context: sliceOf(TIMELINE_SPECIALIST, ctx),
+    constraints: {},
+    inputs: objective,
   });
-  if (resolution.status === 'rejected') {
-    throw new Error(
-      `professional_edit controller rejected ${resolution.code}: ${resolution.detail}`,
-    );
+  const [failure] = resolution.errors;
+  if (failure) {
+    throw new Error(`professional_edit controller rejected ${failure.code}: ${failure.detail}`);
   }
-  const operations = resolution.commands.flatMap((command) => {
+  const operations = resolution.outputs.commands.flatMap((command) => {
     const result = compileEditorCommand({
       timeline: ctx.project.timeline,
       assets: ctx.project.assets,

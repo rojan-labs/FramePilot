@@ -7,6 +7,7 @@
  */
 import { useEffect, useRef } from 'react';
 import { ShortcutList } from './ShortcutList.js';
+import { useModalFocusTrap } from './ai/useModalFocusTrap.js';
 import { ICON_SIZE, X } from './icons.js';
 
 export interface ShortcutHelpProps {
@@ -15,29 +16,42 @@ export interface ShortcutHelpProps {
 }
 
 export function ShortcutHelp({ open, onClose }: ShortcutHelpProps): JSX.Element | null {
+  // Gate before the content so the trap's mount effect runs when the dialog actually
+  // appears — a hook called above an `open` guard sees a null ref and installs nothing.
+  if (!open) return null;
+  return <ShortcutHelpContent onClose={onClose} />;
+}
+
+function ShortcutHelpContent({ onClose }: { readonly onClose: () => void }): JSX.Element {
+  // Declared before the search-focus effect below so that effect runs last and wins:
+  // the trap's job here is Tab containment and returning focus to whatever opened it.
+  const dialogRef = useModalFocusTrap<HTMLDivElement>();
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Focus the search field on open.
   useEffect(() => {
-    if (open) searchRef.current?.focus();
-  }, [open]);
+    searchRef.current?.focus();
+  }, []);
 
-  if (!open) return null;
+  // Escape on `document`, not on the backdrop: a React `onKeyDown` up there only sees
+  // keys pressed inside the overlay, so Escape died the moment focus left it.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
 
   return (
-    <div
-      className="overlay-backdrop"
-      role="presentation"
-      onClick={onClose}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') onClose();
-      }}
-    >
+    <div className="overlay-backdrop" role="presentation" onClick={onClose}>
       <div
+        ref={dialogRef}
         className="shortcut-help"
         role="dialog"
         aria-modal="true"
         aria-label="Keyboard shortcuts"
+        tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
       >
         <header className="shortcut-help-head">

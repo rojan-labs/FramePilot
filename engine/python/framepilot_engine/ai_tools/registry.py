@@ -35,6 +35,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
+from framepilot_engine.ai_tools.tool_descriptions_generated import TOOL_DESCRIPTIONS
 from framepilot_engine.render.caption_templates import load_catalog
 from framepilot_engine.timeline.models import BlendMode, CaptionStyle, CropRect
 
@@ -599,12 +600,11 @@ class SetTrackCaptionStyleArgs(BaseModel):
 
 
 class AutoEmphasizeCaptionsArgs(BaseModel):
-    """AI-selected, transcript-grounded emphasis plus optional track composition."""
+    """AI-selected, transcript-grounded emphasis on the track's existing design."""
 
     model_config = _STRICT
     track_id: str = Field(alias="trackId")
     keywords: list[str] = Field(min_length=1, max_length=12)
-    style: CaptionStyle | None = None
     color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$")
     font_scale: float | None = Field(default=None, alias="fontScale", ge=1.0, le=3.0)
 
@@ -991,7 +991,9 @@ def _spec(
     """
     return ToolSpec(
         name=name,
-        description=description,
+        # The TS registry is the single source of the text the model reads (P2.3); the
+        # literal passed here is the fallback for a tool TS does not define.
+        description=TOOL_DESCRIPTIONS.get(name, description),
         kind=kind,
         mutating=mutating,
         available=available,
@@ -1006,11 +1008,12 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     # --- Read tools (PRD §8.3) ---
     "get_project_state": _spec(
         "get_project_state",
-        "Return the current editable project state — settings, timeline, transcript, "
-        "markers, memory — without editor-only undo history. This is the live state "
+        "Return the current editable project state — settings, timeline, markers, "
+        "memory — without editor-only undo history. This is the live state "
         "for the active session: read it here, not from project.fp.json on disk. The "
-        "media bin comes back as a TALLY, not a listing; call list_assets for the "
-        "asset ids.",
+        "media bin and the transcript come back as TALLIES, not listings; call "
+        "list_assets for the asset ids, and get_mapped_transcript for the words as "
+        "they play after your edits.",
         kind="read",
     ),
     "get_timeline": _spec(
@@ -1468,8 +1471,8 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "auto_emphasize_captions",
         "Apply AI-selected semantic emphasis to a caption track. Read the mapped transcript, "
         "then provide 1-12 sparse exact spoken keywords chosen for meaning, delivery and payoff. "
-        "Every term is grounded against caption/transcript text. Optional style simultaneously "
-        "sets font, template, x/y placement and the complete caption composition.",
+        "Every term is grounded against caption/transcript text. Existing track styling is "
+        "preserved; change the design itself with set_track_caption_style.",
         kind="mutate",
         input_model=AutoEmphasizeCaptionsArgs,
         mutating=True,

@@ -28,6 +28,43 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The AI captions a whole video in one step.** Asking for captions used to make the
+  assistant place every cue by hand, one call at a time — slow, and it kept mis-guessing
+  where a phrase should break. It now uses the same caption generator the Captions panel
+  has always used, so it segments the entire edit at once, skips speech you have cut, and
+  never runs a caption across a cut. Asking it to fix captions after you re-edit is the
+  same step: it re-derives them from the video as it stands now.
+
+- **Emphasis can be a phrase, not just a word.** "Make *stop scrolling* pop" now works —
+  the highlight covers both words. Previously only single words could be emphasised, and
+  asking for a phrase was refused even when you clearly said it.
+
+- **Export takes a custom video bitrate** when the quality tiers are not what you want. Leave it empty to follow the tier — the field shows you the number that tier is using.
+
+- **Clip right-click does more:** trim the start or end to the playhead, set a speed, add a transition at the cut, or reveal the clip in the media bin.
+- **The preview tells you when footage is being letterboxed or pillarboxed**, so a landscape shot in a vertical sequence is no longer a silent crop.
+- **The AI sidebar shows what it knows:** the playhead and the decisions it remembers, with starter prompts drawn from your actual project instead of a fixed list. Context chips that cannot be removed no longer pretend they can.
+- **A finished run says what changed** — operations grouped by what they did, with the change in programme length.
+
+- **AI sidebar:** click an attached reference to see exactly what FramePilot measured from it, change what it should be used for, or analyze it again — and a reference that could not be read says why, right on the tile.
+
+- **Export:** the progress line now says about how long is left, measured from the render's own pace, and the dialog keeps a per-project list of recent exports with a Reveal button for each.
+
+- **Reference videos and images in the AI sidebar.** Attach a reference (📎 in the
+  composer); it is copied into the project, analyzed once by the render engine (shot
+  rhythm, tempo, speech share, look; image size, transparency, palette), given a role
+  (style, pacing, caption style, color, brand logo, thumbnail, b-roll, character, design)
+  from your words and the file, and its measured constraints are what the AI reads on
+  every later turn — "make mine feel like this" works without re-attaching.
+- **Quality-driven export.** The Export dialog offers resolution (480p–4K), frame rate,
+  quality tier, codec (H.264/HEVC) and format (MP4/MOV); the frame follows the project's
+  aspect ratio, resolution is capped at what the sources hold (with a clear note instead
+  of a silent upscale), and the summary line states the exact file you get with a size
+  estimate. Last-used settings persist per project. `/export` replaces `/export-reels`.
+- **Hardware encoding** (VideoToolbox / NVENC / QSV when ffmpeg has them) with quality-
+  mapped software presets otherwise; `FRAMEPILOT_HW_ENCODE=0` forces software.
+- **Live export progress** — stage and percent from the render process — and cancellation
+  that stops ffmpeg too.
 - **The assistant can lay down a whole sequence in one move.** Building a montage meant one
   call per shot — sixty photos was sixty round trips, and a run could spend its whole budget
   placing clips instead of editing them. It can now place an entire sequence on a track in a
@@ -36,6 +73,30 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Export is much faster on high-resolution footage.** A 30-second 4K project now exports in about 11 seconds instead of 48 — FramePilot asks the decoder for exactly the size the frame needs instead of shrinking every frame afterwards. The progress bar is more honest about it too.
+
+- **Settings:** the readiness panel no longer calls a provider "ready" just because a key is saved — it says "key saved" until that provider has actually answered a request, then reports when it last did.
+
+- **Timeline:** the mouse wheel now scrolls along the timeline (Cmd/Ctrl+wheel still zooms), every track in the project shows as a row — including empty ones, so there is somewhere to drop music — and moving the playhead brings it back into view.
+
+- **Desktop:** if the render engine stops unexpectedly, FramePilot now restarts it automatically (up to three times, with a short wait between) instead of failing every later render and analysis until the app is restarted.
+
+- **Agent runs:** when the final self-check fails on something fixable, the agent now gets one bounded fix turn with the findings in front of it before the run is settled, instead of ending as failed.
+
+- **AI tools:** `auto_emphasize_captions` no longer takes a `style` block (use `set_track_caption_style` for the design); `set_caption_style` points at `discover_caption_styles` instead of listing every template. About 960 fewer tokens on every agent request.
+
+- Platform export presets (Reels, TikTok, Shorts, YouTube, Square) are gone from the
+  engine, the CLI (`--resolution/--fps/--quality/--codec/--container`), the dialog and
+  the docs.
+- The AI agent asks the provider for the output room it reserves (a long tool batch is no
+  longer cut off at the bridge's 8,192-token default), retries a cut-off reply with a
+  "split the step" hint instead of verbatim, may look at a frame while applying edits,
+  treats a smaller re-render of a frame as the same frame, and reads each source's file
+  name, dimensions and orientation from a one-line-per-asset block instead of
+  rediscovering them with tool calls.
+- Tool descriptions the sidecar and MCP server show are generated from the TS registry
+  (35 of 73 had drifted); a newer memory entry with the same title supersedes the older.
+- Sources are decoded at the size the export needs instead of full resolution.
 - **The editor's chrome got tighter and easier to read.** The timeline's tool row mixed
   two icon sizes in two different button sizes, which read as two toolbars welded
   together and stole ~12px of height from the timeline; it now uses one control size
@@ -60,6 +121,64 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   matches nothing says so instead of looking broken. (`apps/web-editor`)
 
 ### Fixed
+
+- **The assistant no longer offers to retry something that cannot work.** When a run stopped
+  because an API key had hit its limit, the error still offered a Retry — which could only
+  fail again until the key itself was sorted out. Failures that are genuinely temporary
+  still offer it.
+
+- **The preview now plays your music at the level it will actually export at.** When music
+  is set to duck under your voice, the preview was playing it flat — loudest exactly where
+  the finished video is quietest. That made a correctly-mixed video sound like the music
+  was burying the narration, and led to the music being turned down for real to fix a
+  problem that only existed in the monitor. Fades are honoured in the preview now too.
+
+- **Beat-synced montages now cut on the beat, not on every loud moment.** Beat detection
+  reports onsets — and music routinely puts loud events off the beat, so cuts were being
+  snapped onto whichever transient happened to be nearest, including ones that were not
+  beats at all. The engine now works out which onsets sit on the track's tempo and the
+  editor cuts to those, fitting the grid's spacing as well as its position so it does not
+  drift over a long track. On the reference material every cut now lands on a beat, where
+  before roughly two in five were pulled off it.
+
+- **The AI remembers where a preference came from and how long it should last.** A style
+  you state outright, one inferred from your footage and one read off a reference you
+  attached are no longer indistinguishable, and a preference can now be set to expire after
+  a few turns instead of following the project forever. Contradicting an earlier instruction
+  replaces it outright rather than leaving both for the AI to choose between.
+
+- **The editor can be used from the keyboard at all.** Pressing Tab did not move focus
+  anywhere — it moved the selection on the timeline instead, from the very first press,
+  on every screen. Tab is now what it should always have been (it walks the controls);
+  stepping through the cut moved to ⌥→ and ⌥←, which is on the shortcut list with
+  everything else.
+- **The timeline is one stop on the way round, not one per clip.** A 200-cut montage used
+  to sit 200 tabs deep between the panel above it and the panel below. Tab now lands on the
+  selected clip, and the clip's own controls open from there: Shift+F10 for its menu, F for
+  the fades, D for the keyframe lanes.
+- **A clip's fade handles respond to the arrow keys.** They looked and announced themselves
+  like sliders and did nothing at all; the arrows moved the playhead instead.
+- **The panels resize without a mouse.** The dividers between the rails, the monitor and the
+  timeline take Tab, then the arrow keys (hold Shift to move faster, Home/End to go all the
+  way). They are also easier to grab with a pointer — same hairline, wider target.
+- **The right-click menu on a clip shows its keyboard shortcuts**, and every shortcut in the
+  app is now shown with the keys your own platform uses. Windows and Linux were being told
+  to press ⌘ and ⌥ about thirty times over.
+- **The Blade tool's key is on the shortcut list.** The Tools group was missing from the `?`
+  overlay and from Settings, so B was a shortcut nobody could discover.
+- Right-click menus, the Export panel and the transition picker now give focus back to
+  whatever opened them, and can be entered from the keyboard in the first place.
+- Search fields in the command palette, the shortcut overlay, the transcript, the
+  transcription panel and the AI history show a focus ring again — they cleared it and put
+  nothing in its place, so the only way to tell where you were typing was to type.
+- Tooltips close on Escape. A tooltip covering the thing underneath it could not be
+  dismissed without moving the pointer.
+
+- **A failed AI run says what went wrong in one sentence**, with the provider's own text kept behind "Show details" instead of thrown at you as the headline.
+- Deleting a conversation now asks first — it is the one action in the sidebar that undo cannot take back.
+- The video preview releases its decoded frames when it shuts down, and the render engine closes the ffmpeg pipes it was leaving open at the end of every export.
+
+- **Removing dead air** no longer cuts inside a word when the silence detector mistakes a soft consonant or a breath for silence.
 
 - **The assistant can compare tracks and still cut to the one it chose.** Ask for a
   beat-synced montage and the assistant will audition a few songs before picking the best —

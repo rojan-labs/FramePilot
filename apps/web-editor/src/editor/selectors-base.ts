@@ -287,7 +287,7 @@ export function audibleAudioAt(
       track,
       clip,
       sourceTime: clip.sourceStart + (t - clip.start),
-      volume: audio.muted ? 0 : dbToGain(audio.gainDb),
+      volume: previewClipVolume(clip, audio, t, tracks),
     });
   }
   return audible;
@@ -1188,7 +1188,12 @@ export interface AudioSettings {
   normalize: boolean;
   duckUnderTrackId: string | null;
   duckAmountDb: number;
+  /** Shape of the fade ramps — the engine's `fadeCurve` param. */
+  fadeCurve: FadeCurve;
 }
+
+/** The fade shapes the engine's `fade_gain_at` understands. */
+export type FadeCurve = 'linear' | 'equal-power' | 'smooth';
 
 /** Identity audio (unity gain, no fades/mute/normalize/duck). */
 export const DEFAULT_AUDIO: AudioSettings = {
@@ -1199,6 +1204,7 @@ export const DEFAULT_AUDIO: AudioSettings = {
   normalize: false,
   duckUnderTrackId: null,
   duckAmountDb: -12,
+  fadeCurve: 'linear',
 };
 
 /** Read a clip's current audio settings (defaults when no `audio_gain` effect). */
@@ -1219,7 +1225,91 @@ export function audioSettings(clip: Clip): AudioSettings {
     normalize: Boolean(p.normalize),
     duckUnderTrackId: typeof duck === 'string' && duck ? duck : null,
     duckAmountDb: num('duckAmountDb', -12),
+    fadeCurve: p.fadeCurve === 'equal-power' || p.fadeCurve === 'smooth' ? p.fadeCurve : 'linear',
   };
+}
+
+// --- Preview mix envelope ----------------------------------------------------
+//
+// The monitor must play the mix the render will produce. Gain alone is not that
+// mix: a bed laid under narration is authored with a DUCK, and playing it flat
+// meant the monitor was loudest exactly where the render is quietest. In a
+// captured run the editor watched that monitor, reported the music drowning
+// their voice, and the agent "fixed" a problem the render did not have by
+// cutting the bed's clip gain — a real, destructive edit stacked on top of a
+// duck that was already working. A monitor that lies about the mix does not
+// just mislead the person; it teaches the agent to damage the edit.
+//
+// So preview mirrors the engine's own envelope — `fade_gain_at` × `duck_gain_at`
+// in `audio/mixing.py` — evaluated at one instant instead of over a sample
+// array. This stays inside the render-vs-preview invariant (AGENTS.md §4): it
+// sets an element's `volume`, it does not process samples. Automation lanes
+// (keyframed `audio_gain`) remain engine-truth and are not sampled here.
+
+/** The engine's duck attack/release ramp, in seconds (`duck_gain_at`'s `ramp`). */
+const DUCK_RAMP_SECONDS = 0.15;
+
+const clamp01Gain = (value: number): number => (value < 0 ? 0 : value > 1 ? 1 : value);
+
+/** Fade multiplier at clip-relative `elapsed`. Mirrors the engine's `fade_gain_at`. */
+function fadeGainAt(
+  elapsed: number,
+  duration: number,
+  { fadeInSeconds, fadeOutSeconds, fadeCurve }: AudioSettings,
+): number {
+  let gain = 1;
+  if (fadeInSeconds > 0) gain = Math.min(gain, clamp01Gain(elapsed / fadeInSeconds));
+  if (fadeOutSeconds > 0) gain = Math.min(gain, clamp01Gain((duration - elapsed) / fadeOutSeconds));
+  if (fadeCurve === 'equal-power') return Math.sin(gain * (Math.PI / 2));
+  if (fadeCurve === 'smooth') return gain * gain * (3 - 2 * gain);
+  return gain;
+}
+
+/**
+ * Duck multiplier at absolute time `t`, given the sidechain track's clip spans.
+ * Mirrors the engine's `duck_gain_at`, including its 0.15s ramp on each side, so
+ * the bed dips in the monitor exactly where and as far as it dips in the render.
+ */
+function duckGainAt(
+  t: number,
+  sidechain: Timeline['tracks'][number] | undefined,
+  amountDb: number,
+): number {
+  if (sidechain === undefined || sidechain.clips.length === 0) return 1;
+  const reduced = dbToGain(amountDb);
+  let gain = 1;
+  for (const { start, end } of sidechain.clips) {
+    const attack = clamp01Gain((t - (start - DUCK_RAMP_SECONDS)) / DUCK_RAMP_SECONDS);
+    const release = clamp01Gain((end + DUCK_RAMP_SECONDS - t) / DUCK_RAMP_SECONDS);
+    const presence = clamp01Gain(Math.min(attack, release));
+    gain = Math.min(gain, 1 - presence * (1 - reduced));
+  }
+  return gain;
+}
+
+/**
+ * The linear monitor volume for one audio clip at absolute time `t`: the clip's
+ * static gain, shaped by its fades and by any duck it is authored under.
+ * `tracks` supplies the duck sidechain; pass the timeline's tracks.
+ */
+export function previewClipVolume(
+  clip: Clip,
+  audio: AudioSettings,
+  t: number,
+  tracks: readonly Timeline['tracks'][number][],
+): number {
+  if (audio.muted) return 0;
+  const level = dbToGain(audio.gainDb);
+  const fade = fadeGainAt(t - clip.start, clip.end - clip.start, audio);
+  const duck =
+    audio.duckUnderTrackId === null
+      ? 1
+      : duckGainAt(
+          t,
+          tracks.find((track) => track.id === audio.duckUnderTrackId),
+          audio.duckAmountDb,
+        );
+  return level * fade * duck;
 }
 
 /** Tracks (other than the clip's own) that carry audio, as duck sidechain options. */
@@ -1236,8 +1326,9 @@ export function duckTrackOptions(timeline: Timeline, ownTrackId: string): readon
 // element and would be silent. `audibleAudioClipsAt` is the pure projection the
 // preview audio mixer renders from: which audio-only clips should sound now,
 // where in their source they sit, and at what linear volume. Mirrors the engine
-// mix (gain/mute + track flags); fades/ducking stay engine-truth (preview is
-// approximate — invariant 4). Video-clip footage audio is intentionally excluded
+// mix (gain/mute + track flags, fades and ducking — see `previewClipVolume`);
+// keyframed automation lanes stay engine-truth (preview is approximate —
+// invariant 4). Video-clip footage audio is intentionally excluded
 // here: it rides the monitor's own <video>, not this mixer.
 
 /** Linear amplitude for a decibel gain — mirrors the engine's `db_to_gain`. */
@@ -1251,7 +1342,7 @@ export interface AudibleClip {
   readonly clip: Clip;
   /** Source-media time under the playhead (`sourceStart` + offset into the clip). */
   readonly sourceTime: number;
-  /** Linear playback volume after gain + mute (0 when muted). */
+  /** Linear monitor volume after gain, mute, fades and any duck (0 when muted). */
   readonly volume: number;
 }
 
@@ -1280,7 +1371,7 @@ export function audibleAudioClipsAt(
         track,
         clip,
         sourceTime: clip.sourceStart + (t - clip.start),
-        volume: audio.muted ? 0 : dbToGain(audio.gainDb),
+        volume: previewClipVolume(clip, audio, t, timeline.tracks),
       });
     }
   }
@@ -1765,6 +1856,43 @@ export interface AutoFollowInputs {
 export function shouldAutoFollow(inputs: AutoFollowInputs): boolean {
   if (!inputs.enabled || !inputs.playing) return false;
   return !inputs.scrubbing && !inputs.userScrolling;
+}
+
+/** What a wheel event over the timeline should do (UX-06). */
+export type WheelIntent = 'zoom' | 'scroll-horizontal' | 'browser';
+
+export interface WheelInputs {
+  readonly deltaX: number;
+  readonly deltaY: number;
+  /** Cmd (macOS) or Ctrl — also what a trackpad pinch reports. */
+  readonly zoomModifier: boolean;
+  readonly shiftKey: boolean;
+  /** Whether the lane container actually has somewhere to scroll vertically. */
+  readonly canScrollVertically: boolean;
+}
+
+/**
+ * Decide what a wheel over the timeline means (UX-06).
+ *
+ * The timeline scrolls horizontally, so a plain vertical wheel — the only gesture a
+ * mouse has — used to reach the browser, find no vertical overflow, and do nothing at
+ * all. Eight wheel steps left the viewport byte-identical, which reads as a dead
+ * surface. Every NLE maps the bare wheel onto the axis the timeline actually has.
+ *
+ * - Cmd/Ctrl (or a trackpad pinch) → zoom around the cursor.
+ * - Shift → the browser's own horizontal mapping; nothing to improve on.
+ * - A horizontal-dominant gesture (trackpad two-finger swipe) → the browser already
+ *   scrolls the right axis.
+ * - Otherwise a vertical wheel scrolls the timeline horizontally, UNLESS the lanes
+ *   are tall enough to scroll vertically — where scrolling the track stack is what
+ *   the gesture obviously means, and stealing it would be worse than the bug.
+ */
+export function wheelIntent(inputs: WheelInputs): WheelIntent {
+  if (inputs.zoomModifier) return 'zoom';
+  if (inputs.shiftKey) return 'browser';
+  if (Math.abs(inputs.deltaX) > Math.abs(inputs.deltaY)) return 'browser';
+  if (inputs.canScrollVertically) return 'browser';
+  return inputs.deltaY === 0 ? 'browser' : 'scroll-horizontal';
 }
 
 /**

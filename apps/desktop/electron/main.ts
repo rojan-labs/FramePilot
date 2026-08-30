@@ -13,12 +13,16 @@
  * This file is intentionally not unit-tested — it requires an Electron runtime
  * and only wires the modules above (which are tested). Keep logic out of here.
  */
+import { loadDotEnvFile } from './env.js';
 import {
   appendFileSync,
   createReadStream,
   existsSync,
-  readFileSync,
   watch as fsWatch,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -41,6 +45,7 @@ import {
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import type { Patch } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
+import { ProcessRegistry, type PidFileIO } from './process-registry.js';
 import {
   readProjectFile,
   serializeProject,
@@ -49,6 +54,8 @@ import {
 
 const aiLog = createLogger('desktop:main');
 import {
+  createReferenceAnalyzer,
+  ReferenceProfileSchema,
   Orchestrator,
   MockProvider,
   createProviderFromConfig,
@@ -92,6 +99,7 @@ import {
   type AiProviderName,
   type AiRequest,
   type AiTextResult,
+  type AiStreamReferenceProfile,
   type AiStreamRequest,
   type DurableRunAccepted,
   type TrackingProgressWire,
@@ -118,6 +126,8 @@ import {
   type StockDownloadRequest,
   type StockDownloadResult,
   type StockQuotaSnapshot,
+  type AnalyzeReferenceRequest,
+  type AnalyzeReferenceResult,
   type TranscriptionRequest,
   type TranscriptionResult,
   type ConversationSaveResult,
@@ -139,7 +149,7 @@ import {
   type CapabilityPackProjectResolutionWire,
 } from './ipc/contract.js';
 import { SidecarManager, type SidecarProcess } from './sidecar/manager.js';
-import { resolveSidecarCommand } from './sidecar/spawn.js';
+import { resolveSidecarCommand, killProcessGroup } from './sidecar/spawn.js';
 import { RecentFilesStore, type RecentFilesIO } from './projects/recent-files.js';
 import { ConversationStore, type ConversationStoreIO } from './ai/conversation-store.js';
 import { AiStreamHub, parseAiStreamRequest, prepareAiEventForTransport } from './ai/ai-stream.js';
@@ -199,41 +209,9 @@ const DEV_SERVER_URL = 'http://localhost:5173';
 const DEFAULT_ENGINE_HOST = '127.0.0.1';
 const DEFAULT_ENGINE_PORT = 8765;
 
-/**
- * Load `.env` from the monorepo root into `process.env` for dev mode.
- * Uses no external deps — plain Node.js file read + line parsing.
- *
- * WHY `.env` OVERRIDES inherited shell vars: the local `.env` is gitignored and
- * is the developer's explicit, intentional configuration. Honouring an inherited
- * value instead would let a stray export (e.g. `FRAMEPILOT_AI_PROVIDER=mock`
- * lingering in the shell that launched the app) silently defeat the `.env`
- * provider choice — the app would fall back to canned mock output even though
- * `.env` selects a real provider. Packaged builds ship no `.env` (the read
- * throws and is caught), so real production environment config is unaffected.
- */
-function loadDotEnv(): void {
-  try {
-    // main.ts compiles to dist/main.js — three dirs up is the monorepo root.
-    const envPath = path.resolve(dirname, '../../../.env');
-    const lines = readFileSync(envPath, 'utf-8').split('\n');
-    for (const raw of lines) {
-      const line = raw.trim();
-      if (!line || line.startsWith('#')) continue;
-      const eq = line.indexOf('=');
-      if (eq === -1) continue;
-      const key = line.slice(0, eq).trim();
-      const val = line
-        .slice(eq + 1)
-        .trim()
-        .replace(/^["']|["']$/g, '');
-      if (key) process.env[key] = val;
-    }
-  } catch {
-    // .env absent or unreadable — silently skip (production build has real env).
-  }
-}
-
-loadDotEnv();
+// Repo `.env` fills gaps only; anything the parent process set (test launcher, CI, shell)
+// wins. See electron/env.ts for why.
+loadDotEnvFile(path.resolve(dirname, '../../../.env'));
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -307,6 +285,7 @@ function spawnSidecar(host: string, port: number): SidecarProcess {
     // the user's projects live — and so the sidecar is never left with no root at
     // all, which disables every path-based route it serves.
     projectsRoot: resolveProjectsDir(process.env, app.getPath('documents')),
+    parentPid: process.pid,
   });
   aiLog.action('sidecar:spawn', {
     source: resolved.source,
@@ -317,6 +296,9 @@ function spawnSidecar(host: string, port: number): SidecarProcess {
     cwd: resolved.cwd,
     env: { ...process.env, ...resolved.env, ...capabilityPackRuntimeEnvironment },
     stdio: 'inherit',
+    // Own process group, so stopping the sidecar also stops its ffmpeg/ffprobe and render
+    // workers (`killProcessGroup`). The parent still waits on it; nothing is orphaned.
+    detached: process.platform !== 'win32',
   });
   // Without this, a failed spawn (e.g. ENOENT because `uv` isn't on PATH for
   // a GUI-launched app) surfaces only as Node's 'error' event; unhandled,
@@ -328,11 +310,19 @@ function spawnSidecar(host: string, port: number): SidecarProcess {
       error,
     });
   });
+  const registryId = processes.register({
+    owner: 'sidecar',
+    purpose: 'python engine (render, analysis, brain)',
+    pid: child.pid,
+    cancel: () => {
+      const target = killProcessGroup(child.pid);
+      aiLog.action('sidecar stop', { pid: child.pid, target });
+    },
+  });
+  child.on('exit', () => processes.setState(registryId, 'terminated'));
   return {
     pid: child.pid,
-    kill: () => {
-      child.kill();
-    },
+    kill: () => processes.terminate(registryId),
     onExit: (listener) => {
       child.on('exit', (code) => listener(code));
     },
@@ -428,7 +418,61 @@ const sidecar = new SidecarManager({
   host: engine.host,
   port: engine.port,
   startupTimeoutMs: Number(process.env.FRAMEPILOT_SIDECAR_TIMEOUT_MS) || 15_000,
+  // P5.5: watching the child process is not enough. The engine runs as
+  // `uv run framepilot serve`, so the server that answers is a GRANDCHILD — kill it and
+  // the wrapper lives on, no exit event fires, and the manager would keep reporting
+  // `ready` while every request failed. Found by a desktop e2e that SIGKILLed the real
+  // engine, which the process-exit unit tests could never have caught.
+  livenessIntervalMs: 5_000,
+  // P5.5: an engine that dies under a running app restarts itself. Log every
+  // transition — a silent recovery is indistinguishable from a silent outage when
+  // someone is reading the log to explain why a render failed at 14:02.
+  onStatusChange: (status) => {
+    if (status.phase === 'failed') aiLog.error('sidecar failed', { detail: status.detail });
+    else aiLog.action('sidecar phase', { phase: status.phase, detail: status.detail });
+  },
 });
+/**
+ * The pidfile is written SYNCHRONOUSLY (P5.3).
+ *
+ * Everything else in `userData` is async, and that is right for those: nothing depends on
+ * a recents entry surviving a hard kill. This one does — its whole job is to be readable
+ * by the NEXT launch after this process died without running a single quit handler, and
+ * an async write scheduled at that moment never lands.
+ */
+function pidFileIO(): PidFileIO {
+  const filePath = path.join(app.getPath('userData'), 'child-processes.json');
+  return {
+    read: () => {
+      try {
+        return readFileSync(filePath, 'utf-8');
+      } catch {
+        return null;
+      }
+    },
+    write: (contents: string) => {
+      mkdirSync(path.dirname(filePath), { recursive: true });
+      writeFileSync(filePath, contents);
+    },
+    clear: () => {
+      try {
+        rmSync(filePath, { force: true });
+      } catch {
+        // Nothing to clear.
+      }
+    },
+  };
+}
+
+/**
+ * Every OS child this app owns (P5.3). Registering is how a child becomes visible to
+ * shutdown, so a new kind of process cannot silently opt out of being cleaned up.
+ */
+const processes = new ProcessRegistry({
+  killGroup: (pid) => killProcessGroup(pid),
+  pidFile: pidFileIO(),
+});
+
 const recentFiles = new RecentFilesStore(userDataFileIO('recent-projects.json'));
 const recovery = new RecoveryStore(userDataFileIO('recovery-snapshot.json'));
 const conversations = new ConversationStore(conversationDirIO());
@@ -681,14 +725,17 @@ function registerIpcHandlers(): void {
    * instead of two.
    */
   const cachedDerive = (request: { thumbnails: number; proxy: boolean }) =>
-    cacheDerivedMedia(async (absolutePath: string) => {
-      const derived = await importAssetViaSidecar(
-        engineBaseUrl,
-        { inputPath: absolutePath, ...request },
-        electronFetch,
-      );
-      return derived.ok ? derived : null;
-    }, { projectsRoot });
+    cacheDerivedMedia(
+      async (absolutePath: string) => {
+        const derived = await importAssetViaSidecar(
+          engineBaseUrl,
+          { inputPath: absolutePath, ...request },
+          electronFetch,
+        );
+        return derived.ok ? derived : null;
+      },
+      { projectsRoot },
+    );
 
   const musicService = new MusicService({
     projectsRoot,
@@ -1561,6 +1608,52 @@ function registerIpcHandlers(): void {
         );
       } catch (error) {
         return { ok: false, error: errorMessage(error) };
+      }
+    },
+  );
+
+  // Reference analysis (plan/system-mission Phase 3) is host-owned for the same reasons
+  // as transcription: the renderer names a file it just imported, main proves the path
+  // sits inside the projects root, the sidecar measures it, and the renderer gets back a
+  // typed profile it cannot have forged. Declared in the contract since Phase 3 but only
+  // wired here once `main-channel-registration.test.ts` showed nothing served it.
+  ipcMain.handle(
+    IpcChannels.referencesAnalyze,
+    async (_event, req: unknown): Promise<AnalyzeReferenceResult> => {
+      try {
+        requireLicense();
+        const request = (req ?? {}) as Partial<AnalyzeReferenceRequest>;
+        if (typeof request.inputPath !== 'string' || request.inputPath.trim() === '') {
+          return { ok: false, error: 'Choose a video or image file to use as a reference.' };
+        }
+        if (request.kind !== 'video' && request.kind !== 'image') {
+          return { ok: false, error: 'Only video and image references are analyzed.' };
+        }
+        if (typeof request.id !== 'string' || typeof request.fileName !== 'string') {
+          return { ok: false, error: 'Invalid reference request.' };
+        }
+        const role = ReferenceProfileSchema.shape.role.safeParse(request.role);
+        if (!role.success) return { ok: false, error: 'Invalid reference role.' };
+        const projectsRoot = await ensureProjectsDir();
+        const inputPath = resolveWithin(projectsRoot, request.inputPath);
+        const analyze = createReferenceAnalyzer({ baseUrl: engineBaseUrl, fetchFn: electronFetch });
+        const result = await analyze({
+          id: request.id,
+          inputPath,
+          fileName: request.fileName,
+          kind: request.kind,
+          role: role.data,
+          ...(request.refresh ? { refresh: true } : {}),
+        });
+        return {
+          ok: true,
+          profile: result.profile as unknown as AiStreamReferenceProfile,
+          cached: result.cached,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        aiLog.warn('references:analyze failed', { error: message });
+        return { ok: false, error: message };
       }
     },
   );
@@ -3048,6 +3141,18 @@ void app.whenReady().then(async () => {
   });
 
   setupTelemetry();
+  // P5.3: anything the PREVIOUS run left behind — an engine and its ffmpeg children after
+  // a crash or a force-quit — is killed before this launch spawns its own. Without it the
+  // orphan keeps its port and its cores, and the new sidecar cannot bind. Only pids this
+  // app recorded are touched, and each is checked for liveness first: a pid gets reused,
+  // and killing a stranger's process because it inherited a number is the worse failure.
+  const swept = processes.sweepOrphans();
+  if (swept.length > 0) {
+    aiLog.action('swept orphaned children from a previous run', {
+      count: swept.length,
+      owners: swept.map((child) => child.owner),
+    });
+  }
   hardenRendererSession();
   await projectCommands.restore();
   registerIpcHandlers();
@@ -3071,6 +3176,9 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   sidecar.stop();
+  // The registry is the backstop, not a replacement for the owners above: anything they
+  // forgot — or a child registered by code written after this handler — still dies here.
+  processes.terminateAll();
   projectWatcher.stop();
   // A clean quit clears the recovery snapshot; a crash leaves it for next launch.
   void recovery.clear();

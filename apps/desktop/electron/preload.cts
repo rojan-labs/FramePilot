@@ -78,6 +78,8 @@ import type {
   MediaImportChunkRequest,
   MediaImportChunkResult,
   ProjectSnapshotBridge,
+  AnalyzeReferenceRequest,
+  AnalyzeReferenceResult,
 } from '@framepilot/shared-types';
 import type { IpcRendererEvent } from 'electron';
 
@@ -108,6 +110,7 @@ const Channels = {
   mediaImport: 'framepilot:media:import',
   mediaImportChunk: 'framepilot:media:import-chunk',
   mediaImportAsset: 'framepilot:media:import-asset',
+  referencesAnalyze: 'framepilot:references:analyze',
   transcribe: 'framepilot:ai:transcribe',
   aiChat: 'framepilot:ai:chat',
   aiPlan: 'framepilot:ai:plan',
@@ -326,6 +329,8 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
     ipcRenderer.invoke(Channels.mediaImportChunk, req) as Promise<MediaImportChunkResult>,
   importAsset: (req: ImportAssetRequest) =>
     ipcRenderer.invoke(Channels.mediaImportAsset, req) as Promise<ImportAssetResult>,
+  analyzeReference: (req: AnalyzeReferenceRequest) =>
+    ipcRenderer.invoke(Channels.referencesAnalyze, req) as Promise<AnalyzeReferenceResult>,
   transcribe: (req: TranscriptionRequest) =>
     ipcRenderer.invoke(Channels.transcribe, req) as Promise<TranscriptionResult>,
   aiChat: (req: AiRequest) => ipcRenderer.invoke(Channels.aiChat, req) as Promise<AiTextResult>,

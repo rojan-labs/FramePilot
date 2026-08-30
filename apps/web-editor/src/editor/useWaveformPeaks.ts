@@ -125,10 +125,21 @@ export function loadBrowserWaveformPeaks(
   return pending;
 }
 
-/** Test-only reset for the module-scoped session caches. */
-export function resetWaveformPeakCachesForTests(): void {
+/**
+ * Drop the module-scoped peak caches (P6.2).
+ *
+ * Keyed by asset id + source URL, so a closed project's peaks can never be served
+ * again — and a peak array for a ten-minute source is ~60,000 numbers. Called on
+ * project switch, and by tests that must not inherit a previous case's peaks.
+ */
+export function clearWaveformPeakCache(): void {
   peaksCache.clear();
   peaksInFlight.clear();
+}
+
+/** How many assets' peaks are cached right now (tests, resource probes). */
+export function waveformPeakCacheSize(): number {
+  return peaksCache.size;
 }
 
 export interface WaveformPeaksResult {

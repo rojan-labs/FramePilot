@@ -1,3 +1,4 @@
+import type { AiStreamReferenceProfile } from '@framepilot/shared-types';
 /**
  * Conversation model for the streaming AI sidebar (Phase 11 M2, ADR 0033).
  *
@@ -29,6 +30,15 @@ export interface Attachment {
   readonly id: string;
   readonly kind: 'image' | 'video' | 'audio' | 'timeline' | 'project' | 'document';
   readonly name: string;
+  /** What the reference is for (plan/system-mission P3.2); shown on the tile. */
+  readonly role?: AiStreamReferenceProfile['role'];
+  /** `analyzing` while the host measures it; `ready` once a profile exists. */
+  readonly status?: 'analyzing' | 'ready' | 'failed' | 'unsupported';
+  readonly error?: string;
+  /** Where the imported copy lives (relative to the projects root). */
+  readonly path?: string;
+  /** The analyzed profile the next turn sends as `references` (P3.4). */
+  readonly profile?: AiStreamReferenceProfile;
 }
 
 /** An included-context chip above the composer (M8). */
@@ -36,6 +46,17 @@ export interface ContextItem {
   readonly id: string;
   readonly kind: string;
   readonly label: string;
+  /**
+   * Whether the chip's remove control actually excludes this from the next turn.
+   *
+   * Only the selection, the pinned entities and the remembered decisions can be
+   * withheld — everything else on the strip is a fact of the project snapshot the
+   * orchestrator builds from, so it goes whether or not a chip is on screen. An
+   * always-on fact therefore renders with no remove button: a control that
+   * silently does nothing is worse than no control, and this strip's whole job is
+   * to be an honest account of what the AI is given (P8.2 "knows").
+   */
+  readonly removable: boolean;
 }
 
 /** Per-conversation UI state, persisted so a reload restores exactly where you were. */
@@ -78,6 +99,27 @@ export function emptyUiState(): ConversationUiState {
     attachments: [],
     context: [],
   };
+}
+
+/**
+ * Whether a UI state is still the untouched default — nothing typed, nothing attached,
+ * nothing expanded, never scrolled.
+ *
+ * Used to tell a conversation STUB (opened from history, its real state still being read
+ * from disk) apart from a conversation whose saved state genuinely is empty, so the
+ * sidebar can re-seed itself exactly once when the load lands. Compared by value, not by
+ * identity: the stub's state is a fresh {@link emptyUiState} object every time.
+ */
+export function isDefaultUiState(uiState: ConversationUiState): boolean {
+  return (
+    uiState.composerDraft === '' &&
+    uiState.attachments.length === 0 &&
+    uiState.context.length === 0 &&
+    uiState.collapsedToolIds.length === 0 &&
+    uiState.expandedToolIds.length === 0 &&
+    uiState.scrollOffset === 0 &&
+    uiState.selectedEventId === null
+  );
 }
 
 /** Options for {@link createConversation}. */

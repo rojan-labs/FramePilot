@@ -15,17 +15,23 @@ the cancellation seam (:class:`RenderOptions.timeout_seconds`) are already here.
 
 from __future__ import annotations
 
+import logging
+import os
 import uuid
+from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from proglog import ProgressBarLogger  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field
 
 from framepilot_engine.audio.filters import apply_master_audio, build_master_filter
 from framepilot_engine.media.assets import index_assets
 from framepilot_engine.render.compiler import compile_timeline, expected_render, timeline_duration
-from framepilot_engine.render.presets import EXPORT_PRESETS, REELS, ExportPreset
+from framepilot_engine.render.encoders import choose_encoder
+from framepilot_engine.render.export_settings import ExportSettings, SourceFacts
+from framepilot_engine.render.presets import ExportPreset, target_from_settings
 from framepilot_engine.render.resources import close_clip_tree
 from framepilot_engine.safety import resolve_within
 from framepilot_engine.timeline.models import Project
@@ -35,8 +41,37 @@ from framepilot_engine.validation.render_validation import (
     validate_render,
 )
 
+_log = logging.getLogger(__name__)
+
 # Preview renders downscale by this factor for speed (PRD §9.2 fast preview).
 _PREVIEW_SCALE = 0.5
+
+
+ProgressCallback = Callable[[str, float], None]
+"""``(stage, fraction)`` — called on every lifecycle transition and during the encode."""
+
+
+class _EncodeProgress(ProgressBarLogger):  # type: ignore[misc]
+    """Turns MoviePy's frame counter into ``progress("encoding", fraction)`` calls."""
+
+    def __init__(self, progress: ProgressCallback) -> None:
+        super().__init__(bars=None, ignored_bars=None, logged_bars="all", min_time_interval=0.5)
+        self._progress = progress
+
+    def bars_callback(self, bar: str, attr: str, value: Any, old_value: Any = None) -> None:
+        total = self.bars.get(bar, {}).get("total")
+        if (
+            attr == "index"
+            and isinstance(total, (int, float))
+            and total
+            and bar in {"t", "frame_index"}
+        ):
+            # Encoding owns 0.15..0.95; preparation reports 0.02..0.15 as it opens each
+            # clip, validation follows at 0.97, completion at 1. The bands are sized from a
+            # measured 30 s 4K export where preparation is ~13% of the wall time — reporting
+            # all of it as a flat 0.05 put the bar 5.5 percentage points behind reality.
+            fraction = max(0.0, min(1.0, float(value) / float(total)))
+            self._progress("encoding", 0.15 + 0.8 * fraction)
 
 
 class RenderError(RuntimeError):
@@ -58,7 +93,10 @@ class RenderState(StrEnum):
 class RenderOptions(BaseModel):
     """Options controlling a render (preview vs final, preset, output path)."""
 
-    preset_id: str | None = Field(default=None, description="Export preset id (render.presets).")
+    settings: ExportSettings = Field(
+        default_factory=ExportSettings,
+        description="Quality-driven export settings (resolution/fps/quality/codec/container).",
+    )
     output_path: str | None = Field(default=None, description="Destination file path.")
     preview: bool = Field(default=False, description="Fast low-res preview vs final export.")
     burn_captions: bool = Field(
@@ -87,35 +125,68 @@ class RenderJob(BaseModel):
     state: RenderState = RenderState.QUEUED
     progress: float = Field(default=0.0, ge=0.0, le=1.0)
     output_path: str | None = None
+    #: One plain sentence the editor can act on (P7.6); the raw cause is ``error_detail``.
     error: str | None = None
+    #: The underlying exception text (ffmpeg stderr tail included), for a "details" view.
+    error_detail: str | None = None
     validation: ValidationReport | None = None
+    #: The encode target actually used (resolution/fps/codec/bitrate, source cap).
+    target: ExportPreset | None = None
+    #: The ffmpeg encoder and arguments the export ran with.
+    encoder: str | None = None
 
 
-def resolve_preset(opts: RenderOptions) -> ExportPreset:
-    """Resolve the export preset for ``opts``, defaulting to vertical Reels.
+def source_facts(project: Project, asset_index: Any = None) -> SourceFacts:
+    """What the placed picture sources can supply: the export's resolution cap.
 
-    :param opts: Render options.
-    :returns: The chosen :class:`ExportPreset`.
-    :raises ValueError: If ``preset_id`` is set but unknown.
+    Reads the dimensions the import already derived (``asset.media.width/height``) and
+    only falls back to probed asset-index streams when the project file carries none —
+    a render never re-probes every file just to learn what it already knows.
     """
-    if opts.preset_id is None:
-        return REELS
-    try:
-        return EXPORT_PRESETS[opts.preset_id]
-    except KeyError as exc:
-        raise ValueError(
-            f"Unknown preset {opts.preset_id!r}. Known: {sorted(EXPORT_PRESETS)}."
-        ) from exc
+    short_edges: list[int] = []
+    for asset in project.assets:
+        media = getattr(asset, "media", None)
+        width = getattr(media, "width", None)
+        height = getattr(media, "height", None)
+        if width and height and getattr(asset, "kind", "video") != "audio":
+            short_edges.append(min(int(width), int(height)))
+    if not short_edges:
+        for entry in getattr(asset_index, "entries", []) or []:
+            info = getattr(entry, "media", None)
+            for stream in getattr(info, "streams", []) or []:
+                if (
+                    getattr(stream, "codec_type", None) == "video"
+                    and stream.width
+                    and stream.height
+                ):
+                    short_edges.append(min(int(stream.width), int(stream.height)))
+    return SourceFacts(
+        max_short_edge=max(short_edges) if short_edges else None,
+        project_fps=float(project.fps),
+        project_width=int(project.resolution.width),
+        project_height=int(project.resolution.height),
+    )
 
 
-def _preview_preset(preset: ExportPreset) -> ExportPreset:
-    """Derive a fast, downscaled preview preset from ``preset`` (even dimensions)."""
+def resolve_target(project: Project, opts: RenderOptions, asset_index: Any = None) -> ExportPreset:
+    """The encode target for ``opts.settings`` against this project and its sources."""
+    return target_from_settings(opts.settings, source_facts(project, asset_index))
+
+
+def _preview_target(target: ExportPreset) -> ExportPreset:
+    """Derive a fast, downscaled preview target from ``target`` (even dimensions)."""
 
     def even(value: int) -> int:
         scaled = int(value * _PREVIEW_SCALE)
         return scaled if scaled % 2 == 0 else scaled + 1  # H.264 needs even dims
 
-    return preset.model_copy(update={"width": even(preset.width), "height": even(preset.height)})
+    return target.model_copy(
+        update={
+            "width": even(target.width),
+            "height": even(target.height),
+            "video_bitrate_kbps": None,
+        }
+    )
 
 
 def _default_output_path(base_dir: Path, project: Project, preset: ExportPreset) -> Path:
@@ -129,6 +200,7 @@ def render(
     *,
     base_dir: Path,
     job_id: str | None = None,
+    progress: ProgressCallback | None = None,
 ) -> RenderJob:
     """Compile ``project`` and render it according to ``opts``, then validate it.
 
@@ -143,11 +215,23 @@ def render(
     :returns: A :class:`RenderJob`; ``state`` is ``COMPLETED`` or ``FAILED``.
     """
     job = RenderJob(id=job_id or uuid.uuid4().hex, project_id=project.id)
+    report_progress: ProgressCallback = progress or (lambda _stage, _fraction: None)
+
+    def enter(state: RenderState, fraction: float) -> None:
+        job.state = state
+        job.progress = fraction
+        report_progress(state.value, fraction)
 
     try:
-        preset = resolve_preset(opts)
+        # --- Resolve assets first: the export target is capped by what they hold ------
+        enter(RenderState.PREPARING_ASSETS, 0.02)
+        asset_index = index_assets(
+            [asset.model_dump(by_alias=True) for asset in project.assets], base_dir
+        )
+        preset = resolve_target(project, opts, asset_index)
         if opts.preview:
-            preset = _preview_preset(preset)
+            preset = _preview_target(preset)
+        job.target = preset
 
         # --- Resolve output path inside the sandbox ---------------------------
         if opts.output_path is not None:
@@ -156,13 +240,6 @@ def render(
             output = _default_output_path(base_dir, project, preset)
         output.parent.mkdir(parents=True, exist_ok=True)
 
-        # --- preparing_assets -------------------------------------------------
-        job.state = RenderState.PREPARING_ASSETS
-        # ``index_assets`` reads plain mappings (id/path/kind); dump the typed
-        # Asset models to that shape via their camelCase aliases.
-        asset_index = index_assets(
-            [asset.model_dump(by_alias=True) for asset in project.assets], base_dir
-        )
         if asset_index.missing:
             missing = ", ".join(e.asset_id for e in asset_index.missing)
             raise RenderError(f"Cannot render: unusable assets [{missing}].")
@@ -171,14 +248,23 @@ def render(
             raise RenderError("Cannot render an empty timeline (zero duration).")
 
         # --- rendering_frames + encoding -------------------------------------
-        job.state = RenderState.RENDERING_FRAMES
-        _encode(project, asset_index, preset, output, job, burn_captions=opts.burn_captions)
+        enter(RenderState.RENDERING_FRAMES, 0.05)
+        _encode(
+            project,
+            asset_index,
+            preset,
+            output,
+            job,
+            burn_captions=opts.burn_captions,
+            quality=opts.settings.quality,
+            progress=report_progress,
+        )
 
         # --- master-bus audio pass (optional, deterministic ffmpeg filter) ----
         _apply_master_audio_pass(output, preset, opts)
 
         # --- validating_output ------------------------------------------------
-        job.state = RenderState.VALIDATING_OUTPUT
+        enter(RenderState.VALIDATING_OUTPUT, 0.97)
         report = validate_render(
             output,
             expected_render(project, preset),
@@ -188,18 +274,72 @@ def render(
         job.output_path = str(output)
 
         if not report.ok:
-            failed = ", ".join(
-                c.name for c in report.checks if c.status == CheckStatus.FAIL
-            )
+            failed = ", ".join(c.name for c in report.checks if c.status == CheckStatus.FAIL)
             raise RenderError(f"Render produced an invalid output (failed checks: {failed}).")
 
         job.state = RenderState.COMPLETED
         job.progress = 1.0
     except Exception as exc:  # any stage failure is reported as a FAILED job, not raised
         job.state = RenderState.FAILED
-        job.error = str(exc)
+        job.error = plain_render_error(exc)
+        job.error_detail = str(exc)[-ERROR_DETAIL_CHARS:]
+        # A failed export must not leave a half-written file where a finished one goes.
+        # MoviePy writes progressively into `output`, so a broken encoder — the shape a
+        # desktop e2e reproduces with a fake ffmpeg — left ~28 MB of unplayable video at
+        # the destination, indistinguishable from a real export until someone opened it.
+        # Only ever removes a file THIS call was writing, and never one that validated.
+        _discard_partial_output(job, locals().get("output"))
 
     return job
+
+
+def _discard_partial_output(job: RenderJob, output: object) -> None:
+    """Delete the partial file a failed render was writing, if there is one.
+
+    Deliberately narrow: a job that reached ``COMPLETED`` keeps its output, and a job that
+    never resolved a path has nothing to remove. A failure to delete is logged and
+    swallowed — the render already failed, and a second error about cleanup would replace
+    the reason the editor actually needs.
+    """
+    if job.state is not RenderState.FAILED or not isinstance(output, Path):
+        return
+    try:
+        if output.exists():
+            size = output.stat().st_size
+            output.unlink()
+            _log.info("ACT render: discarded %d-byte partial output %s", size, output.name)
+    except OSError as cleanup_error:  # pragma: no cover - best-effort cleanup
+        _log.warning("could not remove the partial output %s: %s", output, cleanup_error)
+
+
+#: How much of the raw cause to keep on the job — enough for the ffmpeg stderr tail.
+ERROR_DETAIL_CHARS = 2000
+
+
+def plain_render_error(exc: BaseException) -> str:
+    """The one line the editor reads when a render fails (P7.6).
+
+    MoviePy and ffmpeg raise with their whole stderr in the message — hundreds of lines
+    of encoder chatter in front of the sentence that matters. The dialog shows this line
+    and keeps the raw text behind "details"; nothing is lost, and nothing is thrown at
+    someone who just wanted to know whether to retry.
+    """
+    if isinstance(exc, RenderError):
+        return str(exc)
+    text = str(exc)
+    lowered = text.lower()
+    if isinstance(exc, MemoryError):
+        return "The render ran out of memory. Try a lower resolution or close other apps."
+    if "no space left" in lowered:
+        return "The disk is full. Free some space and export again."
+    if "permission denied" in lowered:
+        return "FramePilot cannot write the export file. Check the destination folder."
+    if "ffmpeg" in lowered or "encoder" in lowered or "moviepy" in lowered:
+        return "The video encoder failed. Open details for the encoder's own message."
+    if "no such file" in lowered or "not found" in lowered:
+        return "A source file the export needs is missing. Relink it and export again."
+    first_line = text.strip().splitlines()[0] if text.strip() else exc.__class__.__name__
+    return first_line[:200]
 
 
 def _encode(
@@ -210,17 +350,54 @@ def _encode(
     job: RenderJob,
     *,
     burn_captions: bool = False,
+    quality: str = "recommended",
+    progress: ProgressCallback | None = None,
 ) -> None:
     """Compile + write the composition to ``output`` (frames then FFmpeg encode)."""
-    composite = compile_timeline(project, asset_index, preset, burn_captions=burn_captions)
+    composite = compile_timeline(
+        project,
+        asset_index,
+        preset,
+        burn_captions=burn_captions,
+        on_progress=(
+            None
+            if progress is None
+            else lambda done: progress(RenderState.PREPARING_ASSETS.value, 0.02 + 0.13 * done)
+        ),
+    )
     try:
         job.state = RenderState.ENCODING
+        if progress is not None:
+            progress(RenderState.ENCODING.value, 0.15)
+        codec_family = "hevc" if preset.video_codec in {"libx265", "hevc"} else "h264"
+        encoder = choose_encoder(codec_family, quality=quality, container=preset.container)
+        job.encoder = encoder.describe()
+        _log.info(
+            "ACT encode: %dx%d@%g %s bitrate=%s audio=%s → %s",
+            preset.width,
+            preset.height,
+            preset.fps,
+            encoder.describe(),
+            preset.video_bitrate_kbps,
+            preset.audio_bitrate_kbps,
+            output.name,
+        )
         composite.write_videofile(
             str(output),
-            codec=preset.video_codec,
+            codec=encoder.name,
             audio_codec=preset.audio_codec,
             fps=preset.fps or project.fps,
-            logger=None,  # silence MoviePy's stdout progress bar
+            pixel_format="yuv420p",
+            threads=os.cpu_count() or 1,
+            ffmpeg_params=encoder.ffmpeg_params,
+            **({"preset": encoder.preset} if encoder.preset else {}),
+            **({"bitrate": f"{preset.video_bitrate_kbps}k"} if preset.video_bitrate_kbps else {}),
+            **(
+                {"audio_bitrate": f"{preset.audio_bitrate_kbps}k"}
+                if preset.audio_bitrate_kbps
+                else {}
+            ),
+            logger=_EncodeProgress(progress) if progress is not None else None,
         )
     finally:
         # Release the underlying FFmpeg readers/writers deterministically. The
@@ -256,14 +433,17 @@ def render_preview(
     project: Project,
     *,
     base_dir: Path,
-    preset_id: str | None = None,
+    settings: ExportSettings | None = None,
     output_path: str | None = None,
     burn_captions: bool = False,
     job_id: str | None = None,
 ) -> RenderJob:
     """Render a fast, downscaled preview (PRD §9.2). Thin wrapper over :func:`render`."""
     opts = RenderOptions(
-        preset_id=preset_id, output_path=output_path, preview=True, burn_captions=burn_captions
+        settings=settings or ExportSettings(),
+        output_path=output_path,
+        preview=True,
+        burn_captions=burn_captions,
     )
     return render(project, opts, base_dir=base_dir, job_id=job_id)
 
@@ -272,13 +452,16 @@ def export_video(
     project: Project,
     *,
     base_dir: Path,
-    preset_id: str | None = None,
+    settings: ExportSettings | None = None,
     output_path: str | None = None,
     burn_captions: bool = False,
     job_id: str | None = None,
 ) -> RenderJob:
     """Render a final, full-resolution export (PRD §9.3). Thin wrapper over :func:`render`."""
     opts = RenderOptions(
-        preset_id=preset_id, output_path=output_path, preview=False, burn_captions=burn_captions
+        settings=settings or ExportSettings(),
+        output_path=output_path,
+        preview=False,
+        burn_captions=burn_captions,
     )
     return render(project, opts, base_dir=base_dir, job_id=job_id)

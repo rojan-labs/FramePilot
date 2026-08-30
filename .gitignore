@@ -33,6 +33,11 @@ reports/coverage/*
 reports/test/*
 reports/render/*
 reports/e2e/*
+# Per-turn agent event dumps from `mission-baseline.mjs --dump-events`: megabytes of raw
+# stream, useful while diagnosing one run and worthless a week later. The measurement
+# SUMMARIES beside them (`*-orchestration*.json`, `mission-score.json`) are the evidence
+# and stay tracked.
+reports/system-mission/runs/*
 # Playwright writes failure screenshots/traces here; only the run pointer is tracked.
 reports/e2e-results/*
 !reports/e2e-results/.last-run.json
@@ -118,3 +123,26 @@ PERSONA.md
 
 # Private advisory/application material, never committed.
 advisories/
+
+# mission fixtures: real media, never committed (plan/system-mission)
+tests/fixtures/mission/**
+!tests/fixtures/mission/README.md
+!tests/fixtures/mission/fetch-fixtures.sh
+!tests/fixtures/mission/manifest.json
+!tests/fixtures/mission/projects/
+!tests/fixtures/mission/projects/**
+tests/fixtures/mission/projects/*.fp.json
+# Rendered exports are test OUTPUT, not fixtures: `export-matrix.spec.ts` and the
+# benchmarks write them on every run, so tracking them added 376 MB of churning
+# binaries that nothing ever reads back.
+tests/fixtures/mission/projects/exports/
+# The media itself is the maintainer's real camera files — hundreds of MB each, and
+# `fetch-fixtures.sh` regenerates the synthetic ones. They were never meant to be in
+# the repo; a `git add -A` pulled 439 of them (3.4 GB) in before this rule existed,
+# which is also what made the branch too large to push.
+tests/fixtures/mission/projects/media/
+# Derived caches and the per-project AI memory DB: regenerated on demand, and the
+# sqlite churns several MB on every run.
+tests/fixtures/mission/projects/.framepilot-derived/
+tests/fixtures/mission/projects/**/brain.sqlite
+tests/fixtures/mission/projects/**/sidecars/

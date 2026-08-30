@@ -33,13 +33,18 @@ function focusableElements(container: HTMLElement): HTMLElement[] {
  * from the first wraps to the last — focus never escapes to the page behind the
  * modal. On unmount: returns focus to whatever element was focused right before
  * the modal opened (the triggering button, typically).
+ *
+ * `active` exists for the dialogs that render `null` while closed from INSIDE one
+ * component rather than through a gate + content pair: their ref is null at mount, so
+ * a trap keyed on mount alone would install nothing and silently do no work. Passing
+ * the open flag makes the trap install and tear down with the dialog it guards.
  */
-export function useModalFocusTrap<T extends HTMLElement>(): React.RefObject<T> {
+export function useModalFocusTrap<T extends HTMLElement>(active = true): React.RefObject<T> {
   const containerRef = useRef<T>(null);
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!active || !container) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
 
     const first = focusableElements(container)[0];
@@ -74,7 +79,7 @@ export function useModalFocusTrap<T extends HTMLElement>(): React.RefObject<T> {
       container.removeEventListener('keydown', onKeyDown);
       previouslyFocused?.focus();
     };
-  }, []);
+  }, [active]);
 
   return containerRef;
 }

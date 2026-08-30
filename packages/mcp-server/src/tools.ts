@@ -72,6 +72,31 @@ export const getSessionTool = (name: string): SessionToolDef | undefined =>
  * registry tool mapped to its descriptor. This is the single place tools are
  * advertised, so the registry and the MCP surface can never drift.
  */
+/**
+ * Tools flagged `hostUiOnly` that this surface can still serve.
+ *
+ * `hostUiOnly` carries two meanings at once: "needs live editor interaction
+ * state" (the reason MCP refuses these) and "not mirrored into the Python
+ * sidecar registry" (the reason the engine parity tests skip them). For almost
+ * every tool those coincide. `caption_the_edit` is the case where they do not:
+ * it is pure computation over the project — no selection, no playhead, no source
+ * monitor — and is excluded from the mirror only because caption segmentation
+ * must have exactly one authority (ADR 0071).
+ *
+ * Refusing it here would push MCP clients back onto `add_caption_layer` one cue
+ * at a time, which is the whole failure this tool exists to remove. So the
+ * narrow exception lives here, where the two meanings actually diverge, rather
+ * than a second flag threaded through every guard.
+ */
+export const UI_INDEPENDENT_HOST_TOOLS: ReadonlySet<string> = new Set(['caption_the_edit']);
+
+/** Can this surface serve `tool`? See {@link UI_INDEPENDENT_HOST_TOOLS}. */
+export const servableOverMcp = (tool: {
+  name: string;
+  available: boolean;
+  hostUiOnly?: boolean;
+}): boolean => tool.available && (!tool.hostUiOnly || UI_INDEPENDENT_HOST_TOOLS.has(tool.name));
+
 export const buildMcpTools = (): McpToolDescriptor[] => [
   ...SESSION_TOOLS.map((t) => ({
     name: t.name,
@@ -82,7 +107,7 @@ export const buildMcpTools = (): McpToolDescriptor[] => [
   // does not have — `ask_user` here would promise a question nobody could ever answer
   // (ADR 0055). An MCP client is an agent with its own user: if it wants to ask
   // something, it asks them directly and has no use for ours.
-  ...TOOL_REGISTRY.filter((t) => t.available && !t.hostUiOnly).map((t) => ({
+  ...TOOL_REGISTRY.filter(servableOverMcp).map((t) => ({
     name: t.name,
     description: t.description,
     inputSchema: t.parameters as Record<string, unknown>,

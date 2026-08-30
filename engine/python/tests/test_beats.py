@@ -223,3 +223,49 @@ def test_detect_beats_falls_back_to_the_original_error_when_the_probe_cannot_ans
     with pytest.raises(FFmpegError) as raised:
         detect_beats(Path("/tmp/clip.mp4"), runner=_failing_runner)
     assert "exited 234" in str(raised.value)
+
+
+def test_mark_on_grid_separates_beats_from_off_beat_transients() -> None:
+    """A 100 BPM click with an off-beat hit between every pair.
+
+    An onset detector answers "something happened here". Music puts loud events off
+    the beat all the time, so a montage that cuts on every onset is not cutting on
+    the beat — which is exactly what the mission's beat-sync scenario was doing.
+    """
+    from framepilot_engine.analysis.beats import Beat, mark_on_grid
+
+    period = 0.6
+    on_beat = [round(i * period, 4) for i in range(10)]
+    off_beat = [round(i * period + 0.25, 4) for i in range(9)]
+    beats = [Beat(time=t, strength=1.0) for t in sorted(on_beat + off_beat)]
+
+    marked = mark_on_grid(beats, 60.0 / period)
+
+    assert [b.time for b in marked if b.on_grid] == on_beat
+    assert [b.time for b in marked if not b.on_grid] == off_beat
+
+
+def test_mark_on_grid_refines_the_period_so_the_grid_does_not_drift() -> None:
+    """The tempo estimate is a median of intervals, so it is close but not exact.
+
+    99.4 BPM against a true 100 is 3.6 ms per beat — nothing for one beat, and 0.18 s
+    of drift across 30 s. A grid pinned to the estimate fits the opening and has walked
+    off the music by the end, marking late beats off-grid purely from accumulated error.
+    """
+    from framepilot_engine.analysis.beats import Beat, mark_on_grid
+
+    true_period = 0.6
+    times = [round(i * true_period, 4) for i in range(50)]
+    beats = [Beat(time=t, strength=1.0) for t in times]
+
+    marked = mark_on_grid(beats, 99.4)  # deliberately the WRONG tempo estimate
+
+    assert all(b.on_grid for b in marked), "the late beats drifted off a pinned grid"
+
+
+def test_mark_on_grid_marks_everything_when_there_is_no_tempo() -> None:
+    """No derivable tempo means no grid to be off — every onset stays usable."""
+    from framepilot_engine.analysis.beats import Beat, mark_on_grid
+
+    beats = [Beat(time=0.1, strength=1.0), Beat(time=0.9, strength=1.0)]
+    assert all(b.on_grid for b in mark_on_grid(beats, None))

@@ -57,7 +57,13 @@ export function TooltipInfo({ term, children }: TooltipInfoProps): JSX.Element {
 
 export interface TooltipProps {
   readonly label: ReactNode;
-  readonly shortcut?: string;
+  /**
+   * The chord to advertise, normally `hintFor('<shortcut id>')` so the glyphs come
+   * from the registry and are right on Windows/Linux as well as macOS. `null` is
+   * accepted (and renders nothing) because that is what `hintFor` returns for an
+   * id the registry does not carry.
+   */
+  readonly shortcut?: string | null;
   readonly children: ReactElement;
   readonly placement?: TooltipPlacement;
   readonly delay?: number;
@@ -157,6 +163,19 @@ export function Tooltip({
   }, [clear]);
 
   useEffect(() => clear, [clear]);
+
+  // WCAG 1.4.13 (Content on Hover or Focus): a tooltip must be dismissable
+  // without moving the pointer or the focus. `.tooltip` is `pointer-events: none`,
+  // so a bubble covering the thing underneath it could not even be moved out of
+  // the way — Escape was the only exit and nothing listened for it.
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') hide();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open, hide]);
 
   // Position the bubble from the anchor rect once it opens (and keep it pinned
   // while scrolling/resizing so it tracks the control).

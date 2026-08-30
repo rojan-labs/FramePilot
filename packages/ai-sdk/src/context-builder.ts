@@ -6,6 +6,7 @@
  * ordered messages handed to a provider. Kept pure and deterministic so the same
  * project + prompt always produce the same context (testable, cacheable).
  */
+import { summarizeReferences, type ReferenceProfile } from './references/profile.js';
 import { createLogger, type Seconds } from '@framepilot/shared-types';
 import type { Clip, Project, Timeline } from '@framepilot/timeline-schema';
 import type { AiMessage } from './providers/types.js';
@@ -13,6 +14,7 @@ import type { ContextBudget, ContextTier } from './reliability/types.js';
 import { readMemory } from './memory-store.js';
 import { SYSTEM_PROMPT } from './prompts.js';
 import { summarizeScopedMemory } from './scoped-memory.js';
+import { renderStateBlock } from './state-block.js';
 import { type Skill, summarizeSkillsManifest } from './skills.js';
 import type { UserMemory } from './user-memory.js';
 import { indexFor } from './project-index.js';
@@ -101,6 +103,12 @@ export interface ContextInput {
    * `assembleContext` drops tiers whole, it does not summarize them.
    */
   readonly sessionContext?: string;
+  /**
+   * Reference videos/images the editor attached, analyzed once into profiles (P3.4).
+   * Rendered as a fixed block so a turn that says "like the reference" reads the
+   * constraints, never re-analyzes.
+   */
+  readonly references?: readonly ReferenceProfile[];
   /**
    * The one-line visual-index status (plan MI6.2): coverage, vector count, and backend,
    * or the honest reason the model cannot see the footage (no key, not indexed, no
@@ -521,6 +529,57 @@ export function summarizeMediaBin(project: Project): string {
   return [head, ...lines].join('\n');
 }
 
+/** Orientation of a frame from its pixel dimensions. */
+function orientationOf(width: number, height: number): 'landscape' | 'portrait' | 'square' {
+  if (width === height) return 'square';
+  return width > height ? 'landscape' : 'portrait';
+}
+
+const SOURCE_MEDIA_CHARS = 1800;
+
+/**
+ * The per-asset facts an editor reads off a thumbnail and the model cannot: file name,
+ * source dimensions, and whether the source's orientation matches the sequence's.
+ *
+ * WHY: in the mission montage ledger the model spent five `recall_evidence` calls and
+ * five `describe_footage` calls asking "is this landscape, will it letterbox?" — facts the
+ * project file already holds. Stated once, in one line per asset, they cost ~15 tokens
+ * each and remove those requests. Assets with no known dimensions are listed by kind only;
+ * nothing is guessed.
+ */
+export function summarizeSourceMedia(project: Project): string {
+  if (project.assets.length === 0) return '';
+  const sequence = orientationOf(project.resolution.width, project.resolution.height);
+  const lines: string[] = [];
+  let used = 0;
+  for (const [index, asset] of project.assets.entries()) {
+    const name = asset.path.split('/').pop() ?? asset.path;
+    const width = asset.media?.width ?? null;
+    const height = asset.media?.height ?? null;
+    let shape = '';
+    if (asset.kind !== 'audio' && width !== null && height !== null) {
+      const orientation = orientationOf(width, height);
+      const fit =
+        orientation === sequence
+          ? 'matches the sequence'
+          : `sequence is ${sequence}: fills the frame only with a crop, else letterboxed`;
+      shape = ` · ${String(width)}×${String(height)} ${orientation} — ${fit}`;
+    } else if (asset.kind === 'audio') {
+      shape = ' · audio';
+    }
+    const line = `- ${asset.id} ${name}${shape}`;
+    if (used + line.length > SOURCE_MEDIA_CHARS) {
+      lines.push(
+        `- …and ${String(project.assets.length - index)} more — call list_assets for their dimensions`,
+      );
+      break;
+    }
+    lines.push(line);
+    used += line.length + 1;
+  }
+  return ['Source media (file · dimensions · fit in this sequence):', ...lines].join('\n');
+}
+
 /**
  * Rough token estimate for budgeting (R2 B2). Uses the standard ≈4-chars-per-token
  * heuristic — deliberately dependency-free; an exact tokenizer is a §7-gated upgrade.
@@ -808,9 +867,15 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // the asset list on every turn.
   const projectIndex = indexFor(project);
   const assetKinds = new Map([...projectIndex.assetById].map(([id, asset]) => [id, asset.kind]));
-  // Mandatory blocks (never dropped): project header + platform. The user request is
+  // Mandatory blocks (never dropped): the structured STATE block (P1.3 — project facts,
+  // selection, playhead, revision in a fixed key order) + platform. The user request is
   // appended last, always.
-  const header = `Project: "${project.name}" — ${project.resolution.width}x${project.resolution.height} @ ${project.fps}fps`;
+  const header = renderStateBlock({
+    project,
+    ...(input.projectRevision === undefined ? {} : { projectRevision: input.projectRevision }),
+    ...(selection ? { selection } : {}),
+    ...(input.interaction ? { interaction: input.interaction } : {}),
+  });
   const mandatory: string[] = [header];
   if (targetPlatform) mandatory.push(`Target platform: ${targetPlatform}`);
 
@@ -827,14 +892,10 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // compile-time constant, and the budget is only knowable once everything else is
   // priced. They are spliced back into their display positions below, so the assembled
   // message text is byte-identical to what this order has always produced.
+  // The selected range and playhead live in the STATE block above; the interaction
+  // summary carries only what the block does not (clip/track/effect/keyframe ids,
+  // source monitor).
   const fixed: TieredBlock[] = [];
-  if (selection) {
-    fixed.push({
-      tier: 'selection',
-      label: 'selected range',
-      text: `Selected range: ${round(selection.start)}–${round(selection.end)}s`,
-    });
-  }
   if (input.interaction) {
     fixed.push({
       tier: 'selection',
@@ -855,6 +916,10 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // The narrative memory tier (B6.3) rides alongside the typed preferences above,
   // under the same `memory` tier — they are one concern to the budgeter, and both
   // yield together when the request's own material needs the room.
+  const referencesBlock = summarizeReferences(input.references ?? []);
+  if (referencesBlock !== '') {
+    fixed.push({ tier: 'pinned', label: 'references', text: referencesBlock });
+  }
   if (input.sessionContext && input.sessionContext.trim() !== '') {
     fixed.push({
       tier: 'memory',
@@ -878,12 +943,16 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // here too, because they ride the timeline tier and are not the assembler's to size.
   const visualStatus = input.visualStatus?.trim() ?? '';
   const footageMap = input.footageMap?.trim() ?? '';
+  // Priced here for the same reason: it rides the timeline tier and must not eat the
+  // grounding slice that the transcript and clip retrievals are sized from.
+  const sourceMedia = summarizeSourceMedia(project);
   const spentElsewhere = [
     SYSTEM_PROMPT,
     ...mandatory,
     ...fixed.map((b) => b.text),
     visualStatus,
     footageMap,
+    sourceMedia,
     promptBlock,
     ...history.map((m) => m.content),
   ].reduce((sum, text) => sum + estimateTokens(text), 0);
@@ -920,6 +989,11 @@ export function assembleContext(input: ContextInput): AssembledContext {
   const mediaBin = summarizeMediaBin(project);
   if (mediaBin !== '') {
     tiered.push({ tier: 'timeline', label: 'media bin', text: mediaBin });
+  }
+  // Source facts (file, dimensions, orientation vs the sequence) ride with the bin: they
+  // are what the model otherwise re-derives with recall/describe calls (P1.3a).
+  if (sourceMedia !== '') {
+    tiered.push({ tier: 'timeline', label: 'source media', text: sourceMedia });
   }
   // The visual-index status line (MI6.2) sits with the timeline it describes, so the
   // model reads "what it can see" right next to "what is on the timeline".

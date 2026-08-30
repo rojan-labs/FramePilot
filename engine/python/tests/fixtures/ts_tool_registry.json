@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 87,
+  "toolCount": 89,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -862,412 +862,44 @@
               ]
             }
           },
-          "style": {
+          "trackId": {
             "type": [
-              "object"
+              "string"
+            ]
+          }
+        }
+      }
+    },
+    "caption_the_edit": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "trackId"
+        ],
+        "properties": {
+          "maxWordsPerCue": {
+            "type": [
+              "integer"
             ],
-            "additionalProperties": false,
-            "properties": {
-              "accent": {
-                "type": [
-                  "object"
-                ],
-                "additionalProperties": false,
-                "required": [
-                  "mode"
-                ],
-                "properties": {
-                  "color": {
-                    "type": [
-                      "string"
-                    ]
-                  },
-                  "fontFamily": {
-                    "type": [
-                      "string"
-                    ]
-                  },
-                  "fontScale": {
-                    "type": [
-                      "number"
-                    ],
-                    "exclusiveMinimum": 0
-                  },
-                  "fontStyle": {
-                    "type": [
-                      "string"
-                    ],
-                    "enum": [
-                      "italic",
-                      "normal"
-                    ]
-                  },
-                  "keywords": {
-                    "type": [
-                      "array"
-                    ],
-                    "items": {
-                      "type": [
-                        "string"
-                      ]
-                    }
-                  },
-                  "mode": {
-                    "type": [
-                      "string"
-                    ],
-                    "enum": [
-                      "keywords",
-                      "last-word",
-                      "longest-word",
-                      "none"
-                    ]
-                  }
-                }
-              },
-              "animation": {
-                "type": [
-                  "object"
-                ],
-                "additionalProperties": false,
-                "properties": {
-                  "in": {
-                    "type": [
-                      "object"
-                    ],
-                    "additionalProperties": false,
-                    "required": [
-                      "duration",
-                      "type"
-                    ],
-                    "properties": {
-                      "duration": {
-                        "type": [
-                          "number"
-                        ],
-                        "exclusiveMinimum": 0
-                      },
-                      "type": {
-                        "type": [
-                          "string"
-                        ],
-                        "enum": [
-                          "bounce",
-                          "fade",
-                          "none",
-                          "slide-up",
-                          "typewriter",
-                          "zoom"
-                        ]
-                      }
-                    }
-                  },
-                  "loop": {
-                    "type": [
-                      "object"
-                    ],
-                    "additionalProperties": false,
-                    "required": [
-                      "period",
-                      "type"
-                    ],
-                    "properties": {
-                      "period": {
-                        "type": [
-                          "number"
-                        ],
-                        "exclusiveMinimum": 0
-                      },
-                      "type": {
-                        "type": [
-                          "string"
-                        ],
-                        "enum": [
-                          "pulse",
-                          "wave"
-                        ]
-                      }
-                    }
-                  },
-                  "out": {
-                    "type": [
-                      "object"
-                    ],
-                    "additionalProperties": false,
-                    "required": [
-                      "duration",
-                      "type"
-                    ],
-                    "properties": {
-                      "duration": {
-                        "type": [
-                          "number"
-                        ],
-                        "exclusiveMinimum": 0
-                      },
-                      "type": {
-                        "type": [
-                          "string"
-                        ],
-                        "enum": [
-                          "fade",
-                          "none"
-                        ]
-                      }
-                    }
-                  },
-                  "perWord": {
-                    "type": [
-                      "boolean"
-                    ]
-                  }
-                }
-              },
-              "background": {
-                "type": [
-                  "object"
-                ],
-                "additionalProperties": false,
-                "required": [
-                  "color"
-                ],
-                "properties": {
-                  "color": {
-                    "type": [
-                      "string"
-                    ]
-                  },
-                  "paddingX": {
-                    "type": [
-                      "number"
-                    ],
-                    "minimum": 0
-                  },
-                  "paddingY": {
-                    "type": [
-                      "number"
-                    ],
-                    "minimum": 0
-                  },
-                  "radius": {
-                    "type": [
-                      "number"
-                    ],
-                    "minimum": 0
-                  }
-                }
-              },
-              "display": {
-                "type": [
-                  "string"
-                ],
-                "enum": [
-                  "active-word",
-                  "cumulative",
-                  "phrase"
-                ]
-              },
-              "fontFamily": {
-                "type": [
-                  "string"
-                ]
-              },
-              "fontScale": {
-                "type": [
-                  "number"
-                ],
-                "exclusiveMinimum": 0
-              },
-              "fontStyle": {
-                "type": [
-                  "string"
-                ],
-                "enum": [
-                  "italic",
-                  "normal"
-                ]
-              },
-              "fontWeight": {
-                "type": [
-                  "integer"
-                ],
-                "minimum": 100,
-                "maximum": 900
-              },
-              "highlight": {
-                "type": [
-                  "object"
-                ],
-                "additionalProperties": false,
-                "properties": {
-                  "animation": {
-                    "type": [
-                      "string"
-                    ],
-                    "enum": [
-                      "background",
-                      "color",
-                      "glow",
-                      "karaoke-fill",
-                      "none",
-                      "pop",
-                      "pulse",
-                      "underline"
-                    ]
-                  },
-                  "background": {
-                    "type": [
-                      "string"
-                    ]
-                  },
-                  "color": {
-                    "type": [
-                      "string"
-                    ]
-                  },
-                  "enabled": {
-                    "type": [
-                      "boolean"
-                    ]
-                  },
-                  "scale": {
-                    "type": [
-                      "number"
-                    ],
-                    "exclusiveMinimum": 0
-                  }
-                }
-              },
-              "letterSpacing": {
-                "type": [
-                  "number"
-                ]
-              },
-              "lineHeight": {
-                "type": [
-                  "number"
-                ],
-                "minimum": 0.7,
-                "maximum": 3
-              },
-              "maxWidthPercent": {
-                "type": [
-                  "number"
-                ],
-                "minimum": 5,
-                "maximum": 100
-              },
-              "outlineColor": {
-                "type": [
-                  "string"
-                ]
-              },
-              "outlineWidth": {
-                "type": [
-                  "number"
-                ],
-                "minimum": 0
-              },
-              "position": {
-                "type": [
-                  "string"
-                ],
-                "enum": [
-                  "bottom",
-                  "middle",
-                  "top"
-                ]
-              },
-              "rotation": {
-                "type": [
-                  "number"
-                ]
-              },
-              "safeArea": {
-                "type": [
-                  "boolean"
-                ]
-              },
-              "shadow": {
-                "type": [
-                  "object"
-                ],
-                "additionalProperties": false,
-                "required": [
-                  "blur",
-                  "color",
-                  "offsetX",
-                  "offsetY"
-                ],
-                "properties": {
-                  "blur": {
-                    "type": [
-                      "number"
-                    ],
-                    "minimum": 0
-                  },
-                  "color": {
-                    "type": [
-                      "string"
-                    ]
-                  },
-                  "offsetX": {
-                    "type": [
-                      "number"
-                    ]
-                  },
-                  "offsetY": {
-                    "type": [
-                      "number"
-                    ]
-                  }
-                }
-              },
-              "templateId": {
-                "type": [
-                  "string"
-                ]
-              },
-              "textAlign": {
-                "type": [
-                  "string"
-                ],
-                "enum": [
-                  "center",
-                  "left",
-                  "right"
-                ]
-              },
-              "textColor": {
-                "type": [
-                  "string"
-                ]
-              },
-              "textTransform": {
-                "type": [
-                  "string"
-                ],
-                "enum": [
-                  "lowercase",
-                  "none",
-                  "uppercase"
-                ]
-              },
-              "xPercent": {
-                "type": [
-                  "number"
-                ],
-                "minimum": 0,
-                "maximum": 100
-              },
-              "yPercent": {
-                "type": [
-                  "number"
-                ],
-                "minimum": 0,
-                "maximum": 100
-              }
-            }
+            "minimum": 1,
+            "maximum": 12
+          },
+          "preset": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "one-word",
+              "short-form",
+              "subtitle"
+            ]
           },
           "trackId": {
             "type": [
@@ -3142,6 +2774,50 @@
         ],
         "properties": {
           "id": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    },
+    "remove_silences": {
+      "kind": "analysis",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "assetId": {
+            "type": [
+              "string"
+            ]
+          },
+          "keepSeconds": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 2
+          },
+          "minSilenceSeconds": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0.2,
+            "maximum": 10
+          },
+          "noiseFloorDb": {
+            "type": [
+              "number"
+            ],
+            "maximum": 0
+          },
+          "trackId": {
             "type": [
               "string"
             ]

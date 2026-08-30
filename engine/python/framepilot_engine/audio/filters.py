@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from framepilot_engine.media.ffmpeg import find_ffmpeg
-from framepilot_engine.subprocess_safety import validate_safe_argv
+from framepilot_engine.subprocess_safety import safe_operand, validate_safe_argv
 
 LOUDNESS_PRESETS: dict[str, float] = {
     "social": -14.0,
@@ -45,9 +45,7 @@ def _build_eq_filter(preset: str) -> list[str]:
     try:
         bands = EQ_PRESETS[preset]
     except KeyError as exc:
-        raise ValueError(
-            f"Unknown EQ preset {preset!r}. Known: {sorted(EQ_PRESETS)}."
-        ) from exc
+        raise ValueError(f"Unknown EQ preset {preset!r}. Known: {sorted(EQ_PRESETS)}.") from exc
     return [
         f"equalizer=f={freq}:width_type=o:w={octaves}:g={gain}" for freq, gain, octaves in bands
     ]
@@ -116,9 +114,7 @@ def build_clip_filter(
         if frequency <= 0.0:
             continue
         if kind == "peaking":
-            parts.append(
-                f"equalizer=f={frequency:.9g}:width_type=q:w={q:.9g}:g={gain:.9g}"
-            )
+            parts.append(f"equalizer=f={frequency:.9g}:width_type=q:w={q:.9g}:g={gain:.9g}")
         elif kind == "low-shelf":
             parts.append(f"lowshelf=f={frequency:.9g}:width_type=q:w={q:.9g}:g={gain:.9g}")
         elif kind == "high-shelf":
@@ -140,6 +136,15 @@ def build_clip_filter(
     return ",".join(parts) if parts else None
 
 
+#: Wall-clock ceiling for a master-bus ffmpeg pass (P6.5).
+#:
+#: These run on the render path, over a file the export has just written, so an ffmpeg that
+#: wedges here wedges the export — and before this there was no bound at all: the render
+#: would sit in `subprocess.run` until someone killed the app. Generous, because a master
+#: pass over a long programme is legitimately slow; the point is that it ENDS.
+MASTER_PASS_TIMEOUT_SECONDS = 1800.0
+
+
 def measure_peak_dbfs_file(src: Path, *, ffmpeg: str | None = None) -> float | None:
     """Measure a file's sample peak with ffmpeg `volumedetect`, without loading PCM in Python."""
     binary = ffmpeg or find_ffmpeg()
@@ -151,7 +156,7 @@ def measure_peak_dbfs_file(src: Path, *, ffmpeg: str | None = None) -> float | N
                 "-hide_banner",
                 "-nostdin",
                 "-i",
-                str(src),
+                safe_operand(str(src)),
                 "-af",
                 "volumedetect",
                 "-f",
@@ -162,6 +167,7 @@ def measure_peak_dbfs_file(src: Path, *, ffmpeg: str | None = None) -> float | N
         check=True,
         capture_output=True,
         text=True,
+        timeout=MASTER_PASS_TIMEOUT_SECONDS,
     )
     matches = _MAX_VOLUME.findall(completed.stderr)
     if not matches:
@@ -179,7 +185,16 @@ def peak_normalize_gain_db(src: Path, target_dbfs: float = -1.0) -> float:
 
 
 def _default_runner(args: Sequence[str]) -> None:
-    subprocess.run(validate_safe_argv(args), check=True, capture_output=True)
+    # Never invoked with shell=True, so shell metacharacters are inert; every caller
+    # in this module now routes its path operands through `safe_operand` before they
+    # reach here, and `validate_safe_argv` closes the remaining type/NUL/argv[0] class.
+    # codeql[py/command-line-injection]
+    subprocess.run(
+        validate_safe_argv(args),
+        check=True,
+        capture_output=True,
+        timeout=MASTER_PASS_TIMEOUT_SECONDS,
+    )
 
 
 def apply_audio_filter(
@@ -199,13 +214,13 @@ def apply_audio_filter(
             "-y",
             "-nostdin",
             "-i",
-            str(src),
+            safe_operand(str(src)),
             "-af",
             filter_str,
             "-vn",
             "-c:a",
             audio_codec,
-            str(dst),
+            safe_operand(str(dst)),
         ]
     )
 
@@ -226,13 +241,13 @@ def apply_master_audio(
             binary,
             "-y",
             "-i",
-            str(src),
+            safe_operand(str(src)),
             "-af",
             filter_str,
             "-c:v",
             "copy",
             "-c:a",
             audio_codec,
-            str(dst),
+            safe_operand(str(dst)),
         ]
     )

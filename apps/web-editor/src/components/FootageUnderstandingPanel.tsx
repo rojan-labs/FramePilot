@@ -56,6 +56,7 @@ import { useAiConfig } from '../editor/useAiConfig.js';
 import { ensureProjectMediaUnderstanding, fetchFootageMap } from '../editor/visualIndex.js';
 import { assetDisplayName } from '../editor/selectors.js';
 import { sourceToTimeline, timelineToSource } from '../editor/footageProjection.js';
+import { useModalFocusTrap } from './ai/useModalFocusTrap.js';
 
 const log = createLogger('web-editor:understanding-panel');
 
@@ -575,6 +576,12 @@ export function FootageUnderstandingPanel({
     if (open) void load(false);
   }, [open, load]);
 
+  // The panel dims and blocks the app behind it, so it is modal in fact — it just
+  // never said so. Without the trap, Tab walks out under the backdrop onto controls
+  // the user cannot see; without `aria-modal`, a screen reader never learns the rest
+  // of the page is out of play.
+  const panelRef = useModalFocusTrap<HTMLElement>(open);
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -611,7 +618,14 @@ export function FootageUnderstandingPanel({
   return (
     <>
       <div className="understanding-backdrop" onClick={onClose} aria-hidden="true" />
-      <aside className="understanding-panel" role="dialog" aria-label="Footage understanding">
+      <aside
+        ref={panelRef}
+        className="understanding-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Footage understanding"
+        tabIndex={-1}
+      >
         <header className="understanding-head">
           <div className="understanding-title-group">
             <h2 className="understanding-title">

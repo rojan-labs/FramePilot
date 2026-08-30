@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import math
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
@@ -26,9 +27,12 @@ from framepilot_engine.render.compiler import (
     unsupported_animated_properties,
     unsupported_track_types,
 )
-from framepilot_engine.render.presets import REELS
+from framepilot_engine.render.presets import frame_target
 from framepilot_engine.render.resources import close_clip_tree
 from framepilot_engine.timeline.models import CaptionStyle, Clip, Effect, Project
+
+#: The 9:16 1080p target these fixtures render to (formerly the "reels" preset).
+REELS = frame_target(1080, 1920, 30)
 
 
 def test_caption_free_position_respects_safe_area() -> None:
@@ -363,7 +367,7 @@ def test_compile_audio_only_timeline_uses_black_canvas(
         assert composite.audio is not None
         assert np.max(composite.get_frame(0.5)) == 0
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -385,7 +389,7 @@ def test_compile_real_video_sizes_to_preset(
         assert tuple(composite.size) == (REELS.width, REELS.height)
         assert composite.duration == pytest.approx(1.0, abs=0.1)
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -408,7 +412,7 @@ def test_compile_no_speed_is_unchanged_duration(
         assert composite.duration == pytest.approx(2.0, abs=0.1)
         assert composite.audio is not None
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -438,7 +442,7 @@ def test_compile_2x_speed_time_compresses_the_clip(
         assert composite.duration == pytest.approx(1.0, abs=0.1)
         assert composite.audio is not None
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -468,7 +472,7 @@ def test_compile_half_speed_time_stretches_the_clip(
         assert composite.duration == pytest.approx(2.0, abs=0.1)
         assert composite.audio is not None
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -506,7 +510,7 @@ def test_compile_standalone_audio_clip_respects_speed(
         # raising CompileError (the invariant-enforcement guard in _apply_speed).
         assert composite.duration == pytest.approx(1.0, abs=0.1)
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -571,7 +575,7 @@ def test_compile_video_audio_and_deferred_caption(
         assert composite.audio is not None  # audio track was composited in
         assert tuple(composite.size) == (REELS.width, REELS.height)
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -615,8 +619,8 @@ def test_compile_burns_captions_with_text_and_skips_empty(
         # Exactly one caption overlay was added (the empty caption was skipped).
         assert len(burned.clips) == len(soft.clips) + 1
     finally:
-        soft.close()
-        burned.close()
+        close_clip_tree(soft)
+        close_clip_tree(burned)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -680,7 +684,7 @@ def test_compile_burns_styled_caption_with_word_highlight(
         # into the actual MoviePy composite, not just the pure renderer.
         assert not np.array_equal(frame_early, frame_late)
     finally:
-        burned.close()
+        close_clip_tree(burned)
 
 
 # --- Phase 5: animated transform + audio gain --------------------------------
@@ -720,7 +724,7 @@ def test_compile_applies_punch_in_scale(
         end_mean = float(np.asarray(composite.get_frame(0.95)).mean())
         assert end_mean > start_mean + 5.0, f"no zoom (start={start_mean}, end={end_mean})"
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -749,7 +753,7 @@ def test_compile_applies_rotation(
         assert composite.get_frame(0.05).shape[2] == 3
         assert composite.get_frame(0.95).shape[2] == 3
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 def _split_color_media(path: Path, *, left: str, right: str, size: str = "320x240") -> None:
@@ -822,7 +826,7 @@ def test_compile_applies_crop_shows_only_cropped_region(tmp_project_dir: Path) -
                 f"column {col} should be blue-dominant (cropped to the right half), got {pixel}"
             )
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -856,7 +860,7 @@ def test_compile_crop_composes_with_transform_keyframe(tmp_project_dir: Path) ->
                 f"t={t}: crop+scale should still show the cropped (blue) half, got {centre}"
             )
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -878,7 +882,7 @@ def test_compile_uncropped_clip_is_unchanged(
         try:
             return np.asarray(composite.get_frame(0.5)).copy()
         finally:
-            composite.close()
+            close_clip_tree(composite)
 
     first = _render()
     second = _render()
@@ -941,7 +945,7 @@ def test_compile_applies_rectangle_mask(
         assert int(centre.sum()) > 100, f"masked centre should show content, got {centre}"
         assert int(edge.sum()) < 40, f"outside the mask should be hidden, got {edge}"
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -978,7 +982,7 @@ def test_compile_applies_animated_mask(
         assert composite.get_frame(0.1).shape[2] == 3
         assert composite.get_frame(0.9).shape[2] == 3
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -1023,8 +1027,8 @@ def test_compile_applies_color_grade(
         assert int(plain_centre.max() - plain_centre.min()) > 60
         assert int(graded_centre.max() - graded_centre.min()) <= 2
     finally:
-        plain_comp.close()
-        graded_comp.close()
+        close_clip_tree(plain_comp)
+        close_clip_tree(graded_comp)
 
 
 # A minimal 2x2x2 .cube LUT that inverts every channel (out = 1 - in). Red
@@ -1090,8 +1094,8 @@ def test_compile_applies_lut_from_sandboxed_cube_file(
         # Inverted: low R, high G/B (cyan) — the LUT was actually applied.
         assert lut_centre[0] < 60 and lut_centre[1] > 150 and lut_centre[2] > 150
     finally:
-        plain_comp.close()
-        graded_comp.close()
+        close_clip_tree(plain_comp)
+        close_clip_tree(graded_comp)
 
 
 def _lut_error_project(clip_effects: list[dict[str, Any]]) -> Project:
@@ -1192,7 +1196,7 @@ def test_compile_applies_audio_gain(
     try:
         assert composite.audio is not None  # gained audio was composited in
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -1227,7 +1231,7 @@ def test_compile_mixes_footage_audio_with_audio_track(
         # Footage audio (1) + the music track (1) → both on the master bus.
         assert len(composite.audio.clips) == 2
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -1261,7 +1265,7 @@ def test_compile_muted_video_track_drops_footage_audio(
         # Only the audio-only track survives; the muted video's footage is dropped.
         assert len(composite.audio.clips) == 1
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -1292,7 +1296,7 @@ def test_compile_renders_opacity_keyframes(
         end = float(np.asarray(composite.get_frame(0.95)).mean())
         assert end < start - 5.0, f"opacity fade did not darken (start={start}, end={end})"
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 def _transition_project(
@@ -1333,7 +1337,7 @@ def test_compile_eases_transition_in(
         late = float(np.asarray(composite.get_frame(0.95)).mean())
         assert abs(late - early) > 1.0, f"{kind} transition had no visible effect"
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -1352,7 +1356,7 @@ def test_compile_blur_transition_renders(
         assert np.asarray(composite.get_frame(0.05)).shape[2] == 3
         assert np.asarray(composite.get_frame(0.95)).shape[2] == 3
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -1374,7 +1378,7 @@ def test_compile_wipe_transition_reveals_left_first(
         r_late = float(late[:, half:].mean())
         assert abs(l_late - r_late) < 1.0, "wipe did not finish revealing"
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 def _catalog_transition_project(
@@ -1450,7 +1454,7 @@ def test_compile_renders_a_catalog_transition(
         # reads a working transition as "did nothing".
         assert float(np.abs(mid - settled).mean()) > 1.0, f"{kind} did nothing"
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -1479,7 +1483,7 @@ def test_a_transition_reveals_the_outgoing_shot_not_black(
             black_ratio = float((frame.max(axis=2) < 26).mean())
             assert black_ratio < 0.98, f"{kind} is black at {time}s (ratio {black_ratio})"
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -1502,7 +1506,7 @@ def test_a_transition_ramp_shows_both_shots(
         assert float(lit[:, 0].mean()) > 8, "no red left from the outgoing shot"
         assert float(lit[:, 2].mean()) > 8, "no blue arrived from the incoming shot"
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -1548,7 +1552,7 @@ def test_a_transition_holds_the_edge_frame_when_there_is_no_handle(
         lit = frame[frame.max(axis=2) > 26]
         assert float(lit[:, 0].mean()) > 8, "the held outgoing frame is missing"
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -1596,7 +1600,7 @@ def test_a_transition_holds_the_edge_when_the_neighbour_has_no_out_point(
         # (an absent out-point resolves to the asset's end, not to 0.0).
         assert float(lit[:, 0].mean()) > 8
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -1625,8 +1629,8 @@ def test_centre_alignment_ramps_the_outgoing_clip_too(
         for frame in (start_aligned, centre_aligned):
             assert float((frame.max(axis=2) < 26).mean()) < 0.98
     finally:
-        a.close()
-        b.close()
+        close_clip_tree(a)
+        close_clip_tree(b)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -1711,8 +1715,8 @@ def test_compile_burns_in_text_overlay(
         mean_abs_diff = float(np.abs(text_region - plain_region).mean())
         assert mean_abs_diff > 2.0, f"text overlay not visible near frame centre ({mean_abs_diff=})"
     finally:
-        plain_comp.close()
-        text_comp.close()
+        close_clip_tree(plain_comp)
+        close_clip_tree(text_comp)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -1753,10 +1757,11 @@ def test_text_overlay_honours_authored_style_and_position(
         try:
             return np.asarray(comp.get_frame(0.5), dtype=np.int64)
         finally:
-            comp.close()
+            close_clip_tree(comp)
 
     small = frame_of({"fontSizePercent": 4})
     large = frame_of({"fontSizePercent": 12})
+
     def bright(frame: Any) -> int:
         return int((frame.max(axis=2) > 200).sum())
 
@@ -1823,8 +1828,8 @@ def test_text_overlay_honours_its_own_keyframes(
         # And an un-keyframed overlay still renders at its natural size, unchanged.
         assert bright_pixels(static_comp, 0.1) == bright_pixels(static_comp, 1.9)
     finally:
-        animated_comp.close()
-        static_comp.close()
+        close_clip_tree(animated_comp)
+        close_clip_tree(static_comp)
 
 
 def test_unsupported_track_types_renders_text_unconditionally() -> None:
@@ -1878,7 +1883,7 @@ def test_compile_applies_audio_fade(
         mid = float(np.abs(composite.audio.get_frame(np.linspace(1.3, 1.7, 2000))).max())
         assert early < 0.5 * mid, f"fade-in did not attenuate the start (early={early}, mid={mid})"
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 # --- blend mode (schema v8, plan H1.2f) --------------------------------------
@@ -1973,7 +1978,7 @@ def test_compile_multiply_blend_mode_matches_hand_computed_pixels(
     try:
         _assert_pixel_close(_center_pixel(composite), expected)
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -1990,7 +1995,7 @@ def test_compile_screen_blend_mode_matches_hand_computed_pixels(
     try:
         _assert_pixel_close(_center_pixel(composite), expected)
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -2007,7 +2012,7 @@ def test_compile_difference_blend_mode_matches_hand_computed_pixels(
     try:
         _assert_pixel_close(_center_pixel(composite), expected)
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -2024,7 +2029,7 @@ def test_compile_darken_blend_mode_matches_hand_computed_pixels(
     try:
         _assert_pixel_close(_center_pixel(composite), expected)
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -2038,14 +2043,14 @@ def test_compile_normal_blend_mode_is_byte_identical_to_absent(
     try:
         without_mode = np.asarray(composite.get_frame(0.5)).copy()
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
     normal = _blend_mode_project(tmp_project_dir, ffmpeg_bin, blend_mode="normal")
     composite = compile_timeline(normal, _index(normal, tmp_project_dir), REELS)
     try:
         with_normal = np.asarray(composite.get_frame(0.5)).copy()
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
     assert np.array_equal(without_mode, with_normal), (
         "'normal' must render identically to an absent blend_mode"
@@ -2076,7 +2081,7 @@ def test_compile_base_track_blend_mode_is_a_noop_not_a_crash(
         expected = tuple(float(c) for c in _BASE_RGB)
         _assert_pixel_close(_center_pixel(composite), expected)
     finally:
-        composite.close()
+        close_clip_tree(composite)
 
 
 # --- channel strip: EQ, dynamics, automation ---------------------------------
@@ -2147,8 +2152,8 @@ def test_compile_applies_an_eq_that_removes_the_tone_it_is_aimed_at(
             f"high-pass did not remove the 440 Hz tone (got {quiet} vs {loud})"
         )
     finally:
-        filtered.close()
-        unfiltered.close()
+        close_clip_tree(filtered)
+        close_clip_tree(unfiltered)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -2180,8 +2185,8 @@ def test_compile_applies_compression_that_pulls_the_peak_down(
         # …and it is compression, not silence.
         assert squashed > 0.01
     finally:
-        compressed.close()
-        uncompressed.close()
+        close_clip_tree(compressed)
+        close_clip_tree(uncompressed)
 
 
 @pytest.mark.usefixtures("require_ffprobe")
@@ -2215,8 +2220,8 @@ def test_compile_follows_a_gain_automation_lane(
         assert opening < 0.05 * closing, "the lane's -40 dB start did not reach the render"
         assert closing == pytest.approx(reference, rel=0.05), "the lane should end back at unity"
     finally:
-        automated.close()
-        flat.close()
+        close_clip_tree(automated)
+        close_clip_tree(flat)
 
 
 class TestDecodeBudget:
@@ -2341,3 +2346,94 @@ class TestDecodeBudget:
             assert composition.get_frame(0.0).shape == (120, 160, 3)
         finally:
             close_clip_tree(composition)
+
+
+class _SizedReader:
+    """A VideoFileClip stand-in that records how it was opened."""
+
+    opened: ClassVar[list[tuple[str, tuple[int, int] | None]]] = []
+
+    def __init__(self, path: str, target_resolution: tuple[int, int] | None = None) -> None:
+        self.size = (3840, 2160)
+        _SizedReader.opened.append((path, target_resolution))
+
+    def close(self) -> None:
+        pass
+
+
+def test_decode_cap_follows_the_frame_the_crop_and_animation() -> None:
+    from framepilot_engine.render.compiler import decode_cap_for_clip
+
+    # Built through `model_validate` so the aliases are what mypy checks against — the
+    # constructor's own signature takes the snake_case field names.
+    plain = Clip.model_validate(
+        {
+            "id": "c",
+            "assetId": "a",
+            "trackId": "t",
+            "start": 0,
+            "end": 1,
+            "sourceStart": 0,
+            "sourceEnd": 1,
+        }
+    )
+    assert decode_cap_for_clip(plain, (1080, 1920)) == int(1920 * 1.25)
+    cropped = Clip.model_validate(
+        {
+            **plain.model_dump(by_alias=True),
+            "crop": {"x": 0.3, "y": 0.0, "width": 0.4, "height": 1.0},
+        }
+    )
+    assert decode_cap_for_clip(cropped, (1080, 1920)) == math.ceil(1920 / 0.4 * 1.25)
+    animated = Clip.model_validate(
+        {
+            **plain.model_dump(by_alias=True),
+            "keyframes": [{"id": "k1", "property": "scale", "time": 0.0, "value": 1.0}],
+        }
+    )
+    assert decode_cap_for_clip(animated, (1080, 1920)) is None
+
+
+def test_source_reader_decodes_at_the_capped_size() -> None:
+    from framepilot_engine.render.compiler import _open_source_reader
+
+    _SizedReader.opened.clear()
+    _open_source_reader(_SizedReader, "big.mov", 1920)
+    assert _SizedReader.opened[-1] == ("big.mov", (1920, 1080))
+    _SizedReader.opened.clear()
+    _open_source_reader(_SizedReader, "big.mov", None)
+    assert _SizedReader.opened == [("big.mov", None)]
+
+
+def test_fitted_decode_size_asks_ffmpeg_for_exactly_what_is_displayed() -> None:
+    """P7.5: a fit-to-frame clip's displayed size is knowable, so decode straight to it."""
+    from framepilot_engine.render.compiler import fitted_decode_size
+
+    # Landscape 4K into a portrait 1080x1920 frame: fitted to the frame's width.
+    assert fitted_decode_size((3840, 2160), (1080, 1920)) == (1080, 608)
+    # Portrait 4K into the same frame: fitted to the frame's height.
+    assert fitted_decode_size((2160, 3840), (1080, 1920)) == (1080, 1920)
+    # Landscape into a landscape frame.
+    assert fitted_decode_size((3840, 2160), (1920, 1080)) == (1920, 1080)
+
+
+def test_fitted_decode_size_never_asks_for_an_upscale() -> None:
+    """Decoding larger than the source costs time and invents detail; return None instead."""
+    from framepilot_engine.render.compiler import fitted_decode_size
+
+    assert fitted_decode_size((640, 360), (1920, 1080)) is None
+    # Exactly the displayed size is already right — nothing to ask for.
+    assert fitted_decode_size((1920, 1080), (1920, 1080)) is None
+    # Degenerate sizes are not a scaling decision.
+    assert fitted_decode_size((0, 1080), (1920, 1080)) is None
+    assert fitted_decode_size((1920, 0), (1920, 1080)) is None
+
+
+def test_fitted_decode_size_is_always_even() -> None:
+    """Odd dimensions break yuv420p chroma subsampling in several encoders."""
+    from framepilot_engine.render.compiler import fitted_decode_size
+
+    for source in [(1999, 1131), (3841, 2161), (1233, 999)]:
+        size = fitted_decode_size(source, (1080, 1920))
+        assert size is not None
+        assert size[0] % 2 == 0 and size[1] % 2 == 0, size

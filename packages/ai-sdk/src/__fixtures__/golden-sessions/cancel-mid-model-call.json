@@ -49,7 +49,10 @@
             "evidenceIds": [],
             "stage": "plan",
             "status": "committed",
-            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it.",
+            "source": "inferred",
+            "until": "revision",
+            "turnsCarried": 0
           }
         ],
         "plan": {
@@ -108,7 +111,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 22341,
+      "usedTokens": 22128,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -127,7 +130,7 @@
             "id": "s2",
             "type": "system",
             "label": "project header",
-            "tokenEstimate": 9,
+            "tokenEstimate": 59,
             "included": true
           },
           {
@@ -140,36 +143,43 @@
           {
             "id": "s4",
             "type": "retrieved_evidence",
+            "label": "source media",
+            "tokenEstimate": 18,
+            "included": true
+          },
+          {
+            "id": "s5",
+            "type": "retrieved_evidence",
             "label": "transcript slice",
             "tokenEstimate": 11,
             "included": true
           },
           {
-            "id": "s5",
+            "id": "s6",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1645,
+            "tokenEstimate": 1649,
             "included": true
           },
           {
-            "id": "s6",
+            "id": "s7",
             "type": "latest_user_message",
             "label": "user request",
             "tokenEstimate": 8,
             "included": true
           },
           {
-            "id": "s7",
+            "id": "s8",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 2018,
+            "tokenEstimate": 2019,
             "included": true
           },
           {
-            "id": "s8",
+            "id": "s9",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 18469,
+            "tokenEstimate": 18183,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -177,9 +187,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 22341,
+          "estimatedInputTokensBeforeSend": 22128,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 169467,
+          "estimatedRemainingCapacity": 169680,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -245,7 +255,10 @@
             "evidenceIds": [],
             "stage": "plan",
             "status": "committed",
-            "reconsiderIf": "The project revision changes outside this run or verification disproves it."
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it.",
+            "source": "inferred",
+            "until": "revision",
+            "turnsCarried": 0
           }
         ],
         "plan": {

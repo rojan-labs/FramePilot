@@ -117,12 +117,25 @@ export function WorkspaceShell({
             </aside>
           )}
 
-          <RailSplitter side="left" boundsRef={bodyRef} onResize={left.onResize} hidden={left.collapsed} />
+          <RailSplitter
+            side="left"
+            boundsRef={bodyRef}
+            onResize={left.onResize}
+            hidden={left.collapsed}
+            width={effectiveRailWidths.left}
+          />
 
-          <div className="stage-col">{center}</div>
+          {/* The program monitor is the editor screen's main content, and until now
+              the screen had no landmark at all — a screen-reader user had no way to
+              skip the rails and the dock to reach it. `HomeScreen` owns the only
+              other <main> in the app and is a different screen, so there is no
+              collision. */}
+          <main className="stage-col" aria-label="Program monitor">
+            {center}
+          </main>
         </div>
 
-        <StageSplitter boundsRef={mainRef} onResize={dock.onResize} />
+        <StageSplitter boundsRef={mainRef} onResize={dock.onResize} height={dock.height} />
 
         <div className="timeline-dock" style={{ height: `${dock.height}px` }}>
           {dock.children}
@@ -136,6 +149,7 @@ export function WorkspaceShell({
         boundsRef={workspaceRef}
         onResize={right.onResize}
         hidden={right.collapsed}
+        width={effectiveRailWidths.right}
       />
 
       {right.collapsed ? (

@@ -625,9 +625,18 @@
 }
 
 .ai-composer {
-  grid-template-columns: 28px minmax(0, 1fr) 28px !important;
+  /* leading controls | input | send. The first column is `auto`, not a fixed 28px:
+     `.ai-composer-lead` holds however many leading buttons this build has, and a fixed
+     width silently clipped the second one. */
+  grid-template-columns: auto minmax(0, 1fr) 28px !important;
   gap: 4px !important;
   align-items: end;
+}
+
+.ai-composer-lead {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .ai-composer-input,

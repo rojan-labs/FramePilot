@@ -1,0 +1,217 @@
+name: Mission nightly (real provider · desktop host)
+
+# The expensive half of the system-mission gates (plan/system-mission P9.3, P9.4, P9.5,
+# P6.6). Everything here needs something a GitHub-hosted runner does not have:
+#
+#   * a billed model provider (`eval:mission:real`);
+#   * the real mission media fixtures, which are the maintainer's own camera files and
+#     are deliberately never committed (`tests/fixtures/mission/**` is gitignored);
+#   * a machine that can launch Electron and the Python sidecar together.
+#
+# So these jobs run on the self-hosted mission runner named by the repository variable
+# `MISSION_DESKTOP_RUNNER`, and are skipped entirely when it is unset — which is why
+# the PR lane keeps only the cheap JSON gates (`mission-gates` in ci.yml).
+on:
+  schedule:
+    # 07:00 UTC — after the working day, so a red nightly is the first thing seen.
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+    inputs:
+      note:
+        description: 'Optional note recorded in the job summary.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  # One mission run at a time: they share the sidecar port and the fixture projects.
+  group: mission-nightly
+  cancel-in-progress: false
+
+env:
+  PNPM_VERSION: '9.12.0'
+  NODE_VERSION: '22.15.0'
+  PYTHON_VERSION: '3.11'
+  MISSION_SIDECAR_PORT: '8799'
+
+jobs:
+  # ── Real-provider mission run + both gates against its fresh output (P9.3, P9.5) ──
+  real-eval:
+    name: Mission run against the real provider
+    if: ${{ vars.MISSION_DESKTOP_RUNNER != '' }}
+    runs-on: ${{ vars.MISSION_DESKTOP_RUNNER }}
+    # Explicitly non-blocking. A real-provider run can fail for reasons that are not a
+    # code regression — a 429, an expired key, a provider outage — and a nightly that
+    # cries wolf gets muted. The gates that must go red on a real regression are the
+    # committed-JSON ones in the PR lane.
+    continue-on-error: true
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v7
+      - name: Record run note
+        if: ${{ github.event.inputs.note != '' }}
+        # Through the environment, never interpolated into the script body: a dispatch
+        # input is attacker-controllable text and `${{ }}` inside `run:` is shell injection.
+        env:
+          NOTE: ${{ github.event.inputs.note }}
+        run: |
+          echo "Note: $NOTE" >> "$GITHUB_STEP_SUMMARY"
+      - id: fixtures
+        name: Check the mission fixtures are present
+        shell: bash
+        run: |
+          if [ -d tests/fixtures/mission/projects ] && \
+             [ -n "$(ls tests/fixtures/mission/projects/*.fp.json 2>/dev/null)" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "Mission fixtures absent on this runner; run tests/fixtures/mission/fetch-fixtures.sh." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - run: pnpm install --frozen-lockfile
+        if: steps.fixtures.outputs.present == 'true'
+      - run: pnpm build
+        if: steps.fixtures.outputs.present == 'true'
+      - name: Sync engine dependencies
+        if: steps.fixtures.outputs.present == 'true'
+        working-directory: engine/python
+        run: uv sync --extra dev
+      - name: Start the sidecar
+        if: steps.fixtures.outputs.present == 'true'
+        working-directory: engine/python
+        env:
+          FRAMEPILOT_PROJECTS_ROOT: ${{ github.workspace }}/tests/fixtures/mission/projects
+        run: |
+          nohup uv run framepilot serve --port "$MISSION_SIDECAR_PORT" > "$RUNNER_TEMP/sidecar.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:$MISSION_SIDECAR_PORT/health" >/dev/null 2>&1; then
+              echo "sidecar up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "sidecar did not become healthy"; tail -50 "$RUNNER_TEMP/sidecar.log"; exit 1
+      - name: Mission run (3 runs per scenario, real provider)
+        if: steps.fixtures.outputs.present == 'true'
+        env:
+          FRAMEPILOT_PYTHON_API_URL: http://127.0.0.1:8799
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: pnpm --filter @framepilot/ai-sdk eval:mission:real
+      - name: Rubric floor against the fresh run (P9.3)
+        if: ${{ !cancelled() && steps.fixtures.outputs.present == 'true' }}
+        shell: bash
+        run: |
+          set -eo pipefail
+          node packages/ai-sdk/scripts/mission-score.mjs \
+            reports/system-mission/after-orchestration.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Efficiency floor against the fresh run (P9.5)
+        if: ${{ !cancelled() && steps.fixtures.outputs.present == 'true' }}
+        shell: bash
+        run: |
+          set -eo pipefail
+          node packages/ai-sdk/scripts/mission-efficiency-gate.mjs \
+            reports/system-mission/after-orchestration.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Publish the run and both floors
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mission-nightly-reports
+          path: |
+            reports/system-mission/after-orchestration.json
+            reports/system-mission/mission-score.json
+            reports/system-mission/mission-efficiency.json
+          if-no-files-found: warn
+      - name: Stop the sidecar
+        if: always()
+        run: pkill -f "framepilot serve --port $MISSION_SIDECAR_PORT" || true
+
+  # ── Desktop-host gates: resources (P6.6), export matrix (P9.4), failure paths (P9.2) ──
+  desktop-gates:
+    name: Desktop resource · export · failure-path gates
+    if: ${{ vars.MISSION_DESKTOP_RUNNER != '' }}
+    runs-on: ${{ vars.MISSION_DESKTOP_RUNNER }}
+    needs: [real-eval]
+    # The UC-16 large-media row and the AI journey are both measured in tens of minutes,
+    # so this lane is budgeted in hours. It is nightly precisely so it can be.
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v7
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Sync engine dependencies
+        working-directory: engine/python
+        run: uv sync --extra dev
+      # Each spec skips itself with a stated reason when the fixtures it needs are
+      # missing, so a runner without the media reports "skipped", never "failed".
+      #
+      # First, and cheapest: the proof that the P6.6 resource gate can go red at all. It
+      # launches nothing and reads the committed baseline, so if the gate's arithmetic is
+      # ever loosened into a no-op this lane says so in seconds rather than in hours.
+      - name: Resource-gate proof (P9.5)
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @framepilot/e2e-desktop exec playwright test specs/resource-gate.spec.ts
+      - name: Reference analysis route against the real fixtures (P3.7)
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @framepilot/e2e-desktop exec playwright test specs/references-analyze.spec.ts
+      - name: Export matrix (P9.4)
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @framepilot/e2e-desktop exec playwright test specs/export-matrix.spec.ts
+      # MISSION_AI=1 from here down: the provider-gated failure rows and the whole journey
+      # need a real model. They live in the nightly lane for exactly that reason.
+      - name: Failure paths (P9.2)
+        if: ${{ !cancelled() }}
+        env:
+          MISSION_AI: '1'
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+        run: pnpm --filter @framepilot/e2e-desktop exec playwright test specs/failure-paths.spec.ts
+      - name: AI journey UC-01→08→09→06→07→13 (P9.1)
+        if: ${{ !cancelled() }}
+        env:
+          MISSION_AI: '1'
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: pnpm --filter @framepilot/e2e-desktop exec playwright test specs/ai-journey.spec.ts
+      - name: Resource gate (P6.6)
+        if: ${{ !cancelled() }}
+        env:
+          RESOURCE_GATE: '1'
+          # Ten minutes of scripted editing is the shape of a real session; the nightly
+          # can afford it, which is exactly why the gate lives here and not in the PR lane.
+          RESOURCE_SESSION_MINUTES: '10'
+        run: pnpm --filter @framepilot/e2e-desktop run resources
+      - name: Upload desktop reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mission-desktop-reports
+          path: |
+            tests/e2e-desktop/playwright-report
+            reports/system-mission/baseline-resources.json
+          if-no-files-found: warn

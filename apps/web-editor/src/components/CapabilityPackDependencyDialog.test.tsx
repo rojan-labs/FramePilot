@@ -97,6 +97,34 @@ describe('CapabilityPackDependencyDialog', () => {
     }));
   });
 
+  it('names its progress region (`role="status"` alone already matches six elements)', async () => {
+    let listener: ((message: CapabilityPackProgressWire) => void) | undefined;
+    window.framepilot = {
+      onCapabilityPackProgress: vi.fn((next) => {
+        listener = next;
+        return () => undefined;
+      }),
+    } as unknown as FramePilotBridge;
+    render(
+      <CapabilityPackDependencyDialog
+        projectId="project-1"
+        resolution={{ dependencies: [{ pin, status: 'missing' }], renderBlocked: false, editBlocked: false }}
+        onResolutionChange={vi.fn()}
+        onOpenDegraded={vi.fn()}
+      />,
+    );
+    await act(async () => {
+      listener?.({
+        operationId: 'operation-1',
+        identity,
+        phase: 'downloading',
+        completedBytes: 10,
+        totalBytes: 100,
+      });
+    });
+    expect(screen.getByRole('status', { name: 'Download progress' })).toBeTruthy();
+  });
+
   it('requires an explicit degraded-open decision when no pack is installed', () => {
     window.framepilot = {} as FramePilotBridge;
     const onOpenDegraded = vi.fn();

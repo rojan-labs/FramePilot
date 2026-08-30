@@ -34,6 +34,7 @@ const log = createLogger('ai-sdk:sidecar-executor');
 const ANALYSIS_ROUTE: Record<string, string> = {
   transcribe: '/transcribe',
   analyze_silence: '/analyze-silence',
+  remove_silences: '/analyze-silence',
   detect_scenes: '/detect-scenes',
   detect_beats: '/detect-beats',
 };
@@ -47,6 +48,7 @@ const ANALYSIS_ROUTE: Record<string, string> = {
  */
 const UNIFIED_KIND: Record<string, string> = {
   analyze_silence: 'silence',
+  remove_silences: 'silence',
   detect_scenes: 'scenes',
   detect_beats: 'beats',
 };
@@ -94,6 +96,7 @@ const MAX_COLOR_MEASUREMENT_FRAMES = 300;
  */
 const TUNING_PARAM_KEYS: Record<string, readonly string[]> = {
   analyze_silence: ['noiseFloorDb', 'minSilenceSeconds'],
+  remove_silences: ['noiseFloorDb', 'minSilenceSeconds'],
   detect_scenes: ['threshold'],
   detect_beats: ['sensitivity'],
 };
@@ -251,7 +254,7 @@ export function analysisBody(
   if (name === 'transcribe') {
     return body;
   }
-  if (name === 'analyze_silence') {
+  if (name === 'analyze_silence' || name === 'remove_silences') {
     if (typeof args.noiseFloorDb === 'number') body.noise_floor_db = args.noiseFloorDb;
     if (typeof args.minSilenceSeconds === 'number')
       body.min_silence_seconds = args.minSilenceSeconds;

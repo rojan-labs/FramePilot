@@ -99,6 +99,17 @@ export const TOOL_CONTRACT_DECLARATIONS: Readonly<Record<string, ToolContract>> 
     stateDependency: 'project_revision',
     cacheScope: 'none',
   },
+  // `remove_silences` measures via the sidecar and then CUTS (plan/system-mission P4.1):
+  // a host-planed mutation with the same contract as `add_music` — serial, revision-bound,
+  // never replayed from a memo (the timeline it cut may have moved since).
+  remove_silences: {
+    executionPlane: 'host',
+    effectClass: 'mutation',
+    permissions: ['analysis', 'write'],
+    concurrency: 'serial',
+    stateDependency: 'project_revision',
+    cacheScope: 'none',
+  },
   add_stock: {
     executionPlane: 'host',
     effectClass: 'mutation',

@@ -1,3 +1,4 @@
+import type { ReferenceProfile } from '@framepilot/ai-sdk';
 /**
  * AI panel glue (plan/PLAN.md Phase 4.2/4.3).
  *
@@ -58,6 +59,7 @@ import type {
   DurableRunEventMessage,
   DurableRunSnapshot,
   Seconds,
+  AiStreamReferenceProfile,
 } from '@framepilot/shared-types';
 import { type ChangedRegion, type Patch, structuredDiffTimeline } from '@framepilot/editor-core';
 
@@ -323,6 +325,8 @@ export interface AiSessionInput {
    * (follow-up), mirroring how `history`/`selection` are handled today.
    */
   readonly userMemory?: UserMemory;
+  /** Analyzed reference attachments for this turn (plan/system-mission P3.4). */
+  readonly references?: readonly ReferenceProfile[];
   /**
    * Agent-run tuning (agent mode only): up-front plan, blast-radius caps, bounded
    * auto-repair, duration target. Forwarded to `streamAgent` so the app runs the same
@@ -349,12 +353,9 @@ export interface AiSessionInput {
   /**
    * Clips/assets the user pinned as extra context via the composer's "@" picker
    * (P8.7 narrow slice — the H1.5c-deferred pin-context picker), independent of the
-   * auto-derived `selection`. Threaded into the model context by the browser session
-   * (`context-builder.ts`'s "Pinned context" block). Browser-only for now, same
-   * precedent as `selection`/`variations` above — `DesktopAiSession`
-   * does not forward it over IPC yet (an explicit, documented gap; the natural home
-   * is the P6 cross-surface parity pass, not silently dropped here). Deferred:
-   * `@range`/`@marker`/`@track` entity kinds (P8.7 full scope stays open).
+   * auto-derived `selection`. Threaded into the model context on both hosts
+   * (`context-builder.ts`'s "Pinned context" block; desktop forwards it over IPC since
+   * P2.4). Deferred: `@range`/`@marker`/`@track` entity kinds (P8.7 full scope stays open).
    */
   readonly pinned?: readonly PinnedEntity[];
 }
@@ -580,6 +581,7 @@ export class BrowserAiSession implements AiSession {
       ...(input.interaction ? { interaction: input.interaction } : {}),
       ...(input.userMemory ? { userMemory: input.userMemory } : {}),
       ...(input.pinned && input.pinned.length > 0 ? { pinned: input.pinned } : {}),
+      ...(input.references && input.references.length > 0 ? { references: input.references } : {}),
       ...understanding,
     };
     const options: StreamOptions = {
@@ -1095,17 +1097,14 @@ class DesktopAiSession implements AiSession {
         // (its optional fields just also admit `undefined`); the cast bridges
         // exactOptionalPropertyTypes without copying the object field by field.
         ...(input.userMemory ? { userMemory: input.userMemory as AiStreamUserMemory } : {}),
+        ...(input.references && input.references.length > 0
+          ? { references: input.references as unknown as readonly AiStreamReferenceProfile[] }
+          : {}),
         ...(input.agentOptions ? { agentOptions: input.agentOptions } : {}),
-        // `variations` (P13.1) is deliberately NOT threaded over the desktop IPC contract
-        // yet — browser-only for this slice (see `AiSessionInput.variations`); the composer
-        // only shows the toggle without an Electron bridge, so this is never silently
-        // dropped from under a user who asked for it.
-        //
-        // `pinned` (P8.7) is likewise NOT threaded over IPC yet — same browser-only
-        // precedent (see `AiSessionInput.pinned`'s doc). The composer's "@" picker still
-        // renders the pinned chips on desktop (so the user sees what they pinned), but
-        // desktop runs currently drop them from the model context rather than silently
-        // pretending to send them — a documented gap for the P6 cross-surface parity pass.
+        // `variations` and `pinned` ride the same IPC request as the browser session's
+        // inputs (P2.4 host parity): what the composer shows is what the model gets.
+        ...(input.variations ? { variations: true } : {}),
+        ...(input.pinned && input.pinned.length > 0 ? { pinned: input.pinned } : {}),
       });
       this.activeRequestId = requestId;
       for (;;) {

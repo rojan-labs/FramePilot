@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Patch } from '@framepilot/editor-core';
 import { createLogger, type CapabilityPackProjectResolutionWire } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
+import { clearProjectSessionCaches } from './editor/sessionCaches.js';
 import { ensureBaseTracks, newProject, uniqueProjectId } from './editor/project.js';
 import {
   getBridge,
@@ -235,6 +236,20 @@ export function App(): JSX.Element {
     return () => clearTimeout(timer);
   }, [project]);
 
+  // P6.2: every session cache is keyed by something the OPEN project owns (asset URL,
+  // asset id, conversation id), so a previous project's entries would sit there until
+  // evicted by LRU pressure — which, for a user who opens one project at a time, is
+  // never. Drop them the moment a different project is open: the memory goes back
+  // immediately and nothing from the old project can be served for the new one.
+  const cachedProjectId = useRef<string | null>(null);
+  useEffect(() => {
+    const id = project?.id ?? null;
+    if (cachedProjectId.current !== null && cachedProjectId.current !== id) {
+      clearProjectSessionCaches();
+    }
+    cachedProjectId.current = id;
+  }, [project?.id]);
+
   useEffect(() => {
     const unsubscribe = onProjectChanged(({ path: changedPath, project: next, revision }) => {
       suppressAutosave.current = true;
@@ -433,6 +448,16 @@ export function App(): JSX.Element {
                 ensureSavedForExport={ensureSavedForExport}
                 onRevealExport={revealPath}
                 assets={project.assets}
+                exportFrame={{
+                  width: project.resolution.width,
+                  height: project.resolution.height,
+                  fps: project.fps,
+                }}
+                exportDurationSeconds={project.timeline.tracks.reduce(
+                  (max, track) => track.clips.reduce((m, clip) => Math.max(m, clip.end), max),
+                  0,
+                )}
+                projectId={project.id}
                 onOpenHistory={() => setHistoryOpen((v) => !v)}
                 historyOpen={historyOpen}
                 onOpenUnderstanding={() => {

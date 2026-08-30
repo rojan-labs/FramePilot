@@ -16,8 +16,10 @@ import {
   CARRIED_FACT_PREFIX,
   carryForwardWorkingState,
   commitDecision,
+  committedDecisions,
   initialWorkingState,
   recordDecision,
+  supersedeDecision,
   recordFact,
   type RunWorkingState,
 } from './kernel/working-state.js';
@@ -230,5 +232,223 @@ describe('two runs, one session', () => {
       events.push(event);
     }
     expect(events.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * P1.5 / P3.5: a decision now says where it came from and how long it holds, and the run
+ * boundary is where those two facts are spent.
+ */
+describe('decision provenance and lifetime across the run boundary', () => {
+  function withDecision(over: Parameters<typeof recordDecision>[1]): RunWorkingState {
+    const state = recordDecision(
+      initialWorkingState({
+        runId: 'run_1',
+        request: 'make it feel like this',
+        conversationId: IDENTITY.conversationId,
+        projectId: IDENTITY.projectId,
+        attemptId: 'turn_1',
+        projectRevision: 7,
+      }),
+      { committed: true, ...over },
+    );
+    return state;
+  }
+
+  const referenceDecision = {
+    decision: 'Match reference ref_1 (pacing) — Pacing: fast — median shot 1.1s',
+    reconsiderIf: 'the editor removes reference ref_1',
+    source: 'reference',
+    subject: 'ref_1',
+  } as const;
+
+  it('applies a reference the next turn did not re-attach in words', () => {
+    // The tile is still in the sidebar, so the profile still arrives — and the decision
+    // holding the measured line arrives with it. "Same as the reference" needs neither.
+    const seeded = carryForwardWorkingState(withDecision(referenceDecision), freshFor(), ['ref_1']);
+    const carried = seeded.decisions.find((d) => d.source === 'reference')!;
+    expect(carried.decision).toContain('median shot 1.1s');
+    expect(carried.turnsCarried).toBe(1);
+    expect(buildStateBriefing(seeded)).toContain('median shot 1.1s');
+  });
+
+  it('retires the decision once the editor removes the tile', () => {
+    const seeded = carryForwardWorkingState(withDecision(referenceDecision), freshFor(), []);
+    expect(seeded.decisions.some((d) => d.source === 'reference')).toBe(false);
+  });
+
+  it('keeps reference decisions when the host sends no reference set at all', () => {
+    // `undefined` is "this host does not know about references", which is not a removal.
+    const seeded = carryForwardWorkingState(withDecision(referenceDecision), freshFor());
+    expect(seeded.decisions.some((d) => d.source === 'reference')).toBe(true);
+  });
+
+  it('drops a decision that was only true of the timeline it was made against', () => {
+    const previous = withDecision({
+      decision: 'Cut at 3.0s, where the sentence ends.',
+      reconsiderIf: 'The cut moves.',
+      until: 'revision',
+    });
+    // Same revision: nothing has moved, so it still holds.
+    expect(
+      carryForwardWorkingState(previous, freshFor()).decisions.some((d) =>
+        d.decision.includes('Cut at 3.0s'),
+      ),
+    ).toBe(true);
+    const moved = { ...previous, currentProjectRevision: 9 };
+    expect(
+      carryForwardWorkingState(moved, freshFor()).decisions.some((d) =>
+        d.decision.includes('Cut at 3.0s'),
+      ),
+    ).toBe(false);
+  });
+
+  it('expires a decision after the number of runs it was given', () => {
+    let state = withDecision({
+      decision: 'Try the punchier hook for now.',
+      reconsiderIf: 'The editor reacts to it.',
+      expiresAfterTurns: 2,
+    });
+    const held = (s: RunWorkingState): boolean =>
+      committedDecisions(s).some((d) => d.decision.includes('punchier hook'));
+    expect(held(state)).toBe(true);
+    state = carryForwardWorkingState(state, freshFor());
+    expect(held(state)).toBe(true);
+    state = carryForwardWorkingState(state, freshFor());
+    expect(held(state)).toBe(false);
+  });
+
+  it('drops a superseded style decision rather than merging it with its replacement', () => {
+    let previous = withDecision({
+      decision: 'Captions bottom-centre, all caps.',
+      reconsiderIf: 'The editor asks for a different caption style.',
+      source: 'user',
+    });
+    previous = supersedeDecision(previous, previous.decisions[0]!.id, {
+      decision: 'Captions top-third, sentence case.',
+      reconsiderIf: 'The editor asks for a different caption style.',
+    });
+    const seeded = carryForwardWorkingState(previous, freshFor());
+    const decisions = seeded.decisions.map((d) => d.decision);
+    expect(decisions).toContain('Captions top-third, sentence case.');
+    expect(decisions).not.toContain('Captions bottom-centre, all caps.');
+  });
+
+  it('defaults an old ledger written before provenance existed to the run’s own inference', () => {
+    const legacy = withDecision({
+      decision: 'Keep it tight.',
+      reconsiderIf: 'The editor says so.',
+    });
+    expect(legacy.decisions[0]!.source).toBe('inferred');
+    expect(legacy.decisions[0]!.until).toBe('superseded');
+    expect(legacy.decisions[0]!.turnsCarried).toBe(0);
+  });
+});
+
+/**
+ * P3.5, through the real Conductor: "same as the reference" across turns.
+ *
+ * The contract the whole feature rests on: `ContextInput.references` is the COMPLETE set of
+ * tiles the editor currently has attached, not "the ones mentioned this turn". The sidebar
+ * keeps a tile until it is removed, so a turn that says nothing about the reference still
+ * carries it, and a turn after the removal carries nothing.
+ */
+describe('a reference binds later turns until the tile is removed', () => {
+  const profile = {
+    id: 'ref_1',
+    role: 'pacing' as const,
+    kind: 'video' as const,
+    fileName: 'fast-cut.mp4',
+    contentHash: 'abcdef0123456789',
+    analyzedAt: '2026-08-29T00:00:00Z',
+    video: {
+      durationS: 20,
+      shotCount: 18,
+      medianShotS: 1.1,
+      shotLengthP10S: 0.6,
+      shotLengthP90S: 2.4,
+      cutsPerMinute: 51,
+    },
+  };
+
+  async function runTurn(args: {
+    readonly userPrompt: string;
+    readonly withReference: boolean;
+    readonly carriedForward?: unknown;
+  }): Promise<{ prompt: string; working: unknown }> {
+    const { Orchestrator } = await import('./orchestrator.js');
+    const { makeProject } = await import('./__fixtures__/project.js');
+    const { buildReferenceProfile } = await import('./references/profile.js');
+    const requests: { messages: { role: string; content: string }[] }[] = [];
+    const provider = {
+      name: 'mock' as const,
+      async complete(request: { messages: { role: string; content: string }[] }) {
+        requests.push(request);
+        return { text: 'Done.', toolCalls: [] };
+      },
+    };
+    let working: unknown;
+    for await (const event of new Orchestrator(provider as never).streamAgent(
+      {
+        project: makeProject(),
+        userPrompt: args.userPrompt,
+        ...(args.withReference ? { references: [buildReferenceProfile(profile)] } : {}),
+      },
+      { conversationId: IDENTITY.conversationId, turnId: 'turn_x', now: () => 1_000 },
+      {
+        maxSteps: 1,
+        ...(args.carriedForward === undefined ? {} : { carriedForward: args.carriedForward }),
+      },
+    )) {
+      const candidate = (event as { working?: unknown }).working;
+      if (candidate !== undefined) working = candidate;
+    }
+    return {
+      prompt: requests.flatMap((r) => r.messages.map((m) => m.content)).join('\n'),
+      working,
+    };
+  }
+
+  it('records the reference as a committed decision on the turn that plans with it', async () => {
+    const turn1 = await runTurn({
+      userPrompt: 'make it feel like this reference',
+      withReference: true,
+    });
+    expect(turn1.prompt).toContain('aim for a median of 1.1s per picture clip');
+    const decisions = (
+      turn1.working as { decisions: { decision: string; source: string; subject?: string }[] }
+    ).decisions;
+    const reference = decisions.find((d) => d.source === 'reference');
+    expect(reference?.subject).toBe('ref_1');
+    expect(reference?.decision).toContain('median shot 1.1s');
+  });
+
+  it('applies the profile on a later turn that never mentions it', async () => {
+    const turn1 = await runTurn({
+      userPrompt: 'make it feel like this reference',
+      withReference: true,
+    });
+    const turn2 = await runTurn({
+      userPrompt: 'now tighten the middle',
+      withReference: true,
+      carriedForward: JSON.parse(JSON.stringify(turn1.working)) as unknown,
+    });
+    // The DECIDED section, not the request: the editor said nothing about pacing this turn.
+    expect(turn2.prompt).toContain('Match reference ref_1 (pacing)');
+    expect(turn2.prompt).toContain('median shot 1.1s');
+  });
+
+  it('stops applying it once the editor removes the tile', async () => {
+    const turn1 = await runTurn({
+      userPrompt: 'make it feel like this reference',
+      withReference: true,
+    });
+    const turn3 = await runTurn({
+      userPrompt: 'now tighten the middle',
+      withReference: false,
+      carriedForward: JSON.parse(JSON.stringify(turn1.working)) as unknown,
+    });
+    expect(turn3.prompt).not.toContain('Match reference ref_1');
+    expect(turn3.prompt).not.toContain('median shot 1.1s');
   });
 });
