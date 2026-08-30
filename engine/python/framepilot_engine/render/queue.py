@@ -44,6 +44,19 @@ _log = logging.getLogger(__name__)
 _PROCESS_POLL_SECONDS = 0.05
 DEFAULT_RETRY_PAYLOAD_LIMIT = 8
 
+#: How often a render worker checks that the processes that own it are still alive.
+_ORPHAN_WATCH_INTERVAL_SECONDS = 2.0
+#: Seconds a worker's own group gets to die from SIGTERM before the watchdog SIGKILLs it.
+_ORPHAN_WATCH_GRACE_SECONDS = 5.0
+#: Env var carrying the Electron main-process pid; set by the desktop app when it spawns
+#: the sidecar (``apps/desktop/electron/sidecar/spawn.ts``) and inherited all the way down
+#: here, because ``mp.get_context("spawn")`` copies ``os.environ`` into the child.
+_PARENT_PID_ENV = "FRAMEPILOT_PARENT_PID"
+#: Seconds a cancelled render's process gets to die politely before SIGKILL.
+_WORKER_STOP_GRACE_SECONDS = 5.0
+#: Seconds to wait for the process to be reaped after SIGKILL before giving up on it.
+_WORKER_KILL_GRACE_SECONDS = 5.0
+
 
 class JobStatus(StrEnum):
     QUEUED = "queued"
@@ -147,14 +160,115 @@ JobExecutor = Callable[..., RenderJob]
 ProgressSink = Callable[[str, float], None]
 
 
+def _pid_is_alive(pid: int) -> bool:
+    """Is ``pid`` a live process?
+
+    ``PermissionError`` counts as ALIVE: it means the pid exists but belongs to another
+    user, which is what an OS-recycled pid looks like. Reading that as "dead" would make
+    the orphan watchdog kill a perfectly healthy export.
+    """
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return True
+    return True
+
+
+def _watch_owners_and_die(owner_pids: tuple[int, ...], interval: float, grace: float) -> None:
+    """Kill this render's own process group once any owning process is gone.
+
+    WHY this exists at all: this worker calls :func:`os.setsid`, which is what lets a
+    per-job cancel signal its ffmpeg without touching the engine — but it also puts the
+    worker permanently OUTSIDE the sidecar's process group. The desktop app kills the
+    sidecar group on quit and sweeps registered pids on the next launch; this process is
+    in neither. Quit the app mid-export and ffmpeg kept running, kept burning cores, and
+    kept writing into the user's project. Only the worker can notice, because it is the
+    one that outlived its owners.
+
+    Both owners are watched, and EITHER dying is fatal, because they fail differently:
+
+    * ``os.getppid()`` is the sidecar. It owns the result queue — if it dies, this render
+      has no reader and its output can never be delivered. A sidecar crash kills this one.
+    * ``FRAMEPILOT_PARENT_PID`` is the Electron main process. A Force Quit or ``kill -9``
+      of the app kills that pid while the sidecar (spawned detached) may briefly survive.
+
+    :param owner_pids: The pids to watch; the worker exits when any is gone.
+    :param interval: Seconds between liveness polls.
+    :param grace: Seconds to wait after SIGTERM before escalating to SIGKILL.
+    """
+    while all(_pid_is_alive(pid) for pid in owner_pids):
+        time.sleep(interval)
+    _log.warning(
+        "ACT render worker orphaned (owners %s); stopping so ffmpeg cannot outlive the app",
+        owner_pids,
+    )
+    # Signal the GROUP, not just this process: ffmpeg is the child doing the actual work.
+    #
+    # Guarded on `pgid == os.getpid()` because the `os.setsid()` in `_run_job_to_queue` is
+    # ALLOWED TO FAIL — it raises when this process already leads a group. If it did fail we
+    # are still in the SIDECAR's group, and killpg would take down the engine and every
+    # other render with it. So in that case exit alone and leave the group untouched: not
+    # leading our own group means we are inside the app's detached group, which is exactly
+    # the case `killProcessGroup` already covers.
+    with suppress(OSError):
+        pgid = os.getpgrp()
+        if pgid == os.getpid():
+            os.killpg(pgid, signal.SIGTERM)
+            time.sleep(grace)
+            os.killpg(pgid, signal.SIGKILL)
+    os._exit(1)
+
+
+def _start_worker_orphan_watchdog(
+    owner_pids: tuple[int, ...],
+    *,
+    interval: float = _ORPHAN_WATCH_INTERVAL_SECONDS,
+    grace: float = _ORPHAN_WATCH_GRACE_SECONDS,
+) -> threading.Thread | None:
+    """Start :func:`_watch_owners_and_die` in a daemon thread, if there is anything to watch.
+
+    :param owner_pids: Candidate owner pids; non-positive and pid 1 are dropped (pid 1 is
+        init/reparenting, never a real owner).
+    :returns: The running thread, or ``None`` when no usable owner pid was found.
+    """
+    watched = tuple(sorted({pid for pid in owner_pids if pid > 1}))
+    if not watched:
+        return None
+    thread = threading.Thread(
+        target=_watch_owners_and_die,
+        args=(watched, interval, grace),
+        name="framepilot-render-orphan-watchdog",
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
+def _owner_pids_from_environment() -> tuple[int, ...]:
+    """The sidecar pid and the desktop app pid, read BEFORE :func:`os.setsid` runs."""
+    raw_app_pid = os.environ.get(_PARENT_PID_ENV, "").strip()
+    app_pid = int(raw_app_pid) if raw_app_pid.isdigit() else 0
+    return (os.getppid(), app_pid)
+
+
 def _run_job_to_queue(
     process_request_json: str,
     result_queue: MPQueue[str],
     progress_queue: MPQueue[str] | None = None,
 ) -> None:  # pragma: no cover
+    # Captured BEFORE setsid: `getppid()` is only guaranteed to name the sidecar while this
+    # process is still in its group and family as spawned.
+    owner_pids = _owner_pids_from_environment()
     # Own process group: ffmpeg is this process's child, and a cancel must reach it too.
+    # Allowed to fail (it raises if we already lead a group) — `_watch_owners_and_die`
+    # re-checks rather than assuming this succeeded.
     with suppress(OSError, AttributeError):
         os.setsid()
+    _start_worker_orphan_watchdog(owner_pids)
     request = RenderProcessRequest.model_validate_json(process_request_json)
 
     def report(stage: str, fraction: float) -> None:
@@ -192,6 +306,50 @@ def _terminate_group(proc: Any) -> None:
             os.killpg(os.getpgid(pid), signal.SIGTERM)
     if proc.is_alive():
         proc.terminate()
+
+
+def _stop_worker(
+    proc: Any,
+    *,
+    stop_grace: float = _WORKER_STOP_GRACE_SECONDS,
+    kill_grace: float = _WORKER_KILL_GRACE_SECONDS,
+) -> None:
+    """Terminate a render worker within a bounded time, and never block forever.
+
+    WHY bounded: this used to be ``_terminate_group(proc); proc.join()`` with no timeout,
+    and ``_terminate_group`` only ever sends SIGTERM — it never escalates. A worker stuck
+    in an uninterruptible read, or one whose ffmpeg ignores SIGTERM, therefore held the
+    joining thread forever. With ``workers=1`` that thread IS the queue: one cancelled
+    export and every later export sat at ``queued`` for the rest of the session.
+
+    Escalation is SIGTERM (so MoviePy/ffmpeg can close their files) → SIGKILL → give up.
+    Giving up LEAKS one process, which is bad; wedging the only worker is worse, and the
+    process is logged loudly so the leak is diagnosable rather than silent.
+
+    :param proc: The multiprocessing process to stop.
+    :param stop_grace: Seconds allowed for the polite SIGTERM to work.
+    :param kill_grace: Seconds allowed for the process to be reaped after SIGKILL.
+    """
+    _terminate_group(proc)
+    proc.join(stop_grace)
+    if not proc.is_alive():
+        return
+
+    pid = getattr(proc, "pid", None)
+    _log.warning("render worker %s ignored SIGTERM; escalating to SIGKILL", pid)
+    if pid:
+        with suppress(OSError, ProcessLookupError, AttributeError):
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+    with suppress(OSError, AttributeError, ValueError):
+        proc.kill()
+    proc.join(kill_grace)
+    if proc.is_alive():
+        # Returning leaks this process. Blocking would take the queue down with it.
+        _log.error(
+            "ACT render worker %s survived SIGKILL; abandoning it to keep the render "
+            "queue alive (it may still hold CPU/files)",
+            pid,
+        )
 
 
 def _discard_cancelled_output(request: RenderRequest) -> None:
@@ -269,8 +427,7 @@ def subprocess_executor(
         _discard_cancelled_output(request)
         raise
     finally:
-        _terminate_group(proc)
-        proc.join()
+        _stop_worker(proc)
 
 
 class RenderQueue:

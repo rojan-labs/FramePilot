@@ -22,8 +22,17 @@
  * Either way, success is decided by the terminal `RenderJob.state`/`output_path`,
  * never by the HTTP status alone — a failed/invalid render is reported as
  * `{ ok: false }`, never returned as a usable output.
+ *
+ * **Every request on the async path is bounded** (see {@link fetchBounded}): the caller's
+ * abort signal and a per-request deadline are both wired into the actual `fetch`, not
+ * merely checked between poll iterations. Without that, an abort raised while awaiting a
+ * hung submit or status request was never observed at all, and `ExportHub.cancel` aborted
+ * a controller nobody was listening to.
  */
+import { createLogger } from '@framepilot/shared-types';
 import type { ExportRequest, ExportResult } from '../ipc/contract.js';
+
+const log = createLogger('desktop:render:export-client');
 
 /** Minimal shape of the sidecar's `RenderJob` (a full render's terminal result). */
 interface RenderJobResponse {
@@ -79,6 +88,33 @@ export interface ExportViaSidecarOptions {
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 750;
+
+/**
+ * Per-request deadline for `GET /render/jobs/{id}`. A status read is a dictionary lookup
+ * in the sidecar; if it has not answered in 15s the socket is wedged, not busy. It is
+ * deliberately much larger than the 750ms poll interval so a merely loaded engine is
+ * never counted as a failure.
+ */
+const STATUS_REQUEST_TIMEOUT_MS = 15_000;
+
+/**
+ * Per-request deadline for `POST /render`. The sidecar answers `202` as soon as the job is
+ * queued, so this bounds enqueueing, not rendering — but the request body carries the whole
+ * project, and a cold engine may still be importing MoviePy, so the budget is generous.
+ */
+const SUBMIT_REQUEST_TIMEOUT_MS = 120_000;
+
+/**
+ * How many consecutive failed status reads end the export.
+ *
+ * Deliberately the same number as the sidecar manager's own `DEFAULT_LIVENESS_FAILURES`:
+ * the engine supervises itself and restarts a dead sidecar, and while it does, `GET
+ * /render/jobs/{id}` returns 503 (or nothing). This used to give up after ONE null — an
+ * export that was less patient than the recovery it was racing, so a transient blip was
+ * reported to the user as a failed export while ffmpeg happily finished and wrote the file.
+ */
+const MAX_CONSECUTIVE_STATUS_FAILURES = 3;
+
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['completed', 'failed', 'cancelled']);
 
 function isTerminalStatus(status: string): boolean {
@@ -107,14 +143,70 @@ function toExportResult(
   };
 }
 
-/** POST the shared render request body to `route` (`/render` or `/render/preview`). */
+/** A caller abort plus a per-request deadline, both wired into the real request. */
+interface RequestBounds {
+  /** The caller's cancellation signal (`ExportHub.cancel`), or undefined. */
+  readonly signal: AbortSignal | undefined;
+  /** Deadline for this single request, in ms. */
+  readonly timeoutMs: number;
+}
+
+/**
+ * `fetch` with the caller's abort AND a per-request deadline forwarded into the request
+ * itself.
+ *
+ * WHY not a `Promise.race`: racing only stops the *await*, leaving the socket open and the
+ * abort unobserved. Passing a real `AbortSignal` into `fetch` is what actually tears the
+ * request down, which is the whole point — an abort raised while awaiting an unbounded
+ * request was previously invisible until the request returned on its own, which for a hung
+ * sidecar is never.
+ *
+ * @param fetchFn - Injectable `fetch`.
+ * @param url - Absolute request URL.
+ * @param init - Request init; its `signal` is replaced by the combined one.
+ * @param bounds - Caller signal + this request's deadline.
+ * @returns The response, or a rejection when aborted or timed out.
+ */
+async function fetchBounded(
+  fetchFn: typeof fetch,
+  url: string,
+  init: RequestInit,
+  bounds: RequestBounds,
+): Promise<Response> {
+  const controller = new AbortController();
+  const abortFromCaller = (): void => {
+    controller.abort();
+  };
+  if (bounds.signal?.aborted) abortFromCaller();
+  bounds.signal?.addEventListener('abort', abortFromCaller, { once: true });
+  const timer = setTimeout(() => {
+    log.warn('request exceeded its deadline; aborting', { url, timeoutMs: bounds.timeoutMs });
+    controller.abort();
+  }, bounds.timeoutMs);
+  try {
+    return await fetchFn(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+    bounds.signal?.removeEventListener('abort', abortFromCaller);
+  }
+}
+
+/**
+ * POST the shared render request body to `route` (`/render` or `/render/preview`).
+ *
+ * @param bounds - When omitted the request is UNBOUNDED. That is correct — and required —
+ *   for `/render/preview`, which is a synchronous full render performed on that one
+ *   request: a submit-sized deadline there would abort real encoding work mid-flight.
+ */
 function postRenderRequest(
   baseUrl: string,
   route: string,
   req: ExportRequest,
   fetchFn: typeof fetch,
+  bounds?: RequestBounds,
 ): Promise<Response> {
-  return fetchFn(`${baseUrl}${route}`, {
+  const url = `${baseUrl}${route}`;
+  const init: RequestInit = {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -136,17 +228,28 @@ function postRenderRequest(
       loudness: req.loudness ?? null,
       limiter: req.limiter ?? false,
     }),
-  });
+  };
+  return bounds ? fetchBounded(fetchFn, url, init, bounds) : fetchFn(url, init);
 }
 
-/** `GET /render/jobs/{jobId}`, or `null` on any transport/parse failure. */
+/**
+ * `GET /render/jobs/{jobId}`, or `null` on any transport/parse failure — including this
+ * request's own deadline and the caller's abort landing mid-flight. Callers must therefore
+ * re-check `signal.aborted` after a `null` rather than assuming the engine is gone.
+ */
 async function fetchJobStatus(
   baseUrl: string,
   jobId: string,
   fetchFn: typeof fetch,
+  signal: AbortSignal | undefined,
 ): Promise<RenderTaskResponse | null> {
   try {
-    const response = await fetchFn(`${baseUrl}/render/jobs/${jobId}`, { method: 'GET' });
+    const response = await fetchBounded(
+      fetchFn,
+      `${baseUrl}/render/jobs/${jobId}`,
+      { method: 'GET' },
+      { signal, timeoutMs: STATUS_REQUEST_TIMEOUT_MS },
+    );
     if (!response.ok) return null;
     return (await response.json()) as RenderTaskResponse;
   } catch {
@@ -154,14 +257,25 @@ async function fetchJobStatus(
   }
 }
 
-/** `POST /render/jobs/{jobId}/cancel` — best-effort; a failure just stops polling anyway. */
+/**
+ * `POST /render/jobs/{jobId}/cancel` — best-effort; a failure just stops polling anyway.
+ *
+ * Deliberately NOT given the caller's abort signal: this request exists precisely because
+ * the caller aborted, so wiring the abort in would cancel the cancellation and leave
+ * ffmpeg running. Only the deadline bounds it.
+ */
 async function cancelRenderJob(
   baseUrl: string,
   jobId: string,
   fetchFn: typeof fetch,
 ): Promise<void> {
   try {
-    await fetchFn(`${baseUrl}/render/jobs/${jobId}/cancel`, { method: 'POST' });
+    await fetchBounded(
+      fetchFn,
+      `${baseUrl}/render/jobs/${jobId}/cancel`,
+      { method: 'POST' },
+      { signal: undefined, timeoutMs: STATUS_REQUEST_TIMEOUT_MS },
+    );
   } catch {
     // Best-effort: if the cancel request itself can't reach the sidecar, the
     // caller has already stopped waiting on this job either way.
@@ -206,8 +320,14 @@ async function renderFullAsync(
 
   let response: Response;
   try {
-    response = await postRenderRequest(baseUrl, '/render', req, fetchFn);
+    response = await postRenderRequest(baseUrl, '/render', req, fetchFn, {
+      signal: options.signal,
+      timeoutMs: SUBMIT_REQUEST_TIMEOUT_MS,
+    });
   } catch (error) {
+    // The submit is now abortable, so a throw here can be the user's own Stop landing
+    // before the job even had an id — report that as a cancellation, not a render failure.
+    if (options.signal?.aborted) return { ok: false, error: 'Export cancelled.' };
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
   if (response.status !== 202) {
@@ -245,10 +365,14 @@ async function renderFullAsync(
   const initial = reportAndCheckTerminal({ status: accepted.status });
   if (initial) return initial;
 
+  let consecutiveStatusFailures = 0;
+
   for (;;) {
     if (options.signal?.aborted) {
       await cancelRenderJob(baseUrl, jobId, fetchFn);
-      const cancelled = await fetchJobStatus(baseUrl, jobId, fetchFn);
+      // Read the terminal state WITHOUT the caller's signal: it is already aborted, and
+      // passing it would abort this confirming read too, losing the cancelled status.
+      const cancelled = await fetchJobStatus(baseUrl, jobId, fetchFn, undefined);
       return (
         reportAndCheckTerminal(cancelled ?? { status: 'cancelled' }) ?? {
           ok: false,
@@ -259,10 +383,36 @@ async function renderFullAsync(
 
     await sleep(pollIntervalMs);
 
-    const task = await fetchJobStatus(baseUrl, jobId, fetchFn);
+    const task = await fetchJobStatus(baseUrl, jobId, fetchFn, options.signal);
     if (!task) {
-      return { ok: false, error: `Lost track of render job ${jobId} (status check failed).` };
+      // A null is now often the caller's OWN abort landing mid-request, not a sick engine.
+      // Go round: the top of the loop owns the cancel path, and this must not count as a
+      // strike against the sidecar.
+      if (options.signal?.aborted) continue;
+      consecutiveStatusFailures += 1;
+      log.warn('render job status check failed', {
+        jobId,
+        consecutiveStatusFailures,
+        limit: MAX_CONSECUTIVE_STATUS_FAILURES,
+      });
+      if (consecutiveStatusFailures < MAX_CONSECUTIVE_STATUS_FAILURES) continue;
+      // Giving up on WATCHING the job is not the same as the job stopping. Without this
+      // cancel, ffmpeg ran to completion and wrote the output while the user was told the
+      // export had failed — a finished file nobody knew about, and cores held for minutes.
+      log.error('lost track of render job; cancelling it rather than leaving it running', {
+        jobId,
+        consecutiveStatusFailures,
+      });
+      await cancelRenderJob(baseUrl, jobId, fetchFn);
+      return {
+        ok: false,
+        error:
+          `Lost track of render job ${jobId} ` +
+          `(${String(MAX_CONSECUTIVE_STATUS_FAILURES)} status checks in a row failed). ` +
+          `The job was cancelled.`,
+      };
     }
+    consecutiveStatusFailures = 0;
     const result = reportAndCheckTerminal(task);
     if (result) return result;
   }

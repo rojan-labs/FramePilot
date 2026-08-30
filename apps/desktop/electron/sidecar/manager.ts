@@ -12,7 +12,10 @@
  * asynchronously, so the renderer must not issue render calls until `/health`
  * answers. We bound the wait (PRD §9 — renders must be reliable, not hang).
  */
+import { createLogger } from '@framepilot/shared-types';
 import type { SidecarStatus } from '../ipc/contract.js';
+
+const log = createLogger('desktop:sidecar:manager');
 
 /** A handle to the spawned sidecar process — the slice of it this module needs. */
 export interface SidecarProcess {
@@ -113,7 +116,10 @@ export class SidecarManager {
   private readonly livenessFailures: number;
   /** Bumped whenever a new engine starts or stop() is called, retiring any watch loop. */
   private livenessEpoch = 0;
-  /** Unexpected exits recovered from since the last stop(). */
+  /**
+   * Unexpected exits recovered from since the last stop() **or the last confirmed
+   * recovery**. See {@link watchLiveness} for why a healthy engine forgives the budget.
+   */
   private restarts = 0;
 
   private process: SidecarProcess | null = null;
@@ -242,6 +248,24 @@ export class SidecarManager {
         if (this.livenessEpoch !== epoch || this.phase !== 'ready') return;
         if (await this.healthy()) {
           consecutiveFailures = 0;
+          // FM-11: the restart budget never decayed. It was incremented on every recovery
+          // and reset only by an explicit stop(), so three transient crashes spread across
+          // a long editing session — hours apart, each fully recovered from — permanently
+          // disabled render, analysis and the agent until the user quit and relaunched.
+          //
+          // A ready engine that has just answered a full liveness interval has *demonstrably*
+          // recovered, which is the only honest evidence the manager has, so that is where
+          // the budget is forgiven. The budget still does its real job: it bounds a
+          // crash LOOP, where the engine never survives long enough to answer a check.
+          //
+          // Deliberately not on `setPhase('ready')`: that fires the microtask after a restart,
+          // before the engine has proven anything, which would make the budget unbounded —
+          // and would break `manager.test.ts`'s "keeps dying past the restart budget", which
+          // runs with liveness off precisely because it is testing the crash-loop case.
+          if (this.restarts > 0) {
+            log.action('sidecar recovered; restart budget reset', { spent: this.restarts });
+            this.restarts = 0;
+          }
           continue;
         }
         consecutiveFailures += 1;
@@ -251,6 +275,10 @@ export class SidecarManager {
         const dead = this.process;
         this.process = null;
         dead?.kill();
+        log.warn('sidecar stopped answering liveness checks', {
+          consecutiveFailures,
+          limit: this.livenessFailures,
+        });
         this.recover(
           `The engine stopped answering ${String(consecutiveFailures)} checks in a row.`,
         );
@@ -270,6 +298,7 @@ export class SidecarManager {
     }
     this.restarts += 1;
     const attempt = this.restarts;
+    log.action('sidecar restarting', { attempt, maxRestarts: this.maxRestarts, cause });
     this.setPhase(
       'starting',
       `${cause} Restarting (attempt ${String(attempt)} of ${String(this.maxRestarts)})…`,

@@ -296,8 +296,18 @@ function spawnSidecar(host: string, port: number): SidecarProcess {
     cwd: resolved.cwd,
     env: { ...process.env, ...resolved.env, ...capabilityPackRuntimeEnvironment },
     stdio: 'inherit',
-    // Own process group, so stopping the sidecar also stops its ffmpeg/ffprobe and render
-    // workers (`killProcessGroup`). The parent still waits on it; nothing is orphaned.
+    // Own process group, so stopping the sidecar also stops its ffmpeg/ffprobe
+    // (`killProcessGroup`). The parent still waits on it; nothing is orphaned.
+    //
+    // This does NOT reach the render workers, and the comment here used to claim it did.
+    // `subprocess_executor` spawns each render in a process that immediately calls
+    // `os.setsid()` — it needs its own group so a per-job cancel can signal its ffmpeg
+    // without touching the engine — which puts it permanently outside the group this
+    // `detached` flag creates. `killProcessGroup(-sidecarPid)` cannot reach it, and its pid
+    // is never registered, so `sweepOrphans` is blind to it too. Quit mid-export and ffmpeg
+    // kept running and kept writing. The worker therefore stops ITSELF: it watches both its
+    // owner pids and exits when either dies (`_start_worker_orphan_watchdog` in
+    // `engine/python/framepilot_engine/render/queue.py`).
     detached: process.platform !== 'win32',
   });
   // Without this, a failed spawn (e.g. ENOENT because `uv` isn't on PATH for

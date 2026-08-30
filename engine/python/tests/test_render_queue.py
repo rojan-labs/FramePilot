@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import queue as std_queue
+import signal
 import threading
 import time
 from collections.abc import Callable
@@ -47,10 +49,7 @@ def _failed_job() -> RenderJob:
     return RenderJob(id="j", project_id="p1", state=RenderState.FAILED, error="bad render")
 
 
-
-def _project_with_source(
-    *, width: int, height: int, peaks: list[float] | None = None
-) -> Project:
+def _project_with_source(*, width: int, height: int, peaks: list[float] | None = None) -> Project:
     """A minimal 1920x1080 project whose one video asset reports `width`x`height`."""
     return Project.model_validate(
         {
@@ -270,6 +269,14 @@ class _FakeQueue:
 
 
 class _FakeProcess:
+    """A stand-in render worker.
+
+    Deliberately has NO ``pid``: ``_terminate_group``/``_stop_worker`` guard their
+    ``os.getpgid``/``os.killpg`` calls on it, so a fake without one can never signal a real
+    process that happens to own that number. Tests that need a pid use
+    :class:`_StubbornProcess`, which is only ever used with ``os`` monkeypatched.
+    """
+
     def __init__(self, alive: bool = True) -> None:
         self._alive = alive
         self.terminated = False
@@ -284,7 +291,12 @@ class _FakeProcess:
         self.terminated = True
         self._alive = False
 
-    def join(self) -> None:
+    def kill(self) -> None:
+        self._alive = False
+
+    def join(self, timeout: float | None = None) -> None:
+        # Real `Process.join` takes a timeout; `_stop_worker` passes one. Without this
+        # parameter the fake raises TypeError and every cancellation test fails.
         self._alive = False
 
 
@@ -519,3 +531,248 @@ def test_render_worker_payload_still_drops_the_waveform_peaks(tmp_path: Path) ->
     assert media is not None
     assert media.peaks is None
     assert media.width == 640
+
+
+# --- FM-3: the render worker escapes the sidecar's process group -------------------
+
+
+def test_pid_is_alive_reports_this_process() -> None:
+    from framepilot_engine.render.queue import _pid_is_alive
+
+    assert _pid_is_alive(os.getpid()) is True
+
+
+def test_pid_is_alive_reports_a_missing_process_as_dead(monkeypatch: pytest.MonkeyPatch) -> None:
+    from framepilot_engine.render.queue import _pid_is_alive
+
+    def _gone(_pid: int, _sig: int) -> None:
+        raise ProcessLookupError
+
+    monkeypatch.setattr("framepilot_engine.render.queue.os.kill", _gone)
+    assert _pid_is_alive(4242) is False
+
+
+def test_pid_is_alive_treats_a_foreign_pid_as_alive(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A recycled pid owned by another user must NOT read as dead.
+
+    Reading EPERM as "the owner is gone" would make the watchdog kill a healthy export.
+    """
+    from framepilot_engine.render.queue import _pid_is_alive
+
+    def _foreign(_pid: int, _sig: int) -> None:
+        raise PermissionError
+
+    monkeypatch.setattr("framepilot_engine.render.queue.os.kill", _foreign)
+    assert _pid_is_alive(4242) is True
+
+
+def test_owner_pids_include_the_sidecar_and_the_desktop_app(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both owners are watched because they fail differently (force-quit vs sidecar crash)."""
+    from framepilot_engine.render.queue import _owner_pids_from_environment
+
+    monkeypatch.setenv("FRAMEPILOT_PARENT_PID", "9911")
+    monkeypatch.setattr("framepilot_engine.render.queue.os.getppid", lambda: 7722)
+    assert _owner_pids_from_environment() == (7722, 9911)
+
+
+def test_owner_pids_tolerate_a_missing_app_pid(monkeypatch: pytest.MonkeyPatch) -> None:
+    from framepilot_engine.render.queue import _owner_pids_from_environment
+
+    monkeypatch.delenv("FRAMEPILOT_PARENT_PID", raising=False)
+    monkeypatch.setattr("framepilot_engine.render.queue.os.getppid", lambda: 7722)
+    assert _owner_pids_from_environment() == (7722, 0)
+
+
+def test_orphan_watchdog_is_not_started_without_a_real_owner() -> None:
+    from framepilot_engine.render.queue import _start_worker_orphan_watchdog
+
+    # pid 1 is init (what a reparented orphan sees), never a real owner.
+    assert _start_worker_orphan_watchdog((0, 1)) is None
+
+
+def _patch_group_kill(
+    monkeypatch: pytest.MonkeyPatch, *, leads_group: bool
+) -> list[tuple[int, int]]:
+    """Record what the watchdog would have signalled, without signalling anything.
+
+    ``os.getpid`` is deliberately left alone — patching it would swap out a primitive the
+    whole interpreter shares. Only ``getpgrp`` is faked, so ``leads_group=False`` models a
+    failed ``setsid()`` (still inside the sidecar's group) without touching anything else.
+    """
+    signalled: list[tuple[int, int]] = []
+    own_pid = os.getpid()
+    monkeypatch.setattr(
+        "framepilot_engine.render.queue.os.getpgrp",
+        lambda: own_pid if leads_group else own_pid + 1,
+    )
+    monkeypatch.setattr(
+        "framepilot_engine.render.queue.os.killpg",
+        lambda group, sig: signalled.append((group, sig)),
+    )
+    return signalled
+
+
+def test_orphan_watchdog_kills_its_own_group_when_an_owner_dies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from framepilot_engine.render.queue import _watch_owners_and_die
+
+    signalled = _patch_group_kill(monkeypatch, leads_group=True)
+    monkeypatch.setattr("framepilot_engine.render.queue._pid_is_alive", lambda _pid: False)
+    exits: list[int] = []
+    monkeypatch.setattr("framepilot_engine.render.queue.os._exit", lambda code: exits.append(code))
+
+    _watch_owners_and_die((7722, 9911), 0.0, 0.0)
+
+    assert signalled == [(os.getpid(), signal.SIGTERM), (os.getpid(), signal.SIGKILL)]
+    assert exits == [1]
+
+
+def test_orphan_watchdog_waits_while_both_owners_live(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Either owner dying is fatal; neither dying means keep rendering."""
+    from framepilot_engine.render.queue import _watch_owners_and_die
+
+    signalled = _patch_group_kill(monkeypatch, leads_group=True)
+    exits: list[int] = []
+    monkeypatch.setattr("framepilot_engine.render.queue.os._exit", lambda code: exits.append(code))
+    # Alive for two polls, then the SECOND owner (the desktop app) disappears.
+    alive: dict[int, bool] = {7722: True, 9911: True}
+    polls = {"n": 0}
+
+    def _alive(pid: int) -> bool:
+        polls["n"] += 1
+        if polls["n"] > 4:
+            alive[9911] = False
+        return alive[pid]
+
+    monkeypatch.setattr("framepilot_engine.render.queue._pid_is_alive", _alive)
+
+    _watch_owners_and_die((7722, 9911), 0.0, 0.0)
+
+    assert polls["n"] > 4  # it really did keep waiting while both were up
+    assert signalled == [(os.getpid(), signal.SIGTERM), (os.getpid(), signal.SIGKILL)]
+    assert exits == [1]
+
+
+def test_orphan_watchdog_never_signals_the_sidecar_group(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If ``os.setsid()`` failed, this process is still in the SIDECAR's group.
+
+    Signalling that group would kill the engine and every other render. The watchdog must
+    exit alone instead. This is the single most dangerous line in the whole watchdog.
+    """
+    from framepilot_engine.render.queue import _watch_owners_and_die
+
+    signalled = _patch_group_kill(monkeypatch, leads_group=False)
+    monkeypatch.setattr("framepilot_engine.render.queue._pid_is_alive", lambda _pid: False)
+    exits: list[int] = []
+    monkeypatch.setattr("framepilot_engine.render.queue.os._exit", lambda code: exits.append(code))
+
+    _watch_owners_and_die((7722,), 0.0, 0.0)
+
+    assert signalled == []  # the engine's group was left alone
+    assert exits == [1]  # but this worker still stops
+
+
+# --- FM-4: cancelling an export must not wedge the queue ---------------------------
+
+
+class _StubbornProcess:
+    """A worker that ignores SIGTERM. Only ever used with ``os`` monkeypatched."""
+
+    def __init__(self, *, dies_on_kill: bool = True) -> None:
+        self.pid = 31337
+        self._alive = True
+        self.terminated = False
+        self.killed = False
+        self.joins: list[float | None] = []
+        self._dies_on_kill = dies_on_kill
+
+    def start(self) -> None:
+        pass
+
+    def is_alive(self) -> bool:
+        return self._alive
+
+    def terminate(self) -> None:
+        self.terminated = True  # ...and stays alive anyway.
+
+    def kill(self) -> None:
+        self.killed = True
+        if self._dies_on_kill:
+            self._alive = False
+
+    def join(self, timeout: float | None = None) -> None:
+        self.joins.append(timeout)
+
+
+def _patch_os_signals(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, int]]:
+    """Never let a test fake signal a real process that owns ``_StubbornProcess.pid``."""
+    signalled: list[tuple[int, int]] = []
+    monkeypatch.setattr("framepilot_engine.render.queue.os.getpgid", lambda pid: pid)
+    monkeypatch.setattr(
+        "framepilot_engine.render.queue.os.killpg",
+        lambda group, sig: signalled.append((group, sig)),
+    )
+    return signalled
+
+
+def test_stop_worker_returns_immediately_when_sigterm_works(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from framepilot_engine.render.queue import _stop_worker
+
+    _patch_os_signals(monkeypatch)
+    proc = _FakeProcess(alive=True)
+    _stop_worker(proc, stop_grace=0.01, kill_grace=0.01)
+    assert proc.terminated is True
+    assert proc.is_alive() is False
+
+
+def test_stop_worker_escalates_to_sigkill(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SIGTERM alone never escalated, so a stuck worker held the join forever."""
+    from framepilot_engine.render.queue import _stop_worker
+
+    signalled = _patch_os_signals(monkeypatch)
+    proc = _StubbornProcess()
+
+    _stop_worker(proc, stop_grace=0.01, kill_grace=0.01)
+
+    assert signalled == [(31337, signal.SIGTERM), (31337, signal.SIGKILL)]
+    assert proc.killed is True
+    assert proc.is_alive() is False
+
+
+def test_stop_worker_gives_up_rather_than_wedging_the_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With ``workers=1`` an unbounded join blocks EVERY later export, forever.
+
+    Leaking one unkillable process is the lesser evil, so this must return.
+    """
+    from framepilot_engine.render.queue import _stop_worker
+
+    _patch_os_signals(monkeypatch)
+    proc = _StubbornProcess(dies_on_kill=False)
+
+    _stop_worker(proc, stop_grace=0.01, kill_grace=0.01)
+
+    assert proc.killed is True
+    assert proc.is_alive() is True  # still there — and we returned anyway
+    assert proc.joins == [0.01, 0.01]  # every join was bounded
+
+
+def test_cancelling_a_render_never_joins_without_a_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+    """End to end through ``subprocess_executor``: the cancel path stays bounded."""
+    _patch_os_signals(monkeypatch)
+    proc = _StubbornProcess()
+    _patch_ctx(monkeypatch, _FakeQueue([]), cast(Any, proc))
+    event = threading.Event()
+    event.set()
+
+    with pytest.raises(JobCancelled):
+        subprocess_executor(_request(), event, None)
+
+    assert proc.killed is True
+    assert all(timeout is not None for timeout in proc.joins)
