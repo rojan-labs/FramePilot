@@ -93,7 +93,9 @@ describe('agentModeInstruction', () => {
   it('preserves partial work and the source/sequence timing boundary', () => {
     const text = agentModeInstruction();
     expect(text).toContain('CONTINUE from it');
-    expect(text).toMatch(/Never\s+clear a track/);
+    // The wipe guard is gone, so the contract no longer claims a full-track clear is
+    // rejected — the continuity instruction stays, the refusal promise does not.
+    expect(text).not.toMatch(/such a wipe is rejected/);
     expect(text).toContain('TWO TIMEBASES');
     expect(text).toContain('call map_time or get_mapped_transcript');
     expect(text).toContain('Do NOT compute offsets');
@@ -182,9 +184,6 @@ describe('wire-prompt responsibilities', () => {
     expect(prompt).not.toContain('recipe');
     expect(prompt).not.toContain('planned_edit');
   });
-
-
-
 });
 
 describe('agentActionRecoveryBlock', () => {

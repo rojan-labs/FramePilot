@@ -222,7 +222,6 @@ import { toolContract } from './tool-contract.js';
 import { concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
 import { recordToolRun } from './run-log.js';
 import { IMPLICIT_ONLY_TOOL_NAMES, QUESTION_ROUTE_PERMISSIONS, selectTools } from './tool-scope.js';
-import { type WipeGuardContext, detectTimelineWipe, wipeGuardFor } from './wipe-guard.js';
 
 export type { EditResult } from './assemble.js';
 
@@ -1442,15 +1441,6 @@ interface HostCallContext {
    * Optional and fire-and-forget: absent ⇒ nothing is recorded.
    */
   readonly rememberDecision?: (note: { readonly title: string; readonly body: string }) => void;
-  /**
-   * The run's timeline wipe guard (agent continuity): a delete op that would
-   * clear a whole multi-clip track of pre-run work is rejected with a
-   * corrective note instead of applied — the deterministic backstop for the
-   * "ripple-delete everything and start over" failure loop. Optional: paths
-   * that do not thread one (or a run whose user prompt asked for a reset —
-   * see {@link wipeGuardFor}) simply run unguarded.
-   */
-  readonly wipeGuard?: WipeGuardContext;
 }
 
 /** What one tool call settled to — {@link Orchestrator.runAgentCall}'s result. */
@@ -4140,9 +4130,9 @@ export class Orchestrator {
       }
     }
     // Same split on the mutating path. `operationsFor` is the tool boundary and throws a
-    // typed `ToolInvocationError`; `detectTimelineWipe`, `assembleEdit`,
-    // `summarizeOperations` and `applyProjectPatch` below are not, and a throw from any of
-    // them was being relabelled as the model's bad arguments AND banked as permanent.
+    // typed `ToolInvocationError`; `assembleEdit`, `summarizeOperations` and
+    // `applyProjectPatch` below are not, and a throw from any of them was being
+    // relabelled as the model's bad arguments AND banked as permanent.
     let ops: AnyOperation[];
     try {
       ops = this.operationsFor(call, host.evidence ? { ...ctx, evidence: host.evidence } : ctx);
@@ -4170,32 +4160,6 @@ export class Orchestrator {
         // repeating the no-op or halting on it.
         const note = `${desc} — nothing to change`;
         return { ops, note, summary: note, status: 'warning' };
-      }
-      // Wipe guard (agent continuity): a delete that clears a whole multi-clip
-      // track of pre-run work is the "start over" failure loop, not an edit —
-      // reject it with the corrective note before it ever reaches the validator.
-      const wipeVerdict = detectTimelineWipe(ops, ctx.project, host.wipeGuard);
-      if (wipeVerdict) {
-        const note = `Rejected "${call.name}" — ${wipeVerdict}`;
-        orchestratorLog.warn('tool call rejected — wipe guard', {
-          tool: call.name,
-          args: call.arguments,
-        });
-        return {
-          ops: [],
-          note,
-          summary: `${desc} — rejected: would wipe existing work`,
-          status: 'failed',
-          data: wipeVerdict,
-          rejectedOpCount: ops.length,
-          // Deterministic in the only sense the bank uses: the guard is a pure function of
-          // the proposed ops and the current project, so the identical call against the
-          // same timeline is refused with the identical sentence. Nothing is pre-blocked —
-          // `runAgentCall` still runs every call and the bank only replaces an outcome that
-          // reproduces the same key, so a later call the guard no longer objects to still
-          // lands. Without the flag the run could re-propose the same wipe every turn.
-          deterministicFailure: true,
-        };
       }
       // Validate against the working copy NOW, not at turn end: an invalid call
       // (overlapping clips, unknown ids, …) fails its own card with the validator's
@@ -4260,8 +4224,8 @@ export class Orchestrator {
     } catch (error) {
       // The old comment here claimed only a `ToolInvocationError` for invalid args could
       // reach this point. That was never true: everything above except `operationsFor` is
-      // orchestrator work, so a throw from `assembleEdit`, `summarizeOperations`,
-      // `detectTimelineWipe` or `applyProjectPatch` was reported as the model's bad
+      // orchestrator work, so a throw from `assembleEdit`, `summarizeOperations`
+      // or `applyProjectPatch` was reported as the model's bad
       // arguments and banked as permanent — losing the tool for the rest of the run over a
       // fault it had no part in. Retryable by omission: no `deterministicFailure`, so
       // `deterministicFailureKey` returns nothing.
@@ -4589,9 +4553,6 @@ export class Orchestrator {
     // Per-run analysis budget (B5.4): caps frames/ffmpeg-seconds/transcription across
     // the whole run so a spinning loop hits an honest ceiling, not the compute wall.
     const analysisBudget = createAnalysisBudget(options.analysisCaps);
-    // Agent continuity: same wipe guard as the streaming loop (parity — both control
-    // paths must reject a destructive "start over" identically).
-    const wipeGuard = wipeGuardFor(input.userPrompt, input.project);
     let working: Project = input.project;
 
     // R3 C4: optionally draft an up-front plan the loop then follows. Only the actionable
@@ -4668,7 +4629,6 @@ export class Orchestrator {
             beatEvidence,
             loadedSkills,
             analysisBudget,
-            ...(wipeGuard ? { wipeGuard } : {}),
           },
         );
         turnOps.push(...ops);
@@ -5290,8 +5250,6 @@ export class Orchestrator {
     // Non-optional: both agent and tool-using question loops always thread the run's
     // up-front `createAnalysisBudget()` result — never a budget-less call.
     analysisBudget: AnalysisBudget,
-    /** The run's wipe guard (agent continuity); absent ⇒ deletes run unguarded. */
-    wipeGuard?: WipeGuardContext,
     /** Enforce an exceptional route-scoped descriptor set at execution time. */
     allowedToolNames?: ReadonlySet<string>,
     /**
@@ -5372,7 +5330,6 @@ export class Orchestrator {
       // `analysisBudget` is created once up front (always truthy) and threaded
       // through every turn of this loop — see `HostCallContext.analysisBudget`.
       analysisBudget,
-      ...(wipeGuard ? { wipeGuard } : {}),
     };
     // The card shows the human title plus a compact args line (U4) so the
     // user can see WHAT the call was asked to do without opening details.
@@ -5951,7 +5908,6 @@ export class Orchestrator {
             analysisBudget,
             // A question turn can `ask_user` too, and an answer given there is just as
             // worth keeping as one given mid-edit.
-            undefined,
             undefined,
             undefined,
             chatOptions.controls?.rememberDecision,
@@ -6753,10 +6709,6 @@ export class Orchestrator {
     // Per-run analysis budget (B5.4) — same role as the non-streaming loop's; shared
     // across the run's turns AND its repair pass so the ceiling is truly per-run.
     const analysisBudget = createAnalysisBudget(agentOptions.analysisCaps);
-    // Agent continuity: snapshot the run-start timeline so a mid-run delete that
-    // would clear a whole track of this pre-run work is rejected (see wipe-guard.ts).
-    // Undefined when the user's own prompt asked for a reset — then wiping IS the goal.
-    const wipeGuard = wipeGuardFor(input.userPrompt, input.project);
     const appliedPatchIds = new Set<string>();
     const log: string[] = [];
     let plan: readonly string[] | undefined;
@@ -7398,7 +7350,6 @@ export class Orchestrator {
           signal,
           now,
           analysisBudget,
-          wipeGuard,
           // Enforced, not merely advertised. `allowedToolNames` used to be passed only on
           // the recovery path, so a stage-narrowed tool called anyway executed normally —
           // the narrowing was a suggestion. A withholding scope that the model can step

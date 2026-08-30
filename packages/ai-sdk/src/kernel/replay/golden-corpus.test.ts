@@ -114,19 +114,6 @@ interface Scenario {
 
 const SCENARIOS: readonly Scenario[] = [
   {
-    name: 'wipe-guard-trigger',
-    covers:
-      'A delete that would clear EVERY clip on a multi-clip track. wipe-guard must refuse ' +
-      'the call rather than let the model "start over" on the user\'s timeline (§5.3, risk 8). ' +
-      'This is the session M4/M6 must pass on both tool paths. NOTE the prompt: it deliberately ' +
-      'contains no reset/removal words, because `wipeGuardFor` DISABLES the guard when the user ' +
-      'themselves asked for a wipe — a prompt like "start over" would record the non-trigger ' +
-      'path while appearing to test the guard.',
-    prompt: 'make the opening punchier',
-    // `clip_a` (0-6) and `clip_b` (6-10) are every clip on video_1; 0-10 clears the track.
-    build: () => ({ provider: new ScriptedProvider([turn(del('w', 0, 10)), done]) }),
-  },
-  {
     name: 'load-skill-chain',
     covers:
       'A read tool (`load_skill`) resolved before an edit — the ADR 0057 on-demand skill ' +
@@ -285,7 +272,6 @@ describe('M0.2 golden-session corpus', () => {
         'plan-approval',
         'rejected-patch-invalid-op',
         'unavailable-tool-refusal',
-        'wipe-guard-trigger',
       ].sort(),
     );
   });

@@ -7378,7 +7378,14 @@ finalized with "No changes were made" — 0 ops applied.
 > (and the other path envs) never expanded `~`, so the cross-project soul wrote
 > to `<cwd>/~/...` — `config.py` now `expanduser()`s all path envs.
 
-- [x] **C1** Wipe guard module + 15 unit tests; ai-sdk suite 1374 green; dist rebuilt
+> **Superseded 2026-08-30 (ADR 0166): the wipe guard was REMOVED.** It could not tell a
+> run "starting fresh" apart from the user genuinely asking for a track to be cleared, so
+> it refused legitimate edits and the run spent requests routing around a rule it could
+> not satisfy. The continuity rule in the agent contract (C2) stays; the deterministic
+> refusal does not. Reversibility for a full-track clear is the patch engine's
+> (`invertProjectPatch`), which is where it always was.
+
+- [x] **C1** ~~Wipe guard module + 15 unit tests~~ — removed 2026-08-30, see ADR 0166
 - [x] **C2** Agent-contract continuity rule (`prompts.ts`)
 - [x] **C3** `useEditPulse` hook + tests; TimelineView pulse overlay + glide CSS; web-editor 1134 green
 - [x] **C4** Engine `config.py` tilde expansion + test (engine config tests green)
@@ -7404,11 +7411,12 @@ finalized with "No changes were made" — 0 ops applied.
 > **Wipe guard hardened** — a call's deletes are judged in AGGREGATE per track
 > (many narrow deletes that together clear a track = one wide wipe) and
 > `remove_layer` of a populated track of pre-run work is rejected too.
+> _(The guard was removed entirely on 2026-08-30 — ADR 0166.)_
 > Agent contract now steers long-form runs to the compact reads and id-addressed
 > deletes (`prompts.ts`).
 
 - [x] **T1** TS registry: 3 new reads + windowed transcript + 4 new mutates; ai-sdk tests green
-- [x] **T2** Wipe guard: per-call aggregate coverage + `remove_layer`; tests
+- [x] **T2** ~~Wipe guard: per-call aggregate coverage + `remove_layer`~~ — guard removed 2026-08-30, ADR 0166
 - [x] **T3** Python mirror (registry/handlers/dispatch) + tests; parity green; ai_tools coverage held
 - [x] **T4** `toolMeta` display entries; docs (`docs/api/ai-tools.md`, MCP guide/API); CHANGELOG
 - [x] **T5** Python `Operation` union closed (2026-07-16): `add_layer`/`remove_layer`/`move_layer`, `set_effect_params`, and the v5–v8 styling ops (`set_caption_style`/`set_clip_speed`/`set_clip_crop`/`set_clip_blend_mode`) now have Pydantic models, apply + invert (round-trip tested), and `validate_patch` support incl. the TS `speed_duration_mismatch` invariant and `duplicate_layer`/`invalid_speed` codes. Engine 1013 tests, ruff+mypy green; new code fully covered.
@@ -8298,7 +8306,7 @@ stay that way until P3 makes them real.
       it is reachable from the UI. Capability-gated `available` (one manifest drives the
       model's tool list _and_ `mcp-server/src/tools.ts`'s descriptor filter), a job-handle
       contract for minutes-long analysis, a token-budgeted scene digest that never carries
-      per-frame geometry, six new skills, `wipe-guard` extended to compositing, and a
+      per-frame geometry, six new skills, and a
       honesty regression suite extending ADR 0083's fail-closed rule to every compositing
       tool. Per-phase DoD: TS↔Python↔MCP parity plus a proof that each tool's `buildOps`
       yields a timeline deep-equal to the manual UI path.
@@ -9020,6 +9028,21 @@ decision in **ADR 0157**.
       on its onsets) and mutation-tested, but not yet against the live desktop sidecar and
       real media. Confirm the clips land, the run reports its beat map, and the export path
       produces the 9:16 file the brief asked for.
+
+- [x] **The wipe guard is removed — a refused legitimate edit costs more than a wipe.**
+      `packages/ai-sdk/src/wipe-guard.ts` refused any agent call clearing every clip on a
+      multi-clip track unless the user's prompt matched a reset-intent regex. The regex was
+      the tell: intent to clear a track is expressed in more ways than an allowlist
+      enumerates, and the default on no match was refusal — so real requests were blocked
+      and the mission baseline measured three requests burned routing around it. Deleted the
+      module, both `wipeGuardFor` snapshots, the `runAgentCall` rejection branch, the
+      `HostCallContext.wipeGuard` field, the "such a wipe is rejected" clause in
+      `prompts.ts`, and the two golden sessions that recorded the refusal. A full-track clear
+      now validates, applies, and inverts through the normal path — pinned by a regression
+      test covering multi-track, sole-track, and already-empty-track cases. Contract is 45
+      tokens/request cheaper (22,412 → 22,367). **ADR 0166.** Accepted risk: a model that
+      decides to rebuild can now clear a track, and the user's recourse is undo rather than
+      prevention. Other progress guards untouched.
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)

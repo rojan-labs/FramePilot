@@ -105,7 +105,7 @@ nothing in a non-empty bin.
 | `delete_clips`            | Delete up to 50 clips by id in one call                        | write            | yes        |
 | `move_clip`               | Move a clip to a new track/start                               | write            | yes        |
 | `add_track`               | Create a new empty track/layer (`add_layer` op)                | write            | yes        |
-| `remove_track`            | Remove a track and its clips (`remove_layer` op, wipe-guarded) | write            | yes        |
+| `remove_track`            | Remove a track and its clips (`remove_layer` op)               | write            | yes        |
 | `move_track`              | Reorder a track's z-slot (`move_layer` op)                     | write            | yes        |
 | `add_clip`                | Add a clip from an existing asset                              | write            | yes        |
 | `add_clips`               | Place a whole sequence on one track in a single call           | write            | yes        |

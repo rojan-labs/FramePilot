@@ -174,12 +174,13 @@ P1.6 after-measurement.
 
 ## P1.4 — Refinement turns reuse the previous plan — `[x]`
 
-**Touches:** `kernel/continuation.ts`, `kernel/briefing.ts`, wipe guard. A second-turn
+**Touches:** `kernel/continuation.ts`, `kernel/briefing.ts`. A second-turn
 request ("tighten the middle") must start from the prior run's briefing + commit ledger,
 not from a fresh plan. Feed the ledger's placed-clip list and the rubric outcome into the
 new run's structured state; forbid a re-plan that discards the placed timeline unless the
-user says so (the wipe guard already blocks full-track ripple delete — extend to
-re-planning).
+user says so. (An earlier note here leaned on the wipe guard for this; the guard was
+removed on 2026-08-30 — ADR 0166 — so continuity here rests on the briefing and the
+commit ledger alone.)
 **Done when:** UC-08 call count ≤ UC-01 call count and the placed clips from UC-01 survive
 except the ones the request named.
 
@@ -190,7 +191,7 @@ call count (12) is below turn 1's (18), satisfying the "UC-08 calls ≤ UC-01 ca
 
 State: the mechanism exists and is tested — `carryForwardWorkingState` passes
 the previous run's committed decisions and revision-independent facts into the new run's
-briefing, and the wipe guard blocks a full-track ripple delete. The desktop hub reads it
+briefing. The desktop hub reads it
 from the run ledger; the browser does not (documented host difference, P2.4). The
 **evidence** is the `refine-tighten` scenario, which is exactly one of the three the
 provider rate-limit blocked — so this closes with P1.6's residual, on the same command.

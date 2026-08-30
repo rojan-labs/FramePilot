@@ -989,11 +989,10 @@ reason about numbers it cannot hold.
 - **Scoping tags** (`tool-scope.ts`): `capabilities: ['scene-analysis']`,
   `['compositing']`, `['masking']` so scoped descriptor sets can expose a compositing-only
   agent without the whole registry.
-- **`wipe-guard.ts` must learn about compositing.** Today it blocks full-track
-  `ripple_delete` "start over" (see the agent-continuity memory). A "start over" that
-  discards masks, tracks, or a whole composite stack is the same class of irreversible
-  loss and needs the same guard — add compositing ops to its trigger list, and verify the
-  non-trigger list still permits legitimate replacement.
+- ~~**`wipe-guard.ts` must learn about compositing.**~~ **Dropped (ADR 0166).** The wipe
+  guard was removed on 2026-08-30 because it refused legitimate track clears; there is no
+  trigger list to extend. A destructive compositing edit is reversible the same way every
+  other operation is — through the patch engine's inverse — not through a refusal.
 
 ### 6.7 Skills — teaching the craft, not the API
 

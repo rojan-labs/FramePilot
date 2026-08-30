@@ -7,7 +7,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Orchestrator, agentCompletionReport, type StreamOptions } from './orchestrator.js';
-import type { AnyOperation } from '@framepilot/editor-core';
+import { applyProjectPatch, invertProjectPatch, type AnyOperation } from '@framepilot/editor-core';
 import { MockProvider } from './providers/mock.js';
 import { reduceEvents, type AiEvent } from './events.js';
 import { InMemoryPatchCommitLedger } from './kernel/commit-ledger.js';
@@ -32,6 +32,7 @@ import type {
 import type { HostToolExecutor, HostToolOutcome } from './tool-executor.js';
 import type { ContextInput } from './context-builder.js';
 import { makeProject } from './__fixtures__/project.js';
+import { assembleEdit } from './assemble.js';
 
 const input: ContextInput = { project: makeProject(), userPrompt: 'tighten the intro' };
 const opts = (signal?: AbortSignal): StreamOptions => ({
@@ -2039,16 +2040,17 @@ describe('streamAgent', () => {
 });
 
 /**
- * The wipe guard (agent-continuity backstop, see wipe-guard.ts) must actually
- * reject a full-track wipe when it reaches the agent loop, not just when called
- * directly in isolation — otherwise a "start over" call would sail straight
- * through `runAgentCall` uncaught.
+ * A full-track clear is an ordinary typed timeline operation, not a special case.
+ * The agent-continuity wipe guard that used to refuse it was removed because it
+ * blocked legitimate, user-intended edits; this pins that such a call now flows
+ * through the normal patch → validate → apply path AND stays reversible — undo is
+ * the patch engine's job, not a guard's.
  */
-describe('streamAgent wipe guard (agent continuity)', () => {
-  it('rejects a call that would ripple_delete every clip on a multi-clip track', async () => {
+describe('streamAgent full-track clear (no wipe guard)', () => {
+  it('applies a ripple_delete spanning every clip on a track, and the patch inverts back', async () => {
     const provider = new ScriptedProvider([
       {
-        text: 'starting over',
+        text: 'clearing the track',
         toolCalls: [
           { id: 'w1', name: 'ripple_delete', arguments: { trackId: 'video_1', start: 0, end: 10 } },
         ],
@@ -2057,30 +2059,53 @@ describe('streamAgent wipe guard (agent continuity)', () => {
     ]);
     const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
     const terminal = events.filter((e) => e.type === 'tool_call' && e.id === 'w1').at(-1);
-    expect(terminal).toMatchObject({ status: 'failed' });
-    const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 'w1');
-    expect(result?.type === 'tool_result' ? result.summary : '').toMatch(
-      /would wipe existing work/,
-    );
-    // No op from the rejected call reached the applied diff.
-    const diff = events.find((e) => e.type === 'diff');
-    expect(diff?.type === 'diff' ? diff.ops : []).toHaveLength(0);
+    expect(terminal).toMatchObject({ status: 'completed' });
+
+    // The clear reached the applied diff rather than being refused.
+    const diffs = events.filter((e): e is Extract<AiEvent, { type: 'diff' }> => e.type === 'diff');
+    const ops = diffs.flatMap((diff) => diff.edit.patch.operations as AnyOperation[]);
+    expect(ops.length).toBeGreaterThan(0);
+    expect(ops.some((op) => op.type === 'ripple_delete')).toBe(true);
+
+    // Reversibility comes from the patch engine: applying the assembled patch empties
+    // the track, and its inverse restores the exact prior timeline.
+    const before = input.project;
+    const assembled = assembleEdit(before, ops, 'full-track clear', 'agent');
+    expect(assembled.validation.valid).toBe(true);
+    const after = applyProjectPatch(before, assembled.patch);
+    expect(after.timeline.tracks.find((t) => t.id === 'video_1')?.clips).toHaveLength(0);
+    const restored = applyProjectPatch(after, invertProjectPatch(before, assembled.patch));
+    // `revision` is the patch engine's monotonic counter — every apply bumps it, so the
+    // round trip restores the tracks, not the counter.
+    expect(restored.timeline.tracks).toEqual(before.timeline.tracks);
   });
 
-  it('lets the same wipe through when the user prompt itself asked for a reset', async () => {
-    const resetInput: ContextInput = { ...input, userPrompt: 'delete everything and start over' };
+  it('clears an already-empty track and a single-track project without erroring', async () => {
     const provider = new ScriptedProvider([
       {
-        text: 'clearing it',
+        text: 'clearing',
         toolCalls: [
-          { id: 'w2', name: 'ripple_delete', arguments: { trackId: 'video_1', start: 0, end: 10 } },
+          { id: 'e1', name: 'ripple_delete', arguments: { trackId: 'audio_1', start: 0, end: 10 } },
         ],
       },
       { text: 'done', toolCalls: [] },
     ]);
-    const events = await drain(new Orchestrator(provider).streamAgent(resetInput, opts()));
-    const terminal = events.filter((e) => e.type === 'tool_call' && e.id === 'w2').at(-1);
-    expect(terminal).toMatchObject({ status: 'completed' });
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
+
+    // The only track in the project, cleared: still a valid project, still invertible.
+    const soleTrack = makeProject({
+      timeline: { tracks: [makeProject().timeline.tracks[0]!] },
+    });
+    const clear: AnyOperation[] = [
+      { type: 'ripple_delete', trackId: 'video_1', start: 0, end: 10 },
+    ];
+    const assembled = assembleEdit(soleTrack, clear, 'clear the only track', 'agent');
+    expect(assembled.validation.valid).toBe(true);
+    const after = applyProjectPatch(soleTrack, assembled.patch);
+    expect(after.timeline.tracks[0]?.clips).toHaveLength(0);
+    const restored = applyProjectPatch(after, invertProjectPatch(soleTrack, assembled.patch));
+    expect(restored.timeline.tracks).toEqual(soleTrack.timeline.tracks);
   });
 });
 
@@ -4059,7 +4084,6 @@ describe('streamAgent host commit verdict', () => {
   });
 });
 
-
 /**
  * An INTERNAL failure must not be reported as the model's bad arguments, and must not be
  * banked as permanent (P1-5).
@@ -4067,8 +4091,8 @@ describe('streamAgent host commit verdict', () => {
  * `runAgentCall` wrapped the whole read branch and the whole mutate branch in one catch
  * each, and both answered every throw with `Invalid arguments for "X"` plus
  * `deterministicFailure: true`. But those blocks also contain orchestrator plumbing — the
- * evidence lookup/put/invalidate, `evidencePayload`, `summarizeReadResult`, the wipe guard,
- * `assembleEdit`, `applyProjectPatch`. A defect in any of them was therefore reported to
+ * evidence lookup/put/invalidate, `evidencePayload`, `summarizeReadResult`, `assembleEdit`,
+ * `applyProjectPatch`. A defect in any of them was therefore reported to
  * the model as a mistake in arguments that were fine, AND banked into `seenFailureKeys`, so
  * `repeatedFailureOutcome` refused the tool for the rest of the run with "Retrying it
  * cannot succeed." A transient fault of ours became permanent capability loss.

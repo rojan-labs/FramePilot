@@ -172,7 +172,7 @@ run engine-side (D6), so the provider key must reach Python. Two sub-decisions t
   Add route arms in `sidecar-executor.ts` (`planSidecarCall` + route maps + `unwrapVisualSearch`
   interpreter mirroring `unwrapSearch`). MCP parity is **automatic** via `buildMcpTools` — but a
   `tools.test.ts` guard enforces it, so update expectations. Declare `capabilities: ['analysis','visual']`
-  for tool-scope. Wipe-guard review = confirm they emit no ops (they're non-mutating).
+  for tool-scope. (A wipe-guard review used to belong here; the guard is gone — ADR 0166.)
 - Context-builder (`context-builder.ts`) visual-status line + honest-unavailable string; add a
   `visualStatus` reader in `brain-client.ts` (Zod mirror; parity-tested by
   `test_brain_client_ts_parity.py` — keep TS↔Python shapes in sync).

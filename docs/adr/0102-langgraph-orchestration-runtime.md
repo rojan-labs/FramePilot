@@ -57,6 +57,11 @@ policy; nothing does both.
   validate-render, MoviePy render-only, wipe-guard and `unavailable`-tool refusal inside
   the tool path.
 
+  > **Superseded in part (2026-08-30, ADR 0166).** The wipe guard was removed — it
+  > refused legitimate user-intended track clears. The `unavailable`-tool refusal and
+  > every other invariant listed here still hold inside the tool path. The corpus below
+  > is now eight sessions: `wipe-guard-trigger` was deleted with the guard.
+
 ## Evidence this was safe to cut over
 
 Not "the tests pass" — the specific oracles the plan required:

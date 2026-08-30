@@ -81,6 +81,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **The AI will now clear a track when you ask it to.** A safeguard added earlier
+  refused any AI edit that would delete every clip on a track, on the theory that a run
+  deciding to "start over" was always a mistake. It could not tell that apart from you
+  genuinely asking for the track to be cleared, so legitimate requests came back as a
+  refusal — and the AI then burned several turns trying to find a phrasing that would get
+  through. The safeguard is gone. Clearing a track is now an ordinary edit: it applies,
+  it shows in the timeline, and **undo restores it exactly**, the same as any other AI
+  edit. The AI is still told the timeline is your work and to build on it rather than
+  restart it — that guidance stays; only the hard refusal was removed. See ADR 0166.
+
 - **Agent runs stop re-buying facts they already have.** The media-bin block used to vanish
   from the AI's context the moment every asset was on the timeline — taking the only
   statement of each source's DURATION with it — so a run would fetch the same one-asset

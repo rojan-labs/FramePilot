@@ -66,10 +66,6 @@ Desktop Agent mode is unaffected: the flag gates the MCP surface only, exactly a
 `professional_*` already relies on. The alternative would have been an MCP tool that is
 advertised and then always fails.
 
-Also check `wipe-guard` (`packages/ai-sdk/src/wipe-guard.ts`): confirm `add_stock` is neither
-caught by an existing trigger nor in need of a new one, and check its documented non-trigger
-list before touching anything there.
-
 ---
 
 ## P4.2 — Host execution

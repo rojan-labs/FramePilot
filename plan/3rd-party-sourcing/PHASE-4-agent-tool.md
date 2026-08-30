@@ -119,9 +119,6 @@ new one. Ground every recipe in what the tools actually do (`editing-skills-expe
 conventions): search returns candidates, `add_music` places and can duck, `detect_beats`
 already exists for beat alignment.
 
-Also check `wipe-guard` (`packages/ai-sdk/src/wipe-guard.ts`) — confirm `add_music` is not
-caught by, and does not need, a guard trigger.
-
 ---
 
 ## P4.6 — Evidence — `[~]` token delta measured · agent run OUTSTANDING
