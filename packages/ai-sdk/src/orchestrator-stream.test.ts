@@ -3841,6 +3841,42 @@ describe('streamAgent prompt-prefix stability (E3)', () => {
     expect(cached(turn2!.messages)).toContain(brief);
   });
 
+  it('keeps the WHOLE cacheable prefix byte-identical across applied edits', async () => {
+    // The gap the head-only assertions left open. A provider caches a byte-identical
+    // PREFIX, so what matters is every message up to and including the breakpoint — not the
+    // breakpoint message alone. `renderStateBlock` (timeline duration, resolution, per-track
+    // clip counts, revision) led that prefix at byte zero, so an applied edit changed
+    // position 0 and voided all of it: the transcript slice, the memory tiers, the session
+    // context, the references, the skills manifest and the editor's own brief were re-billed
+    // at full price every turn. A captured run reported `cachedInputTokens: 0`.
+    const provider = new ScriptedProvider([
+      { text: 'cut', toolCalls: [deleteRange('a', 0, 1)] },
+      { text: 'cut again', toolCalls: [deleteRange('b', 2, 3)] },
+      { text: 'read', toolCalls: [{ id: 'r1', name: 'get_timeline', arguments: {} }] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    await drain(new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 5 }));
+    expect(provider.requests.length).toBeGreaterThan(2);
+    /** Everything a provider would cache: through the message carrying the breakpoint. */
+    const cacheablePrefix = (messages: readonly AiMessage[]): string => {
+      const boundary = messages.findIndex((m) => m.cacheBoundary === true);
+      expect(boundary, 'a turn must carry exactly one cache breakpoint').toBeGreaterThan(-1);
+      return messages
+        .slice(0, boundary + 1)
+        .map((m) => m.content)
+        .join('\n');
+    };
+    const first = cacheablePrefix(provider.requests[0]!.messages);
+    for (const request of provider.requests.slice(1)) {
+      expect(cacheablePrefix(request.messages)).toBe(first);
+    }
+    // …and the STATE block really is the thing that moved: it now rides the turn-varying
+    // tail, where a rewrite costs its own ~40-60 tokens instead of the whole prefix.
+    const STATE_BLOCK_HEAD = 'STATE\nproject';
+    expect(first).not.toContain(STATE_BLOCK_HEAD);
+    expect(provider.requests.at(-1)!.messages.at(-1)!.content).toContain(STATE_BLOCK_HEAD);
+  });
+
   it('keeps the mutating project snapshot out of the cached head', async () => {
     // The regression that made the head worthless: an applied patch re-renders the
     // timeline summary, and that block used to sit BEFORE the head in the prompt.

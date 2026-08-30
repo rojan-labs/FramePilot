@@ -1076,13 +1076,27 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // The omission block rides with the timeline instead, because it is the one thing here
   // that genuinely re-renders: which tiers had to be dropped is a function of the budget
   // this turn, and the timeline growing is what moves it.
+  //
+  // AND SO DOES THE STATE HEADER, which used to lead `stable` and quietly cost the run
+  // everything the split was built to save. `renderStateBlock` embeds the timeline's
+  // duration, resolution, per-track clip counts and revision, so essentially every applied
+  // edit rewrites it — and it sat at BYTE ZERO of the cacheable prefix. A provider caches a
+  // byte-identical prefix, so one changed character there voids the whole thing: the
+  // transcript slice, the memory tiers, the session context, the references, the skills
+  // manifest and the editor's own brief were all re-billed at full price on the next turn.
+  // A captured run reported `cachedInputTokens: 0`.
+  //
+  // `state-block.ts`'s claim that a fixed key order "keeps the prompt-cache prefix
+  // byte-stable from turn to turn" is only true for a block at the END of a prefix, which
+  // this was not. Moved here it costs ~40-60 tokens re-billed per turn instead of the whole
+  // stable body, and it still reads before the briefing and the action log.
   const volatileBlocks = keptTiers.filter((b) => b.tier === 'timeline').map((b) => b.text);
   const stableBlocks = keptTiers.filter((b) => b.tier !== 'timeline').map((b) => b.text);
   const split: ContextSplit = {
-    stable: [header, ...stableBlocks, ...mandatory.filter((m) => m !== header), promptBlock].join(
+    stable: [...stableBlocks, ...mandatory.filter((m) => m !== header), promptBlock].join('\n\n'),
+    volatile: [header, ...volatileBlocks, ...(omissionBlock === '' ? [] : [omissionBlock])].join(
       '\n\n',
     ),
-    volatile: [...volatileBlocks, ...(omissionBlock === '' ? [] : [omissionBlock])].join('\n\n'),
   };
 
   // The per-section account (ADR 0080). Mandatory blocks are reported too, so the
