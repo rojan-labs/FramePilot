@@ -289,3 +289,47 @@ describe('toJson', () => {
     expect(JSON.parse(toJson(conv))).toEqual(conv);
   });
 });
+
+describe('exported attachments', () => {
+  it('names what was attached to a message, and says when it was never analyzed', () => {
+    // An exported transcript of "make it feel like this" that never names the reference
+    // is not a record of what was asked. This was the last surface that could not say so.
+    const em = createTurnEmitter({ conversationId: 'c1', turnId: 't1', now: () => 1000 });
+    const conversation = appendEvent(
+      createConversation({ projectId: 'p1', id: 'c1', model: 'mock', now: 0 }),
+      em.userMessage('make it feel like this', [
+        {
+          id: 'ref_1',
+          kind: 'video',
+          name: 'fast-cut.mp4',
+          role: 'pacing',
+          profile: {
+            id: 'ref_1',
+            role: 'pacing',
+            kind: 'video',
+            fileName: 'fast-cut.mp4',
+            contentHash: 'hash_ref_1_0000',
+            analyzedAt: '2026-08-30T00:00:00.000Z',
+            constraints: ['Cuts land about every 1.2s.'],
+          },
+        },
+        { id: 'ref_2', kind: 'document', name: 'brief.pdf' },
+      ]),
+      1000,
+    );
+    const markdown = toMarkdown(conversation);
+    expect(markdown).toContain('📎 fast-cut.mp4 · pacing');
+    // Honest about the one the model never received.
+    expect(markdown).toContain('📎 brief.pdf · not analyzed');
+  });
+
+  it('says nothing extra for a message with no attachments', () => {
+    const em = createTurnEmitter({ conversationId: 'c1', turnId: 't1', now: () => 1000 });
+    const conversation = appendEvent(
+      createConversation({ projectId: 'p1', id: 'c1', model: 'mock', now: 0 }),
+      em.userMessage('just text'),
+      1000,
+    );
+    expect(toMarkdown(conversation)).not.toContain('📎');
+  });
+});
