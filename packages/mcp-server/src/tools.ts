@@ -11,7 +11,7 @@
  * because they manage host state rather than the timeline.
  */
 import { z } from 'zod/v4';
-import { TOOL_REGISTRY } from '@framepilot/ai-sdk';
+import { TOOL_REGISTRY, withToolInputContract } from '@framepilot/ai-sdk';
 
 /** An MCP tool descriptor (shape consumed by the SDK's `tools/list`). */
 export interface McpToolDescriptor {
@@ -107,9 +107,21 @@ export const buildMcpTools = (): McpToolDescriptor[] => [
   // does not have — `ask_user` here would promise a question nobody could ever answer
   // (ADR 0055). An MCP client is an agent with its own user: if it wants to ask
   // something, it asks them directly and has no use for ours.
-  ...TOOL_REGISTRY.filter(servableOverMcp).map((t) => ({
-    name: t.name,
-    description: t.description,
-    inputSchema: t.parameters as Record<string, unknown>,
-  })),
+  //
+  // ADVERTISED through the same wrapper the session ENFORCES with
+  // (`EditorSession.runTool`), so the two can never be different objects. The bare
+  // registry `parameters` omit what `contractedToolParameters` adds — `map_time`'s flat
+  // mutually-exclusive shape, the keyframe `property` enum, the `color_grade`/`lut` type
+  // enum, `adjust_audio`'s gain bounds, `track_object`'s normalized region bounds, and the
+  // ordering prose on every start/end tool — so a client that trusted the advertised
+  // schema would keep authoring calls the session then refuses. Describing a rule the
+  // agent cannot see is how a validated tool still reads as flaky.
+  ...TOOL_REGISTRY.filter(servableOverMcp).map((t) => {
+    const contracted = withToolInputContract(t);
+    return {
+      name: contracted.name,
+      description: contracted.description,
+      inputSchema: contracted.parameters as Record<string, unknown>,
+    };
+  }),
 ];
