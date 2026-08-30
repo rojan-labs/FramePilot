@@ -62,6 +62,71 @@ function at(stage: (typeof RUN_STAGES)[number]): RunWorkingState {
   return (path[stage] ?? []).reduce((s, next, i) => advanceStage(s, next, i + 1), base());
 }
 
+describe('record ids survive revision-scoped pruning', () => {
+  /**
+   * `onProjectRevisionChanged` drops timeline-dependent facts and evidence on every
+   * applied patch, so a counter derived from the surviving length walks backwards and
+   * hands the next record an id the run already spent. Run 7d159862 finished holding two
+   * different `fact_7` and two different `fact_10` — citation-by-id, evidence provenance
+   * and replay diffing were all unsound, and nothing detected it because nothing ever
+   * compared two records for the same id.
+   */
+  it('never reuses a fact id after invalidation prunes the list', () => {
+    let state = base();
+    const seen: string[] = [];
+    for (let revision = 4; revision < 9; revision += 1) {
+      state = recordFact(state, {
+        kind: 'footage',
+        statement: `timeline observation ${String(revision)}`,
+        scope: 'timeline_dependent',
+      });
+      seen.push(state.facts[state.facts.length - 1]!.id);
+      // Every applied patch prunes the timeline-dependent fact just recorded.
+      state = onProjectRevisionChanged(state, revision);
+    }
+    expect(state.facts).toEqual([]);
+    expect(new Set(seen).size, `reused ids: ${seen.join(', ')}`).toBe(seen.length);
+  });
+
+  it('never reuses an objective, decision, operation or verification id', () => {
+    let state = base();
+    for (let i = 0; i < 3; i += 1) {
+      state = recordObjective(state, { description: `deliverable ${String(i)}`, stage: 'apply' });
+      state = recordDecision(state, {
+        decision: `choice ${String(i)}`,
+        reconsiderIf: 'never',
+      });
+    }
+    const ids = [...state.objectives.map((o) => o.id), ...state.decisions.map((d) => d.id)];
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(state.minted.objective).toBe(3);
+    expect(state.minted.decision).toBe(3);
+  });
+
+  it('counts mints, not survivors, and round-trips through the schema', () => {
+    let state = recordFact(base(), {
+      kind: 'footage',
+      statement: 'one',
+      scope: 'timeline_dependent',
+    });
+    state = onProjectRevisionChanged(state, 4);
+    expect(state.facts).toEqual([]);
+    expect(state.minted.fact).toBe(1);
+    expect(parseWorkingState(JSON.parse(JSON.stringify(state))).minted.fact).toBe(1);
+  });
+
+  it('defaults the counters for state persisted before they existed', () => {
+    const { minted: _dropped, ...legacy } = base();
+    expect(parseWorkingState(legacy).minted).toEqual({
+      fact: 0,
+      decision: 0,
+      objective: 0,
+      op: 0,
+      verify: 0,
+    });
+  });
+});
+
 describe('initialWorkingState / parseWorkingState', () => {
   it('starts at interpret, uninterpreted, bound to the given revision', () => {
     const state = base();

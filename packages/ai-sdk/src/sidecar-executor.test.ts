@@ -104,6 +104,23 @@ describe('summarizeAnalysis', () => {
     expect(summarizeAnalysis('detect_beats', null)).toBe('Analysis complete');
   });
 
+  it('reads an empty silence result as "none that long", not as "none at all"', () => {
+    // `ranges` is filtered inside ffmpeg, so it is empty by construction whenever the
+    // threshold overshoots. "Found 0 silent ranges" over a measured 56 is the confident
+    // negative that made a whole run abandon dead-air removal.
+    expect(
+      summarizeAnalysis('analyze_silence', {
+        ranges: [],
+        measuredCount: 56,
+        longestSeconds: 0.449,
+      }),
+    ).toBe('No gap that long — 56 shorter silence(s) measured, longest 0.449s');
+    // Nothing measured at all is still an honest zero.
+    expect(summarizeAnalysis('analyze_silence', { ranges: [], measuredCount: 0 })).toBe(
+      'Found 0 silent ranges',
+    );
+  });
+
   it('reads an empty scene-cut result as a continuous take, not as a finding', () => {
     // The captured run filed "Found 0 scene cuts" as an established footage fact and then
     // picked 30 seconds out of 575 with no content evidence at all.

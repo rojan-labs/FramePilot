@@ -117,9 +117,14 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
         'asset that plays on the timeline and ripple-deletes them where that asset is placed, ' +
         'keeping keepSeconds of breath on each side so words never touch. Use this instead of ' +
         'analyze_silence followed by many delete_range calls. assetId names the recording ' +
-        '(default: the asset under the first picture clip); minSilenceSeconds (default 0.8) ' +
-        'ignores natural pauses; trackId limits the cuts to one track. Returns how many cuts ' +
-        'and seconds were removed. Returns a reversible patch.',
+        '(default: the asset under the first picture clip); minSilenceSeconds (default 0.5) is ' +
+        'the shortest pause that counts as dead air — 0.25-0.35 for short-form, 0.8-1.0 to leave ' +
+        'long-form room to breathe; noiseFloorDb (default -30) is the level below which audio ' +
+        'counts as silent, so lower it to about -40 when room tone or breath is loud enough to ' +
+        'hide the gaps; trackId limits the cuts to one track. Returns how many cuts and seconds ' +
+        'were removed. If nothing was long enough to cut it reports how many silences it ' +
+        'measured and how long the longest one is, so LOWER minSilenceSeconds towards that ' +
+        'number rather than raising it. Returns a reversible patch.',
       // Runs in the TS executor (measure via the sidecar, cut in ai-sdk); it never reaches the
       // Python dispatcher, exactly like `add_music`.
       hostUiOnly: true,

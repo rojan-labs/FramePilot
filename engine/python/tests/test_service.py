@@ -1127,9 +1127,77 @@ def test_analyze_silence_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert body["assetId"] == "vid"
     assert body["ranges"] == [{"start": 1.0, "end": 2.5, "duration": 1.5}]
     assert seen["timeout"] == 11.0
-    # Omitted noise floor falls back to the default; the given min-gap is threaded.
-    assert seen["kwargs"] == {"noise_floor_db": -30.0, "min_silence_seconds": 0.75}
+    # Omitted noise floor falls back to the default. The DECODE runs at the probe floor,
+    # not at the requested 0.75s: silencedetect applies `d=` inside ffmpeg, so measuring
+    # at the request makes every shorter gap physically unreportable and an empty result
+    # unreadable. The 0.75s threshold is applied afterwards, in Python.
+    assert seen["kwargs"] == {"noise_floor_db": -30.0, "min_silence_seconds": 0.1}
     assert seen["path"] == str(project_path.parent / "clip.mp4")
+    assert body["measuredCount"] == 1
+    assert body["longestSeconds"] == pytest.approx(1.5)
+    assert body["belowThresholdSeconds"] == 0.0
+    assert body["probeFloorSeconds"] == 0.1
+
+
+def test_analyze_silence_route_reports_the_gaps_below_the_requested_threshold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A threshold nothing reaches must still say what WAS measured.
+
+    Reproduces the agent run that read "0 silence(s) measured" as "this recording has
+    no dead air", raised its threshold, and abandoned the cut on a take holding 10.6s
+    of it across gaps no longer than 0.449s.
+    """
+    import framepilot_engine.service as service_module
+    from framepilot_engine.analysis.silence import SilentRange
+
+    def _fake_detect(path: Path, *, timeout: float | None = None, **kwargs: object) -> object:
+        return [
+            SilentRange(start=float(i), end=float(i) + 0.4, duration=0.4) for i in range(10)
+        ] + [SilentRange(start=20.0, end=20.449, duration=0.449)]
+
+    monkeypatch.setattr(service_module, "detect_silence", _fake_detect)
+    project_path = _write_analysis_project(tmp_path)
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+
+    resp = client.post(
+        "/analyze-silence",
+        json={"project_path": str(project_path), "min_silence_seconds": 0.55},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ranges"] == []
+    assert body["measuredCount"] == 11
+    assert body["longestSeconds"] == pytest.approx(0.449)
+    assert body["belowThresholdSeconds"] == pytest.approx(4.449)
+    # No `reason`: the media had audio and the detector ran — the emptiness is the
+    # threshold's doing, and the measurement fields are what say so.
+    assert body["reason"] is None
+
+
+def test_analyze_silence_route_probes_below_a_sub_floor_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A request UNDER the probe floor measures at the request, never above it."""
+    import framepilot_engine.service as service_module
+
+    seen: dict[str, object] = {}
+
+    def _fake_detect(path: Path, *, timeout: float | None = None, **kwargs: object) -> object:
+        seen["kwargs"] = kwargs
+        return []
+
+    monkeypatch.setattr(service_module, "detect_silence", _fake_detect)
+    project_path = _write_analysis_project(tmp_path)
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+
+    resp = client.post(
+        "/analyze-silence",
+        json={"project_path": str(project_path), "min_silence_seconds": 0.05},
+    )
+    assert resp.status_code == 200
+    assert seen["kwargs"] == {"noise_floor_db": -30.0, "min_silence_seconds": 0.05}
+    assert resp.json()["probeFloorSeconds"] == 0.05
 
 
 def test_analyze_silence_route_selects_named_asset(

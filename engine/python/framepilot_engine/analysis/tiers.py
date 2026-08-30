@@ -76,6 +76,12 @@ DEPTH_KINDS: dict[AnalysisDepth, tuple[AnalysisKind, ...]] = {
 #: changes — the version participates in the cache key (plan B1.3), so a bump
 #: invalidates stale cached results instead of silently serving them.
 ANALYZER_VERSIONS: dict[AnalysisKind, int] = {kind: 1 for kind in AnalysisKind}
+#: silence v2 (2026-08-30): the analyzer now measures at a fixed low probe floor and
+#: reports what it found BELOW the reporting threshold (``measuredCount`` /
+#: ``longestSeconds`` / ``belowThresholdSeconds``). A cached v1 row carries none of
+#: those, and an absent measurement reads to the agent as "no dead air" — the exact
+#: confident negative this change exists to remove — so v1 rows must not be served.
+ANALYZER_VERSIONS[AnalysisKind.SILENCE] = 2
 
 
 def kinds_for(

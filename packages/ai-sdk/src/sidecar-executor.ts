@@ -309,6 +309,15 @@ export function summarizeAnalysis(name: string, data: unknown): string {
     // up empty.
     if (record.ranges.length === 0 && typeof record.reason === 'string') return record.reason;
     const n = record.ranges.length;
+    // `ranges` is filtered inside ffmpeg, so an empty list means "none that long", not
+    // "none at all" — and the engine now says which. Reporting "Found 0 silent ranges"
+    // over a measured 56 is the confident negative that made a whole run give up on
+    // dead-air removal.
+    if (n === 0 && typeof record.measuredCount === 'number' && record.measuredCount > 0) {
+      const longest =
+        typeof record.longestSeconds === 'number' ? Number(record.longestSeconds.toFixed(3)) : 0;
+      return `No gap that long — ${record.measuredCount} shorter silence(s) measured, longest ${String(longest)}s`;
+    }
     return `Found ${n} silent range${n === 1 ? '' : 's'}`;
   }
   if (name === 'detect_scenes' && Array.isArray(record.cuts)) {

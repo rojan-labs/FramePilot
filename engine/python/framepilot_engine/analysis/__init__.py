@@ -45,9 +45,12 @@ from framepilot_engine.analysis.scenes import (
     parse_scene_changes,
 )
 from framepilot_engine.analysis.silence import (
+    SILENCE_PROBE_FLOOR_SECONDS,
+    SilenceMeasurement,
     SilentRange,
     detect_silence,
     parse_silence_ranges,
+    summarize_silence,
 )
 from framepilot_engine.analysis.visual_sampler import (
     DEFAULT_HAMMING_THRESHOLD,
@@ -66,6 +69,7 @@ from framepilot_engine.analysis.visual_sampler import (
 __all__ = [
     "DEFAULT_HAMMING_THRESHOLD",
     "SAMPLER_VERSION",
+    "SILENCE_PROBE_FLOOR_SECONDS",
     "Beat",
     "BeatAnalysis",
     "BlackRange",
@@ -73,6 +77,7 @@ __all__ = [
     "FrozenRange",
     "LoudnessAnalysis",
     "SceneCut",
+    "SilenceMeasurement",
     "SilentRange",
     "VisualSpan",
     "build_candidates",
@@ -97,4 +102,5 @@ __all__ = [
     "parse_silence_ranges",
     "pick_beats",
     "plan_spans",
+    "summarize_silence",
 ]

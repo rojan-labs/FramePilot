@@ -130,6 +130,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **"Remove the dead air" no longer gives up on a recording that is full of it.** Asking the
+  assistant to cut dead air out of a 50-second talking head told it, twice, that there was
+  none — while the recording held 10.6 seconds of it across 56 pauses. The measurement was
+  only ever asked for pauses longer than half a second, this speaker's longest pause is 0.45
+  seconds, and "none that long" was reported as "no dead air at all". The assistant believed
+  it, raised the bar even higher, and dropped the request. It now measures every pause and
+  tells you what it found: how many, how long the longest one is, and how much silence sits
+  in the shorter gaps — so it can lower its own threshold and cut, instead of concluding your
+  recording is already tight. The breathing room kept on each side of a cut also no longer
+  counts against the length of the pause, which had quietly made the real threshold about a
+  quarter of a second longer than the one asked for.
+
 - **The engine's shutdown watchdog can now be called off.** The watchdog that stops a
   sidecar outliving the app that spawned it runs as a background thread whose last act is
   an immediate process exit, and nothing could cancel it once started. Anything that

@@ -165,6 +165,30 @@ Two more from the same runs, also `[x]` fixed:
   `true` for every throw. It now reads the classification off the error; an unclassified
   throw keeps the optimistic default.
 
+One more from `run.md`, `[x]` fixed here:
+
+- `[x]` **"Remove the dead air" was told there was none, on a recording that is 21% dead
+  air.** Both `remove_silences` calls answered *"No dead air to cut: 0 silence(s) measured,
+  none longer than 0.55s where the asset plays."* Measured directly on the source with
+  `silencedetect` at -30 dB: **56 gaps, 10.65 s (21% of a 49.77 s take)** at `d=0.1`, 16 at
+  `d=0.2`, 7 at `d=0.3`, and **zero at `d=0.5`** — the longest pause this speaker takes is
+  **0.449 s**. The zero was arithmetically true and the sentence was false: `ranges.length`
+  is a POST-FILTER count, `silencedetect` applies `d=` inside ffmpeg, so it is 0 *by
+  construction* whenever the threshold overshoots. The model read it as a footage fact,
+  raised the threshold 0.55 → 0.65 (the wrong direction), abandoned dead-air removal, and the
+  sentence was distilled into run memory and re-injected into every later prompt. The engine
+  now always measures at a 0.1 s probe floor and filters in Python — same single decode — and
+  reports `measuredCount` / `longestSeconds` / `belowThresholdSeconds` alongside the filtered
+  ranges; the note states what was measured and names a threshold that can reach it. Three
+  defects fixed in the same change: the threshold was applied **twice** (ffmpeg, then again
+  to the `keepSeconds`-trimmed span, making the real floor `min + 2 × keep` = 0.79 s for a
+  request of 0.55 s); the TS default (0.8 s) disagreed with the engine's (0.5 s), so an
+  omitted argument discarded measured dead air; and `noiseFloorDb` was in the schema but
+  absent from the tool description, so the model could not know it existed. `reason` is now
+  honoured on this branch as it already was for `analyze_silence` / `detect_beats`. Silence
+  analyzer version bumped to **v2** so cached v1 rows (which carry no measurement) are not
+  served. See `docs/runbooks/ai-run-lifecycle.md`.
+
 Still open from these runs, **not** addressed here: the novelty accounting that let the spin
 run on. `callNoveltyKey` produces a stable key for `get_project_state`, so the repeats were
 recognisable, but novelty is scored per TURN — one genuinely-new cheap read launders an

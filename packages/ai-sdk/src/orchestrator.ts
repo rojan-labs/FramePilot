@@ -11,7 +11,12 @@
  * Modes implemented here: chat, plan, edit, autocomplete (plan/PLAN.md §4.2) and —
  * Phase 7 — the multi-step `agent` loop and the `review` critic pass.
  */
-import { DEFAULT_SILENCE_CUT, SilenceRangesPayloadSchema, silenceCutOps } from './silence-cut.js';
+import {
+  DEFAULT_SILENCE_CUT,
+  SilenceRangesPayloadSchema,
+  noCutsNote,
+  silenceCutOps,
+} from './silence-cut.js';
 import { type AnyOperation, applyProjectPatch } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
 import {
@@ -3700,7 +3705,19 @@ export class Orchestrator {
         };
         const { ops, cuts, removedSeconds } = silenceCutOps(ctx.project, parsed.data, options);
         if (ops.length === 0) {
-          const note = `No dead air to cut: ${String(parsed.data.ranges.length)} silence(s) measured, none longer than ${String(options.minSilenceSeconds)}s where the asset plays.`;
+          // An empty cut list is NEVER evidence that the recording is tight — `ranges` is
+          // filtered inside ffmpeg, so it is empty by construction whenever the threshold
+          // overshoots. `noCutsNote` says what was actually measured; `warning` (not
+          // `completed`) keeps what lands in run memory as "not measurable at this
+          // threshold", never "no dead air".
+          const note = noCutsNote(parsed.data, options);
+          orchestratorLog.debug('remove_silences produced no cuts', {
+            assetId: parsed.data.assetId,
+            minSilenceSeconds: options.minSilenceSeconds,
+            rangesAtThreshold: parsed.data.ranges.length,
+            measuredCount: parsed.data.measuredCount ?? null,
+            longestSeconds: parsed.data.longestSeconds ?? null,
+          });
           return { ops: [], note, summary: note, status: 'warning', data: outcome.data };
         }
         const probe = assembleEdit(ctx.project, ops, 'Remove dead air', 'agent');

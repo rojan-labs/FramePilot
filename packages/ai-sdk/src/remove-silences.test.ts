@@ -78,10 +78,11 @@ describe('remove_silences (plan/system-mission P4.1)', () => {
     expect(results.some((r) => /Removed 2 silence\(s\), 5\.6s/.test(r.summary ?? ''))).toBe(true);
   });
 
-  it('reports a warning, not an edit, when nothing measured is long enough to cut', async () => {
+  /** Run the scripted turn against one canned measurement and collect the tool results. */
+  async function runWith(data: unknown): Promise<{ summaries: string[]; edited: boolean }> {
     const executor: HostToolExecutor = {
       async run() {
-        return { status: 'completed', summary: 'Found 1 silent range', data: { assetId: 'asset_1', ranges: [{ start: 10, end: 10.4 }] } };
+        return { status: 'completed', summary: 'measured', data };
       },
     };
     const orchestrator = new Orchestrator(scriptedProvider(), { executor });
@@ -91,8 +92,57 @@ describe('remove_silences (plan/system-mission P4.1)', () => {
       { conversationId: 'c', turnId: 't' },
       {},
     )) events.push(event);
-    expect(events.some((e) => e.type === 'diff' && e.edit.validation.valid)).toBe(false);
-    const results = events.filter((e) => e.type === 'tool_result') as { summary?: string }[];
-    expect(results.some((r) => /No dead air to cut/.test(r.summary ?? ''))).toBe(true);
+    return {
+      edited: events.some((e) => e.type === 'diff' && e.edit.validation.valid),
+      summaries: (events.filter((e) => e.type === 'tool_result') as { summary?: string }[]).map(
+        (r) => r.summary ?? '',
+      ),
+    };
+  }
+
+  it('reports what was measured, not "no dead air", when nothing reaches the threshold', async () => {
+    // The 49.77s talking head from the run this fixes, scaled to the fixture: every gap
+    // is real dead air, none is 0.5s long. The old note claimed "0 silence(s) measured",
+    // which the model read as "this recording has no dead air".
+    const { edited, summaries } = await runWith({
+      assetId: 'asset_1',
+      ranges: [],
+      measuredCount: 56,
+      longestSeconds: 0.449,
+      belowThresholdSeconds: 10.65,
+      probeFloorSeconds: 0.1,
+    });
+    expect(edited).toBe(false);
+    const note = summaries.find((s) => s.includes('Nothing to cut'));
+    expect(note).toBeDefined();
+    expect(note).toContain('56 silence(s) were measured');
+    expect(note).toContain('longest is 0.449s');
+    expect(note).toContain('minSilenceSeconds: 0.25');
+    expect(summaries.every((s) => !s.includes('No dead air'))).toBe(true);
+  });
+
+  it('passes the engine reason through instead of inferring a tight recording', async () => {
+    const { edited, summaries } = await runWith({
+      assetId: 'asset_1',
+      ranges: [],
+      reason: 'a.mp4 has no audio track, so there is no silence to detect.',
+    });
+    expect(edited).toBe(false);
+    expect(summaries).toContain('a.mp4 has no audio track, so there is no silence to detect.');
+  });
+
+  it('cuts a silence the old double-threshold silently kept', async () => {
+    // 0.6s measured, cut at minSilenceSeconds 0.5 with keepSeconds 0.1: the old code
+    // re-tested the trimmed 0.4s span and dropped it, so the effective floor was 0.7s.
+    const { edited, summaries } = await runWith({
+      assetId: 'asset_1',
+      ranges: [{ start: 10, end: 10.6 }],
+      measuredCount: 1,
+      longestSeconds: 0.6,
+      belowThresholdSeconds: 0,
+      probeFloorSeconds: 0.1,
+    });
+    expect(edited).toBe(true);
+    expect(summaries.some((s) => /Removed 1 silence\(s\)/.test(s))).toBe(true);
   });
 });

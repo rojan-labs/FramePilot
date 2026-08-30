@@ -68,8 +68,10 @@ from framepilot_engine.analysis.scenes import DEFAULT_SCENE_THRESHOLD, SceneCut,
 from framepilot_engine.analysis.silence import (
     DEFAULT_MIN_SILENCE_SECONDS,
     DEFAULT_NOISE_FLOOR_DB,
+    SILENCE_PROBE_FLOOR_SECONDS,
     SilentRange,
     detect_silence,
+    summarize_silence,
 )
 from framepilot_engine.analysis.tiers import (
     ANALYZER_VERSIONS,
@@ -569,6 +571,9 @@ def analyzer_effective_params(kind: AnalysisKind) -> dict[str, Any]:
         return {
             "noiseFloorDb": DEFAULT_NOISE_FLOOR_DB,
             "minSilenceSeconds": DEFAULT_MIN_SILENCE_SECONDS,
+            # The decode runs at the probe floor and the threshold is applied after,
+            # so the floor is part of what ran and must be part of the key.
+            "probeFloorSeconds": SILENCE_PROBE_FLOOR_SECONDS,
         }
     if kind is AnalysisKind.SCENES:
         return {"threshold": DEFAULT_SCENE_THRESHOLD}
@@ -1481,10 +1486,26 @@ class AnalyzeSilenceRequest(AnalysisProjectSource):
 
 
 class SilenceAnalysisResponse(BaseModel):
-    """Detected silent ranges for an asset (serialized with camelCase aliases)."""
+    """Detected silent ranges for an asset (serialized with camelCase aliases).
+
+    ``ranges`` answers "what can I cut at the threshold I asked for". The
+    measurement fields answer "and what was there below it" — without them an empty
+    ``ranges`` is indistinguishable from a recording with no dead air, because the
+    threshold is applied inside ffmpeg (see ``SILENCE_PROBE_FLOOR_SECONDS``).
+    """
 
     asset_id: str = Field(alias="assetId")
     ranges: list[SilentRange]
+    #: Every silence the probe saw, including the ones below the requested threshold.
+    measured_count: int = Field(default=0, ge=0, alias="measuredCount")
+    #: The longest measured silence in seconds — the highest threshold that can hit.
+    longest_seconds: float = Field(default=0.0, ge=0.0, alias="longestSeconds")
+    #: Seconds of silence sitting in gaps too short to report at this threshold.
+    below_threshold_seconds: float = Field(default=0.0, ge=0.0, alias="belowThresholdSeconds")
+    #: The shortest gap the measurement could see at all.
+    probe_floor_seconds: float = Field(
+        default=SILENCE_PROBE_FLOOR_SECONDS, ge=0.0, alias="probeFloorSeconds"
+    )
     #: Why the result is empty, when the media itself has nothing to detect (no
     #: audio track). ``None`` on a real detection — an empty ``ranges`` with no
     #: reason means silencedetect ran over real audio and found no gaps.
@@ -4626,8 +4647,18 @@ def create_app(
             if kind is AnalysisKind.PROBE:
                 result: dict[str, Any] = info.model_dump(mode="json")
             elif kind is AnalysisKind.SILENCE:
-                ranges = detect_silence(media_path, total_duration=duration, timeout=timeout)
-                result = {"ranges": [r.model_dump(mode="json") for r in ranges]}
+                # Same MEASURE-low / REPORT-at-threshold split as `/analyze-silence`: the
+                # entry carries what sat below the tier default so a filtered-empty
+                # `ranges` can never be read as "this recording has no dead air".
+                measured = detect_silence(
+                    media_path,
+                    min_silence_seconds=SILENCE_PROBE_FLOOR_SECONDS,
+                    total_duration=duration,
+                    timeout=timeout,
+                )
+                result = summarize_silence(
+                    measured, min_silence_seconds=DEFAULT_MIN_SILENCE_SECONDS
+                ).model_dump(mode="json", by_alias=True)
             elif kind is AnalysisKind.SCENES:
                 cuts = detect_scenes(media_path, timeout=timeout)
                 result = {"cuts": [c.model_dump(mode="json") for c in cuts]}
@@ -5149,13 +5180,20 @@ def create_app(
             if req.min_silence_seconds is not None
             else DEFAULT_MIN_SILENCE_SECONDS
         )
+        # MEASURE low, REPORT at the requested threshold. silencedetect applies `d=`
+        # inside ffmpeg, so measuring at `min_gap` makes a sub-threshold gap physically
+        # unreportable and the empty list that comes back cannot be told apart from
+        # silent-free audio. Probing at the floor costs the same single decode.
+        probe_floor = min(min_gap, SILENCE_PROBE_FLOOR_SECONDS)
         try:
-            ranges = _analysis_flight.join(
-                f"silence:{media_path}:{noise}:{min_gap}",
+            measured = _analysis_flight.join(
+                # Keyed by what actually RAN (the floor), so two callers asking for
+                # different thresholds share one decode and each filters it themselves.
+                f"silence:{media_path}:{noise}:{probe_floor}",
                 lambda: detect_silence(
                     media_path,
                     noise_floor_db=noise,
-                    min_silence_seconds=min_gap,
+                    min_silence_seconds=probe_floor,
                     timeout=timeout,
                 ),
             )
@@ -5168,8 +5206,27 @@ def create_app(
             return SilenceAnalysisResponse(asset_id=resolved_id, ranges=[], reason=str(exc))
         except (FFmpegError, FileNotFoundError) as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
-        _log.info("ACT analyze-silence: asset=%s → %d silent ranges", resolved_id, len(ranges))
-        return SilenceAnalysisResponse(asset_id=resolved_id, ranges=ranges)
+        summary = summarize_silence(
+            measured, min_silence_seconds=min_gap, probe_floor_seconds=probe_floor
+        )
+        _log.info(
+            "ACT analyze-silence: asset=%s → %d of %d measured silences at >=%.2fs "
+            "(longest %.3fs, %.2fs below)",
+            resolved_id,
+            len(summary.ranges),
+            summary.measured_count,
+            min_gap,
+            summary.longest_seconds,
+            summary.below_threshold_seconds,
+        )
+        return SilenceAnalysisResponse(
+            asset_id=resolved_id,
+            ranges=summary.ranges,
+            measured_count=summary.measured_count,
+            longest_seconds=summary.longest_seconds,
+            below_threshold_seconds=summary.below_threshold_seconds,
+            probe_floor_seconds=summary.probe_floor_seconds,
+        )
 
     @app.post("/detect-scenes", response_model=SceneAnalysisResponse)
     def detect_scenes_route(req: DetectScenesRequest) -> SceneAnalysisResponse:
