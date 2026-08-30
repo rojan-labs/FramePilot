@@ -111,6 +111,11 @@
   ],
   "globalDependencies": [".env", "tsconfig.base.json"],
   "tasks": {
+    "schema:generate": {
+      "// why": "dependsOn build (not ^build): the generator imports this package's OWN dist — ../dist/index.js, ../dist/effect-catalog.js — so a stale dist writes a stale contract straight into engine/python/framepilot_engine/render/. cache: false because it writes OUTSIDE the package (the engine's JSON catalogs, the font manifest, apps/web-editor/src/fonts.css), which turbo cannot track as outputs. Note this only binds callers who go through turbo: `pnpm --filter` bypasses it, so the generator's documented `build && schema:generate` sequencing is still the protection there.",
+      "dependsOn": ["build"],
+      "cache": false
+    },
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**", "build/**", "out/**"]
