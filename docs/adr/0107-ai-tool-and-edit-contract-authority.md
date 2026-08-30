@@ -105,9 +105,20 @@ former is part of the contract, the latter is what this ADR forbids.
 **Refusing to cache is not the same as scoping a cache.** The first implementation dropped
 the derived idempotency key entirely, which stopped `analyze_silence` and the other
 asset-content analyses from caching at all. The key is now derived from the tool's declared
-`cacheScope`: absent for `none` (preview, export, transcribe, index), stamped with the
-timeline revision for `project_revision` (`get_frame`), and name+arguments for
+`cacheScope`: absent for `none` (preview, export, transcribe, index) and name+arguments for
 `asset_content`. An explicit caller key still cannot override a `none` scope.
+
+> **Amended 2026-08-30 — the `project_revision` cache scope is gone.** This paragraph
+> originally described a third tier, "stamped with the timeline revision for
+> `project_revision` (`get_frame`)". It was wrong on its own terms and shipped three
+> stale-answer bugs before that was clear: `Timeline.revision` advances only when clip
+> TIMING moves, so it is blind to colour grades, effects and masks (`get_frame`,
+> `measure_color` returned pre-edit answers to the calls made to check an edit) and to
+> every project-level bin operation (`search_media` answered "not in the project" about a
+> file the run had just imported). A host read whose answer the run can change is now
+> uncacheable by derivation rather than by each tool author remembering to declare `none`;
+> only `revision_independent` reads — source material, which invariant 1 says no edit can
+> change — are memoized. See `packages/ai-sdk/src/tool-contract.ts`.
 
 **Scope must be addressable.** Autonomous idempotency was keyed on the adapters object, but
 callers construct adapters per request, so every lookup missed and the feature was silently

@@ -6,8 +6,21 @@
  * what the project is, how long the cut is, what is selected, where the playhead sits —
  * were spread across a prose header, a "Selected range" line and the interaction
  * summary, each restating the others in its own words. One block with a fixed key
- * order is cheaper to read, cannot contradict itself, and keeps the prompt-cache prefix
- * byte-stable from turn to turn: only the values that actually changed change.
+ * order is cheaper to read and cannot contradict itself.
+ *
+ * WHAT THE FIXED ORDER DOES *NOT* DO: keep the prompt-cache prefix stable. It used to
+ * claim that, and the claim was wrong in the direction that costs money — this block
+ * embeds the timeline's duration, per-track clip counts and revision, so essentially
+ * every applied edit rewrites its VALUES however stable its keys are. What keeps the
+ * cacheable prefix byte-identical is that this block is not IN the prefix: the split in
+ * `context-builder.ts#assembleContext` (see the `ContextSplit` comment at the
+ * `volatileBlocks`/`stableBlocks` filter) puts the state header in `volatile`, after the
+ * stable body, precisely because it changes every turn. Read that comment before moving
+ * this block, and do not restore a stability claim here — the rule lives at the split
+ * site, and two copies of it is how the first one went stale.
+ *
+ * The fixed key order still earns its test: it bounds the block to ~40-60 re-billed
+ * tokens per turn and keeps the diff between two turns readable.
  *
  * Deliberately NOT here: the run's `task` (goal, stage, budget) is owned by the agent
  * loop's briefing (`kernel/briefing.ts`), which is rewritten per stage and sits after
@@ -26,7 +39,7 @@ export interface StateBlockInput {
   readonly interaction?: EditorInteractionContext;
 }
 
-/** Fixed-order key list of the `project` line — a test pins it so the prefix stays stable. */
+/** Fixed-order key list of the `project` line — a test pins it so the SHAPE stays stable. */
 export const STATE_PROJECT_KEYS = [
   'id',
   'aspect',

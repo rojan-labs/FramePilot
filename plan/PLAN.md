@@ -72,6 +72,48 @@ Tests: `src/ai/messageAttachments.test.ts` (18), `Composer.test.tsx` (30),
 `AiSidebar.test.tsx` (63) — the component cases verified to fail against the previous
 implementation. Docs: `CHANGELOG.md`.
 
+**Status snapshot (2026-08-30, AI-layer audit follow-ups — three claims the code did not
+keep):** `[x]` **Two inert safety mechanisms are now either real or gone, and the docstrings
+that described them say what the code does.** All in `packages/ai-sdk`:
+
+- **The revision-keyed host cache is removed** (`tool-contract.ts`, `kernel/effect-runtime.ts`).
+  `search_media` inherited `cacheScope: 'project_revision'` while reading the asset BIN, and
+  no bin operation moves `Timeline.revision` — so a run that imported a file and searched for
+  it was served the pre-import answer. Rather than fix a third instance (`get_frame` and
+  `measure_color` were the first two), the tier is gone: a host read whose answer the run can
+  change is uncacheable by DERIVATION, and only `revision_independent` source-material reads
+  memoize. `search_media` keeps an explicit row because its evidence scope is
+  `timeline_dependent` for the placements, not for the bin — reclassify it and the memo would
+  otherwise come back silently.
+- **The per-run analysis budget is charged for the first time** (`kernel/cost/analysis-caps.ts`,
+  `sidecar-executor.ts#chargeAnalysisBudget`). `preflightCharge` returned `null`
+  unconditionally and nothing ever called `check`/`record`, so both ceilings were inert while
+  `tool-executor.ts` documented them as enforced. Transcription is charged from the engine's
+  own word timings, ffmpeg from host-measured wall clock (an upper bound — the safe direction
+  for a ceiling), every settled outcome including failures, and an over-budget call is refused
+  before dispatch.
+- **`EffectRuntime.cancel`/`cancelTree` are deleted.** They had no production caller and could
+  not reach a `host_tool` or `model` effect at all (neither carries an `EffectControl`, so
+  neither has an id to be cancelled by). `AbortSignal` is now stated as the only cancellation
+  channel, and a test asserts it aborts all three effect kinds.
+- Docstring corrections where a file claimed a guard that cannot fire: `kernel/stage-policy.ts`
+  justified its `transcribe`/`get_frame` stage exemptions with `withheldCallOutcome`'s memo
+  hit, which only runs for a call the stage WITHHELD — the exemption is what stops it running,
+  and `transcribe` erases its own memo entry via `invalidate(['set_transcript'])` anyway. They
+  now name what really bounds them (`callNoveltyKey`, the analysis caps). `state-block.ts` no
+  longer claims its fixed key order keeps the prompt-cache prefix stable — the block moved
+  into the volatile tail, and the rule lives at the split site in `context-builder.ts`.
+- **The omission notice names the block that went, not its tier.** References share the
+  `pinned` tier, so a dropped reference was reported to the model as "the entities the user
+  pinned". Plus an invariant test for the bug class behind the media-bin fix: at any budget
+  where a fit exists, the assembler must find one without dropping a tier — which fails if any
+  assembled string is missing from `spentElsewhere`.
+
+Tests: `src/kernel/cost/analysis-caps.enforcement.test.ts` (16, new), `tool-contract.test.ts`
+(30), `kernel/effect-runtime{,.audit}.test.ts` (49), `context-builder.test.ts` (79),
+`sidecar-executor.test.ts` (125). Docs: `docs/api/ai-tools.md`, ADR 0107 amendment,
+`CHANGELOG.md`.
+
 **Status snapshot (2026-08-30, run `7d159862` — the context that deleted itself and the
 cache that dropped everything):** `[x]` **The agent no longer re-buys facts it already
 holds.** On a project with ONE asset and ONE clip, the run spent 5 `list_assets` and 5
@@ -8377,8 +8419,15 @@ longer than the clip, treated as an error rather than as something to fit.
       transition into a legal one-frame edit, unknown arguments are named instead of silently
       stripped, locked tracks are enforced by the canonical patch authority (not just the UI),
       and `transcribe` is classified as the host mutation it always was. Host caching is
-      scoped by each tool's declared `cacheScope`, so preview/export/transcribe never replay
-      and `get_frame` is stamped with the timeline revision.
+      scoped by each tool's declared `cacheScope`, so preview/export/transcribe never replay.
+
+      > **Correction (2026-08-30):** this entry used to end "and `get_frame` is stamped with
+      > the timeline revision". That tier is gone. `Timeline.revision` advances only when clip
+      > timing moves, so it stood still through the colour grades, effects and bin imports the
+      > memoized reads were asked to check — `get_frame`, `measure_color` and `search_media`
+      > each shipped a stale-answer bug on it. A host read whose answer the run can change is
+      > now uncacheable by DERIVATION, not by each author remembering to declare `none`; only
+      > `revision_independent` source-material reads memoize.
 
       Verification: `pnpm verify` green — TS typecheck/lint/tests at the 100% coverage gate
       (editor-core 689, ai-sdk 2855), 2437 Python tests, `ruff`/`mypy` clean. The verification

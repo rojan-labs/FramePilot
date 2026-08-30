@@ -49,7 +49,6 @@ export function createRecordingEffectRuntime(inner: EffectRuntime): RecordingEff
   const effects: RecordedEffect[] = [];
   return {
     runtime: {
-      cancel: (effectId, reason) => inner.cancel(effectId, reason),
       async *streamModel(effect, signal) {
         if (!inner.streamModel) {
           throw new Error('The wrapped Effect Runtime does not support model streaming.');
@@ -100,9 +99,6 @@ export class ReplayDivergenceError extends Error {
 export function createReplayEffectRuntime(recording: RunRecording): EffectRuntime {
   let cursor = 0;
   return {
-    cancel: () => {
-      // Replay has no live effects to interrupt.
-    },
     async *streamModel(effect: ModelStreamEffect) {
       const recorded = effectAtCursor(effect, cursor, recording);
       cursor += 1;

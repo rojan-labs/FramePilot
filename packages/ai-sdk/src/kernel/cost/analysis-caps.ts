@@ -14,10 +14,17 @@
  * The one stateful piece, {@link createAnalysisBudget}, is a thin mutable wrapper the host
  * executor threads through a run; it holds no I/O.
  *
- * Enforcement lives in `sidecar-executor.ts` (the host seam that actually runs these
- * calls): it PRE-checks a call's charge before dispatch and RECORDS the real consumption
- * after — so the budget reflects what actually ran, and the run's spend is reportable next
- * to token spend (`describeAnalysisSpend`).
+ * Enforcement lives in `sidecar-executor.ts#chargeAnalysisBudget` (the host seam that
+ * actually runs these calls): it PRE-checks a call's charge before dispatch and RECORDS
+ * the real consumption after — so the budget reflects what actually ran, and the run's
+ * spend is reportable next to token spend (`describeAnalysisSpend`).
+ *
+ * That sentence used to be aspirational: `preflightCharge` returned `null` unconditionally,
+ * neither charge function had a production caller, and the budget threaded through
+ * `HostCallContext` → `HostToolEffect` → `EffectRuntime` → `HostExecutionContext` was read
+ * by nobody. A run's spend was therefore permanently zero and the ceilings could not fire,
+ * while `tool-executor.ts` documented the opposite. `analysis-caps.enforcement.test.ts`
+ * now pins the wiring end to end so the claim cannot quietly become a claim again.
  */
 import { createLogger } from '@framepilot/shared-types';
 
@@ -122,29 +129,97 @@ interface ChargeableCall {
   readonly arguments: Readonly<Record<string, unknown>>;
 }
 
+/** Speech-to-text, charged in minutes of audio actually transcribed. */
+const TRANSCRIPTION_TOOLS: ReadonlySet<string> = new Set(['transcribe', 'transcription']);
+
 /**
- * The charge to PRE-check before a call is dispatched, or `null` for an uncapped call
- * (search, probe, a cache hit). Transcription/ffmpeg charges are learned post-run (their
- * cost depends on media duration the host does not know up front), so they do not pre-check
- * here.
+ * Tools whose cost is ffmpeg DECODE TIME in the sidecar.
+ *
+ * The list is the set of calls this host executor dispatches that run a decode over media
+ * bytes: the silence/scene/beat analyzers, the single-frame composite behind `get_frame`,
+ * and the frame sampling behind `measure_color`.
+ *
+ * Deliberately NOT here:
+ *  - `transcribe`, which is charged in minutes instead — one call, two resources, would
+ *    double-charge the same work;
+ *  - `index_media`, `search_visual`, `map_footage`, `describe_footage`, which spend their
+ *    wall clock waiting on an understanding MODEL rather than on a decode (a footage map
+ *    measured 409 seconds against eleven assets). Charging those against an ffmpeg ceiling
+ *    would refuse local analyses to pay for a bill ffmpeg never ran up;
+ *  - the sourcing/search calls, which are network requests against a catalogue.
  */
-export function preflightCharge(_call: ChargeableCall): AnalysisCharge | null {
+const FFMPEG_BACKED_TOOLS: ReadonlySet<string> = new Set([
+  'analyze_silence',
+  'remove_silences',
+  'detect_scenes',
+  'detect_beats',
+  'get_frame',
+  'measure_color',
+]);
+
+/** Which capped resource this call spends, or `null` when it spends neither. */
+export function chargedResource(name: string): AnalysisResource | null {
+  if (TRANSCRIPTION_TOOLS.has(name)) return 'transcriptionMinutes';
+  if (FFMPEG_BACKED_TOOLS.has(name)) return 'ffmpegSeconds';
   return null;
 }
 
 /**
- * The charge to RECORD after a call settled successfully, derived from the real engine
- * response — or `null` when the call consumed no capped resource. `transcribe`/
- * `transcription` charges the transcribed audio duration in minutes (from the last word's
- * `end`, when present).
+ * The charge to PRE-check before a call is dispatched, or `null` for an uncapped call
+ * (a catalogue search, an in-process read).
+ *
+ * The amount is ZERO, and that is the honest number rather than a placeholder: what a
+ * decode or a transcription will cost depends on the duration of media the host has not
+ * opened yet. A zero-amount charge is exactly the "count-unknown" case {@link decideCharge}
+ * is written for — it asks "is there anything left in this resource?", and is denied only
+ * when the run is already at or over the ceiling. So the guarantee a caller gets is: the
+ * FIRST call that would exceed a cap still runs (and is charged in full), and every call
+ * after it is refused honestly instead of running.
+ *
+ * The alternative — estimating the cost up front from asset metadata — would refuse calls
+ * on a guess, and a cap that refuses work that would have fit is worse than one that
+ * overshoots by a single call.
  */
-export function outcomeCharge(name: string, data: unknown): AnalysisCharge | null {
-  if (name === 'transcribe' || name === 'transcription') {
+export function preflightCharge(call: ChargeableCall): AnalysisCharge | null {
+  const resource = chargedResource(call.name);
+  return resource === null ? null : { resource, amount: 0 };
+}
+
+/**
+ * The charge to RECORD after a call settled, or `null` when it consumed no capped resource.
+ *
+ * Two derivations, each measuring the thing its cap is named for:
+ *
+ *  - `transcriptionMinutes` comes from the engine's own answer — the last word's `end` is
+ *    how much audio the recognizer actually got through. A call that returned no words
+ *    transcribed nothing and is charged nothing.
+ *  - `ffmpegSeconds` comes from `elapsedMs`, the wall clock the HOST measured around the
+ *    dispatch. The engine does not report its internal ffmpeg time, so this is the only
+ *    measurement available; it is an upper bound (it includes the HTTP round trip and any
+ *    queueing), and for a ceiling whose job is to stop a runaway run, overestimating is
+ *    the safe direction. {@link AnalysisCaps.maxFfmpegSeconds} is defined in exactly these
+ *    terms: wall-clock seconds of ffmpeg-backed analysis.
+ *
+ * Callers charge every SETTLED outcome, including failures: a decode that ran for two
+ * minutes and then timed out still burned two minutes of the machine, and not charging it
+ * is what would let a failing loop run forever inside a budget that never moves.
+ */
+export function outcomeCharge(
+  name: string,
+  data: unknown,
+  elapsedMs?: number,
+): AnalysisCharge | null {
+  const resource = chargedResource(name);
+  if (resource === 'transcriptionMinutes') {
     const words = (data as { words?: unknown } | null)?.words;
     if (!Array.isArray(words) || words.length === 0) return null;
     const last = words[words.length - 1] as { end?: unknown };
     const end = typeof last.end === 'number' ? last.end : 0;
-    return { resource: 'transcriptionMinutes', amount: end / 60 };
+    return { resource, amount: end / 60 };
+  }
+  if (resource === 'ffmpegSeconds') {
+    if (elapsedMs === undefined || !Number.isFinite(elapsedMs) || elapsedMs <= 0) return null;
+    return { resource, amount: elapsedMs / 1000 };
   }
   return null;
 }

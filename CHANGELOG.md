@@ -139,6 +139,27 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant no longer misses a file you just imported.** Searching the project's media
+  during an AI run could answer from a snapshot taken before the run's own import: the
+  result was remembered against a counter that only moves when clip timing changes, so
+  adding an asset left it looking unchanged. The assistant would report that footage it had
+  just brought in was not in the project. Media searches, rendered frames and colour
+  measurements now always read the current project, and results are only remembered for
+  questions about the source material itself — which nothing an edit does can change.
+
+- **A long AI run can no longer quietly burn unlimited machine time.** The per-run ceiling
+  on expensive analysis (minutes of audio transcribed, seconds of video decoding) was
+  carried through the whole system and never actually counted, so it could not stop
+  anything. It is now charged against what really ran: a run that reaches its ceiling gets
+  a clear refusal naming the limit instead of another hour of processing, and a call that
+  is refused never starts, so the time is not spent discovering it was unaffordable.
+
+- **The prompt now tells the model the truth about what was left out.** When a request is
+  too large to fit the model's window, FramePilot lists what it had to leave behind. If a
+  reference file the editor attached was the thing dropped, the list said the editor's
+  *pinned items* were missing instead — so the model was told the wrong thing was absent and
+  could not compensate for the right one. Each omission is now named for what it is.
+
 - **Captions no longer flash by too fast to read.** Generating captions on a normally-paced
   talking head produced cues that were on screen for a fraction of a second — one real
   recording got a caption reading "We" held for ten milliseconds, and 25 of its 63 captions

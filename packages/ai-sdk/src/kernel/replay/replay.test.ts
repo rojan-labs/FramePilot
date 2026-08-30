@@ -95,12 +95,12 @@ describe('createRecordingEffectRuntime', () => {
     );
   });
 
-  it('cancel delegates to the wrapped runtime', () => {
-    const cancel = vi.fn();
-    const inner: EffectRuntime = { run: vi.fn(), cancel };
-    const { runtime } = createRecordingEffectRuntime(inner);
-    runtime.cancel('effect_1', 'stopped');
-    expect(cancel).toHaveBeenCalledWith('effect_1', 'stopped');
+  it('exposes no cancel surface to delegate to', () => {
+    // `EffectRuntime.cancel` was removed: it could not reach a host-tool or model effect,
+    // and cancellation travels on the caller's AbortSignal (see `effect-runtime.ts`). The
+    // wrapper must not resurrect it as a pass-through that silently does nothing.
+    const { runtime } = createRecordingEffectRuntime(fakeRuntime([]));
+    expect('cancel' in runtime).toBe(false);
   });
 });
 
@@ -158,8 +158,8 @@ describe('createReplayEffectRuntime', () => {
     );
   });
 
-  it('cancel is a no-op (replay has no live effects to interrupt)', () => {
+  it('exposes no cancel surface (replay has no live effects to interrupt)', () => {
     const replay = createReplayEffectRuntime({ effects: [] });
-    expect(() => replay.cancel('effect_1', 'stopped')).not.toThrow();
+    expect('cancel' in replay).toBe(false);
   });
 });

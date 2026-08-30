@@ -27,6 +27,7 @@ import {
 } from './editor-context/interaction-context.js';
 import type { AiMessage } from './providers/types.js';
 import type { ContextBudget } from './reliability/types.js';
+import type { ReferenceProfile } from './references/profile.js';
 import { setPreference } from './memory-store.js';
 import { makeProject } from './__fixtures__/project.js';
 
@@ -1003,4 +1004,164 @@ describe('per-section accounting (ADR 0080)', () => {
     });
     expect(dropped.sections.find((s) => s.tier === 'history')?.included).toBe(false);
   });
+});
+
+/**
+ * The declared-omission block has one job: an honest account of what the model was and was
+ * not given. These assertions are about it being right, not about it existing.
+ */
+describe('the omission notice names what was actually dropped', () => {
+  const reference: ReferenceProfile = {
+    id: 'ref_1',
+    role: 'pacing',
+    kind: 'video',
+    fileName: 'competitor-reel.mp4',
+    contentHash: 'abcdef123456',
+    analyzedAt: '2026-08-30T00:00:00.000Z',
+    video: { durationS: 30, shotCount: 20, medianShotS: 1.4 },
+    constraints: ['Pacing: fast — median shot 1.4s'],
+  };
+  const pinned = [{ kind: 'clip' as const, id: 'clip_1', label: 'Opening shot' }];
+  /** Small enough that the `pinned` tier — which sits near the top — has to go. */
+  const tight: ContextBudget = { contextWindow: 1, maxOutputTokens: 0, headroom: 0 };
+
+  const noticeFor = (input: Parameters<typeof assembleContext>[0]): string =>
+    assembleContext(input).messages.at(-1)?.content ?? '';
+
+  it('reports a dropped references block as references, not as pinned entities', () => {
+    // The bug: the references block is filed under `tier: 'pinned'` (they cost about the
+    // same to lose), and the notice was rendered per TIER — so a run whose attached
+    // reference was trimmed was told "the entities the user pinned" were missing. It had
+    // pinned nothing. Told the wrong thing is absent, a model cannot compensate for the
+    // right one, and this is the block that exists to prevent exactly that.
+    const notice = noticeFor({
+      project: makeProject(),
+      userPrompt: 'match this pacing',
+      references: [reference],
+      budget: tight,
+    });
+    expect(notice).toContain('the references the editor attached');
+    expect(notice).toContain('do not claim to have matched a reference you cannot see');
+    expect(notice).not.toContain('the entities the user pinned');
+  });
+
+  it('still reports dropped pinned entities as pinned entities', () => {
+    const notice = noticeFor({
+      project: makeProject(),
+      userPrompt: 'tighten this',
+      pinned,
+      budget: tight,
+    });
+    expect(notice).toContain('the entities the user pinned');
+    expect(notice).not.toContain('the references the editor attached');
+  });
+
+  it('reports both when both shared the dropped tier', () => {
+    const notice = noticeFor({
+      project: makeProject(),
+      userPrompt: 'match this pacing',
+      pinned,
+      references: [reference],
+      budget: tight,
+    });
+    expect(notice).toContain('the entities the user pinned');
+    expect(notice).toContain('the references the editor attached');
+  });
+
+  it('names a dropped tier once however many blocks it carried', () => {
+    // `timeline` carries the summary, the bin, the source-media facts, the visual status
+    // and the footage map. One omission, one line.
+    const notice = noticeFor({
+      project: makeProject(),
+      userPrompt: 'tighten this',
+      visualStatus: 'Visual index: 3 assets indexed',
+      footageMap: 'Chapter 1: intro',
+      budget: tight,
+    });
+    const timelineLines = notice
+      .split('\n')
+      .filter((line) => line.includes('the timeline arrangement'));
+    expect(timelineLines).toHaveLength(1);
+  });
+});
+
+/**
+ * The invariant behind a class of bug, not a single instance of it.
+ *
+ * `assembleContext` sizes its two grounding tiers (the clip listing and the transcript
+ * slice) out of `budget - spentElsewhere`, so every OTHER string that will be appended to
+ * the prompt has to be priced into `spentElsewhere` first. Miss one and the allocation is
+ * computed as though that block were free; the assembled prompt then overshoots by exactly
+ * its size, and `DROP_ORDER` answers a fifteen-token overshoot by dropping the WHOLE
+ * transcript tier. That is what the media-bin digest did before it was priced.
+ *
+ * Rather than re-testing each block by name, this asserts the property they all have to
+ * satisfy: given a budget that the fixed content plus the grounding FLOORS can afford,
+ * the assembler must fit inside it without dropping anything. An unpriced block breaks
+ * that at some budget in the sweep, whichever block it is.
+ */
+describe('no assembled block escapes the budgeter', () => {
+  const richInput = (budget: ContextBudget) => ({
+    project: setPreference(
+      makeProject({
+        // Comfortably above `MIN_TRANSCRIPT_WORDS`, which is the point: below the floor
+        // the grounding tiers CANNOT shrink, and dropping the tier is then the documented
+        // behaviour rather than an accounting failure. The invariant only has meaning in
+        // the region where a fit exists.
+        transcript: Array.from({ length: 4_000 }, (_, i) => ({
+          word: `word${String(i)}`,
+          start: i,
+          end: i + 1,
+        })),
+      }),
+      'captionStyle',
+      'bold',
+    ),
+    userPrompt: 'cut this down to thirty seconds and caption it',
+    targetPlatform: 'reels' as const,
+    sessionContext: 'The editor prefers hard cuts on the beat.',
+    visualStatus: 'Visual index: 3 of 3 assets indexed',
+    footageMap: 'Chapter 1 (0-12s): intro\nChapter 2 (12-30s): demo',
+    pinned: [{ kind: 'clip' as const, id: 'clip_1', label: 'Opening shot' }],
+    skills: [
+      { name: 'pacing', description: 'How to pace a short.', tools: ['trim_clip'], body: '# b' },
+    ],
+    history: [{ role: 'user' as const, content: 'earlier turn about pacing' }],
+    budget,
+  });
+
+  const window = (contextWindow: number): ContextBudget => ({
+    contextWindow,
+    maxOutputTokens: 0,
+    headroom: 0,
+  });
+
+  /** What the whole prompt costs when nothing has to be trimmed. */
+  const full = assembleContext(richInput(window(1_000_000)));
+  const fullCost = full.sections.reduce((sum, section) => sum + section.tokenEstimate, 0);
+
+  it('assembles everything when the window is generous', () => {
+    expect(full.trimmed).toEqual([]);
+  });
+
+  it.each([0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1].map((share) => [share] as const))(
+    'fits a %s-of-full budget by shrinking the grounding tiers, never by dropping a tier',
+    (share) => {
+      const budget = window(Math.ceil(fullCost * share));
+      const assembled = assembleContext(richInput(budget));
+      const cost = assembled.sections
+        .filter((section) => section.included)
+        .reduce((sum, section) => sum + section.tokenEstimate, 0);
+
+      // The grounding tiers can always shrink to their floors, which are far below half of
+      // this prompt — so at every one of these budgets there IS a fit, and finding one is
+      // the assembler's job. A dropped tier here means something it appended was not
+      // counted when it sized the slice.
+      expect({ share, trimmed: assembled.trimmed }).toEqual({ share, trimmed: [] });
+      expect({ share, overBudget: cost > budgetTokens(budget) }).toEqual({
+        share,
+        overBudget: false,
+      });
+    },
+  );
 });

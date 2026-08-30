@@ -176,10 +176,20 @@ export function stageAllowsRole(stage: RunStage, role: ToolRole): boolean {
  * and lost the only sanctioned way to learn one."
  *
  * The rule this exempts is "the evidence for the plan is already stored, so recall it
- * instead of gathering again". That rule still holds for a re-analysis that IS redundant —
- * `withheldCallOutcome`'s memo hit refuses it by name, `allFromCache` arms the
- * action-recovery lockout, and the no-progress streak climbs either way. What it never
- * justified was withholding the measurement a validator demands.
+ * instead of gathering again". Exempting a tool does NOT leave a redundant re-analysis
+ * unbounded, but be precise about what still bounds it, because the obvious answer is
+ * circular: `withheldCallOutcome`'s memo hit only runs for a call the stage WITHHELD, and
+ * an exemption is exactly what stops it running. What actually holds:
+ *
+ *  - `orchestrator.ts#callNoveltyKey` keys an asseted analysis on `name:assetId`, so a
+ *    second `detect_beats` on the same track scores as nothing learned and the
+ *    no-progress streak climbs toward the stall guard;
+ *  - `allFromCache` still arms the action-recovery lockout when a turn is all repeats;
+ *  - the per-run `ffmpegSeconds` cap (`kernel/cost/analysis-caps.ts`, charged in
+ *    `sidecar-executor.ts`) refuses the call outright once the run has spent its
+ *    analysis budget.
+ *
+ * What none of that ever justified was withholding the measurement a validator demands.
  *
  * Keep this set minimal. A tool belongs here only when a runtime check reads its output;
  * `stage-policy.test.ts` asserts that property rather than trusting the list.
@@ -201,8 +211,21 @@ export const VALIDATOR_INPUT_TOOL_NAMES: ReadonlySet<string> = new Set([BEAT_ANA
  * (plan/system-mission P1.1) shows seven such calls across five requests, every one
  * answered "unavailable this turn" — ~110k prompt tokens spent on a check the run was
  * forbidden to make, while the run never reached `verify` (the stage machine only leaves
- * `apply` through the explicit verify effect). Frames stay bounded by the analysis caps and
- * the redundant-call memo; what changes is that a look after an edit is no longer refused.
+ * `apply` through the explicit verify effect).
+ *
+ * What bounds the frames, stated exactly (the earlier wording said "the analysis caps and
+ * the redundant-call memo", and BOTH halves were wrong for this tool):
+ *
+ *  - the per-run `ffmpegSeconds` cap — real, and charged for `get_frame` in
+ *    `sidecar-executor.ts`; a run that spends its budget on frames is refused the next one;
+ *  - `callNoveltyKey`, which keys a `get_frame` on its own arguments: asking for the SAME
+ *    time twice scores as nothing learned, while a look at a different time is genuinely
+ *    new and should not be penalised.
+ *
+ * Not the memo. `get_frame` declares `cacheScope: 'none'` (`tool-contract.ts`) precisely so
+ * a picture is never served from one — a cached frame would show the model the timeline it
+ * had before its own edit, which is the failure the tool exists to prevent. And the
+ * withheld-call memo cannot apply to a tool this set stops the stage withholding.
  */
 export const VERIFICATION_LOOK_TOOL_NAMES: ReadonlySet<string> = new Set(['get_frame']);
 
@@ -221,9 +244,23 @@ export const VERIFICATION_LOOK_TOOL_NAMES: ReadonlySet<string> = new Set(['get_f
  * unreachable for the rest of the run, which is the third recurrence of the defect this
  * file already corrected for `guidance` and for `detect_beats`, in the same words.
  *
- * The rule this exempts — "the evidence is already stored, recall it" — is untouched for a
- * re-call that really is redundant: `transcribe` is `transcript_dependent`, so its evidence
- * survives ordinary cuts and `withheldCallOutcome`'s memo hit refuses the repeat by name.
+ * What bounds a redundant re-transcription, precisely — and it is NOT the memo, which the
+ * earlier wording claimed twice over:
+ *
+ *  - `withheldCallOutcome`'s memo hit only ever runs for a call the stage WITHHELD, and
+ *    membership in this set is what stops the stage withholding it. The guard cannot fire
+ *    for the tools listed here, by construction.
+ *  - There is no memo to hit anyway. `runAgentCall` stores the result under
+ *    `callMemoKey(call)` and then, because `transcribe` lands a `set_transcript` operation,
+ *    calls `evidence.invalidate(['set_transcript'])` — which drops every
+ *    `transcript_dependent` entry INCLUDING the one it just wrote. Correct (the words were
+ *    genuinely rewritten), and it means the transcript is never recallable from the store.
+ *
+ * What does hold: `callNoveltyKey` keys an asseted analysis on `name:assetId`, so a second
+ * `transcribe` of the same asset is scored as nothing learned and the no-progress streak
+ * climbs; and `maxTranscriptionMinutes` (`kernel/cost/analysis-caps.ts`, charged from the
+ * real word timings in `sidecar-executor.ts`) caps what a run may transcribe in total, so
+ * a loop hits an honest refusal rather than transcribing the bin.
  *
  * Keep this set minimal. A tool belongs here only when some mutation's description or
  * thrown message names it as the remedy; `stage-policy.test.ts` asserts that property

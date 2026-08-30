@@ -14,8 +14,20 @@ export type ToolConcurrency = 'parallel' | 'serial';
 /** Which state must be included when deciding whether a result is still valid. */
 export type ToolStateDependency = 'none' | 'project_revision' | 'asset_content';
 
-/** The strongest cache scope a caller may safely use. */
-export type ToolCacheScope = 'none' | 'run' | 'project_revision' | 'asset_content';
+/**
+ * The strongest cache scope a caller may safely use.
+ *
+ * There is deliberately no `project_revision` member, and its absence is the fix for a
+ * bug this repo shipped three times (`get_frame`, `measure_color`, `search_media`). A
+ * revision-keyed memo reads as the careful option and is not one: `Timeline.revision`
+ * advances only when clip TIMING moves (`editor-core/operations.ts#mappingChanged`), so it
+ * stands still through colour grades, effects, masks, keyframes, and through every
+ * project-level bin operation — and every host read that was keyed on it was therefore
+ * served a pre-edit answer on the exact call it made to check its own work. A tool whose
+ * answer depends on the arrangement is now uncacheable BY DERIVATION rather than by each
+ * author remembering to write `none`.
+ */
+export type ToolCacheScope = 'none' | 'run' | 'asset_content';
 
 export interface ToolContract {
   readonly executionPlane: ToolExecutionPlane;
@@ -161,6 +173,45 @@ export const TOOL_CONTRACT_DECLARATIONS: Readonly<Record<string, ToolContract>> 
     stateDependency: 'project_revision',
     cacheScope: 'none',
   },
+  // `search_media` is the same defect as `get_frame` above, arrived at from the other
+  // side: it reads the BIN, and `Timeline.revision` is not a bin counter either.
+  //
+  // Its answer depends on two things the revision cannot see. The hits come from the
+  // sidecar brain index over the project's ASSETS (`/brain/search`), which `add_asset`,
+  // `manage_assets` and `index_media` change — none of them a timeline operation, so
+  // `applyOperation`'s `mappingChanged` bump never fires for any of them (project
+  // operations do not go through it at all). The derived `project_revision` cacheScope
+  // therefore memoized a bin read under a mapping counter: a run that imported a file and
+  // then searched for it was served the pre-import answer and concluded the asset was not
+  // there. `unwrapSearch` then enriches each asset hit with its live clip placements, so
+  // the SAME payload also ages with the arrangement.
+  //
+  // `asset_content` is not the fix, and this is the trap worth naming: the effect
+  // runtime's `asset_content` branch (`kernel/effect-runtime.ts#idempotencyKeyFor`) keys
+  // on name + arguments ALONE — there is no asset identity in the key. It is a per-run
+  // memo whose name promises content-addressing it does not do. That is sound for the
+  // revision-independent media analyses that use it (media bytes cannot change mid-run;
+  // FramePilot never mutates originals), and wrong for a query over a bin the run itself
+  // edits. `EvidenceStore` models the real rule — `asset_dependent` evidence is dropped on
+  // any bin operation (`evidence-store.ts#ASSET_OPERATIONS`) — and it is the one authority
+  // that should own staleness. Adding a second, bin-keyed cache here to compete with it is
+  // how the `get_frame` bug was built.
+  //
+  // So: no memo. The cost is a re-query (a local index lookup, not a decode) when a run
+  // asks the same question twice with no import between.
+  //
+  // Kept as an explicit row even though {@link cacheScopeFor} now derives `none` for it:
+  // that derivation follows the tool's evidence scope, and `search_media`'s scope is
+  // `timeline_dependent` for the placements rather than for the bin. Reclassify it to sit
+  // with its `revision_independent` sidecar siblings and the memo comes back silently.
+  search_media: {
+    executionPlane: 'host',
+    effectClass: 'pure_read',
+    permissions: ['analysis'],
+    concurrency: 'parallel',
+    stateDependency: 'project_revision',
+    cacheScope: 'none',
+  },
   render_preview: {
     executionPlane: 'host',
     effectClass: 'action',
@@ -197,6 +248,30 @@ function stateDependencyFor(scope: ToolEvidenceScope): ToolStateDependency {
   }
 }
 
+/**
+ * The strongest memo a tool's own nature permits — the safe DEFAULT, which is the level
+ * this decision has to be made at.
+ *
+ * Only `revision_independent` is memoizable, and the three exclusions are the three ways a
+ * run changes the thing underneath its own question:
+ *
+ *  - `timeline_dependent` — the arrangement moves constantly, and the only identity the
+ *    runtime could key on is `Timeline.revision`, a mapping counter rather than a
+ *    description of what the tool would see (see {@link ToolCacheScope}).
+ *  - `asset_dependent` — the BIN is not the timeline. `add_asset`, `manage_assets` and the
+ *    sourcing downloads all change what a bin read would return and none of them touches
+ *    the revision; there is no bin identity in the runtime's key either, so a memo here
+ *    would answer "is that file in the project?" with the state before the import.
+ *  - `transcript_dependent` — `transcribe` rewrites the words mid-run.
+ *
+ * What remains is source material, and FramePilot never mutates originals (invariant 1),
+ * so its answer cannot change inside one run. The runtime memoizes it per run keyed on
+ * name + arguments, which is what stops a metered provider catalogue being re-queried for
+ * a question already asked.
+ *
+ * The default is deliberately the safe one: a new host read is uncacheable unless its
+ * classification says it describes something no edit can reach.
+ */
 function cacheScopeFor(
   executionPlane: ToolExecutionPlane,
   effectClass: ToolEffectClass,
@@ -205,9 +280,9 @@ function cacheScopeFor(
   if (executionPlane !== 'host' || effectClass !== 'pure_read') return 'none';
   switch (scope) {
     case 'timeline_dependent':
-      return 'project_revision';
     case 'asset_dependent':
     case 'transcript_dependent':
+      return 'none';
     case 'revision_independent':
       return 'asset_content';
   }

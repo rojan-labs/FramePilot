@@ -849,12 +849,50 @@ const TIER_RECOVERY: Partial<Record<ContextTier, string>> = {
   selection: "the user's current selection — ask before assuming an edit is project-wide",
 };
 
-/** Render the declared-omission block, or '' when everything fit. */
-export function summarizeDroppedTiers(dropped: readonly ContextTier[]): string {
-  const lines = dropped
-    .map((tier) => TIER_RECOVERY[tier])
-    .filter((line): line is string => line !== undefined)
-    .map((line) => `- ${line}`);
+/**
+ * Recovery lines for BLOCKS that share a tier with something else.
+ *
+ * A tier is a budget priority, not a description of content, and two blocks can honestly
+ * share one: the references block rides `pinned` because an attachment the editor made and
+ * an entity the editor pinned are worth about the same when the budget is tight. What they
+ * are NOT worth is the same sentence. Dropping the references and telling the model "the
+ * entities the user pinned" were left out is a false account of the omission, in the one
+ * block whose whole job is an honest account of it — and a model told the wrong thing is
+ * missing compensates for the wrong thing.
+ *
+ * Keyed by the block's own label, so an added block that shares a tier either declares its
+ * own line here or is reported by its tier's line; there is no way for it to be reported as
+ * something it is not.
+ */
+const BLOCK_RECOVERY: Readonly<Record<string, string>> = {
+  references:
+    'the references the editor attached and their measured targets — no tool can re-read ' +
+    'them, so do not claim to have matched a reference you cannot see; ask instead',
+};
+
+/** One dropped block, as much of it as the omission notice needs. */
+export interface DroppedBlock {
+  readonly tier: ContextTier;
+  readonly label: string;
+}
+
+/**
+ * Render the declared-omission block, or '' when everything fit.
+ *
+ * Takes the blocks that were dropped rather than the bare tier names so a block with its
+ * own {@link BLOCK_RECOVERY} line is named for what it is. Tiers with nothing assembled
+ * under them (`history`, whose content lives outside `tiered`) are still reported through
+ * their tier line, which is why the tier fallback stays. Lines are de-duplicated: two
+ * blocks in the same tier with no line of their own describe one omission to the model.
+ */
+export function summarizeDroppedTiers(dropped: readonly DroppedBlock[]): string {
+  const lines = [
+    ...new Set(
+      dropped
+        .map(({ tier, label }) => BLOCK_RECOVERY[label] ?? TIER_RECOVERY[tier])
+        .filter((line): line is string => line !== undefined),
+    ),
+  ].map((line) => `- ${line}`);
   if (lines.length === 0) return '';
   return [
     'NOT IN THIS PROMPT (it did not fit, so do not treat its absence as absence from the',
@@ -1052,7 +1090,15 @@ export function assembleContext(input: ContextInput): AssembledContext {
     if (present) dropped.add(tier);
   }
 
-  const omissionBlock = summarizeDroppedTiers([...dropped]);
+  // Report the BLOCKS that went, not just the tiers: a tier can carry two unrelated blocks
+  // (`pinned` holds both the pinned entities and the references), and naming only the tier
+  // tells the model the wrong thing was omitted. A dropped tier with no assembled block —
+  // `history` lives outside `tiered` — falls back to its tier line.
+  const droppedBlocks: DroppedBlock[] = [...dropped].flatMap((tier) => {
+    const blocks = tiered.filter((b) => b.tier === tier);
+    return blocks.length > 0 ? blocks.map(({ label }) => ({ tier, label })) : [{ tier, label: '' }];
+  });
+  const omissionBlock = summarizeDroppedTiers(droppedBlocks);
   const keptTiers = tiered.filter((b) => !dropped.has(b.tier));
   const keptBlocks = keptTiers.map((b) => b.text);
   const keptHistory = dropped.has('history') ? [] : history;
@@ -1086,10 +1132,12 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // manifest and the editor's own brief were all re-billed at full price on the next turn.
   // A captured run reported `cachedInputTokens: 0`.
   //
-  // `state-block.ts`'s claim that a fixed key order "keeps the prompt-cache prefix
-  // byte-stable from turn to turn" is only true for a block at the END of a prefix, which
-  // this was not. Moved here it costs ~40-60 tokens re-billed per turn instead of the whole
-  // stable body, and it still reads before the briefing and the action log.
+  // `state-block.ts` used to claim that its fixed key order "keeps the prompt-cache prefix
+  // byte-stable from turn to turn". A fixed key order does nothing of the sort when the
+  // VALUES move every turn; that claim has been removed from that file and it now points
+  // here, because this line is the rule. Moved into `volatile` the block costs ~40-60
+  // tokens re-billed per turn instead of the whole stable body, and it still reads before
+  // the briefing and the action log.
   const volatileBlocks = keptTiers.filter((b) => b.tier === 'timeline').map((b) => b.text);
   const stableBlocks = keptTiers.filter((b) => b.tier !== 'timeline').map((b) => b.text);
   const split: ContextSplit = {

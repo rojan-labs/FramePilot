@@ -1717,20 +1717,40 @@ describe('createSidecarExecutor', () => {
 });
 
 describe('createSidecarExecutor — analysis budget (B5.4)', () => {
-  it('leaves uncapped calls unaffected by the budget', async () => {
+  it('leaves a call the caps do not name unaffected by the budget', async () => {
     const budget = createAnalysisBudget();
     const executor = createSidecarExecutor({
       baseUrl: 'http://127.0.0.1:8765',
-      fetchFn: fetchStub({ ok: true, json: { assetId: 'a1', ranges: [] } }),
+      fetchFn: fetchStub({ ok: true, json: { available: true, hits: [] } }),
+    });
+    const outcome = await executor.run(call('search_media', { query: 'hello' }), {
+      project,
+      analysisBudget: budget,
+    });
+    expect(outcome.status).toBe('completed');
+    expect(budget.spend()).toEqual({ ffmpegSeconds: 0, transcriptionMinutes: 0 });
+  });
+
+  it('charges a capped call so the run cannot spend the ceiling twice', async () => {
+    // This assertion used to say only `status === 'completed'`, which passed for the two
+    // years the budget was threaded through this executor and read by nothing. The
+    // end-to-end enforcement lives in `kernel/cost/analysis-caps.enforcement.test.ts`;
+    // this is the local guard that the SHIPPED executor is the thing doing the charging.
+    let clock = 0;
+    const budget = createAnalysisBudget();
+    const executor = createSidecarExecutor({
+      baseUrl: 'http://127.0.0.1:8765',
+      fetchFn: fetchStub({ ok: true, json: { assetId: 'a1', ranges: [] } }, () => {
+        clock += 2_500;
+      }),
+      now: () => clock,
     });
     const outcome = await executor.run(
       call('analyze_silence', { assetId: 'a1', noiseFloorDb: -35 }),
-      {
-        project,
-        analysisBudget: budget,
-      },
+      { project, analysisBudget: budget },
     );
     expect(outcome.status).toBe('completed');
+    expect(budget.spend().ffmpegSeconds).toBe(2.5);
   });
 });
 

@@ -35,6 +35,30 @@ patch — see [ADR 0012](../adr/0012-ai-tool-boundary-and-orchestrator.md)). The
 decides which tools a given mode may use (e.g. `plan` mode may call read tools but applies
 nothing; `edit` offers only write tools).
 
+### Execution contract: caching, cancellation, and the analysis budget
+
+Beyond the schema, every tool resolves a typed **execution contract**
+(`packages/ai-sdk/src/tool-contract.ts`) that the runtime — not the caller — obeys.
+
+- **Caching.** A host tool's result is memoized for the run only when its answer is
+  `revision_independent`: source material and provider catalogues, which no edit can
+  change (invariant 1: originals are never mutated). Anything that reads the timeline, the
+  asset bin or the transcript runs fresh every time, because a run changes all three
+  underneath its own questions. There is deliberately no revision-keyed tier — see the
+  2026-08-30 amendment in
+  [ADR 0107](../adr/0107-ai-tool-and-edit-contract-authority.md).
+- **Cancellation.** `AbortSignal` is the only channel. The run's signal reaches the model
+  provider, the host executor and the sidecar's HTTP request; Stop aborts the in-flight
+  call and the outcome settles as `cancelled`, never as a checkmark.
+- **Analysis budget.** Each run carries a per-run ceiling on the expensive host work
+  (`kernel/cost/analysis-caps.ts`): `maxTranscriptionMinutes` (default 60) over minutes of
+  audio actually transcribed, and `maxFfmpegSeconds` (default 900) over wall-clock seconds
+  of ffmpeg-backed analysis — the silence/scene/beat analyzers, `get_frame`,
+  `measure_color`. The host seam checks the budget before dispatch and records the real
+  consumption after, so a call over the ceiling **fails honestly and never runs**; its
+  summary names the resource and the totals. Callers that thread no budget (a one-off MCP
+  call) are uncapped, as before.
+
 ### Optional arguments at the untrusted boundary
 
 Strict validation is about _rejecting_ input the tool cannot honor. It is not about taking
