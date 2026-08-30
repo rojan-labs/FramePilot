@@ -79,6 +79,23 @@ the four captured attempts, which varied its arguments, would still have slipped
 Tests: `src/kernel/repeated-failure.test.ts` (11). Docs:
 `docs/architecture/ai-engine.md`, `CHANGELOG.md`.
 
+**Status snapshot (2026-08-30, run `7d159862` — the rejection that named nothing):** `[x]`
+**A rejected patch now says WHICH operation was rejected.** `caption_the_edit` built 126
+operations; one cue was degenerate and the model was handed
+`add_caption_layer.end must be greater than start.` and nothing else. With 63 near-identical
+cues there was no way to tell them apart, so the call was reissued four times (584 operations
+rejected in total). The index existed at every step and was discarded twice: the semantic
+contract replay in `packages/ai-sdk/src/assemble.ts` iterated without tracking its position,
+and the orchestrator's per-call validator probe joined `issue.message` while dropping the
+`operationIndex` the structural validator already populates. Both fixed:
+`firstContractRejection` returns the offending index, `contractFailure` carries it on the
+issue, and `describeValidationIssue` renders
+`op 49 of 126 (add_caption_layer, 18.067s–18.067s): <reason>` — which is what `add_clips`
+already promised the model when it said a rejection "names the entry". Also corrected a
+false claim: the post-quantization contract gate was annotated "unreachable", and it is the
+branch that refused these captions (snapping a 0.02s cue puts both ends on one frame).
+Tests: `src/assemble.test.ts` (10). Docs: `docs/api/ai-tools.md`, `CHANGELOG.md`.
+
 **Status snapshot (2026-08-29, run `ea8e46ec` — the beat-grid evidence deadlock):** `[x]`
 **A beat-synced montage can no longer be deadlocked by the run's own beat evidence.** The
 brief said "evaluate multiple suitable tracks and select the strongest one"; the run did

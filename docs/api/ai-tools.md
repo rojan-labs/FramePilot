@@ -190,6 +190,29 @@ rejected at the tool boundary so DOM preview and deterministic export cannot sil
 
 ---
 
+## When a patch is rejected
+
+A rejected call reaches the model as a single sentence, so that sentence has to say WHICH
+operation was refused:
+
+```
+op 49 of 126 (add_caption_layer, 18.067s–18.067s): add_caption_layer.end must be greater
+than start: both are 18.0667s, so it would occupy no time.
+```
+
+Batch tools propose one operation per cue or per entry, so an unlocated reason is the same
+sentence for every one of them. A captured run reissued the same `caption_the_edit` call
+four times — about ten of its eighteen model calls — because 63 near-identical cues all
+produced the identical rejection and nothing said which cue was bad.
+
+The position is 1-based and phrased "of N". The operation type and time range are appended
+only when the reason does not already name them. The location comes from
+`ValidationIssue.operationIndex`, which both gates populate: the semantic operation
+contract (replayed one operation at a time in `assembleEdit`) and the structural patch
+validator.
+
+---
+
 ## Tool authoring requirements
 
 When adding or changing a tool (see also the `ai-safety` skill,

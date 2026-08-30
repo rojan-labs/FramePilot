@@ -152,6 +152,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   prove will repeat count: a dropped connection or a restarted engine is still retried,
   and any change that lands clears the slate.
 
+- **When the assistant's edit is refused, it is told which part was refused.** Asking for
+  captions builds one change per line of dialogue — over a hundred in a short video. If a
+  single one of them was impossible, the whole batch came back with one sentence explaining
+  the problem and no way to tell which line it was about. The assistant's only move was to
+  ask again, unchanged, and it did: one captured run spent more than half its work re-sending
+  the same rejected captions. A refusal now names the position of the change that caused it
+  and what that change was, so the next attempt fixes the one line instead of repeating all
+  of them.
+
 - **"Remove the dead air" no longer gives up on a recording that is full of it.** Asking the
   assistant to cut dead air out of a 50-second talking head told it, twice, that there was
   none — while the recording held 10.6 seconds of it across 56 pauses. The measurement was

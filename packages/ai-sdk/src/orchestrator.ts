@@ -43,7 +43,7 @@ import {
 import type { AgentOptions, AgentRun, AgentStep, ReviewResult } from './agent.js';
 import { asksForRenderedFile, checkableAcceptance } from './acceptance.js';
 import { referenceDirectives, shotLengthTolerance } from './references/directives.js';
-import { type EditResult, assembleEdit } from './assemble.js';
+import { type EditResult, assembleEdit, describeValidationIssue } from './assemble.js';
 import {
   TOOL_CONCURRENCY_ENV,
   mapBounded,
@@ -4132,9 +4132,14 @@ export class Orchestrator {
       // instead of showing a checkmark and having the whole turn rejected later.
       const probe = assembleEdit(ctx.project, ops, 'validation probe', 'agent');
       if (!probe.validation.valid) {
+        // Locate each issue, do not just quote it. A batch tool builds one operation per
+        // cue/entry, so an unlocated reason is the same sentence for every one of them and
+        // the model's only move is to reissue the identical call. `probe.patch.operations`
+        // is the list the issues were raised against — normalized when the rejection came
+        // after quantization, raw when it came before.
         const problems = probe.validation.issues
           .filter((i) => i.severity === 'error')
-          .map((i) => i.message)
+          .map((i) => describeValidationIssue(i, probe.patch.operations))
           .join('; ');
         const note = `Rejected "${call.name}" — ${problems}`;
         orchestratorLog.warn('tool call rejected — validator', { tool: call.name, problems });
