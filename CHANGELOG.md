@@ -139,6 +139,26 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Captions no longer flash by too fast to read.** Generating captions on a normally-paced
+  talking head produced cues that were on screen for a fraction of a second — one real
+  recording got a caption reading "We" held for ten milliseconds, and 25 of its 63 captions
+  were shorter than the half-second minimum. When speech is dense, the generator used to
+  break a caption in two to reduce how much text arrives at once; but the two halves land
+  back to back, so the first one gets no more time than before — and it kept breaking until
+  every caption was a single word. It now keeps a dense caption whole when splitting it
+  would leave a half nobody could read.
+
+- **"Add captions" no longer fails outright on ordinary speech.** Two captions of that same
+  recording were shorter than a single video frame, which the timeline cannot represent —
+  and because captions are written as one change, one impossible caption threw away all of
+  them. Asking for captions on a 50-second video silently produced none, four times in a
+  row. Captions are now generated on the project's frame grid, so this cannot happen, and
+  two captions the grid cannot tell apart become one instead of one becoming nothing.
+
+- **The assistant no longer checks its work against a stale picture.** After a colour change,
+  a punch-in or an effect, looking at a frame could return the picture from before the edit —
+  so the assistant judged its own change against the frame it had just replaced.
+
 - **A file you attach to a message now belongs to that message.** Attaching a reference and
   asking "make it feel like this" left the file sitting in the composer after you sent it,
   showed nothing in the message you had just sent, and then quietly attached it again to
@@ -207,15 +227,6 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   instead — fix the cause, use a different tool, or move on. Only refusals the app can
   prove will repeat count: a dropped connection or a restarted engine is still retried,
   and any change that lands clears the slate.
-
-- **When the assistant's edit is refused, it is told which part was refused.** Asking for
-  captions builds one change per line of dialogue — over a hundred in a short video. If a
-  single one of them was impossible, the whole batch came back with one sentence explaining
-  the problem and no way to tell which line it was about. The assistant's only move was to
-  ask again, unchanged, and it did: one captured run spent more than half its work re-sending
-  the same rejected captions. A refusal now names the position of the change that caused it
-  and what that change was, so the next attempt fixes the one line instead of repeating all
-  of them.
 
 - **"Remove the dead air" no longer gives up on a recording that is full of it.** Asking the
   assistant to cut dead air out of a 50-second talking head told it, twice, that there was
