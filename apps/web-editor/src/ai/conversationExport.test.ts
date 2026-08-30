@@ -315,7 +315,6 @@ describe('exported attachments', () => {
         },
         { id: 'ref_2', kind: 'document', name: 'brief.pdf' },
       ]),
-      1000,
     );
     const markdown = toMarkdown(conversation);
     expect(markdown).toContain('📎 fast-cut.mp4 · pacing');
@@ -328,7 +327,6 @@ describe('exported attachments', () => {
     const conversation = appendEvent(
       createConversation({ projectId: 'p1', id: 'c1', model: 'mock', now: 0 }),
       em.userMessage('just text'),
-      1000,
     );
     expect(toMarkdown(conversation)).not.toContain('📎');
   });

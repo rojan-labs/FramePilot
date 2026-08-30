@@ -19,10 +19,10 @@ function installDesktopRecents(count: number): void {
   } as unknown as RendererBridge;
 }
 
-function renderHome(): void {
+function renderHome(props: Partial<Parameters<typeof HomeScreen>[0]> = {}): void {
   render(
     <SettingsProvider>
-      <HomeScreen onNew={() => {}} onOpen={() => {}} onOpenRecent={() => {}} />
+      <HomeScreen onNew={() => {}} onOpen={() => {}} onOpenRecent={() => {}} {...props} />
     </SettingsProvider>,
   );
 }
@@ -56,6 +56,34 @@ describe('HomeScreen', () => {
     fireEvent.click(toggles[0]!);
 
     await waitFor(() => expect(document.documentElement.dataset.theme).toBe('light'));
-    expect(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}')).toMatchObject({ theme: 'light' });
+    expect(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}')).toMatchObject({
+      theme: 'light',
+    });
+  });
+
+  it('says why a project would not open, instead of doing nothing', async () => {
+    // Main returns a typed reason — a newer schema version, a corrupt file, a missing
+    // migration — and the renderer used to log it and return, so clicking a recent
+    // project produced no visible result at all and there was no way to tell "nothing
+    // happened" from "something is wrong with that file".
+    installDesktopRecents(1);
+    const onDismiss = vi.fn();
+    renderHome({
+      openError: 'This project was written by a newer version of FramePilot.',
+      onDismissOpenError: onDismiss,
+    });
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('newer version of FramePilot');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(onDismiss).toHaveBeenCalled();
+  });
+
+  it('shows no failure notice when nothing failed', async () => {
+    installDesktopRecents(1);
+    renderHome();
+    await screen.findByText('Project 1');
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });

@@ -14624,3 +14624,29 @@ a.export-credits-license {
   opacity: 1;
   background: color-mix(in srgb, currentColor 18%, transparent);
 }
+
+/* ---------------------------------------------------------------------------
+ * Why a project would not open.
+ *
+ * Persistent, not a toast: it is the answer to a click the user just made, and a
+ * notice that disappears on its own is how "the button does nothing" happened in
+ * the first place. Dismissed explicitly, or cleared by the next open attempt.
+ * ------------------------------------------------------------------------- */
+.launch-open-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 12px);
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto var(--space-4, 16px);
+  padding: var(--space-3, 12px) var(--space-3, 12px) var(--space-3, 12px) var(--space-4, 16px);
+  border: 1px solid color-mix(in srgb, var(--danger, #d92d20) 45%, var(--border-subtle));
+  border-radius: var(--radius-md, 8px);
+  background: color-mix(in srgb, var(--danger, #d92d20) 8%, var(--bg-elevated));
+  color: var(--text-primary);
+}
+.launch-open-error-text {
+  min-width: 0;
+  font-size: var(--text-sm, 13px);
+}

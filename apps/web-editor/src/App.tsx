@@ -60,6 +60,8 @@ export function App(): JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('display');
   const [newProjectOpen, setNewProjectOpen] = useState(false);
+  /** Why the last open attempt failed. Cleared when the user starts another one. */
+  const [openError, setOpenError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [understandingOpen, setUnderstandingOpen] = useState(false);
   const [transcriptionOpen, setTranscriptionOpen] = useState(false);
@@ -440,6 +442,7 @@ export function App(): JSX.Element {
   );
 
   const open = useCallback(async () => {
+    setOpenError(null);
     const result = await openViaDialog();
     if (result.ok) {
       suppressAutosave.current = true;
@@ -451,11 +454,16 @@ export function App(): JSX.Element {
       setCapabilityGateDismissed(false);
       log.action('project opened', { path: result.path });
     } else if (result.error !== 'cancelled') {
+      // Surfaced, not just logged. Main returns a typed reason for each of these — a
+      // newer schema version, a corrupt file, a missing migration — and discarding it
+      // turned a real failure into a click that did nothing.
+      setOpenError(result.error);
       log.warn('open failed', result.error);
     }
   }, []);
 
   const openRecent = useCallback(async (recentPath: string) => {
+    setOpenError(null);
     if (recentPath.startsWith(BROWSER_PATH_PREFIX)) {
       const id = recentPath.slice(BROWSER_PATH_PREFIX.length);
       const loaded = loadBrowserProject(id);
@@ -470,6 +478,7 @@ export function App(): JSX.Element {
         writeBrowserProjectMeta(id, loaded.name);
         log.action('project opened', { path: recentPath });
       } else {
+        setOpenError(`Could not open ${recentPath}. The project file may be missing or corrupt.`);
         log.warn('could not load recent project', recentPath);
       }
       return;
@@ -485,6 +494,7 @@ export function App(): JSX.Element {
       setCapabilityGateDismissed(false);
       log.action('project opened', { path: result.path });
     } else {
+      setOpenError(result.error);
       log.warn('open failed', result.error);
     }
   }, []);
@@ -537,6 +547,8 @@ export function App(): JSX.Element {
               onNew={() => setNewProjectOpen(true)}
               onOpen={() => void open()}
               onOpenRecent={(p) => void openRecent(p)}
+              openError={openError}
+              onDismissOpenError={() => setOpenError(null)}
             />
           ) : (
             <>
