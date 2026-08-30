@@ -14,7 +14,11 @@ from typing import Any
 _log = logging.getLogger(__name__)
 
 _CHILD_ATTRS = ("audio", "mask", "bg")
-_CHILD_SEQUENCE_ATTRS = ("clips",)
+#: ``clips`` is MoviePy's own composite-membership attribute; ``_framepilot_children`` is this
+#: module's escape hatch for a clip whose real children are captured in a closure rather than
+#: exposed as an attribute (e.g. a blend-mode ``frame_function`` closing over the layers it
+#: blends) — those layers are attached here purely so this walk can find and close them too.
+_CHILD_SEQUENCE_ATTRS = ("clips", "_framepilot_children")
 _RESOURCE_SEQUENCE_ATTRS = ("_framepilot_resources",)
 
 

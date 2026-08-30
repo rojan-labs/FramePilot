@@ -78,8 +78,9 @@ def project_for_render_worker(project: Project, opts: RenderOptions) -> Project:
     ``resolve_frame`` documents as "nothing is upscaled quietly". The parent resolved it
     correctly the whole time, which is why it survived: only the spawned worker was wrong.
 
-    The peaks are what actually made the payload big (one float per waveform sample), and
-    nothing in the render reads them, so they still go.
+    The peaks and thumbnail paths are what actually made the payload big (one float per
+    waveform sample; one string per bin thumbnail), and nothing in the render reads either
+    — the compiler only ever touches ``media.width``/``height`` — so they still go.
     """
     assets = [
         asset.model_copy(
@@ -87,7 +88,9 @@ def project_for_render_worker(project: Project, opts: RenderOptions) -> Project:
                 "media": (
                     None
                     if asset.media is None
-                    else asset.media.model_copy(update={"peaks": None, "peaks_per_second": None})
+                    else asset.media.model_copy(
+                        update={"peaks": None, "peaks_per_second": None, "thumbnail_paths": None}
+                    )
                 ),
                 "folder_id": None,
             }

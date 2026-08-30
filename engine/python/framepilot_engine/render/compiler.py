@@ -1126,7 +1126,12 @@ def _blend_layer_over(base: VideoClip, layer: Any, mode: str, target: tuple[int,
         out = base_rgb * (1.0 - alpha3) + blended * alpha3
         return cast(np.ndarray, np.clip(out * 255.0, 0, 255).astype(np.uint8))
 
-    return _VideoClip(frame_function=frame_at).with_duration(new_duration)
+    result = _VideoClip(frame_function=frame_at).with_duration(new_duration)
+    # `base` and `canvas` (and, through it, `layer`) are only reachable from `frame_at`'s
+    # closure, not from any attribute `close_clip_tree` walks — without this, every blend-mode
+    # composite would leak the ffmpeg readers underneath it on every close.
+    result._framepilot_children = [base, canvas]
+    return result
 
 
 def _caption_position_y(position: str, frame_height: int, box_height: int, margin: int) -> int:
