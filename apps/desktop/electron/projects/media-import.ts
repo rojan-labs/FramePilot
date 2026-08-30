@@ -42,6 +42,18 @@ const reservedFinalPaths = new Set<string>();
 
 /**
  * `.part` paths of uploads still receiving chunks, so the sweep never deletes live bytes.
+ *
+ * PROCESS-SCOPED, and that bound is real: a second FramePilot instance's first import
+ * into the same project sweeps fragments this instance may still be writing, because it
+ * cannot see this set. The `.part` name carries the upload id but nothing tells a live
+ * fragment from an abandoned one across a process boundary — an mtime heuristic would
+ * guess, and guessing wrong deletes bytes mid-upload.
+ *
+ * Left as-is because the exposure needs two instances importing the same file into the
+ * same project at once, the loss is a re-import rather than data (the user still has the
+ * original — invariant 1), and the same bound already applies to
+ * `StockService.sweepPartialDownloads`, which this follows. Fixing it properly means
+ * per-fragment liveness on disk, which is a bigger change than the bug deserves.
  */
 const activeUploadParts = new Set<string>();
 
