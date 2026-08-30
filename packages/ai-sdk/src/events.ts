@@ -16,6 +16,7 @@
  * contract every later milestone depends on, treated like the timeline schema.
  */
 import type { EditResult } from './assemble.js';
+import type { ReferenceProfile } from './references/profile.js';
 import type { ContextManifest } from './kernel/context/manifest.js';
 import type { RunStatus } from './run-contracts.js';
 export type { RunStatus } from './run-contracts.js';
@@ -83,10 +84,55 @@ export interface AiEventBase {
   readonly turnId: string;
 }
 
-/** The prompt the user sent. */
+/**
+ * A file the user attached to ONE message, owned by that message forever.
+ *
+ * Deliberately not the composer's `Attachment`. The composer's version carries the
+ * transient half of the lifecycle — `status: 'analyzing'`, an `error` to retry from —
+ * which is state about work in progress, not about the message. Once the message is
+ * sent, that work is over: what remains is what was attached, and it can never change
+ * again. Keeping the two types apart is what stops a chat bubble re-rendering because a
+ * spinner somewhere else moved.
+ *
+ * `profile` is the analysis the model reads. It is carried ON the message so a turn's
+ * references can be rebuilt from the conversation log alone — which is also what makes
+ * Retry replay the same references rather than whatever the composer happens to hold
+ * three turns later.
+ */
+export interface MessageAttachment {
+  readonly id: string;
+  readonly kind: 'image' | 'video' | 'audio' | 'timeline' | 'project' | 'document';
+  readonly name: string;
+  /** What the reference is for; shown on the bubble's tile. */
+  readonly role?: ReferenceProfile['role'];
+  /** Where the imported copy lives, relative to the projects root. */
+  readonly path?: string;
+  /**
+   * The measured profile, when one was produced. Absent for a kind that cannot be
+   * analyzed, and for an attachment sent before its analysis finished — in both cases
+   * the attachment is still shown on the message, because the user attached it and a
+   * bubble that hides it is lying about what was sent.
+   *
+   * Typed as the SDK's own `ReferenceProfile`, not the IPC mirror of it. The host
+   * returns the looser `AiStreamReferenceProfile` (`video`/`image` widened to
+   * `Record<string, unknown>`), and the sidebar used to bridge the two with an
+   * `as unknown as` — a cast that would keep compiling if either side changed shape.
+   * The profile is parsed against `ReferenceProfileSchema` where it enters, so
+   * everything downstream of that boundary holds the canonical type.
+   */
+  readonly profile?: ReferenceProfile;
+}
+
+/** The prompt the user sent, with anything they attached to it. */
 export interface UserMessageEvent extends AiEventBase {
   readonly type: 'user_message';
   readonly text: string;
+  /**
+   * Attachments this message owns. Absent on messages sent before attachments were
+   * message-owned, and on messages sent with nothing attached — an empty array and an
+   * absent one mean the same thing to every reader.
+   */
+  readonly attachments?: readonly MessageAttachment[];
 }
 
 /** A streamed token chunk; appended to the assistant message keyed by `parentId`. */
@@ -505,6 +551,8 @@ export interface UserNode {
   readonly ts: number;
   readonly turnId: string;
   readonly text: string;
+  /** What was attached to this message — rendered in its own bubble. */
+  readonly attachments?: readonly MessageAttachment[];
 }
 
 export interface AssistantNode {
@@ -820,6 +868,7 @@ export function createConversationViewBuilder(): ConversationViewBuilder {
           ts: event.ts,
           turnId: event.turnId,
           text: event.text,
+          ...(event.attachments === undefined ? {} : { attachments: event.attachments }),
         });
         break;
       case 'assistant_delta': {
@@ -1195,7 +1244,7 @@ export interface TurnEmitter {
    */
   seq(): number;
   status(status: RunStatus): StatusEvent;
-  userMessage(text: string): UserMessageEvent;
+  userMessage(text: string, attachments?: readonly MessageAttachment[]): UserMessageEvent;
   delta(parentId: string, chunk: string): AssistantDeltaEvent;
   assistant(id: string, text: string): AssistantMessageEvent;
   /**
@@ -1306,7 +1355,12 @@ export function createTurnEmitter(ref: TurnRef, startSeq = 0): TurnEmitter {
     assistantId,
     seq: () => seq,
     status: (status) => ({ ...base(seqId('status')), type: 'status', status }),
-    userMessage: (text) => ({ ...base(seqId('user')), type: 'user_message', text }),
+    userMessage: (text, attachments) => ({
+      ...base(seqId('user')),
+      type: 'user_message',
+      text,
+      ...(attachments === undefined || attachments.length === 0 ? {} : { attachments }),
+    }),
     delta: (parentId, chunk) => ({
       ...base(seqId('delta')),
       type: 'assistant_delta',

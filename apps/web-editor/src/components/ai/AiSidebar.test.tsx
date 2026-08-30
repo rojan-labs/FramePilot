@@ -2590,3 +2590,89 @@ describe('reference tiles survive a reload (P3.1)', () => {
     expect(screen.getByText('Measured logo.png')).toBeTruthy();
   });
 });
+
+/**
+ * The attachment ownership lifecycle, end to end in the renderer (PROMPT.md §6).
+ *
+ * The defect: an attachment lived only in composer state, so sending a message left it
+ * sitting in the composer, the bubble could not show it, and every later turn re-sent it
+ * as a reference. Composer state and message state were one mutable thing.
+ *
+ * Seeded already-analyzed for the same reason the tiles test above is — the import and
+ * the measurement belong to the desktop host. What is under test here is the handoff:
+ * submit moves them, the composer empties, and the bubble is what remembers.
+ */
+describe('a sent message owns its attachments (PROMPT.md §6)', () => {
+  const attached = [
+    { id: 'r1', kind: 'video' as const, name: 'fast-cut-vertical.mp4', role: 'pacing' as const },
+    { id: 'r2', kind: 'image' as const, name: 'mood.png', role: 'color' as const },
+  ].map((entry) => ({
+    ...entry,
+    status: 'ready' as const,
+    path: `media/p/${entry.name}`,
+    profile: {
+      id: entry.id,
+      role: entry.role,
+      kind: entry.kind,
+      fileName: entry.name,
+      contentHash: `hash_${entry.id}_0123456789`,
+      analyzedAt: '2026-08-29T10:00:00Z',
+      constraints: [`Measured ${entry.name}`],
+    },
+  }));
+
+  function seeded() {
+    const base = createConversation({ id: 'conv-own', projectId: project.id, model: 'mock' });
+    return { ...base, title: 'Reference run', uiState: { ...base.uiState, attachments: attached } };
+  }
+
+  async function openFromHistory(): Promise<void> {
+    fireEvent.click(await screen.findByRole('button', { name: 'More options' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /History/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Reference run/ }));
+  }
+
+  it('moves them out of the composer and into the message bubble on submit', async () => {
+    const persistence = new MemoryPersistence([seeded()]);
+    render(<AiSidebar project={project} session={new DiffSession()} persistence={persistence} />);
+    await openFromHistory();
+
+    // Two composer tiles before sending.
+    await waitFor(() => expect(document.querySelectorAll('.ai-ref-tile')).toHaveLength(2));
+
+    const input = screen.getByRole('textbox', { name: /message/i });
+    fireEvent.change(input, { target: { value: 'make it feel like this' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    // The bubble now carries them...
+    await waitFor(() => expect(document.querySelectorAll('.ai-msg-attachment')).toHaveLength(2));
+    expect(screen.getByText('fast-cut-vertical.mp4')).toBeTruthy();
+    expect(screen.getByText('mood.png')).toBeTruthy();
+    // ...and the composer is empty. Both halves matter: leaving the tiles behind is
+    // exactly the state that re-sent them on every later turn.
+    expect(document.querySelectorAll('.ai-ref-tile')).toHaveLength(0);
+  });
+
+  it('keeps them on the message across a reload, with nothing back in the composer', async () => {
+    const persistence = new MemoryPersistence([seeded()]);
+    const { unmount } = render(
+      <AiSidebar project={project} session={new DiffSession()} persistence={persistence} />,
+    );
+    await openFromHistory();
+    await waitFor(() => expect(document.querySelectorAll('.ai-ref-tile')).toHaveLength(2));
+    const input = screen.getByRole('textbox', { name: /message/i });
+    fireEvent.change(input, { target: { value: 'match this pacing' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(document.querySelectorAll('.ai-msg-attachment')).toHaveLength(2));
+
+    unmount();
+    resetConversationsRemountCache();
+    resetAiSidebarScrollCache();
+
+    render(<AiSidebar project={project} session={new DiffSession()} persistence={persistence} />);
+    await openFromHistory();
+
+    await waitFor(() => expect(document.querySelectorAll('.ai-msg-attachment')).toHaveLength(2));
+    expect(document.querySelectorAll('.ai-ref-tile')).toHaveLength(0);
+  });
+});

@@ -1,4 +1,3 @@
-import type { AiStreamReferenceProfile } from '@framepilot/shared-types';
 /**
  * Conversation model for the streaming AI sidebar (Phase 11 M2, ADR 0033).
  *
@@ -12,7 +11,7 @@ import type { AiStreamReferenceProfile } from '@framepilot/shared-types';
  * Snapshots are treated as immutable: every helper returns a new object rather than
  * mutating, mirroring `editor/store.ts` so React can diff by identity.
  */
-import type { AiEvent } from '@framepilot/ai-sdk';
+import type { AiEvent, MessageAttachment, ReferenceProfile } from '@framepilot/ai-sdk';
 import type { ConversationSummary } from '@framepilot/shared-types';
 
 export type ConversationMode = 'agent' | 'chat' | 'edit';
@@ -31,14 +30,95 @@ export interface Attachment {
   readonly kind: 'image' | 'video' | 'audio' | 'timeline' | 'project' | 'document';
   readonly name: string;
   /** What the reference is for (plan/system-mission P3.2); shown on the tile. */
-  readonly role?: AiStreamReferenceProfile['role'];
+  readonly role?: ReferenceProfile['role'];
   /** `analyzing` while the host measures it; `ready` once a profile exists. */
   readonly status?: 'analyzing' | 'ready' | 'failed' | 'unsupported';
   readonly error?: string;
   /** Where the imported copy lives (relative to the projects root). */
   readonly path?: string;
-  /** The analyzed profile the next turn sends as `references` (P3.4). */
-  readonly profile?: AiStreamReferenceProfile;
+  /**
+   * The analyzed profile, validated at the host boundary.
+   *
+   * The SDK's own `ReferenceProfile`, not the IPC mirror `AiStreamReferenceProfile` —
+   * which widens `video`/`image` to `Record<string, unknown>` and so cannot be assigned
+   * to the type the run actually needs. The sidebar bridged the gap with an
+   * `as unknown as` double cast, which would have kept compiling if either shape moved.
+   * The host's answer is external input; it is parsed with `ReferenceProfileSchema`
+   * where it arrives, and everything from there on holds the canonical type.
+   */
+  readonly profile?: ReferenceProfile;
+}
+
+/**
+ * Freeze the composer's attachments into the message that is being sent.
+ *
+ * This is the whole point of the split. A composer `Attachment` is a mutable
+ * work-in-progress record — it carries `status: 'analyzing'` and an `error` to retry
+ * from — and it used to be the ONLY record of an attachment anywhere. So a sent
+ * attachment had nowhere to live except the composer it was sent from: it stayed on
+ * screen after submit, it was silently re-sent as a reference on every later turn, and
+ * the chat bubble could not show it at all because a message carried nothing but text.
+ *
+ * Everything currently attached moves, including one whose analysis has not finished.
+ * Leaving that one behind would empty the composer only partly, which is the confusing
+ * half-state this change exists to remove; it simply travels without a `profile`, and
+ * the bubble shows it as attached-but-unanalyzed rather than pretending it was not sent.
+ *
+ * `status` and `error` are dropped rather than copied: they describe work that is over
+ * the moment the message is sent, and a message that keeps them would re-render when a
+ * spinner elsewhere moved.
+ */
+export function toMessageAttachments(
+  composerAttachments: readonly Attachment[],
+): readonly MessageAttachment[] {
+  return composerAttachments.map((attachment) => ({
+    id: attachment.id,
+    kind: attachment.kind,
+    name: attachment.name,
+    ...(attachment.role === undefined ? {} : { role: attachment.role }),
+    ...(attachment.path === undefined ? {} : { path: attachment.path }),
+    ...(attachment.profile === undefined ? {} : { profile: attachment.profile }),
+  }));
+}
+
+/**
+ * The references currently in force for a conversation.
+ *
+ * Two different questions were being answered by one array, and conflating them is what
+ * made the attachment lifecycle wrong in both directions:
+ *
+ *  - *What did the user attach to THIS message?* — provenance. Immutable, owned by the
+ *    message, rendered in its bubble, replayed by Retry. That is `MessageAttachment`.
+ *  - *Which references is the AI working under RIGHT NOW?* — policy. Conversation-scoped,
+ *    and the SDK is explicit that it wants the complete live set on every turn: a subject
+ *    missing from it means the tile is gone and its decision must stop binding
+ *    (`kernel/conductor.ts`, P3.5). Sending only "what this message carried" would retire
+ *    every reference on the next turn, which is the opposite of what the editor asked for
+ *    by attaching it.
+ *
+ * So the live set is derived, not stored: every reference any message in the conversation
+ * attached, in the order they were attached, minus the ones the editor has since
+ * dismissed. De-duplicated by profile id, because attaching the same file to two messages
+ * is still one reference — the model should not be told about it twice.
+ */
+export function activeReferences(
+  events: readonly AiEvent[],
+  dismissedIds: readonly string[] = [],
+): readonly ReferenceProfile[] {
+  const dismissed = new Set(dismissedIds);
+  const seen = new Set<string>();
+  const live: ReferenceProfile[] = [];
+  for (const event of events) {
+    if (event.type !== 'user_message') continue;
+    for (const attachment of event.attachments ?? []) {
+      const { profile } = attachment;
+      if (profile === undefined) continue;
+      if (dismissed.has(attachment.id) || seen.has(profile.id)) continue;
+      seen.add(profile.id);
+      live.push(profile);
+    }
+  }
+  return live;
 }
 
 /** An included-context chip above the composer (M8). */
@@ -68,6 +148,14 @@ export interface ConversationUiState {
   readonly composerDraft: string;
   readonly attachments: readonly Attachment[];
   readonly context: readonly ContextItem[];
+  /**
+   * Attachment ids the editor has taken out of force.
+   *
+   * Kept as a dismissal list rather than an "active" list so it stays correct as the
+   * conversation grows: a new message's attachments are in force by default, which is
+   * what attaching one means.
+   */
+  readonly dismissedReferenceIds: readonly string[];
 }
 
 /** One persisted conversation: metadata + the append-only event log + UI state. */
@@ -98,6 +186,7 @@ export function emptyUiState(): ConversationUiState {
     composerDraft: '',
     attachments: [],
     context: [],
+    dismissedReferenceIds: [],
   };
 }
 
@@ -115,6 +204,7 @@ export function isDefaultUiState(uiState: ConversationUiState): boolean {
     uiState.composerDraft === '' &&
     uiState.attachments.length === 0 &&
     uiState.context.length === 0 &&
+    (uiState.dismissedReferenceIds ?? []).length === 0 &&
     uiState.collapsedToolIds.length === 0 &&
     uiState.expandedToolIds.length === 0 &&
     uiState.scrollOffset === 0 &&
