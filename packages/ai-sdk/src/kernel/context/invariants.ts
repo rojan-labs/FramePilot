@@ -25,6 +25,7 @@ import {
   type RunWorkingState,
   isInterpreted,
   remainingObjectives,
+  requestEcho,
   setNextAction,
 } from '../working-state.js';
 
@@ -216,10 +217,22 @@ export function recoverWorkingState(
         // Not `setObjective`: that is idempotent-by-intent and refuses to overwrite, but
         // it also stamps acceptance criteria, and inventing criteria the creator never
         // stated is exactly the fabrication we refuse elsewhere. Carry the raw request.
+        //
+        // PROVISIONAL, and bounded, for the same reasons `initialWorkingState`'s seed is
+        // both. `setObjective` only lets a real interpretation replace a placeholder that
+        // says so, and this filled `outcome` while leaving `provisional` false — so a
+        // recovered run could never be given a genuine objective again, and the recovery
+        // meant to unstick it locked it instead. Storing the request whole also carried a
+        // second full copy of the brief in every serialized state (run `e36235cc` paid
+        // that 57 times); `requestEcho` is the bound the rest of the module already uses.
         state = {
           ...state,
           version: state.version + 1,
-          objective: { ...state.objective, outcome: state.objective.request.trim() },
+          objective: {
+            ...state.objective,
+            outcome: requestEcho(state.objective.request),
+            provisional: true,
+          },
         };
         recovered.push('objective');
         break;
