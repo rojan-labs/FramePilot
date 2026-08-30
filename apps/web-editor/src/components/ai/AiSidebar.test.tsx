@@ -2653,6 +2653,36 @@ describe('a sent message owns its attachments (PROMPT.md §6)', () => {
     expect(document.querySelectorAll('.ai-ref-tile')).toHaveLength(0);
   });
 
+  it('takes a reference out of force from the bubble, and says so', async () => {
+    // Removal used to be "delete the composer tile", which only worked because the tiles
+    // never cleared. Now that a sent attachment belongs to its message, the record has to
+    // stay put and the POLICY needs somewhere of its own — so the bubble's tile is where
+    // "stop using this" lives. The message goes on saying the file was attached; what
+    // changes is whether later turns are still working under it.
+    const persistence = new MemoryPersistence([seeded()]);
+    render(<AiSidebar project={project} session={new DiffSession()} persistence={persistence} />);
+    await openFromHistory();
+    await waitFor(() => expect(document.querySelectorAll('.ai-ref-tile')).toHaveLength(2));
+
+    const input = screen.getByRole('textbox', { name: /message/i });
+    fireEvent.change(input, { target: { value: 'match this pacing' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(document.querySelectorAll('.ai-msg-attachment')).toHaveLength(2));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop using mood.png as a reference' }));
+
+    // Still on the message — a record does not change — but marked as out of force, and
+    // its dismiss control is gone because there is nothing left to dismiss.
+    await waitFor(() => expect(screen.getByText('no longer used')).toBeTruthy());
+    expect(document.querySelectorAll('.ai-msg-attachment')).toHaveLength(2);
+    expect(screen.getByText('mood.png')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Stop using mood.png as a reference' })).toBeNull();
+    // The other one is untouched.
+    expect(
+      screen.getByRole('button', { name: 'Stop using fast-cut-vertical.mp4 as a reference' }),
+    ).toBeTruthy();
+  });
+
   it('keeps them on the message across a reload, with nothing back in the composer', async () => {
     const persistence = new MemoryPersistence([seeded()]);
     const { unmount } = render(
