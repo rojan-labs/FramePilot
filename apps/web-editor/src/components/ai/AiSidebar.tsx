@@ -476,7 +476,11 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         }
         try {
           const probed = await probeMediaFile(file);
-          const media = await materializeImportedMedia(probed, file, projectId);
+          // `'attachments'` — NOT the media bin. The copy lands in the folder the host's
+          // reachability sweep owns, which is what lets it ever be reclaimed: an
+          // attachment written beside the user's footage is indistinguishable from it and
+          // has to be kept forever.
+          const media = await materializeImportedMedia(probed, file, projectId, 'attachments');
           const result = await analyzeReference({
             projectId,
             inputPath: media.path,
@@ -486,7 +490,15 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
             role: decision.role,
           });
           if (!result.ok) {
-            update({ status: 'failed', error: result.error, path: media.path });
+            // A licensing refusal is not a failed measurement. `failed` opens the tile's
+            // detail with a Re-analyze button beside it, and that retry is guaranteed to
+            // be refused identically until the app is activated; `unsupported` states the
+            // reason and offers no action that cannot work.
+            update({
+              status: result.reason === 'unlicensed' ? 'unsupported' : 'failed',
+              error: result.error,
+              path: media.path,
+            });
             continue;
           }
           const profile = toReferenceProfile(result.profile);
@@ -551,7 +563,12 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         refresh: true,
       });
       if (!result.ok) {
-        update({ status: 'failed', error: result.error });
+        // Same distinction as the first analysis: an unlicensed build must not be
+        // re-offered a retry (see `attachReferenceFiles`).
+        update({
+          status: result.reason === 'unlicensed' ? 'unsupported' : 'failed',
+          error: result.error,
+        });
         return;
       }
       const profile = toReferenceProfile(result.profile);
@@ -1033,6 +1050,18 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   // so a load that lands late can never overwrite live typing.
   const seededConversationId = useRef<string | null>(null);
   const seededDefaultUiState = useRef(false);
+  /**
+   * The last `uiState` this component itself dispatched (see the persist effect below).
+   *
+   * Without it the sidebar cannot tell a load arriving FROM DISK from its own write
+   * coming back through the store, and the difference decides everything: the reviewer's
+   * first keystroke into a stub makes that conversation's `uiState` non-default, which
+   * looked exactly like the late load and consumed the one-shot re-seed — so the real
+   * load, when it landed a moment later, was refused and its attachments were then
+   * overwritten. Identity is the honest test, because `withUiState` stores the very
+   * object that was dispatched.
+   */
+  const persistedUiState = useRef<ConversationUiState | null>(null);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   useLayoutEffect(() => {
@@ -1043,12 +1072,45 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       !switched &&
       seededDefaultUiState.current &&
       uiState !== undefined &&
-      !isDefaultUiState(uiState) &&
-      draftRef.current === '' &&
-      attachmentsRef.current.length === 0;
+      uiState !== persistedUiState.current &&
+      !isDefaultUiState(uiState);
     if (!switched && !arrivedFromDisk) return;
     seededConversationId.current = id;
     seededDefaultUiState.current = uiState === undefined || isDefaultUiState(uiState);
+
+    // D7: the late load landed in a composer the reviewer has already used. Refusing the
+    // seed outright is what this used to do, and it protected the SCREEN while quietly
+    // destroying the DISK: the persist effect below runs on the very next commit and
+    // writes the live (empty) attachment list straight over the saved one, so references
+    // that were correctly persisted were gone by the next reload.
+    //
+    // Draft and attachments are not the same kind of state, and the fix is to stop
+    // treating them as one. A draft is a single buffer — it cannot be merged, so live
+    // typing wins and the saved text is dropped, exactly as before. Attachments are a
+    // SET, so the union is both lossless and honest: every chip the reviewer just added
+    // stays, and every chip they had previously attached and never removed comes back —
+    // which is what P3.1 promised in the first place. Nothing is taken off the screen,
+    // so this is not the clobber the guard exists to prevent.
+    const composerTouched = draftRef.current !== '' || attachmentsRef.current.length > 0;
+    if (!switched && composerTouched) {
+      const saved = (uiState?.attachments ?? []).filter((a) => a.status !== 'analyzing');
+      setAttachments((live) => {
+        const known = new Set(live.map((entry) => entry.id));
+        const restored = saved.filter((entry) => !known.has(entry.id));
+        // Identity-stable when there is nothing to add: a fresh array would make the
+        // persist effect below dispatch a no-op write on every late load.
+        return restored.length === 0 ? live : [...restored, ...live];
+      });
+      setDismissedReferenceIds((live) => {
+        const known = new Set(live);
+        const restored = (uiState?.dismissedReferenceIds ?? []).filter(
+          (entry) => !known.has(entry),
+        );
+        return restored.length === 0 ? live : [...live, ...restored];
+      });
+      return;
+    }
+
     setDraft(uiState?.composerDraft ?? '');
     // Reference chips survive a reload with their analyzed profiles (P3.1); an attachment
     // still `analyzing` when the state was saved can only be re-attached, so it is dropped.
@@ -1134,6 +1196,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       attachments,
       dismissedReferenceIds,
     };
+    // Recorded BEFORE the dispatch: the seed effect above uses this identity to tell its
+    // own write apart from a load arriving from disk.
+    persistedUiState.current = nextUiState;
     conversations.setUiState(active.id, nextUiState);
     // `conversations.setUiState` alone (a `useMemo`-stabilized reference, not the
     // whole `conversations` object, which is a fresh object every render) — so

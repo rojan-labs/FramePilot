@@ -80,6 +80,41 @@ describe('conversation store transitions', () => {
     expect(state.byId['a-copy']?.events).toHaveLength(1);
     expect(duplicateConversation(state, 'missing', 'x', 1)).toBe(state);
   });
+
+  /**
+   * D10: the copy carries attachment identity verbatim, and this pins the two properties
+   * that make that safe rather than merely convenient — the shared file stays referenced
+   * by BOTH conversations (so the host's reachability sweep can never free it while
+   * either still shows it), and dismissal stays per-conversation (so stopping a reference
+   * in the copy does not retire it in the original).
+   */
+  it('shares attachment identity with the original, and keeps dismissal per conversation', () => {
+    const attachment = {
+      id: 'r1',
+      kind: 'video' as const,
+      name: 'ref.mp4',
+      path: 'media/p/attachments/ref.mp4',
+    };
+    const source = conv('a', {
+      uiState: { ...emptyUiState(), attachments: [attachment] },
+    });
+    let state = createConversationsState([source]);
+    state = duplicateConversation(state, 'a', 'a-copy', 99);
+
+    expect(state.byId['a-copy']?.uiState.attachments?.[0]?.path).toBe(attachment.path);
+    // Both conversations name the file, which is exactly the union the sweep computes.
+    const referenced = Object.values(state.byId).flatMap((c) =>
+      (c.uiState.attachments ?? []).map((a) => a.path),
+    );
+    expect(referenced).toEqual([attachment.path, attachment.path]);
+
+    // Dismissal lives in each conversation's own uiState, so the copy's decision is its own.
+    state = setConversationUiState(state, 'a-copy', {
+      ...state.byId['a-copy']!.uiState,
+      dismissedReferenceIds: ['r1'],
+    });
+    expect(state.byId['a']?.uiState.dismissedReferenceIds ?? []).toEqual([]);
+  });
 });
 
 describe('selectors', () => {

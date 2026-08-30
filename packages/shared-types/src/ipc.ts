@@ -761,9 +761,20 @@ export interface AnalyzeReferenceRequest {
   readonly refresh?: boolean;
 }
 
+/**
+ * Why a reference analysis did not happen, when the reason is not the file.
+ *
+ * `unlicensed` is the host refusing to run the work at all, and it is a different kind
+ * of answer from "this file could not be measured": nothing about the attachment is
+ * wrong, and retrying changes nothing until the app is activated. Without this flag the
+ * renderer could only report the refusal as a failed analysis with a Re-analyze button
+ * that is guaranteed to fail again.
+ */
+export type AnalyzeReferenceFailureReason = 'unlicensed';
+
 export type AnalyzeReferenceResult =
   | { ok: true; profile: AiStreamReferenceProfile; cached: boolean }
-  | { ok: false; error: string };
+  | { ok: false; error: string; reason?: AnalyzeReferenceFailureReason };
 
 export interface AiStreamRequest {
   readonly mode: AiStreamMode;

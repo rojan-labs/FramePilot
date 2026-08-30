@@ -40,6 +40,24 @@ export function isValidConversationId(id: unknown): id is string {
   );
 }
 
+/** Read `value.path` when it is a usable string; anything else contributes nothing. */
+function attachmentPathOf(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const candidate = (value as Record<string, unknown>)['path'];
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
+}
+
+/** Collect `path` from an `attachments` array wherever one appears. */
+function collectAttachmentPaths(container: unknown, into: Set<string>): void {
+  if (typeof container !== 'object' || container === null) return;
+  const attachments = (container as Record<string, unknown>)['attachments'];
+  if (!Array.isArray(attachments)) return;
+  for (const attachment of attachments) {
+    const attachmentPath = attachmentPathOf(attachment);
+    if (attachmentPath !== null) into.add(attachmentPath);
+  }
+}
+
 function isSummary(value: unknown): value is ConversationSummary {
   if (typeof value !== 'object' || value === null) return false;
   const entry = value as Record<string, unknown>;
@@ -93,6 +111,52 @@ export class ConversationStore {
     const next = [summary, ...index.filter((s) => s.id !== summary.id)];
     await this.io.writeIndex(JSON.stringify(next, null, 2));
     return { ok: true };
+  }
+
+  /**
+   * Every attachment file this project's conversations still reference, or `null`.
+   *
+   * Two places hold a reference to an imported attachment file, and both count:
+   *
+   *  - a sent message's `attachments` — the immutable record of what the turn carried,
+   *    which the chat bubble renders a thumbnail from;
+   *  - the conversation's `uiState.attachments` — chips sitting in a composer, attached
+   *    but not yet sent.
+   *
+   * Every event is read, not only `user_message`: over-collecting costs a file left on
+   * disk, while missing an event kind that grows attachments later costs a live reference
+   * its bytes. The asymmetry decides it.
+   *
+   * `null` means the set is INCOMPLETE — a conversation the index lists could not be
+   * parsed — and the caller must treat that as "reclaim nothing", because "I could not
+   * read it" is not "nothing references it". A conversation whose FILE is gone is not
+   * incomplete: it no longer exists, so it references nothing.
+   *
+   * The documents are read defensively rather than typed. They are JSON written by
+   * whatever version of the renderer saved them, and a field that has since moved must
+   * cost a skipped sweep, never a deleted file.
+   */
+  public async referencedAttachmentPaths(projectId: string): Promise<Set<string> | null> {
+    const paths = new Set<string>();
+    for (const summary of await this.list()) {
+      if (summary.projectId !== projectId) continue;
+      if (!isValidConversationId(summary.id)) return null;
+      const raw = await this.io.readConversation(summary.id);
+      if (raw === null) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return null;
+      }
+      if (typeof parsed !== 'object' || parsed === null) return null;
+      const document = parsed as Record<string, unknown>;
+      collectAttachmentPaths(document['uiState'], paths);
+      const events = document['events'];
+      if (!Array.isArray(events)) return null;
+      for (const event of events) collectAttachmentPaths(event, paths);
+    }
+    return paths;
   }
 
   /** Delete one conversation (removes its file and its index entry). */

@@ -13,11 +13,32 @@ const UPLOAD_ID = /^[a-zA-Z0-9_-]{1,128}$/;
 /** Hard per-message heap bound. 16 MiB cuts IPC round trips 4x vs the old 4 MiB frames. */
 export const MEDIA_IMPORT_MAX_CHUNK_BYTES = 16 * 1024 * 1024;
 
+/**
+ * Where an import lands inside the project's media folder.
+ *
+ * A CLOSED literal union rather than a path, and that is the whole point of it. The
+ * renderer may say "this copy is an AI-sidebar attachment, not a media-bin asset", and
+ * nothing more: it cannot name a directory, so no value it can send escapes the media
+ * folder or lands beside the user's footage by accident.
+ *
+ * The distinction has to exist on disk because the two have different lifetimes.
+ * A bin asset is referenced by `project.assets` and is the user's to delete; an
+ * attachment is referenced only by a conversation, and when no conversation references
+ * it any more nothing on earth will ever read it again. Reclaiming the second kind
+ * safely is only possible if it can be told apart from the first, and while both were
+ * written into one directory under the user's own file names it could not be.
+ * `attachments` is that separation (see `sweepUnreferencedAttachments` in
+ * `apps/desktop/electron/projects/media-import.ts`).
+ */
+export type MediaImportDestination = 'attachments';
+
 export interface MediaImportChunkHeader {
   readonly uploadId: string;
   readonly offset: number;
   readonly final: boolean;
   readonly targetPath?: string;
+  /** Omitted for a media-bin import; see {@link MediaImportDestination}. */
+  readonly destination?: MediaImportDestination;
 }
 
 export interface MediaImportChunkRequest extends MediaImportChunkHeader {
@@ -50,7 +71,11 @@ export function isMediaImportChunkHeader(value: unknown): value is MediaImportCh
     record.offset >= 0 &&
     typeof record.final === 'boolean' &&
     (record.targetPath === undefined ||
-      (typeof record.targetPath === 'string' && record.targetPath.length > 0))
+      (typeof record.targetPath === 'string' && record.targetPath.length > 0)) &&
+    // Anything other than the one literal is rejected outright rather than ignored:
+    // silently falling back to the bin would put an attachment where the sweep can
+    // never reclaim it, which is the leak this field exists to close.
+    (record.destination === undefined || record.destination === 'attachments')
   );
 }
 
@@ -94,7 +119,10 @@ export function decodeMediaImportChunk(data: Uint8Array): DecodedMediaImportChun
   for (let i = 0; i < MAGIC.length; i += 1) {
     if (data[i] !== MAGIC[i]) return null;
   }
-  const headerBytes = new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(4, true);
+  const headerBytes = new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(
+    4,
+    true,
+  );
   if (
     headerBytes <= 0 ||
     headerBytes > MAX_HEADER_BYTES ||
@@ -112,7 +140,8 @@ export function decodeMediaImportChunk(data: Uint8Array): DecodedMediaImportChun
       `Malformed media import chunk header: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  if (!isMediaImportChunkHeader(parsed)) throw new TypeError('Malformed media import chunk metadata.');
+  if (!isMediaImportChunkHeader(parsed))
+    throw new TypeError('Malformed media import chunk metadata.');
   const payload = data.subarray(PREFIX_BYTES + headerBytes);
   if (payload.byteLength > MEDIA_IMPORT_MAX_CHUNK_BYTES) {
     throw new RangeError('Media import chunk exceeds the transport memory ceiling.');

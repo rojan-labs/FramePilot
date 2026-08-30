@@ -7,10 +7,13 @@ import { encodeMediaImportChunk } from '@framepilot/shared-types';
 import { PathTraversalError } from '@framepilot/shared-types/safety';
 import {
   type MediaImportIO,
+  attachmentsRelativeDir,
   importMediaChunk,
   importMediaFile,
   nodeMediaImportIO,
   safeFileName,
+  sweepUnreferencedAttachments,
+  sweepUnreferencedAttachmentsOnce,
 } from './media-import.js';
 
 const BYTES = new Uint8Array([1, 2, 3, 4]);
@@ -276,5 +279,164 @@ describe('importMediaFile', () => {
     expect(nodeMediaImportIO.size).toBeTypeOf('function');
     expect(nodeMediaImportIO.readdir).toBeTypeOf('function');
     expect(nodeMediaImportIO.unlink).toBeTypeOf('function');
+  });
+});
+
+/**
+ * The attachment half of the media directory (D2).
+ *
+ * The defect these cover: an AI-sidebar attachment was copied into the SAME folder as the
+ * media bin's assets and then referenced by nothing the app could enumerate, so every
+ * attach, retry and duplicate left a camera-sized file behind permanently. The fix is a
+ * folder nothing else writes into plus a project-wide reachability sweep, and the
+ * property that matters most is the one asserted first: the sweep cannot reach bin media.
+ */
+describe('reference attachments', () => {
+  let root: string;
+  /** Unique per test — the session-scoped live/swept sets are module state by design. */
+  let projectId: string;
+  let sequence = 0;
+
+  beforeEach(async () => {
+    root = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'fp-attach-')));
+    sequence += 1;
+    projectId = `attach_project_${String(sequence)}`;
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const importAttachment = async (
+    io: MediaImportIO,
+    fileName: string,
+    uploadId = 'u1',
+  ): Promise<string> =>
+    importMediaChunk(
+      root,
+      projectId,
+      fileName,
+      { uploadId, offset: 0, final: true, destination: 'attachments' },
+      BYTES,
+      io,
+    );
+
+  it('lands an attachment in its own folder and a bin import in the media root', async () => {
+    const io = fakeIO();
+    expect(await importAttachment(io, 'mood.mp4')).toBe(`media/${projectId}/attachments/mood.mp4`);
+    expect(
+      await importMediaChunk(
+        root,
+        projectId,
+        'mood.mp4',
+        { uploadId: 'u2', offset: 0, final: true },
+        BYTES,
+        io,
+      ),
+    ).toBe(`media/${projectId}/mood.mp4`);
+  });
+
+  it('never touches media outside the attachments folder, whatever the reference set says', async () => {
+    const io = fakeIO();
+    // The user's footage, in the media root — including a file with the SAME name as the
+    // attachment, which is the case a name-based rule would have destroyed.
+    const binDir = path.join(root, 'media', projectId);
+    await io.writeFile(path.join(binDir, 'camera_a001.mov'), BYTES);
+    await io.writeFile(path.join(binDir, 'mood.mp4'), BYTES);
+    await io.writeFile(path.join(binDir, 'sources.json'), BYTES);
+    await importAttachment(io, 'mood.mp4');
+
+    // An empty reference set: as unreachable as the rule can ever conclude.
+    expect(await sweepUnreferencedAttachments(root, projectId, [], io)).toBe(0);
+    expect(io.unlinked).toEqual([]);
+    expect(await io.exists(path.join(binDir, 'camera_a001.mov'))).toBe(true);
+    expect(await io.exists(path.join(binDir, 'mood.mp4'))).toBe(true);
+  });
+
+  it('keeps a file this session imported even before any conversation names it', async () => {
+    const io = fakeIO();
+    // The chip is on screen and its conversation has not been saved yet — the exact
+    // window `liveAttachmentPaths` exists to cover.
+    const rel = await importAttachment(io, 'mood.mp4');
+    expect(await sweepUnreferencedAttachments(root, projectId, [], io)).toBe(0);
+    expect(await io.exists(path.join(root, rel))).toBe(true);
+  });
+
+  it('reclaims an attachment nothing references, with its analysis cache', async () => {
+    const io = fakeIO();
+    const dir = path.join(root, 'media', projectId, 'attachments');
+    // Written directly, i.e. imported by a PREVIOUS session: no live claim protects it.
+    await io.writeFile(path.join(dir, 'stale.mp4'), BYTES);
+    await io.writeFile(path.join(dir, 'stale.mp4.reference.json'), BYTES);
+    await io.writeFile(path.join(dir, 'kept.mp4'), BYTES);
+    await io.writeFile(path.join(dir, 'kept.mp4.reference.json'), BYTES);
+
+    expect(
+      await sweepUnreferencedAttachments(
+        root,
+        projectId,
+        [`media/${projectId}/attachments/kept.mp4`],
+        io,
+      ),
+    ).toBe(2);
+    expect(await io.exists(path.join(dir, 'stale.mp4'))).toBe(false);
+    expect(await io.exists(path.join(dir, 'stale.mp4.reference.json'))).toBe(false);
+    expect(await io.exists(path.join(dir, 'kept.mp4'))).toBe(true);
+    expect(await io.exists(path.join(dir, 'kept.mp4.reference.json'))).toBe(true);
+  });
+
+  it('keeps a file one message still shows when another conversation dropped it', async () => {
+    const io = fakeIO();
+    const dir = path.join(root, 'media', projectId, 'attachments');
+    await io.writeFile(path.join(dir, 'shared.mp4'), BYTES);
+    // The union over the project is the rule: one surviving reference is enough.
+    expect(
+      await sweepUnreferencedAttachments(
+        root,
+        projectId,
+        [`media/${projectId}/attachments/shared.mp4`],
+        io,
+      ),
+    ).toBe(0);
+    expect(await io.exists(path.join(dir, 'shared.mp4'))).toBe(true);
+  });
+
+  it('reclaims nothing when the reference set could not be established', async () => {
+    const io = fakeIO();
+    const dir = path.join(root, 'media', projectId, 'attachments');
+    await io.writeFile(path.join(dir, 'stale.mp4'), BYTES);
+    // `null` is "I could not read every conversation", which must never read as
+    // "nothing references it".
+    expect(await sweepUnreferencedAttachments(root, projectId, null, io)).toBe(0);
+    expect(await io.exists(path.join(dir, 'stale.mp4'))).toBe(true);
+  });
+
+  it('leaves a .part fragment to the upload sweep that knows if it is live', async () => {
+    const io = fakeIO();
+    const dir = path.join(root, 'media', projectId, 'attachments');
+    await io.writeFile(path.join(dir, 'huge.mp4.u9.part'), BYTES);
+    expect(await sweepUnreferencedAttachments(root, projectId, [], io)).toBe(0);
+    expect(await io.exists(path.join(dir, 'huge.mp4.u9.part'))).toBe(true);
+  });
+
+  it('sweeps a project once per session and then stops asking', async () => {
+    const io = fakeIO();
+    const dir = path.join(root, 'media', projectId, 'attachments');
+    await io.writeFile(path.join(dir, 'stale.mp4'), BYTES);
+    let loads = 0;
+    const load = async (): Promise<string[]> => {
+      loads += 1;
+      return [];
+    };
+    expect(await sweepUnreferencedAttachmentsOnce(root, projectId, load, io)).toBe(1);
+    await io.writeFile(path.join(dir, 'stale2.mp4'), BYTES);
+    expect(await sweepUnreferencedAttachmentsOnce(root, projectId, load, io)).toBe(0);
+    // The reference set is not even read the second time — the guard is the cheap path.
+    expect(loads).toBe(1);
+    expect(await io.exists(path.join(dir, 'stale2.mp4'))).toBe(true);
+  });
+
+  it('names the attachments directory relative to the projects root', () => {
+    expect(attachmentsRelativeDir('Project Demo')).toBe('media/project_demo/attachments');
   });
 });

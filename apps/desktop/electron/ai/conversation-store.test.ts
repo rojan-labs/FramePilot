@@ -98,3 +98,92 @@ describe('ConversationStore', () => {
     expect(await store.load('a')).toBeNull();
   });
 });
+
+/**
+ * The reachability half of the attachment lifecycle (D2).
+ *
+ * An imported attachment is referenced by nothing in `project.assets` — only by
+ * conversations — so this is the only thing that can answer "is this file still needed?".
+ * Getting it wrong in one direction leaves disk behind; getting it wrong in the other
+ * deletes a reference the editor can still see, so every ambiguous answer is `null`.
+ */
+describe('ConversationStore.referencedAttachmentPaths', () => {
+  const withAttachments = (
+    id: string,
+    projectId: string,
+    data: Record<string, unknown>,
+  ): ConversationRecord => ({
+    summary: { ...summary(id), projectId },
+    data: { id, projectId, events: [], uiState: {}, ...data },
+  });
+
+  it('collects paths from sent messages and from composer chips', async () => {
+    const store = new ConversationStore(fakeIO());
+    await store.save(
+      withAttachments('a', 'project-1', {
+        events: [
+          { type: 'user_message', attachments: [{ id: 'r1', path: 'media/p/attachments/a.mp4' }] },
+          { type: 'status' },
+        ],
+        uiState: { attachments: [{ id: 'r2', path: 'media/p/attachments/b.png' }] },
+      }),
+    );
+    expect(await store.referencedAttachmentPaths('project-1')).toEqual(
+      new Set(['media/p/attachments/a.mp4', 'media/p/attachments/b.png']),
+    );
+  });
+
+  it('ignores other projects, so one cannot free another project\u2019s files', async () => {
+    const store = new ConversationStore(fakeIO());
+    await store.save(
+      withAttachments('a', 'project-1', {
+        uiState: { attachments: [{ id: 'r1', path: 'media/one/attachments/a.mp4' }] },
+      }),
+    );
+    await store.save(
+      withAttachments('b', 'project-2', {
+        uiState: { attachments: [{ id: 'r2', path: 'media/two/attachments/b.mp4' }] },
+      }),
+    );
+    expect(await store.referencedAttachmentPaths('project-2')).toEqual(
+      new Set(['media/two/attachments/b.mp4']),
+    );
+  });
+
+  it('reports an unreadable conversation as unknown rather than as unreferenced', async () => {
+    const io = fakeIO();
+    const store = new ConversationStore(io);
+    await store.save(withAttachments('a', 'project-1', {}));
+    io.files.set('a', '{corrupt');
+    expect(await store.referencedAttachmentPaths('project-1')).toBeNull();
+
+    // Same for a document whose event log is not a log any more: its attachments cannot
+    // be enumerated, so nothing may be reclaimed on its word.
+    io.files.set('a', JSON.stringify({ id: 'a', projectId: 'project-1', events: null }));
+    expect(await store.referencedAttachmentPaths('project-1')).toBeNull();
+  });
+
+  it('treats a conversation whose file is gone as referencing nothing', async () => {
+    const io = fakeIO();
+    const store = new ConversationStore(io);
+    await store.save(
+      withAttachments('a', 'project-1', {
+        uiState: { attachments: [{ id: 'r1', path: 'media/p/attachments/a.mp4' }] },
+      }),
+    );
+    // The index still lists it but the document is gone: it exists no more, so it holds
+    // no references — that is a complete answer, not an unknown one.
+    io.files.delete('a');
+    expect(await store.referencedAttachmentPaths('project-1')).toEqual(new Set());
+  });
+
+  it('skips attachment entries with no usable path', async () => {
+    const store = new ConversationStore(fakeIO());
+    await store.save(
+      withAttachments('a', 'project-1', {
+        uiState: { attachments: [{ id: 'r1' }, { id: 'r2', path: '' }, null, 'nonsense'] },
+      }),
+    );
+    expect(await store.referencedAttachmentPaths('project-1')).toEqual(new Set());
+  });
+});

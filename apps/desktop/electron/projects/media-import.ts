@@ -54,10 +54,47 @@ const activeUploadParts = new Set<string>();
  */
 const sweptMediaDirs = new Set<string>();
 
+/**
+ * Sub-folder of the media directory that holds AI-sidebar reference attachments.
+ *
+ * WHY a separate folder rather than a naming convention: everything in the media
+ * directory root is the user's footage — bin imports, stock downloads, music — and the
+ * ONLY safe way to reclaim an attachment is to be certain the file is not one of those.
+ * A prefix or a suffix cannot give that certainty (a camera file can be called anything),
+ * but a directory nothing else ever writes into can. The sweep below therefore never
+ * looks outside this folder, so no bug in the reachability rule can reach bin media.
+ */
+const ATTACHMENTS_DIR = 'attachments';
+
+/** Suffix of the analysis cache the engine writes beside a reference (`service.py`). */
+const REFERENCE_CACHE_SUFFIX = '.reference.json';
+
 /** The project-relative media directory. One definition, every writer. */
 export function mediaRelativeDir(projectId: string): string {
   return path.posix.join(MEDIA_DIR, safeProjectId(projectId));
 }
+
+/** The project-relative directory reference attachments are imported into. */
+export function attachmentsRelativeDir(projectId: string): string {
+  return path.posix.join(mediaRelativeDir(projectId), ATTACHMENTS_DIR);
+}
+
+/**
+ * Attachment files this session imported, project-relative, kept for the whole session.
+ *
+ * WHY the sweep cannot rely on the conversation records alone: a composer attachment is
+ * only persisted once its conversation is saved, and the first attachment of a brand-new
+ * chat has no conversation to be saved into yet. For that window the file is referenced
+ * by something real — a chip on screen — that no record on disk mentions, and a sweep
+ * that trusted the records would delete a reference the editor is looking at.
+ *
+ * Never released, for the same reason {@link reservedFinalPaths} is not: the cost of
+ * holding a string is nothing, and the cost of getting it wrong is a file that vanishes
+ * out from under the UI. Across a restart it is correctly empty — an attachment that was
+ * never saved into a conversation is not shown after a reload either, so it is genuinely
+ * garbage by then.
+ */
+const liveAttachmentPaths = new Set<string>();
 
 export interface MediaImportIO {
   mkdirp(dir: string): Promise<void>;
@@ -234,6 +271,119 @@ async function sweepAbandonedUploads(absoluteDir: string, io: MediaImportIO): Pr
   return removed;
 }
 
+/**
+ * Basenames inside the attachments folder that must survive the sweep.
+ *
+ * Referenced paths come from conversation records the renderer wrote, so their exact
+ * spelling is not something this module controls. Matching on the BASENAME rather than
+ * the whole path is the conservative reading: a path stored absolutely, with backslashes,
+ * or from a previous layout still protects the file it names. The failure mode of being
+ * too generous here is a file left on disk; the failure mode of being too strict is a
+ * reference the editor can still see losing its bytes.
+ */
+function referencedBasenames(referenced: Iterable<string>): Set<string> {
+  const names = new Set<string>();
+  for (const entry of referenced) {
+    const normalized = entry.replace(/\\/g, '/');
+    const base = path.posix.basename(normalized);
+    if (base.length > 0) names.add(base);
+  }
+  return names;
+}
+
+/**
+ * Reclaim attachment files under a project that no conversation references any more.
+ *
+ * ## The rule
+ *
+ * An attachment's file is reachable while ANY message in ANY conversation of the project
+ * still names it, while any conversation's composer still holds it, or while this session
+ * imported it (see {@link liveAttachmentPaths}). Reachability is a UNION over the whole
+ * project, never a per-conversation decision: removing one chip must not delete a file
+ * another message still renders a thumbnail from. That is why this is a sweep and not an
+ * unlink on the remove button.
+ *
+ * ## Why it cannot touch the user's footage
+ *
+ * It reads exactly one directory — `media/<project>/attachments` — non-recursively, and
+ * that directory is written by nothing but an `destination: 'attachments'` import. Media
+ * bin assets, stock and music downloads, `sources.json`, proxies and thumbnails all live
+ * in the media root or elsewhere and are never enumerated here. A wrong answer from the
+ * reachability rule can therefore cost an attachment copy (whose original the user still
+ * has — invariant 1) and can never cost footage.
+ *
+ * Attachments imported before this folder existed are indistinguishable from bin media
+ * and are deliberately left alone: unreclaimable is a better bug than unrecoverable.
+ *
+ * @param referenced - Every attachment path the project's conversations still reference.
+ *   Pass `null` when that set could not be established in full (a corrupt or unreadable
+ *   conversation): the sweep then does nothing, because "I don't know" must never read as
+ *   "nothing references it".
+ * @returns How many files were removed.
+ */
+export async function sweepUnreferencedAttachments(
+  projectsRoot: string,
+  projectId: string,
+  referenced: Iterable<string> | null,
+  io: MediaImportIO = nodeMediaImportIO,
+): Promise<number> {
+  if (referenced === null) {
+    log.warn('attachment sweep skipped: the conversation set is incomplete', { projectId });
+    return 0;
+  }
+  const relativeDir = attachmentsRelativeDir(projectId);
+  let absoluteDir: string;
+  try {
+    absoluteDir = resolveWithin(projectsRoot, relativeDir);
+  } catch {
+    return 0;
+  }
+  const keep = referencedBasenames(referenced);
+  for (const live of liveAttachmentPaths) keep.add(path.posix.basename(live));
+
+  let removed = 0;
+  for (const entry of await io.readdir(absoluteDir)) {
+    // A `.part` belongs to an upload, not to a reference: `sweepAbandonedUploads` owns it
+    // and knows which fragments are still being written. Deleting one here could cut a
+    // live import off mid-flight.
+    if (entry.endsWith(PART_SUFFIX)) continue;
+    // The engine's analysis cache lives or dies with the file it describes.
+    const subject = entry.endsWith(REFERENCE_CACHE_SUFFIX)
+      ? entry.slice(0, entry.length - REFERENCE_CACHE_SUFFIX.length)
+      : entry;
+    if (keep.has(subject)) continue;
+    await io.unlink(path.join(absoluteDir, entry));
+    removed += 1;
+  }
+  if (removed > 0) log.action('reclaimed unreferenced attachments', { projectId, removed });
+  return removed;
+}
+
+/** Projects already swept this session — see {@link sweepUnreferencedAttachmentsOnce}. */
+const sweptAttachmentProjects = new Set<string>();
+
+/**
+ * {@link sweepUnreferencedAttachments}, at most once per project per session.
+ *
+ * The same lazy shape `StockService.sweepPartialDownloads` and
+ * {@link sweepAbandonedUploads} already use, and for the same reasons: it needs no new
+ * IPC, it cannot delay app launch, and a project nobody touches is never swept. The
+ * reference set is loaded through a callback so the common (already swept) case does not
+ * pay for reading every conversation in the project.
+ */
+export async function sweepUnreferencedAttachmentsOnce(
+  projectsRoot: string,
+  projectId: string,
+  loadReferenced: () => Promise<Iterable<string> | null>,
+  io: MediaImportIO = nodeMediaImportIO,
+): Promise<number> {
+  const key = safeProjectId(projectId);
+  if (sweptAttachmentProjects.has(key)) return 0;
+  // Claimed synchronously, so two concurrent saves sweep this project exactly once.
+  sweptAttachmentProjects.add(key);
+  return sweepUnreferencedAttachments(projectsRoot, projectId, await loadReferenced(), io);
+}
+
 function continuationPath(relativeDir: string, targetPath: string): string {
   const normalized = path.posix.normalize(targetPath);
   if (normalized !== targetPath || path.posix.dirname(normalized) !== relativeDir) {
@@ -275,9 +425,13 @@ export async function importMediaChunk(
   payload: Uint8Array,
   io: MediaImportIO = nodeMediaImportIO,
 ): Promise<string> {
-  const safeId = safeProjectId(projectId);
   const safeName = safeFileName(fileName);
-  const relativeDir = path.posix.join(MEDIA_DIR, safeId);
+  // The destination is a closed literal (`MediaImportDestination`), so this branch is the
+  // only directory choice a renderer can make — it cannot contribute path text.
+  const relativeDir =
+    header.destination === 'attachments'
+      ? attachmentsRelativeDir(projectId)
+      : mediaRelativeDir(projectId);
   const absoluteDir = resolveWithin(projectsRoot, relativeDir);
   await io.mkdirp(absoluteDir);
 
@@ -285,6 +439,9 @@ export async function importMediaChunk(
     header.offset === 0
       ? path.posix.join(relativeDir, await claimName(absoluteDir, safeName, io))
       : continuationPath(relativeDir, header.targetPath ?? '');
+  // Registered on the FIRST chunk, not the last: a multi-gigabyte upload can outlive the
+  // sweep that would otherwise be free to reclaim the name it has already claimed.
+  if (header.destination === 'attachments') liveAttachmentPaths.add(relativePath);
   const absolutePath = resolveWithin(projectsRoot, relativePath);
   const tempPath = `${absolutePath}.${header.uploadId}${PART_SUFFIX}`;
 
