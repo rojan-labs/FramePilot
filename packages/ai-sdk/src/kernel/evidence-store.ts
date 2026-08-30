@@ -77,17 +77,51 @@ const TRANSCRIPT_OPERATION = 'set_transcript';
  * project no longer had. Folder ops count too: `list_assets` reports where each asset is
  * filed.
  */
-const ASSET_OPERATIONS: ReadonlySet<string> = new Set<AppliedOperationType>([
-  'add_asset',
-  'remove_asset',
-  'move_asset',
-  'restore_assets',
-  'create_folder',
-  'rename_folder',
-  'move_folder',
-  'delete_folder',
-  'restore_folders',
-]);
+/**
+ * Every project operation, classified by whether it changes the bin.
+ *
+ * A `Record` over the union rather than a `Set` of the ones that matter, because the two
+ * arms of this file must fail the same way and a Set fails the wrong one. The timeline arm
+ * defaults an unrecognised operation to "changes everything" (see `facetsChangedBy`), so a
+ * new op type is safe until someone makes it cheap. An allowlist of bin-changing ops
+ * defaults the other way: a new one would simply not be in it, and a stale `list_assets`
+ * would be served naming assets the project no longer has — silently, and only for the
+ * tool whose whole job is to say what the bin contains.
+ *
+ * Exhaustive by type, so a new `ProjectOperation` fails this file's typecheck until it is
+ * classified. That is the point: the decision cannot be made by omission.
+ *
+ * This list was `['add_asset', 'manage_assets']` — `manage_assets` is a TOOL name that
+ * never appears among applied operation types, and every removal and refiling op was
+ * missing, so a `remove_asset` really did leave a bin listing in the store naming an asset
+ * that was gone.
+ */
+const PROJECT_OPERATION_BIN_EFFECT: Record<ProjectOperationType, 'bin' | 'inert'> = {
+  add_asset: 'bin',
+  remove_asset: 'bin',
+  move_asset: 'bin',
+  restore_assets: 'bin',
+  // `list_assets` reports where each asset is filed, so the folder tree is part of the
+  // listing it returns.
+  create_folder: 'bin',
+  rename_folder: 'bin',
+  move_folder: 'bin',
+  delete_folder: 'bin',
+  restore_folders: 'bin',
+  // The words spoken and the editor's remembered preferences are not the bin, and markers
+  // are timeline furniture — `get_timeline_summary` reports their count, which the
+  // timeline arm above already invalidates.
+  set_transcript: 'inert',
+  set_ai_memory: 'inert',
+  add_marker: 'inert',
+  remove_marker: 'inert',
+};
+
+const ASSET_OPERATIONS: ReadonlySet<string> = new Set<AppliedOperationType>(
+  Object.entries(PROJECT_OPERATION_BIN_EFFECT)
+    .filter(([, effect]) => effect === 'bin')
+    .map(([type]) => type as ProjectOperationType),
+);
 
 /**
  * What a `timeline_dependent` payload can go stale AGAINST.
@@ -237,8 +271,8 @@ function render(data: unknown): string {
 function recordsOf(data: unknown): unknown[] | undefined {
   if (Array.isArray(data)) return data;
   if (typeof data !== 'object' || data === null) return undefined;
-  const arrays = Object.values(data as Record<string, unknown>).filter((value): value is unknown[] =>
-    Array.isArray(value),
+  const arrays = Object.values(data as Record<string, unknown>).filter(
+    (value): value is unknown[] => Array.isArray(value),
   );
   return arrays.length > 0 ? arrays.flat() : undefined;
 }
