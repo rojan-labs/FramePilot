@@ -326,8 +326,70 @@ def test_get_project_state(ctx: ToolContext, project: Project) -> None:
         "byKind": by_kind,
         "note": "Asset ids are not listed here — call list_assets for them.",
     }
+    # The transcript is a tally for the same measured reason: in run `145ec3f3` it was
+    # 19,219 of this payload's 21,000 characters — 91% — for a 47-second video, and the
+    # run read it nine times. Mirrors `tool-registry.ts`'s `transcriptTally`.
+    expected.pop("transcript", None)
+    words = project.transcript
+    preview = " ".join(word.word for word in words[:12])
+    expected["transcriptSummary"] = {
+        "words": len(words),
+        "startSeconds": words[0].start if words else None,
+        "endSeconds": words[-1].end if words else None,
+        "preview": f"{preview}…" if len(words) > 12 else preview,
+        "note": (
+            "This project has no transcript yet — call transcribe to create one."
+            if not words
+            else "Words are not listed here — call get_mapped_transcript for the "
+            "transcript as it plays after your edits."
+        ),
+    }
     assert result.data == expected
     assert "assets" not in result.data
+    assert "transcript" not in result.data
+
+
+def test_get_project_state_transcript_tally_matches_the_ts_shape(
+    ctx: ToolContext, project: Project
+) -> None:
+    """The two surfaces must return the SAME shape — pinned key-for-key.
+
+    `tool-registry.test.ts` asserts the TS side against these exact literals; drift
+    on either side is a model reading two different project states depending on which
+    host answered it.
+    """
+    project.transcript = [
+        TranscriptWord(word="hello", start=0.0, end=0.5),
+        TranscriptWord(word="world", start=0.5, end=1.0),
+    ]
+    summary = run_tool("get_project_state", {}, ctx).data["transcriptSummary"]
+    assert summary == {
+        "words": 2,
+        "startSeconds": 0.0,
+        "endSeconds": 1.0,
+        "preview": "hello world",
+        "note": "Words are not listed here — call get_mapped_transcript for the "
+        "transcript as it plays after your edits.",
+    }
+
+    # An empty transcript says so, and names the call that creates one.
+    project.transcript = []
+    assert run_tool("get_project_state", {}, ctx).data["transcriptSummary"] == {
+        "words": 0,
+        "startSeconds": None,
+        "endSeconds": None,
+        "preview": "",
+        "note": "This project has no transcript yet — call transcribe to create one.",
+    }
+
+    # A transcript past the preview length is elided, not dumped.
+    project.transcript = [
+        TranscriptWord(word=f"w{i}", start=float(i), end=i + 1.0) for i in range(30)
+    ]
+    long_summary = run_tool("get_project_state", {}, ctx).data["transcriptSummary"]
+    assert long_summary["words"] == 30
+    assert long_summary["preview"].endswith("…")
+    assert long_summary["preview"].count(" ") == 11  # 12 words previewed
 
 
 def test_get_timeline(ctx: ToolContext, project: Project) -> None:

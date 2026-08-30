@@ -183,7 +183,11 @@ describe('read tools', () => {
     // never enters the result/evidence/WAL path), and the bin is a TALLY rather than a
     // listing — `list_assets` returns the same array, and a run that calls both pays for
     // the ids twice (GAP-018).
-    const { assets: _assets, ...withoutAssets } = ctx.project;
+    // The transcript is a tally for the same reason (GAP-018 again, measured in run
+    // `145ec3f3`): it was 91% of this payload's characters, and the run re-read the
+    // whole thing nine times. `get_mapped_transcript` returns the words windowed, and
+    // as they play AFTER the edit.
+    const { assets: _assets, transcript: _transcript, ...withoutAssets } = ctx.project;
     expect(getTool('get_project_state')?.read?.({}, ctx)).toEqual({
       ...withoutAssets,
       history: [],
@@ -192,6 +196,27 @@ describe('read tools', () => {
         byKind: { video: 1 },
         note: 'Asset ids are not listed here — call list_assets for them.',
       },
+      transcriptSummary: {
+        words: 2,
+        startSeconds: 0,
+        endSeconds: 1,
+        preview: 'hello world',
+        note: 'Words are not listed here — call get_mapped_transcript for the transcript as it plays after your edits.',
+      },
+    });
+
+    // An empty transcript says so, and names the call that creates one, rather than
+    // reporting a zero the reader has to interpret.
+    const noTranscript = { ...ctx, project: { ...ctx.project, transcript: [] } };
+    expect(
+      (getTool('get_project_state')?.read?.({}, noTranscript) as { transcriptSummary: unknown })
+        .transcriptSummary,
+    ).toEqual({
+      words: 0,
+      startSeconds: null,
+      endSeconds: null,
+      preview: '',
+      note: 'This project has no transcript yet — call transcribe to create one.',
     });
     expect(getTool('get_timeline')?.read?.({}, ctx)).toBe(ctx.project.timeline);
     expect(getTool('get_transcript')?.read?.({}, ctx)).toBe(ctx.project.transcript);

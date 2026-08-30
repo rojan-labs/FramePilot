@@ -1008,11 +1008,12 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     # --- Read tools (PRD §8.3) ---
     "get_project_state": _spec(
         "get_project_state",
-        "Return the current editable project state — settings, timeline, transcript, "
-        "markers, memory — without editor-only undo history. This is the live state "
+        "Return the current editable project state — settings, timeline, markers, "
+        "memory — without editor-only undo history. This is the live state "
         "for the active session: read it here, not from project.fp.json on disk. The "
-        "media bin comes back as a TALLY, not a listing; call list_assets for the "
-        "asset ids.",
+        "media bin and the transcript come back as TALLIES, not listings; call "
+        "list_assets for the asset ids, and get_mapped_transcript for the words as "
+        "they play after your edits.",
         kind="read",
     ),
     "get_timeline": _spec(
