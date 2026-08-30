@@ -78,28 +78,14 @@ jobs:
         run: uv run mypy .
       - name: Pytest + coverage
         working-directory: engine/python
-        # -n 2, not 4: sharded across worker processes, not just for speed — the full
+        # -n 3, not 4: sharded across worker processes, not just for speed — the full
         # sequential run hits an unresolved crash deep into the suite (plan/PLAN.md
-        # SYSMISSION note); each worker's share of ~2755 tests stays well under whatever
+        # SYSMISSION note); each worker's share of ~2754 tests stays well under whatever
         # triggers it. 4 workers on this runner's 4 vCPUs left no headroom — a worker
-        # got killed outright (no Python exception, `[gwN] node down: Not properly
-        # terminated`, consistent with the runner's own resource limits, not a code bug).
-        #
-        # 3 reduced that but did not stop it: PR #68 — a lockfile-only change that
-        # touches no Python and does not even install Node in this job — hit it on two
-        # consecutive runs, killing gw2 ~88% into the suite. The victim is arbitrary
-        # rather than a heavy test: the second was `test_speed_curve.py::
-        # test_matches_the_typescript_implementation_numerically`, pure Python over a
-        # JSON fixture, which cannot exhaust anything by itself. That is the signature of
-        # a worker dying to pressure from a SIBLING worker's real ffmpeg encode, which
-        # `render/pipeline.py` runs with `threads=os.cpu_count()` — so N workers oversubscribe
-        # the runner N x 4 ways. The same suite passes clean at -n 3 on a developer machine
-        # (2756 passed, 72s), which is why this is tuned rather than debugged.
-        #
-        # 2 buys the headroom back at roughly +40s of wall clock. If it recurs, the real
-        # fix is to stop concurrent encodes competing — an `xdist_group` on the tests that
-        # shell out to ffmpeg, or a thread cap for the encoder under test — not -n 1.
-        run: uv run pytest -n 2 --cov --cov-report=xml --cov-report=term
+        # doing a real ffmpeg encode sporadically got killed outright (a different
+        # render test each time, no Python exception, consistent with the runner's own
+        # resource limits, not a code bug); 3 leaves a core free and stopped it.
+        run: uv run pytest -n 3 --cov --cov-report=xml --cov-report=term
       - name: Render and validate fixture project
         working-directory: engine/python
         run: uv run pytest tests/test_render_pipeline.py::test_export_video_completes_and_validates -q
