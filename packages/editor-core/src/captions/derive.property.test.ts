@@ -144,6 +144,32 @@ function rippledMap(rng: () => number, clipCount: number): ReturnType<typeof bui
   } as unknown as Parameters<typeof buildTimelineMap>[0]);
 }
 
+describe('deriveCaptionCues on a clip trimmed to the speech', () => {
+  it('holds when the clip ends EXACTLY at the last word, with no headroom', () => {
+    // The arrangement `remove_silences` and trim-to-speech both produce, and the one both
+    // earlier fixtures accidentally avoided: `mapFor` above adds a second past the last
+    // word, and the ai-sdk replay's clip has 0.29s of it. With zero headroom the run-clamp
+    // has nowhere to put a cue that `segmentCaptions` extended past its final word, which
+    // is where the last zero-length cue survived two fixes.
+    for (let seed = 601; seed <= 640; seed += 1) {
+      const rng = mulberry32(seed);
+      const words = generateTranscript(rng, 40 + Math.floor(rng() * 60));
+      const map = mapFor(words[words.length - 1]!.end);
+      for (const fps of FRAME_RATES) {
+        for (const preset of PRESETS) {
+          for (const cue of deriveCaptionCues(map, words, captionSegmentConfig(preset), fps)) {
+            const frames = snapSecondsToFrame(cue.end, fps) - snapSecondsToFrame(cue.start, fps);
+            expect(
+              frames,
+              `seed ${String(seed)} ${preset} @ ${String(fps)}fps: ${JSON.stringify({ start: cue.start, end: cue.end, text: cue.text })}`,
+            ).toBeGreaterThan(0);
+          }
+        }
+      }
+    }
+  });
+});
+
 describe('deriveCaptionCues across cuts', () => {
   it('holds every invariant on a rippled timeline, not just an untrimmed one', () => {
     for (let seed = 301; seed <= 340; seed += 1) {
