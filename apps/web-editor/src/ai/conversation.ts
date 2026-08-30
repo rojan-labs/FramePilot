@@ -12,7 +12,7 @@
  * mutating, mirroring `editor/store.ts` so React can diff by identity.
  */
 import type { AiEvent, MessageAttachment, ReferenceProfile } from '@framepilot/ai-sdk';
-import type { ConversationSummary } from '@framepilot/shared-types';
+import { MAX_REFERENCES_PER_TURN, type ConversationSummary } from '@framepilot/shared-types';
 
 export type ConversationMode = 'agent' | 'chat' | 'edit';
 
@@ -118,7 +118,16 @@ export function activeReferences(
       live.push(profile);
     }
   }
-  return live;
+  // The host REFUSES a turn carrying more than this, and the refusal lands at the
+  // transport boundary — after the composer has been emptied — so an uncapped set would
+  // fail the run with nothing left for the editor to remove and a Retry that replays the
+  // same doomed set forever. Accumulating across turns makes that reachable without
+  // anyone attaching nine things at once, which is exactly why the cap belongs here and
+  // not only on the composer.
+  //
+  // The MOST RECENT survive: the newest reference is the one the editor just expressed
+  // an intent about, and the oldest is the one they are most likely to have moved on from.
+  return live.slice(-MAX_REFERENCES_PER_TURN);
 }
 
 /** An included-context chip above the composer (M8). */

@@ -44,7 +44,7 @@ import {
 } from '@framepilot/ai-sdk';
 import { type Project, parseProject } from '@framepilot/timeline-schema';
 import type { PatchCommitLedger, ReferenceProfile } from '@framepilot/ai-sdk';
-import { createLogger } from '@framepilot/shared-types';
+import { MAX_REFERENCES_PER_TURN, createLogger } from '@framepilot/shared-types';
 import type {
   AiProviderName,
   AiStreamAgentOptions,
@@ -385,7 +385,6 @@ function toReferenceProfiles(
   return ReferenceProfileSchema.array().parse(value);
 }
 
-const MAX_REFERENCES_PER_TURN = 8;
 const MAX_PINNED_PER_TURN = 32;
 const PINNED_KINDS: ReadonlySet<string> = new Set(['clip', 'asset']);
 
@@ -840,11 +839,21 @@ export interface StreamSender {
 /**
  * Default hard cap on a single streaming run. **Disabled (`0`)** by product decision:
  * a big multi-tool agent run against a slow or remote backend (e.g. a self-hosted
- * Ollama over an ngrok tunnel) can legitimately run for over an hour, and a fixed cap
- * aborts that healthy work. A run is now bounded only by the model/transport and the
- * user's Stop button — never by a clock. A caller that wants a bound can still pass an
- * explicit `timeoutMs` to {@link AiStreamHub}. `0` (or any non-positive value) means no
- * cap: the backstop timer is simply not armed (see {@link AiStreamHub.start}).
+ * Ollama over an ngrok tunnel) can legitimately run for over an hour, and a fixed
+ * wall-clock cap cannot tell "still thinking" from "socket is dead" — it just aborts
+ * healthy work at an arbitrary minute. `0` (or any non-positive value) means no cap here:
+ * the backstop timer is simply not armed (see {@link AiStreamHub.start}). A caller that
+ * wants a coarse bound can still pass an explicit `timeoutMs` to {@link AiStreamHub}.
+ *
+ * **This does NOT mean a run is unbounded.** The bound lives one layer down, where it can
+ * actually distinguish the two cases: `DEFAULT_TIMEOUTS` in
+ * `packages/ai-sdk/src/reliability/timeout.ts` arms a heartbeat-reset idle timeout (a
+ * healthy slow stream keeps beating and is never aborted; total silence is) plus a connect
+ * timeout around the heartbeat-less `complete()` calls. Disabling THOSE — setting either
+ * budget back to `0` — while this cap is also `0` leaves an AI run with no time bound at
+ * any layer, which is exactly the state this comment used to describe as safe. It was not:
+ * a dead socket hung the run forever behind a spinner. Change one of the two only after
+ * checking the other.
  */
 export const AI_STREAM_TIMEOUT_MS = 0;
 

@@ -13,6 +13,7 @@
 import { describe, expect, it } from 'vitest';
 import { createTurnEmitter, reduceEvents, type ReferenceProfile } from '@framepilot/ai-sdk';
 import { activeReferences, toMessageAttachments, type Attachment } from './conversation.js';
+import { MAX_REFERENCES_PER_TURN } from '@framepilot/shared-types';
 
 const emitter = (turnId = 'turn_1') =>
   createTurnEmitter({ conversationId: 'c1', turnId, now: () => 1000 });
@@ -191,5 +192,18 @@ describe('activeReferences — the live set the run is given', () => {
 
   it('is empty for a conversation that never attached anything', () => {
     expect(activeReferences([emitter('t1').userMessage('just text')])).toEqual([]);
+  });
+
+  it('never hands the run more references than the host will accept', () => {
+    // The host REFUSES the turn above this, at the transport boundary — after the
+    // composer has been emptied — so an uncapped set fails the run with nothing left to
+    // remove and a Retry that replays the same doomed set. Accumulation makes it
+    // reachable without anyone attaching nine things at once.
+    const ids = Array.from({ length: MAX_REFERENCES_PER_TURN + 3 }, (_, i) => `r${String(i)}`);
+    const log = ids.map((id, i) => message(`t${String(i)}`, [id]));
+    const live = activeReferences(log);
+    expect(live).toHaveLength(MAX_REFERENCES_PER_TURN);
+    // The newest survive — the oldest reference is the one the editor has moved on from.
+    expect(live.map((p) => p.id)).toEqual(ids.slice(-MAX_REFERENCES_PER_TURN));
   });
 });

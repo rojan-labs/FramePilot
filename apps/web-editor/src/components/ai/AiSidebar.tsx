@@ -777,7 +777,17 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   }, [diffEnabled, uncommittedDiffs, applyPatch]);
 
   // Remember the last turn so a failed/cancelled run can be retried.
+  /**
+   * The last turn Retry replays — and WHICH conversation it belongs to.
+   *
+   * A single ref with no owner was replayable into the wrong chat: switching conversation
+   * left it untouched, so a Retry offered on conversation B replayed A's prompt, and now
+   * A's attachments, appending them to B's log as though the editor had sent them there.
+   * Carrying the conversation id makes the ref answer "is this mine?" instead of the
+   * caller having to remember to clear it, which is the discipline that failed.
+   */
   const lastTurn = useRef<{
+    conversationId: string;
     text: string;
     attachments: readonly MessageAttachment[];
   } | null>(null);
@@ -1141,7 +1151,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
           mode,
         });
       const turnId = newId();
-      lastTurn.current = { text, attachments: turnAttachments };
+      lastTurn.current = { conversationId: conversation.id, text, attachments: turnAttachments };
       // Capture prior turns BEFORE appending the new user message so "make it
       // shorter" resolves its referent against the conversation so far (R2 B1).
       const history = historyFromEvents(conversation.events);
@@ -1409,9 +1419,16 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     await runTurn(text, outgoing);
   }, [draft, runTurn]);
 
+  /** The last turn, but only if it belongs to the conversation on screen. */
+  const replayableTurn = useCallback(() => {
+    const turn = lastTurn.current;
+    return turn !== null && turn.conversationId === active?.id ? turn : null;
+  }, [active?.id]);
+
   const retry = useCallback(() => {
-    if (lastTurn.current) void runTurn(lastTurn.current.text, lastTurn.current.attachments);
-  }, [runTurn]);
+    const turn = replayableTurn();
+    if (turn) void runTurn(turn.text, turn.attachments);
+  }, [replayableTurn, runTurn]);
 
   // R3 C2: Resume continues an interrupted agent run from its persisted checkpoint —
   // replaying the ops already applied and picking up at the next step — instead of
@@ -1531,14 +1548,15 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     const activeSession = runningSession.current ?? session;
     if (activeSession.rejectPlan) activeSession.rejectPlan();
     else planApprovalGateRef.current?.resolve('cancelled');
-    if (lastTurn.current) {
-      setDraft(lastTurn.current.text);
+    const turn = replayableTurn();
+    if (turn) {
+      setDraft(turn.text);
       // The request goes back to the composer to be refined, so what was attached to it
       // goes back too — otherwise re-sending silently drops the references the rejected
       // plan was built from. They return already analyzed; nothing is re-measured.
-      setAttachments(lastTurn.current.attachments.map((a) => ({ ...a, status: 'ready' as const })));
+      setAttachments(turn.attachments.map((a) => ({ ...a, status: 'ready' as const })));
     }
-  }, [session]);
+  }, [replayableTurn, session]);
 
   // P11.4: raw "Steering applied: …" notification texts this run has confirmed, so
   // the steering input can clear its own "queued" note once the run actually folds
@@ -1564,7 +1582,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   const canRetry =
     !running &&
     !canResume &&
-    lastTurn.current !== null &&
+    replayableTurn() !== null &&
     (view.status === 'failed' || view.status === 'cancelled');
 
   const items = virtualizer.getVirtualItems();
@@ -2146,7 +2164,6 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
             atEntities={atEntities}
             onPinEntity={onPinEntity}
             attachments={attachments}
-            onAddAttachment={(a) => setAttachments((list) => [...list, a])}
             onAttachFiles={(files) => void attachReferenceFiles(files)}
             onRemoveAttachment={(id) => setAttachments((list) => list.filter((a) => a.id !== id))}
           />
