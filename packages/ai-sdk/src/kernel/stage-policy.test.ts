@@ -205,9 +205,7 @@ describe('the locked plan is actually closed to re-analysis', () => {
       const demanded = TOOL_REGISTRY.some(
         (tool) => tool.mutates && new RegExp(`\\b${name}\\b`).test(tool.description),
       );
-      expect(demanded, `${name} is exempt but no mutation names it as a precondition`).toBe(
-        true,
-      );
+      expect(demanded, `${name} is exempt but no mutation names it as a precondition`).toBe(true);
       for (const stage of RUN_STAGES) {
         expect(
           stageAllowsTool(stage, name, spec?.mutates === true),
@@ -292,7 +290,6 @@ describe('stageAllowsRole — the boundary is structural', () => {
     expect(stageAllowsRole('apply', 'other')).toBe(true);
   });
 });
-
 
 describe('settledStageFor — every transition a turn earns', () => {
   it('closes analysis and opens execution on the turn that first applies a patch', () => {
