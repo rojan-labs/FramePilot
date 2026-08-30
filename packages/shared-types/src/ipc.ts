@@ -329,6 +329,21 @@ export type ImportAssetResult =
       durationSeconds: number | null;
       kind: 'video' | 'audio' | 'image';
       media: {
+        /**
+         * Source pixel dimensions, when the engine probed them (schema v21).
+         *
+         * Both or neither — half a shape is not a shape. Declared here because this
+         * type is the IPC contract, and omitting the pair is what silently discarded
+         * it: the engine returns width/height and the desktop client forwards them,
+         * but nothing downstream could see them, so `AssetMedia.width/height` stayed
+         * empty for every imported asset. Schema v21 added those fields precisely to
+         * stop landscape sources rendering pillarboxed in a portrait sequence, and
+         * both safeguards that read them — `list_assets`' letterbox note and the
+         * review's reframe check — were disarmed by their absence rather than by any
+         * fault of their own.
+         */
+        width?: number;
+        height?: number;
         peaks?: number[];
         peaksPerSecond?: number;
         thumbnailPaths?: string[];

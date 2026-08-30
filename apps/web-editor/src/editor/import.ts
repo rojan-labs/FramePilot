@@ -59,8 +59,10 @@ export async function deriveEngineMedia(
   if (!isDesktop()) return undefined;
   const result = await importAsset({ inputPath: onDiskPath, proxy: true, ...brainRef });
   if (!result.ok) return undefined;
-  const { peaks, peaksPerSecond, thumbnailPaths, proxyPath } = result.media;
+  const { width, height, peaks, peaksPerSecond, thumbnailPaths, proxyPath } = result.media;
   if (
+    width === undefined &&
+    height === undefined &&
     peaks === undefined &&
     peaksPerSecond === undefined &&
     thumbnailPaths === undefined &&
@@ -68,6 +70,15 @@ export async function deriveEngineMedia(
   )
     return undefined;
   const media: AssetMedia = {};
+  // Both or neither: a reader that finds only a width cannot decide anything with it,
+  // and absent must keep meaning "not probed" rather than "square". Carrying the pair is
+  // what makes schema v21's `AssetMedia.width/height` reach an imported asset at all —
+  // without it every desktop import arrived shapeless, and the two checks that warn
+  // about a landscape source in a portrait frame could never fire.
+  if (width !== undefined && height !== undefined) {
+    media.width = width;
+    media.height = height;
+  }
   if (peaks !== undefined) media.peaks = peaks;
   if (peaksPerSecond !== undefined) media.peaksPerSecond = peaksPerSecond;
   if (thumbnailPaths !== undefined) media.thumbnailPaths = thumbnailPaths;
