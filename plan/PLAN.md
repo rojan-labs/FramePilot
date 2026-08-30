@@ -42,6 +42,36 @@ provider (the AI journey and four failure rows are written and wired, never run 
 aggregate measurement needing the desktop harness, the engine-kill e2e that still does not
 pass, and a day of adversarial use.
 
+**Status snapshot (2026-08-30, PROMPT.md reliability mission — attachment ownership):** `[x]`
+**A sent message owns what was attached to it.** The anchor defect of the mission's W3: an
+attachment existed only in composer React state, so a sent message carried nothing but
+text. Everything followed from that one missing field — the chip stayed in the composer
+after sending, the bubble could not show it, and `references` were read from live composer
+state so a file attached to turn 1 was re-sent on every later turn.
+
+Split into `MessageAttachment` (immutable, message-owned, rendered, replayed by Retry) and
+the composer's work-in-progress `Attachment`. The first attempt at this introduced a WORSE
+regression than the bug and the audit caught it: the SDK's contract is that `references` is
+the COMPLETE LIVE SET each turn, and an id missing from it means "the editor removed that
+tile, stop applying its decision" (`kernel/conductor.ts`, P3.5) — so message-scoped
+references would have sent `[]` on turn 2 and silently retired everything. The live set is
+therefore DERIVED (every reference any message attached, minus dismissals, capped at
+`MAX_REFERENCES_PER_TURN`), and dismissal moved onto the bubble tile.
+
+Also closed, from the same audit: paste minted a ghost attachment that was never imported
+or analyzed while looking entirely ordinary (all three entry points now share one handler,
+and `onAddAttachment` is gone); nine references bricked a message irrecoverably because the
+host refuses above eight AFTER the composer is emptied; `lastTurn` was not
+conversation-scoped, so Retry could replay one chat's turn — and its attachments — into
+another. The two reference-profile types bridged by an `as unknown as` are converged on the
+Zod one, validated at the host boundary. A double-submit race in the same path read the
+`running` STATE rather than the ref, so two Enter presses in one commit started two runs and
+orphaned the first one's Stop.
+
+Tests: `src/ai/messageAttachments.test.ts` (18), `Composer.test.tsx` (30),
+`AiSidebar.test.tsx` (63) — the component cases verified to fail against the previous
+implementation. Docs: `CHANGELOG.md`.
+
 **Status snapshot (2026-08-30, run `7d159862` — the context that deleted itself and the
 cache that dropped everything):** `[x]` **The agent no longer re-buys facts it already
 holds.** On a project with ONE asset and ONE clip, the run spent 5 `list_assets` and 5
