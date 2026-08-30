@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import type { Patch } from '@framepilot/editor-core';
+import {
+  isProjectFileConflictError,
+  ProjectFileConflictError,
+} from '@framepilot/timeline-schema/file';
 import { ProjectCommandService, type ProjectRevisionIO } from './project-command-service.js';
 
 const project = (assets: Project['assets']): Project =>
@@ -17,7 +21,12 @@ const project = (assets: Project['assets']): Project =>
     history: [],
   });
 
-const asset = { id: 'asset_1', path: 'media/just-imported.mp4', kind: 'video' as const, durationSeconds: 12 };
+const asset = {
+  id: 'asset_1',
+  path: 'media/just-imported.mp4',
+  kind: 'video' as const,
+  durationSeconds: 12,
+};
 
 function revisionIO(): ProjectRevisionIO & { write: ReturnType<typeof vi.fn> } {
   return {
@@ -214,13 +223,7 @@ describe('ProjectCommandService.commitPatch', () => {
     const reloaded = new ProjectCommandService(JSON.stringify);
     reloaded.observe(persisted);
     const write = vi.fn(async () => undefined);
-    const replay = await reloaded.commitPatch(
-      initial.id,
-      revision,
-      second,
-      write,
-      'run_1',
-    );
+    const replay = await reloaded.commitPatch(initial.id, revision, second, write, 'run_1');
     expect(replay).toMatchObject({ ok: true, replayed: true, revision: 1 });
     expect(write).not.toHaveBeenCalled();
     expect(reloaded.project(initial.id)?.history).toHaveLength(1);
@@ -246,5 +249,73 @@ describe('ProjectCommandService.commitPatch', () => {
       'run_1',
     );
     expect(collision).toMatchObject({ ok: false, code: 'invalid_patch' });
+  });
+});
+
+describe('ProjectCommandService — writer refused the publish', () => {
+  const marker: Patch = {
+    patchId: 'agent_marker',
+    createdBy: 'agent',
+    reason: 'Add marker',
+    operations: [{ type: 'add_marker', id: 'marker_1', time: 1 }],
+  };
+
+  const conflict = (): ProjectFileConflictError =>
+    new ProjectFileConflictError('/projects/demo.fp.json', 'changed on disk');
+
+  it('reports a refused patch commit as a revision conflict, not an invalid patch', async () => {
+    // The patch was valid against the project this process holds; the FILE moved. Calling
+    // that `invalid_patch` would tell the agent to fix a patch that has nothing wrong with
+    // it — `main.ts` maps `revision_conflict` to a `stale` event that says "replan".
+    const service = new ProjectCommandService(JSON.stringify);
+    const initial = project([]);
+    const revision = service.observe(initial).revision;
+
+    const result = await service.commitPatch(initial.id, revision, marker, () => {
+      throw conflict();
+    });
+
+    expect(result).toMatchObject({ ok: false, code: 'revision_conflict' });
+    // No `currentRevision`: nothing persisted, so the in-memory revision did NOT advance,
+    // and echoing it back would invite a retry at the same number against a moved file.
+    expect(result).not.toHaveProperty('currentRevision');
+  });
+
+  it('does not advance the revision when the publish was refused', async () => {
+    const service = new ProjectCommandService(JSON.stringify);
+    const initial = project([]);
+    const revision = service.observe(initial).revision;
+
+    await service.commitPatch(initial.id, revision, marker, () => {
+      throw conflict();
+    });
+
+    expect(service.revision(initial.id)).toBe(revision);
+    expect(service.project(initial.id)?.markers).toEqual([]);
+  });
+
+  it('rethrows a refused write so the save path cannot report success', async () => {
+    // `write()` has no conflict result variant, and inventing one would be a silent
+    // downgrade of a save failure into "saved". The caller must see the refusal.
+    const service = new ProjectCommandService(JSON.stringify);
+    const initial = project([]);
+    const revision = service.observe(initial).revision;
+
+    await expect(
+      service.write(initial, revision, () => Promise.reject(conflict())),
+    ).rejects.toSatisfy(isProjectFileConflictError);
+    expect(service.revision(initial.id)).toBe(revision);
+  });
+
+  it('a refused write does not poison later writes to the same project', async () => {
+    const service = new ProjectCommandService(JSON.stringify);
+    const initial = project([]);
+    const revision = service.observe(initial).revision;
+    await expect(
+      service.write(initial, revision, () => Promise.reject(conflict())),
+    ).rejects.toSatisfy(isProjectFileConflictError);
+
+    const after = await service.write(project([asset]), revision, async () => {});
+    expect(after).toMatchObject({ ok: true });
   });
 });

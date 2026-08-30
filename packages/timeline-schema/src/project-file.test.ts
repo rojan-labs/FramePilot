@@ -8,8 +8,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SCHEMA_VERSION, type Project } from './index.js';
 import { writeFile } from 'node:fs/promises';
 import {
+  isProjectFileConflictError,
   MAX_PARSED_PROJECT_BYTES,
+  PROJECT_FILE_CONFLICT_CODE,
   readProjectFile,
+  serializeProject,
   stripTopLevelHistory,
   writeProjectFile,
 } from './project-file.js';
@@ -115,6 +118,128 @@ describe('writeProjectFile / readProjectFile', () => {
     // Asserted against the constant, not a literal: a hard-coded version turns
     // every future schema bump into an unrelated test failure here.
     expect(text).toContain(`\n  "schemaVersion": ${SCHEMA_VERSION}`);
+  });
+});
+
+/**
+ * The other process is simulated with a RAW `fs.writeFile`, never with
+ * {@link writeProjectFile}. Going through our own writer would update the per-process
+ * observed-content registry, which is precisely the knowledge a second OS process does
+ * NOT share — a test that fakes a second writer with this process's writer proves nothing
+ * about the guard.
+ */
+async function externalProcessWrites(path: string, project: Project): Promise<void> {
+  await writeFile(path, serializeProject(project), 'utf8');
+}
+
+describe('writeProjectFile — cross-process lost-update guard', () => {
+  it('writes blind to a path this process has never seen', async () => {
+    // Save-as and first saves have no baseline to protect; refusing them would break
+    // saving rather than protect it.
+    const path = join(dir, 'brand-new.fp.json');
+    await writeProjectFile(path, sampleProject());
+    expect((await readProjectFile(path)).id).toBe('p1');
+  });
+
+  it('refuses to publish over content written by another process', async () => {
+    const path = join(dir, 'project.fp.json');
+    await writeProjectFile(path, sampleProject());
+    await readProjectFile(path);
+    await externalProcessWrites(path, { ...sampleProject(), name: 'Edited elsewhere' });
+
+    await expect(
+      writeProjectFile(path, { ...sampleProject(), name: 'Mine' }),
+    ).rejects.toMatchObject({ code: PROJECT_FILE_CONFLICT_CODE });
+    // The other writer's edit survives — the lost update was prevented, not clobbered.
+    expect((await readProjectFile(path)).name).toBe('Edited elsewhere');
+  });
+
+  it('does not lose an update across two interleaved read-modify-write cycles', async () => {
+    // Both writers read the SAME starting document, then each edits a different field.
+    // Without the guard the later rename publishes a whole document and the earlier
+    // writer's field is simply gone; with it, the second publish is refused instead.
+    const path = join(dir, 'project.fp.json');
+    await writeProjectFile(path, sampleProject());
+
+    const mine = await readProjectFile(path); // this process reads…
+    const theirs = await readProjectFile(path); // …and so does the other one
+    await externalProcessWrites(path, { ...theirs, name: 'Their edit' });
+
+    await expect(writeProjectFile(path, { ...mine, fps: 60 })).rejects.toSatisfy(
+      isProjectFileConflictError,
+    );
+    const onDisk = await readProjectFile(path);
+    expect(onDisk.name).toBe('Their edit');
+    expect(onDisk.fps).toBe(30);
+  });
+
+  it('re-establishes the baseline on re-read, so the guard is not a permanent deadlock', async () => {
+    // The desktop watcher re-reads the file on every debounced fs event; that read is what
+    // lets the refused writer retry instead of being locked out of its own project.
+    const path = join(dir, 'project.fp.json');
+    await writeProjectFile(path, sampleProject());
+    await externalProcessWrites(path, { ...sampleProject(), name: 'Their edit' });
+    await expect(writeProjectFile(path, sampleProject())).rejects.toSatisfy(
+      isProjectFileConflictError,
+    );
+
+    const reloaded = await readProjectFile(path);
+    await writeProjectFile(path, { ...reloaded, name: 'Merged' });
+    expect((await readProjectFile(path)).name).toBe('Merged');
+  });
+
+  it('allows the write when the file was deleted (nothing to clobber)', async () => {
+    const path = join(dir, 'project.fp.json');
+    await writeProjectFile(path, sampleProject());
+    await rm(path);
+
+    await writeProjectFile(path, { ...sampleProject(), name: 'Recreated' });
+    expect((await readProjectFile(path)).name).toBe('Recreated');
+  });
+
+  it('refuses when the known target cannot be read at all', async () => {
+    // EISDIR/EACCES is "I could not look", not "there is nothing there". Overwriting an
+    // unknown target is exactly the mistake the guard exists to prevent.
+    const path = join(dir, 'project.fp.json');
+    await writeProjectFile(path, sampleProject());
+    await rm(path);
+    await mkdir(path);
+
+    await expect(writeProjectFile(path, sampleProject())).rejects.toSatisfy(
+      isProjectFileConflictError,
+    );
+  });
+
+  it('leaves no temp fragment behind when a write is refused', async () => {
+    const path = join(dir, 'project.fp.json');
+    await writeProjectFile(path, sampleProject());
+    await externalProcessWrites(path, { ...sampleProject(), name: 'Their edit' });
+
+    await expect(writeProjectFile(path, sampleProject())).rejects.toSatisfy(
+      isProjectFileConflictError,
+    );
+    expect(await readdir(dir)).toEqual(['project.fp.json']);
+  });
+
+  it('names the file and the recovery step in the refusal message', async () => {
+    // `dispatch.ts` renders a session error as `[code] message`, so instructions that are
+    // not IN the message never reach the agent that has to act on them.
+    const path = join(dir, 'project.fp.json');
+    await writeProjectFile(path, sampleProject());
+    await externalProcessWrites(path, { ...sampleProject(), name: 'Their edit' });
+
+    await expect(writeProjectFile(path, sampleProject())).rejects.toThrow(
+      /changed on disk[\s\S]*Reload the project/,
+    );
+  });
+
+  it('identifies a conflict by code, not by class identity', () => {
+    // Consumers import this module through its built dist; a duplicated module identity
+    // makes `instanceof` quietly false, and a guard that quietly stops guarding is worse
+    // than none.
+    expect(isProjectFileConflictError({ code: PROJECT_FILE_CONFLICT_CODE })).toBe(true);
+    expect(isProjectFileConflictError(new Error('nope'))).toBe(false);
+    expect(isProjectFileConflictError(null)).toBe(false);
   });
 });
 
