@@ -6,6 +6,9 @@
  * tools that would restart reconnaissance.
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   PRECONDITION_TOOL_NAMES,
   VALIDATOR_INPUT_TOOL_NAMES,
@@ -102,6 +105,62 @@ describe('the locked plan is actually closed to re-analysis', () => {
    * to do. Whenever a prerequisite is NAMED in a description, it must be reachable in
    * every stage the tool itself is reachable in.
    */
+  /**
+   * The same contract, read from where the incident actually came from.
+   *
+   * The description scan below is phrasing-dependent by construction — it has to guess
+   * which sentences state an order — and it has already been widened twice after missing
+   * the real thing. But run 7d159862's deadlock was not in a description at all: it was a
+   * THROWN string, `"This project has no transcript yet ... Run transcribe first."`, from
+   * inside `caption_the_edit`'s handler. A thrown remedy is a stronger promise than a
+   * description: the model has just been refused and told exactly what to do about it.
+   *
+   * So this reads the handlers' source and needs no phrasing rule at all. Any registry
+   * tool name appearing in a message a domain tool throws is a remedy that tool is
+   * pointing at, and it must be reachable wherever the tool that names it is.
+   *
+   * Attributed per FILE rather than per handler: a file's tools share a domain, and
+   * over-constraining within one domain is the safe direction for a guard whose whole
+   * job is to fail closed.
+   */
+  it('never throws a remedy naming a tool the same stage withholds', () => {
+    const domainToolsDir = fileURLToPath(new URL('../domain-tools', import.meta.url));
+    const registryNames = TOOL_REGISTRY.map((t) => t.name);
+    // Message text of every `throw new Error(...)` in the file, template literals and
+    // concatenations included — the argument list up to the closing paren.
+    const THROWN = /throw new Error\(([\s\S]*?)\);/g;
+
+    for (const file of readdirSync(domainToolsDir)) {
+      if (!file.endsWith('.ts') || file.includes('.test.')) continue;
+      const source = readFileSync(join(domainToolsDir, file), 'utf8');
+      const thrown = [...source.matchAll(THROWN)].map((m) => m[1] ?? '').join('\n');
+      if (thrown === '') continue;
+      const remedies = registryNames.filter((name) => new RegExp(`\\b${name}\\b`).test(thrown));
+      if (remedies.length === 0) continue;
+      // The tools this file defines, by the `name:` field of each spec in it.
+      const defined = [...source.matchAll(/name: '([a-z_]+)'/g)]
+        .map((m) => m[1]!)
+        .filter((name) => registryNames.includes(name));
+
+      for (const toolName of defined) {
+        const tool = getTool(toolName);
+        if (!tool) continue;
+        for (const remedy of remedies) {
+          if (remedy === toolName) continue;
+          const remedySpec = getTool(remedy);
+          if (!remedySpec) continue;
+          for (const stage of RUN_STAGES) {
+            if (!stageAllowsTool(stage, tool.name, tool.mutates)) continue;
+            expect(
+              stageAllowsTool(stage, remedy, remedySpec.mutates),
+              `${file}: ${tool.name} is offered in "${stage}" and its handlers throw a message naming ${remedy}, which is withheld there`,
+            ).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
   it('never offers a tool in a stage that withholds the tool its description requires', () => {
     // Both halves of this check used to be hand-written and both had holes wide
     // enough to miss the real thing. "First read get_mapped_transcript" and "it
