@@ -26,6 +26,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   verified URL. Nothing in it ships in the app, and it never touches user media. See
   `SECURITY.md`.
 
+- **Closed the remaining `hono` advisories.** The Model Context Protocol SDK pulls in `hono`
+  and `@hono/node-server` for its HTTP transport, and both were carrying open advisories
+  (`hono` < 4.12.34, `@hono/node-server` < 1.19.15) that Dependabot could not fix on its own:
+  they are transitive, so it had nothing to raise a pull request against and its security
+  update runs failed instead. They now join the workspace-override list — `hono` at 4.13.5,
+  `@hono/node-server` at 1.19.17 — the same mechanism used for the other ownerless transitive
+  packages above.
+
 ### Added
 
 - **The AI captions a whole video in one step.** Asking for captions used to make the
@@ -121,6 +129,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   matches nothing says so instead of looking broken. (`apps/web-editor`)
 
 ### Fixed
+
+- **The engine's shutdown watchdog can now be called off.** The watchdog that stops a
+  sidecar outliving the app that spawned it runs as a background thread whose last act is
+  an immediate process exit, and nothing could cancel it once started. Anything that
+  started one and moved on was left with a process exit scheduled against it — harmless in
+  the app, where the watchdog running for the process's whole life is the point, but fatal
+  anywhere the engine is started in-process and then kept running. It is now stoppable, and
+  a stop during the shutdown grace hands control back rather than exiting underneath
+  whoever asked for it. This was also the cause of a long-standing "flaky" engine test
+  suite: a test started a real watchdog without stopping it, and roughly a minute later
+  that thread terminated the whole test process, which surfaced as an unrelated render test
+  failing in CI. (`engine/python/framepilot_engine/service.py`)
 
 - **The assistant no longer offers to retry something that cannot work.** When a run stopped
   because an API key had hit its limit, the error still offered a Retry — which could only
