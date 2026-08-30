@@ -113,21 +113,54 @@ export function activeReferences(
     for (const attachment of event.attachments ?? []) {
       const { profile } = attachment;
       if (profile === undefined) continue;
-      if (dismissed.has(attachment.id) || seen.has(profile.id)) continue;
-      seen.add(profile.id);
+      if (dismissed.has(attachment.id) || seen.has(profile.contentHash)) continue;
+      seen.add(profile.contentHash);
       live.push(profile);
     }
   }
-  // The host REFUSES a turn carrying more than this, and the refusal lands at the
-  // transport boundary — after the composer has been emptied — so an uncapped set would
-  // fail the run with nothing left for the editor to remove and a Retry that replays the
-  // same doomed set forever. Accumulating across turns makes that reachable without
-  // anyone attaching nine things at once, which is exactly why the cap belongs here and
-  // not only on the composer.
+  // Deliberately UNCAPPED. This set is the honest answer to "what is in force", and the
+  // SDK reads it that way: an id missing from it means the editor removed that tile, so
+  // the decision it was binding must stop applying (`kernel/conductor.ts`, P3.5).
   //
-  // The MOST RECENT survive: the newest reference is the one the editor just expressed
-  // an intent about, and the oldest is the one they are most likely to have moved on from.
-  return live.slice(-MAX_REFERENCES_PER_TURN);
+  // Truncating here to fit the host's per-turn limit therefore does not trim a list — it
+  // silently retires a reference the editor never dismissed, while the bubble goes on
+  // showing its role. That is the same contract violation as message-scoping the set, one
+  // layer down. The limit is enforced where the intent is expressed instead: refused at
+  // attach time, and — for a conversation that somehow arrives over the line — turned into
+  // an explicit dismissal by {@link referencesToDismissForCap}, which leaves a record the
+  // editor can see and undo.
+  return live;
+}
+
+/**
+ * The attachments to dismiss so the live set fits the host's per-turn limit.
+ *
+ * Oldest first: the newest reference is the one the editor just expressed an intent
+ * about. Returns ids rather than performing the trim so the caller records a real
+ * dismissal — the whole point is that nothing leaves the live set without a
+ * `dismissedReferenceIds` entry behind it, or the run and the UI disagree about what is
+ * binding.
+ */
+export function referencesToDismissForCap(
+  events: readonly AiEvent[],
+  dismissedIds: readonly string[] = [],
+): readonly string[] {
+  const dismissed = new Set(dismissedIds);
+  const live: string[] = [];
+  const seen = new Set<string>();
+  for (const event of events) {
+    if (event.type !== 'user_message') continue;
+    for (const attachment of event.attachments ?? []) {
+      const { profile } = attachment;
+      if (profile === undefined) continue;
+      if (dismissed.has(attachment.id) || seen.has(profile.contentHash)) continue;
+      seen.add(profile.contentHash);
+      live.push(attachment.id);
+    }
+  }
+  return live.length <= MAX_REFERENCES_PER_TURN
+    ? []
+    : live.slice(0, live.length - MAX_REFERENCES_PER_TURN);
 }
 
 /** An included-context chip above the composer (M8). */

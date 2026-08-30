@@ -2683,6 +2683,44 @@ describe('a sent message owns its attachments (PROMPT.md §6)', () => {
     ).toBeTruthy();
   });
 
+  it('replays the failed message’s references on Retry', async () => {
+    // Property (10) of the attachment lifecycle, and the one the composer clearing makes
+    // load-bearing: once the chips are gone, the ONLY record of what a turn was sent with
+    // is the message itself. If Retry rebuilt its references from composer state it would
+    // now re-run with none at all.
+    const seen: (readonly unknown[] | undefined)[] = [];
+    class FailingThenRecording implements AiSession {
+      public async *run(_mode: string, input: AiSessionInput): AsyncIterable<AiEvent> {
+        seen.push(input.references);
+        const e = createTurnEmitter({ conversationId: input.conversationId, turnId: input.turnId });
+        yield e.status('failed');
+      }
+      public abort(): void {}
+      public answer(): void {}
+    }
+    const persistence = new MemoryPersistence([seeded()]);
+    render(
+      <AiSidebar
+        project={project}
+        session={new FailingThenRecording()}
+        persistence={persistence}
+      />,
+    );
+    await openFromHistory();
+    await waitFor(() => expect(document.querySelectorAll('.ai-ref-tile')).toHaveLength(2));
+
+    const input = screen.getByRole('textbox', { name: /message/i });
+    fireEvent.change(input, { target: { value: 'match this pacing' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]).toHaveLength(2);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Retry/ }));
+    await waitFor(() => expect(seen).toHaveLength(2));
+    // The same two references, rebuilt from the message rather than the emptied composer.
+    expect(seen[1]).toHaveLength(2);
+  });
+
   it('keeps them on the message across a reload, with nothing back in the composer', async () => {
     const persistence = new MemoryPersistence([seeded()]);
     const { unmount } = render(

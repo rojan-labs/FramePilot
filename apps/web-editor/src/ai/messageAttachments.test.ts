@@ -12,18 +12,23 @@
  */
 import { describe, expect, it } from 'vitest';
 import { createTurnEmitter, reduceEvents, type ReferenceProfile } from '@framepilot/ai-sdk';
-import { activeReferences, toMessageAttachments, type Attachment } from './conversation.js';
+import {
+  activeReferences,
+  referencesToDismissForCap,
+  toMessageAttachments,
+  type Attachment,
+} from './conversation.js';
 import { MAX_REFERENCES_PER_TURN } from '@framepilot/shared-types';
 
 const emitter = (turnId = 'turn_1') =>
   createTurnEmitter({ conversationId: 'c1', turnId, now: () => 1000 });
 
-const profile = (id: string): ReferenceProfile => ({
+const profile = (id: string, contentHash = `hash_${id}_`.padEnd(16, '0')): ReferenceProfile => ({
   id,
   role: 'pacing',
   kind: 'video',
   fileName: `${id}.mp4`,
-  contentHash: 'a'.repeat(16),
+  contentHash,
   analyzedAt: '2026-08-30T00:00:00.000Z',
   constraints: ['Cuts land about every 1.2s.'],
 });
@@ -173,8 +178,22 @@ describe('activeReferences — the live set the run is given', () => {
     expect(activeReferences([message('t1', ['a'])], ['a'])).toEqual([]);
   });
 
-  it('counts the same file attached to two messages once', () => {
-    const log = [message('t1', ['a']), message('t2', ['a'])];
+  it('counts the same FILE attached twice once, though its ids differ', () => {
+    // The product mints a fresh `ref_<time>_<rand>` id on every attach, so the same bytes
+    // attached to two messages carry two attachment ids AND two profile ids. Only the
+    // content hash says they are one file — which is the identity the sidecar's own
+    // analysis cache already uses. Keyed on the profile id, this de-duplication could
+    // never fire in production, and the test that covered it passed only because the
+    // fixture hand-reused one id.
+    const sameBytes = 'hash_shared_0000';
+    const attach = (id: string): Attachment => ({
+      ...ready(id),
+      profile: profile(id, sameBytes),
+    });
+    const log = [
+      emitter('t1').userMessage('like this', toMessageAttachments([attach('first')])),
+      emitter('t2').userMessage('and this', toMessageAttachments([attach('second')])),
+    ];
     expect(activeReferences(log)).toHaveLength(1);
   });
 
@@ -194,16 +213,27 @@ describe('activeReferences — the live set the run is given', () => {
     expect(activeReferences([emitter('t1').userMessage('just text')])).toEqual([]);
   });
 
-  it('never hands the run more references than the host will accept', () => {
-    // The host REFUSES the turn above this, at the transport boundary — after the
-    // composer has been emptied — so an uncapped set fails the run with nothing left to
-    // remove and a Retry that replays the same doomed set. Accumulation makes it
-    // reachable without anyone attaching nine things at once.
+  it('reports the live set honestly, without trimming it to fit the host', () => {
+    // Truncating here would be indistinguishable, to the SDK, from the editor deleting a
+    // tile: an id missing from this set retires whatever decision it was binding (P3.5).
+    // So the set stays honest and the limit is enforced where the intent is expressed —
+    // refused at attach, or turned into a real dismissal by `referencesToDismissForCap`.
     const ids = Array.from({ length: MAX_REFERENCES_PER_TURN + 3 }, (_, i) => `r${String(i)}`);
     const log = ids.map((id, i) => message(`t${String(i)}`, [id]));
-    const live = activeReferences(log);
-    expect(live).toHaveLength(MAX_REFERENCES_PER_TURN);
-    // The newest survive — the oldest reference is the one the editor has moved on from.
-    expect(live.map((p) => p.id)).toEqual(ids.slice(-MAX_REFERENCES_PER_TURN));
+    expect(activeReferences(log).map((p) => p.id)).toEqual(ids);
+  });
+
+  it('names the OLDEST references to dismiss when a conversation is over the limit', () => {
+    const ids = Array.from({ length: MAX_REFERENCES_PER_TURN + 3 }, (_, i) => `r${String(i)}`);
+    const log = ids.map((id, i) => message(`t${String(i)}`, [id]));
+    // Oldest first: the newest is the one the editor just expressed an intent about.
+    expect(referencesToDismissForCap(log)).toEqual(ids.slice(0, 3));
+    // And once dismissed, the set fits with nothing further to drop.
+    expect(activeReferences(log, ids.slice(0, 3))).toHaveLength(MAX_REFERENCES_PER_TURN);
+    expect(referencesToDismissForCap(log, ids.slice(0, 3))).toEqual([]);
+  });
+
+  it('asks for no dismissal when the conversation is inside the limit', () => {
+    expect(referencesToDismissForCap([message('t1', ['a'])])).toEqual([]);
   });
 });

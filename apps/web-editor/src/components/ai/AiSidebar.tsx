@@ -73,7 +73,7 @@ import { emptyRunNotice, foldTurnEvent, initialTurnSignals } from '../../ai/runO
 import { latestStreamingAssistantText } from '../../ai/liveAnnouncement.js';
 import type { MessageAttachment, ReferenceProfile, ReferenceRole } from '@framepilot/ai-sdk';
 import { ReferenceProfileSchema } from '@framepilot/ai-sdk';
-import { createLogger } from '@framepilot/shared-types';
+import { MAX_REFERENCES_PER_TURN, createLogger } from '@framepilot/shared-types';
 import { analyzeReference, getBridge, isDesktop } from '../../editor/bridge.js';
 import { materializeImportedMedia, probeMediaFile } from '../../editor/import.js';
 import {
@@ -125,8 +125,10 @@ import { LruCache } from '../../editor/lruCache.js';
 import {
   activeReferences,
   isDefaultUiState,
+  referencesToDismissForCap,
   toMessageAttachments,
   type Attachment,
+  type Conversation,
   type ConversationUiState,
 } from '../../ai/conversation.js';
 import { contextPhase, latestContextWindow } from './ContextWindowIndicator.js';
@@ -432,6 +434,28 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
               name: file.name,
               status: 'unsupported',
               error: 'Only video and image references are analyzed.',
+            },
+          ]);
+          continue;
+        }
+        // Refused HERE, where the editor still has the file in hand and the composer to
+        // remove something from. The host rejects a turn carrying more than this, and that
+        // refusal lands at the transport boundary — after submit has emptied the composer —
+        // so a run that discovers the limit has nothing left to fix and a Retry that fails
+        // identically. Counting what is already in force, not just what is in the composer,
+        // because references accumulate across turns.
+        const inForce =
+          activeReferences(activeEventsRef.current, dismissedReferenceIdsRef.current).length +
+          attachmentsRef.current.filter((a) => a.profile !== undefined).length;
+        if (inForce >= MAX_REFERENCES_PER_TURN) {
+          setAttachments((list) => [
+            ...list,
+            {
+              id,
+              kind,
+              name: file.name,
+              status: 'unsupported',
+              error: `Already using ${String(MAX_REFERENCES_PER_TURN)} references. Stop using one first.`,
             },
           ]);
           continue;
@@ -964,6 +988,15 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   // on the virtualizer's scroll element is a re-subscribe on every tick).
   const activeIdRef = useRef<string | null>(null);
   activeIdRef.current = active?.id ?? null;
+  /**
+   * The conversation's event log, for handlers that run between commits.
+   *
+   * `attachReferenceFiles` counts the references already in force before accepting
+   * another, and it is an async event handler — reading `active` from its closure would
+   * count whatever the log held when the handler was created.
+   */
+  const activeEventsRef = useRef<readonly AiEvent[]>([]);
+  activeEventsRef.current = active?.events ?? [];
 
   const onScroll = useCallback(() => {
     const element = scrollRef.current;
@@ -1139,31 +1172,58 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       // append a user message, and both overwrite `runningSession.current` — which leaves
       // the first run streaming with no Stop that can reach it. The ref is written
       // synchronously by `setRunning`, so claiming it here makes the second call a no-op.
-      // Nothing between here and `setRunning(true)` below can return early.
+      //
+      // Released in `finally` unless the run actually started. Nothing between here and
+      // `setRunning(true)` RETURNS early — but `conversations.create`/`append` can THROW,
+      // and a claim leaked that way is unrecoverable: `runningRef` stays true while
+      // `running` state stays false, so the composer looks idle and silently refuses every
+      // later Enter for the life of the component.
       if (!text || runningRef.current) return;
       runningRef.current = true;
-      const conversation =
-        active ??
-        conversations.create({
-          id: newId(),
-          projectId: project.id,
-          model: activeProvider?.model ?? 'mock',
-          mode,
-        });
-      const turnId = newId();
-      lastTurn.current = { conversationId: conversation.id, text, attachments: turnAttachments };
-      // Capture prior turns BEFORE appending the new user message so "make it
-      // shorter" resolves its referent against the conversation so far (R2 B1).
-      const history = historyFromEvents(conversation.events);
-      const emitter = createTurnEmitter({ conversationId: conversation.id, turnId });
-      // Built once and reused: this is both the event the log appends and the message
-      // whose attachments join the conversation's live reference set below. `conversation`
-      // was captured before the append, so its `events` do not contain it yet.
-      const pendingMessage = emitter.userMessage(text, turnAttachments);
-      conversations.append(conversation.id, pendingMessage);
-      stickRef.current = true;
-      setAtBottom(true);
-      setRunning(true);
+      // Everything from creating the conversation to handing the lane to the run, in one
+      // step that either completes or releases the claim. `conversations.create` and
+      // `append` can throw; a claim leaked that way is not recoverable by any later action.
+      let handedOver = false;
+      const openTurn = (): {
+        conversation: Conversation;
+        turnId: string;
+        history: ReturnType<typeof historyFromEvents>;
+        emitter: ReturnType<typeof createTurnEmitter>;
+        pendingMessage: ReturnType<ReturnType<typeof createTurnEmitter>['userMessage']>;
+      } => {
+        const conversation =
+          active ??
+          conversations.create({
+            id: newId(),
+            projectId: project.id,
+            model: activeProvider?.model ?? 'mock',
+            mode,
+          });
+        const turnId = newId();
+        lastTurn.current = { conversationId: conversation.id, text, attachments: turnAttachments };
+        // Capture prior turns BEFORE appending the new user message so "make it
+        // shorter" resolves its referent against the conversation so far (R2 B1).
+        const history = historyFromEvents(conversation.events);
+        const emitter = createTurnEmitter({ conversationId: conversation.id, turnId });
+        // Built once and reused: this is both the event the log appends and the message
+        // whose attachments join the conversation's live reference set below.
+        // `conversation` was captured before the append, so its `events` do not contain it.
+        const pendingMessage = emitter.userMessage(text, turnAttachments);
+        conversations.append(conversation.id, pendingMessage);
+        stickRef.current = true;
+        setAtBottom(true);
+        setRunning(true);
+        handedOver = true;
+        return { conversation, turnId, history, emitter, pendingMessage };
+      };
+
+      let opened: ReturnType<typeof openTurn>;
+      try {
+        opened = openTurn();
+      } finally {
+        if (!handedOver) runningRef.current = false;
+      }
+      const { conversation, turnId, history, emitter, pendingMessage } = opened;
       stopRequestedRef.current = false;
       runningSession.current = session;
       // Intelligent, model-routed dispatch (ADR 0055). Agent mode — the smart default —
@@ -1221,10 +1281,25 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       // attached, which reads to the run as a deliberate removal. Derived from the
       // messages that carry them, minus what has been dismissed — so attaching puts a
       // reference in force, and only dismissing takes it out.
-      const readyReferences = activeReferences(
-        [...conversation.events, pendingMessage],
-        dismissedReferenceIdsRef.current,
-      );
+      // A conversation can still arrive over the limit — state saved before the attach-time
+      // refusal existed, or a message whose attachments were all analyzed at once. Turn that
+      // into a REAL dismissal rather than a silent trim: the run and the bubble must agree
+      // about what is binding, and a reference that vanishes from the set with no record
+      // reads to the SDK as a removal the editor never asked for.
+      const conversationLog = [...conversation.events, pendingMessage];
+      const overCap = referencesToDismissForCap(conversationLog, dismissedReferenceIdsRef.current);
+      const dismissedNow =
+        overCap.length === 0
+          ? dismissedReferenceIdsRef.current
+          : [...dismissedReferenceIdsRef.current, ...overCap];
+      if (overCap.length > 0) {
+        setDismissedReferenceIds(dismissedNow);
+        log.warn('dropped the oldest references to fit the per-turn limit', {
+          dropped: overCap.length,
+          limit: MAX_REFERENCES_PER_TURN,
+        });
+      }
+      const readyReferences = activeReferences(conversationLog, dismissedNow);
       const runInputFor = (runMode: AiSessionMode): AiSessionInput => {
         const currentEditor = editorRef.current;
         const projectSnapshot = projectSnapshotForAiRun(projectRef.current, currentEditor);
@@ -1416,7 +1491,22 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     const outgoing = toMessageAttachments(attachmentsRef.current);
     setDraft('');
     setAttachments([]);
-    await runTurn(text, outgoing);
+    try {
+      await runTurn(text, outgoing);
+    } catch (error) {
+      // The composer is cleared BEFORE the run so the chips cannot ride along on a later
+      // turn — but a send that never started must not swallow the request with them. A
+      // throw here happens before the run reaches a terminal status, so the Retry
+      // affordance (gated on `failed`/`cancelled`) never appears: without this the text
+      // and every imported reference are simply gone, and the references would have to be
+      // re-imported and re-measured. Put back, so the editor can read the error and send
+      // again. `analyzing` is not restored — those were measured before submit.
+      setDraft(text);
+      setAttachments(outgoing.map((a) => ({ ...a, status: 'ready' as const })));
+      log.error('the turn could not be started; the composer was restored', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }, [draft, runTurn]);
 
   /** The last turn, but only if it belongs to the conversation on screen. */
