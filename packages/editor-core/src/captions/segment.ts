@@ -752,6 +752,13 @@ export function enforceTiming(
  * ARE one cue, and their words belong on screen together. Done here, before
  * layout and timing, so the merged cue is laid out and held as the single cue
  * it has become rather than being stitched together afterwards.
+ *
+ * It runs AFTER packing and reading-speed, so a merged cue can carry a word more
+ * than `maxCharsPerLine`/`maxWordsPerCue` would have allowed. Deliberate, and
+ * bounded: the only cue that merges is one whose whole span fits inside a single
+ * frame, which is at most a word or two of an ASR artifact. Re-packing after the
+ * merge would move the break the linguistics chose, and a caption that breaks in
+ * the wrong place reads worse than one that is a word over the line.
  */
 export function coalesceSubFrameCues(
   cues: readonly (readonly TranscriptWord[])[],
