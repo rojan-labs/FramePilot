@@ -760,11 +760,58 @@ describe('per-section accounting (ADR 0080)', () => {
       expect(summarizeMediaBin(makeProject({ assets: [] } as never))).toBe('');
     });
 
-    it('is absent once every asset is on the timeline', () => {
-      // The block answers "what is there still to place". With nothing left, the timeline
-      // summary above is already the complete account of the project's material, and a
-      // second listing of the same ids is weight the grounding tiers could have used.
-      expect(summarizeMediaBin(withAssets(2, ['asset_p0', 'asset_p1']))).toBe('');
+    it('keeps a digest once every asset is placed — the source durations live nowhere else', () => {
+      // This used to return '' the moment the last asset was placed, which deleted the
+      // block on the exact turn it became the only statement of each asset's SOURCE
+      // duration (the timeline summary describes the trimmed clip). A captioning run with
+      // ONE asset then bought the bin back with `list_assets` four times.
+      const text = summarizeMediaBin(withAssets(2, ['asset_p0', 'asset_p1']));
+      expect(text).toContain('Media bin — 2 asset(s), all placed:');
+      expect(text).toContain('- asset_p0 [image] 5s');
+      // The header says "all placed" once; repeating it per line is per-turn weight.
+      expect(text).not.toContain('· placed');
+      // ~15 tokens an asset is the whole price of removing that re-read class.
+      expect(text.length).toBeLessThan(120);
+    });
+
+    it('is priced against the budget, so it cannot overshoot the prompt by its own size', () => {
+      // The bin was assembled but never counted in `spentElsewhere`, so the grounding
+      // slice was sized as though it were free and the prompt then overshot by exactly the
+      // bin's length — which DROP_ORDER answered by dropping the entire transcript tier.
+      const project = makeProject({
+        assets: Array.from({ length: 40 }, (_, i) => ({
+          id: `asset_${String(i)}`,
+          path: `media/p${String(i)}.mp4`,
+          kind: 'video' as const,
+          durationSeconds: 12,
+        })),
+        transcript: Array.from({ length: 4000 }, (_, i) => ({
+          word: `word${String(i)}`,
+          start: i * 0.4,
+          end: i * 0.4 + 0.35,
+        })),
+      } as never);
+      const budget = { contextWindow: 12_000, maxOutputTokens: 4_000, headroom: 0 } as const;
+      const assembled = assembleContext({ project, userPrompt: 'tighten this', budget });
+      const cost = assembled.messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+      // Rounding slack, not budget slack: the assembler rounds each block up, this sums
+      // whole messages, and the two disagree by a token or two. The bug being pinned was
+      // an overshoot the size of the bin block (tens of tokens), not of the heuristic.
+      expect(cost).toBeLessThanOrEqual(budgetTokens(budget) + 4);
+      // And the transcript survives: the slice gives up words, not the whole tier.
+      expect(assembled.trimmed).not.toContain('transcript');
+    });
+
+    it('states the source duration of a placed asset in the assembled context', () => {
+      // The run this fixes: one asset, cut into two clips, so the bin vanished from turn 4
+      // on. The timeline says the clips end at 10s; only the bin says the SOURCE is 30s,
+      // and a captioning/pacing run needs the source. Five `list_assets` calls came from
+      // this one omission.
+      const all = buildContext({ project: makeProject(), userPrompt: 'add captions' })
+        .map((m) => m.content)
+        .join('\n');
+      expect(all).toContain('Media bin — 1 asset(s), all placed:');
+      expect(all).toContain('- asset_1 [video] 30s');
     });
   });
 
@@ -815,11 +862,13 @@ describe('per-section accounting (ADR 0080)', () => {
         ],
       } as never);
       const text = summarizeSourceMedia(project);
+      // Source duration rides beside the dimensions: it is the other fact a run cannot
+      // read off the timeline summary, and the one it re-bought `list_assets` for.
       expect(text).toContain(
-        '- a1 camera.mov · 3840×2160 landscape — sequence is portrait: fills the frame only with a crop, else letterboxed',
+        '- a1 camera.mov · 40s · 3840×2160 landscape — sequence is portrait: fills the frame only with a crop, else letterboxed',
       );
-      expect(text).toContain('- a2 vertical.mp4 · 1080×1920 portrait — matches the sequence');
-      expect(text).toContain('- a3 beat.wav · audio');
+      expect(text).toContain('- a2 vertical.mp4 · 30s · 1080×1920 portrait — matches the sequence');
+      expect(text).toContain('- a3 beat.wav · 30s · audio');
       expect(text).toContain('- a4 unknown.mp4');
       expect(text).not.toContain('a4 unknown.mp4 ·');
     });
@@ -868,10 +917,11 @@ describe('per-section accounting (ADR 0080)', () => {
       footageMap: 'Chapter 1 (0–12s): the hook.',
     });
     const timeline = sections.filter((s) => s.tier === 'timeline').map((s) => s.label);
-    // No media-bin block here: this fixture's only asset is already on the timeline, so
-    // the bin has nothing to add (GAP-012).
+    // The bin is present even though this fixture's only asset is already placed: it
+    // carries the source durations, which no other block states.
     expect(timeline).toEqual([
       'timeline summary',
+      'media bin',
       'source media',
       'visual index status',
       'footage map',

@@ -501,20 +501,25 @@ export function summarizeMediaBin(project: Project): string {
     project.timeline.tracks.flatMap((track) => track.clips.map((clip) => clip.assetId)),
   );
   const unplaced = assets.filter((asset) => !placed.has(asset.id)).length;
-  // Nothing waiting to be placed means the timeline summary above is already the complete
-  // account of the project's material, and a second listing of the same ids is weight the
-  // grounding tiers could have spent on the cut itself. The block exists to answer "what
-  // is there still to place"; with no answer, it says nothing.
-  if (unplaced === 0) return '';
+  // WHY the block survives "everything is placed": it used to return '' here, and that
+  // deleted the section on the exact turn it stopped being about what is left to place and
+  // started being the only statement of each asset's SOURCE duration. Nothing else in the
+  // context carries that — `summarizeTimeline` describes the trimmed clip, not the material
+  // — so a captioning/pacing run bought the same one-asset bin back with `list_assets` five
+  // times in one three-minute run. A digest line costs ~15 tokens; the re-read costs a turn.
   const head =
-    `Media bin — ${String(assets.length)} asset(s), ` +
-    `${String(assets.length - unplaced)} placed, ${String(unplaced)} not yet used:`;
+    unplaced === 0
+      ? `Media bin — ${String(assets.length)} asset(s), all placed:`
+      : `Media bin — ${String(assets.length)} asset(s), ` +
+        `${String(assets.length - unplaced)} placed, ${String(unplaced)} not yet used:`;
   const lines: string[] = [];
   let used = head.length;
   for (const [index, asset] of assets.entries()) {
     const duration =
       typeof asset.durationSeconds === 'number' ? ` ${round(asset.durationSeconds)}s` : '';
-    const line = `- ${asset.id} [${asset.kind}]${duration}${placed.has(asset.id) ? ' · placed' : ''}`;
+    // The per-line "· placed" marks the minority case. With nothing left to place the
+    // header has already said so for every line, and repeating it is pure per-turn weight.
+    const line = `- ${asset.id} [${asset.kind}]${duration}${unplaced > 0 && placed.has(asset.id) ? ' · placed' : ''}`;
     if (used + line.length > MEDIA_BIN_CHARS) {
       // Say what was left out and how to get it, never trail off. A run told "+37 more"
       // with no route to them is a run that invents ids.
@@ -539,7 +544,8 @@ const SOURCE_MEDIA_CHARS = 1800;
 
 /**
  * The per-asset facts an editor reads off a thumbnail and the model cannot: file name,
- * source dimensions, and whether the source's orientation matches the sequence's.
+ * source duration, source dimensions, and whether the source's orientation matches the
+ * sequence's.
  *
  * WHY: in the mission montage ledger the model spent five `recall_evidence` calls and
  * five `describe_footage` calls asking "is this landscape, will it letterbox?" — facts the
@@ -554,6 +560,11 @@ export function summarizeSourceMedia(project: Project): string {
   let used = 0;
   for (const [index, asset] of project.assets.entries()) {
     const name = asset.path.split('/').pop() ?? asset.path;
+    // Source duration, stated wherever the asset is stated. It is the fact runs re-bought
+    // `list_assets` for, and repeating it here costs ~3 tokens and makes the bin digest's
+    // absence under budget pressure survivable.
+    const duration =
+      typeof asset.durationSeconds === 'number' ? ` · ${round(asset.durationSeconds)}s` : '';
     const width = asset.media?.width ?? null;
     const height = asset.media?.height ?? null;
     let shape = '';
@@ -567,7 +578,7 @@ export function summarizeSourceMedia(project: Project): string {
     } else if (asset.kind === 'audio') {
       shape = ' · audio';
     }
-    const line = `- ${asset.id} ${name}${shape}`;
+    const line = `- ${asset.id} ${name}${duration}${shape}`;
     if (used + line.length > SOURCE_MEDIA_CHARS) {
       lines.push(
         `- …and ${String(project.assets.length - index)} more — call list_assets for their dimensions`,
@@ -577,7 +588,9 @@ export function summarizeSourceMedia(project: Project): string {
     lines.push(line);
     used += line.length + 1;
   }
-  return ['Source media (file · dimensions · fit in this sequence):', ...lines].join('\n');
+  return ['Source media (file · duration · dimensions · fit in this sequence):', ...lines].join(
+    '\n',
+  );
 }
 
 /**
@@ -946,6 +959,12 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // Priced here for the same reason: it rides the timeline tier and must not eat the
   // grounding slice that the transcript and clip retrievals are sized from.
   const sourceMedia = summarizeSourceMedia(project);
+  // The bin is priced here for the same reason, and it was not. Unpriced, it was spent
+  // twice: the grounding slice was sized as though the block were free, the assembled
+  // prompt then overshot the budget by exactly the bin's size, and DROP_ORDER answered a
+  // ~15-token overshoot by dropping the WHOLE transcript tier. Counting it costs the
+  // transcript slice a few words instead of all of them.
+  const mediaBin = summarizeMediaBin(project);
   const spentElsewhere = [
     SYSTEM_PROMPT,
     ...mandatory,
@@ -953,6 +972,7 @@ export function assembleContext(input: ContextInput): AssembledContext {
     visualStatus,
     footageMap,
     sourceMedia,
+    mediaBin,
     promptBlock,
     ...history.map((m) => m.content),
   ].reduce((sum, text) => sum + estimateTokens(text), 0);
@@ -986,7 +1006,6 @@ export function assembleContext(input: ContextInput): AssembledContext {
   ];
   // The bin sits directly under the timeline summary: together they are "what has been
   // placed" and "what there is to place", which is the pair a montage reasons over.
-  const mediaBin = summarizeMediaBin(project);
   if (mediaBin !== '') {
     tiered.push({ tier: 'timeline', label: 'media bin', text: mediaBin });
   }

@@ -81,6 +81,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Agent runs stop re-buying facts they already have.** The media-bin block used to vanish
+  from the AI's context the moment every asset was on the timeline — taking the only
+  statement of each source's DURATION with it — so a run would fetch the same one-asset
+  list five times in three minutes. The bin now stays as a one-line-per-asset digest
+  (~15 tokens for a single-asset project), and source duration is stated beside the file
+  name and dimensions. Separately, looking at a rendered frame is no longer thrown away by
+  edits that cannot change the picture: adding an empty track used to force a fresh render
+  of the identical frame, once per track.
+
 - **Export is much faster on high-resolution footage.** A 30-second 4K project now exports in about 11 seconds instead of 48 — FramePilot asks the decoder for exactly the size the frame needs instead of shrinking every frame afterwards. The progress bar is more honest about it too.
 
 - **Settings:** the readiness panel no longer calls a provider "ready" just because a key is saved — it says "key saved" until that provider has actually answered a request, then reports when it last did.

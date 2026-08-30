@@ -42,6 +42,33 @@ provider (the AI journey and four failure rows are written and wired, never run 
 aggregate measurement needing the desktop harness, the engine-kill e2e that still does not
 pass, and a day of adversarial use.
 
+**Status snapshot (2026-08-30, run `7d159862` — the context that deleted itself and the
+cache that dropped everything):** `[x]` **The agent no longer re-buys facts it already
+holds.** On a project with ONE asset and ONE clip, the run spent 5 `list_assets` and 5
+`get_frame` calls — ~10 of its 34 tool calls — on information it had. Two mechanical causes,
+both in `packages/ai-sdk`:
+
+- `context-builder.ts#summarizeMediaBin` returned `''` as soon as every asset was placed,
+  which deleted the block on the exact turn it became the only statement of each asset's
+  SOURCE duration (the timeline slice describes the trimmed clip; `summarizeSourceMedia`
+  carried dimensions but not duration). The bin now renders a one-line-per-asset digest in
+  the all-placed case — 15 tokens for the run's project, 342 for a 61-photo library, capped
+  by `MEDIA_BIN_CHARS` at ~1,013 — and duration is stated in both blocks. The bin is also
+  PRICED into `spentElsewhere` at last: unpriced, a ~15-token block overshot the budget and
+  `DROP_ORDER` answered by dropping the entire transcript tier.
+- `kernel/evidence-store.ts#invalidate` was handed the applied operation types and consulted
+  them only for the transcript and the bin, so EVERY `timeline_dependent` handle —
+  `get_frame` included — died on any applied patch. Three empty-track `add_layer`s bought
+  three re-renders (~1.2s each plus the model turn) of a pixel-identical frame. Invalidation
+  is now per facet (`picture` / `structure`), with the operation sets typed against
+  `editor-core`'s own `OperationType`/`ProjectOperationType` unions so a rename fails the
+  build; an unrecognised operation type invalidates everything, on purpose. The bin set also
+  gained the removal/refiling operations it was missing (`manage_assets` was a TOOL name
+  that never appears as an operation type, so `remove_asset` left a stale bin listing).
+
+Tests: `src/context-builder.test.ts` (66), `src/kernel/evidence-store.test.ts` (41). Docs:
+`docs/guides/context-and-memory.md`, `CHANGELOG.md`.
+
 **Status snapshot (2026-08-30, run `7d159862` — the rejection that named nothing):** `[x]`
 **A rejected patch now says WHICH operation was rejected.** `caption_the_edit` built 126
 operations; one cue was degenerate and the model was handed
