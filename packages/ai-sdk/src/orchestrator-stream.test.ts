@@ -5,12 +5,13 @@
  * `stream()`, the edit tool-boundary error path, and abort → `cancelled` + a valid
  * partial. 100% coverage of the streaming logic.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Orchestrator, agentCompletionReport, type StreamOptions } from './orchestrator.js';
 import type { AnyOperation } from '@framepilot/editor-core';
 import { MockProvider } from './providers/mock.js';
 import { reduceEvents, type AiEvent } from './events.js';
 import { InMemoryPatchCommitLedger } from './kernel/commit-ledger.js';
+import { EvidenceStore } from './kernel/evidence-store.js';
 import { ProviderError } from './reliability/types.js';
 import { createAskUserGate, createPlanApprovalGate, createSteeringQueue } from './run-controls.js';
 import { DIMINISHING_RETURNS_TURNS, PLAN_APPROVAL_STEP_THRESHOLD } from './kernel/conductor.js';
@@ -4019,6 +4020,131 @@ describe('streamAgent host commit verdict', () => {
     );
     expect(events.some((e) => e.type === 'diff')).toBe(true);
     expect(JSON.stringify(provider.requests.at(-1)?.messages ?? [])).not.toMatch(/Rejected —/);
+  });
+});
+
+
+/**
+ * An INTERNAL failure must not be reported as the model's bad arguments, and must not be
+ * banked as permanent (P1-5).
+ *
+ * `runAgentCall` wrapped the whole read branch and the whole mutate branch in one catch
+ * each, and both answered every throw with `Invalid arguments for "X"` plus
+ * `deterministicFailure: true`. But those blocks also contain orchestrator plumbing — the
+ * evidence lookup/put/invalidate, `evidencePayload`, `summarizeReadResult`, the wipe guard,
+ * `assembleEdit`, `applyProjectPatch`. A defect in any of them was therefore reported to
+ * the model as a mistake in arguments that were fine, AND banked into `seenFailureKeys`, so
+ * `repeatedFailureOutcome` refused the tool for the rest of the run with "Retrying it
+ * cannot succeed." A transient fault of ours became permanent capability loss.
+ *
+ * The evidence store is spied at the PROTOTYPE, so the throw lands inside the run's own
+ * internally-constructed store without any new injection point in the orchestrator.
+ */
+describe('streamAgent internal failures are not blamed on the model', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * Every note the run fed back to the model, across all its requests, as raw text.
+   * Joined rather than JSON-stringified so the assertions can quote the tool names the
+   * notes actually use.
+   */
+  const fedBack = (provider: ScriptedProvider): string =>
+    provider.requests.flatMap((r) => r.messages.map((m) => m.content)).join('\n');
+
+  it('reports a read-plumbing fault as retryable and never banks it', async () => {
+    vi.spyOn(EvidenceStore.prototype, 'put').mockImplementation(() => {
+      throw new TypeError('Cannot read properties of undefined (reading "words")');
+    });
+    const read = (id: string): ToolCall => ({ id, name: 'get_timeline', arguments: {} });
+    const provider = new ScriptedProvider([
+      { text: 'reading', toolCalls: [read('r1')] },
+      { text: 'reading again', toolCalls: [read('r2')] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    await drain(new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 4 }));
+    const log = fedBack(provider);
+    // Not the model's arguments — they were valid, and it can do nothing about a TypeError.
+    expect(log).not.toMatch(/Invalid arguments for "get_timeline"/);
+    expect(log).toMatch(/"get_timeline" failed unexpectedly/);
+    // And NOT banked: the second attempt is allowed to run rather than being refused with
+    // "Retrying it cannot succeed."
+    expect(log).not.toMatch(/Retrying it cannot succeed/);
+  });
+
+  it('reports a mutate-plumbing fault as retryable and never banks it', async () => {
+    // `invalidate` runs after the ops are built and validated — squarely the plumbing half
+    // of the mutate branch.
+    vi.spyOn(EvidenceStore.prototype, 'invalidate').mockImplementation(() => {
+      throw new TypeError('evidence index is not a function');
+    });
+    const cut = (id: string): ToolCall => ({
+      id,
+      name: 'trim_clip',
+      arguments: { clipId: 'clip_a', start: 1, end: 4 },
+    });
+    const provider = new ScriptedProvider([
+      { text: 'trimming', toolCalls: [cut('e1')] },
+      { text: 'trimming again', toolCalls: [cut('e2')] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    await drain(new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 4 }));
+    const log = fedBack(provider);
+    expect(log).not.toMatch(/Rejected "trim_clip": Invalid arguments/);
+    expect(log).toMatch(/"trim_clip" failed unexpectedly/);
+    expect(log).not.toMatch(/Retrying it cannot succeed/);
+  });
+
+  it('still banks a genuine refusal from the tool boundary itself', async () => {
+    // The half that must NOT change. `get_transcript` with end <= start is refused by the
+    // input contract inside `tool.read` — the model's to fix, deterministic, and worth
+    // refusing on sight the second time.
+    const bad = (id: string): ToolCall => ({
+      id,
+      name: 'get_transcript',
+      arguments: { start: 5, end: 2 },
+    });
+    const provider = new ScriptedProvider([
+      { text: 'reading', toolCalls: [bad('r1')] },
+      { text: 'reading again', toolCalls: [bad('r2')] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 4 }),
+    );
+    expect(fedBack(provider)).toMatch(/Invalid arguments for "get_transcript"/);
+    // Read off the EVENTS, not the next prompt: the run settles as soon as the repeat is
+    // refused, so there is no later request to inspect. This is `repeatedFailureOutcome`.
+    expect(JSON.stringify(events)).toMatch(/Refused repeat of[^,]*already failed this run/);
+  });
+
+  /**
+   * P2-9. A name the registry has never heard of is the most deterministic failure a run
+   * can have, and it was the one failure the bank never saw: the refusal returned neither
+   * `data` nor `deterministicFailure`, so `deterministicFailureKey` produced no key and the
+   * model could invent the same non-existent tool on every turn — the exact loop the
+   * unknown-tool branch was written to end.
+   */
+  it('banks a hallucinated tool name so it cannot be called every turn', async () => {
+    const invented = (id: string): ToolCall => ({
+      id,
+      name: 'auto_edit_everything',
+      arguments: { style: 'punchy' },
+    });
+    const provider = new ScriptedProvider([
+      { text: 'inventing', toolCalls: [invented('x1')] },
+      { text: 'inventing again', toolCalls: [invented('x2')] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 4 }),
+    );
+    const text = JSON.stringify(events);
+    expect(text).toMatch(/Refused unknown tool/);
+    // The bank saw it: the second attempt at the invented name is refused on sight
+    // (`repeatedFailureOutcome`) rather than re-explained, which is what ends the loop.
+    expect(text).toMatch(/Refused repeat of[^,]*already failed this run/);
   });
 });
 

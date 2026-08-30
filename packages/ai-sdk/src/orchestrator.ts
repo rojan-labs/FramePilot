@@ -3458,7 +3458,19 @@ export class Orchestrator {
     if (!registered) {
       const note = `Refused unknown tool "${call.name}"`;
       orchestratorLog.warn('tool call refused — unknown', { tool: call.name });
-      return { ops: [], note, summary: note, status: 'failed' };
+      // BANKED. A name the registry has never heard of will not appear in it on the next
+      // turn, so this is the most deterministic failure a run can have — and without both
+      // `data` and the flag, `deterministicFailureKey` produced no key and the model could
+      // invent the same non-existent tool every single turn. That is the exact loop
+      // `withheldCallOutcome`'s unknown-tool branch was written to end.
+      return {
+        ops: [],
+        note,
+        summary: note,
+        status: 'failed',
+        data: note,
+        deterministicFailure: true,
+      };
     }
     if (!registered.available) {
       const note = `Skipped "${call.name}" — not available yet`;
@@ -4004,7 +4016,34 @@ export class Orchestrator {
             data: recalled,
           };
         }
-        const value = tool.read(sanitizeToolArgs(tool, call.arguments), ctx);
+        // THE TOOL BOUNDARY GETS ITS OWN CATCH, and it is the only thing under it.
+        //
+        // Everything after this line — the `load_skill` bookkeeping, the evidence
+        // lookup/put, `evidencePayload`, `summarizeReadResult` — is orchestrator plumbing
+        // that used to sit under the same catch as this call. So a `TypeError` in a
+        // summarizer was reported to the model as `Invalid arguments for "get_transcript"`,
+        // a cause it could do nothing about, and `deterministicFailure: true` banked it into
+        // `seenFailureKeys`: the read was then refused for the REST OF THE RUN with
+        // "Retrying it cannot succeed." A transient defect of OURS became permanent
+        // capability loss, attributed to the model. The outer catch answers for the plumbing
+        // now — retryably, and unbanked.
+        let value: unknown;
+        try {
+          value = tool.read(sanitizeToolArgs(tool, call.arguments), ctx);
+        } catch (cause) {
+          // A refusal from the registered, contracted tool boundary IS the model's to fix —
+          // a bad window, an unknown id, the wrong kind of clip — so it keeps the argument
+          // wording and stays banked, exactly as it was.
+          const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause)}`;
+          return {
+            ops: [],
+            note,
+            summary: note,
+            status: 'failed',
+            data: note,
+            deterministicFailure: true,
+          };
+        }
         // ADR 0057: a loaded playbook is PINNED into the run's context by
         // `agentMessages`, so it must NOT also ride in this turn's log note — the note
         // lives in a rolling last-N-steps window (compactAgentLog), which would both
@@ -4088,22 +4127,41 @@ export class Orchestrator {
           data: value,
         };
       } catch (cause) {
-        const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause)}`;
-        return {
-          ops: [],
-          note,
-          summary: note,
-          status: 'failed',
-          data: note,
-          deterministicFailure: true,
-        };
+        // Only the PLUMBING can reach here now — the tool boundary answered for itself
+        // above — so this is our fault, not the model's. Untyped, and deliberately without
+        // `deterministicFailure`, so `deterministicFailureKey` banks nothing and the next
+        // attempt is allowed to succeed.
+        const reason = cause instanceof Error ? cause.message : String(cause);
+        orchestratorLog.error('read tool failed unexpectedly', { tool: call.name, reason });
+        const note =
+          `"${call.name}" failed unexpectedly: ${reason}. This is not a problem with your ` +
+          'arguments — try it again, or reach for a different tool.';
+        return { ops: [], note, summary: `${desc} — failed`, status: 'failed', data: note };
       }
     }
+    // Same split on the mutating path. `operationsFor` is the tool boundary and throws a
+    // typed `ToolInvocationError`; `detectTimelineWipe`, `assembleEdit`,
+    // `summarizeOperations` and `applyProjectPatch` below are not, and a throw from any of
+    // them was being relabelled as the model's bad arguments AND banked as permanent.
+    let ops: AnyOperation[];
     try {
-      const ops = this.operationsFor(
-        call,
-        host.evidence ? { ...ctx, evidence: host.evidence } : ctx,
-      );
+      ops = this.operationsFor(call, host.evidence ? { ...ctx, evidence: host.evidence } : ctx);
+    } catch (error) {
+      // `operationsForCall` only ever throws `ToolInvocationError` (unknown/unavailable/
+      // invalid args) — all three are the model's to fix and all three are worth banking.
+      const reason = error instanceof Error ? error.message : String(error);
+      const note = `Rejected "${call.name}": ${reason}`;
+      orchestratorLog.warn('tool call rejected — invalid args', { tool: call.name, reason });
+      return {
+        ops: [],
+        note,
+        summary: note,
+        status: 'failed',
+        data: reason,
+        deterministicFailure: true,
+      };
+    }
+    try {
       if (ops.length === 0) {
         // A mutating tool can legitimately have nothing to do — e.g. manage_assets
         // when the bin is already organized. Say so plainly instead of implying an
@@ -4130,6 +4188,13 @@ export class Orchestrator {
           status: 'failed',
           data: wipeVerdict,
           rejectedOpCount: ops.length,
+          // Deterministic in the only sense the bank uses: the guard is a pure function of
+          // the proposed ops and the current project, so the identical call against the
+          // same timeline is refused with the identical sentence. Nothing is pre-blocked —
+          // `runAgentCall` still runs every call and the bank only replaces an outcome that
+          // reproduces the same key, so a later call the guard no longer objects to still
+          // lands. Without the flag the run could re-propose the same wipe every turn.
+          deterministicFailure: true,
         };
       }
       // Validate against the working copy NOW, not at turn end: an invalid call
@@ -4193,19 +4258,19 @@ export class Orchestrator {
         project: applyProjectPatch(ctx.project, probe.patch),
       };
     } catch (error) {
-      // Unknown/unavailable/read/action are handled above, so the only thing
-      // operationsFor can throw here is a ToolInvocationError for invalid args.
-      const reason = (error as ToolInvocationError).message;
-      const note = `Rejected "${call.name}": ${reason}`;
-      orchestratorLog.warn('tool call rejected — invalid args', { tool: call.name, reason });
-      return {
-        ops: [],
-        note,
-        summary: note,
-        status: 'failed',
-        data: reason,
-        deterministicFailure: true,
-      };
+      // The old comment here claimed only a `ToolInvocationError` for invalid args could
+      // reach this point. That was never true: everything above except `operationsFor` is
+      // orchestrator work, so a throw from `assembleEdit`, `summarizeOperations`,
+      // `detectTimelineWipe` or `applyProjectPatch` was reported as the model's bad
+      // arguments and banked as permanent — losing the tool for the rest of the run over a
+      // fault it had no part in. Retryable by omission: no `deterministicFailure`, so
+      // `deterministicFailureKey` returns nothing.
+      const reason = error instanceof Error ? error.message : String(error);
+      orchestratorLog.error('tool call failed unexpectedly', { tool: call.name, reason });
+      const note =
+        `"${call.name}" failed unexpectedly: ${reason}. This is not a problem with your ` +
+        'arguments — try it again, or reach for a different tool.';
+      return { ops: [], note, summary: `${desc} — failed`, status: 'failed', data: note };
     }
   }
 
@@ -7766,7 +7831,17 @@ function withheldCallOutcome(
     const note =
       `There is no tool called "${call.name}". Use one of the tools offered on this ` +
       'turn — inventing a name will not make it exist on the next one.';
-    return { ops: [], note, summary: `Refused unknown tool "${call.name}"`, status: 'failed' };
+    // `data` + the flag, or `deterministicFailureKey` banks nothing and the sentence above
+    // is all this branch achieves — the model waits a turn and calls the same invented name
+    // again, which is precisely the loop described in the comment at the top of this branch.
+    return {
+      ops: [],
+      note,
+      summary: `Refused unknown tool "${call.name}"`,
+      status: 'failed',
+      data: note,
+      deterministicFailure: true,
+    };
   }
   if (bankedSearches !== undefined && isCatalogueSearch(call.name)) {
     return {
