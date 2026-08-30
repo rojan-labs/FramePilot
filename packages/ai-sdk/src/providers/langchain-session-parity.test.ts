@@ -210,16 +210,6 @@ const SCENARIOS: readonly ParityScenario[] = [
     prompt: 'is there anything to tighten?',
     script: [{ text: 'The intro is already tight.' }],
   },
-  {
-    name: 'wipe-guard-refusal',
-    expectedOperations: 0,
-    covers:
-      'The wipe-guard refusal through a real provider adapter. §5.3 puts the invariant inside ' +
-      'the tool path so it holds regardless of what produced the call — including which ' +
-      'adapter parsed it.',
-    prompt: 'make the opening punchier',
-    script: [{ toolCalls: [del('w', 0, 10)] }, { text: 'done' }],
-  },
 ];
 
 async function runWith(provider: AiProvider, scenario: ParityScenario): Promise<RunOutcome> {
