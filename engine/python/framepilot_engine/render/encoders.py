@@ -16,7 +16,7 @@ import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
-from framepilot_engine.media.ffmpeg import FFmpegError, find_ffmpeg, run
+from framepilot_engine.media.ffmpeg import FFmpegError, run
 
 #: Hardware encoders in preference order, per codec.
 HARDWARE_ENCODERS: dict[str, tuple[str, ...]] = {
@@ -45,14 +45,30 @@ def parse_encoder_list(text: str) -> set[str]:
     return names
 
 
+def _moviepy_ffmpeg_binary() -> str:
+    """The exact binary ``VideoClip.write_videofile`` will actually run.
+
+    MoviePy resolves ffmpeg through imageio-ffmpeg directly, never through this
+    project's :func:`~framepilot_engine.media.ffmpeg.find_ffmpeg` — so probing with
+    that function instead of this one used to pick a hardware encoder the *probed*
+    binary had (e.g. the system ffmpeg on Linux CI reports ``h264_nvenc`` as
+    registered, no GPU required for it to appear in ``-encoders``) that the binary
+    MoviePy actually invokes does not, failing every hardware-selected export with
+    ``Unknown encoder``.
+    """
+    import imageio_ffmpeg
+
+    return str(imageio_ffmpeg.get_ffmpeg_exe())
+
+
 def available_encoders(runner: Callable[[Sequence[str]], str] | None = None) -> set[str]:
-    """Video encoder names the local ffmpeg reports; cached for the process."""
+    """Video encoder names ``write_videofile``'s own ffmpeg reports; cached for the process."""
     global _probe_cache
     if _probe_cache is not None and runner is None:
         return _probe_cache
     invoke = runner or (lambda argv: run(argv, timeout=15.0))
     try:
-        names = parse_encoder_list(invoke([find_ffmpeg(), "-hide_banner", "-encoders"]))
+        names = parse_encoder_list(invoke([_moviepy_ffmpeg_binary(), "-hide_banner", "-encoders"]))
     except (FFmpegError, OSError):
         names = set()
     if runner is None:
