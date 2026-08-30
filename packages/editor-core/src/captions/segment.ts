@@ -34,6 +34,7 @@
  * what lets a caption golden be a golden.
  */
 import type { TranscriptWord } from '@framepilot/timeline-schema';
+import { secondsToFrame } from '../frame-grid.js';
 
 /**
  * How a transcript should be cut into cues. Every field is a hard limit except
@@ -641,6 +642,49 @@ export function enforceTiming(
 }
 
 // ---------------------------------------------------------------------------
+// Stage 3b — the frame grid
+// ---------------------------------------------------------------------------
+
+/**
+ * Merge cues that would begin on the SAME project frame.
+ *
+ * Sequence times are quantised to an integer frame at the patch boundary (ADR
+ * 0146, `normalizeOperationTime`), and a cue's on-screen window runs from its
+ * own first word to the next cue's first word — `enforceTiming` may not cross
+ * that ceiling. So two cues starting inside one frame describe a window the
+ * timeline cannot represent: after snapping, the earlier one has `start === end`
+ * and every `positiveRange` check rejects it.
+ *
+ * That is not a hypothetical rounding nicety. A 0.02s ASR artifact ("build",
+ * 18.06→18.08 at 30fps) collapsed onto frame 542 and took an entire
+ * 584-operation caption patch down with it, four times in one run (7d159862) —
+ * and the same defect had already been fixed once, for `delete_clip` alone, in
+ * `domain-tools/timeline.ts`. Promoting the cue to one frame instead would only
+ * trade the zero-length rejection for an overlap with the cue that starts on
+ * that very frame.
+ *
+ * Merging is the honest reading: two cues the grid cannot tell apart in time
+ * ARE one cue, and their words belong on screen together. Done here, before
+ * layout and timing, so the merged cue is laid out and held as the single cue
+ * it has become rather than being stitched together afterwards.
+ */
+export function coalesceSubFrameCues(
+  cues: readonly (readonly TranscriptWord[])[],
+  fps: number,
+): readonly (readonly TranscriptWord[])[] {
+  const merged: TranscriptWord[][] = [];
+  for (const cue of cues) {
+    const open = merged[merged.length - 1];
+    if (open !== undefined && secondsToFrame(open[0]!.start, fps) === secondsToFrame(cue[0]!.start, fps)) {
+      open.push(...cue);
+      continue;
+    }
+    merged.push([...cue]);
+  }
+  return merged;
+}
+
+// ---------------------------------------------------------------------------
 // The pipeline
 // ---------------------------------------------------------------------------
 
@@ -653,11 +697,16 @@ export function enforceTiming(
  *
  * @param words - Word-level transcript in timeline seconds, in time order.
  * @param config - Limits and readability targets; see {@link captionSegmentConfig}.
+ * @param fps - Project frame rate. Supplied, cues that would start on the same
+ *   frame are merged so none can be quantised out of existence at the patch
+ *   boundary; omitted, segmentation is unquantised (the Captions panel preview
+ *   and unit tests, which never build operations).
  * @returns Cues in time order, each with display text, its words, and its range.
  */
 export function segmentCaptions(
   words: readonly TranscriptWord[],
   config: CaptionSegmentConfig = captionSegmentConfig(),
+  fps?: number,
 ): readonly CaptionCueDraft[] {
   // Drop zero/negative-duration entries up front: they carry no readable time
   // and would otherwise skew every pause and reading-speed calculation.
@@ -667,7 +716,8 @@ export function segmentCaptions(
   const runs = splitIntoUtterances(usable, config.pauseSeconds);
   const packed = runs.flatMap((run) => packSegment(run, config));
   const readable = enforceReadingSpeed(packed, config);
-  return enforceTiming(readable, config).map(({ words: cueWords, start, end }) => ({
+  const gridded = fps === undefined ? readable : coalesceSubFrameCues(readable, fps);
+  return enforceTiming(gridded, config).map(({ words: cueWords, start, end }) => ({
     text: layoutLines(cueWords, config),
     words: cueWords,
     start,

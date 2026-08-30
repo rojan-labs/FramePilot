@@ -75,6 +75,13 @@ export interface CaptionEditorProps {
   readonly transcript: readonly TranscriptWord[];
   /** Real provider-backed analyzer supplied by the editor host. */
   readonly analyzeEmphasis?: () => Promise<CaptionEmphasisAnalysis>;
+  /**
+   * Project frame rate, so generated cues land on the grid the patch boundary
+   * quantises to. Without it two cues starting inside one frame become a
+   * zero-length `add_caption_layer` and the operation contract rejects the
+   * whole generated patch.
+   */
+  readonly fps: number;
 }
 
 type CaptionPosition = 'top' | 'center' | 'bottom';
@@ -1056,6 +1063,7 @@ export function CaptionWorkspace({
   editor,
   transcript,
   analyzeEmphasis,
+  fps,
 }: CaptionEditorProps): JSX.Element {
   const [templateId, setTemplateId] = useState(DEFAULT_CAPTION_TEMPLATE_ID);
   const [segmentChoice, setSegmentChoice] = useState<'auto' | CaptionSegmentPresetName>('auto');
@@ -1139,8 +1147,9 @@ export function CaptionWorkspace({
       templateId,
       ...(segmentChoice === 'auto' ? {} : { preset: segmentChoice }),
       keywords,
+      fps,
     }),
-    [keywords, segmentChoice, templateId],
+    [fps, keywords, segmentChoice, templateId],
   );
   const config = useMemo(() => resolveGenerationConfig(generationOptions), [generationOptions]);
 

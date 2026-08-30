@@ -98,7 +98,7 @@ function Host(): JSX.Element {
   const captions = editor.state.timeline.tracks.find((track) => track.type === 'caption');
   return (
     <>
-      <CaptionEditor editor={editor} transcript={transcript} />
+      <CaptionEditor fps={30} editor={editor} transcript={transcript} />
       <output data-testid="selection">{editor.state.selectedIds.join(',')}</output>
       <output data-testid="caption-state">{JSON.stringify(captions?.clips ?? [])}</output>
       <output data-testid="caption-track-state">{JSON.stringify(captions ?? null)}</output>

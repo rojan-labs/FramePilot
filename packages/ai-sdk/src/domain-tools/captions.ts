@@ -334,6 +334,7 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         buildTimelineMap(ctx.project.timeline),
         ctx.project.transcript,
         config,
+        ctx.project.fps,
       );
       if (cues.length === 0 && track.clips.length === 0) {
         throw new Error(

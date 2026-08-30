@@ -360,12 +360,17 @@ export interface DerivedCue extends CaptionCueDraft {
  * @param map - Canonical timing, from `buildTimelineMap`.
  * @param transcript - Source-relative words (schema v12).
  * @param config - Segmentation limits; see `captionSegmentConfig`.
+ * @param fps - Project frame rate. Pass it whenever these cues will become
+ *   operations: sequence times are quantised to a frame at the patch boundary,
+ *   and a cue narrower than that grid is rejected as zero-length. See
+ *   `coalesceSubFrameCues`.
  * @returns Cues in sequence order, each stamped with its source provenance.
  */
 export function deriveCaptionCues(
   map: TimelineMap,
   transcript: readonly TranscriptWord[],
   config: CaptionSegmentConfig = captionSegmentConfig(),
+  fps?: number,
 ): readonly DerivedCue[] {
   const { runs, revision } = mapTranscript(map, transcript);
 
@@ -374,9 +379,12 @@ export function deriveCaptionCues(
     // time so its pause/reading-speed reasoning matches what the viewer sees.
     // At a speed != 1 that is deliberately the *played back* pacing, not the
     // originally spoken pacing — a 2x clip really does need faster cues.
+    // Segment on the same grid the patch boundary will quantise to; without it
+    // a cue can be legal here and zero-length by the time it is validated.
     const cues = segmentCaptions(
       run.words.map(({ word, start, end }) => ({ word, start, end })),
       config,
+      fps,
     );
 
     let consumed = 0;

@@ -31,7 +31,7 @@ describe('empty and edge states', () => {
   it('CaptionEditor reports a missing caption track and disables generation', () => {
     render(
       <Harness timeline={emptyTimeline}>
-        {(e) => <CaptionEditor editor={e} transcript={[{ word: 'hi', start: 0, end: 1 }]} />}
+        {(e) => <CaptionEditor fps={30} editor={e} transcript={[{ word: 'hi', start: 0, end: 1 }]} />}
       </Harness>,
     );
     expect(screen.getByText('No caption track in this project.')).toBeDefined();

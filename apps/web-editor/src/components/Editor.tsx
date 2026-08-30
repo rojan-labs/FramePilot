@@ -786,6 +786,7 @@ export function Editor({
                   <CaptionEditor
                     editor={editor}
                     transcript={project.transcript}
+                    fps={project.fps}
                     analyzeEmphasis={() => requestAiCaptionEmphasis(project, project.transcript)}
                   />
                 )}

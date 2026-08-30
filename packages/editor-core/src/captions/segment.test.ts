@@ -23,6 +23,7 @@ import {
   segmentCaptions,
   splitIntoUtterances,
 } from './segment.js';
+import { secondsToFrame } from '../frame-grid.js';
 
 /**
  * Build words from a sentence at a fixed cadence. `gapAfter` injects a real
@@ -419,6 +420,51 @@ describe('enforceReadingSpeed', () => {
     ];
     const result = enforceReadingSpeed([cue], config);
     expect(result[0]!.map((w) => w.word)).toEqual(['it', 'broke,']);
+  });
+});
+
+describe('coalesceSubFrameCues', () => {
+  const config = captionSegmentConfig('short-form');
+
+  it('merges two cues that would begin on the same project frame', () => {
+    // The exact shape that broke run 7d159862: a 0.02s ASR artifact whose cue
+    // both starts and ends inside frame 542 at 30fps.
+    const words: TranscriptWord[] = [
+      { word: 'build', start: 18.06, end: 18.08 },
+      { word: "India's", start: 18.08, end: 18.58 },
+    ];
+    const cues = segmentCaptions(words, config, 30);
+    expect(cues).toHaveLength(1);
+    expect(flat(cues[0]!.text)).toBe("build India's");
+  });
+
+  it('leaves cues that start on distinct frames alone', () => {
+    const words = speak('one two three four', { wordSeconds: 0.6 });
+    expect(segmentCaptions(words, config, 30).length).toBe(
+      segmentCaptions(words, config).length,
+    );
+  });
+
+  it('emits no cue that quantises to zero length, at any project frame rate', () => {
+    // Sub-frame words at every rate the grid supports. Each emitted cue must
+    // still occupy at least one frame once snapped, or the operation contract
+    // rejects it — and rejects the whole patch with it.
+    const words: TranscriptWord[] = [
+      { word: 'To', start: 18.0, end: 18.01 },
+      { word: 'build', start: 18.06, end: 18.08 },
+      { word: "India's", start: 18.08, end: 18.58 },
+      { word: 'top', start: 18.58, end: 18.79 },
+      { word: 'We', start: 18.79, end: 18.8 },
+    ];
+    for (const fps of [24, 25, 29.97, 30, 50, 60]) {
+      for (const preset of ['short-form', 'subtitle', 'one-word'] as const) {
+        for (const cue of segmentCaptions(words, captionSegmentConfig(preset), fps)) {
+          const frames =
+            secondsToFrame(cue.end, fps) - secondsToFrame(cue.start, fps);
+          expect(frames).toBeGreaterThanOrEqual(1);
+        }
+      }
+    }
   });
 });
 
