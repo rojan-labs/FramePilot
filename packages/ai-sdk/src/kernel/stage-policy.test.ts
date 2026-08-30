@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  PRECONDITION_TOOL_NAMES,
   VALIDATOR_INPUT_TOOL_NAMES,
   settledStageFor,
   stageAdvanceFor,
@@ -102,22 +103,33 @@ describe('the locked plan is actually closed to re-analysis', () => {
    * every stage the tool itself is reachable in.
    */
   it('never offers a tool in a stage that withholds the tool its description requires', () => {
-    const PREREQUISITE = /(?:call (?:this|\w+) before|use (\w+) first)/i;
+    // Both halves of this check used to be hand-written and both had holes wide
+    // enough to miss the real thing. "First read get_mapped_transcript" and "it
+    // needs get_mapped_transcript first" matched neither phrasing alternative,
+    // and even if they had, the name extractor only recognised `discover_*`,
+    // `get_timeline` and `search_*` — so the tool at the centre of run 7d159862
+    // was invisible to the guard written to catch exactly its failure.
+    //
+    // Match any phrasing that states an order, and extract against the REGISTRY
+    // rather than a pattern, so a newly named prerequisite cannot slip past.
+    const PREREQUISITE =
+      /(?:call (?:this|\w+) before|(?:use|read|run|call) \w+ first|needs \w+ first|first (?:read|run|call)|\bbefore you\b)/i;
+    const registryNames = TOOL_REGISTRY.map((t) => t.name);
     const named = (description: string): readonly string[] =>
-      [...description.matchAll(/\b(discover_[a-z_]+|get_timeline|search_[a-z_]+)\b/g)].map(
-        (m) => m[1]!,
-      );
+      registryNames.filter((name) => new RegExp(`\\b${name}\\b`).test(description));
     for (const tool of TOOL_REGISTRY) {
       if (!PREREQUISITE.test(tool.description)) continue;
       for (const prerequisite of named(tool.description)) {
+        if (prerequisite === tool.name) continue;
         const prerequisiteSpec = getTool(prerequisite);
         if (!prerequisiteSpec) continue;
         for (const stage of RUN_STAGES) {
-          const toolRoleHere = toolRole(tool.name, tool.mutates);
-          const prerequisiteRole = toolRole(prerequisite, prerequisiteSpec.mutates);
-          if (!stageAllowsRole(stage, toolRoleHere)) continue;
+          // Ask the question the runtime actually asks — `stageAllowsTool`, not the
+          // role alone — so a documented exemption counts as reachability and an
+          // undocumented gap still fails.
+          if (!stageAllowsTool(stage, tool.name, tool.mutates)) continue;
           expect(
-            stageAllowsRole(stage, prerequisiteRole),
+            stageAllowsTool(stage, prerequisite, prerequisiteSpec.mutates),
             `${tool.name} is offered in "${stage}" but its stated prerequisite ${prerequisite} is not`,
           ).toBe(true);
         }
@@ -159,25 +171,48 @@ describe('the locked plan is actually closed to re-analysis', () => {
     }
   });
 
-  it('exempts only the validator inputs — every other analysis tool still closes', () => {
+  it('exempts only the named carve-outs — every other analysis tool still closes', () => {
     const analysisTools = TOOL_REGISTRY.filter(
       (tool) => toolRole(tool.name, tool.mutates) === 'analysis',
     );
-    // The carve-out must not become a hole: the reconnaissance lockout is the whole point
-    // of the execution stages, and only the tools a guard actually reads may step past it.
-    expect(analysisTools.length).toBeGreaterThan(
-      VALIDATOR_INPUT_TOOL_NAMES.size + VERIFICATION_LOOK_TOOL_NAMES.size,
-    );
+    // Three named carve-outs, each with a written incident: the validator input a guard
+    // reads, the picture look that verifies an edit, and the precondition a mutation's own
+    // refusal names. The lockout is the whole point of the execution stages, so the
+    // exempted set must stay a small minority of the analysis surface.
+    const exempt = new Set([
+      ...VALIDATOR_INPUT_TOOL_NAMES,
+      ...VERIFICATION_LOOK_TOOL_NAMES,
+      ...PRECONDITION_TOOL_NAMES,
+    ]);
+    expect(analysisTools.length).toBeGreaterThan(exempt.size * 2);
     for (const tool of analysisTools) {
-      if (VALIDATOR_INPUT_TOOL_NAMES.has(tool.name)) continue;
-      // The picture look is the other named carve-out (P1.1b) — verification of an edit,
-      // not reconnaissance of the material.
-      if (VERIFICATION_LOOK_TOOL_NAMES.has(tool.name)) continue;
+      if (exempt.has(tool.name)) continue;
       for (const stage of RUN_STAGES.filter(isExecutionStage)) {
         expect(
           stageAllowsTool(stage, tool.name, tool.mutates),
-          `${tool.name} is not a validator input and must stay withheld in "${stage}"`,
+          `${tool.name} is not a named carve-out and must stay withheld in "${stage}"`,
         ).toBe(false);
+      }
+    }
+  });
+
+  it('reaches every precondition tool in every stage', () => {
+    // The property that makes the set legitimate rather than a convenience list:
+    // some registered mutation must name the tool as the remedy for its own refusal.
+    for (const name of PRECONDITION_TOOL_NAMES) {
+      const spec = getTool(name);
+      expect(spec, `${name} must be a registered tool`).toBeDefined();
+      const demanded = TOOL_REGISTRY.some(
+        (tool) => tool.mutates && new RegExp(`\\b${name}\\b`).test(tool.description),
+      );
+      expect(demanded, `${name} is exempt but no mutation names it as a precondition`).toBe(
+        true,
+      );
+      for (const stage of RUN_STAGES) {
+        expect(
+          stageAllowsTool(stage, name, spec?.mutates === true),
+          `${name} is a stated precondition but is withheld in "${stage}"`,
+        ).toBe(true);
       }
     }
   });

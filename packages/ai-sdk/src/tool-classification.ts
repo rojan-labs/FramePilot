@@ -165,7 +165,19 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   get_timeline_map: { role: 'inspection', scope: 'timeline_dependent' },
   list_edit_boundaries: { role: 'inspection', scope: 'timeline_dependent' },
   map_time: { role: 'inspection', scope: 'timeline_dependent' },
-  get_mapped_transcript: { role: 'analysis', scope: 'timeline_dependent' },
+  // Reads the ARRANGEMENT, not the source media: WHICH words survived the cuts and where
+  // they now sit. Pure in-process derivation over the timeline — the same helpers, and the
+  // same answer, as `map_time` and `get_timeline_map` directly above.
+  //
+  // It was `analysis`, which `stageAllowsRole` withholds in every execution stage on the
+  // premise that the evidence is already stored and can be recalled. For a
+  // `timeline_dependent` payload that premise is false by construction: `EvidenceStore`
+  // invalidates it on every applied patch, so the very cut that makes a re-read necessary
+  // is the event that destroys the handle. Unreadable AND unrecallable. In run 7d159862
+  // the run entered `apply` on turn 2 — because its own `transcribe` landed a patch — and
+  // then spent 16 model calls holding `caption_the_edit` while the only tool that returns
+  // the word timings it needs was refused three times.
+  get_mapped_transcript: { role: 'inspection', scope: 'timeline_dependent' },
   // The words spoken are content, and only `set_transcript` rewrites them.
   get_transcript: { role: 'analysis', scope: 'transcript_dependent' },
   // The bin survives cutting. Adding a clip does not add an asset.

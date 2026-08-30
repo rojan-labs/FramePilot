@@ -46,6 +46,61 @@ describe('TOOL_CLASSIFICATION parity with TOOL_REGISTRY', () => {
   });
 });
 
+/**
+ * `analysis` + `timeline_dependent` is a self-contradictory pair, and it has now
+ * shipped three times.
+ *
+ * `stageAllowsRole` withholds every `analysis` tool in an execution stage, on the
+ * stated premise that its evidence is already stored and can be recalled instead.
+ * `EvidenceStore.invalidate` drops every `timeline_dependent` payload — from both
+ * `byKey` and `byId`, so the `recall_evidence` handle dies with it — on every
+ * applied patch. A tool carrying both labels is therefore unreadable AND
+ * unrecallable in exactly the situation that makes a re-read legitimate: the cut
+ * just changed the answer.
+ *
+ * `get_frame` was patched for this by name (`VERIFICATION_LOOK_TOOL_NAMES`), then
+ * `get_mapped_transcript` hit it again in run 7d159862 and cost 16 model calls.
+ * Listing the pair here does not fix it — it forces the next one to be a decision
+ * somebody wrote down rather than a label nobody questioned.
+ */
+describe('analysis tools whose answer ages with the timeline', () => {
+  // Every entry is a deliberate, reviewed choice. Adding a tool here means: it is
+  // acceptable that an execution stage can neither call it nor recall it.
+  const KNOWN: ReadonlySet<string> = new Set([
+    // Exempted by name in `VERIFICATION_LOOK_TOOL_NAMES` — reachable in every stage.
+    'get_frame',
+    // Genuinely expensive sidecar work whose result the run is expected to gather
+    // before it starts cutting. Each remains a candidate for the same exemption if
+    // a run is ever observed needing it mid-apply.
+    'search_media',
+    'read_edit_signals',
+    'measure_color',
+    'track_subject_automatically',
+  ]);
+
+  it('has no unreviewed member', () => {
+    const pairs = Object.entries(TOOL_CLASSIFICATION)
+      .filter(([, c]) => c.role === 'analysis' && c.scope === 'timeline_dependent')
+      .map(([name]) => name)
+      .filter((name) => !KNOWN.has(name));
+    expect(
+      pairs,
+      'these tools can be neither called nor recalled once a patch lands — ' +
+        'reclassify as `inspection` if they read the arrangement, or add them to ' +
+        'KNOWN with the reason',
+    ).toEqual([]);
+  });
+
+  it('keeps get_mapped_transcript readable while the run is cutting', () => {
+    // It derives which words SURVIVED and where they now sit — the arrangement,
+    // not the media — and captions/emphasis cannot be written without it.
+    expect(TOOL_CLASSIFICATION.get_mapped_transcript).toEqual({
+      role: 'inspection',
+      scope: 'timeline_dependent',
+    });
+  });
+});
+
 describe('the tools whose misclassification caused the re-analysis loop', () => {
   // Each of these was absent from at least one of the two allowlists this module
   // replaced, which is why a beat-synced run re-ran them after every applied cut.

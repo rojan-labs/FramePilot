@@ -206,9 +206,35 @@ export const VALIDATOR_INPUT_TOOL_NAMES: ReadonlySet<string> = new Set([BEAT_ANA
  */
 export const VERIFICATION_LOOK_TOOL_NAMES: ReadonlySet<string> = new Set(['get_frame']);
 
+/**
+ * Tools that a MUTATION's own runtime precondition names as the way to satisfy it.
+ *
+ * The same shape as {@link VALIDATOR_INPUT_TOOL_NAMES}, one step earlier: there the
+ * validator refuses the proposal, here the tool refuses the call. Either way a run cannot
+ * clear a bar it is forbidden to reach.
+ *
+ * `transcribe` is the case. `caption_the_edit` is a mutation and stays offered through
+ * `apply`; it throws "This project has no transcript yet ... Run transcribe first" when
+ * there is no transcript. A run that placed a clip before transcribing — the natural
+ * order, and the order the pacing skills teach — is in `apply` from that first patch on,
+ * so it is told to run `transcribe` and refused in the same breath. Captioning becomes
+ * unreachable for the rest of the run, which is the third recurrence of the defect this
+ * file already corrected for `guidance` and for `detect_beats`, in the same words.
+ *
+ * The rule this exempts — "the evidence is already stored, recall it" — is untouched for a
+ * re-call that really is redundant: `transcribe` is `transcript_dependent`, so its evidence
+ * survives ordinary cuts and `withheldCallOutcome`'s memo hit refuses the repeat by name.
+ *
+ * Keep this set minimal. A tool belongs here only when some mutation's description or
+ * thrown message names it as the remedy; `stage-policy.test.ts` asserts that property
+ * rather than trusting the list.
+ */
+export const PRECONDITION_TOOL_NAMES: ReadonlySet<string> = new Set(['transcribe']);
+
 export function stageAllowsTool(stage: RunStage, name: string, mutates: boolean): boolean {
   if (VALIDATOR_INPUT_TOOL_NAMES.has(name)) return true;
   if (VERIFICATION_LOOK_TOOL_NAMES.has(name)) return true;
+  if (PRECONDITION_TOOL_NAMES.has(name)) return true;
   return stageAllowsRole(stage, toolRole(name, mutates));
 }
 
