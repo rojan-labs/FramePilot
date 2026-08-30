@@ -1379,15 +1379,30 @@ export function carryForwardWorkingState(
     previous.identity.projectId === fresh.identity.projectId;
   if (!sameConversation || !sameProject) return fresh;
 
-  // Ids are re-prefixed because they are only unique WITHIN a run: `commitExecutionPlan`
-  // mints `decision_1…n` for the new run's own plan, and a carried `decision_1` would
-  // collide with it. The prefix also makes an inherited record identifiable in a dump.
-  const carriedId = (id: string): string => (id.startsWith('carried_') ? id : `carried_${id}`);
+  // Carried records are RENUMBERED from the fresh run's own counters, not re-prefixed.
+  //
+  // Ids are only unique within a run — `commitExecutionPlan` mints `decision_1…n` for the
+  // new run's plan, so a carried `decision_1` would collide with it — and the old fix for
+  // that was a `carried_` prefix applied idempotently (`startsWith('carried_') ? id : …`).
+  // That holds for exactly one generation. Run 1 mints `fact_1`; run 2 inherits it as
+  // `carried_fact_1` and mints its own `fact_1`; run 3 inherits BOTH, leaves the first
+  // alone because it is already prefixed, and prefixes the second to the same string. Two
+  // different facts, one id — the same unsound-provenance failure the within-run counters
+  // were introduced to end, displaced across the run boundary.
+  //
+  // Minting from `fresh.minted` cannot collide by construction: the counters only ever go
+  // up, and this run's own records draw from them too. The `carried_` prefix stays, purely
+  // so an inherited record is identifiable in a dump.
+  const minted = { ...fresh.minted };
+  const carriedId = (kind: 'fact' | 'decision'): string => {
+    minted[kind] += 1;
+    return `carried_${kind}_${String(minted[kind])}`;
+  };
   const facts = previous.facts
     .filter((fact) => fact.scope === 'revision_independent')
     .map((fact) => ({
       ...fact,
-      id: carriedId(fact.id),
+      id: carriedId('fact'),
       // Uncited on purpose, and marked. See the docstring: the handles do not resolve.
       evidenceIds: [],
       statement: fact.statement.startsWith(CARRIED_FACT_PREFIX)
@@ -1420,7 +1435,7 @@ export function carryForwardWorkingState(
     )
     .map((decision) => ({
       ...decision,
-      id: carriedId(decision.id),
+      id: carriedId('decision'),
       evidenceIds: [],
       stage: fresh.stage,
       // One more boundary crossed. This is what `expiresAfterTurns` counts: runs the
@@ -1433,6 +1448,9 @@ export function carryForwardWorkingState(
   const known = new Set(fresh.decisions.map((decision) => decision.decision));
   return {
     ...fresh,
+    // Advanced past everything carried, so a record this run mints later cannot land on
+    // an inherited id.
+    minted,
     facts: [...facts, ...fresh.facts],
     // Carried decisions come FIRST and this run's own plan decisions LAST, so what the
     // run was actually asked to do reads as the live commitment and the inherited answers
