@@ -26,6 +26,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   verified URL. Nothing in it ships in the app, and it never touches user media. See
   `SECURITY.md`.
 
+- **Closed the remaining `hono` advisories.** The Model Context Protocol SDK pulls in `hono`
+  and `@hono/node-server` for its HTTP transport, and both were carrying open advisories
+  (`hono` < 4.12.34, `@hono/node-server` < 1.19.15) that Dependabot could not fix on its own:
+  they are transitive, so it had nothing to raise a pull request against and its security
+  update runs failed instead. They now join the workspace-override list — `hono` at 4.13.5,
+  `@hono/node-server` at 1.19.17 — the same mechanism used for the other ownerless transitive
+  packages above.
+
 ### Added
 
 - **The AI captions a whole video in one step.** Asking for captions used to make the
