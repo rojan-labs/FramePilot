@@ -54,6 +54,17 @@ export function App(): JSX.Element {
   const [path, setPath] = useState<string>(boot.path);
   const [projectRevision, setProjectRevision] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>('saved');
+  /**
+   * How many saves have COMPLETED, monotonically.
+   *
+   * `saveState` alone cannot answer "has my edit been written?": it starts at `'saved'`
+   * and only becomes `'dirty'` in an effect that runs after the commit, so anything
+   * waiting on `'saved'` can observe the value from BEFORE the edit and conclude the
+   * write finished when nothing had been written. That is what let two e2e persistence
+   * round-trips pass for the wrong reason, masked by the suite's retries. A counter has
+   * no such ambiguity — read it, act, wait for it to move.
+   */
+  const [saveCount, setSaveCount] = useState(0);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [, setNewCount] = useState(1);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -141,6 +152,7 @@ export function App(): JSX.Element {
       // base, so it re-establishes agreement and reopens the patch lane.
       patchLaneDiverged.current = false;
       setSaveState('saved');
+      setSaveCount((n) => n + 1);
       setSaveError(null);
     } else {
       fullSnapshotOwed.current = true;
@@ -394,6 +406,7 @@ export function App(): JSX.Element {
       setProjectRevision(outcome.revision);
     }
     setSaveState('saved');
+    setSaveCount((n) => n + 1);
     setSaveError(null);
     log.action('new project persisted', { projectId: created.id, path: outcome.path });
   }, []);
@@ -556,6 +569,7 @@ export function App(): JSX.Element {
                 projectName={project.name}
                 path={path}
                 saveState={saveState}
+                saveCount={saveCount}
                 saveErrorDetail={saveError ?? undefined}
                 onHome={() => void goHome()}
                 onNew={() => setNewProjectOpen(true)}
