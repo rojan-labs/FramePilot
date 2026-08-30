@@ -139,6 +139,53 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A file you attach to a message now belongs to that message.** Attaching a reference and
+  asking "make it feel like this" left the file sitting in the composer after you sent it,
+  showed nothing in the message you had just sent, and then quietly attached it again to
+  every later message in the conversation. Scroll back and there was no record of what the
+  request had been about. An attachment now moves into the message when you send it: the
+  message shows it, the composer clears, and re-sending is something you choose rather than
+  something that happens. A reference you attach keeps applying to later turns — that part
+  was right — and you can stop using one from the message it arrived on, without the record
+  of having attached it disappearing.
+
+- **Pasting a file into the chat now actually attaches it.** Dropping a file worked and the
+  paperclip worked, but pasting produced a chip that looked identical and was never really
+  attached — the file was never read and the assistant never saw it. Pasting several files
+  also kept only the first. Both fixed, and all three ways of attaching now do the same thing.
+
+- **Undoing an AI edit sticks.** Pressing undo on a change the assistant made looked like it
+  worked, but if you made another edit within about two seconds the undo never reached disk —
+  reopen the project and the change was back. Undo is the safety net now that AI edits apply
+  as they land, so it now persists on its own rather than depending on a save that the next
+  edit could cancel.
+
+- **Removing a remembered preference no longer rolls back your own edits.** Dismissing one of
+  the assistant's remembered notes, or undoing a run, could write your last few manual edits
+  back out of the saved project — the timeline on screen was unchanged and the app said
+  "Saved", so nothing looked wrong until you reopened the file.
+
+- **An edit the app could not save now says so, and keeps saying so.** If a change was
+  refused — usually because the assistant had just changed the same part of the timeline —
+  the edit stayed on your screen but never reached disk, and the error indicator was cleared
+  by the next successful save. The app now re-saves what you can actually see, and the
+  warning stays up until it is resolved.
+
+- **Saving a project is safe when something else is editing it too.** The desktop app and an
+  external agent connected over MCP could write the same project file at the same time and
+  publish a mix of the two. Each save is now written to its own temporary file and flushed to
+  the disk before it replaces the real one, so a crash mid-save cannot leave an empty project
+  behind either.
+
+- **Importing two files with the same name keeps both.** Dragging in two folders that each
+  held a `clip.mp4` produced two entries in the bin pointing at one file — the second import
+  overwrote the first. Interrupted imports also left partial files behind forever; those are
+  now cleaned up on the next import into that project.
+
+- **Stock clips now know their own shape.** A downloaded stock clip arrived without its
+  dimensions, so nothing could tell that a 16:9 clip in a vertical project was going to
+  export with black bars — which is most stock footage.
+
 - **When the assistant's edit is refused, it is told which part was refused.** Asking for
   captions builds one change per line of dialogue — over a hundred in a short video. If a
   single one of them was impossible, the whole batch came back with one sentence explaining
