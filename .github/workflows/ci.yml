@@ -78,13 +78,16 @@ jobs:
         run: uv run mypy .
       - name: Pytest + coverage
         working-directory: engine/python
-        # -n 3, not 4: sharded across worker processes, not just for speed — the full
-        # sequential run hits an unresolved crash deep into the suite (plan/PLAN.md
-        # SYSMISSION note); each worker's share of ~2754 tests stays well under whatever
-        # triggers it. 4 workers on this runner's 4 vCPUs left no headroom — a worker
-        # doing a real ffmpeg encode sporadically got killed outright (a different
-        # render test each time, no Python exception, consistent with the runner's own
-        # resource limits, not a code bug); 3 leaves a core free and stopped it.
+        # -n 3 for speed. It used to be load-bearing: the suite would kill a worker deep
+        # into a run, reported against whatever unrelated test was executing (a render
+        # test, a pure-Python one), with no Python exception — so it read as a resource
+        # limit and was tuned around, 4 -> 3, rather than debugged.
+        #
+        # It was not a resource limit. `test_parent_watchdog.py` started a REAL watchdog
+        # thread and returned without stopping it; that daemon thread ends in
+        # `os._exit(1)` after its grace period, so ~60s later it took the whole worker
+        # down, no traceback, arbitrary victim. Sharding only changed which worker died
+        # and when. Fixed at the source: the watchdog is stoppable and the tests stop it.
         run: uv run pytest -n 3 --cov --cov-report=xml --cov-report=term
       - name: Render and validate fixture project
         working-directory: engine/python

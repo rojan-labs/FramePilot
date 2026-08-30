@@ -130,6 +130,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The engine's shutdown watchdog can now be called off.** The watchdog that stops a
+  sidecar outliving the app that spawned it runs as a background thread whose last act is
+  an immediate process exit, and nothing could cancel it once started. Anything that
+  started one and moved on was left with a process exit scheduled against it — harmless in
+  the app, where the watchdog running for the process's whole life is the point, but fatal
+  anywhere the engine is started in-process and then kept running. It is now stoppable, and
+  a stop during the shutdown grace hands control back rather than exiting underneath
+  whoever asked for it. This was also the cause of a long-standing "flaky" engine test
+  suite: a test started a real watchdog without stopping it, and roughly a minute later
+  that thread terminated the whole test process, which surfaced as an unrelated render test
+  failing in CI. (`engine/python/framepilot_engine/service.py`)
+
 - **The assistant no longer offers to retry something that cannot work.** When a run stopped
   because an API key had hit its limit, the error still offered a Retry — which could only
   fail again until the key itself was sorted out. Failures that are genuinely temporary

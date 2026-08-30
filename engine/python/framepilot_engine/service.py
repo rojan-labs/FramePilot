@@ -5434,12 +5434,42 @@ def _parent_is_alive(pid: int) -> bool:
     return True
 
 
+class ParentWatchdog:
+    """A running parent watchdog, and the means to call it off.
+
+    WHY this is stoppable: the watcher is a daemon thread whose last act is ``os._exit``.
+    A thread like that left running after its purpose is served does not merely leak — it
+    takes the whole process down at an arbitrary later moment, with no traceback and no
+    exit handlers, killing whatever happens to be running then. That is exactly what a
+    test which starts a real watchdog and returns does, and the victim is unrelated code
+    a minute later.
+    """
+
+    def __init__(self, thread: threading.Thread, stopped: threading.Event) -> None:
+        self.thread = thread
+        self._stopped = stopped
+
+    def stop(self, timeout: float | None = 5.0) -> None:
+        """Call the watchdog off and wait for its thread to end.
+
+        :param timeout: Seconds to wait for the thread; ``None`` waits forever.
+        """
+        self._stopped.set()
+        self.thread.join(timeout)
+
+    def __enter__(self) -> ParentWatchdog:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.stop()
+
+
 def start_parent_watchdog(
     pid: int | None = None,
     *,
     interval_seconds: float = _PARENT_WATCH_INTERVAL_SECONDS,
     grace_seconds: float = _PARENT_WATCH_GRACE_SECONDS,
-) -> threading.Thread | None:
+) -> ParentWatchdog | None:
     """Exit when the process that spawned this engine is gone.
 
     WHY: the desktop app spawns the engine detached, in its own process group, so that a
@@ -5455,16 +5485,22 @@ def start_parent_watchdog(
     the wrong process; and the engine's stdio is inherited, not a pipe we can watch.
 
     :param pid: The pid to watch; defaults to ``FRAMEPILOT_PARENT_PID``.
-    :returns: The watcher thread, or ``None`` when no parent pid was configured.
+    :returns: The running watchdog, or ``None`` when no parent pid was configured.
     """
     raw = str(pid) if pid is not None else os.environ.get(PARENT_PID_ENV, "").strip()
     if not raw.isdigit() or int(raw) <= 1:
         return None
     watched = int(raw)
+    stopped = threading.Event()
 
     def _watch() -> None:
+        # Every wait below is on the stop event rather than `time.sleep`, so `stop()`
+        # takes effect immediately instead of after a full interval or grace period.
         while _parent_is_alive(watched):
-            time.sleep(interval_seconds)
+            if stopped.wait(interval_seconds):
+                return
+        if stopped.is_set():
+            return
         _log.warning(
             "ACT parent process %d is gone; shutting the engine down so its port is freed",
             watched,
@@ -5473,12 +5509,15 @@ def start_parent_watchdog(
         # cleanup); _exit only if that does not finish, because an engine that refuses to
         # die is the exact failure this watchdog exists to prevent.
         os.kill(os.getpid(), signal.SIGTERM)
-        time.sleep(grace_seconds)
+        # A stop during the grace means someone else has taken over the shutdown, so do
+        # not hard-exit out from under them.
+        if stopped.wait(grace_seconds):
+            return
         os._exit(1)
 
     thread = threading.Thread(target=_watch, name="framepilot-parent-watchdog", daemon=True)
     thread.start()
-    return thread
+    return ParentWatchdog(thread, stopped)
 
 
 def serve(host: str | None = None, port: int | None = None) -> None:
