@@ -29,6 +29,7 @@
  * @see docs/adr/0076-canonical-timeline-mapping.md
  */
 import type { TranscriptWord } from '@framepilot/timeline-schema';
+import { secondsToFrame } from '../frame-grid.js';
 import {
   TIME_EPSILON,
   spanSourceToSequence,
@@ -388,7 +389,8 @@ export function deriveCaptionCues(
     );
 
     let consumed = 0;
-    return cues.map((cue): DerivedCue => {
+    const derived: DerivedCue[] = [];
+    for (const cue of cues) {
       const start = Math.max(cue.start, run.start);
       const end = Math.min(cue.end, run.end);
       // Recover the source range from the words the segmenter grouped. Counting
@@ -398,7 +400,7 @@ export function deriveCaptionCues(
       consumed += cue.words.length;
       const first = sourceWords[0];
       const last = sourceWords[sourceWords.length - 1];
-      return {
+      const entry: DerivedCue = {
         text: cue.text,
         words: cue.words.map((word) => ({
           ...word,
@@ -413,6 +415,34 @@ export function deriveCaptionCues(
         sourceEnd: last?.sourceEnd ?? 0,
         revision,
       };
-    });
+
+      // The clamp above is the LAST place a cue can be squeezed out of existence, and
+      // segmentation cannot see it coming: `segmentCaptions` works inside the run and is
+      // allowed to extend its final cue past the last word, so a cue sitting within a
+      // frame of `run.end` comes back with nothing left after clamping to it. Only a cut
+      // exposes this — on a single untrimmed clip the run ends where the footage does and
+      // there is always room, which is why it survived a fix and a property test that
+      // both only ever saw one clip.
+      //
+      // Absorbed into the previous cue of the SAME run rather than dropped: the words
+      // were really spoken, and the run is the unit that guarantees no cue crosses a cut,
+      // so merging inside it cannot bridge one. With no predecessor there is nowhere to
+      // put them and the cue is dropped — its footage is under a frame, so there is
+      // genuinely no picture to caption.
+      const previous = derived[derived.length - 1];
+      if (fps !== undefined && secondsToFrame(end, fps) <= secondsToFrame(start, fps)) {
+        if (previous === undefined) continue;
+        derived[derived.length - 1] = {
+          ...previous,
+          text: `${previous.text} ${cue.text}`,
+          words: [...previous.words, ...entry.words],
+          end: Math.max(previous.end, end),
+          sourceEnd: entry.sourceEnd,
+        };
+        continue;
+      }
+      derived.push(entry);
+    }
+    return derived;
   });
 }
