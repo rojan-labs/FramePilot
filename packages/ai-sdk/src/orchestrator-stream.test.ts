@@ -11,6 +11,7 @@ import type { AnyOperation } from '@framepilot/editor-core';
 import { MockProvider } from './providers/mock.js';
 import { reduceEvents, type AiEvent } from './events.js';
 import { InMemoryPatchCommitLedger } from './kernel/commit-ledger.js';
+import { ProviderError } from './reliability/types.js';
 import { createAskUserGate, createPlanApprovalGate, createSteeringQueue } from './run-controls.js';
 import { DIMINISHING_RETURNS_TURNS, PLAN_APPROVAL_STEP_THRESHOLD } from './kernel/conductor.js';
 
@@ -1576,6 +1577,48 @@ describe('streamAgent', () => {
     expect(events.some((e) => e.type === 'error' && /network exploded/.test(e.message))).toBe(true);
     expect(events.some((e) => e.type === 'reasoning' && e.done)).toBe(true);
     expect(events.at(-1)).toMatchObject({ type: 'status', status: 'failed' });
+  });
+
+  it('offers a retry only when the failure is actually transient', async () => {
+    // The captured run ended on `openrouter API error 403: Key limit exceeded (total
+    // limit)` — a quota wall, classified `auth`, permanent by construction — and the
+    // card still said "Retryable: true", inviting the editor to re-run a request that
+    // could not succeed until they changed something outside the app. `settle` was
+    // hardcoding `retryable: true` for every throw, re-guessing a classification
+    // ProviderError derives exactly once so downstream code does not have to.
+    const throwing = (error: unknown): AiProvider =>
+      new (class implements AiProvider {
+        public readonly name = 'mock' as const;
+        public async complete(): Promise<AiResponse> {
+          throw error;
+        }
+      })();
+
+    const permanent = await drain(
+      new Orchestrator(
+        throwing(new ProviderError('openrouter API error 403: Key limit exceeded', 'auth')),
+      ).streamAgent(input, opts()),
+    );
+    expect(permanent.find((e) => e.type === 'error')).toMatchObject({
+      message: expect.stringContaining('Key limit exceeded'),
+      retryable: false,
+    });
+    expect(permanent.at(-1)).toMatchObject({ status: 'failed' });
+
+    // A transient one still offers the retry it always did.
+    const transient = await drain(
+      new Orchestrator(
+        throwing(new ProviderError('openrouter API error 529: overloaded', 'overloaded')),
+      ).streamAgent(input, opts()),
+    );
+    expect(transient.find((e) => e.type === 'error')).toMatchObject({ retryable: true });
+
+    // And an unclassified throw keeps the optimistic default: with nothing to go on,
+    // offering a retry beats refusing one that might have worked.
+    const unknown = await drain(
+      new Orchestrator(throwing(new Error('network exploded'))).streamAgent(input, opts()),
+    );
+    expect(unknown.find((e) => e.type === 'error')).toMatchObject({ retryable: true });
   });
 
   it('settles with a generic message when a non-Error value is thrown mid-run', async () => {
