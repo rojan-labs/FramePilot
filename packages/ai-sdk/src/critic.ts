@@ -515,6 +515,57 @@ function landscapeAssetIds(project: Project): ReadonlySet<string> {
   return ids;
 }
 
+/**
+ * The ids of PICTURE assets whose pixel dimensions nobody probed.
+ *
+ * Built for the same reason and in the same shape as {@link landscapeAssetIds}: one pass
+ * over the bin, not a `find` per clip (see `critic-scale.test.ts`).
+ *
+ * Audio is excluded — it has no shape, so its absence is not a gap.
+ */
+function unmeasuredAssetIds(project: Project): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const asset of project.assets) {
+    if (asset.kind === 'audio') continue;
+    const { width, height } = asset.media ?? {};
+    if (typeof width !== 'number' || typeof height !== 'number') ids.add(asset.id);
+  }
+  return ids;
+}
+
+/**
+ * Picture whose measured aspect does not match the output frame's.
+ *
+ * The remainder after the landscape case: a 4:5 still in a 9:16 sequence is portrait, is
+ * measured, and still renders with bars, because `_place_video_clip` fits whatever aspect
+ * it is given. It is not FAILED like the landscape case — padding a 4:5 photo is a real
+ * editorial choice, and a run that made it should not be stopped — but it must not be
+ * reported as reframing that was checked and found correct either.
+ */
+function aspectMismatchClipIds(project: Project, picture: readonly Clip[]): readonly string[] {
+  const target = project.resolution.width / project.resolution.height;
+  const aspects = new Map<string, number>();
+  for (const asset of project.assets) {
+    const { width, height } = asset.media ?? {};
+    if (typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0) {
+      aspects.set(asset.id, width / height);
+    }
+  }
+  return picture
+    .filter((clip) => {
+      const aspect = aspects.get(clip.assetId);
+      return aspect !== undefined && Math.abs(aspect - target) > 1e-3;
+    })
+    .map((clip) => clip.id);
+}
+
+/** Up to three ids and then a count, the phrasing every naming detail here uses. */
+function namedIds(ids: readonly string[]): string {
+  const named = ids.slice(0, 3);
+  const rest = ids.length - named.length;
+  return `${named.join(', ')}${rest > 0 ? `, plus ${String(rest)} more` : ''}`;
+}
+
 /** A merged, ascending list of the spans picture occupies. */
 function pictureSpans(project: Project): readonly { start: number; end: number }[] {
   const sorted = [...pictureClips(project)]
@@ -920,8 +971,11 @@ function checkTreatmentCoverage(project: Project, options: CritiqueOptions): Cri
  * render will produce, because `_place_video_clip` fits rather than covers. That is a
  * failure, and it names the clips.
  *
- * An unmeasured project keeps the old warning: absent dimensions mean unknown, and failing
- * a run over a shape nobody measured would be worse than the gap it closes.
+ * An unmeasured project still only warns — absent dimensions mean unknown, and failing a
+ * run over a shape nobody measured would be worse than the gap it closes — but it now says
+ * that the measurement is what is missing. The old warning read as a check that had run and
+ * found the framing acceptable, which is how a pillarboxed talking head shipped under
+ * `"passed": true` with one advisory line at the end of the run.
  */
 function checkReframeCoverage(project: Project): CriticCheck {
   const picture = pictureClips(project);
@@ -943,25 +997,54 @@ function checkReframeCoverage(project: Project): CriticCheck {
     const landscapeIds = landscapeAssetIds(project);
     const landscape = picture.filter((clip) => landscapeIds.has(clip.assetId));
     if (landscape.length > 0) {
-      const named = landscape.slice(0, 3).map((clip) => clip.id);
-      const rest = landscape.length - named.length;
       return check(
         'reframe_coverage',
         'Reframing is consistent',
         'fail',
         `${String(landscape.length)} of ${String(picture.length)} picture clips use a ` +
           `landscape source in a ${String(width)}x${String(height)} portrait frame with no ` +
-          `crop, so they render with black bars: ${named.join(', ')}` +
-          `${rest > 0 ? `, plus ${String(rest)} more` : ''}. Crop each to fill the frame.`,
+          `crop, so they render with black bars: ` +
+          `${namedIds(landscape.map((clip) => clip.id))}. Crop each to fill the frame.`,
+      );
+    }
+    // Nothing measured, or not everything. The old text here — "any landscape source will
+    // render with black bars … if that is not intended" — described a check that had run,
+    // and it had not: with the dimensions absent this branch knows nothing about the
+    // framing at all. A talking-head run read that warning at the very end of its work,
+    // over a pillarboxed 1080x1920 export, under `"passed": true`. Say which of the two
+    // situations this is.
+    const unmeasuredIds = unmeasuredAssetIds(project);
+    const unmeasured = picture.filter((clip) => unmeasuredIds.has(clip.assetId));
+    if (unmeasured.length > 0) {
+      return check(
+        'reframe_coverage',
+        'Reframing is consistent',
+        'warn',
+        `Not checked: ${String(unmeasured.length)} of ${String(picture.length)} picture ` +
+          `clips use a source whose pixel dimensions were never measured, so whether they ` +
+          `fill the ${String(width)}x${String(height)} portrait frame or letterbox in it is ` +
+          `unknown — ${namedIds(unmeasured.map((clip) => clip.id))}. No clip is reframed. ` +
+          'Look at a rendered frame before treating the framing as correct.',
+      );
+    }
+    const mismatched = aspectMismatchClipIds(project, picture);
+    if (mismatched.length > 0) {
+      return check(
+        'reframe_coverage',
+        'Reframing is consistent',
+        'warn',
+        `${String(mismatched.length)} of ${String(picture.length)} picture clips use a ` +
+          `measured source whose aspect differs from the ${String(width)}x${String(height)} ` +
+          `frame, so they render with bars unless that is intended: ` +
+          `${namedIds(mismatched)}. Crop them to fill the frame if it is not.`,
       );
     }
     return check(
       'reframe_coverage',
       'Reframing is consistent',
-      'warn',
-      `No clip is reframed in a ${String(width)}x${String(height)} portrait frame — any ` +
-        'landscape source will render with black bars. Crop each shot to fill the frame if ' +
-        'that is not intended.',
+      'pass',
+      `No clip needs reframing: every picture source is measured and matches the ` +
+        `${String(width)}x${String(height)} frame.`,
     );
   }
   if (reframed.length === picture.length) {

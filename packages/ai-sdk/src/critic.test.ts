@@ -331,12 +331,15 @@ describe('reframe coverage', () => {
     ).toMatchObject({ status: 'pass' });
   });
 
-  it('warns — never fails — when a portrait frame has no reframing at all', () => {
-    // Might be a same-aspect edit that needs none; the project does not carry each asset's
-    // pixel dimensions, so this cannot be settled, only raised.
+  it('warns — never fails — when a portrait frame has no reframing and no measurements', () => {
+    // Might be a same-aspect edit that needs none: with the sources unmeasured this cannot
+    // be settled, only raised. The warning has to say THAT, though. Its old text ("any
+    // landscape source will render with black bars … if that is not intended") described a
+    // framing check that had run; none had.
     const found = critique(verticalCut(10, 0), {}).checks.find((c) => c.id === 'reframe_coverage');
     expect(found).toMatchObject({ status: 'warn' });
-    expect(found?.detail).toContain('black bars');
+    expect(found?.detail).toContain('Not checked');
+    expect(found?.detail).toContain('never measured');
   });
 
   it('says nothing about an uncropped landscape edit', () => {
@@ -963,21 +966,41 @@ describe('reframe_coverage with measured sources', () => {
     expect(report.ok).toBe(false);
   });
 
-  it('says nothing when the source is already portrait', () => {
-    expect(
-      idOf(
-        critique(portraitProjectOf({ width: 1080, height: 1920 }), { minShotCount: 2 }),
-        'reframe_coverage',
-      ),
-    ).toMatchObject({ status: 'warn' });
+  it('PASSES when the source is measured and already matches the frame', () => {
+    // Used to warn. A warning here claimed doubt the check did not have: every source is
+    // measured, every one matches 1080x1920, and there is nothing to crop. Reserving the
+    // warning for the genuinely unknown case is what makes it worth reading.
+    const found = idOf(
+      critique(portraitProjectOf({ width: 1080, height: 1920 }), { minShotCount: 2 }),
+      'reframe_coverage',
+    );
+    expect(found).toMatchObject({ status: 'pass' });
+    expect(found?.detail).toContain('every picture source is measured');
   });
 
-  it('keeps the old warning when nothing was measured', () => {
+  it('warns when a measured source is portrait but a DIFFERENT portrait aspect', () => {
+    // 4:5 in 9:16 still letterboxes — the renderer fits whatever aspect it is given. Not a
+    // failure (padding a 4:5 still is a real choice), but not a clean pass either.
+    const found = idOf(
+      critique(portraitProjectOf({ width: 1080, height: 1350 }), { minShotCount: 2 }),
+      'reframe_coverage',
+    );
+    expect(found).toMatchObject({ status: 'warn' });
+    expect(found?.detail).toContain('aspect differs');
+    expect(found?.detail).toContain('p_1, p_2');
+  });
+
+  it('warns that the MEASUREMENT is missing when nothing was measured', () => {
     // Absent dimensions mean unknown. Failing a run over a shape nobody probed would be
-    // worse than the gap this closes.
-    expect(
-      idOf(critique(portraitProjectOf(undefined), { minShotCount: 2 }), 'reframe_coverage'),
-    ).toMatchObject({ status: 'warn' });
+    // worse than the gap this closes — but the warning must name the gap, not imply the
+    // framing was inspected and accepted.
+    const found = idOf(
+      critique(portraitProjectOf(undefined), { minShotCount: 2 }),
+      'reframe_coverage',
+    );
+    expect(found).toMatchObject({ status: 'warn' });
+    expect(found?.detail).toContain('Not checked: 2 of 2 picture clips');
+    expect(found?.detail).toContain('p_1, p_2');
   });
 });
 

@@ -71,7 +71,31 @@ export type ModelAsset = Omit<Asset, 'media' | 'source'> & {
   readonly orientation?: 'landscape' | 'portrait' | 'square';
   /** Width ÷ height, rounded to three places. Omitted with `orientation`. */
   readonly aspect?: number;
+  /**
+   * Present, and only ever `'unmeasured'`, for PICTURE whose pixel dimensions nobody
+   * probed — the honest counterpart to the two fields above.
+   *
+   * WHY a field for an absence. Omitting `orientation` was already the rule (never guess a
+   * shape), but an omission is not a statement: the model reads `{id, path, kind,
+   * durationSeconds}` and has nothing to be uncertain about. That silence is what disarmed
+   * both letterbox safeguards in the captured talking-head run — `letterboxNote` gates on
+   * `orientation` and `critic.ts#checkReframeCoverage`'s fail branch gates on measured
+   * dimensions, so an unprobed asset turned both off and the run reported success over a
+   * pillarboxed 1080x1920 export.
+   *
+   * Only picture carries it. Audio has no shape, so a missing one there is not a gap.
+   */
+  readonly shape?: 'unmeasured';
 };
+
+/**
+ * The kinds that HAVE a shape.
+ *
+ * Audio is excluded deliberately: flagging a music bed as "unmeasured" would put a
+ * meaningless word on every asset in a bin and teach the model to ignore the field
+ * on the assets where it matters.
+ */
+const PICTURE_KINDS: ReadonlySet<Asset['kind']> = new Set<Asset['kind']>(['video', 'image']);
 
 /** Landscape, portrait or square — or `undefined` when the asset was never probed. */
 function shapeOf(
@@ -95,7 +119,9 @@ export function toModelAsset(asset: Asset): ModelAsset {
   return {
     ...rest,
     ...(source?.attributionRequired === true ? { attributionRequired: true } : {}),
-    ...(shape ?? {}),
+    // Measured shape, or an explicit statement that nobody measured it. Never both, and
+    // never neither for picture — see `ModelAsset.shape`.
+    ...(shape ?? (PICTURE_KINDS.has(asset.kind) ? { shape: 'unmeasured' as const } : {})),
   };
 }
 

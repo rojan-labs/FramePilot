@@ -173,27 +173,55 @@ function organizeByKind(ctx: ToolContext): ProjectOperation[] {
  * answer is a join the model cannot make on its own: it needs each asset's shape AND the
  * project's frame, and before schema v21 it had neither.
  *
- * Says nothing when the frame is not portrait (a landscape source in a landscape sequence
- * is the ordinary case) or when nothing has been probed — silence is the honest reading of
- * "unknown", and a warning about assets whose shape nobody measured would be noise.
+ * Says nothing when the frame is not portrait — a landscape source in a landscape
+ * sequence is the ordinary case.
+ *
+ * It no longer says nothing when the bin is UNMEASURED, and that reversal is the point.
+ * Silence was chosen as "the honest reading of unknown", but silence is not read as
+ * uncertainty — it is read as *fine*. In the captured talking-head run every asset was
+ * unprobed, so this note stayed quiet, the Critic's geometric branch stayed quiet, and a
+ * landscape speaker was exported pillarboxed into a 1080x1920 frame under a `"passed":
+ * true`. Unknown is now stated as unknown, which is a different sentence from the measured
+ * one and asks for a different action.
  */
 export function letterboxNote(
   assets: readonly ModelAsset[],
   resolution: { readonly width: number; readonly height: number },
 ): string | undefined {
   if (resolution.height <= resolution.width) return undefined;
-  const mismatched = assets.filter((asset) => asset.orientation === 'landscape');
-  if (mismatched.length === 0) return undefined;
-  const named = mismatched.slice(0, 3).map((asset) => asset.id);
-  const rest = mismatched.length - named.length;
-  return (
-    `${String(mismatched.length)} of these are landscape in a ` +
-    `${String(resolution.width)}x${String(resolution.height)} portrait project — ` +
-    `${named.join(', ')}${rest > 0 ? `, plus ${String(rest)} more` : ''}. ` +
-    'Placed as they are they render with black bars above and below: the renderer fits ' +
-    'the source into the frame rather than filling it. Give each clip a set_clip_crop to ' +
-    'fill the frame, choosing the part of the picture that matters.'
-  );
+  const frame = `${String(resolution.width)}x${String(resolution.height)}`;
+  const landscape = assets.filter((asset) => asset.orientation === 'landscape');
+  const unmeasured = assets.filter((asset) => asset.shape === 'unmeasured');
+  if (landscape.length === 0 && unmeasured.length === 0) return undefined;
+
+  const sentences: string[] = [];
+  if (landscape.length > 0) {
+    sentences.push(
+      `${String(landscape.length)} of these are landscape in a ${frame} portrait project — ` +
+        `${idList(landscape)}. Placed as they are they render with black bars above and ` +
+        'below: the renderer fits the source into the frame rather than filling it. ' +
+        'add_clip and add_clips centre a fill crop on a measured landscape source when ' +
+        'they place one on a video track, so those land full-bleed; call set_clip_crop ' +
+        'afterwards to choose a different part of the picture, or set_clip_crop with ' +
+        'crop: null to keep the whole frame and accept the bars.',
+    );
+  }
+  if (unmeasured.length > 0) {
+    sentences.push(
+      `${String(unmeasured.length)} have not been measured — ${idList(unmeasured)}. Their ` +
+        `shape is unknown, so nothing here or in the review can tell you whether they fill ` +
+        `the ${frame} frame or letterbox in it, and no crop is applied automatically for ` +
+        'them. Look at a frame (get_frame) before you trust their framing.',
+    );
+  }
+  return sentences.join(' ');
+}
+
+/** Up to three ids, then a count — the same naming shape every note here uses. */
+function idList(assets: readonly ModelAsset[]): string {
+  const named = assets.slice(0, 3).map((asset) => asset.id);
+  const rest = assets.length - named.length;
+  return `${named.join(', ')}${rest > 0 ? `, plus ${String(rest)} more` : ''}`;
 }
 
 export const PROJECT_TOOLS: readonly ToolSpec[] = [
@@ -206,9 +234,10 @@ export const PROJECT_TOOLS: readonly ToolSpec[] = [
         'by kind (video/audio/image) and/or folderId — OMIT a filter you do not need ' +
         'rather than passing an empty value. Returns { assets, folders }, ' +
         'each asset as { id, path, kind, durationSeconds, folderId }, plus ' +
-        '`orientation`/`aspect` for picture the engine has measured — absent means ' +
-        'unmeasured, never square. A `letterbox` note names any landscape source in a ' +
-        'portrait project, which is the one thing you cannot work out from the ids.',
+        '`orientation`/`aspect` for picture the engine has measured, or ' +
+        '`shape: "unmeasured"` for picture whose size nobody probed — never assume ' +
+        'square. A `letterbox` note names any landscape source in a portrait project ' +
+        'and any unmeasured one, which is the one thing you cannot work out from the ids.',
     },
     listAssetsSchema,
     (a, ctx) => {
