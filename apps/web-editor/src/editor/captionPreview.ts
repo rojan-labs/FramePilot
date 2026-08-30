@@ -80,6 +80,14 @@ export function visibleWordIndices(
  * case- and punctuation-insensitive, so "Viral!" matches "viral". Before v11
  * there was no keyword list in the schema and this mode selected nothing, which
  * is why the editor's keyword chips never reached a render.
+ *
+ * A keyword may be a PHRASE ("stop scrolling"), which accents the whole run of
+ * consecutive words that speaks it. Emphasis is a unit of meaning, not a unit of
+ * tokenization: the phrases an editor actually wants to hit are frequently two
+ * or three words, and folding one to a single bare token ("stopscrolling") made
+ * it match nothing here and be rejected outright by `auto_emphasize_captions`.
+ * Longer phrases are matched first so an overlapping single word cannot claim
+ * part of a run and leave the emphasis half-applied.
  */
 export function accentWordIndices(
   words: readonly TranscriptWord[],
@@ -97,15 +105,46 @@ export function accentWordIndices(
   }
   if (mode === 'keywords') {
     if (keywords.length === 0) return EMPTY_INDICES;
-    const wanted = new Set(keywords.map(bareToken));
-    const matched = new Set<number>();
-    for (let i = 0; i < words.length; i += 1) {
-      if (wanted.has(bareToken(words[i]!.word))) matched.add(i);
-    }
-    return matched;
+    const tokens = words.map((word) => bareToken(word.word));
+    return accentRunIndices(tokens, keywords);
   }
   return EMPTY_INDICES;
 }
+
+/**
+ * Indices of every token covered by a keyword phrase, over already-bared tokens.
+ *
+ * Shared by the preview above and mirrored by the engine's `_accent_indices` and
+ * `auto_emphasize_captions`' grounding check, so a phrase the tool accepts is a
+ * phrase both renderers actually light up.
+ */
+export function accentRunIndices(
+  tokens: readonly string[],
+  keywords: readonly string[],
+): ReadonlySet<number> {
+  const phrases = keywords
+    .map((keyword) => keywordTokens(keyword))
+    .filter((phrase) => phrase.length > 0)
+    // Longest first: "stop scrolling" must win over a bare "stop" that would
+    // otherwise consume the first word and leave the second unaccented.
+    .sort((a, b) => b.length - a.length);
+  const matched = new Set<number>();
+  for (const phrase of phrases) {
+    for (let i = 0; i + phrase.length <= tokens.length; i += 1) {
+      if (phrase.every((part, offset) => tokens[i + offset] === part)) {
+        for (let offset = 0; offset < phrase.length; offset += 1) matched.add(i + offset);
+      }
+    }
+  }
+  return matched;
+}
+
+/** Split a keyword into the bare tokens it must match consecutively. */
+export const keywordTokens = (keyword: string): string[] =>
+  keyword
+    .split(/\s+/)
+    .map(bareToken)
+    .filter((token) => token !== '');
 
 const EMPTY_INDICES: ReadonlySet<number> = new Set<number>();
 

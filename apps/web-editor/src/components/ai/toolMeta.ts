@@ -137,6 +137,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   move_track: { label: 'Reorder track', Icon: ArrowLeftRight },
   add_text_layer: { label: 'Add text', Icon: Type },
   add_caption_layer: { label: 'Add captions', Icon: Captions },
+  caption_the_edit: { label: 'Captioning the edit', Icon: Captions },
   add_keyframes: { label: 'Add keyframes', Icon: SlidersHorizontal },
   punch_in: { label: 'Punch in', Icon: ZoomIn },
   apply_color_grade: { label: 'Color grade', Icon: Palette },

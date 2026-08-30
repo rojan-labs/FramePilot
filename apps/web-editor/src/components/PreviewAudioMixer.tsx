@@ -11,8 +11,12 @@
  *
  * Render-vs-preview (AGENTS.md invariant 4): this is *playback*, not media
  * compute — we only drive HTMLMediaElement `currentTime`/`volume`, never DSP.
- * The Python engine remains the sole renderer and the truth for the final mix
- * (fades/ducking/normalize); preview volume is the approximate live monitor.
+ * The Python engine remains the sole renderer. The volume it is handed, though,
+ * is the engine's own envelope sampled at the playhead (`previewClipVolume`):
+ * gain, fades and ducking. A monitor that played a ducked bed flat was loudest
+ * exactly where the render is quietest, which read to the editor as "the music
+ * is drowning my voice" about a mix that was already correct. Normalize and
+ * keyframed automation lanes remain engine-truth.
  *
  * Track solo (H0.4 J2) is folded in here too: it is session-local monitoring
  * state (never the project, never a patch — see `useTrackLayout.ts`), but it

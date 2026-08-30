@@ -183,6 +183,7 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   // --- mutateTool / projectMutateTool -------------------------------------------------
   add_asset: { role: 'mutation', scope: 'timeline_dependent' },
   add_caption_layer: { role: 'mutation', scope: 'timeline_dependent' },
+  caption_the_edit: { role: 'mutation', scope: 'timeline_dependent' },
   add_clip: { role: 'mutation', scope: 'timeline_dependent' },
   add_clips: { role: 'mutation', scope: 'timeline_dependent' },
   add_keyframes: { role: 'mutation', scope: 'timeline_dependent' },

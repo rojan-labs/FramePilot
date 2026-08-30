@@ -28,6 +28,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The AI captions a whole video in one step.** Asking for captions used to make the
+  assistant place every cue by hand, one call at a time — slow, and it kept mis-guessing
+  where a phrase should break. It now uses the same caption generator the Captions panel
+  has always used, so it segments the entire edit at once, skips speech you have cut, and
+  never runs a caption across a cut. Asking it to fix captions after you re-edit is the
+  same step: it re-derives them from the video as it stands now.
+
+- **Emphasis can be a phrase, not just a word.** "Make *stop scrolling* pop" now works —
+  the highlight covers both words. Previously only single words could be emphasised, and
+  asking for a phrase was refused even when you clearly said it.
+
 - **Export takes a custom video bitrate** when the quality tiers are not what you want. Leave it empty to follow the tier — the field shows you the number that tier is using.
 
 - **Clip right-click does more:** trim the start or end to the playhead, set a speed, add a transition at the cut, or reveal the clip in the media bin.
@@ -110,6 +121,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   matches nothing says so instead of looking broken. (`apps/web-editor`)
 
 ### Fixed
+
+- **The assistant no longer offers to retry something that cannot work.** When a run stopped
+  because an API key had hit its limit, the error still offered a Retry — which could only
+  fail again until the key itself was sorted out. Failures that are genuinely temporary
+  still offer it.
+
+- **The preview now plays your music at the level it will actually export at.** When music
+  is set to duck under your voice, the preview was playing it flat — loudest exactly where
+  the finished video is quietest. That made a correctly-mixed video sound like the music
+  was burying the narration, and led to the music being turned down for real to fix a
+  problem that only existed in the monitor. Fades are honoured in the preview now too.
 
 - **Beat-synced montages now cut on the beat, not on every loud moment.** Beat detection
   reports onsets — and music routinely puts loud events off the beat, so cuts were being

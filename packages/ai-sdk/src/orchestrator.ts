@@ -7508,16 +7508,27 @@ export class Orchestrator {
     // Reproduce the old loop's catch/finally: a provider call threw mid-run. An abort
     // that raced a non-streaming call (the up-front plan / repair `complete()`) is the
     // user's cancellation, not a failure — no error card, terminal `cancelled`. Any
-    // other throw surfaces a retryable error card and settles `failed`. Partial work is
+    // other throw surfaces an error card and settles `failed`. Partial work is
     // already represented by the per-turn diffs emitted before the throw (ADR 0056) —
     // no trailing combined diff. Seeded at `seqAtThrow()` so ids continue the sequence.
+    //
+    // Whether the card offers a retry comes from the error itself when it knows.
+    // `ProviderError.retryable` is derived once at classification time so that
+    // "downstream code never re-guesses it" — and this was downstream code
+    // re-guessing it, hardcoding `true` for everything. A captured run ended on
+    // `openrouter API error 403: Key limit exceeded (total limit)` — a quota wall
+    // classified `auth`, permanent by construction — and was still presented as
+    // retryable, inviting the editor to re-run a request that could not succeed
+    // until they changed something outside the app. An unrecognised throw keeps the
+    // optimistic default: without a classification, offering the retry is kinder
+    // than refusing one that might have worked.
     const settle = async function* (error: unknown): AsyncGenerator<AiEvent> {
       const emit = createTurnEmitter(options, seqAtThrow());
       const aborted = options.signal?.aborted ?? false;
       if (!aborted) {
         yield emit.error(
           error instanceof Error ? error.message : 'The agent run failed unexpectedly.',
-          { retryable: true },
+          { retryable: error instanceof ProviderError ? error.retryable : true },
         );
       }
       // C1: a run that threw mid-flight can still have spent real tokens (the classifier,

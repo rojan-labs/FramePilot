@@ -112,7 +112,67 @@ contaminated one. Same load, same estimator: **11.8x, 13.5x, 14.8x, 16.3x**, all
 exists to catch a change in shape (the version it was written against measured 67x), not to
 police millisecond drift. ai-sdk coverage gate still green (3687 pass, 94.46%).
 
-**Last updated:** 2026-08-28
+**Last updated:** 2026-08-30
+
+**Status snapshot (2026-08-30, runs `2d0b0395` / `145ec3f3` — the talking-head mission):**
+Two runs of the same end-to-end "cut my talking-head footage" prompt (`run.md`, `run1.md` at
+the repo root). One was **cancelled** by the editor after 36 model calls / 354,707 tokens
+produced almost no edit; the other **failed** on a provider key limit after 33 model calls /
+402,506 tokens and 315 applied edits, with the editor's own verdict: *"no proper caption
+handling creative way with emphasis / and also the background music is so loud that my actual
+voice is not audible."* Three root causes are `[x]` fixed at source (PR #67):
+
+- `[x]` **Captioning had no bulk path.** 107 `add_caption_layer` calls for one 47 s video,
+  hand-segmenting ~35 cues and being rejected mid-run for >12-word spans and cues crossing a
+  cut; then a later cut made every cue stale and the only repair was to delete all 106 and
+  re-add them (190 more ops). `deriveCaptionCues` in editor-core already did all of this
+  correctly and idempotently — **only the web-editor UI could reach it.** New
+  `caption_the_edit` exposes it: one call captions the edit, and re-running it *is* the
+  repair path for what `verify_captions` reports. Measured: **107 tool calls → 1**, at
+  +369 tokens/request of tool description (17,795 → 18,164, read off the regenerated
+  goldens).
+- `[x]` **Emphasis could not name a phrase.** `auto_emphasize_captions` grounded keywords
+  against a *bag* of single spoken words and both renderers matched one bare token at a
+  time, so `"stop scrolling"` — plainly spoken — folded to `stopscrolling` and was rejected.
+  The model asked twice across two turns and was refused both times by a rule it could not
+  satisfy. Now grounded and rendered as a consecutive run over word ORDER, in parity across
+  all three sites (ai-sdk grounding, `accentRunIndices`, `_accent_indices`) per the
+  `captionStyle.ts` ↔ `captions.py` contract. +38 tokens/request.
+- `[x]` **The preview mixer lied about the mix.** It played every clip at flat gain, so a bed
+  authored *with* a duck was loudest exactly where the render is quietest — that is the
+  "music is drowning my voice" complaint, about a mix the render already had right. The agent
+  then cut the bed's clip gain to -16 dB: a destructive edit stacked on a working duck. A
+  monitor that lies does not just mislead the person, it teaches the agent to damage the
+  edit. `previewClipVolume` now samples the engine's own envelope (`fade_gain_at` ×
+  `duck_gain_at`, ramp included); tests assert the engine's own numbers to 9 dp.
+
+Two more from the same runs, also `[x]` fixed:
+
+- `[x]` **`get_project_state` was 91% transcript.** Measured on the cancelled run: 19,219 of
+  each payload's 21,000 characters were the word list — about a quarter of the model's whole
+  context window, for a 47-second video with 149 words — and the run read it **nine times**,
+  six of them returning byte-identical payloads. A ten-minute podcast would not have fit.
+  The same function already returns the media bin as a tally for exactly this reason;
+  `get_mapped_transcript` already returns the words windowed, and returns them as they play
+  *after* the edit. Transcript is now a tally too: ~21,000 chars → ~2,000, **~4,700 tokens
+  back per call, ~42,000 across that run**, at +19 tokens/request of description. Mirrored
+  key-for-key in the Python handler and pinned by literals in both suites.
+- `[x]` **A permanent failure was advertised as retryable.** The run died on
+  `openrouter API error 403: Key limit exceeded (total limit)` and the card said
+  "Retryable: true". A 403 is `auth`, which `isRetryableKind` calls permanent.
+  `ProviderError.retryable` is derived once at classification time precisely so
+  "downstream code never re-guesses it" — and `settle` was re-guessing it, hardcoding
+  `true` for every throw. It now reads the classification off the error; an unclassified
+  throw keeps the optimistic default.
+
+Still open from these runs, **not** addressed here: the novelty accounting that let the spin
+run on. `callNoveltyKey` produces a stable key for `get_project_state`, so the repeats were
+recognisable, but novelty is scored per TURN — one genuinely-new cheap read launders an
+accompanying re-read of unchanged state, and only four "that last look turned up nothing new"
+notices fired across ~40 redundant reads. Deliberately left alone: it is run-TERMINATION
+logic, and tightening it risks stopping runs early, which is a worse failure than a wasted
+read. The payload fix above removes most of the cost either way (a repeat now costs ~500
+tokens, not ~5,300).
 
 **Status snapshot (2026-08-28, run `bfb5c75b` memory spike):** `[x]` **Sourced assets were
 throwing away the proxy the engine had just built for them.** A 50+ clip nature montage

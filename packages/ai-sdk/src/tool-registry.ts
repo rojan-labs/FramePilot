@@ -37,6 +37,7 @@ import { createLogger } from '@framepilot/shared-types';
 // style / crop rect / blend-mode edits, so the tool arguments can NEVER drift from
 // the persisted data model they write (single source of truth, ADR 0045/0047/0048).
 import type { AnyOperation } from '@framepilot/editor-core';
+import type { TranscriptWord } from '@framepilot/timeline-schema';
 
 import type { ToolContext } from './tool-context.js';
 import { type ModelAsset, toModelProject } from './model-view.js';
@@ -205,6 +206,49 @@ function assetTally(assets: readonly ModelAsset[]): {
   };
 }
 
+/** How many words are previewed before the summary defers to the real read. */
+const TRANSCRIPT_PREVIEW_WORDS = 12;
+
+/**
+ * The transcript as a TALLY, for the same measured reason the bin is one.
+ *
+ * A captured run (`145ec3f3`) read `get_project_state` nine times; six of those
+ * returned byte-identical payloads, and 19,219 of each payload's 21,000 characters
+ * — **91%** — were the transcript. One read was consuming about a quarter of the
+ * model's whole context window, for a 47-second video with 149 words. A ten-minute
+ * podcast would not fit at all.
+ *
+ * `get_mapped_transcript` already returns the transcript, windowed, and returns it
+ * as it plays AFTER the edit — which is the version anything downstream should be
+ * reasoning about anyway. So this keeps the facts a reader of project state actually
+ * needs (is there a transcript, how long is the speech, what is it about) and names
+ * the call that returns the rest, exactly as {@link assetTally} does for the bin.
+ */
+function transcriptTally(transcript: readonly TranscriptWord[]): {
+  readonly words: number;
+  readonly startSeconds: number | null;
+  readonly endSeconds: number | null;
+  readonly preview: string;
+  readonly note: string;
+} {
+  const first = transcript[0];
+  const last = transcript[transcript.length - 1];
+  const preview = transcript
+    .slice(0, TRANSCRIPT_PREVIEW_WORDS)
+    .map((word) => word.word)
+    .join(' ');
+  return {
+    words: transcript.length,
+    startSeconds: first?.start ?? null,
+    endSeconds: last?.end ?? null,
+    preview: transcript.length > TRANSCRIPT_PREVIEW_WORDS ? `${preview}…` : preview,
+    note:
+      transcript.length === 0
+        ? 'This project has no transcript yet — call transcribe to create one.'
+        : 'Words are not listed here — call get_mapped_transcript for the transcript as it plays after your edits.',
+  };
+}
+
 // `list_assets` filters (all optional): narrow the bin to one media `kind` and/or a
 // single `folderId`. Mirrors the Python `ListAssetsArgs` so the schema-parity guard
 // stays green.
@@ -214,10 +258,12 @@ const readTools: ToolSpec[] = [
     {
       name: 'get_project_state',
       description:
-        'Return the current editable project state — settings, timeline, transcript, ' +
-        'markers, memory — without editor-only undo history. This is the live state for ' +
+        'Return the current editable project state — settings, timeline, markers, ' +
+        'memory — without editor-only undo history. This is the live state for ' +
         'the active session: read it here, not from project.fp.json on disk. The media ' +
-        'bin comes back as a TALLY, not a listing; call list_assets for the asset ids.',
+        'bin and the transcript come back as TALLIES, not listings; call list_assets ' +
+        'for the asset ids, and get_mapped_transcript for the words as they play after ' +
+        'your edits.',
     },
     noArgs,
     // The bin is summarised rather than listed, and the reason is measured. `list_assets`
@@ -229,8 +275,12 @@ const readTools: ToolSpec[] = [
     // project state actually needs — how much material there is, and of what kind — and
     // names the call that returns the rest.
     (_args, ctx) => {
-      const { assets, ...rest } = toModelProject(ctx.project);
-      return { ...rest, assetSummary: assetTally(assets) };
+      const { assets, transcript, ...rest } = toModelProject(ctx.project);
+      return {
+        ...rest,
+        assetSummary: assetTally(assets),
+        transcriptSummary: transcriptTally(transcript),
+      };
     },
   ),
   readTool(

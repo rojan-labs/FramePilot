@@ -183,7 +183,11 @@ describe('read tools', () => {
     // never enters the result/evidence/WAL path), and the bin is a TALLY rather than a
     // listing — `list_assets` returns the same array, and a run that calls both pays for
     // the ids twice (GAP-018).
-    const { assets: _assets, ...withoutAssets } = ctx.project;
+    // The transcript is a tally for the same reason (GAP-018 again, measured in run
+    // `145ec3f3`): it was 91% of this payload's characters, and the run re-read the
+    // whole thing nine times. `get_mapped_transcript` returns the words windowed, and
+    // as they play AFTER the edit.
+    const { assets: _assets, transcript: _transcript, ...withoutAssets } = ctx.project;
     expect(getTool('get_project_state')?.read?.({}, ctx)).toEqual({
       ...withoutAssets,
       history: [],
@@ -192,6 +196,27 @@ describe('read tools', () => {
         byKind: { video: 1 },
         note: 'Asset ids are not listed here — call list_assets for them.',
       },
+      transcriptSummary: {
+        words: 2,
+        startSeconds: 0,
+        endSeconds: 1,
+        preview: 'hello world',
+        note: 'Words are not listed here — call get_mapped_transcript for the transcript as it plays after your edits.',
+      },
+    });
+
+    // An empty transcript says so, and names the call that creates one, rather than
+    // reporting a zero the reader has to interpret.
+    const noTranscript = { ...ctx, project: { ...ctx.project, transcript: [] } };
+    expect(
+      (getTool('get_project_state')?.read?.({}, noTranscript) as { transcriptSummary: unknown })
+        .transcriptSummary,
+    ).toEqual({
+      words: 0,
+      startSeconds: null,
+      endSeconds: null,
+      preview: '',
+      note: 'This project has no transcript yet — call transcribe to create one.',
     });
     expect(getTool('get_timeline')?.read?.({}, ctx)).toBe(ctx.project.timeline);
     expect(getTool('get_transcript')?.read?.({}, ctx)).toBe(ctx.project.transcript);
@@ -708,8 +733,171 @@ describe('mutating tools — build valid operations', () => {
     ]);
     expect(getTool('add_caption_layer')?.description).toContain('ONE short');
     expect(getTool('add_caption_layer')?.description).toContain('never more than 12');
+    // The rejection names the bulk tool that would have avoided it: a model that
+    // over-reaches here should be steered to caption_the_edit, not left to guess
+    // its way through one hand-placed cue at a time.
     expect(() => build('add_caption_layer', { trackId: 'video_1', start: 0, end: 195.32 })).toThrow(
-      /one readable cue.*whole recording or song/,
+      /one readable cue.*caption_the_edit/,
+    );
+  });
+
+  it('caption_the_edit captions the whole edit in one call', () => {
+    // The gap this closes: a captured run spent 107 add_caption_layer calls
+    // hand-segmenting one 47s video, hit the >12-word and cross-boundary
+    // rejections doing it, and then — when a later cut made the cues stale —
+    // deleted all 106 and re-added them. deriveCaptionCues already did all of
+    // this correctly in editor-core; only the UI could reach it.
+    const withCaptionTrack = (captionClips: unknown[] = []): ToolContext => ({
+      project: makeProject({
+        transcript: [
+          { word: 'if', start: 0, end: 0.2 },
+          { word: 'you', start: 0.2, end: 0.4 },
+          { word: 'want', start: 0.4, end: 0.7 },
+          { word: 'to', start: 0.7, end: 0.9 },
+          { word: 'craft', start: 0.9, end: 1.3 },
+          { word: 'videos.', start: 1.3, end: 1.8 },
+          { word: 'here', start: 2.6, end: 2.9 },
+          { word: 'is', start: 2.9, end: 3.1 },
+          { word: 'how.', start: 3.1, end: 3.5 },
+        ],
+        timeline: {
+          tracks: [
+            {
+              id: 'video_1',
+              type: 'video',
+              clips: [
+                {
+                  id: 'clip_a',
+                  assetId: 'asset_1',
+                  trackId: 'video_1',
+                  start: 0,
+                  end: 6,
+                  sourceStart: 0,
+                  sourceEnd: 6,
+                  effects: [],
+                  keyframes: [],
+                },
+              ],
+            },
+            { id: 'caption_1', type: 'caption', clips: captionClips },
+          ],
+        },
+      }),
+      selection: { start: 1, end: 2 },
+    });
+
+    const tool = getTool('caption_the_edit');
+    if (!tool?.buildOps) throw new Error('no buildOps for caption_the_edit');
+    const operations = tool.buildOps({ trackId: 'caption_1' }, withCaptionTrack());
+
+    // One call, every cue — and more than one cue, which is the whole point.
+    const cues = operations.filter((op) => op.type === 'add_caption_layer');
+    expect(cues.length).toBeGreaterThan(1);
+    expect(operations.filter((op) => op.type === 'set_caption_cue')).toHaveLength(cues.length);
+    expect(operations.some((op) => op.type === 'delete_range')).toBe(false);
+
+    // Every cue stays inside the footage, runs forward, and never overlaps the
+    // one before it — the errors the hand-placed path kept being rejected for.
+    for (const cue of cues) {
+      expect(cue.start).toBeGreaterThanOrEqual(0);
+      expect(cue.end).toBeLessThanOrEqual(6);
+      expect(cue.end).toBeGreaterThan(cue.start);
+    }
+    for (let i = 1; i < cues.length; i += 1) {
+      expect(cues[i]!.start).toBeGreaterThanOrEqual(cues[i - 1]!.end - 1e-9);
+    }
+
+    // Each cue carries provenance, so a later edit can tell it went stale
+    // instead of leaving staleness to be assumed (ADR 0076).
+    for (const op of operations.filter((o) => o.type === 'set_caption_cue')) {
+      expect(op.captionCue.words.length).toBeGreaterThan(0);
+      expect(op.captionCue.source?.assetId).toBe('asset_1');
+    }
+
+    // The whole batch is one valid patch — one undo takes all of it back.
+    const result = validatePatch(
+      withCaptionTrack().project.timeline,
+      { operations },
+      { assetIds: ['asset_1'] },
+    );
+    expect(result.valid).toBe(true);
+  });
+
+  it('caption_the_edit clears existing cues back-to-front, so a re-run repairs', () => {
+    // Re-running IS the repair path for whatever verify_captions reports stale.
+    const captionClip = (id: string, start: number, end: number): unknown => ({
+      id,
+      assetId: '__caption__',
+      trackId: 'caption_1',
+      start,
+      end,
+      sourceStart: 0,
+      sourceEnd: end - start,
+      effects: [],
+      keyframes: [],
+    });
+    const ctxWithCues: ToolContext = {
+      project: makeProject({
+        timeline: {
+          tracks: [
+            {
+              id: 'video_1',
+              type: 'video',
+              clips: [
+                {
+                  id: 'clip_a',
+                  assetId: 'asset_1',
+                  trackId: 'video_1',
+                  start: 0,
+                  end: 6,
+                  sourceStart: 0,
+                  sourceEnd: 6,
+                  effects: [],
+                  keyframes: [],
+                },
+              ],
+            },
+            {
+              id: 'caption_1',
+              type: 'caption',
+              clips: [captionClip('old_1', 0, 0.5), captionClip('old_2', 0.5, 1)],
+            },
+          ],
+        },
+      }),
+      selection: { start: 1, end: 2 },
+    };
+
+    const operations = getTool('caption_the_edit')!.buildOps!(
+      { trackId: 'caption_1' },
+      ctxWithCues,
+    );
+    const clears = operations.filter((op) => op.type === 'delete_range');
+    expect(clears).toHaveLength(2);
+    // Back-to-front: each range must still be present in the timeline the
+    // validator replays against as the clears apply in order.
+    expect(clears[0]!.start).toBeGreaterThan(clears[1]!.start);
+    // And every clear precedes every re-add.
+    expect(operations.indexOf(clears[1]!)).toBeLessThan(
+      operations.findIndex((op) => op.type === 'add_caption_layer'),
+    );
+  });
+
+  it('caption_the_edit refuses an unknown track, a non-caption track, and no transcript', () => {
+    const tool = getTool('caption_the_edit');
+    if (!tool?.buildOps) throw new Error('no buildOps for caption_the_edit');
+    expect(() => tool.buildOps?.({ trackId: 'nope' }, ctx)).toThrow(/Unknown track/);
+    expect(() => tool.buildOps?.({ trackId: 'video_1' }, ctx)).toThrow(/not a caption track/);
+
+    const noTranscript: ToolContext = {
+      project: makeProject({
+        transcript: [],
+        timeline: { tracks: [{ id: 'caption_1', type: 'caption', clips: [] }] },
+      }),
+      selection: { start: 1, end: 2 },
+    };
+    expect(() => tool.buildOps?.({ trackId: 'caption_1' }, noTranscript)).toThrow(
+      /no transcript yet/,
     );
   });
 
@@ -1329,6 +1517,55 @@ describe('per-clip styling edits (schema v5–v8) — caption/speed/crop/blend',
         },
       },
     ]);
+  });
+
+  it('auto_emphasize_captions grounds a spoken phrase, and still rejects an unspoken one', () => {
+    // From a captured run: the editor says "make founders stop scrolling", the
+    // model asked to emphasise "stop scrolling", and grounding against a BAG of
+    // single words rejected it twice — a rule the model could not satisfy, over
+    // a phrase that is plainly spoken. Grounding follows word ORDER instead.
+    const tool = getTool('auto_emphasize_captions');
+    if (!tool?.buildOps) throw new Error('no buildOps for auto_emphasize_captions');
+    const spoken: ToolContext = {
+      project: makeProject({
+        transcript: [
+          { word: 'make', start: 0, end: 0.3 },
+          { word: 'founders', start: 0.3, end: 0.7 },
+          { word: 'stop', start: 0.7, end: 1 },
+          { word: 'scrolling', start: 1, end: 1.4 },
+        ],
+        timeline: {
+          fps: 30,
+          duration: 2,
+          tracks: [{ id: 'caption_1', type: 'caption', clips: [] }],
+        },
+      }),
+      selection: captionCtx.selection,
+    };
+
+    expect(tool.buildOps({ trackId: 'caption_1', keywords: ['stop scrolling'] }, spoken)).toEqual([
+      {
+        type: 'set_track_caption_style',
+        trackId: 'caption_1',
+        captionStyle: {
+          accent: {
+            mode: 'keywords',
+            keywords: ['stop scrolling'],
+            color: '#ffd60a',
+            fontScale: 1.18,
+          },
+        },
+      },
+    ]);
+
+    // Invented text is still refused, and so is a phrase whose words are all
+    // spoken but never consecutively — that is not a phrase the editor said.
+    expect(() =>
+      tool.buildOps?.({ trackId: 'caption_1', keywords: ['scrolling founders'] }, spoken),
+    ).toThrow(/not present in the caption text or transcript/);
+    expect(() =>
+      tool.buildOps?.({ trackId: 'caption_1', keywords: ['buy my course'] }, spoken),
+    ).toThrow(/not present in the caption text or transcript/);
   });
 
   it('auto_emphasize_captions rejects keywords with no letters/numbers, and duplicates', () => {

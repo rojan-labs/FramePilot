@@ -279,6 +279,60 @@ describe('audibleAudioClipsAt', () => {
     expect(byId.get('off')).toBe(0);
   });
 
+  it('ducks the bed under the sidechain track, matching the engine envelope', () => {
+    // The captured-run bug: a bed authored WITH a duck played flat in the
+    // monitor, so it was loudest exactly where the render is quietest. The
+    // editor heard the music drowning their voice and the agent then cut the
+    // bed's clip gain — damaging a mix the render already had right.
+    const ducked = (gainDb: number): Clip['effects'] => [
+      {
+        id: 'g',
+        type: 'audio_gain',
+        params: { gainDb, duckUnderTrackId: 'dialogue', duckAmountDb: -12 },
+        keyframes: [],
+      },
+    ];
+    const timeline: Timeline = {
+      tracks: [
+        { id: 'music', type: 'audio', clips: [audioClip('bed', 0, 20, ducked(0))] },
+        { id: 'dialogue', type: 'audio', clips: [audioClip('vo', 5, 10)] },
+      ],
+    };
+    const bedVolume = (t: number): number =>
+      audibleAudioClipsAt(timeline, assets, t).find((a) => a.clip.id === 'bed')!.volume;
+
+    // Well before the dialogue: unducked.
+    expect(bedVolume(2)).toBeCloseTo(1, 6);
+    // Fully inside it: down by the full -12 dB.
+    expect(bedVolume(7)).toBeCloseTo(dbToGain(-12), 6);
+    // Well after it: back up.
+    expect(bedVolume(15)).toBeCloseTo(1, 6);
+    // Mid-ramp. These are the engine's own numbers, read off
+    // `duck_gain_at(t, [(5, 10)], -12.0)` in framepilot_engine.audio.mixing —
+    // the point of the port is that the monitor agrees with the render, so the
+    // test compares against the render rather than against itself.
+    expect(bedVolume(4.925)).toBeCloseTo(0.6255943215754781, 9);
+    expect(bedVolume(7)).toBeCloseTo(0.251188643150958, 9);
+  });
+
+  it('applies fade in/out to the monitor volume', () => {
+    const faded: Clip['effects'] = [
+      {
+        id: 'g',
+        type: 'audio_gain',
+        params: { gainDb: 0, fadeInSeconds: 2, fadeOutSeconds: 2 },
+        keyframes: [],
+      },
+    ];
+    const timeline: Timeline = {
+      tracks: [{ id: 'a', type: 'audio', clips: [audioClip('bed', 0, 10, faded)] }],
+    };
+    const volume = (t: number): number => audibleAudioClipsAt(timeline, assets, t)[0]!.volume;
+    expect(volume(1)).toBeCloseTo(0.5, 6); // halfway up the fade in
+    expect(volume(5)).toBeCloseTo(1, 6); // full level between the fades
+    expect(volume(9)).toBeCloseTo(0.5, 6); // halfway down the fade out
+  });
+
   it('excludes muted tracks and video-clip (footage) audio', () => {
     const timeline: Timeline = {
       tracks: [

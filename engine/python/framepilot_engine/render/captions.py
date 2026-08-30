@@ -715,6 +715,11 @@ def _bare_token(token: str) -> str:
     return "".join(ch for ch in token.lower() if ch.isalnum())
 
 
+def _keyword_tokens(keyword: str) -> tuple[str, ...]:
+    """Split a keyword into the bare tokens it must match consecutively."""
+    return tuple(token for token in (_bare_token(part) for part in keyword.split()) if token)
+
+
 def _accent_indices(
     tokens: Sequence[str], mode: str, keywords: Sequence[str] = ()
 ) -> frozenset[int]:
@@ -725,6 +730,12 @@ def _accent_indices(
     punctuation-insensitively — before schema v11 there was no keyword list to
     compare against, so this mode was a documented no-op and the editor's
     keyword chips never reached a render (ADR 0071).
+
+    A keyword may be a PHRASE ("stop scrolling"), which accents the whole run of
+    consecutive tokens that speaks it: emphasis is a unit of meaning, not a unit
+    of tokenization. Longer phrases match first so an overlapping single word
+    cannot claim part of a run and leave the emphasis half-applied. Mirrors
+    ``accentRunIndices`` in the web preview's ``captionPreview.ts``.
     """
     if not tokens or mode == "none":
         return frozenset()
@@ -733,10 +744,17 @@ def _accent_indices(
     if mode == "longest-word":
         return frozenset({max(range(len(tokens)), key=lambda i: (len(tokens[i]), -i))})
     if mode == "keywords":
-        wanted = {_bare_token(k) for k in keywords if _bare_token(k)}
-        if not wanted:
+        phrases = [phrase for phrase in map(_keyword_tokens, keywords) if phrase]
+        if not phrases:
             return frozenset()
-        return frozenset(i for i, t in enumerate(tokens) if _bare_token(t) in wanted)
+        bared = [_bare_token(token) for token in tokens]
+        matched: set[int] = set()
+        for phrase in sorted(phrases, key=len, reverse=True):
+            span = len(phrase)
+            for i in range(len(bared) - span + 1):
+                if tuple(bared[i : i + span]) == phrase:
+                    matched.update(range(i, i + span))
+        return frozenset(matched)
     return frozenset()
 
 

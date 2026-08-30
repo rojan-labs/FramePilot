@@ -87,6 +87,36 @@ describe('accentWordIndices', () => {
     expect(indices(WORDS, 'keywords', [WORDS[2]!.word])).toEqual([2]);
   });
 
+  it('accents the whole run of words a phrase keyword speaks', () => {
+    // Emphasis is a unit of meaning, not of tokenization: "stop scrolling" is
+    // the phrase an editor wants to hit, and folding it to one bare token
+    // matched nothing here and was rejected outright by auto_emphasize_captions.
+    const words = [
+      { word: 'make', start: 0, end: 1 },
+      { word: 'founders', start: 1, end: 2 },
+      { word: 'stop', start: 2, end: 3 },
+      { word: 'scrolling', start: 3, end: 4 },
+    ];
+    expect(indices(words, 'keywords', ['stop scrolling'])).toEqual([2, 3]);
+    // Only consecutive words speak the phrase.
+    const split = [
+      { word: 'stop', start: 0, end: 1 },
+      { word: 'now', start: 1, end: 2 },
+      { word: 'scrolling', start: 2, end: 3 },
+    ];
+    expect(indices(split, 'keywords', ['stop scrolling'])).toEqual([]);
+  });
+
+  it('lets a longer phrase win over an overlapping bare word', () => {
+    const words = [
+      { word: 'stop', start: 0, end: 1 },
+      { word: 'scrolling', start: 1, end: 2 },
+      { word: 'and', start: 2, end: 3 },
+      { word: 'stop', start: 3, end: 4 },
+    ];
+    expect(indices(words, 'keywords', ['stop', 'stop scrolling']).sort()).toEqual([0, 1, 3]);
+  });
+
   it('matches keywords case- and punctuation-insensitively', () => {
     const words = [
       { word: 'Viral!', start: 0, end: 1 },
