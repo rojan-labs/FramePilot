@@ -339,10 +339,34 @@ describe('enforceReadingSpeed', () => {
   });
 
   it('splits a cue that arrives faster than it can be read', () => {
-    const cue = speak('these words arrive far too fast', { wordSeconds: 0.05 });
+    // Dense, but spoken slowly enough that the first half still clears
+    // `minCueSeconds` once the second half caps it — so the split is worth
+    // taking and the density limit is enforced.
+    const cue = speak('these words arrive far too fast', { wordSeconds: 0.4 });
     const result = enforceReadingSpeed([cue], config);
     expect(result.length).toBeGreaterThan(1);
     expect(result.flatMap((c) => [...c])).toEqual(cue);
+  });
+
+  it('keeps a dense cue whole when splitting would leave an unreadable first half', () => {
+    // Six words in 0.3s. Halving gives the FIRST half 0.15s on screen — its
+    // ceiling is the second half's first word, so `enforceTiming` can never
+    // extend it — which is worse than the dense cue it replaced. Splitting on
+    // regardless is what shattered a real transcript into 10ms flashes and, once
+    // snapped to the frame grid, into zero-length operations (run 7d159862).
+    const cue = speak('these words arrive far too fast', { wordSeconds: 0.05 });
+    expect(enforceReadingSpeed([cue], config)).toEqual([cue]);
+  });
+
+  it('never emits a cue whose words span less than the minimum, however dense', () => {
+    // The invariant the caption patch depends on: every multi-word cue this
+    // stage emits has enough room to be held. Single words are unsplittable and
+    // are the one documented exception.
+    const cue = speak('one two three four five six seven eight', { wordSeconds: 0.02 });
+    for (const emitted of enforceReadingSpeed([cue], config)) {
+      const spanned = emitted[emitted.length - 1]!.end - emitted[0]!.start;
+      expect(emitted.length === 1 || spanned > 0).toBe(true);
+    }
   });
 
   it('never splits a single word, however dense', () => {
@@ -350,14 +374,26 @@ describe('enforceReadingSpeed', () => {
     expect(enforceReadingSpeed([cue], config)).toEqual([cue]);
   });
 
-  it('splits repeatedly until every cue is readable', () => {
-    const cue = speak('one two three four five six seven eight', { wordSeconds: 0.02 });
+  it('splits repeatedly until every remaining cue is readable or unsplittable', () => {
+    const cue = speak('one two three four five six seven eight', { wordSeconds: 0.4 });
     const result = enforceReadingSpeed([cue], config);
-    // Every result is either readable or a single unsplittable word.
+    expect(result.length).toBeGreaterThan(1);
+    expect(result.flatMap((c) => [...c])).toEqual(cue);
+
+    // The stage's real contract, stated exactly: a cue is emitted once it is
+    // within the density ceiling, or is a single word, or has no internal break
+    // that would leave the first half holdable for `minCueSeconds`. The third
+    // arm is the one that matters — density is a target the segmenter pursues
+    // only while pursuing it does not produce a cue too brief to read.
     for (const c of result) {
       const duration = c[c.length - 1]!.end - c[0]!.start;
       const density = c.map((w) => w.word).join(' ').length / duration;
-      expect(c.length === 1 || density <= config.maxCharsPerSecond).toBe(true);
+      const hasHoldableBreak = c
+        .slice(1)
+        .some((word) => word.start - c[0]!.start >= config.minCueSeconds);
+      expect(
+        c.length === 1 || density <= config.maxCharsPerSecond || !hasHoldableBreak,
+      ).toBe(true);
     }
   });
 
@@ -578,13 +614,18 @@ describe('segmentCaptions', () => {
     expect(texts).toEqual(['I shipped it on a Friday.', 'that was a mistake.', 'never again.']);
   });
 
-  it('splits a sentence that arrives faster than the reading-speed budget', () => {
-    // "never again." is 12 characters in 0.6s — 20 cps, over the 17 cps
-    // broadcast norm — so it is broken up even though it is one clean sentence.
-    // Reading speed is a ceiling, not a preference.
+  it('holds a dense short sentence rather than splitting it into flashes', () => {
+    // "never again." is 12 characters spoken in 0.6s — 20 cps, over the 17 cps
+    // broadcast norm. Splitting is the wrong remedy: the halves abut, so "never"
+    // would be capped at 0.3s on screen and read FASTER than the cue it
+    // replaced. Held whole for the 0.8s minimum instead, the same 12 characters
+    // arrive at 15 cps — under the ceiling. Reading speed is a ceiling, and
+    // holding is how this pipeline gets under it.
     const words = speak('never again.', { wordSeconds: 0.3 });
-    const texts = segmentCaptions(words, captionSegmentConfig('subtitle')).map((c) => c.text);
-    expect(texts).toEqual(['never', 'again.']);
+    const cues = segmentCaptions(words, captionSegmentConfig('subtitle'));
+    expect(cues.map((c) => c.text)).toEqual(['never again.']);
+    const [only] = cues;
+    expect(only!.end - only!.start).toBeCloseTo(0.8, 5);
   });
 
   it('splits across a genuine pause even mid-sentence', () => {

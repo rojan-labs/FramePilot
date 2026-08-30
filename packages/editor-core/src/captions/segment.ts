@@ -469,6 +469,25 @@ export function packSegment(
  * CaptionSegmentConfig.minCueSeconds} by `enforceTiming`, and it keeps the
  * on-screen text short enough to take in at a glance.
  *
+ * That last claim is a **precondition, not a guarantee**, and it is the one this
+ * stage has to check itself. `enforceTiming` can only hold a cue up to where the
+ * next one starts; two halves of a split abut by construction, so the left half's
+ * ceiling *is* the right half's first word. Where the words are packed tight
+ * enough to trip the density limit in the first place, that ceiling is often
+ * milliseconds away, and the minimum can never be applied. Splitting regardless
+ * recurses until every fragment is a single word, and the output is a burst of
+ * unreadable flashes: on a real 149-word talking head this stage produced a cue
+ * reading "We" held for **10ms**, and 25 of 63 cues came out under the 0.5s
+ * minimum. Two of them were shorter than a video frame, which then collapsed to
+ * zero length when the operation was snapped to the frame grid and took the whole
+ * caption patch down with them (run 7d159862).
+ *
+ * So a split is only taken when both halves can actually be *held* for
+ * `minCueSeconds`. When they cannot, the dense cue is kept whole: text slightly
+ * above the reading-speed ceiling is read at a glance, whereas the same text torn
+ * into sub-frame fragments cannot be read at all. Density is a soft target;
+ * legibility is not.
+ *
  * A single word is never split — there is nothing to split — so this always
  * terminates.
  */
@@ -491,10 +510,20 @@ export function enforceReadingSpeed(
       continue;
     }
     // Halve at the best internal break rather than the midpoint, so the split
-    // still lands on a syntactic seam where one exists.
-    let bestIndex = Math.floor((cue.length - 1) / 2);
+    // still lands on a syntactic seam where one exists — but only ever at a
+    // break the left half can survive.
+    //
+    // A split point fixes the left half's display time for good: its ceiling is
+    // the right half's first word, and that is precisely the bound
+    // `enforceTiming` will hit later, so a left half that is already too short
+    // here can never be extended. (The right half inherits this cue's own
+    // ceiling and stays extensible, so it needs no bound.) Scoring holdable
+    // breaks only — rather than picking on linguistics and then vetoing — keeps
+    // a good-but-unholdable seam from suppressing a viable one further along.
+    let bestIndex = -1;
     let bestScore = -Infinity;
     for (let index = 0; index < cue.length - 1; index += 1) {
+      if (cue[index + 1]!.start - cue[0]!.start < config.minCueSeconds) continue;
       const balance = 1 - Math.abs((index + 1) / cue.length - 0.5) * 2;
       const score = breakQuality(cue, index) + PACK_FILL_WEIGHT * balance;
       if (score >= bestScore) {
@@ -502,6 +531,14 @@ export function enforceReadingSpeed(
         bestIndex = index;
       }
     }
+    // No break leaves a readable first half: keep the dense cue whole. Text a
+    // little over the reading-speed ceiling is still read at a glance; the same
+    // text torn into sub-minimum fragments is not read at all.
+    if (bestIndex < 0) {
+      result.push(cue);
+      continue;
+    }
+
     // Re-queue BOTH halves rather than accepting the first: a very dense run may
     // need splitting more than once, and the first half is not known to be
     // readable yet. Terminates because each half is strictly shorter than `cue`
