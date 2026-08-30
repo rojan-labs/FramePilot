@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { SCHEMA_VERSION } from '@framepilot/timeline-schema';
 import type { RendererBridge } from './bridge.js';
 import { newProject } from './project.js';
 import {
@@ -129,5 +130,52 @@ describe('loadBrowserProject / loadLastBrowserProject', () => {
 
   it('returns null from loadLastBrowserProject when no last id is set', () => {
     expect(loadLastBrowserProject(memStorage())).toBeNull();
+  });
+
+  it('stamps the schemaVersion envelope on every browser save', async () => {
+    // Without the envelope a stored project can never be migrated: the reader has no
+    // version to migrate FROM, so the next transforming migration silently drops the field
+    // it was meant to move. This was the one persistence path in the repo writing project
+    // state with no envelope at all.
+    const storage = memStorage();
+    await persistProject('', project, { bridge: null, storage });
+    const stored = JSON.parse(storage.getItem(`framepilot:project:${project.id}`)!) as {
+      schemaVersion?: number;
+    };
+    expect(stored.schemaVersion).toBe(SCHEMA_VERSION);
+  });
+
+  it('still opens a legacy blob written before the envelope existed', () => {
+    // The only writer of unversioned browser blobs is the previous version of this code,
+    // which always wrote the then-current shape — so it must keep opening, unchanged.
+    const storage = memStorage();
+    storage.setItem(`framepilot:project:${project.id}`, JSON.stringify(project));
+    expect(loadBrowserProject(project.id, storage)?.id).toBe(project.id);
+  });
+
+  it('refuses a stored project newer than this build rather than half-reading it', () => {
+    // Proves the migration chain is actually consulted on read: `safeParseProject` alone
+    // would have happily validated this against the current schema.
+    const storage = memStorage();
+    storage.setItem(
+      `framepilot:project:${project.id}`,
+      JSON.stringify({ schemaVersion: SCHEMA_VERSION + 1, ...project }),
+    );
+    expect(loadBrowserProject(project.id, storage)).toBeNull();
+  });
+
+  it('migrates a stored project written at an older schema version', () => {
+    const storage = memStorage();
+    storage.setItem(
+      `framepilot:project:${project.id}`,
+      JSON.stringify({ schemaVersion: 1, ...project }),
+    );
+    expect(loadBrowserProject(project.id, storage)?.id).toBe(project.id);
+  });
+
+  it('returns null for a stored JSON array (not a project document)', () => {
+    const storage = memStorage();
+    storage.setItem(`framepilot:project:arr`, '[1,2,3]');
+    expect(loadBrowserProject('arr', storage)).toBeNull();
   });
 });

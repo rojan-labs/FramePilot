@@ -6,7 +6,14 @@
  * so an interactive edit does not pay restart-serialization work merely to lift state into
  * App. The in-memory Project remains untouched.
  */
-import { type Project, safeParseProject } from '@framepilot/timeline-schema';
+import {
+  SCHEMA_VERSION,
+  migrateToCurrent,
+  safeParseProject,
+  serializeProject,
+  type Project,
+  type RawProject,
+} from '@framepilot/timeline-schema';
 import {
   DEFAULT_DURABLE_HISTORY_LIMITS,
   toPersistedHistory,
@@ -48,7 +55,9 @@ function safeLocalStorage(): Storage | null {
  * this package boundary just as Editor does when restoring it.
  */
 export function projectForPersistence(project: Project): Project {
-  const entries = (Array.isArray(project.history) ? project.history : []) as readonly HistoryEntry[];
+  const entries = (
+    Array.isArray(project.history) ? project.history : []
+  ) as readonly HistoryEntry[];
   const history = toPersistedHistory(
     { entries, cursor: entries.length },
     DURABLE_HISTORY_LIMITS,
@@ -86,7 +95,12 @@ export async function persistProject(
   const storage = options.storage !== undefined ? options.storage : safeLocalStorage();
   if (!storage) return { ok: false, error: 'No storage available to save the project.' };
   try {
-    storage.setItem(STORAGE_PREFIX + durableProject.id, JSON.stringify(durableProject));
+    // `serializeProject`, not a bare `JSON.stringify`: it stamps the `schemaVersion`
+    // envelope. Without it a stored browser project can never be MIGRATED — the reader has
+    // no version to migrate from — so the next transforming migration would silently drop
+    // the field it was meant to move, or refuse to open the project at all. This was the
+    // one persistence path in the repo writing project state with no envelope.
+    storage.setItem(STORAGE_PREFIX + durableProject.id, serializeProject(durableProject));
     storage.setItem(LAST_ID_KEY, durableProject.id);
     writeBrowserProjectMeta(durableProject.id, durableProject.name, storage);
     return { ok: true, path: `${BROWSER_PATH_PREFIX}${durableProject.id}`, desktop: false };
@@ -146,6 +160,22 @@ export function listBrowserProjectSummaries(
   return summaries.sort((a, b) => b.openedAt - a.openedAt || a.name.localeCompare(b.name));
 }
 
+/**
+ * Read a stored browser project THROUGH the migration chain.
+ *
+ * The reader used to hand the raw parse straight to `safeParseProject`, so a stored project
+ * was validated against the current schema and never migrated — the same gap the writer had.
+ *
+ * A blob with NO envelope is read as CURRENT rather than as v1. The only thing that ever
+ * wrote an unversioned browser blob is the previous version of the writer above, and it
+ * always wrote whatever shape was current at the time; running the full v1→v21 chain over
+ * one would put two transforming steps (v9→v10 caption presets, v11→v12 transcript
+ * attribution) over data they were never meant to see. Treating it as current is exactly
+ * what this reader already assumed, so no stored project changes meaning — while everything
+ * written from now on carries a version and migrates properly.
+ *
+ * @returns The migrated, validated project, or `null` if it is unreadable at any step.
+ */
 export function loadBrowserProject(
   id: string,
   storage: Storage | null = safeLocalStorage(),
@@ -159,7 +189,19 @@ export function loadBrowserProject(
   } catch {
     return null;
   }
-  const parsed = safeParseProject(data);
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return null;
+  const stored = data as RawProject;
+  const document =
+    stored.schemaVersion === undefined ? { ...stored, schemaVersion: SCHEMA_VERSION } : stored;
+  let migrated: RawProject;
+  try {
+    ({ raw: migrated } = migrateToCurrent(document));
+  } catch {
+    // Newer than this build, or a missing migration step. Both are "cannot open", which is
+    // the honest answer — far better than validating a shape we do not understand.
+    return null;
+  }
+  const parsed = safeParseProject(migrated);
   return parsed.success ? parsed.data : null;
 }
 

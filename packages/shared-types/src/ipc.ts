@@ -717,6 +717,17 @@ export interface AiStreamUserMemory {
  * Phase 3). Structurally the ai-sdk `ReferenceProfile`; validated by its zod schema in the
  * main process before it reaches the context builder.
  */
+/**
+ * References one turn may carry.
+ *
+ * Lives here, beside the wire type, because BOTH ends must agree on it. The host throws
+ * when a turn exceeds it (`parseReferences`), and the renderer derives the live set that
+ * has to fit — so a renderer holding a different number does not produce a warning, it
+ * produces a run that fails at the transport boundary with the composer already emptied
+ * and Retry replaying the same doomed set forever.
+ */
+export const MAX_REFERENCES_PER_TURN = 8;
+
 export interface AiStreamReferenceProfile {
   readonly id: string;
   readonly role:
@@ -1560,7 +1571,23 @@ export interface StockDownloadedAssetWire {
   /** The rendition actually fetched, so the UI can report what it got. */
   readonly width?: number;
   readonly height?: number;
+  /**
+   * Engine-derived media, shaped exactly like `AssetMedia` (a compile-time lockstep in
+   * `apps/desktop/electron/media/asset-media-client.ts` fails typecheck if it drifts).
+   */
   readonly media?: {
+    /**
+     * Source pixel dimensions (schema v21). Both or neither — half a shape is not a shape.
+     *
+     * Declared here because omitting them is what discarded them: `materialize()` rebuilds
+     * the media object field by field, so a field this type does not name cannot survive
+     * the wire no matter what the engine probed. Stock media is overwhelmingly 16:9, so
+     * every stock photo and video reached the project `unmeasured` — which is precisely the
+     * landscape-in-a-portrait-sequence case `list_assets`' letterbox note and the review's
+     * reframe check exist to catch, and both were disarmed by the absence.
+     */
+    readonly width?: number | null;
+    readonly height?: number | null;
     readonly proxyPath?: string | null;
     readonly peaks?: readonly number[] | null;
     readonly peaksPerSecond?: number | null;

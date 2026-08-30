@@ -5,11 +5,12 @@
  * Imports `node:fs`, so it is exposed only via the package's `./file` subpath and
  * never from the browser-safe barrel (`index.ts`).
  *
- * Writes are atomic: the JSON is written to a sibling temp file which is then
- * `rename`d over the target. `rename` is atomic on the same filesystem, so a
- * crash mid-write can never leave a half-written, unparseable project file.
+ * Writes are atomic AND durable: the JSON is written to a **process-unique** sibling temp
+ * file, fsynced, and then `rename`d over the target. `rename` is atomic on the same
+ * filesystem, so a crash mid-write can never leave a half-written, unparseable project
+ * file. See {@link writeProjectFile} for why each of those three words is load-bearing.
  */
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createLogger } from '@framepilot/shared-types';
 import type { Project } from './index.js';
@@ -148,7 +149,29 @@ export async function readProjectFile(path: string): Promise<Project> {
 }
 
 /**
+ * Monotonic counter making each in-flight write's temp file unique within this process.
+ *
+ * WHY not the pid alone: two overlapping writes to the same project would share one temp
+ * file, so the first `rename` consumes it and the second fails with ENOENT — and before
+ * that, their two `'w'` handles interleave into the same bytes, so the surviving rename
+ * can publish a MIXTURE of both projects. The pid covers the cross-process case (the MCP
+ * server edits the same file from a separate OS process — see `project-watcher.ts`); the
+ * counter covers concurrency inside one process. `main.ts#tempPathFor` already applies
+ * exactly this to the user-data stores; the project file — the one thing holding the
+ * user's work — was left on a fixed `.tmp` name.
+ */
+let atomicWriteSeq = 0;
+
+/**
  * Atomically write a project to disk as `project.fp.json`.
+ *
+ * Durable as well as atomic: the temp file is **fsynced before the rename**. `rename` orders
+ * metadata, not data, so without the sync a crash right after it can publish a correctly
+ * named but zero-length project. The Python writer has always done this and cites PRD §18.3
+ * (`engine/python/framepilot_engine/timeline/models.py`); the TS writer did not.
+ *
+ * A failed write or rename removes its own temp file rather than leaving a fragment beside
+ * the project.
  *
  * @param path - Absolute destination path.
  * @param project - A validated project.
@@ -156,7 +179,20 @@ export async function readProjectFile(path: string): Promise<Project> {
 export async function writeProjectFile(path: string, project: Project): Promise<void> {
   const text = serializeProject(project);
   await mkdir(dirname(path), { recursive: true });
-  const tempPath = `${path}.tmp`;
-  await writeFile(tempPath, text, 'utf8');
-  await rename(tempPath, path);
+  atomicWriteSeq += 1;
+  const tempPath = `${path}.${String(process.pid)}.${String(atomicWriteSeq)}.tmp`;
+  try {
+    const handle = await open(tempPath, 'w');
+    try {
+      await handle.writeFile(text, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await rename(tempPath, path);
+  } catch (error) {
+    // Never leave a partial temp file behind (mirrors the Python writer).
+    await rm(tempPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
