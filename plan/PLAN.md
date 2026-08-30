@@ -146,10 +146,33 @@ voice is not audible."* Three root causes are `[x]` fixed at source (PR #67):
   edit. `previewClipVolume` now samples the engine's own envelope (`fade_gain_at` ×
   `duck_gain_at`, ramp included); tests assert the engine's own numbers to 9 dp.
 
-Open from the same runs, **not** addressed here: the orchestration spin in `145ec3f3`
-(13 `recall_evidence`, 9 `get_project`, 6+6 timeline reads, four "that last look turned up
-nothing new" notices before the editor gave up), and the fact that a retryable provider 403
-ended a run holding 315 applied edits.
+Two more from the same runs, also `[x]` fixed:
+
+- `[x]` **`get_project_state` was 91% transcript.** Measured on the cancelled run: 19,219 of
+  each payload's 21,000 characters were the word list — about a quarter of the model's whole
+  context window, for a 47-second video with 149 words — and the run read it **nine times**,
+  six of them returning byte-identical payloads. A ten-minute podcast would not have fit.
+  The same function already returns the media bin as a tally for exactly this reason;
+  `get_mapped_transcript` already returns the words windowed, and returns them as they play
+  *after* the edit. Transcript is now a tally too: ~21,000 chars → ~2,000, **~4,700 tokens
+  back per call, ~42,000 across that run**, at +19 tokens/request of description. Mirrored
+  key-for-key in the Python handler and pinned by literals in both suites.
+- `[x]` **A permanent failure was advertised as retryable.** The run died on
+  `openrouter API error 403: Key limit exceeded (total limit)` and the card said
+  "Retryable: true". A 403 is `auth`, which `isRetryableKind` calls permanent.
+  `ProviderError.retryable` is derived once at classification time precisely so
+  "downstream code never re-guesses it" — and `settle` was re-guessing it, hardcoding
+  `true` for every throw. It now reads the classification off the error; an unclassified
+  throw keeps the optimistic default.
+
+Still open from these runs, **not** addressed here: the novelty accounting that let the spin
+run on. `callNoveltyKey` produces a stable key for `get_project_state`, so the repeats were
+recognisable, but novelty is scored per TURN — one genuinely-new cheap read launders an
+accompanying re-read of unchanged state, and only four "that last look turned up nothing new"
+notices fired across ~40 redundant reads. Deliberately left alone: it is run-TERMINATION
+logic, and tightening it risks stopping runs early, which is a worse failure than a wasted
+read. The payload fix above removes most of the cost either way (a repeat now costs ~500
+tokens, not ~5,300).
 
 **Status snapshot (2026-08-28, run `bfb5c75b` memory spike):** `[x]` **Sourced assets were
 throwing away the proxy the engine had just built for them.** A 50+ clip nature montage

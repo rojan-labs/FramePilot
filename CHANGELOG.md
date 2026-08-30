@@ -122,6 +122,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant no longer offers to retry something that cannot work.** When a run stopped
+  because an API key had hit its limit, the error still offered a Retry — which could only
+  fail again until the key itself was sorted out. Failures that are genuinely temporary
+  still offer it.
+
 - **The preview now plays your music at the level it will actually export at.** When music
   is set to duck under your voice, the preview was playing it flat — loudest exactly where
   the finished video is quietest. That made a correctly-mixed video sound like the music
