@@ -318,3 +318,70 @@ def test_asset_source_requires_the_attribution_flag_to_be_explicit() -> None:
                 ],
             }
         )
+
+
+def test_project_file_save_emits_no_nulls(tmp_path: Path) -> None:
+    """A file this writer produces must be one the TypeScript editor can open.
+
+    Pydantic serializes an unset optional as JSON ``null``. Most of the matching TS
+    fields are ``.optional()``, which accepts *absent* and rejects ``null`` — so before
+    ``exclude_none`` a saved project carried 12 such fields (``clip.speed``,
+    ``clip.crop``, ``clip.captionCue``, ``track.role``, ``timeline.revision``,
+    ``asset.folderId`` among them) and ``deserializeProject`` refused to open it.
+
+    Asserted as "no nulls at any depth" rather than by listing those 12: the failure is
+    a property of the CONVENTION, so a field added later must not be able to reintroduce
+    it without this going red.
+    """
+    project = Project.model_validate(
+        {
+            "id": "p",
+            "name": "P",
+            "fps": 30,
+            "resolution": {"width": 1920, "height": 1080},
+            "assets": [{"id": "a1", "path": "media/clip.mp4", "kind": "video"}],
+            "timeline": {
+                "tracks": [
+                    {
+                        "id": "t1",
+                        "type": "video",
+                        "clips": [
+                            {
+                                "id": "c1",
+                                "assetId": "a1",
+                                "trackId": "t1",
+                                "start": 0,
+                                "end": 5,
+                                "sourceStart": 0,
+                                "sourceEnd": 5,
+                            }
+                        ],
+                    }
+                ]
+            },
+        }
+    )
+    destination = tmp_path / "project.fp.json"
+    ProjectFile.save(project, destination)
+    document = json.loads(destination.read_text(encoding="utf-8"))
+
+    def null_paths(value: Any, path: str = "") -> list[str]:
+        if isinstance(value, dict):
+            return [
+                found
+                for key, item in value.items()
+                for found in (
+                    [f"{path}.{key}"] if item is None else null_paths(item, f"{path}.{key}")
+                )
+            ]
+        if isinstance(value, list):
+            return [
+                found
+                for index, item in enumerate(value)
+                for found in null_paths(item, f"{path}[{index}]")
+            ]
+        return []
+
+    assert null_paths(document) == []
+    # And it still loads back here, so dropping nulls did not cost the round trip.
+    assert ProjectFile.load(destination).id == "p"
