@@ -418,15 +418,15 @@ def _fully_nested_project() -> Project:
     )
     clip = Clip(
         id="c1",
-        assetId="a1",
-        trackId="t1",
+        asset_id="a1",
+        track_id="t1",
         start=0.0,
         end=2.0,
         effects=[Effect(id="fx-1", type="transform", keyframes=[keyframe])],
         keyframes=[keyframe],
         captionStyle=CaptionStyle(
             background=CaptionBackground(color="#000000"),
-            shadow=CaptionShadow(color="#000000", blur=0.1, offsetX=0.0, offsetY=0.0),
+            shadow=CaptionShadow(color="#000000", blur=0.1, offset_x=0.0, offset_y=0.0),
             highlight=CaptionHighlight(),
             animation=CaptionAnimation(
                 **{"in": CaptionAnimationPhase(type="fade", duration=0.2)},
@@ -438,9 +438,9 @@ def _fully_nested_project() -> Project:
         captionCue=CaptionCue(
             text="hello",
             words=[word],
-            source=CaptionCueSource(assetId="a1", clipId="c1", start=0.0, end=2.0),
+            source=CaptionCueSource(asset_id="a1", clip_id="c1", start=0.0, end=2.0),
         ),
-        speedRamp=[SpeedPoint(id="sp-1", sourceTime=0.0, rate=1.0)],
+        speedRamp=[SpeedPoint(id="sp-1", source_time=0.0, rate=1.0)],
         crop=CropRect(),
     )
     return Project(
@@ -453,10 +453,10 @@ def _fully_nested_project() -> Project:
                 media=AssetMedia(),
                 source=AssetSource(
                     provider="pexels",
-                    remoteId="1",
+                    remote_id="1",
                     license="pexels",
-                    attributionRequired=False,
-                    fetchedAt="2026-01-01T00:00:00Z",
+                    attribution_required=False,
+                    fetched_at="2026-01-01T00:00:00Z",
                 ),
             )
         ],
@@ -470,7 +470,7 @@ def _fully_nested_project() -> Project:
                     effectLayers=[
                         EffectLayer(
                             id="el-1",
-                            effectId="gaussian-blur",
+                            effect_id="gaussian-blur",
                             kind="blur-gaussian",
                             start=0.0,
                             end=1.0,
@@ -482,14 +482,14 @@ def _fully_nested_project() -> Project:
         ),
         transcript=[word],
         markers=[Marker(id="m1", time=1.0)],
-        angleGroups=[AngleGroup(id="g1", angles=[Angle(id="an1", assetId="a1")])],
+        angleGroups=[AngleGroup(id="g1", angles=[Angle(id="an1", asset_id="a1")])],
         capabilityPacks=[
             CapabilityPackPin(
                 id="tracking-lite",
                 version="1.0.0",
-                releaseDigest="sha256:0",
+                release_digest="sha256:0",
                 capabilities=["track"],
-                requiredFor="edit",
+                required_for="edit",
             )
         ],
     )
