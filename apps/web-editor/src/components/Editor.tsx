@@ -30,7 +30,7 @@ import { requestAiCaptionEmphasis } from '../editor/ai.js';
 import { withOrientation } from '../editor/orientation.js';
 import { selectionRange, webCodecsPreviewEligible } from '../editor/selectors.js';
 import { useSettings } from '../editor/useSettings.js';
-import { projectForAi } from '../editor/project-for-ai.js';
+import { projectForAi, restoreStrippedHistory } from '../editor/project-for-ai.js';
 import { Toolbar } from './Toolbar.js';
 import { TimelineView } from './TimelineView.js';
 import { WebCodecsPreviewPlayer } from './WebCodecsPreviewPlayer.js';
@@ -609,7 +609,7 @@ export function Editor({
     );
   }, [project, editor.state.playhead, editor.state.timeline, onOpenSettings]);
   const openTransitionLibrary = useCallback(() => setLeftTab('transitions'), []);
-  const aiProject = useMemo(
+  const aiFacingProject = useMemo(
     () => projectForAi(project, editor.state),
     [
       project,
@@ -621,26 +621,45 @@ export function Editor({
       editor.state.history,
     ],
   );
+  /**
+   * Re-hydrate what {@link projectForAi} stripped before an AI-derived project is lifted
+   * for persistence.
+   *
+   * The sidebar's memory writes, its "undo run", and its browser-mode apply path all
+   * derive their new Project from {@link aiFacingProject}, whose history is empty by
+   * design. Handed straight to `onProjectChange`, that empty history reached App's history
+   * differ as a transition from the user's real `[…]` to `[]` — an apparent undo of the
+   * whole session, whose inverses were then committed to disk while the on-screen timeline
+   * never moved. Nothing about the `Project`-typed prop made that visible at the call site,
+   * so the boundary that strips the history closes it here.
+   */
+  const handleAiProjectChange = useCallback(
+    (next: Project): void => {
+      onProjectChange?.(restoreStrippedHistory(next, project));
+    },
+    [onProjectChange, project],
+  );
   const aiSidebarEl = useMemo(
     () => (
       <AiSidebar
-        key={aiProject.id}
+        key={aiFacingProject.id}
         ref={aiSidebarRef}
-        project={aiProject}
+        project={aiFacingProject}
         {...(projectRevision === undefined ? {} : { projectRevision })}
         editor={editor}
         selectedEffectLayerIds={selectedEffectLayerIds}
         selectedKeyframes={selectedKeyframes}
         {...(sourceMonitorInteraction ? { sourceMonitor: sourceMonitorInteraction } : {})}
-        {...(onProjectChange ? { onProjectChange } : {})}
+        {...(onProjectChange ? { onProjectChange: handleAiProjectChange } : {})}
         {...(onOpenSettings ? { onOpenSettings: () => onOpenSettings('ai') } : {})}
         onReveal={onReveal}
       />
     ),
     [
       nonPlayheadKey,
-      aiProject,
+      aiFacingProject,
       projectRevision,
+      handleAiProjectChange,
       onProjectChange,
       onProjectCommit,
       onOpenSettings,
