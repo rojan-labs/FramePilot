@@ -13,7 +13,9 @@ an injectable :data:`framepilot_engine.media.ffmpeg.Runner`.
 
 from __future__ import annotations
 
+import logging
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -26,6 +28,8 @@ from framepilot_engine.media.ffmpeg import (
     run_logs,
 )
 from framepilot_engine.media.probe import inspect_media
+
+_log = logging.getLogger(__name__)
 
 # silencedetect emits its findings on stderr in this shape (order guaranteed:
 # a ``silence_start`` line, then a ``silence_end … | silence_duration …`` line):
@@ -42,6 +46,20 @@ DEFAULT_NOISE_FLOOR_DB = -30.0
 #: Default minimum gap length (seconds) to report — shorter dips are ignored so
 #: we surface real pauses, not inter-word micro-gaps.
 DEFAULT_MIN_SILENCE_SECONDS = 0.5
+#: The floor the engine always MEASURES at, whatever reporting threshold the caller
+#: asked for.
+#:
+#: WHY: ``silencedetect``'s ``d=`` is applied INSIDE ffmpeg, so asking for gaps ≥0.55s
+#: makes the decode itself incapable of reporting the 0.449s gaps that were there. The
+#: empty range list that comes back is empty *by construction*, and the agent read it as
+#: "this recording has no dead air" — then raised its threshold and abandoned the cut on a
+#: 49.8s take holding 10.65s of dead air across 56 gaps. Probing low and filtering in
+#: Python is the same single decode and keeps the absence explainable.
+SILENCE_PROBE_FLOOR_SECONDS = 0.1
+#: Float slack when comparing a measured span against a threshold. ffmpeg reports
+#: times to 5 decimals, so an exactly-at-threshold gap must not be lost to binary
+#: representation.
+_DURATION_EPS = 1e-6
 
 
 class SilentRange(BaseModel):
@@ -50,6 +68,94 @@ class SilentRange(BaseModel):
     start: float = Field(ge=0.0, description="Silence start time in seconds.")
     end: float = Field(ge=0.0, description="Silence end time in seconds.")
     duration: float = Field(ge=0.0, description="Silence length in seconds.")
+
+
+class SilenceMeasurement(BaseModel):
+    """What one silencedetect pass found, reported against a requested threshold.
+
+    ``ranges`` is the actionable answer (gaps at or over ``minSilenceSeconds``); the
+    remaining fields describe the gaps that fell BELOW it, which the caller would
+    otherwise have no way to distinguish from a recording with no dead air at all.
+
+    Serialized with camelCase aliases: both the ``/analyze-silence`` response and the
+    unified ``/analyze`` silence entry carry these fields to the TS orchestrator.
+    """
+
+    ranges: list[SilentRange] = Field(
+        default_factory=list, description="Silences at or over the requested threshold."
+    )
+    measured_count: int = Field(
+        default=0,
+        ge=0,
+        alias="measuredCount",
+        description="Every silence seen at the probe floor, including sub-threshold ones.",
+    )
+    longest_seconds: float = Field(
+        default=0.0,
+        ge=0.0,
+        alias="longestSeconds",
+        description="Longest measured silence in seconds (0 when nothing was measured).",
+    )
+    below_threshold_seconds: float = Field(
+        default=0.0,
+        ge=0.0,
+        alias="belowThresholdSeconds",
+        description="Total seconds of silence sitting in gaps shorter than the threshold.",
+    )
+    probe_floor_seconds: float = Field(
+        default=SILENCE_PROBE_FLOOR_SECONDS,
+        ge=0.0,
+        alias="probeFloorSeconds",
+        description="Shortest gap the measurement could see at all.",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+def summarize_silence(
+    measured: Sequence[SilentRange],
+    *,
+    min_silence_seconds: float,
+    probe_floor_seconds: float = SILENCE_PROBE_FLOOR_SECONDS,
+) -> SilenceMeasurement:
+    """Split a probe-floor measurement into the reportable ranges plus what sat below (pure).
+
+    Spans are compared as ``end - start`` rather than the reported ``duration``: that is
+    the quantity the TS cutter re-derives from the payload it receives, and the two must
+    agree on which gaps qualify or a range can clear the engine's filter and be silently
+    dropped by the consumer.
+
+    :param measured: Every silence the probe found, at ``probe_floor_seconds``.
+    :param min_silence_seconds: The threshold the caller actually asked to act on.
+    :param probe_floor_seconds: The floor the measurement ran at (reported back).
+    :returns: The filtered ranges plus the sub-threshold measurement.
+    """
+    kept: list[SilentRange] = []
+    longest = 0.0
+    below_seconds = 0.0
+    for span in measured:
+        length = span.end - span.start
+        longest = max(longest, length)
+        if length >= min_silence_seconds - _DURATION_EPS:
+            kept.append(span)
+        else:
+            below_seconds += length
+    _log.debug(
+        "silence summary: %d measured at floor %.2fs → %d at ≥%.2fs (longest %.3fs, %.2fs below)",
+        len(measured),
+        probe_floor_seconds,
+        len(kept),
+        min_silence_seconds,
+        longest,
+        below_seconds,
+    )
+    return SilenceMeasurement(
+        ranges=kept,
+        measured_count=len(measured),
+        longest_seconds=longest,
+        below_threshold_seconds=below_seconds,
+        probe_floor_seconds=probe_floor_seconds,
+    )
 
 
 def parse_silence_ranges(logs: str, *, total_duration: float | None = None) -> list[SilentRange]:

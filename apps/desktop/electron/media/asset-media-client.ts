@@ -15,6 +15,8 @@
  * without derived media (the timeline draws a skeleton) and surfaces a
  * non-blocking status, so a stopped engine never blocks bringing media in.
  */
+import type { StockDownloadedAssetWire } from '@framepilot/shared-types';
+import type { AssetMedia } from '@framepilot/timeline-schema';
 import type { ImportAssetRequest, ImportAssetResult } from '../ipc/contract.js';
 
 /**
@@ -32,6 +34,49 @@ import type { ImportAssetRequest, ImportAssetResult } from '../ipc/contract.js';
  * to this exact type is what makes that drift a compile error instead of a memory spike.
  */
 export type DerivedAssetMedia = Extract<ImportAssetResult, { ok: true }>;
+
+// ---------------------------------------------------------------------------
+// Compile-time lockstep: the wire media shapes vs. the persisted `AssetMedia`
+// ---------------------------------------------------------------------------
+
+/**
+ * WHY these assertions exist, and why HERE.
+ *
+ * Both wire types rebuild the media object field by field, so a field the wire type does
+ * not name cannot survive no matter what the engine probed — and nothing fails when one is
+ * forgotten. That is exactly how schema v21's `width`/`height` were added to `AssetMedia`,
+ * derived by the engine, forwarded by this client, and then silently discarded on both the
+ * import and the stock paths: `list_assets` could not warn that a landscape clip would
+ * letterbox in a vertical sequence, and the review's reframe check fell back to a generic
+ * warning instead of naming the clips.
+ *
+ * `@framepilot/shared-types` cannot import `@framepilot/timeline-schema` (the dependency
+ * runs the other way), so the check lives in a package that depends on both — the same
+ * placement, and the same `AssertTrue<...>` device, `packages/ai-sdk/src/run-contracts.ts`
+ * uses to pin `DurableRunMode`.
+ *
+ * KEY sets rather than full type equality: the wire types are `readonly` and permit `null`
+ * where the Zod-inferred type does not, so exact value equality would fail for reasons that
+ * are not drift. A missing or extra FIELD — the failure mode that actually loses data — is
+ * what this catches.
+ */
+type MediaKeys<T> = keyof NonNullable<T>;
+type MutuallyAssignable<Left, Right> = [Left] extends [Right]
+  ? [Right] extends [Left]
+    ? true
+    : false
+  : false;
+/** Fails to compile unless the two key unions are exactly equal. */
+type AssertTrue<T extends true> = T;
+
+/** Import path: `ImportAssetResult['media']` must name every `AssetMedia` field. */
+export type ImportAssetMediaLockstep = AssertTrue<
+  MutuallyAssignable<MediaKeys<DerivedAssetMedia['media']>, keyof AssetMedia>
+>;
+/** Stock path: `StockDownloadedAssetWire['media']` must name every `AssetMedia` field. */
+export type StockAssetMediaLockstep = AssertTrue<
+  MutuallyAssignable<MediaKeys<StockDownloadedAssetWire['media']>, keyof AssetMedia>
+>;
 
 /** Default thumbnail-frame count when the request omits one. */
 const DEFAULT_THUMBNAILS = 5;

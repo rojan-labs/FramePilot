@@ -77,6 +77,7 @@ import {
 import type { LucideIcon } from '../icons.js';
 import { Tooltip } from '../Tooltip.js';
 import { Markdown } from './Markdown.js';
+import { MessageAttachments } from './MessageAttachments.js';
 import { PlanStepMark } from './PlanStepMark.js';
 import { runStatusTone, toolStatusTone } from './statusTone.js';
 import { isToolAvailable, toolMeta } from './toolMeta.js';
@@ -305,7 +306,15 @@ function UserCopyMenu({
  * icon button (pointer users who spot it) and a right-click menu (pointer users who
  * reach for the OS habit instead) — both write the same untruncated `node.text`.
  */
-function UserMessage({ node }: { node: UserNode }): JSX.Element {
+function UserMessage({
+  node,
+  dismissedReferenceIds,
+  onDismissReference,
+}: {
+  node: UserNode;
+  dismissedReferenceIds?: readonly string[];
+  onDismissReference?: (attachmentId: string) => void;
+}): JSX.Element {
   const collapsible = userMessageNeedsCollapse(node.text);
   const [open, setOpen] = useState(false);
   const [menuTarget, setMenuTarget] = useState<UserCopyMenuTarget | null>(null);
@@ -335,6 +344,13 @@ function UserMessage({ node }: { node: UserNode }): JSX.Element {
         }}
       >
         <div className="ai-bubble--user-text">{node.text}</div>
+        {node.attachments !== undefined && node.attachments.length > 0 && (
+          <MessageAttachments
+            attachments={node.attachments}
+            {...(dismissedReferenceIds ? { dismissedIds: dismissedReferenceIds } : {})}
+            {...(onDismissReference ? { onDismiss: onDismissReference } : {})}
+          />
+        )}
         {collapsible && (
           <span className="ai-bubble--user-hint">{expanded ? 'Show less' : 'Show more'}</span>
         )}
@@ -1725,8 +1741,14 @@ export const EventNode = memo(function EventNode({
   fps,
   onRetryNotice,
   retryDisabled,
+  dismissedReferenceIds,
+  onDismissReference,
 }: {
   node: ViewNode;
+  /** Reference attachments the editor has taken out of force (user nodes only). */
+  dismissedReferenceIds?: readonly string[];
+  /** Stop using one of this message's attachments as a reference on later turns. */
+  onDismissReference?: (attachmentId: string) => void;
   onReveal?: RevealHandler;
   /** Answers the model's question (P12) — only a `tool` node can carry one. */
   onAnswer?: AnswerHandler;
@@ -1756,7 +1778,13 @@ export const EventNode = memo(function EventNode({
 }): JSX.Element {
   switch (node.kind) {
     case 'user':
-      return <UserMessage node={node} />;
+      return (
+        <UserMessage
+          node={node}
+          {...(dismissedReferenceIds ? { dismissedReferenceIds } : {})}
+          {...(onDismissReference ? { onDismissReference } : {})}
+        />
+      );
     case 'assistant':
       return <AssistantMessage node={node} />;
     case 'reasoning':

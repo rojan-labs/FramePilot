@@ -452,3 +452,42 @@ describe('a reference binds later turns until the tile is removed', () => {
     expect(turn3.prompt).not.toContain('median shot 1.1s');
   });
 });
+
+describe('carried ids across more than one generation', () => {
+  /**
+   * The `carried_` prefix was applied idempotently, which holds for exactly ONE
+   * generation. Run 1 mints `fact_1`; run 2 inherits it as `carried_fact_1` and mints its
+   * own `fact_1`; run 3 inherits both, leaves the first alone because it is already
+   * prefixed, and prefixes the second to the same string. Two different facts, one id —
+   * the same unsound-provenance failure the within-run counters were introduced to end,
+   * displaced across the run boundary. Only a THIRD run exposes it, which is why one
+   * generation of tests never did.
+   */
+  it('never mints the same id twice across three runs', () => {
+    const learn = (state: RunWorkingState, statement: string): RunWorkingState =>
+      recordFact(state, { kind: 'asset', statement, scope: 'revision_independent' });
+
+    const first = learn(previousRun(), 'run one learned this.');
+    const secondBase = learn(freshFor(), 'run two learned this.');
+    const second = carryForwardWorkingState(first, secondBase);
+    const thirdBase = learn(freshFor(), 'run three learned this.');
+    const third = carryForwardWorkingState(second, thirdBase);
+
+    const ids = third.facts.map((fact) => fact.id);
+    expect(new Set(ids).size, `duplicate ids: ${ids.join(', ')}`).toBe(ids.length);
+  });
+
+  it('advances the run’s own counters past everything it inherited', () => {
+    // Otherwise a record this run mints LATER lands on an inherited id — the collision
+    // moved one step further out rather than removed.
+    const carried = carryForwardWorkingState(previousRun(), freshFor());
+    const after = recordFact(carried, {
+      kind: 'asset',
+      statement: 'learned after the carry.',
+      scope: 'revision_independent',
+    });
+    const ids = after.facts.map((fact) => fact.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(after.minted.fact).toBeGreaterThanOrEqual(after.facts.length);
+  });
+});

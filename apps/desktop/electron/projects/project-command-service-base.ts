@@ -7,6 +7,7 @@
  * restart/external-file reconciliation remains exact.
  */
 import { parseProject, type Project } from '@framepilot/timeline-schema';
+import { isProjectFileConflictError } from '@framepilot/timeline-schema/file';
 import { createLogger } from '@framepilot/shared-types';
 import { createHash } from 'node:crypto';
 import {
@@ -269,7 +270,23 @@ export class ProjectCommandService {
           currentRevision: current.revision,
         };
       }
-      await write();
+      try {
+        await write();
+      } catch (error) {
+        // `expectedRevision` above is checked against THIS process's in-memory revision,
+        // which only learns of an external write ~120ms later, when the project watcher
+        // re-reads the file. The writer's own compare-and-swap is the only guard that sees
+        // the other OS process immediately, so its refusal has to survive as a refusal:
+        // log it with the project it protected, and let the caller decide (main.ts turns a
+        // thrown save into a typed IPC failure the renderer surfaces).
+        if (isProjectFileConflictError(error)) {
+          log.warn('project write refused — file changed underneath this process', {
+            projectId: project.id,
+            path: error.path,
+          });
+        }
+        throw error;
+      }
       const version = this.recordPersisted(project, false);
       await this.checkpoint();
       log.action('committed project revision', version);
@@ -368,6 +385,22 @@ export class ProjectCommandService {
         ...(rebased ? { conflictKind: 'disjoint_rebaseable' as const } : {}),
       };
     } catch (error) {
+      // A refused write is NOT an invalid patch: the patch validated against the project
+      // this process holds, and the file moved underneath it. `main.ts` already turns
+      // `revision_conflict` into a `stale` patch event telling the agent to replan from
+      // the current revision, which is exactly the recovery this needs.
+      //
+      // `currentRevision` is deliberately omitted: the in-memory revision did NOT advance
+      // (nothing was persisted), so returning it would invite the agent to retry at the
+      // same number against a file that has already moved on.
+      if (isProjectFileConflictError(error)) {
+        log.warn('project patch commit refused — file changed underneath this process', {
+          projectId,
+          patchId: patch.patchId,
+          path: error.path,
+        });
+        return { ok: false, code: 'revision_conflict', conflictKind: 'overlapping_replan' };
+      }
       log.warn('project patch commit failed validation/apply', {
         projectId,
         patchId: patch.patchId,

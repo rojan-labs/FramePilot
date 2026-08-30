@@ -25,6 +25,7 @@
  * nothing about the words that were spoken. Discarding the transcript because a cut
  * landed is what made the run pay for its reconnaissance over and over.
  */
+import type { OperationType, ProjectOperationType } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
 import type { FactScope } from './working-state.js';
 import { type ToolEvidenceScope, classifyTool, factScopeOf } from '../tool-classification.js';
@@ -54,15 +55,147 @@ export const EVIDENCE_PREVIEW_CHARS = 900;
  */
 export const EVIDENCE_RECALL_CHARS = 16_000;
 
+/**
+ * Every operation type a patch can carry. Imported from the engine's own union rather
+ * than restated, so the sets below are checked against the real operations: renaming or
+ * removing one in `editor-core` fails this file's typecheck instead of silently turning a
+ * cache policy into a lie.
+ */
+type AppliedOperationType = OperationType | ProjectOperationType;
+
 /** The operation type that rewrites the transcript (see `project-operations.ts`). */
 const TRANSCRIPT_OPERATION = 'set_transcript';
 
 /**
  * Operation types that change the media bin. Asset-derived evidence (`list_assets`)
- * survives every cut but not these — adding or removing an asset is the one thing that
- * makes a bin listing wrong.
+ * survives every cut but not these — adding, removing, or refiling an asset is what makes
+ * a bin listing wrong.
+ *
+ * This was `['add_asset', 'manage_assets']`. `manage_assets` is a TOOL name and never
+ * appears among applied operation types, and the real removal/refiling ops were missing
+ * entirely — so a `remove_asset` left a bin listing in the store that named an asset the
+ * project no longer had. Folder ops count too: `list_assets` reports where each asset is
+ * filed.
  */
-const ASSET_OPERATIONS: ReadonlySet<string> = new Set(['add_asset', 'manage_assets']);
+/**
+ * Every project operation, classified by whether it changes the bin.
+ *
+ * A `Record` over the union rather than a `Set` of the ones that matter, because the two
+ * arms of this file must fail the same way and a Set fails the wrong one. The timeline arm
+ * defaults an unrecognised operation to "changes everything" (see `facetsChangedBy`), so a
+ * new op type is safe until someone makes it cheap. An allowlist of bin-changing ops
+ * defaults the other way: a new one would simply not be in it, and a stale `list_assets`
+ * would be served naming assets the project no longer has — silently, and only for the
+ * tool whose whole job is to say what the bin contains.
+ *
+ * Exhaustive by type, so a new `ProjectOperation` fails this file's typecheck until it is
+ * classified. That is the point: the decision cannot be made by omission.
+ *
+ * This list was `['add_asset', 'manage_assets']` — `manage_assets` is a TOOL name that
+ * never appears among applied operation types, and every removal and refiling op was
+ * missing, so a `remove_asset` really did leave a bin listing in the store naming an asset
+ * that was gone.
+ */
+const PROJECT_OPERATION_BIN_EFFECT: Record<ProjectOperationType, 'bin' | 'inert'> = {
+  add_asset: 'bin',
+  remove_asset: 'bin',
+  move_asset: 'bin',
+  restore_assets: 'bin',
+  // `list_assets` reports where each asset is filed, so the folder tree is part of the
+  // listing it returns.
+  create_folder: 'bin',
+  rename_folder: 'bin',
+  move_folder: 'bin',
+  delete_folder: 'bin',
+  restore_folders: 'bin',
+  // The words spoken and the editor's remembered preferences are not the bin, and markers
+  // are timeline furniture — `get_timeline_summary` reports their count, which the
+  // timeline arm above already invalidates.
+  set_transcript: 'inert',
+  set_ai_memory: 'inert',
+  add_marker: 'inert',
+  remove_marker: 'inert',
+};
+
+const ASSET_OPERATIONS: ReadonlySet<string> = new Set<AppliedOperationType>(
+  Object.entries(PROJECT_OPERATION_BIN_EFFECT)
+    .filter(([, effect]) => effect === 'bin')
+    .map(([type]) => type as ProjectOperationType),
+);
+
+/**
+ * What a `timeline_dependent` payload can go stale AGAINST.
+ *
+ * `picture` — how a rendered frame at a given time LOOKS.
+ * `structure` — the track/clip listing: ids, positions, track set, counts.
+ *
+ * The split exists because one operation changes only the second, and it is the one an
+ * agent applies most casually.
+ */
+type TimelineFacet = 'picture' | 'structure';
+
+const BOTH_FACETS: readonly TimelineFacet[] = ['picture', 'structure'];
+
+/**
+ * Operations that change the timeline's SHAPE without changing any rendered frame.
+ *
+ * `add_layer` creates a track. An empty track composites to nothing, so every frame of
+ * the sequence renders identically before and after — but the track listing changes, so
+ * `get_timeline`/`get_timeline_summary` evidence must still go.
+ *
+ * WHY this matters: `invalidate` used to drop EVERY `timeline_dependent` entry on ANY
+ * applied patch, and `get_frame` is `timeline_dependent`. In one three-minute run the
+ * agent added three empty tracks and paid three extra frame renders (~1.2s each, plus the
+ * model turn around them) for pictures that had not changed by a single pixel.
+ *
+ * The caveat, stated because the type alone cannot express it: `AddLayerOp` may carry seed
+ * `clips`. Only `invertOperation` (the undo of a `remove_layer`) builds one that way, and
+ * undo does not route through this store; every forward producer in the repo creates an
+ * empty layer and pairs content with an `add_clip` in the SAME patch, whose presence marks
+ * the batch as picture-changing anyway.
+ */
+const STRUCTURE_ONLY_OPERATIONS: ReadonlySet<string> = new Set<AppliedOperationType>(['add_layer']);
+
+/**
+ * Operations that touch neither the picture nor the timeline listing.
+ *
+ * `set_ai_memory` writes `project.aiMemory` — the editor's durable preferences, injected
+ * straight into the prompt and returned by no read tool. A run that records a preference
+ * mid-edit was throwing away its entire reconnaissance to do it.
+ */
+const TIMELINE_INERT_OPERATIONS: ReadonlySet<string> = new Set<AppliedOperationType>([
+  'set_ai_memory',
+]);
+
+/**
+ * Which facets an applied operation can change.
+ *
+ * An operation type this file does not recognise — a new one in `editor-core`, or a
+ * string from a caller outside this repo — changes EVERYTHING. Cache-hit rate is worth
+ * nothing next to a stale frame shown to a model as the current state of the edit, so the
+ * default is the expensive one and a new operation has to be classified deliberately to
+ * become cheap.
+ */
+function facetsChangedBy(operationType: string): readonly TimelineFacet[] {
+  if (TIMELINE_INERT_OPERATIONS.has(operationType)) return [];
+  if (STRUCTURE_ONLY_OPERATIONS.has(operationType)) return ['structure'];
+  return BOTH_FACETS;
+}
+
+/**
+ * Reads whose payload is a rendered picture and nothing else. `get_frame` takes a
+ * timeline TIME and returns the composited still at it — it names no clip and no track,
+ * so nothing about the listing can make it wrong.
+ *
+ * Every other `timeline_dependent` read is assumed to depend on both facets, which is the
+ * conservative direction: worst case it is re-read.
+ */
+const PICTURE_ONLY_READS: ReadonlySet<string> = new Set(['get_frame']);
+
+/** Which facets a stored payload's correctness rests on. */
+function facetsNeededBy(source: string): readonly TimelineFacet[] {
+  return PICTURE_ONLY_READS.has(source) ? ['picture'] : BOTH_FACETS;
+}
 
 /**
  * How a tool's result behaves across project revisions.
@@ -138,8 +271,8 @@ function render(data: unknown): string {
 function recordsOf(data: unknown): unknown[] | undefined {
   if (Array.isArray(data)) return data;
   if (typeof data !== 'object' || data === null) return undefined;
-  const arrays = Object.values(data as Record<string, unknown>).filter((value): value is unknown[] =>
-    Array.isArray(value),
+  const arrays = Object.values(data as Record<string, unknown>).filter(
+    (value): value is unknown[] => Array.isArray(value),
   );
   return arrays.length > 0 ? arrays.flat() : undefined;
 }
@@ -301,19 +434,28 @@ export class EvidenceStore {
   /**
    * Invalidate what an applied patch actually changed, and nothing more (§3.7).
    *
-   * `appliedOperationTypes` are the operation types that just landed. Timeline-dependent
-   * evidence always goes; transcript- and asset-derived evidence goes only when the
-   * transcript was itself rewritten or the bin changed. Returns how many entries were
-   * dropped, for the observability record.
+   * `appliedOperationTypes` are the operation types that just landed, and every scope now
+   * consults them. Timeline-dependent evidence goes when the patch changed a facet that
+   * evidence rests on ({@link facetsChangedBy} vs {@link facetsNeededBy}); transcript- and
+   * asset-derived evidence goes when the transcript was rewritten or the bin changed.
+   * Returns how many entries were dropped, for the observability record.
+   *
+   * WHY the timeline arm reads the types at all: it used to drop every
+   * `timeline_dependent` entry on ANY applied patch, which charged a re-render of an
+   * unchanged frame to operations that cannot change one. An empty `appliedOperationTypes`
+   * — a mutating tool that legitimately had nothing to do — now correctly invalidates
+   * nothing, because nothing was applied.
    */
   public invalidate(appliedOperationTypes: readonly string[]): number {
     const transcriptRewritten = appliedOperationTypes.includes(TRANSCRIPT_OPERATION);
     const binChanged = appliedOperationTypes.some((type) => ASSET_OPERATIONS.has(type));
+    const changedFacets = new Set(appliedOperationTypes.flatMap(facetsChangedBy));
     let dropped = 0;
     for (const entry of [...this.byKey.values()]) {
       const scope = scopeOf(entry.source);
       const stale =
-        scope === 'timeline_dependent' ||
+        (scope === 'timeline_dependent' &&
+          facetsNeededBy(entry.source).some((facet) => changedFacets.has(facet))) ||
         (transcriptRewritten && scope === 'transcript_dependent') ||
         (binChanged && scope === 'asset_dependent');
       if (!stale) continue;
@@ -322,7 +464,13 @@ export class EvidenceStore {
       dropped += 1;
     }
     if (dropped > 0) {
-      log.debug('evidence invalidated', { dropped, kept: this.byKey.size });
+      // The facets are logged with the count because "why did my frame get re-rendered?"
+      // is unanswerable from the count alone.
+      log.debug('evidence invalidated', {
+        dropped,
+        kept: this.byKey.size,
+        facets: [...changedFacets].join(','),
+      });
     }
     return dropped;
   }

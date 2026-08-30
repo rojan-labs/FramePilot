@@ -23,6 +23,7 @@ import {
   segmentCaptions,
   splitIntoUtterances,
 } from './segment.js';
+import { secondsToFrame } from '../frame-grid.js';
 
 /**
  * Build words from a sentence at a fixed cadence. `gapAfter` injects a real
@@ -52,9 +53,7 @@ describe('captionSegmentConfig', () => {
   });
 
   it('defaults to the short-form preset', () => {
-    expect(captionSegmentConfig()).toEqual(
-      CAPTION_SEGMENT_PRESETS[DEFAULT_CAPTION_SEGMENT_PRESET],
-    );
+    expect(captionSegmentConfig()).toEqual(CAPTION_SEGMENT_PRESETS[DEFAULT_CAPTION_SEGMENT_PRESET]);
   });
 
   it('applies overrides over the preset', () => {
@@ -339,10 +338,34 @@ describe('enforceReadingSpeed', () => {
   });
 
   it('splits a cue that arrives faster than it can be read', () => {
-    const cue = speak('these words arrive far too fast', { wordSeconds: 0.05 });
+    // Dense, but spoken slowly enough that the first half still clears
+    // `minCueSeconds` once the second half caps it — so the split is worth
+    // taking and the density limit is enforced.
+    const cue = speak('these words arrive far too fast', { wordSeconds: 0.4 });
     const result = enforceReadingSpeed([cue], config);
     expect(result.length).toBeGreaterThan(1);
     expect(result.flatMap((c) => [...c])).toEqual(cue);
+  });
+
+  it('keeps a dense cue whole when splitting would leave an unreadable first half', () => {
+    // Six words in 0.3s. Halving gives the FIRST half 0.15s on screen — its
+    // ceiling is the second half's first word, so `enforceTiming` can never
+    // extend it — which is worse than the dense cue it replaced. Splitting on
+    // regardless is what shattered a real transcript into 10ms flashes and, once
+    // snapped to the frame grid, into zero-length operations (run 7d159862).
+    const cue = speak('these words arrive far too fast', { wordSeconds: 0.05 });
+    expect(enforceReadingSpeed([cue], config)).toEqual([cue]);
+  });
+
+  it('never emits a cue whose words span less than the minimum, however dense', () => {
+    // The invariant the caption patch depends on: every multi-word cue this
+    // stage emits has enough room to be held. Single words are unsplittable and
+    // are the one documented exception.
+    const cue = speak('one two three four five six seven eight', { wordSeconds: 0.02 });
+    for (const emitted of enforceReadingSpeed([cue], config)) {
+      const spanned = emitted[emitted.length - 1]!.end - emitted[0]!.start;
+      expect(emitted.length === 1 || spanned > 0).toBe(true);
+    }
   });
 
   it('never splits a single word, however dense', () => {
@@ -350,14 +373,24 @@ describe('enforceReadingSpeed', () => {
     expect(enforceReadingSpeed([cue], config)).toEqual([cue]);
   });
 
-  it('splits repeatedly until every cue is readable', () => {
-    const cue = speak('one two three four five six seven eight', { wordSeconds: 0.02 });
+  it('splits repeatedly until every remaining cue is readable or unsplittable', () => {
+    const cue = speak('one two three four five six seven eight', { wordSeconds: 0.4 });
     const result = enforceReadingSpeed([cue], config);
-    // Every result is either readable or a single unsplittable word.
+    expect(result.length).toBeGreaterThan(1);
+    expect(result.flatMap((c) => [...c])).toEqual(cue);
+
+    // The stage's real contract, stated exactly: a cue is emitted once it is
+    // within the density ceiling, or is a single word, or has no internal break
+    // that would leave the first half holdable for `minCueSeconds`. The third
+    // arm is the one that matters — density is a target the segmenter pursues
+    // only while pursuing it does not produce a cue too brief to read.
     for (const c of result) {
       const duration = c[c.length - 1]!.end - c[0]!.start;
       const density = c.map((w) => w.word).join(' ').length / duration;
-      expect(c.length === 1 || density <= config.maxCharsPerSecond).toBe(true);
+      const hasHoldableBreak = c
+        .slice(1)
+        .some((word) => word.start - c[0]!.start >= config.minCueSeconds);
+      expect(c.length === 1 || density <= config.maxCharsPerSecond || !hasHoldableBreak).toBe(true);
     }
   });
 
@@ -383,6 +416,48 @@ describe('enforceReadingSpeed', () => {
     ];
     const result = enforceReadingSpeed([cue], config);
     expect(result[0]!.map((w) => w.word)).toEqual(['it', 'broke,']);
+  });
+});
+
+describe('coalesceSubFrameCues', () => {
+  const config = captionSegmentConfig('short-form');
+
+  it('merges two cues that would begin on the same project frame', () => {
+    // The exact shape that broke run 7d159862: a 0.02s ASR artifact whose cue
+    // both starts and ends inside frame 542 at 30fps.
+    const words: TranscriptWord[] = [
+      { word: 'build', start: 18.06, end: 18.08 },
+      { word: "India's", start: 18.08, end: 18.58 },
+    ];
+    const cues = segmentCaptions(words, config, 30);
+    expect(cues).toHaveLength(1);
+    expect(flat(cues[0]!.text)).toBe("build India's");
+  });
+
+  it('leaves cues that start on distinct frames alone', () => {
+    const words = speak('one two three four', { wordSeconds: 0.6 });
+    expect(segmentCaptions(words, config, 30).length).toBe(segmentCaptions(words, config).length);
+  });
+
+  it('emits no cue that quantises to zero length, at any project frame rate', () => {
+    // Sub-frame words at every rate the grid supports. Each emitted cue must
+    // still occupy at least one frame once snapped, or the operation contract
+    // rejects it — and rejects the whole patch with it.
+    const words: TranscriptWord[] = [
+      { word: 'To', start: 18.0, end: 18.01 },
+      { word: 'build', start: 18.06, end: 18.08 },
+      { word: "India's", start: 18.08, end: 18.58 },
+      { word: 'top', start: 18.58, end: 18.79 },
+      { word: 'We', start: 18.79, end: 18.8 },
+    ];
+    for (const fps of [24, 25, 29.97, 30, 50, 60]) {
+      for (const preset of ['short-form', 'subtitle', 'one-word'] as const) {
+        for (const cue of segmentCaptions(words, captionSegmentConfig(preset), fps)) {
+          const frames = secondsToFrame(cue.end, fps) - secondsToFrame(cue.start, fps);
+          expect(frames).toBeGreaterThanOrEqual(1);
+        }
+      }
+    }
   });
 });
 
@@ -441,10 +516,7 @@ describe('layoutLines', () => {
       maxLines: 2,
       emphasisWords: ['breakthrough'],
     });
-    const text = layoutLines(
-      speak('breakthrough day one breakthrough moment truly here'),
-      config,
-    );
+    const text = layoutLines(speak('breakthrough day one breakthrough moment truly here'), config);
     expect(flat(text)).toBe('breakthrough day one breakthrough moment truly here');
   });
 
@@ -572,19 +644,22 @@ describe('segmentCaptions', () => {
     const words = speak('I shipped it on a Friday. that was a mistake. never again.', {
       wordSeconds: 0.4,
     });
-    const texts = segmentCaptions(words, captionSegmentConfig('subtitle')).map((c) =>
-      flat(c.text),
-    );
+    const texts = segmentCaptions(words, captionSegmentConfig('subtitle')).map((c) => flat(c.text));
     expect(texts).toEqual(['I shipped it on a Friday.', 'that was a mistake.', 'never again.']);
   });
 
-  it('splits a sentence that arrives faster than the reading-speed budget', () => {
-    // "never again." is 12 characters in 0.6s — 20 cps, over the 17 cps
-    // broadcast norm — so it is broken up even though it is one clean sentence.
-    // Reading speed is a ceiling, not a preference.
+  it('holds a dense short sentence rather than splitting it into flashes', () => {
+    // "never again." is 12 characters spoken in 0.6s — 20 cps, over the 17 cps
+    // broadcast norm. Splitting is the wrong remedy: the halves abut, so "never"
+    // would be capped at 0.3s on screen and read FASTER than the cue it
+    // replaced. Held whole for the 0.8s minimum instead, the same 12 characters
+    // arrive at 15 cps — under the ceiling. Reading speed is a ceiling, and
+    // holding is how this pipeline gets under it.
     const words = speak('never again.', { wordSeconds: 0.3 });
-    const texts = segmentCaptions(words, captionSegmentConfig('subtitle')).map((c) => c.text);
-    expect(texts).toEqual(['never', 'again.']);
+    const cues = segmentCaptions(words, captionSegmentConfig('subtitle'));
+    expect(cues.map((c) => c.text)).toEqual(['never again.']);
+    const [only] = cues;
+    expect(only!.end - only!.start).toBeCloseTo(0.8, 5);
   });
 
   it('splits across a genuine pause even mid-sentence', () => {
@@ -614,9 +689,7 @@ describe('segmentCaptions', () => {
     });
     const config = captionSegmentConfig('short-form', { emphasisWords: ['breakthrough'] });
     const cues = segmentCaptions(words, config);
-    expect(cues.flatMap((cue) => cue.words.map((w) => w.word))).toEqual(
-      words.map((w) => w.word),
-    );
+    expect(cues.flatMap((cue) => cue.words.map((w) => w.word))).toEqual(words.map((w) => w.word));
   });
 
   it('honours the minimum hold even for a single clipped word', () => {

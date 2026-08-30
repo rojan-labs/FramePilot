@@ -391,6 +391,14 @@ export function StockPanel({
         ...(downloaded.media
           ? {
               media: {
+                // Both or neither, as everywhere else that carries this pair. Dropping it
+                // here would undo the whole point of the wire type carrying it: a stock
+                // library is overwhelmingly 16:9, so a shapeless stock asset is exactly
+                // the landscape-in-portrait case `list_assets`' letterbox note and the
+                // review's reframe check exist to catch, and both go quiet without it.
+                ...(downloaded.media.width != null && downloaded.media.height != null
+                  ? { width: downloaded.media.width, height: downloaded.media.height }
+                  : {}),
                 proxyPath: downloaded.media.proxyPath ?? null,
                 peaks: downloaded.media.peaks ? [...downloaded.media.peaks] : null,
                 peaksPerSecond: downloaded.media.peaksPerSecond ?? null,
@@ -682,7 +690,6 @@ function prefersReducedMotion(): boolean {
     ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
     : false;
 }
-
 
 // ---------------------------------------------------------------------------
 // Quota strip

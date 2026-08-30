@@ -119,6 +119,57 @@ describe('importAssetViaSidecar', () => {
     });
   });
 
+  it('carries the probed width/height pair into media (schema v21)', async () => {
+    // The pair is what `list_assets`' letterbox note and the review's reframe check read.
+    // Nothing else on the desktop path enforces it, and this suite did not exercise it at
+    // all — the three lines below could be deleted and the whole file stayed green.
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({ durationSeconds: 4, kind: 'image', width: 4032, height: 3024 }),
+    );
+    const result = await importAssetViaSidecar(
+      BASE,
+      { inputPath: 'media/p/photo.jpg' },
+      fetchFn as unknown as typeof fetch,
+    );
+    expect(result).toEqual({
+      ok: true,
+      durationSeconds: 4,
+      kind: 'image',
+      media: { width: 4032, height: 3024 },
+    });
+  });
+
+  it('drops a HALF-measured shape rather than passing one dimension on', async () => {
+    // Both or neither. A reader that finds only a width cannot decide anything with it,
+    // and an absent pair must keep meaning "not probed" rather than "square".
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({ durationSeconds: 4, kind: 'image', width: 4032, height: null }),
+    );
+    const result = await importAssetViaSidecar(
+      BASE,
+      { inputPath: 'media/p/photo.jpg' },
+      fetchFn as unknown as typeof fetch,
+    );
+    expect(result).toEqual({ ok: true, durationSeconds: 4, kind: 'image', media: {} });
+  });
+
+  it('drops a non-numeric shape the sidecar reported (e.g. an unprobeable container)', async () => {
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({ durationSeconds: 4, kind: 'video', width: null, height: null, peaks: [0.5] }),
+    );
+    const result = await importAssetViaSidecar(
+      BASE,
+      { inputPath: 'media/p/clip.mp4' },
+      fetchFn as unknown as typeof fetch,
+    );
+    expect(result).toEqual({
+      ok: true,
+      durationSeconds: 4,
+      kind: 'video',
+      media: { peaks: [0.5] },
+    });
+  });
+
   it('maps a non-2xx response to an error WITHOUT leaking the upstream body', async () => {
     // The sidecar's sandbox error embeds the absolute projects-root path; the
     // client must surface only the status, never the body (security review).

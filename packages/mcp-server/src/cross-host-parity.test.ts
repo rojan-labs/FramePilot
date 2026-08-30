@@ -7,10 +7,10 @@
  * and which tools a host is allowed to invoke at all.
  */
 import { describe, expect, it } from 'vitest';
-import { TOOL_REGISTRY, assembleEdit } from '@framepilot/ai-sdk';
+import { TOOL_REGISTRY, assembleEdit, withToolInputContract } from '@framepilot/ai-sdk';
 import { readProjectFile } from '@framepilot/timeline-schema/file';
 import { EditorSession, SessionError } from './session.js';
-import { UI_INDEPENDENT_HOST_TOOLS, buildMcpTools } from './tools.js';
+import { UI_INDEPENDENT_HOST_TOOLS, buildMcpTools, servableOverMcp } from './tools.js';
 import { makeProject, makeSandboxProject } from './__fixtures__/project.js';
 
 interface ParityCase {
@@ -167,4 +167,155 @@ describe('cross-host command/effect policy parity', () => {
       );
     },
   );
+});
+
+/**
+ * Input-contract parity (P1-4).
+ *
+ * The registry's Zod schema is only half of a tool's input contract; the relational and
+ * range rules live in `withToolInputContract`, which the in-app path resolves at the
+ * invocation boundary. This surface used to run the BARE registry entry, so an external
+ * agent — the least trusted caller there is — got a strictly weaker gate than the app's
+ * own model running the identical tool.
+ */
+describe('MCP enforces the same tool input contract as the in-app path', () => {
+  /** Each case is a call the registry's Zod schema accepts and the input contract refuses. */
+  const CONTRACT_CASES: readonly { readonly label: string; readonly call: ParityCase }[] = [
+    {
+      label: 'colour-grade parameter out of range',
+      call: {
+        name: 'apply_color_grade',
+        args: { clipId: 'clip_a', params: { saturation: 42 } },
+      },
+    },
+    {
+      label: 'unknown colour-grade parameter',
+      call: { name: 'apply_color_grade', args: { clipId: 'clip_a', params: { sparkle: 0.2 } } },
+    },
+    {
+      label: 'keyframe property outside the supported enum',
+      call: {
+        name: 'add_keyframes',
+        args: {
+          clipId: 'clip_a',
+          keyframes: [{ property: 'hue', time: 1, value: 0.5, easing: 'linear' }],
+        },
+      },
+    },
+    {
+      label: 'opacity keyframe outside 0..1',
+      call: {
+        name: 'add_keyframes',
+        args: {
+          clipId: 'clip_a',
+          keyframes: [{ property: 'opacity', time: 1, value: 4, easing: 'linear' }],
+        },
+      },
+    },
+    {
+      label: 'map_time given both time domains',
+      call: { name: 'map_time', args: { sourceTime: 1, sequenceTime: 2 } },
+    },
+    {
+      label: 'add_clips entry with end <= start',
+      call: {
+        name: 'add_clips',
+        args: {
+          trackId: 'video_1',
+          clips: [{ assetId: 'asset_1', start: 12, end: 12, sourceStart: 0 }],
+        },
+      },
+    },
+    {
+      label: 'adjust_audio gain outside the contract bounds',
+      call: { name: 'adjust_audio', args: { clipId: 'clip_a', gainDb: 400 } },
+    },
+    {
+      label: 'track_object region that leaves the normalized frame',
+      call: {
+        name: 'track_object',
+        args: {
+          clipId: 'clip_a',
+          target: 'bounding_box',
+          region: { x: 0.9, y: 0.9, width: 0.5, height: 0.5 },
+        },
+      },
+    },
+    {
+      label: 'apply_effect parameter the effect does not declare',
+      call: {
+        name: 'apply_effect',
+        args: { effectId: 'soft-veil', startTime: 0, params: { sharpness: 1 } },
+      },
+    },
+    {
+      label: 'apply_effect parameter outside the declared range',
+      call: {
+        name: 'apply_effect',
+        args: { effectId: 'soft-veil', startTime: 0, params: { radius: 500 } },
+      },
+    },
+  ];
+
+  it.each(CONTRACT_CASES)('refuses $label', async ({ call }) => {
+    const session = await openSession();
+    expect(() => session.runTool(call.name, call.args)).toThrow(
+      expect.objectContaining({ code: 'invalid_args' } satisfies Partial<SessionError>),
+    );
+    // Refused BEFORE apply: nothing may reach the history when the contract says no.
+    expect(session.state()?.historyLength).toBe(0);
+  });
+
+  /**
+   * The sharpest case, and the reason `assertNoTransitionClamp` exists: the apply path
+   * silently shortens an over-long transition to what the cut can carry. Unwrapped, MCP
+   * reported "applied" for a 1.0s dissolve the timeline recorded as 0.4s — a lie the
+   * external agent had no way to detect. The contract refuses and names the real limit.
+   */
+  it('refuses an over-long transition instead of silently clamping it', async () => {
+    const session = await openSession();
+    // clip_a is 6s and clip_b is 4s, so the cut carries at most 2s (half the shorter clip).
+    let error: unknown;
+    try {
+      session.runTool('add_transition', {
+        trackId: 'video_1',
+        fromClipId: 'clip_a',
+        toClipId: 'clip_b',
+        kind: 'cross-dissolve',
+        durationSeconds: 3,
+      });
+    } catch (cause) {
+      error = cause;
+    }
+    expect(error).toBeInstanceOf(SessionError);
+    expect((error as SessionError).code).toBe('invalid_args');
+    // The message — not just the `cause` — must carry the legal duration: dispatch.ts
+    // renders only `[code] message`, so a reason kept in `cause` never reaches the agent.
+    expect((error as SessionError).message).toContain('durationSeconds <= 2');
+    expect(session.state()?.historyLength).toBe(0);
+  });
+
+  it('applies a transition that fits, verbatim', async () => {
+    const session = await openSession();
+    const result = session.runTool('add_transition', {
+      trackId: 'video_1',
+      fromClipId: 'clip_a',
+      toClipId: 'clip_b',
+      kind: 'cross-dissolve',
+      durationSeconds: 1.5,
+    });
+    expect(result.kind === 'mutate' && result.applied).toBe(true);
+  });
+
+  it('advertises the schema it enforces, not the bare registry one', () => {
+    const advertised = new Map(buildMcpTools().map((tool) => [tool.name, tool.inputSchema]));
+    // `map_time`'s advertised shape is rewritten by the contract (a flat object whose prose
+    // states the mutual exclusivity Anthropic's API will not accept as a top-level oneOf).
+    const mapTime = advertised.get('map_time');
+    expect(JSON.stringify(mapTime)).toContain('Mutually exclusive');
+    // Every registry tool the contract rewrites must be advertised in its rewritten form.
+    for (const tool of TOOL_REGISTRY.filter(servableOverMcp)) {
+      expect(advertised.get(tool.name)).toEqual(withToolInputContract(tool).parameters);
+    }
+  });
 });

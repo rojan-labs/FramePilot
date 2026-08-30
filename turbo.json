@@ -85,6 +85,18 @@
     "PYTHON_PATH",
     "FRAMEPILOT_FREEMIUS_PRODUCT_ID",
     "FRAMEPILOT_LICENSE_DEV_BYPASS",
+    "FRAMEPILOT_AI_PROVIDER_IMPL",
+    "FRAMEPILOT_CAPABILITY_PACK_ROOT",
+    "FRAMEPILOT_CAPABILITY_PACK_CATALOG_URL",
+    "FRAMEPILOT_CAPABILITY_PACK_ROOT_KEYS_PATH",
+    "FRAMEPILOT_GOLDEN_UPDATE",
+    "FRAMEPILOT_RENDERED_PROFESSIONAL_EVALS",
+    "FRAMEPILOT_LANGSMITH_ENABLED",
+    "FRAMEPILOT_MCP_HOST",
+    "FRAMEPILOT_MCP_PORT",
+    "FRAMEPILOT_MCP_PATH",
+    "FRAMEPILOT_MCP_TOKEN",
+    "FRAMEPILOT_DEV_PACK_REGISTRATION",
     "FREEMIUS_PRODUCT_ID",
     "FREEMIUS_SECRET_KEY",
     "FREEMIUS_PUBLIC_KEY",
@@ -99,6 +111,10 @@
   ],
   "globalDependencies": [".env", "tsconfig.base.json"],
   "tasks": {
+    "schema:generate": {
+      "dependsOn": ["build"],
+      "cache": false
+    },
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**", "build/**", "out/**"]

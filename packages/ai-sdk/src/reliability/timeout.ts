@@ -2,8 +2,10 @@
  * @framepilot/ai-sdk/reliability/timeout — connect + idle timeouts for streaming
  * providers (plan `AGENT-ORCHESTRATION-RELIABILITY.md` R1, ADR 0035).
  *
- * The desktop hub's coarse max-run cap (30 minutes) can't tell "the model is thinking" from
- * "the socket is dead". These two independent timeouts fix that at the SDK core:
+ * The desktop hub's coarse max-run cap can't tell "the model is thinking" from "the
+ * socket is dead", which is why it is disabled (`AI_STREAM_TIMEOUT_MS = 0`) and the
+ * bound lives HERE instead. These two independent timeouts are the only thing standing
+ * between a dead socket and a run that never ends:
  *
  * - **connect timeout** — no response headers within N ms → abort as a timeout.
  * - **idle timeout** — no SSE chunk within N ms, reset on every chunk (a heartbeat)
@@ -48,9 +50,10 @@ export class IdleTimeout {
   /** Start (or restart) the watchdog. Safe to call before the first chunk. */
   public beat(): void {
     if (this.stopped) return;
-    // A non-positive budget disables the watchdog entirely (never arm it) — used to
-    // remove the idle timeout so a long-running or slow-remote stream is never aborted
-    // on time (only a user Stop or a real socket error ends it).
+    // A non-positive budget disables the watchdog entirely (never arm it). This stays a
+    // supported explicit opt-out for a caller that truly wants no clock, but it is NOT
+    // the default any more — see {@link DEFAULT_TIMEOUTS} for why an unarmed watchdog
+    // means a dead socket hangs the run forever.
     if (this.ms <= 0) return;
     if (this.handle !== undefined) this.timers.clearTimeout(this.handle);
     this.handle = this.timers.setTimeout(() => {
@@ -106,16 +109,33 @@ export interface TimeoutConfig {
 }
 
 /**
- * Default: **no time thresholds** (both disabled). A run is bounded by the model,
- * the transport, and the user's Stop button — never by a clock. This was a
- * deliberate product decision: agent work against a slow or remote backend (e.g. a
- * self-hosted Ollama reached over an ngrok tunnel, or a large local model that loads
- * cold) can legitimately take many minutes to first byte and run for over an hour, so
- * any fixed connect/idle budget aborts healthy work. `0` disables each timeout
- * (`withConnectTimeout` returns the promise unbounded; {@link IdleTimeout.beat} never
- * arms). A genuinely dead socket surfaces as a transport error, and Stop always cancels.
+ * Default timeout budgets. **Both are armed.** They were previously `0/0` (disabled),
+ * which — combined with the desktop hub's own cap also being `0` — left an AI run with
+ * no time bound at ANY layer: a socket that dies without an error (a laptop that sleeps
+ * mid-stream, a tunnel that black-holes, a provider that accepts the request and never
+ * writes) hung the run forever, with a spinner and no way out but Stop.
  *
- * Callers that DO want a bound can still pass an explicit {@link TimeoutConfig} to the
- * {@link ../providers/resilient-provider}.
+ * WHY these values, and why they do NOT re-break the slow-local-model case that motivated
+ * removing them:
+ *
+ * - **`idleMs` (10 min) is heartbeat-reset, not a run cap.** {@link IdleTimeout.beat} is
+ *   called on every chunk, so a healthy stream — however slow, however long — is never
+ *   aborted: only TEN MINUTES OF TOTAL SILENCE is. A self-hosted Ollama over an ngrok
+ *   tunnel that emits a token a minute for two hours is fine; only one that has stopped
+ *   emitting anything at all is not. The same budget also covers time-to-first-chunk,
+ *   which is the one genuinely slow moment on a local backend (a large model loading
+ *   cold), so it is sized for that rather than for steady-state streaming.
+ * - **`connectMs` (15 min) is much larger because it bounds a WHOLE call, not a gap.**
+ *   {@link withConnectTimeout} wraps the non-streaming `complete()` used by the agent's
+ *   plan and repair steps, which has no chunks and therefore no heartbeat — the only
+ *   thing it can measure is the total round trip. 15 minutes is far past any healthy
+ *   completion while still being finite.
+ * - **A false positive costs a reconnect, not a run.** {@link timeoutError} is a
+ *   `kind: 'network'` ProviderError, which is RETRYABLE, so an over-eager timeout is
+ *   retried by `withRetry` rather than failing the user's work.
+ *
+ * `0` still disables each timeout individually (`withConnectTimeout` returns the promise
+ * unbounded; {@link IdleTimeout.beat} never arms) for a caller that explicitly wants no
+ * clock. Callers can override the whole budget via the {@link ../providers/resilient-provider}.
  */
-export const DEFAULT_TIMEOUTS: TimeoutConfig = { connectMs: 0, idleMs: 0 };
+export const DEFAULT_TIMEOUTS: TimeoutConfig = { connectMs: 900_000, idleMs: 600_000 };

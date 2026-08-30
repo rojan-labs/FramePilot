@@ -52,18 +52,55 @@ describe('ResilientProvider.complete', () => {
     expect(withResilience(makeProvider({})).name).toBe('mock');
   });
 
-  it('forwards the abort signal to the inner complete()', async () => {
+  it('gives the inner complete() a signal the caller can abort', async () => {
+    // Asserts the BEHAVIOUR, not identity. The signal handed down is now the caller's
+    // combined with a connect deadline — so an abort still cancels the upstream fetch
+    // rather than just the caller's await, which is the property this pins, while the
+    // deadline can independently abort a request that would otherwise be left running
+    // for `withRetry` to duplicate.
+    // Checked WHILE the request is in flight: the combined signal is disposed once the
+    // call settles (that is what stops it leaking a listener onto the caller's signal),
+    // so the propagation this pins only exists for the life of the request — which is
+    // exactly when it matters.
     let seen: AbortSignal | undefined;
+    let release: (() => void) | undefined;
     const inner = makeProvider({
       complete: async (_request: AiCompletionRequest, signal?: AbortSignal) => {
         seen = signal;
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
         return { text: 'ok' } as AiResponse;
       },
     });
     const controller = new AbortController();
     const provider = new ResilientProvider(inner, { policy: fastPolicy });
-    await provider.complete(request, controller.signal);
-    expect(seen).toBe(controller.signal);
+    const pending = provider.complete(request, controller.signal);
+    await vi.waitFor(() => expect(seen).toBeDefined());
+    expect(seen?.aborted).toBe(false);
+    controller.abort();
+    expect(seen?.aborted).toBe(true);
+    release?.();
+    await pending.catch(() => undefined);
+  });
+
+  it('aborts the in-flight request when the connect budget expires, not just the await', async () => {
+    // `withConnectTimeout` alone is a `Promise.race`: the losing promise kept running,
+    // so a timed-out completion left its fetch in flight and the retry started another —
+    // up to three concurrent, separately billed calls for one logical request.
+    let seen: AbortSignal | undefined;
+    const inner = makeProvider({
+      complete: async (_request: AiCompletionRequest, signal?: AbortSignal) => {
+        seen = signal;
+        return await new Promise<AiResponse>(() => undefined);
+      },
+    });
+    const provider = new ResilientProvider(inner, {
+      policy: { ...fastPolicy, maxAttempts: 1 },
+      timeouts: { connectMs: 5, idleMs: 0 },
+    });
+    await expect(provider.complete(request)).rejects.toThrow(/connect/i);
+    expect(seen?.aborted).toBe(true);
   });
 
   it('stops retrying and rejects with AbortError once the signal fires', async () => {

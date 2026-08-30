@@ -962,7 +962,18 @@ class ProjectFile:
         :param path: Destination ``project.fp.json`` path.
         :raises ProjectFileError: If the destination cannot be written.
         """
-        document = {"schemaVersion": SCHEMA_VERSION, **project.model_dump(by_alias=True)}
+        # ``exclude_none`` is load-bearing, not tidiness. Pydantic serializes an unset
+        # optional as JSON ``null``; the TS schema types most of them ``.optional()``,
+        # which accepts *absent* and REJECTS ``null``. Without this, a project written
+        # here emits 12 such fields — ``clip.speed``, ``clip.crop``, ``track.role``,
+        # ``timeline.revision``, ``asset.folderId`` among them — and the editor refuses
+        # to open its own format. The handful of fields typed ``.nullish()`` on the TS
+        # side (``Asset.media``, ``TranscriptWord.assetId``) accept absent too, so
+        # dropping every null is safe in both directions.
+        document = {
+            "schemaVersion": SCHEMA_VERSION,
+            **project.model_dump(by_alias=True, exclude_none=True),
+        }
         serialized = json.dumps(document, indent=2)
 
         directory = path.parent

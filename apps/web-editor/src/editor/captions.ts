@@ -149,6 +149,14 @@ export interface CaptionGenerationOptions {
   readonly overrides?: Partial<CaptionSegmentConfig>;
   /** Words emphasised via `accent.mode: 'keywords'`, persisted on the track style. */
   readonly keywords?: readonly string[];
+  /**
+   * Project frame rate. Pass it whenever the patch will be applied: sequence
+   * times are quantised to a frame at the patch boundary, so two cues starting
+   * inside one frame produce a zero-length `add_caption_layer` that the
+   * operation contract rejects — taking the whole patch with it. Omitted only
+   * by the panel's throwaway preview, which builds no operations.
+   */
+  readonly fps?: number;
 }
 
 /**
@@ -234,7 +242,7 @@ export function generateCaptionsPatch(
   const templateId = options.templateId ?? DEFAULT_CAPTION_TEMPLATE_ID;
   const config = resolveGenerationConfig(options);
   const map = buildTimelineMap(timeline);
-  const cues = deriveCaptionCues(map, transcript, config);
+  const cues = deriveCaptionCues(map, transcript, config, options.fps);
 
   const track = timeline.tracks.find((candidate) => candidate.id === captionTrackId);
   const existing = track?.clips ?? [];

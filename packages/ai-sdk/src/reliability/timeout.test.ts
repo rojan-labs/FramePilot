@@ -100,11 +100,23 @@ describe('withConnectTimeout', () => {
 });
 
 describe('DEFAULT_TIMEOUTS', () => {
-  it('disables both timeouts by default (no time threshold — bounded by Stop only)', () => {
-    // Product decision: agent work against a slow/remote backend can run for over an
-    // hour, so there is no default clock. Both are 0 (disabled).
-    expect(DEFAULT_TIMEOUTS.connectMs).toBe(0);
-    expect(DEFAULT_TIMEOUTS.idleMs).toBe(0);
+  it('arms both timeouts, so a dead socket cannot hang a run forever', () => {
+    // Regression guard for FM-1: with these at 0 AND the desktop hub cap at 0, an AI run
+    // had no time bound at any layer. Assert they are armed, not their exact values.
+    expect(DEFAULT_TIMEOUTS.idleMs).toBeGreaterThan(0);
+    expect(DEFAULT_TIMEOUTS.connectMs).toBeGreaterThan(0);
+  });
+
+  it('gives the idle heartbeat enough room for a cold-loading local model', () => {
+    // The idle budget also covers time-to-first-chunk, which on a self-hosted backend is
+    // a model loading from disk. Anything under a few minutes would abort that healthy wait.
+    expect(DEFAULT_TIMEOUTS.idleMs).toBeGreaterThanOrEqual(300_000);
+  });
+
+  it('bounds a whole heartbeat-less complete() far more loosely than a chunk gap', () => {
+    // connectMs wraps the ENTIRE non-streaming call (agent plan/repair have no chunks to
+    // beat on), so it must be strictly larger than the per-gap idle budget.
+    expect(DEFAULT_TIMEOUTS.connectMs).toBeGreaterThan(DEFAULT_TIMEOUTS.idleMs);
   });
 });
 

@@ -907,14 +907,25 @@ export class StockService {
         : {}),
       width: variant.width,
       height: variant.height,
-      media: derivedMedia
-        ? {
-            proxyPath: derivedMedia.proxyPath ?? null,
-            peaks: derivedMedia.peaks ?? null,
-            peaksPerSecond: derivedMedia.peaksPerSecond ?? null,
-            thumbnailPaths: derivedMedia.thumbnailPaths ?? null,
-          }
-        : null,
+      media: {
+        // Both or neither, the same contract `asset-media-client` enforces on the import
+        // path: a reader that finds only a width cannot decide anything with it.
+        //
+        // The PROBE wins over the provider's declared rendition size — it describes the
+        // file on disk, and a provider that served a different crop than it advertised has
+        // not changed what was downloaded. The variant is the fallback rather than the
+        // source because it is the only shape available when the sidecar is down, and a
+        // stock clip with no shape at all is the defect this fixes: `list_assets` cannot
+        // warn that a 16:9 clip will letterbox in a vertical sequence, and the review's
+        // reframe check degrades to a generic warning instead of naming the clips.
+        ...(typeof derivedMedia?.width === 'number' && typeof derivedMedia.height === 'number'
+          ? { width: derivedMedia.width, height: derivedMedia.height }
+          : { width: variant.width, height: variant.height }),
+        proxyPath: derivedMedia?.proxyPath ?? null,
+        peaks: derivedMedia?.peaks ?? null,
+        peaksPerSecond: derivedMedia?.peaksPerSecond ?? null,
+        thumbnailPaths: derivedMedia?.thumbnailPaths ?? null,
+      },
       source: {
         provider: item.provider,
         remoteId: item.remoteId,

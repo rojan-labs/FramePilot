@@ -51,6 +51,12 @@ export interface TopbarProps {
   readonly path: string;
   /** Current persistence state, surfaced as a labelled dot. */
   readonly saveState: SaveState;
+  /**
+   * Completed saves, monotonic. Exposed as `data-saves` purely so an end-to-end test can
+   * wait for a write it can PROVE happened: `saveState` starts at `'saved'`, so waiting
+   * on that alone can observe the value from before the edit.
+   */
+  readonly saveCount?: number;
   /** The underlying error, shown in the status tooltip when saveState is 'error'. */
   readonly saveErrorDetail?: string | undefined;
   /** Navigate back to the Recent Projects (home) screen (H20). */
@@ -103,6 +109,7 @@ export function Topbar({
   projectName,
   path,
   saveState,
+  saveCount,
   saveErrorDetail,
   onHome,
   onNew,
@@ -283,6 +290,7 @@ export function Topbar({
             aria-label="save state"
             title={saveStatusDetail}
             data-state={saveState}
+            data-saves={saveCount}
             role="status"
           >
             <span className="topbar-status-dot" aria-hidden="true" />

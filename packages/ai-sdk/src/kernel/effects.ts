@@ -53,7 +53,6 @@ export interface EffectControl {
   readonly resourceClass: EffectResourceClass;
   readonly timeoutMs: number;
   readonly retryClass: EffectRetryClass;
-  readonly cancellationParentId?: string;
   readonly sideEffectClass: EffectSideEffectClass;
   readonly expectedProjectRevision?: ProjectRevision;
 }

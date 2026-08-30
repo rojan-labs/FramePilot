@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { toolContract } from './tool-contract.js';
 import { getTool, TOOL_REGISTRY } from './tool-registry.js';
+import { classifyTool } from './tool-classification.js';
 import { QUESTION_ROUTE_PERMISSIONS, selectTools } from './tool-scope.js';
 
 const contract = (name: string) => {
@@ -32,15 +33,59 @@ describe('first-class tool execution contracts', () => {
     });
   });
 
-  it('scopes get_frame to the current project revision', () => {
-    expect(contract('get_frame')).toEqual({
+  it.each(['get_frame', 'measure_color'])(
+    'ties %s to the current project revision but never memoizes it',
+    (name) => {
+      // `stateDependency` and `cacheScope` say different things here, deliberately. The
+      // result DEPENDS on the timeline, but `Timeline.revision` is a mapping counter that
+      // stands still through every picture-only edit, so it cannot be used as the memo
+      // key for a picture measurement — see the declaration's own note.
+      expect(contract(name)).toEqual({
+        executionPlane: 'host',
+        effectClass: 'pure_read',
+        permissions: ['analysis'],
+        concurrency: 'parallel',
+        stateDependency: 'project_revision',
+        cacheScope: 'none',
+      });
+    },
+  );
+
+  it('never memoizes search_media, whose answer depends on the asset bin', () => {
+    // The bin is not the timeline. `add_asset` / `manage_assets` / `index_media` change
+    // what this tool can find and none of them moves `Timeline.revision` (project
+    // operations never reach `applyOperation`'s mapping bump), so a `project_revision`
+    // memo would serve the pre-import answer to a run that just imported the file.
+    expect(contract('search_media')).toEqual({
       executionPlane: 'host',
       effectClass: 'pure_read',
       permissions: ['analysis'],
       concurrency: 'parallel',
       stateDependency: 'project_revision',
-      cacheScope: 'project_revision',
+      cacheScope: 'none',
     });
+  });
+
+  it('memoizes only tools whose answer no edit can reach', () => {
+    // A class-level pin, not a spot check. Three separate tools (`get_frame`,
+    // `measure_color`, `search_media`) each shipped a stale-answer bug by inheriting a
+    // memo keyed on `Timeline.revision` — a MAPPING counter that advances only when clip
+    // timing moves (`editor-core/operations.ts#mappingChanged`) and is blind to colour
+    // grades, effects, masks and every project-level bin operation. Each was found from
+    // the outside, after a run reasoned about the timeline it had before its own edit.
+    //
+    // The rule now: a cacheable tool must be `revision_independent` — describing source
+    // material, which invariant 1 says no edit can change. Anything a run can move under
+    // its own question runs fresh.
+    const cacheable = TOOL_REGISTRY.filter((tool) => toolContract(tool).cacheScope !== 'none');
+    for (const tool of cacheable) {
+      expect({ [tool.name]: classifyTool(tool.name, tool.kind, tool.mutates).scope }).toEqual({
+        [tool.name]: 'revision_independent',
+      });
+    }
+    // Guard against the assertion above passing because nothing is cacheable at all — the
+    // per-run memo on the catalogue searches is load-bearing (metered provider quotas).
+    expect(cacheable.map((tool) => tool.name)).toContain('search_music');
   });
 
   it('never caches export actions', () => {

@@ -391,61 +391,65 @@ describe('createEffectRuntime — structured effects (retry/timeout/cancel polic
     ).rejects.toThrow(/exceeded its 5ms timeout/);
   });
 
-  it('cancel() aborts the running effect and its cancellation children', async () => {
-    const seenSignals: (AbortSignal | undefined)[] = [];
-    const structuredExecutor = stubStructured(
-      (_effect, signal) =>
-        new Promise((_resolve, reject) => {
-          seenSignals.push(signal);
-          signal?.addEventListener('abort', () => reject(new Error('cancelled')));
-        }),
-    );
-    const runtime = createEffectRuntime({
-      provider: okProvider({}),
-      structuredExecutor,
-    });
-    const parent = runtime.run(persistenceEffect({ effectId: 'parent', idempotencyKey: 'parent' }));
-    const child = runtime.run(
-      persistenceEffect({
-        effectId: 'child',
-        idempotencyKey: 'child',
-        cancellationParentId: 'parent',
-      }),
-    );
-    // Let both dispatch before cancelling the tree from the parent.
-    await new Promise((r) => setTimeout(r, 0));
-    runtime.cancel('parent', 'user stopped');
-    await expect(parent).rejects.toThrow();
-    await expect(child).rejects.toThrow();
+  /**
+   * The one cancellation channel, asserted across all three effect kinds.
+   *
+   * There used to be a second: `runtime.cancel(effectId)` plus a `cancellationParentId`
+   * tree. It had no production caller, and — the part that mattered — it could not reach a
+   * `host_tool` or `model` effect at all, because neither carries an `effectId` to be
+   * cancelled by. Only STRUCTURED effects registered, so the mechanism that looked like
+   * "stop this run" could stop the only effects that never do the expensive work.
+   *
+   * These assertions pin what actually stops a run, and pin the absence of the other thing
+   * so it cannot come back inert.
+   */
+  it('has no cancel() surface at all — AbortSignal is the channel', () => {
+    const runtime = createEffectRuntime({ provider: okProvider({}) });
+    expect('cancel' in runtime).toBe(false);
   });
 
-  it('cancelTree tolerates a cancellation-parent cycle (visits each effect once)', async () => {
-    const seenSignals = new Map<string, AbortSignal>();
-    const structuredExecutor = stubStructured(
-      (effect, signal) =>
-        new Promise((_resolve, reject) => {
-          const id = (effect as PersistenceEffect).control.effectId;
-          if (signal) seenSignals.set(id, signal);
-          signal?.addEventListener('abort', () => reject(new Error('cancelled')));
-        }),
-    );
-    const runtime = createEffectRuntime({
-      provider: okProvider({}),
-      structuredExecutor,
-    });
-    // A mutual cycle: A's cancellation parent is B, and B's is A.
-    const a = runtime.run(
-      persistenceEffect({ effectId: 'a', idempotencyKey: 'a', cancellationParentId: 'b' }),
-    );
-    const b = runtime.run(
-      persistenceEffect({ effectId: 'b', idempotencyKey: 'b', cancellationParentId: 'a' }),
-    );
-    await new Promise((r) => setTimeout(r, 0));
-    // Must terminate (not infinite-recurse) despite the cycle.
-    runtime.cancel('a', 'user stopped');
-    await expect(a).rejects.toThrow();
-    await expect(b).rejects.toThrow();
-  });
+  it.each(['host_tool', 'model', 'structured'] as const)(
+    'aborts an in-flight %s effect through the caller signal',
+    async (kind) => {
+      const controller = new AbortController();
+      /** Resolves only if the effect is aborted; hangs forever otherwise. */
+      const untilAborted = (signal?: AbortSignal) =>
+        new Promise<never>((_resolve, reject) => {
+          signal?.addEventListener('abort', () => {
+            reject(new Error('aborted'));
+          });
+        });
+      const runtime = createEffectRuntime({
+        provider: {
+          name: 'mock',
+          complete: (_req, signal) => untilAborted(signal),
+        },
+        executor: { run: (_call, _ctx, signal) => untilAborted(signal) },
+        structuredExecutor: stubStructured((_effect, signal) => untilAborted(signal)),
+      });
+      const effect =
+        kind === 'host_tool'
+          ? hostEffect()
+          : kind === 'model'
+            ? ({ kind: 'model', request: { messages: [] } } as ModelEffect)
+            : persistenceEffect();
+
+      const pending = runtime.run(effect, controller.signal);
+      await new Promise((r) => setTimeout(r, 0));
+      controller.abort('user stopped');
+
+      // A host tool settles an abort into an honest `cancelled` outcome rather than
+      // throwing (see `outcomeFromExecutorError`); the other two reject.
+      if (kind === 'host_tool') {
+        await expect(pending).resolves.toMatchObject({
+          kind: 'host_tool',
+          outcome: { status: 'cancelled' },
+        });
+      } else {
+        await expect(pending).rejects.toThrow();
+      }
+    },
+  );
 
   it('relays an already-aborted parent signal into the effect immediately', async () => {
     const controller = new AbortController();

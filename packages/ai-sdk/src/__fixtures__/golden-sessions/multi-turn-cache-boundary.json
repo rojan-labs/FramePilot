@@ -85,7 +85,14 @@
           "diagnostics": []
         },
         "baseProjectRevision": 0,
-        "currentProjectRevision": 0
+        "currentProjectRevision": 0,
+        "minted": {
+          "fact": 0,
+          "decision": 0,
+          "objective": 0,
+          "op": 0,
+          "verify": 0
+        }
       }
     },
     {
@@ -111,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 22131,
+      "usedTokens": 22416,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -143,43 +150,50 @@
           {
             "id": "s4",
             "type": "retrieved_evidence",
-            "label": "source media",
-            "tokenEstimate": 18,
+            "label": "media bin",
+            "tokenEstimate": 15,
             "included": true
           },
           {
             "id": "s5",
+            "type": "retrieved_evidence",
+            "label": "source media",
+            "tokenEstimate": 23,
+            "included": true
+          },
+          {
+            "id": "s6",
             "type": "retrieved_evidence",
             "label": "transcript slice",
             "tokenEstimate": 11,
             "included": true
           },
           {
-            "id": "s6",
+            "id": "s7",
             "type": "skill",
             "label": "skills manifest",
             "tokenEstimate": 1649,
             "included": true
           },
           {
-            "id": "s7",
+            "id": "s8",
             "type": "latest_user_message",
             "label": "user request",
             "tokenEstimate": 12,
             "included": true
           },
           {
-            "id": "s8",
+            "id": "s9",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 2018,
+            "tokenEstimate": 2017,
             "included": true
           },
           {
-            "id": "s9",
+            "id": "s10",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 18183,
+            "tokenEstimate": 18449,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -187,9 +201,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 22131,
+          "estimatedInputTokensBeforeSend": 22416,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 169677,
+          "estimatedRemainingCapacity": 169392,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -484,7 +498,14 @@
           "diagnostics": []
         },
         "baseProjectRevision": 0,
-        "currentProjectRevision": 1
+        "currentProjectRevision": 1,
+        "minted": {
+          "fact": 1,
+          "decision": 0,
+          "objective": 0,
+          "op": 1,
+          "verify": 0
+        }
       }
     },
     {
@@ -510,7 +531,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 22277,
+      "usedTokens": 22562,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -542,43 +563,50 @@
           {
             "id": "s4",
             "type": "retrieved_evidence",
-            "label": "source media",
-            "tokenEstimate": 18,
+            "label": "media bin",
+            "tokenEstimate": 15,
             "included": true
           },
           {
             "id": "s5",
+            "type": "retrieved_evidence",
+            "label": "source media",
+            "tokenEstimate": 23,
+            "included": true
+          },
+          {
+            "id": "s6",
             "type": "retrieved_evidence",
             "label": "transcript slice",
             "tokenEstimate": 11,
             "included": true
           },
           {
-            "id": "s6",
+            "id": "s7",
             "type": "skill",
             "label": "skills manifest",
             "tokenEstimate": 1649,
             "included": true
           },
           {
-            "id": "s7",
+            "id": "s8",
             "type": "latest_user_message",
             "label": "user request",
             "tokenEstimate": 12,
             "included": true
           },
           {
-            "id": "s8",
+            "id": "s9",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 2164,
+            "tokenEstimate": 2163,
             "included": true
           },
           {
-            "id": "s9",
+            "id": "s10",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 18183,
+            "tokenEstimate": 18449,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -586,9 +614,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 22277,
+          "estimatedInputTokensBeforeSend": 22562,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 169531,
+          "estimatedRemainingCapacity": 169246,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -832,7 +860,7 @@
         "stageEnteredAtTurn": 1,
         "facts": [
           {
-            "id": "fact_1",
+            "id": "fact_2",
             "kind": "project",
             "statement": "Timeline now: sequence 10s, 2 tracks, 3 clips — video_1 [video] 3 clips 2–10s; audio_1 [audio] empty",
             "evidenceIds": [],
@@ -913,7 +941,14 @@
           "diagnostics": []
         },
         "baseProjectRevision": 0,
-        "currentProjectRevision": 2
+        "currentProjectRevision": 2,
+        "minted": {
+          "fact": 2,
+          "decision": 0,
+          "objective": 0,
+          "op": 2,
+          "verify": 0
+        }
       }
     },
     {
@@ -939,7 +974,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 22297,
+      "usedTokens": 22582,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -971,43 +1006,50 @@
           {
             "id": "s4",
             "type": "retrieved_evidence",
-            "label": "source media",
-            "tokenEstimate": 18,
+            "label": "media bin",
+            "tokenEstimate": 15,
             "included": true
           },
           {
             "id": "s5",
+            "type": "retrieved_evidence",
+            "label": "source media",
+            "tokenEstimate": 23,
+            "included": true
+          },
+          {
+            "id": "s6",
             "type": "retrieved_evidence",
             "label": "transcript slice",
             "tokenEstimate": 11,
             "included": true
           },
           {
-            "id": "s6",
+            "id": "s7",
             "type": "skill",
             "label": "skills manifest",
             "tokenEstimate": 1649,
             "included": true
           },
           {
-            "id": "s7",
+            "id": "s8",
             "type": "latest_user_message",
             "label": "user request",
             "tokenEstimate": 12,
             "included": true
           },
           {
-            "id": "s8",
+            "id": "s9",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 2179,
+            "tokenEstimate": 2178,
             "included": true
           },
           {
-            "id": "s9",
+            "id": "s10",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 18183,
+            "tokenEstimate": 18449,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -1015,9 +1057,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 22297,
+          "estimatedInputTokensBeforeSend": 22582,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 169511,
+          "estimatedRemainingCapacity": 169226,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -1098,7 +1140,7 @@
         "stageEnteredAtTurn": 1,
         "facts": [
           {
-            "id": "fact_1",
+            "id": "fact_2",
             "kind": "project",
             "statement": "Timeline now: sequence 10s, 2 tracks, 3 clips — video_1 [video] 3 clips 2–10s; audio_1 [audio] empty",
             "evidenceIds": [],
@@ -1179,7 +1221,14 @@
           "diagnostics": []
         },
         "baseProjectRevision": 0,
-        "currentProjectRevision": 2
+        "currentProjectRevision": 2,
+        "minted": {
+          "fact": 2,
+          "decision": 0,
+          "objective": 0,
+          "op": 2,
+          "verify": 0
+        }
       }
     },
     {
@@ -1237,7 +1286,7 @@
         "stageEnteredAtTurn": 3,
         "facts": [
           {
-            "id": "fact_1",
+            "id": "fact_2",
             "kind": "project",
             "statement": "Timeline now: sequence 10s, 2 tracks, 3 clips — video_1 [video] 3 clips 2–10s; audio_1 [audio] empty",
             "evidenceIds": [],
@@ -1326,7 +1375,14 @@
           "diagnostics": []
         },
         "baseProjectRevision": 0,
-        "currentProjectRevision": 2
+        "currentProjectRevision": 2,
+        "minted": {
+          "fact": 2,
+          "decision": 0,
+          "objective": 0,
+          "op": 2,
+          "verify": 1
+        }
       }
     },
     {

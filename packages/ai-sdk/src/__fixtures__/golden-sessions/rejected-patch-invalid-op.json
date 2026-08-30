@@ -85,7 +85,14 @@
           "diagnostics": []
         },
         "baseProjectRevision": 0,
-        "currentProjectRevision": 0
+        "currentProjectRevision": 0,
+        "minted": {
+          "fact": 0,
+          "decision": 0,
+          "objective": 0,
+          "op": 0,
+          "verify": 0
+        }
       }
     },
     {
@@ -111,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 22129,
+      "usedTokens": 22413,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -143,43 +150,50 @@
           {
             "id": "s4",
             "type": "retrieved_evidence",
-            "label": "source media",
-            "tokenEstimate": 18,
+            "label": "media bin",
+            "tokenEstimate": 15,
             "included": true
           },
           {
             "id": "s5",
+            "type": "retrieved_evidence",
+            "label": "source media",
+            "tokenEstimate": 23,
+            "included": true
+          },
+          {
+            "id": "s6",
             "type": "retrieved_evidence",
             "label": "transcript slice",
             "tokenEstimate": 11,
             "included": true
           },
           {
-            "id": "s6",
+            "id": "s7",
             "type": "skill",
             "label": "skills manifest",
             "tokenEstimate": 1649,
             "included": true
           },
           {
-            "id": "s7",
+            "id": "s8",
             "type": "latest_user_message",
             "label": "user request",
             "tokenEstimate": 9,
             "included": true
           },
           {
-            "id": "s8",
+            "id": "s9",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 2019,
+            "tokenEstimate": 2017,
             "included": true
           },
           {
-            "id": "s9",
+            "id": "s10",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 18183,
+            "tokenEstimate": 18449,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -187,9 +201,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 22129,
+          "estimatedInputTokensBeforeSend": 22413,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 169679,
+          "estimatedRemainingCapacity": 169395,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -256,8 +270,8 @@
       "turnId": "turn_golden",
       "type": "tool_result",
       "toolCallId": "t",
-      "summary": "Trimming does_not_exist — rejected: Clip not found: does_not_exist",
-      "result": "Clip not found: does_not_exist"
+      "summary": "Trimming does_not_exist — rejected: op 1 of 1 (trim_clip, 0s–2s): Clip not found: does_not_exist",
+      "result": "op 1 of 1 (trim_clip, 0s–2s): Clip not found: does_not_exist"
     },
     {
       "id": "turn_golden:run-state",
@@ -273,7 +287,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 3,
+        "version": 4,
         "objective": {
           "request": "trim the missing clip",
           "outcome": "trim the missing clip",
@@ -325,7 +339,21 @@
             "status": "pending"
           }
         ],
-        "operations": [],
+        "operations": [
+          {
+            "id": "op_1",
+            "intent": "trim_clip:{\"clipId\":\"does_not_exist\",\"start\":0,\"end\":2}",
+            "status": "failed",
+            "atRevision": 0,
+            "attempts": 1,
+            "planId": "plan_turn_golden_1",
+            "decisionId": "decision_1",
+            "idempotencyKey": "turn_golden:plan_turn_golden_1:trim_clip:{\"clipId\":\"does_not_exist\",\"start\":0,\"end\":2}:failed",
+            "projectRevisionBefore": 0,
+            "projectRevisionAfter": 0,
+            "failureReason": "Rejected \"trim_clip\" — op 1 of 1 (trim_clip, 0s–2s): Clip not found: does_not_exist"
+          }
+        ],
         "verifications": [],
         "nextAction": null,
         "blockedOn": null,
@@ -334,7 +362,14 @@
           "diagnostics": []
         },
         "baseProjectRevision": 0,
-        "currentProjectRevision": 0
+        "currentProjectRevision": 0,
+        "minted": {
+          "fact": 0,
+          "decision": 0,
+          "objective": 0,
+          "op": 1,
+          "verify": 0
+        }
       }
     },
     {
@@ -360,7 +395,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 22166,
+      "usedTokens": 22506,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -392,43 +427,50 @@
           {
             "id": "s4",
             "type": "retrieved_evidence",
-            "label": "source media",
-            "tokenEstimate": 18,
+            "label": "media bin",
+            "tokenEstimate": 15,
             "included": true
           },
           {
             "id": "s5",
+            "type": "retrieved_evidence",
+            "label": "source media",
+            "tokenEstimate": 23,
+            "included": true
+          },
+          {
+            "id": "s6",
             "type": "retrieved_evidence",
             "label": "transcript slice",
             "tokenEstimate": 11,
             "included": true
           },
           {
-            "id": "s6",
+            "id": "s7",
             "type": "skill",
             "label": "skills manifest",
             "tokenEstimate": 1649,
             "included": true
           },
           {
-            "id": "s7",
+            "id": "s8",
             "type": "latest_user_message",
             "label": "user request",
             "tokenEstimate": 9,
             "included": true
           },
           {
-            "id": "s8",
+            "id": "s9",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 2056,
+            "tokenEstimate": 2110,
             "included": true
           },
           {
-            "id": "s9",
+            "id": "s10",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 18183,
+            "tokenEstimate": 18449,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -436,9 +478,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 22166,
+          "estimatedInputTokensBeforeSend": 22506,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 169642,
+          "estimatedRemainingCapacity": 169302,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -500,7 +542,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 3,
+        "version": 4,
         "objective": {
           "request": "trim the missing clip",
           "outcome": "trim the missing clip",
@@ -552,7 +594,21 @@
             "status": "pending"
           }
         ],
-        "operations": [],
+        "operations": [
+          {
+            "id": "op_1",
+            "intent": "trim_clip:{\"clipId\":\"does_not_exist\",\"start\":0,\"end\":2}",
+            "status": "failed",
+            "atRevision": 0,
+            "attempts": 1,
+            "planId": "plan_turn_golden_1",
+            "decisionId": "decision_1",
+            "idempotencyKey": "turn_golden:plan_turn_golden_1:trim_clip:{\"clipId\":\"does_not_exist\",\"start\":0,\"end\":2}:failed",
+            "projectRevisionBefore": 0,
+            "projectRevisionAfter": 0,
+            "failureReason": "Rejected \"trim_clip\" — op 1 of 1 (trim_clip, 0s–2s): Clip not found: does_not_exist"
+          }
+        ],
         "verifications": [],
         "nextAction": null,
         "blockedOn": null,
@@ -561,7 +617,14 @@
           "diagnostics": []
         },
         "baseProjectRevision": 0,
-        "currentProjectRevision": 0
+        "currentProjectRevision": 0,
+        "minted": {
+          "fact": 0,
+          "decision": 0,
+          "objective": 0,
+          "op": 1,
+          "verify": 0
+        }
       }
     },
     {
@@ -570,7 +633,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "warning",
-      "text": "No edits were applied — 1 proposed change couldn't be applied to the timeline (Rejected \"trim_clip\" — Clip not found: does_not_exist). Try rephrasing the request."
+      "text": "No edits were applied — 1 proposed change couldn't be applied to the timeline (Rejected \"trim_clip\" — op 1 of 1 (trim_clip, 0s–2s): Clip not found: does_not_exist). Try rephrasing the request."
     },
     {
       "id": "turn_golden:run-state",
@@ -586,7 +649,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 5,
+        "version": 6,
         "objective": {
           "request": "trim the missing clip",
           "outcome": "trim the missing clip",
@@ -638,7 +701,21 @@
             "status": "pending"
           }
         ],
-        "operations": [],
+        "operations": [
+          {
+            "id": "op_1",
+            "intent": "trim_clip:{\"clipId\":\"does_not_exist\",\"start\":0,\"end\":2}",
+            "status": "failed",
+            "atRevision": 0,
+            "attempts": 1,
+            "planId": "plan_turn_golden_1",
+            "decisionId": "decision_1",
+            "idempotencyKey": "turn_golden:plan_turn_golden_1:trim_clip:{\"clipId\":\"does_not_exist\",\"start\":0,\"end\":2}:failed",
+            "projectRevisionBefore": 0,
+            "projectRevisionAfter": 0,
+            "failureReason": "Rejected \"trim_clip\" — op 1 of 1 (trim_clip, 0s–2s): Clip not found: does_not_exist"
+          }
+        ],
         "verifications": [
           {
             "id": "verify_1",
@@ -662,12 +739,19 @@
               "message": "Verification found: No traceable project mutation for the committed plan.",
               "stage": "verify",
               "blocking": true,
-              "atVersion": 4
+              "atVersion": 5
             }
           ]
         },
         "baseProjectRevision": 0,
-        "currentProjectRevision": 0
+        "currentProjectRevision": 0,
+        "minted": {
+          "fact": 0,
+          "decision": 0,
+          "objective": 0,
+          "op": 1,
+          "verify": 1
+        }
       }
     },
     {

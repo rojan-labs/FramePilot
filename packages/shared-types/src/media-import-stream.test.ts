@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { decodeMediaImportChunk, encodeMediaImportChunk } from './media-import-stream.js';
+import {
+  decodeMediaImportChunk,
+  encodeMediaImportChunk,
+  isMediaImportChunkHeader,
+} from './media-import-stream.js';
 
 describe('media import stream framing', () => {
   it('round-trips bounded payload and ordering metadata', () => {
@@ -16,6 +20,25 @@ describe('media import stream framing', () => {
       targetPath: 'media/p/clip.mp4',
     });
     expect([...decoded!.payload]).toEqual([1, 2, 3]);
+  });
+
+  it('carries the attachments destination across the frame', () => {
+    const framed = encodeMediaImportChunk(
+      { uploadId: 'upload_1', offset: 0, final: true, destination: 'attachments' },
+      new Uint8Array([9]),
+    );
+    expect(decodeMediaImportChunk(new Uint8Array(framed))?.header.destination).toBe('attachments');
+  });
+
+  it('accepts only the one destination literal, so a renderer cannot name a directory', () => {
+    const base = { uploadId: 'upload_1', offset: 0, final: true };
+    expect(isMediaImportChunkHeader(base)).toBe(true);
+    expect(isMediaImportChunkHeader({ ...base, destination: 'attachments' })).toBe(true);
+    // Rejected outright rather than ignored: silently falling back to the media bin would
+    // put an attachment where the sweep can never reclaim it.
+    expect(isMediaImportChunkHeader({ ...base, destination: '../..' })).toBe(false);
+    expect(isMediaImportChunkHeader({ ...base, destination: 'renders' })).toBe(false);
+    expect(isMediaImportChunkHeader({ ...base, destination: '' })).toBe(false);
   });
 
   it('treats unframed legacy bytes as a legacy whole-file request', () => {

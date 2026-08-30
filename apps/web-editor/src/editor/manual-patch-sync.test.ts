@@ -59,22 +59,52 @@ describe('manualPatchesForHistoryTransition', () => {
   });
 
   /**
-   * Undoing an AI edit sends NOTHING down the patch lane, and that is load-bearing.
+   * Undoing an AI edit must send the inverse down the patch lane.
    *
-   * `invertProjectPatch` stamps the inverse with the original patch's `createdBy`
-   * (editor-core/patch.ts), so an agent patch's inverse is `'agent'` too and the filter
-   * above drops it. The undo still reaches disk — App.tsx only sets
-   * `suppressFullAutosaveOnce` when this returns patches, so an empty result falls through
-   * to the full-project autosave, which writes the reverted state.
+   * The old assertion here pinned the opposite (`[]`) and justified it with a fallthrough:
+   * App only suppresses the full autosave when this returns patches, so an AI undo was
+   * supposed to reach disk as a debounced full snapshot. That snapshot was cancelled by the
+   * effect cleanup the moment the user made one more edit inside the 2s window, so the undo
+   * reached disk NEVER and the host kept applying edits to a document that still contained
+   * the AI change. The fallthrough was the bug, not the design.
    *
-   * Pinned explicitly because auto-apply makes Undo the entire safety net: it works today
-   * through a fallthrough rather than a designed path, and a future change that starts
-   * suppressing autosave unconditionally would silently strand every AI undo in memory.
+   * `invertProjectPatch` copies `createdBy`, so this inverse is stamped `'agent'` even
+   * though the user asked for it; authorship of a forward patch says who wrote it, but for
+   * an inverse it only says what was undone.
    */
-  it('sends no patch for an AI undo, leaving full autosave to persist it', () => {
+  it('sends the inverse when an AI edit is undone', () => {
     const manual = entry('manual');
     const agent = entry('agent', 'agent');
     // The user undoes the agent edit: history loses its newest entry.
-    expect(manualPatchesForHistoryTransition([manual, agent], [manual])).toEqual([]);
+    expect(
+      manualPatchesForHistoryTransition([manual, agent], [manual]).map((item) => item.patchId),
+    ).toEqual(['agent_inverse']);
+  });
+
+  /**
+   * The renderer hands AI an intentionally history-less copy of the project
+   * (`projectForAi`), and anything the AI sidebar derives from it inherits `history: []`.
+   *
+   * Read as a history transition, that empty array used to satisfy `prefix === next.length`
+   * and produce the inverses of every real user edit — committed straight to disk while the
+   * on-screen timeline never moved, so the first sign of it was the user's work missing
+   * after a reload. An absent history is unknown, not reverted.
+   */
+  it('never reads an empty next history as an undo of everything', () => {
+    const first = entry('u1');
+    const second = entry('u2');
+    expect(manualPatchesForHistoryTransition([first, second], [])).toEqual([]);
+    expect(manualPatchesForHistoryTransition([first, second], undefined as never)).toEqual([]);
+  });
+
+  it('still excludes agent-authored forward patches after an undo diverges', () => {
+    const a = entry('a');
+    const b = entry('b');
+    const agent = entry('agent', 'agent');
+    // b is undone, then the agent's own edit lands on the new branch: the inverse of the
+    // user's edit must ship, the agent's forward patch must not (the host already has it).
+    expect(
+      manualPatchesForHistoryTransition([a, b], [a, agent]).map((item) => item.patchId),
+    ).toEqual(['b_inverse']);
   });
 });

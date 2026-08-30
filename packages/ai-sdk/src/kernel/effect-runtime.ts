@@ -5,7 +5,8 @@
  * The Effect Runtime is the one privileged boundary where side effects happen —
  * the kernel's "syscall" layer. The pure Conductor emits inert RuntimeEffect
  * descriptions; the runtime interprets them: it runs the host tool executor or
- * model provider, honours cancellation, and dedups only effects whose canonical
+ * model provider, relays the caller's {@link AbortSignal} (the only cancellation
+ * channel — see {@link EffectRuntime}), and dedups only effects whose canonical
  * tool contract permits caching and that declare a safe idempotency key.
  */
 import { createLogger } from '@framepilot/shared-types';
@@ -80,13 +81,32 @@ export interface EffectRuntimeDeps {
   readonly observer?: EffectRuntimeObserver;
 }
 
+/**
+ * The runtime's interface. Note what is NOT on it: a `cancel(effectId)` method.
+ *
+ * **`AbortSignal` is the only cancellation channel.** Every entry point takes the run's
+ * signal and threads it to the provider, the host executor and the structured executor;
+ * the user's Stop, the orchestrator's own teardown and a structured effect's timeout all
+ * travel that way, and it is the mechanism that actually ends a run today.
+ *
+ * There used to be a second one — `cancel`/`cancelTree`, backed by a registry of live
+ * effects — and it was inert in the way that matters most: `host_tool` and `model` effects
+ * carry no {@link EffectControl}, so they have no `effectId` to be cancelled BY, were never
+ * registered, and could not be reached by it at all. It had no production caller in this
+ * repo; the only callers were its own tests and a pass-through in `kernel/replay`. Two
+ * cancellation mechanisms where one cannot reach the effects that do the work is how the
+ * next reader wires the wrong one and believes a run is stoppable when it is not.
+ *
+ * If a future scheduler genuinely needs to cancel ONE effect out of many in flight, the
+ * missing piece is an identity on host/model effects, not a second channel: give them an
+ * `EffectControl` and the existing signal plumbing carries it.
+ */
 export interface EffectRuntime {
   run(effect: NonStreamingRuntimeEffect, signal?: AbortSignal): Promise<EffectResult>;
   streamModel?(
     effect: ModelStreamEffect,
     signal?: AbortSignal,
   ): AsyncGenerator<ProviderChunk, ModelStreamEffectResult>;
-  cancel(effectId: string, reason?: string): void;
 }
 
 export class EffectTimeoutError extends Error {
@@ -103,8 +123,10 @@ export class EffectTimeoutError extends Error {
 /**
  * Readable characters of a tool call's arguments kept in its cache key, before the rest
  * is replaced by a digest. The remaining budget under {@link MAX_IDENTITY_KEY_CHARS}
- * (the run contract's cap, `run-contracts.ts`'s `identityKeySchema`) covers
- * `host_tool:`, the tool name, and the `:rev:N` suffix.
+ * (the run contract's cap, `run-contracts.ts`'s `identityKeySchema`) covers `host_tool:`
+ * and the tool name, with headroom kept deliberately: it was sized when keys also carried
+ * a `:rev:N` suffix, and a reserve that leaves the cap unbreached is not worth re-tuning
+ * for a few characters of readability.
  */
 const TOOL_ARGUMENT_KEY_RESERVE_CHARS = 106;
 const TOOL_ARGUMENT_KEY_CHARS = MAX_IDENTITY_KEY_CHARS - TOOL_ARGUMENT_KEY_RESERVE_CHARS;
@@ -117,13 +139,17 @@ const TOOL_ARGUMENT_KEY_CHARS = MAX_IDENTITY_KEY_CHARS - TOOL_ARGUMENT_KEY_RESER
  *
  *  - `none` ⇒ never memoized, and an explicit key CANNOT override that. This is what
  *    keeps `render_preview`/`export_video` (which take `{}`, so every call would
- *    otherwise collide) and the `transcribe`/`index_media` host mutations honest.
- *  - `project_revision` ⇒ the key carries the timeline revision, so the same read after
- *    an edit is a different key and re-runs. Without a revision to name, there is no
- *    safe identity, so the call runs fresh rather than risking a pre-edit answer.
+ *    otherwise collide) and the `transcribe`/`index_media` host mutations honest — and
+ *    now also every host read of the timeline, the bin or the transcript, because a run
+ *    changes all three underneath its own questions.
  *  - `asset_content`/`run` ⇒ keyed by name + args, since the answer depends on media
  *    content rather than on timeline state (this is the orchestrator's T5 per-run
- *    analysis cache, generalized).
+ *    analysis cache, generalized). Sound only because originals are never mutated.
+ *
+ * There is no revision-keyed tier. It existed, `tool-contract.ts#ToolCacheScope` says why
+ * it went, and re-adding one here would need that argument answered first: the key would
+ * have to name state the tool's answer actually depends on, and `Timeline.revision` does
+ * not.
  *
  * A model effect is deduped only when it declares an explicit key — model calls are
  * non-deterministic, so silent memoization would be surprising.
@@ -139,13 +165,10 @@ export function idempotencyKeyFor(effect: RuntimeEffect): string | undefined {
     // caps it at 256 characters. Serialising the arguments in full made the cap a
     // function of how much editing one call did — a montage call carrying thirty
     // segments breached it and took the whole run's snapshot down with it.
-    const base = `host_tool:${effect.call.name}:${boundedKeySegment(
+    return `host_tool:${effect.call.name}:${boundedKeySegment(
       JSON.stringify(effect.call.arguments),
       TOOL_ARGUMENT_KEY_CHARS,
     )}`;
-    if (cacheScope !== 'project_revision') return base;
-    const { revision } = effect.project.timeline;
-    return revision === undefined ? undefined : `${base}:rev:${String(revision)}`;
   }
   if (effect.kind === 'model') return effect.idempotencyKey;
   if (effect.kind === 'model_stream') return undefined;
@@ -187,10 +210,6 @@ async function* streamProvider(
 
 export function createEffectRuntime(deps: EffectRuntimeDeps): EffectRuntime {
   const memo = new Map<string, Promise<EffectResult>>();
-  const active = new Map<
-    string,
-    { readonly controller: AbortController; readonly parentId?: string }
-  >();
 
   const runHostTool = async (
     effect: HostToolEffect,
@@ -308,12 +327,6 @@ export function createEffectRuntime(deps: EffectRuntimeDeps): EffectRuntime {
     const relayAbort = (): void => controller.abort(parentSignal?.reason);
     if (parentSignal?.aborted) relayAbort();
     else parentSignal?.addEventListener('abort', relayAbort, { once: true });
-    active.set(effect.control.effectId, {
-      controller,
-      ...(effect.control.cancellationParentId === undefined
-        ? {}
-        : { parentId: effect.control.cancellationParentId }),
-    });
     const timer = setTimeout(
       () =>
         controller.abort(new EffectTimeoutError(effect.control.effectId, effect.control.timeoutMs)),
@@ -348,7 +361,6 @@ export function createEffectRuntime(deps: EffectRuntimeDeps): EffectRuntime {
       /* v8 ignore stop */
       clearTimeout(timer);
       parentSignal?.removeEventListener('abort', relayAbort);
-      active.delete(effect.control.effectId);
     }
   };
 
@@ -360,20 +372,10 @@ export function createEffectRuntime(deps: EffectRuntimeDeps): EffectRuntime {
       ? execute(effect, signal)
       : runStructuredWithPolicy(effect, signal);
 
-  const cancelTree = (effectId: string, reason?: string, visited = new Set<string>()): void => {
-    if (visited.has(effectId)) return;
-    visited.add(effectId);
-    active.get(effectId)?.controller.abort(reason);
-    for (const [childId, child] of active) {
-      if (child.parentId === effectId) cancelTree(childId, reason, visited);
-    }
-  };
-
   const asHit = (memoized: Promise<EffectResult>): Promise<EffectResult> =>
     memoized.then((result) => ({ ...result, cached: true }));
 
   return {
-    cancel: cancelTree,
     async *streamModel(effect, signal) {
       await deps.observer?.onRequested(effect);
       const tier = effect.tier ?? DEFAULT_MODEL_TIER;

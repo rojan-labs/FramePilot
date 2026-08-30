@@ -2590,3 +2590,157 @@ describe('reference tiles survive a reload (P3.1)', () => {
     expect(screen.getByText('Measured logo.png')).toBeTruthy();
   });
 });
+
+/**
+ * The attachment ownership lifecycle, end to end in the renderer (PROMPT.md §6).
+ *
+ * The defect: an attachment lived only in composer state, so sending a message left it
+ * sitting in the composer, the bubble could not show it, and every later turn re-sent it
+ * as a reference. Composer state and message state were one mutable thing.
+ *
+ * Seeded already-analyzed for the same reason the tiles test above is — the import and
+ * the measurement belong to the desktop host. What is under test here is the handoff:
+ * submit moves them, the composer empties, and the bubble is what remembers.
+ */
+describe('a sent message owns its attachments (PROMPT.md §6)', () => {
+  const attached = [
+    { id: 'r1', kind: 'video' as const, name: 'fast-cut-vertical.mp4', role: 'pacing' as const },
+    { id: 'r2', kind: 'image' as const, name: 'mood.png', role: 'color' as const },
+  ].map((entry) => ({
+    ...entry,
+    status: 'ready' as const,
+    path: `media/p/${entry.name}`,
+    profile: {
+      id: entry.id,
+      role: entry.role,
+      kind: entry.kind,
+      fileName: entry.name,
+      contentHash: `hash_${entry.id}_0123456789`,
+      analyzedAt: '2026-08-29T10:00:00Z',
+      constraints: [`Measured ${entry.name}`],
+    },
+  }));
+
+  function seeded() {
+    const base = createConversation({ id: 'conv-own', projectId: project.id, model: 'mock' });
+    return { ...base, title: 'Reference run', uiState: { ...base.uiState, attachments: attached } };
+  }
+
+  async function openFromHistory(): Promise<void> {
+    fireEvent.click(await screen.findByRole('button', { name: 'More options' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /History/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Reference run/ }));
+  }
+
+  it('moves them out of the composer and into the message bubble on submit', async () => {
+    const persistence = new MemoryPersistence([seeded()]);
+    render(<AiSidebar project={project} session={new DiffSession()} persistence={persistence} />);
+    await openFromHistory();
+
+    // Two composer tiles before sending.
+    await waitFor(() => expect(document.querySelectorAll('.ai-ref-tile')).toHaveLength(2));
+
+    const input = screen.getByRole('textbox', { name: /message/i });
+    fireEvent.change(input, { target: { value: 'make it feel like this' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    // The bubble now carries them...
+    await waitFor(() => expect(document.querySelectorAll('.ai-msg-attachment')).toHaveLength(2));
+    expect(screen.getByText('fast-cut-vertical.mp4')).toBeTruthy();
+    expect(screen.getByText('mood.png')).toBeTruthy();
+    // ...and the composer is empty. Both halves matter: leaving the tiles behind is
+    // exactly the state that re-sent them on every later turn.
+    expect(document.querySelectorAll('.ai-ref-tile')).toHaveLength(0);
+  });
+
+  it('takes a reference out of force from the bubble, and says so', async () => {
+    // Removal used to be "delete the composer tile", which only worked because the tiles
+    // never cleared. Now that a sent attachment belongs to its message, the record has to
+    // stay put and the POLICY needs somewhere of its own — so the bubble's tile is where
+    // "stop using this" lives. The message goes on saying the file was attached; what
+    // changes is whether later turns are still working under it.
+    const persistence = new MemoryPersistence([seeded()]);
+    render(<AiSidebar project={project} session={new DiffSession()} persistence={persistence} />);
+    await openFromHistory();
+    await waitFor(() => expect(document.querySelectorAll('.ai-ref-tile')).toHaveLength(2));
+
+    const input = screen.getByRole('textbox', { name: /message/i });
+    fireEvent.change(input, { target: { value: 'match this pacing' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(document.querySelectorAll('.ai-msg-attachment')).toHaveLength(2));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop using mood.png as a reference' }));
+
+    // Still on the message — a record does not change — but marked as out of force, and
+    // its dismiss control is gone because there is nothing left to dismiss.
+    await waitFor(() => expect(screen.getByText('no longer used')).toBeTruthy());
+    expect(document.querySelectorAll('.ai-msg-attachment')).toHaveLength(2);
+    expect(screen.getByText('mood.png')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Stop using mood.png as a reference' })).toBeNull();
+    // The other one is untouched.
+    expect(
+      screen.getByRole('button', { name: 'Stop using fast-cut-vertical.mp4 as a reference' }),
+    ).toBeTruthy();
+  });
+
+  it('replays the failed message’s references on Retry', async () => {
+    // Property (10) of the attachment lifecycle, and the one the composer clearing makes
+    // load-bearing: once the chips are gone, the ONLY record of what a turn was sent with
+    // is the message itself. If Retry rebuilt its references from composer state it would
+    // now re-run with none at all.
+    const seen: (readonly unknown[] | undefined)[] = [];
+    class FailingThenRecording implements AiSession {
+      public async *run(_mode: string, input: AiSessionInput): AsyncIterable<AiEvent> {
+        seen.push(input.references);
+        const e = createTurnEmitter({ conversationId: input.conversationId, turnId: input.turnId });
+        yield e.status('failed');
+      }
+      public abort(): void {}
+      public answer(): void {}
+    }
+    const persistence = new MemoryPersistence([seeded()]);
+    render(
+      <AiSidebar
+        project={project}
+        session={new FailingThenRecording()}
+        persistence={persistence}
+      />,
+    );
+    await openFromHistory();
+    await waitFor(() => expect(document.querySelectorAll('.ai-ref-tile')).toHaveLength(2));
+
+    const input = screen.getByRole('textbox', { name: /message/i });
+    fireEvent.change(input, { target: { value: 'match this pacing' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]).toHaveLength(2);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Retry/ }));
+    await waitFor(() => expect(seen).toHaveLength(2));
+    // The same two references, rebuilt from the message rather than the emptied composer.
+    expect(seen[1]).toHaveLength(2);
+  });
+
+  it('keeps them on the message across a reload, with nothing back in the composer', async () => {
+    const persistence = new MemoryPersistence([seeded()]);
+    const { unmount } = render(
+      <AiSidebar project={project} session={new DiffSession()} persistence={persistence} />,
+    );
+    await openFromHistory();
+    await waitFor(() => expect(document.querySelectorAll('.ai-ref-tile')).toHaveLength(2));
+    const input = screen.getByRole('textbox', { name: /message/i });
+    fireEvent.change(input, { target: { value: 'match this pacing' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(document.querySelectorAll('.ai-msg-attachment')).toHaveLength(2));
+
+    unmount();
+    resetConversationsRemountCache();
+    resetAiSidebarScrollCache();
+
+    render(<AiSidebar project={project} session={new DiffSession()} persistence={persistence} />);
+    await openFromHistory();
+
+    await waitFor(() => expect(document.querySelectorAll('.ai-msg-attachment')).toHaveLength(2));
+    expect(document.querySelectorAll('.ai-ref-tile')).toHaveLength(0);
+  });
+});

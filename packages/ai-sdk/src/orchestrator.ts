@@ -11,7 +11,12 @@
  * Modes implemented here: chat, plan, edit, autocomplete (plan/PLAN.md §4.2) and —
  * Phase 7 — the multi-step `agent` loop and the `review` critic pass.
  */
-import { DEFAULT_SILENCE_CUT, SilenceRangesPayloadSchema, silenceCutOps } from './silence-cut.js';
+import {
+  DEFAULT_SILENCE_CUT,
+  SilenceRangesPayloadSchema,
+  noCutsNote,
+  silenceCutOps,
+} from './silence-cut.js';
 import { type AnyOperation, applyProjectPatch } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
 import {
@@ -38,7 +43,7 @@ import {
 import type { AgentOptions, AgentRun, AgentStep, ReviewResult } from './agent.js';
 import { asksForRenderedFile, checkableAcceptance } from './acceptance.js';
 import { referenceDirectives, shotLengthTolerance } from './references/directives.js';
-import { type EditResult, assembleEdit } from './assemble.js';
+import { type EditResult, assembleEdit, describeValidationIssue } from './assemble.js';
 import {
   TOOL_CONCURRENCY_ENV,
   mapBounded,
@@ -1469,6 +1474,22 @@ interface AgentCallOutcome {
   finding?: string;
   status: ToolStatus;
   data?: unknown;
+  /**
+   * This `failed` outcome came from the run's DETERMINISTIC refusal path — schema
+   * validation of the arguments, or the per-call validator probe — so the same call
+   * against the same arrangement is refused with the same sentence every time.
+   *
+   * The discriminator has to exist, and it has to be opt-in. `status: 'failed'` alone is
+   * shared by around twenty return sites in this file, most of them HOST outcomes: a
+   * sidecar restart, a download timeout, a provider 5xx. Those are transient, and
+   * remembering one as proof that a tool cannot work would be a worse bug than the retry
+   * loop the memory exists to stop. So a failure is transient unless the branch that
+   * produced it says otherwise here.
+   *
+   * Consumed by `executeToolCalls` to build `TurnCallFact.failureKey`; absent ⇒ nothing
+   * about this failure is remembered for the rest of the run.
+   */
+  deterministicFailure?: boolean;
   /** The working copy advanced by this call's validated ops (mutating calls only). */
   project?: Project;
   /** How many proposed ops the validator rejected (drives the empty-run notice). */
@@ -3437,7 +3458,19 @@ export class Orchestrator {
     if (!registered) {
       const note = `Refused unknown tool "${call.name}"`;
       orchestratorLog.warn('tool call refused — unknown', { tool: call.name });
-      return { ops: [], note, summary: note, status: 'failed' };
+      // BANKED. A name the registry has never heard of will not appear in it on the next
+      // turn, so this is the most deterministic failure a run can have — and without both
+      // `data` and the flag, `deterministicFailureKey` produced no key and the model could
+      // invent the same non-existent tool every single turn. That is the exact loop
+      // `withheldCallOutcome`'s unknown-tool branch was written to end.
+      return {
+        ops: [],
+        note,
+        summary: note,
+        status: 'failed',
+        data: note,
+        deterministicFailure: true,
+      };
     }
     if (!registered.available) {
       const note = `Skipped "${call.name}" — not available yet`;
@@ -3460,7 +3493,14 @@ export class Orchestrator {
         parsed = tool.parse(args) as typeof parsed;
       } catch (cause) {
         const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause)}`;
-        return { ops: [], note, summary: note, status: 'failed', data: note };
+        return {
+          ops: [],
+          note,
+          summary: note,
+          status: 'failed',
+          data: note,
+          deterministicFailure: true,
+        };
       }
       if (!host.askUser) {
         // No one is listening — the non-streaming paths (the legacy loop, the repair
@@ -3572,7 +3612,14 @@ export class Orchestrator {
         tool.parse(args);
       } catch (cause) {
         const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause)}`;
-        return { ops: [], note, summary: note, status: 'failed', data: note };
+        return {
+          ops: [],
+          note,
+          summary: note,
+          status: 'failed',
+          data: note,
+          deterministicFailure: true,
+        };
       }
       const result = await host.effectRuntime.run(
         {
@@ -3700,7 +3747,19 @@ export class Orchestrator {
         };
         const { ops, cuts, removedSeconds } = silenceCutOps(ctx.project, parsed.data, options);
         if (ops.length === 0) {
-          const note = `No dead air to cut: ${String(parsed.data.ranges.length)} silence(s) measured, none longer than ${String(options.minSilenceSeconds)}s where the asset plays.`;
+          // An empty cut list is NEVER evidence that the recording is tight — `ranges` is
+          // filtered inside ffmpeg, so it is empty by construction whenever the threshold
+          // overshoots. `noCutsNote` says what was actually measured; `warning` (not
+          // `completed`) keeps what lands in run memory as "not measurable at this
+          // threshold", never "no dead air".
+          const note = noCutsNote(parsed.data, options);
+          orchestratorLog.debug('remove_silences produced no cuts', {
+            assetId: parsed.data.assetId,
+            minSilenceSeconds: options.minSilenceSeconds,
+            rangesAtThreshold: parsed.data.ranges.length,
+            measuredCount: parsed.data.measuredCount ?? null,
+            longestSeconds: parsed.data.longestSeconds ?? null,
+          });
           return { ops: [], note, summary: note, status: 'warning', data: outcome.data };
         }
         const probe = assembleEdit(ctx.project, ops, 'Remove dead air', 'agent');
@@ -3884,13 +3943,19 @@ export class Orchestrator {
       // summary text — the summary can be data-derived ("No silent ranges") and would
       // otherwise read as a freshly fabricated result rather than a served-from-cache one.
       const base = runtimeCached ? desc : outcome.summary;
-      // A CACHED REPLAY RE-ATTACHES ITS PICTURE. The memo key for an image-bearing read
-      // carries the timeline revision (`idempotencyKeyFor`'s `project_revision` scope), so a
-      // hit is proof the timeline has not moved since the frame was rendered — the stored
-      // picture IS the current one, and the "a frame is only worth looking at as the
-      // timeline is now" objection cannot apply to a hit by construction.
+      // A CACHED REPLAY RE-ATTACHES ITS PICTURE, and the freshness of that picture is now
+      // the CONTRACT's problem, not this line's.
       //
-      // Dropping it was the more expensive mistake. Frames ride ONE request and are then
+      // This used to argue that a hit proves the picture is current, because the memo key
+      // carries `timeline.revision`. It does not: the revision tracks the source↔sequence
+      // MAPPING and stands still through every picture-only edit (grade, effect, keyframe,
+      // punch-in, mask), so the memo happily replayed a pre-grade frame at the call made to
+      // check the grade. `get_frame` and `measure_color` therefore declare
+      // `cacheScope: 'none'` (tool-contract.ts) and never reach this branch at all.
+      //
+      // What survives here are the reads whose contract genuinely permits a replay. For
+      // those the re-attach is still right, and dropping it was the more expensive mistake.
+      // Frames ride ONE request and are then
       // stripped from the transcript, so from the turn after a look the model has no image
       // and no way to get one: the replay told it "you were shown this, answer from what you
       // saw" about a picture that had already left its context, and said asking again was
@@ -3951,7 +4016,34 @@ export class Orchestrator {
             data: recalled,
           };
         }
-        const value = tool.read(sanitizeToolArgs(tool, call.arguments), ctx);
+        // THE TOOL BOUNDARY GETS ITS OWN CATCH, and it is the only thing under it.
+        //
+        // Everything after this line — the `load_skill` bookkeeping, the evidence
+        // lookup/put, `evidencePayload`, `summarizeReadResult` — is orchestrator plumbing
+        // that used to sit under the same catch as this call. So a `TypeError` in a
+        // summarizer was reported to the model as `Invalid arguments for "get_transcript"`,
+        // a cause it could do nothing about, and `deterministicFailure: true` banked it into
+        // `seenFailureKeys`: the read was then refused for the REST OF THE RUN with
+        // "Retrying it cannot succeed." A transient defect of OURS became permanent
+        // capability loss, attributed to the model. The outer catch answers for the plumbing
+        // now — retryably, and unbanked.
+        let value: unknown;
+        try {
+          value = tool.read(sanitizeToolArgs(tool, call.arguments), ctx);
+        } catch (cause) {
+          // A refusal from the registered, contracted tool boundary IS the model's to fix —
+          // a bad window, an unknown id, the wrong kind of clip — so it keeps the argument
+          // wording and stays banked, exactly as it was.
+          const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause)}`;
+          return {
+            ops: [],
+            note,
+            summary: note,
+            status: 'failed',
+            data: note,
+            deterministicFailure: true,
+          };
+        }
         // ADR 0057: a loaded playbook is PINNED into the run's context by
         // `agentMessages`, so it must NOT also ride in this turn's log note — the note
         // lives in a rolling last-N-steps window (compactAgentLog), which would both
@@ -4035,15 +4127,41 @@ export class Orchestrator {
           data: value,
         };
       } catch (cause) {
-        const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause)}`;
-        return { ops: [], note, summary: note, status: 'failed', data: note };
+        // Only the PLUMBING can reach here now — the tool boundary answered for itself
+        // above — so this is our fault, not the model's. Untyped, and deliberately without
+        // `deterministicFailure`, so `deterministicFailureKey` banks nothing and the next
+        // attempt is allowed to succeed.
+        const reason = cause instanceof Error ? cause.message : String(cause);
+        orchestratorLog.error('read tool failed unexpectedly', { tool: call.name, reason });
+        const note =
+          `"${call.name}" failed unexpectedly: ${reason}. This is not a problem with your ` +
+          'arguments — try it again, or reach for a different tool.';
+        return { ops: [], note, summary: `${desc} — failed`, status: 'failed', data: note };
       }
     }
+    // Same split on the mutating path. `operationsFor` is the tool boundary and throws a
+    // typed `ToolInvocationError`; `detectTimelineWipe`, `assembleEdit`,
+    // `summarizeOperations` and `applyProjectPatch` below are not, and a throw from any of
+    // them was being relabelled as the model's bad arguments AND banked as permanent.
+    let ops: AnyOperation[];
     try {
-      const ops = this.operationsFor(
-        call,
-        host.evidence ? { ...ctx, evidence: host.evidence } : ctx,
-      );
+      ops = this.operationsFor(call, host.evidence ? { ...ctx, evidence: host.evidence } : ctx);
+    } catch (error) {
+      // `operationsForCall` only ever throws `ToolInvocationError` (unknown/unavailable/
+      // invalid args) — all three are the model's to fix and all three are worth banking.
+      const reason = error instanceof Error ? error.message : String(error);
+      const note = `Rejected "${call.name}": ${reason}`;
+      orchestratorLog.warn('tool call rejected — invalid args', { tool: call.name, reason });
+      return {
+        ops: [],
+        note,
+        summary: note,
+        status: 'failed',
+        data: reason,
+        deterministicFailure: true,
+      };
+    }
+    try {
       if (ops.length === 0) {
         // A mutating tool can legitimately have nothing to do — e.g. manage_assets
         // when the bin is already organized. Say so plainly instead of implying an
@@ -4070,6 +4188,13 @@ export class Orchestrator {
           status: 'failed',
           data: wipeVerdict,
           rejectedOpCount: ops.length,
+          // Deterministic in the only sense the bank uses: the guard is a pure function of
+          // the proposed ops and the current project, so the identical call against the
+          // same timeline is refused with the identical sentence. Nothing is pre-blocked —
+          // `runAgentCall` still runs every call and the bank only replaces an outcome that
+          // reproduces the same key, so a later call the guard no longer objects to still
+          // lands. Without the flag the run could re-propose the same wipe every turn.
+          deterministicFailure: true,
         };
       }
       // Validate against the working copy NOW, not at turn end: an invalid call
@@ -4078,9 +4203,14 @@ export class Orchestrator {
       // instead of showing a checkmark and having the whole turn rejected later.
       const probe = assembleEdit(ctx.project, ops, 'validation probe', 'agent');
       if (!probe.validation.valid) {
+        // Locate each issue, do not just quote it. A batch tool builds one operation per
+        // cue/entry, so an unlocated reason is the same sentence for every one of them and
+        // the model's only move is to reissue the identical call. `probe.patch.operations`
+        // is the list the issues were raised against — normalized when the rejection came
+        // after quantization, raw when it came before.
         const problems = probe.validation.issues
           .filter((i) => i.severity === 'error')
-          .map((i) => i.message)
+          .map((i) => describeValidationIssue(i, probe.patch.operations))
           .join('; ');
         const note = `Rejected "${call.name}" — ${problems}`;
         orchestratorLog.warn('tool call rejected — validator', { tool: call.name, problems });
@@ -4091,6 +4221,7 @@ export class Orchestrator {
           status: 'failed',
           data: problems,
           rejectedOpCount: ops.length,
+          deterministicFailure: true,
         };
       }
       // The NORMALIZED operations, not the raw ones the tool built.
@@ -4127,12 +4258,19 @@ export class Orchestrator {
         project: applyProjectPatch(ctx.project, probe.patch),
       };
     } catch (error) {
-      // Unknown/unavailable/read/action are handled above, so the only thing
-      // operationsFor can throw here is a ToolInvocationError for invalid args.
-      const reason = (error as ToolInvocationError).message;
-      const note = `Rejected "${call.name}": ${reason}`;
-      orchestratorLog.warn('tool call rejected — invalid args', { tool: call.name, reason });
-      return { ops: [], note, summary: note, status: 'failed', data: reason };
+      // The old comment here claimed only a `ToolInvocationError` for invalid args could
+      // reach this point. That was never true: everything above except `operationsFor` is
+      // orchestrator work, so a throw from `assembleEdit`, `summarizeOperations`,
+      // `detectTimelineWipe` or `applyProjectPatch` was reported as the model's bad
+      // arguments and banked as permanent — losing the tool for the rest of the run over a
+      // fault it had no part in. Retryable by omission: no `deterministicFailure`, so
+      // `deterministicFailureKey` returns nothing.
+      const reason = error instanceof Error ? error.message : String(error);
+      orchestratorLog.error('tool call failed unexpectedly', { tool: call.name, reason });
+      const note =
+        `"${call.name}" failed unexpectedly: ${reason}. This is not a problem with your ` +
+        'arguments — try it again, or reach for a different tool.';
+      return { ops: [], note, summary: `${desc} — failed`, status: 'failed', data: note };
     }
   }
 
@@ -5169,6 +5307,12 @@ export class Orchestrator {
      * withheld search is refused with the specific reason and the specific way out.
      */
     bankedSearches?: number,
+    /**
+     * `name:error` keys the run has already been refused with (`ConductorState.seenFailureKeys`).
+     * A call that settles to one of them is replaced by {@link repeatedFailureOutcome}
+     * instead of handing the model the same sentence a second time.
+     */
+    seenFailureKeys?: ReadonlySet<string>,
   ): AsyncGenerator<
     AiEvent,
     {
@@ -5365,7 +5509,28 @@ export class Orchestrator {
       // Fold the batch in original call order (reference pattern #2): results, notes,
       // callFacts, emitted events, and the stop-on-cancelled point are exactly what
       // serial execution produces for the same outcomes.
-      for (const { call, outcome, runtimeMs, announced } of settled) {
+      for (const { call, outcome: settledOutcome, runtimeMs, announced } of settled) {
+        // A repeat is caught the moment its refusal SETTLES, not before it runs, and the
+        // difference is not a detail. The key is `name:error` and the error is produced by
+        // the attempt — so the only thing knowable before execution is the tool's name,
+        // and blocking on that would refuse an `add_clip` at 30s because an earlier one
+        // overlapped a clip at 3s. Refusing a corrected retry is a worse bug than the loop.
+        //
+        // Nothing is wasted by letting it settle: every branch that can produce a
+        // `deterministicFailure` is in-process and side-effect-free (schema parse, op
+        // build, validator probe). Host work never reaches this test, because a host
+        // failure is never given a key.
+        const bankedKey = deterministicFailureKey(call.name, settledOutcome);
+        const isRepeat = bankedKey !== undefined && seenFailureKeys?.has(bankedKey) === true;
+        if (isRepeat) {
+          orchestratorLog.warn('tool call refused — already failed this run', {
+            tool: call.name,
+            error: settledOutcome.data,
+          });
+        }
+        const outcome = isRepeat
+          ? repeatedFailureOutcome(call, settledOutcome.data as string)
+          : settledOutcome;
         const cardExtra = cardExtraFor(call);
         if (!announced) {
           /* v8 ignore start -- E1.3 assertion: a concurrency-safe call must never produce
@@ -5446,12 +5611,14 @@ export class Orchestrator {
               ? { evidenceId: evidence.lookup(callMemoKey(call))!.id }
               : {}),
           });
+          const failureKey = deterministicFailureKey(call.name, outcome);
           callFacts.push({
             key: callNoveltyKey(call),
             status: outcome.status,
             fromCache: outcome.fromCache === true,
             role,
             ...(distilled ? { distilled } : {}),
+            ...(failureKey === undefined ? {} : { failureKey }),
           });
         }
         if (outcome.rejectedOpCount) {
@@ -6654,6 +6821,18 @@ export class Orchestrator {
         const cause = reason ?? verdicts[firstRefused]!.reason!;
         hostRefusals.push({ patchId: patch.patchId, intent: patch.intent, reason: cause });
         log.push(`The editor could not write "${patch.intent}" — ${cause}`);
+        // FORGET the id as well as the ops. `patchIdFor` is a pure content hash of the
+        // normalized operations, so the corrected retry of a refused edit — which is very
+        // often the byte-identical call, because the refusal was the host's ("wrong project
+        // open", "revision moved"), not the model's — recomputes the SAME id. Left in
+        // `appliedPatchIds` it hit the no-op branch in `applyTurnEdit` and came back
+        // "already in place — this exact change is already on the timeline" with
+        // `satisfied: true`, which is excluded from the rejection path: green cards, a
+        // completion report claiming the edit, and a project that never received it.
+        //
+        // Removing it restores the only honest state — the run has NOT applied this patch —
+        // so a retry is assembled, validated and offered to the host again.
+        appliedPatchIds.delete(patch.patchId);
       }
       const removedOps = verdicts
         .slice(firstRefused)
@@ -7233,6 +7412,10 @@ export class Orchestrator {
           beatEvidence,
           controls.rememberDecision,
           withholdSearch ? bankedSearches : undefined,
+          // The run's proven-refusal memory, so a call that settles to a refusal this run
+          // has already had is answered with "that cannot work" instead of the same
+          // sentence again (see `ConductorState.seenFailureKeys`).
+          effect.seenFailureKeys ? new Set(effect.seenFailureKeys) : undefined,
         );
         if (callFacts.some(isContentEvidenceFact)) sawContentEvidence = true;
         // Hand this turn's frames to the NEXT request (see `pendingFrames`).
@@ -7463,20 +7646,46 @@ export class Orchestrator {
         state: ConductorState,
       ): AsyncGenerator<AiEvent, void> {
         const emit = createTurnEmitter(state.turnRef, state.seq);
+        // THE BACKSTOP ON EVERY TERMINAL PATH.
+        //
+        // `reconcileHostVerdicts` otherwise runs only at a turn boundary and in `runVerify`.
+        // A cancelled run reaches neither: `kernel/conductor.ts`'s `cancelFinalize` goes
+        // straight to `finalize`, bypassing `toVerify`. So a Stop pressed after a refused
+        // patch left the last patches' verdicts uncollected, and the completion report
+        // below then told the editor about work the project never received — the exact
+        // failure the ledger exists to prevent, surviving on the one path that skipped it.
+        //
+        // Idempotent: `unsettledPatches` is spliced empty by each call, so the normal
+        // post-verify path reaches this with nothing outstanding and it costs nothing.
+        const refusalsBefore = hostRefusals.length;
+        await reconcileHostVerdicts();
+        const refusedAtTheEnd = hostRefusals.length > refusalsBefore;
+        // `effect.ops` was snapshotted by the reducer BEFORE those verdicts existed, so it
+        // still counts the refused patches. `cumulativeOps` is this closure's mirror and HAS
+        // been rewound by the reconcile above, which makes it the only honest account of
+        // what the project actually holds. Used only when a refusal landed here, so every
+        // other run keeps the reducer's list byte-for-byte.
+        const reportedOps = refusedAtTheEnd ? cumulativeOps : effect.ops;
         // C1: the run's real, combined cost (classifier + every turn + any repair pass) —
         // emitted once at the terminal boundary, mirroring `streamRecipe`/
         // the single terminal `emit.usage(...)` contract every route shares.
         yield emit.usage({ tokens: usageTokens, usd: usageUsd, modelCalls });
+        // Say the refusal out loud. The per-turn path emits these as warnings through the
+        // reducer (`onTurnResult`); a run that ends here has no turn left to carry them, and
+        // silence is how "your edit was refused" becomes "your edit was applied".
+        for (const refusal of hostRefusals.slice(refusalsBefore)) {
+          yield emit.warning(`Couldn’t apply “${refusal.intent}” — ${refusal.reason}`);
+        }
         // A cancelled run still gets a receipt when it applied something. Stopping a run
         // does not un-apply its edits — run e30c1fe9 left 38 operations in the project and
         // said nothing about any of them, because this gate treated "cancelled" as "there
         // is nothing to report". The last word the editor got was a perceptual warning
         // about frames, over a timeline they had no summary of.
-        if (!effect.failed && effect.ops.length > 0) {
+        if (!effect.failed && reportedOps.length > 0) {
           yield emit.assistant(
             emit.assistantId,
             agentCompletionReport({
-              ops: effect.ops,
+              ops: reportedOps,
               names: projectNames(working),
               steps: Math.max(effect.appliedTurns, 1),
               rejectedOpCount: effect.rejectedOpCount,
@@ -7622,7 +7831,17 @@ function withheldCallOutcome(
     const note =
       `There is no tool called "${call.name}". Use one of the tools offered on this ` +
       'turn — inventing a name will not make it exist on the next one.';
-    return { ops: [], note, summary: `Refused unknown tool "${call.name}"`, status: 'failed' };
+    // `data` + the flag, or `deterministicFailureKey` banks nothing and the sentence above
+    // is all this branch achieves — the model waits a turn and calls the same invented name
+    // again, which is precisely the loop described in the comment at the top of this branch.
+    return {
+      ops: [],
+      note,
+      summary: `Refused unknown tool "${call.name}"`,
+      status: 'failed',
+      data: note,
+      deterministicFailure: true,
+    };
   }
   if (bankedSearches !== undefined && isCatalogueSearch(call.name)) {
     return {
@@ -7651,6 +7870,86 @@ function withheldCallOutcome(
       'need, or ask_user. It becomes available again on the next turn.',
     summary: `${call.name} is unavailable this turn`,
     status: 'warning',
+  };
+}
+
+/**
+ * The run-memory key for a refusal the run can PROVE will repeat, or `undefined`.
+ *
+ * `name:error`, because the error is the identity and the arguments are not. In run
+ * `7d159862` `caption_the_edit` was refused four times with the byte-identical sentence
+ * `add_caption_layer.end must be greater than start.`; three of those attempts shared one
+ * set of arguments and the fourth varied both `preset` and `maxWordsPerCue`. An args-keyed
+ * guard would have let that one through — and it was the third of the four, so the loop
+ * would have run on regardless.
+ *
+ * Only a {@link AgentCallOutcome.deterministicFailure} yields a key: a host or transport
+ * failure is transient by nature, and a permanent block on one would refuse work that the
+ * next attempt would have completed.
+ */
+function deterministicFailureKey(
+  callName: string,
+  outcome: Pick<AgentCallOutcome, 'status' | 'data' | 'deterministicFailure'>,
+): string | undefined {
+  if (outcome.status !== 'failed' || outcome.deterministicFailure !== true) return undefined;
+  // The error text is the key's whole discriminating power; without it every failure of a
+  // tool would collapse to one key and the guard would block the tool outright.
+  if (typeof outcome.data !== 'string' || outcome.data.trim() === '') return undefined;
+  return `${callName}:${failureCause(outcome.data)}`;
+}
+
+/**
+ * The operation LOCATOR `describeValidationIssue` prefixes onto a rejection: which
+ * operation of how many, and what it was.
+ *
+ * Two shapes, because the locator drops the identity when the message already opens with
+ * the operation type: `op 12 of 63: ` and `op 1 of 1 (trim_clip, 0s–8s): `.
+ */
+const OPERATION_LOCATOR = /(^|; )op \d+ of \d+(?: \([^)]*?\))?: /g;
+
+/**
+ * A rejection with its operation locator removed — WHY it was refused, without WHERE.
+ *
+ * The locator is the right thing to show the author and the wrong thing to key run memory
+ * on. `caption_the_edit` proposes one operation per cue, so `maxWordsPerCue: 4` and
+ * `maxWordsPerCue: 5` produce different cue counts and the identical defect is reported at
+ * `op 12 of 63` and `op 9 of 48`. Keyed on the decorated string those read as two unrelated
+ * failures — which is precisely the attempt this guard exists to catch, since in run
+ * `7d159862` the third of four attempts was the one that varied its arguments.
+ *
+ * Nothing semantic is stripped. Every value the validator named — clip ids, track ids, the
+ * offending times — lives in the message body and survives, so a different defect is still
+ * a different key.
+ */
+function failureCause(error: string): string {
+  return error.replace(OPERATION_LOCATOR, '$1');
+}
+
+/**
+ * The outcome for a call the run has already been refused with, word for word.
+ *
+ * Settled as `failed`, NOT `warning` — the same trap `withheldCallOutcome`'s unknown-tool
+ * branch documents. `callAnswered` treats a warning as an answer, so a warning here would
+ * credit the turn with progress and bank the call's novelty key, which is to say the guard
+ * against spinning would reset the guards against spinning.
+ *
+ * The message names a way out, because a refusal with no legal move left is how a run gets
+ * stranded: fix the precondition the error names, pick a different tool, or move on.
+ */
+function repeatedFailureOutcome(call: ToolCall, error: string): AgentCallOutcome {
+  const note =
+    `"${call.name}" already failed this run with exactly this error: ${error} ` +
+    'Retrying it cannot succeed. Fix the precondition it names, use a different tool, ' +
+    'or move on to the next part of the request.';
+  return {
+    ops: [],
+    note,
+    summary: `Refused repeat of "${call.name}" — it already failed this run`,
+    status: 'failed',
+    // The ORIGINAL error, so this refusal keys back to the entry it matched instead of
+    // banking a second, wordier key for the same cause.
+    data: error,
+    deterministicFailure: true,
   };
 }
 

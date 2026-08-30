@@ -70,9 +70,11 @@ def _patch_all_analyzers(monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> N
     """Install happy-path fakes for every analyzer the route dispatches to."""
     fakes: dict[str, Any] = {
         "inspect_media": lambda path, *, timeout=None: _media_info(),
-        "detect_silence": lambda path, *, total_duration=None, timeout=None: [
-            SilentRange(start=1.0, end=2.0, duration=1.0)
-        ],
+        # The unified silence analyzer measures at the probe floor and filters after
+        # (see `summarize_silence`), so the fake must accept `min_silence_seconds`.
+        # The silence analyzer now measures at the probe floor and filters after (see
+        # `summarize_silence`), so the fake takes whatever thresholds it is called with.
+        "detect_silence": lambda path, **kwargs: [SilentRange(start=1.0, end=2.0, duration=1.0)],
         "detect_scenes": lambda path, *, timeout=None: [SceneCut(time=3.0)],
         "measure_loudness": lambda path, *, timeout=None: LoudnessAnalysis(
             integrated_lufs=-16.0, loudness_range_lu=4.0, true_peak_dbfs=-1.2
@@ -163,7 +165,15 @@ def test_analyze_quick_runs_probe_and_silence(
     assert [e["kind"] for e in body["results"]] == ["probe", "silence"]
     assert _statuses(body) == {"probe": "ok", "silence": "ok"}
     silence = body["results"][1]
-    assert silence["result"] == {"ranges": [{"start": 1.0, "end": 2.0, "duration": 1.0}]}
+    # The entry carries the measurement, not just the filtered ranges: an empty
+    # `ranges` must never be readable as "this recording has no dead air".
+    assert silence["result"] == {
+        "ranges": [{"start": 1.0, "end": 2.0, "duration": 1.0}],
+        "measuredCount": 1,
+        "longestSeconds": 1.0,
+        "belowThresholdSeconds": 0.0,
+        "probeFloorSeconds": 0.1,
+    }
 
 
 def test_analyze_standard_adds_scenes_loudness_black(
@@ -407,7 +417,11 @@ def _sandboxed_setup(
         return _media_info()
 
     def _counted_silence(
-        path: Path, *, total_duration: float | None = None, timeout: float | None = None
+        path: Path,
+        *,
+        min_silence_seconds: float | None = None,
+        total_duration: float | None = None,
+        timeout: float | None = None,
     ) -> list[SilentRange]:
         calls["silence"] += 1
         return [SilentRange(start=1.0, end=2.0, duration=1.0)]
@@ -451,7 +465,11 @@ def test_analyze_persists_results_and_serves_cache_hits(
     assert calls["silence"] == 1  # cache hit — ffmpeg (the fake) not re-run
     # The silence payload survives the round-trip through the brain byte-true.
     assert second.json()["results"][1]["result"] == {
-        "ranges": [{"start": 1.0, "end": 2.0, "duration": 1.0}]
+        "ranges": [{"start": 1.0, "end": 2.0, "duration": 1.0}],
+        "measuredCount": 1,
+        "longestSeconds": 1.0,
+        "belowThresholdSeconds": 0.0,
+        "probeFloorSeconds": 0.1,
     }
 
 

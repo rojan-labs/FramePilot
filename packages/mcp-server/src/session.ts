@@ -35,11 +35,12 @@ import {
   assembleEdit,
   getTool,
   skillsByName,
+  withToolInputContract,
 } from '@framepilot/ai-sdk';
 import { TranscriptWordSchema, type Project } from '@framepilot/timeline-schema';
 import {
+  isProjectFileConflictError,
   readProjectFile,
-  serializeProject,
   writeProjectFile,
 } from '@framepilot/timeline-schema/file';
 import {
@@ -111,13 +112,6 @@ interface OpenProject {
   path: string;
   project: Project;
   history: EditHistory;
-  /**
-   * Exact bytes on disk at load / last save — the baseline for the lost-update
-   * guard. Before overwriting `path`, {@link EditorSession.saveProject} re-reads the
-   * file and compares it to this snapshot; a mismatch means the GUI or another
-   * process wrote it, so we reject rather than silently clobber their edit.
-   */
-  baseline: string;
 }
 
 export class EditorSession {
@@ -164,15 +158,15 @@ export class EditorSession {
    * active-pointer target. Neither can escape the projects root.
    */
   private async loadInto(resolved: string): Promise<SessionState> {
-    // Snapshot the raw on-disk bytes as the lost-update baseline (see OpenProject).
-    // A second read here (readProjectFile also reads) keeps the baseline byte-exact
-    // and self-contained; project files are small so the extra read is negligible.
-    const baseline = await readFile(resolved, 'utf-8');
+    // A successful `readProjectFile` is also what arms the writer's lost-update guard:
+    // it records the exact bytes it parsed as this process's publish baseline, so a save
+    // that would overwrite someone else's newer edit is refused rather than silently
+    // clobbering it. See `@framepilot/timeline-schema/file`.
     const project = await readProjectFile(resolved);
     // `history` is persisted as our own editor-core HistoryEntry objects (the
     // schema types it as unknown[]), so undo/redo survives a reload.
     const history = fromPersistedHistory(project.history as HistoryEntry[]);
-    this.open = { path: resolved, project, history, baseline };
+    this.open = { path: resolved, project, history };
     return this.snapshot(this.open);
   }
 
@@ -259,42 +253,29 @@ export class EditorSession {
       ...open.project,
       history: toPersistedHistory(open.history, DEFAULT_DURABLE_HISTORY_LIMITS),
     };
-    const nextBaseline = serializeProject(toSave);
-    // Lost-update guard: only when overwriting the exact file we loaded (or last
-    // saved). A "save as" to a different path is the agent's explicit choice and has
-    // no baseline to protect. writeProjectFile serializes with this same serializer,
-    // so after the write the on-disk bytes equal `nextBaseline` (ADR 0030).
-    if (target === open.path) {
-      await this.assertNoExternalChange(target, open.baseline);
-    }
-    await writeProjectFile(target, toSave);
-    open.path = target;
-    open.project = toSave;
-    open.baseline = nextBaseline;
-    return this.snapshot(open);
-  }
-
-  /**
-   * Reject a save that would clobber an external edit. Re-reads the target and
-   * compares it byte-for-byte to the baseline captured when we loaded/last saved it.
-   * A file that no longer exists (deleted externally) has nothing to clobber, so the
-   * save proceeds and recreates it.
-   *
-   * @throws {SessionError} `conflict` when the on-disk bytes differ from the baseline.
-   */
-  private async assertNoExternalChange(target: string, baseline: string): Promise<void> {
-    let current: string;
+    // The lost-update guard lives in the writer itself (`@framepilot/timeline-schema/file`),
+    // not here. The session used to re-read the target and compare it to a baseline BEFORE
+    // calling the writer, which left a wide window: the desktop app could publish its own
+    // save in between the check and our rename, and we would overwrite it anyway. The
+    // writer performs the same compare-and-swap immediately before its rename, and — unlike
+    // a session-local baseline — it also protects the "save as" path once this process has
+    // read that target, and the desktop process, which had no on-disk guard at all.
     try {
-      current = await readFile(target, 'utf-8');
-    } catch {
-      return;
-    }
-    if (current !== baseline) {
+      await writeProjectFile(target, toSave);
+    } catch (cause) {
+      if (!isProjectFileConflictError(cause)) throw cause;
+      // `dispatch.ts` renders a SessionError as `[code] message`, so the retry instructions
+      // have to be IN the message or the agent never sees them.
       throw new SessionError(
         'conflict',
-        'Project file changed on disk since it was opened; reload before saving to avoid overwriting external edits.',
+        `${cause.message} Call open_project (or open the active project) to reload the ` +
+          `current file, re-apply your edits with the editing tools, then save again.`,
+        { cause },
       );
     }
+    open.path = target;
+    open.project = toSave;
+    return this.snapshot(open);
   }
 
   /**
@@ -309,9 +290,9 @@ export class EditorSession {
    */
   public runTool(name: string, rawArgs: unknown): RunToolResult {
     const open = this.require();
-    const tool = getTool(name);
-    if (!tool) throw new SessionError('unknown_tool', `Unknown tool: ${name}`);
-    if (!tool.available) {
+    const registered = getTool(name);
+    if (!registered) throw new SessionError('unknown_tool', `Unknown tool: ${name}`);
+    if (!registered.available) {
       throw new SessionError(
         'unavailable_tool',
         `Tool "${name}" is registered but its engine is not available yet.`,
@@ -321,12 +302,30 @@ export class EditorSession {
     // source-monitor snapshot a human is looking at. This surface has no such snapshot, so the
     // tool list omits them. Refuse them here too: hiding a tool from the advertised list is not
     // enforcement when any client can still name it directly.
-    if (!servableOverMcp(tool)) {
+    if (!servableOverMcp(registered)) {
       throw new SessionError(
         'host_ui_only',
         `Tool "${name}" requires live FramePilot editor interaction state and is not available over MCP.`,
       );
     }
+    // The registry's Zod schema is only HALF the tool's input contract. The relational and
+    // range rules that Zod cannot express — colour-grade parameter names/ranges, effect
+    // parameter ranges, the keyframe property enum, `track_object`'s normalized region,
+    // `adjust_audio` gain bounds, `map_time`'s mutually exclusive time domains, per-entry
+    // `end > start` in `add_clips` — live in `withToolInputContract`, and the in-app path
+    // resolves that wrapper AT the invocation boundary for exactly this reason
+    // (`tool-dispatch.ts#operationsForCall`, `orchestrator.ts#runAgentCall`). Running the
+    // bare registry entry here meant an external agent got a strictly weaker gate than the
+    // app's own model for the same tool, on the surface where the caller is least trusted.
+    //
+    // `add_transition` is the sharpest case: the apply path CLAMPS an over-long transition
+    // to what the cut can carry, so unwrapped MCP answered "applied 1.0s" for a 0.4s
+    // transition. The wrapper refuses instead of clamping, so the agent is told the real
+    // limit and retries with a duration that is honoured verbatim.
+    //
+    // Wrapped after the availability/`servableOverMcp` guards so those still read the
+    // registry's own flags, mirroring the orchestrator's ordering.
+    const tool = withToolInputContract(registered);
     const ctx = this.context(open);
 
     if (tool.kind === 'read') {
@@ -449,9 +448,42 @@ export class EditorSession {
     try {
       return fn();
     } catch (cause) {
-      throw new SessionError('invalid_args', `Invalid arguments for "${name}".`, { cause });
+      throw new SessionError(
+        'invalid_args',
+        `Invalid arguments for "${name}": ${describeArgFailure(cause)}`,
+        { cause },
+      );
     }
   }
+}
+
+/**
+ * The actionable half of a rejected call, flattened into the message.
+ *
+ * `dispatch.ts` renders a `SessionError` as `[code] message`, so a reason carried only in
+ * `cause` never reaches the agent that has to correct the call. That was tolerable while
+ * the only failures here were schema shape errors the agent could re-derive from the
+ * advertised JSON Schema; it is not tolerable now that the input contract refuses rather
+ * than clamps. `add_transition`'s rejection names the exact duration the cut can carry —
+ * dropping that sentence leaves the agent with "invalid arguments" and nothing to retry.
+ *
+ * Mirrors `describeArgValidationError` in `@framepilot/ai-sdk/tool-dispatch`, which does the
+ * same flattening for the in-app path.
+ */
+function describeArgFailure(cause: unknown): string {
+  const issues =
+    typeof cause === 'object' && cause !== null
+      ? (cause as { issues?: unknown }).issues
+      : undefined;
+  if (Array.isArray(issues)) {
+    return (issues as { path?: readonly PropertyKey[]; message: string }[])
+      .map((issue) => {
+        const path = (issue.path ?? []).join('.');
+        return path ? `${path}: ${issue.message}` : issue.message;
+      })
+      .join('; ');
+  }
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 /**

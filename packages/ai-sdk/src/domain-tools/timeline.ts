@@ -15,7 +15,7 @@
  */
 import { z } from 'zod/v4';
 import { BlendModeSchema, CropRectSchema } from '@framepilot/timeline-schema';
-import type { Timeline, Track } from '@framepilot/timeline-schema';
+import type { CropRect, Timeline, Track } from '@framepilot/timeline-schema';
 import {
   buildTimelineMap,
   listEditBoundaries,
@@ -26,6 +26,7 @@ import {
 import type { Operation } from '@framepilot/editor-core';
 import { frameToSeconds, secondsToFrame } from '../frame-time.js';
 import { readEditSignals } from '../proposers/edit-signals.js';
+import type { ToolContext } from '../tool-context.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
 import { boolean, filterString, numeric, seconds } from './tool-args.js';
@@ -208,8 +209,128 @@ const trimSchema = z.object({ clipId: z.string(), start: seconds, end: seconds }
  * can be applied on either path. Beyond that the rejection has to come from the schema,
  * where it can say what the limit is: `Turn rejected: 120 operations exceeds the per-turn
  * cap` names no fix, so a model that hits it re-sends the same batch.
+ *
+ * Halved from 100 when a placement stopped costing exactly one operation: a measured
+ * landscape source landing in a portrait project now carries its fill crop with it (see
+ * {@link addClipOperation}), so the worst case is two operations per entry. At 100 entries
+ * that montage assembled 200 operations and was refused by the 100-op path with precisely
+ * the unactionable message this constant exists to avoid — and refused for a crop the model
+ * never asked for. The bound is on OPERATIONS, so it has to be stated in the currency the
+ * caps are: half of the smaller cap.
  */
-export const MAX_CLIPS_PER_BATCH = 100;
+export const MAX_CLIPS_PER_BATCH = 50;
+
+/**
+ * Fractional places kept on an auto-derived crop rect.
+ *
+ * The rect is a ratio of ratios, so it is an endless binary fraction more often than not
+ * (16:9 into 9:16 is 0.31640625). Six places is well under a source pixel on any frame
+ * FFmpeg will decode, and it keeps the number short in the patch, the diff, and the
+ * project file — where a human reads it.
+ */
+const CROP_PRECISION = 1e6;
+
+const roundCrop = (value: number): number => Math.round(value * CROP_PRECISION) / CROP_PRECISION;
+
+/**
+ * The centred crop that makes a source FILL a frame of a different aspect, or `undefined`
+ * when the source is not wider than the frame and so needs no horizontal crop.
+ *
+ * The maths is the `vertical-reframe` skill's own, and it is dictated by the renderer:
+ * `_apply_crop` cuts the rect out first and `_place_video_clip` then scales what is left
+ * with `min(target_w/w, target_h/h)` — *contain*. Cut the source down to exactly the
+ * target aspect and contain becomes cover, so the picture fills the frame with no bars.
+ *
+ * Full height (`height: 1`) and centred horizontally: keeping the whole vertical extent
+ * throws away the least picture, and the middle is the only defensible guess without
+ * subject evidence. It is a guess — see {@link autoReframeCrop} for why one is made at
+ * all, and why it is announced rather than silent.
+ *
+ * @param source - Measured source pixel dimensions. Never guessed by the caller.
+ * @param target - The project's output pixel dimensions.
+ */
+export function coverCropForFrame(
+  source: { readonly width: number; readonly height: number },
+  target: { readonly width: number; readonly height: number },
+): CropRect | undefined {
+  if (source.width <= 0 || source.height <= 0 || target.width <= 0 || target.height <= 0) {
+    return undefined;
+  }
+  const sourceAspect = source.width / source.height;
+  const targetAspect = target.width / target.height;
+  if (sourceAspect <= targetAspect) return undefined;
+  const width = roundCrop(targetAspect / sourceAspect);
+  return { x: roundCrop((1 - width) / 2), y: 0, width, height: 1 };
+}
+
+/**
+ * The crop `add_clip`/`add_clips` apply on their own, or `undefined` for "leave it alone".
+ *
+ * ## Why the engine makes this editorial call
+ *
+ * It is the one geometry a short-form run gets wrong in the same way every time. The
+ * renderer FITS, so a landscape source placed in a portrait sequence with no crop exports
+ * with black bars — never what "make me a vertical short" means — and the crop that fixes
+ * it is fully determined by two numbers the host already holds. In the captured
+ * talking-head run the model was never told the source was landscape (nothing had been
+ * probed), placed it bare, and the letterboxed export was reported as a success. Geometry
+ * the model has to remember, across a run, for every shot, is geometry that gets
+ * forgotten: `checkReframeCoverage` was written because two earlier runs reframed the
+ * opening shots and then stopped.
+ *
+ * ## Why that is safe to do
+ *
+ * - **Measured only.** No dimensions, no crop. A guessed shape would crop the wrong axis,
+ *   and this returns `undefined` rather than assume anything (same rule as `model-view.ts`).
+ * - **Reversible and visible.** It arrives as its own `set_clip_crop` operation in the same
+ *   patch, so it shows up in the diff, in the tool-result note ("Reframed clip …"), and in
+ *   one undo. `set_clip_crop` with `crop: null` puts the whole frame back.
+ * - **Narrow.** Portrait project, `video` track, landscape source. A landscape sequence is
+ *   left alone (a landscape source in it is the ordinary case), and an `overlay` track is
+ *   left alone because a picture-in-picture is deliberately not full-bleed.
+ *
+ * ## What it does NOT do
+ *
+ * It cannot see the speaker. A centred crop beheads an off-centre subject, and no amount
+ * of arithmetic fixes that — subject-aware reframing needs tracker samples
+ * (`editor-core/track-reframe.ts`, not wired). So the crop is announced, not hidden: the
+ * run is expected to look and re-crop. Bars are the worse default of the two, because a
+ * bar is wrong in every frame and a centred crop is wrong only sometimes.
+ */
+function autoReframeCrop(
+  ctx: ToolContext,
+  placement: { readonly trackId: string; readonly assetId: string },
+): CropRect | undefined {
+  const { resolution } = ctx.project;
+  if (resolution.height <= resolution.width) return undefined;
+  const track = ctx.project.timeline.tracks.find((candidate) => candidate.id === placement.trackId);
+  if (track?.type !== 'video') return undefined;
+  const asset = ctx.project.assets.find((candidate) => candidate.id === placement.assetId);
+  if (!asset || asset.kind === 'audio') return undefined;
+  const width = asset.media?.width;
+  const height = asset.media?.height;
+  // Unmeasured is unknown, never square. `list_assets` says so out loud (`shape:
+  // "unmeasured"`) so a run can see why nothing was reframed for it.
+  if (typeof width !== 'number' || typeof height !== 'number') return undefined;
+  return coverCropForFrame({ width, height }, resolution);
+}
+
+/**
+ * The id `add_clip` gives a clip when the caller does not name one.
+ *
+ * Mirrors `editor-core`'s own `deriveClipId('clip', …)`, which is not exported. It is
+ * restated rather than approximated so an auto-reframed placement gets an id of the same
+ * SHAPE as every other placement — an id that suddenly looked different depending on
+ * whether a crop happened to be applied would read as two different code paths. Nothing
+ * depends on the two matching value-for-value: the id travels on the operation, so it is
+ * authoritative wherever it is used.
+ */
+const placementClipId = (placement: {
+  readonly trackId: string;
+  readonly assetId: string;
+  readonly start: number;
+}): string =>
+  `clip__${placement.trackId}_${placement.assetId}_${String(Math.round(placement.start * 1000))}`;
 
 /**
  * One placement, built the same way whether it arrived alone or in a batch.
@@ -219,15 +340,27 @@ export const MAX_CLIPS_PER_BATCH = 100;
  * only ever disagree with it. Shared by `add_clip` and `add_clips` so the two can never
  * drift — a batch that placed clips by slightly different rules than the singular tool
  * would be worse than no batch at all.
+ *
+ * Returns one or TWO operations: a measured landscape source landing on a video track of a
+ * portrait project is followed by the `set_clip_crop` that makes it fill the frame (see
+ * {@link autoReframeCrop}). The clip is named explicitly in that case so the crop can
+ * address it — `add_clip` derives an id from `start`, and `start` is quantized to the frame
+ * grid after this runs, so an id derived here from the raw value would not be the one the
+ * clip ends up with.
  */
-function addClipOperation(clip: {
-  readonly trackId: string;
-  readonly assetId: string;
-  readonly start: number;
-  readonly end: number;
-  readonly sourceStart: number;
-}): Operation {
-  return {
+function addClipOperation(
+  clip: {
+    readonly trackId: string;
+    readonly assetId: string;
+    readonly start: number;
+    readonly end: number;
+    readonly sourceStart: number;
+  },
+  ctx: ToolContext,
+): Operation[] {
+  const crop = autoReframeCrop(ctx, clip);
+  const clipId = crop ? placementClipId(clip) : undefined;
+  const add: Operation = {
     type: 'add_clip',
     trackId: clip.trackId,
     assetId: clip.assetId,
@@ -235,7 +368,10 @@ function addClipOperation(clip: {
     end: clip.end,
     sourceStart: clip.sourceStart,
     sourceEnd: clip.sourceStart + (clip.end - clip.start),
+    ...(clipId ? { clipId } : {}),
   };
+  if (!crop || !clipId) return [add];
+  return [add, { type: 'set_clip_crop', clipId, crop }];
 }
 
 export const TIMELINE_TOOLS: readonly ToolSpec[] = [
@@ -711,7 +847,13 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         'add_clip has no speed argument and the two must agree. To play a specific source ' +
         'range, set sourceStart and make the timeline span the same length. Read the ' +
         'timeline and assets first so you use real track/asset ids, and pick a ' +
-        'track whose range is free — clips on one track can never overlap.',
+        'track whose range is free — clips on one track can never overlap. ' +
+        'In a PORTRAIT project, a source the engine has measured as landscape gets a ' +
+        'centred fill crop on the way in (a set_clip_crop you will see in the result), ' +
+        'because the renderer fits rather than fills and it would otherwise export with ' +
+        'black bars — call set_clip_crop on that clip to re-centre it on the subject, or ' +
+        'with crop: null to keep the whole frame. An UNMEASURED source gets nothing: ' +
+        'check list_assets for `shape: "unmeasured"` and crop it yourself.',
     },
     z
       .object({
@@ -727,7 +869,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         sourceEnd: seconds.optional(),
       })
       .strict(),
-    (a) => [addClipOperation(a)],
+    (a, ctx) => addClipOperation(a, ctx),
   ),
   mutateTool(
     {
@@ -740,7 +882,9 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         'end, sourceStart? } and follow add_clip’s rules exactly — timeline seconds, ' +
         'real asset ids, no overlaps on the track, and sourceEnd derived for you. The ' +
         'whole call is validated together, so if any one entry is rejected none of them ' +
-        'land and the reason names the entry: fix that one and send the batch again. At ' +
+        'land and the reason names the entry: fix that one and send the batch again. ' +
+        'Landscape sources measured by the engine are fill-cropped for a portrait ' +
+        'project exactly as add_clip does it. At ' +
         `most ${String(MAX_CLIPS_PER_BATCH)} entries per call — split a longer sequence ` +
         'across consecutive calls.',
     },
@@ -763,7 +907,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
           .max(MAX_CLIPS_PER_BATCH),
       })
       .strict(),
-    (a) => a.clips.map((clip) => addClipOperation({ ...clip, trackId: a.trackId })),
+    (a, ctx) => a.clips.flatMap((clip) => addClipOperation({ ...clip, trackId: a.trackId }, ctx)),
   ),
   mutateTool(
     {

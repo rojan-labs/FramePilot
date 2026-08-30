@@ -57,9 +57,9 @@ def _sandboxed_client(
 ) -> tuple[TestClient, Path]:
     fakes: dict[str, Any] = {
         "inspect_media": lambda path, *, timeout=None: _media_info(),
-        "detect_silence": lambda path, *, total_duration=None, timeout=None: [
-            SilentRange(start=1.0, end=2.0, duration=1.0)
-        ],
+        # Measured at the probe floor and filtered after (see `summarize_silence`), so
+        # the fake takes whatever thresholds the analyzer calls it with.
+        "detect_silence": lambda path, **kwargs: [SilentRange(start=1.0, end=2.0, duration=1.0)],
     }
     fakes.update(overrides)
     for name, fake in fakes.items():

@@ -59,11 +59,25 @@ async function chipGeometry(locator: Locator): Promise<{ left: number; width: nu
  * because nothing was written yet. The topbar status is the app's own signal that
  * the write completed, so waiting on it tests persistence rather than timing.
  */
-async function waitForAutosave(page: Page): Promise<void> {
-  const status = page.getByLabel('save state');
-  // It goes 'saving' → 'saved'; only the settled state means the bytes are in
-  // localStorage.
-  await expect(status).toHaveAttribute('data-state', 'saved', { timeout: 10_000 });
+async function savesSoFar(page: Page): Promise<number> {
+  const raw = await page.getByLabel('save state').getAttribute('data-saves');
+  return Number(raw ?? '0');
+}
+
+/**
+ * Wait for a write that PROVABLY happened after `before`.
+ *
+ * Waiting on `data-state === 'saved'` could not do that. `saveState` initialises to
+ * `'saved'` and only becomes `'dirty'` in an effect that runs after the commit, so this
+ * helper could observe the value from BEFORE the edit and return while nothing had been
+ * written — after which `page.reload()` raced the debounce. Both real persistence
+ * round-trips in this file were passing for that reason, kept green by the suite's
+ * retries. `data-saves` only ever increases, so a value greater than the one read before
+ * the edit is a completed write and cannot be the previous state.
+ */
+async function waitForAutosave(page: Page, before: number): Promise<void> {
+  await expect.poll(async () => savesSoFar(page), { timeout: 10_000 }).toBeGreaterThan(before);
+  await expect(page.getByLabel('save state')).toHaveAttribute('data-state', 'saved');
 }
 
 /** Drag from one point to another with real pointer events. */
@@ -156,6 +170,8 @@ test.describe('effect layers: discover → apply → adjust → edit → reopen'
   test('keeps favourites and recents across a reload', async ({ page }) => {
     await openEditor(page);
     await leftTab(page, 'Effects');
+    // Read BEFORE the edit: the wait below is for a save that happened after this.
+    const savesBefore = await savesSoFar(page);
 
     await page.getByRole('button', { name: 'Add Halo Bloom to favourites' }).click();
     await tile(page, 'Cine Grain').click();
@@ -163,7 +179,7 @@ test.describe('effect layers: discover → apply → adjust → edit → reopen'
     // These are USER state, not project state — they follow the editor, which is
     // why they must survive a reload. Still waits for the autosave so the reload
     // does not race the project write and leave the page in a half-saved state.
-    await waitForAutosave(page);
+    await waitForAutosave(page, savesBefore);
     await page.reload();
     await expect(page.getByLabel('project name')).toHaveText('Demo Project');
     await leftTab(page, 'Effects');
@@ -315,6 +331,7 @@ test.describe('effect layers: discover → apply → adjust → edit → reopen'
   test('survives a save and reopen', async ({ page }) => {
     await openEditor(page);
     await leftTab(page, 'Effects');
+    const savesBefore = await savesSoFar(page);
     await seekTo(page, 2);
     await tile(page, 'Tape Warp').click();
     await expect(chips(page)).toHaveCount(1);
@@ -323,7 +340,7 @@ test.describe('effect layers: discover → apply → adjust → edit → reopen'
     // The app autosaves to localStorage and restores on reload, so this exercises
     // the real serialize → schema parse → restore round trip. If the layer did not
     // persist through the project file, this is where it vanishes.
-    await waitForAutosave(page);
+    await waitForAutosave(page, savesBefore);
     await page.reload();
     await expect(page.getByLabel('project name')).toHaveText('Demo Project');
 

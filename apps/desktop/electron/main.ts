@@ -176,7 +176,11 @@ import { ProjectFileWatcher } from './projects/project-watcher.js';
 import { ProjectCommandService } from './projects/project-command-service.js';
 import { mergeLiveProjectForHost } from './projects/project-transport.js';
 import { defaultProjectPath, resolveProjectsDir } from './projects/projects-dir.js';
-import { importMediaFile } from './projects/media-import.js';
+import {
+  importMediaFile,
+  sweepUnreferencedAttachments,
+  sweepUnreferencedAttachmentsOnce,
+} from './projects/media-import.js';
 import { activePointerPath } from '@framepilot/shared-types/projects-root';
 import { sandboxProjectPath } from './ipc/sandbox.js';
 import {
@@ -296,8 +300,18 @@ function spawnSidecar(host: string, port: number): SidecarProcess {
     cwd: resolved.cwd,
     env: { ...process.env, ...resolved.env, ...capabilityPackRuntimeEnvironment },
     stdio: 'inherit',
-    // Own process group, so stopping the sidecar also stops its ffmpeg/ffprobe and render
-    // workers (`killProcessGroup`). The parent still waits on it; nothing is orphaned.
+    // Own process group, so stopping the sidecar also stops its ffmpeg/ffprobe
+    // (`killProcessGroup`). The parent still waits on it; nothing is orphaned.
+    //
+    // This does NOT reach the render workers, and the comment here used to claim it did.
+    // `subprocess_executor` spawns each render in a process that immediately calls
+    // `os.setsid()` — it needs its own group so a per-job cancel can signal its ffmpeg
+    // without touching the engine — which puts it permanently outside the group this
+    // `detached` flag creates. `killProcessGroup(-sidecarPid)` cannot reach it, and its pid
+    // is never registered, so `sweepOrphans` is blind to it too. Quit mid-export and ffmpeg
+    // kept running and kept writing. The worker therefore stops ITSELF: it watches both its
+    // owner pids and exits when either dies (`_start_worker_orphan_watchdog` in
+    // `engine/python/framepilot_engine/render/queue.py`).
     detached: process.platform !== 'win32',
   });
   // Without this, a failed spawn (e.g. ENOENT because `uv` isn't on PATH for
@@ -1621,7 +1635,18 @@ function registerIpcHandlers(): void {
     IpcChannels.referencesAnalyze,
     async (_event, req: unknown): Promise<AnalyzeReferenceResult> => {
       try {
-        requireLicense();
+        // Not `requireLicense()`. That throws into the same `catch` a failed measurement
+        // lands in, so the tile reported a licensing refusal as a failed ANALYSIS and
+        // offered a Re-analyze button that could only fail again. The guard is unchanged
+        // — an unlicensed build still runs nothing — but the refusal now says what it is,
+        // and `reason` lets the renderer stop offering a retry that cannot work.
+        if (!licenseService.isLicensedCached()) {
+          return {
+            ok: false,
+            reason: 'unlicensed',
+            error: 'Activate FramePilot to analyze references. The file was not measured.',
+          };
+        }
         const request = (req ?? {}) as Partial<AnalyzeReferenceRequest>;
         if (typeof request.inputPath !== 'string' || request.inputPath.trim() === '') {
           return { ok: false, error: 'Choose a video or image file to use as a reference.' };
@@ -2389,13 +2414,60 @@ function registerIpcHandlers(): void {
     IpcChannels.conversationsLoad,
     (_event, id: unknown): Promise<unknown | null> => conversations.load(id),
   );
+  /**
+   * Reclaim attachment files this project's conversations no longer reference.
+   *
+   * WHERE the reachability rule is evaluated, and why it is here. An attachment is
+   * imported into `media/<project>/attachments` and referenced only by conversations, so
+   * the two moments its reachability can change are a conversation being written (a chip
+   * removed, a message retried) and a conversation being deleted. Both are conversation
+   * IPC, both already hold the store that answers the question, and neither needs a
+   * channel of its own — the sweep is a consequence of a call the renderer already makes,
+   * exactly like `StockService.sweepPartialDownloads`.
+   *
+   * Best-effort by construction: a sweep that throws must never fail the save or the
+   * delete the user actually asked for.
+   */
+  const sweepAttachments = async (projectId: string, once: boolean): Promise<void> => {
+    try {
+      const projectsRoot = await ensureProjectsDir();
+      const load = (): Promise<Set<string> | null> =>
+        conversations.referencedAttachmentPaths(projectId);
+      if (once) await sweepUnreferencedAttachmentsOnce(projectsRoot, projectId, load);
+      else await sweepUnreferencedAttachments(projectsRoot, projectId, await load());
+    } catch (error) {
+      aiLog.warn('attachment sweep failed', { projectId, error: errorMessage(error) });
+    }
+  };
+
   ipcMain.handle(
     IpcChannels.conversationsSave,
-    (_event, record: unknown): Promise<ConversationSaveResult> => conversations.save(record),
+    async (_event, record: unknown): Promise<ConversationSaveResult> => {
+      const result = await conversations.save(record);
+      // AFTER the write, so the conversation being saved is part of the reachable set
+      // rather than a hole in it. Once per project per session: a save happens on every
+      // keystroke's debounce, and the leak it reclaims accumulates over months.
+      const projectId = (record as { summary?: { projectId?: unknown } } | null)?.summary
+        ?.projectId;
+      if (result.ok && typeof projectId === 'string') await sweepAttachments(projectId, true);
+      return result;
+    },
   );
   ipcMain.handle(
     IpcChannels.conversationsDelete,
-    (_event, id: unknown): Promise<ConversationSaveResult> => conversations.delete(id),
+    async (_event, id: unknown): Promise<ConversationSaveResult> => {
+      // Read the owning project BEFORE the delete: afterwards the index entry that names
+      // it is gone, and a sweep with no project has nothing to sweep.
+      const projectId =
+        typeof id === 'string'
+          ? (await conversations.list()).find((summary) => summary.id === id)?.projectId
+          : undefined;
+      const result = await conversations.delete(id);
+      // Always, not once per session: deleting a conversation is the one action that can
+      // strand a large file, and it is rare enough to pay for a full pass every time.
+      if (result.ok && projectId !== undefined) await sweepAttachments(projectId, false);
+      return result;
+    },
   );
 
   /**

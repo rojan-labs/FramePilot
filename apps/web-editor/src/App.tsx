@@ -54,12 +54,25 @@ export function App(): JSX.Element {
   const [path, setPath] = useState<string>(boot.path);
   const [projectRevision, setProjectRevision] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>('saved');
+  /**
+   * How many saves have COMPLETED, monotonically.
+   *
+   * `saveState` alone cannot answer "has my edit been written?": it starts at `'saved'`
+   * and only becomes `'dirty'` in an effect that runs after the commit, so anything
+   * waiting on `'saved'` can observe the value from BEFORE the edit and conclude the
+   * write finished when nothing had been written. That is what let two e2e persistence
+   * round-trips pass for the wrong reason, masked by the suite's retries. A counter has
+   * no such ambiguity — read it, act, wait for it to move.
+   */
+  const [saveCount, setSaveCount] = useState(0);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [, setNewCount] = useState(1);
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('display');
   const [newProjectOpen, setNewProjectOpen] = useState(false);
+  /** Why the last open attempt failed. Cleared when the user starts another one. */
+  const [openError, setOpenError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [understandingOpen, setUnderstandingOpen] = useState(false);
   const [transcriptionOpen, setTranscriptionOpen] = useState(false);
@@ -80,6 +93,31 @@ export function App(): JSX.Element {
   const firstRun = useRef(true);
   const suppressAutosave = useRef(false);
   const suppressFullAutosaveOnce = useRef(false);
+  /**
+   * A whole-document save is owed: some change reached this component that no patch
+   * carried to the host (an AI undo, an aiMemory write, a rename, a refused commit).
+   *
+   * It is state, not a property of the pending timer, because the autosave effect's
+   * cleanup clears that timer on EVERY project change — including one the patch lane
+   * carried. The debt used to die with the timer: undo an AI edit, type one more edit
+   * inside the 2s debounce, and the undo never reached disk at all, leaving the host
+   * applying later edits on top of a document that still contained the AI change.
+   */
+  const fullSnapshotOwed = useRef(false);
+  /**
+   * The renderer applied an edit the host rejected, so the two documents disagree.
+   *
+   * While this is set, the patch lane is closed: a delta patch is only meaningful against
+   * the base it was computed from, and the host no longer has that base. Everything routes
+   * through whole-document saves until one lands.
+   */
+  const patchLaneDiverged = useRef(false);
+  /**
+   * Bumped when the lane diverges, so batches queued BEFORE the divergence drop instead of
+   * committing: the reconciling snapshot already carries their edits, and re-committing
+   * would apply them twice.
+   */
+  const laneGeneration = useRef(0);
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const projectRevisionRef = useRef(projectRevision);
   projectRevisionRef.current = projectRevision;
@@ -94,32 +132,90 @@ export function App(): JSX.Element {
       autosaveTimer.current = null;
     }
     setSaveState('saving');
-    const outcome = await persistProject(path, project, { expectedRevision: projectRevision });
+    // Cleared before the write, not after it: this snapshot carries everything up to the
+    // `project` it is about to serialize, and any change that lands during the await sets
+    // the debt again through the autosave effect.
+    fullSnapshotOwed.current = false;
+    // The ref, not the state, is the freshest revision: the manual commit lane advances it
+    // between renders, and a snapshot sent with a stale expectation is a self-inflicted
+    // conflict.
+    const outcome = await persistProject(path, project, {
+      expectedRevision: projectRevisionRef.current,
+    });
     if (outcome.ok) {
       if (outcome.path !== path) setPath(outcome.path);
       if (outcome.revision !== undefined) {
         projectRevisionRef.current = outcome.revision;
         setProjectRevision(outcome.revision);
       }
+      // A whole-document write is the one thing that cannot be a delta against the wrong
+      // base, so it re-establishes agreement and reopens the patch lane.
+      patchLaneDiverged.current = false;
       setSaveState('saved');
+      setSaveCount((n) => n + 1);
       setSaveError(null);
     } else {
+      fullSnapshotOwed.current = true;
       setSaveState('error');
       setSaveError(outcome.error);
       log.warn('persist failed', outcome.error);
     }
     return outcome;
-  }, [path, project, projectRevision]);
+  }, [path, project]);
 
   const persistRef = useRef(persist);
   persistRef.current = persist;
+
+  /**
+   * Close the patch lane and push the renderer's whole document instead.
+   *
+   * The rejected edit is already on screen — the store applied it optimistically long
+   * before this commit was queued — so returning here without doing anything left the host
+   * a document behind FOREVER: every later patch was computed against a state it did not
+   * have, and the next commit that happened to succeed reset the chip to "Saved", erasing
+   * the only evidence that anything had gone wrong.
+   */
+  const reconcileDivergedLane = useCallback(
+    async (projectId: string, patchId: string, error: string): Promise<void> => {
+      manualPending.current = 0;
+      manualRebasedAuthority.current = null;
+      patchLaneDiverged.current = true;
+      laneGeneration.current += 1;
+      fullSnapshotOwed.current = true;
+      setSaveState('error');
+      setSaveError(error);
+      log.warn('manual patch persistence failed', { projectId, patchId, error });
+
+      const outcome = await persistRef.current();
+      if (outcome.ok) {
+        log.action('reconciled a rejected manual patch with a full snapshot', {
+          projectId,
+          patchId,
+          revision: outcome.revision ?? projectRevisionRef.current,
+        });
+        return;
+      }
+      // `persist` has already surfaced its own failure. The lane stays closed so that no
+      // later success can quietly clear an error the user never saw resolved.
+      log.warn('reconciling snapshot failed; the patch lane stays closed', {
+        projectId,
+        patchId,
+        error: outcome.error,
+      });
+    },
+    [],
+  );
 
   const queueManualPatchPersistence = useCallback(
     (projectId: string, patches: readonly Patch[]): boolean => {
       const bridge = getBridge();
       const commitProjectPatch = bridge?.commitProjectPatch;
       if (!commitProjectPatch || patches.length === 0) return false;
+      // Refused, not queued: the caller falls through to the full-document autosave, which
+      // is the only write that can put a diverged host back in step.
+      if (patchLaneDiverged.current) return false;
 
+      const generation = laneGeneration.current;
       manualPending.current += patches.length;
       setSaveState('saving');
       setSaveError(null);
@@ -127,6 +223,7 @@ export function App(): JSX.Element {
       manualCommitLane.current = manualCommitLane.current
         .catch(() => undefined)
         .then(async () => {
+          if (generation !== laneGeneration.current) return;
           for (const patch of patches) {
             const expectedRevision = projectRevisionRef.current;
             const result = await commitProjectPatch({
@@ -135,16 +232,7 @@ export function App(): JSX.Element {
               patch,
             });
             if (!result.ok) {
-              manualPending.current = 0;
-              manualRebasedAuthority.current = null;
-              setSaveState('error');
-              setSaveError(result.error);
-              log.warn('manual patch persistence failed', {
-                projectId,
-                patchId: patch.patchId,
-                expectedRevision,
-                error: result.error,
-              });
+              await reconcileDivergedLane(projectId, patch.patchId, result.error);
               return;
             }
 
@@ -160,6 +248,13 @@ export function App(): JSX.Element {
               manualPending.current = 0;
               manualRebasedAuthority.current = null;
               const message = error instanceof Error ? error.message : String(error);
+              // The host DID commit this patch; only adopting its authoritative snapshot
+              // failed. Nothing is missing from disk, so this must not push the renderer's
+              // document over whatever concurrent authority the host is holding — close the
+              // lane and let the next change save a whole document.
+              patchLaneDiverged.current = true;
+              laneGeneration.current += 1;
+              fullSnapshotOwed.current = true;
               setSaveState('error');
               setSaveError(message);
               log.warn('manual patch authority synchronization failed', {
@@ -173,7 +268,7 @@ export function App(): JSX.Element {
             manualPending.current = Math.max(0, manualPending.current - 1);
           }
 
-          if (manualPending.current === 0) {
+          if (manualPending.current === 0 && !patchLaneDiverged.current) {
             const authoritative = manualRebasedAuthority.current;
             manualRebasedAuthority.current = null;
             if (authoritative) {
@@ -193,7 +288,7 @@ export function App(): JSX.Element {
         });
       return true;
     },
-    [],
+    [reconcileDivergedLane],
   );
 
   const handleEditorProjectChange = useCallback(
@@ -203,6 +298,9 @@ export function App(): JSX.Element {
       if (!previous || !isFilePath(path) || projectRevisionRef.current <= 0) return;
 
       const patches = manualPatchesForHistoryTransition(previous.history, next.history);
+      // No patches does NOT mean nothing to save: a transition the differ cannot express
+      // (a memory write, a rename, a history it was not given) still has to reach disk, and
+      // it does so through the full-document autosave this deliberately falls through to.
       if (patches.length === 0) return;
       if (queueManualPatchPersistence(next.id, patches)) {
         suppressFullAutosaveOnce.current = true;
@@ -215,20 +313,42 @@ export function App(): JSX.Element {
     if (project === null) return;
     if (firstRun.current) {
       firstRun.current = false;
+      // App boots at the HomeScreen, so the first project-bearing run of this effect is
+      // usually an open/create — which ALSO armed `suppressAutosave`. Consuming only
+      // `firstRun` left that flag armed for the user's next real change, which the branch
+      // below then swallowed. Both mean the same thing here: this project came from
+      // storage, nothing is owed.
+      suppressAutosave.current = false;
+      suppressFullAutosaveOnce.current = false;
+      fullSnapshotOwed.current = false;
       return;
     }
     if (suppressAutosave.current) {
       suppressAutosave.current = false;
+      suppressFullAutosaveOnce.current = false;
+      // This project came FROM durable storage (open, create, or host authority), so it
+      // settles every earlier debt: whatever a previous change still owed has just been
+      // replaced by the authoritative document, which is also a state both sides agree on.
+      fullSnapshotOwed.current = false;
+      patchLaneDiverged.current = false;
       // Never mask a save that is still running — a brand-new project is being
       // written to disk at exactly this point in its lifecycle.
       setSaveState((state) => (state === 'saving' ? state : 'saved'));
       return;
     }
-    if (suppressFullAutosaveOnce.current) {
-      suppressFullAutosaveOnce.current = false;
-      return;
+    const carriedByPatchLane = suppressFullAutosaveOnce.current;
+    suppressFullAutosaveOnce.current = false;
+    if (!carriedByPatchLane) {
+      // Nothing durable happened for this change yet. Note the debt BEFORE scheduling, so
+      // it outlives this timer: the cleanup below runs on the next project change whatever
+      // its kind, and a debt tracked only by a live timeout is a debt the next keystroke
+      // cancels.
+      fullSnapshotOwed.current = true;
+      setSaveState('dirty');
     }
-    setSaveState('dirty');
+    // A change the patch lane carried still reschedules an OLDER outstanding snapshot
+    // rather than swallowing it; only a completed full save clears the debt.
+    if (!fullSnapshotOwed.current) return;
     const timer = setTimeout(() => {
       void persistRef.current();
     }, AUTOSAVE_DEBOUNCE_MS);
@@ -286,6 +406,7 @@ export function App(): JSX.Element {
       setProjectRevision(outcome.revision);
     }
     setSaveState('saved');
+    setSaveCount((n) => n + 1);
     setSaveError(null);
     log.action('new project persisted', { projectId: created.id, path: outcome.path });
   }, []);
@@ -334,6 +455,7 @@ export function App(): JSX.Element {
   );
 
   const open = useCallback(async () => {
+    setOpenError(null);
     const result = await openViaDialog();
     if (result.ok) {
       suppressAutosave.current = true;
@@ -345,11 +467,16 @@ export function App(): JSX.Element {
       setCapabilityGateDismissed(false);
       log.action('project opened', { path: result.path });
     } else if (result.error !== 'cancelled') {
+      // Surfaced, not just logged. Main returns a typed reason for each of these — a
+      // newer schema version, a corrupt file, a missing migration — and discarding it
+      // turned a real failure into a click that did nothing.
+      setOpenError(result.error);
       log.warn('open failed', result.error);
     }
   }, []);
 
   const openRecent = useCallback(async (recentPath: string) => {
+    setOpenError(null);
     if (recentPath.startsWith(BROWSER_PATH_PREFIX)) {
       const id = recentPath.slice(BROWSER_PATH_PREFIX.length);
       const loaded = loadBrowserProject(id);
@@ -364,6 +491,7 @@ export function App(): JSX.Element {
         writeBrowserProjectMeta(id, loaded.name);
         log.action('project opened', { path: recentPath });
       } else {
+        setOpenError(`Could not open ${recentPath}. The project file may be missing or corrupt.`);
         log.warn('could not load recent project', recentPath);
       }
       return;
@@ -379,6 +507,7 @@ export function App(): JSX.Element {
       setCapabilityGateDismissed(false);
       log.action('project opened', { path: result.path });
     } else {
+      setOpenError(result.error);
       log.warn('open failed', result.error);
     }
   }, []);
@@ -431,6 +560,8 @@ export function App(): JSX.Element {
               onNew={() => setNewProjectOpen(true)}
               onOpen={() => void open()}
               onOpenRecent={(p) => void openRecent(p)}
+              openError={openError}
+              onDismissOpenError={() => setOpenError(null)}
             />
           ) : (
             <>
@@ -438,6 +569,7 @@ export function App(): JSX.Element {
                 projectName={project.name}
                 path={path}
                 saveState={saveState}
+                saveCount={saveCount}
                 saveErrorDetail={saveError ?? undefined}
                 onHome={() => void goHome()}
                 onNew={() => setNewProjectOpen(true)}

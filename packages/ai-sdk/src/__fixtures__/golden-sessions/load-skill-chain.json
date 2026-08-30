@@ -85,7 +85,14 @@
           "diagnostics": []
         },
         "baseProjectRevision": 0,
-        "currentProjectRevision": 0
+        "currentProjectRevision": 0,
+        "minted": {
+          "fact": 0,
+          "decision": 0,
+          "objective": 0,
+          "op": 0,
+          "verify": 0
+        }
       }
     },
     {
@@ -111,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 22134,
+      "usedTokens": 22419,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -143,43 +150,50 @@
           {
             "id": "s4",
             "type": "retrieved_evidence",
-            "label": "source media",
-            "tokenEstimate": 18,
+            "label": "media bin",
+            "tokenEstimate": 15,
             "included": true
           },
           {
             "id": "s5",
+            "type": "retrieved_evidence",
+            "label": "source media",
+            "tokenEstimate": 23,
+            "included": true
+          },
+          {
+            "id": "s6",
             "type": "retrieved_evidence",
             "label": "transcript slice",
             "tokenEstimate": 11,
             "included": true
           },
           {
-            "id": "s6",
+            "id": "s7",
             "type": "skill",
             "label": "skills manifest",
             "tokenEstimate": 1649,
             "included": true
           },
           {
-            "id": "s7",
+            "id": "s8",
             "type": "latest_user_message",
             "label": "user request",
             "tokenEstimate": 15,
             "included": true
           },
           {
-            "id": "s8",
+            "id": "s9",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 2018,
+            "tokenEstimate": 2017,
             "included": true
           },
           {
-            "id": "s9",
+            "id": "s10",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 18183,
+            "tokenEstimate": 18449,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -187,9 +201,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 22134,
+          "estimatedInputTokensBeforeSend": 22419,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 169674,
+          "estimatedRemainingCapacity": 169389,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -380,7 +394,14 @@
           "diagnostics": []
         },
         "baseProjectRevision": 0,
-        "currentProjectRevision": 0
+        "currentProjectRevision": 0,
+        "minted": {
+          "fact": 1,
+          "decision": 0,
+          "objective": 0,
+          "op": 0,
+          "verify": 0
+        }
       }
     },
     {
@@ -406,7 +427,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 22332,
+      "usedTokens": 22618,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -438,43 +459,50 @@
           {
             "id": "s4",
             "type": "retrieved_evidence",
-            "label": "source media",
-            "tokenEstimate": 18,
+            "label": "media bin",
+            "tokenEstimate": 15,
             "included": true
           },
           {
             "id": "s5",
+            "type": "retrieved_evidence",
+            "label": "source media",
+            "tokenEstimate": 23,
+            "included": true
+          },
+          {
+            "id": "s6",
             "type": "retrieved_evidence",
             "label": "transcript slice",
             "tokenEstimate": 11,
             "included": true
           },
           {
-            "id": "s6",
+            "id": "s7",
             "type": "skill",
             "label": "skills manifest",
             "tokenEstimate": 1649,
             "included": true
           },
           {
-            "id": "s7",
+            "id": "s8",
             "type": "latest_user_message",
             "label": "user request",
             "tokenEstimate": 15,
             "included": true
           },
           {
-            "id": "s8",
+            "id": "s9",
             "type": "system",
             "label": "additional request content",
             "tokenEstimate": 2216,
             "included": true
           },
           {
-            "id": "s9",
+            "id": "s10",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 18183,
+            "tokenEstimate": 18449,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -482,9 +510,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 22332,
+          "estimatedInputTokensBeforeSend": 22618,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 169476,
+          "estimatedRemainingCapacity": 169190,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -803,7 +831,14 @@
           "diagnostics": []
         },
         "baseProjectRevision": 0,
-        "currentProjectRevision": 1
+        "currentProjectRevision": 1,
+        "minted": {
+          "fact": 2,
+          "decision": 0,
+          "objective": 0,
+          "op": 1,
+          "verify": 0
+        }
       }
     },
     {
@@ -829,7 +864,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19647,
+      "usedTokens": 20277,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -861,43 +896,50 @@
           {
             "id": "s4",
             "type": "retrieved_evidence",
-            "label": "source media",
-            "tokenEstimate": 18,
+            "label": "media bin",
+            "tokenEstimate": 15,
             "included": true
           },
           {
             "id": "s5",
+            "type": "retrieved_evidence",
+            "label": "source media",
+            "tokenEstimate": 23,
+            "included": true
+          },
+          {
+            "id": "s6",
             "type": "retrieved_evidence",
             "label": "transcript slice",
             "tokenEstimate": 11,
             "included": true
           },
           {
-            "id": "s6",
+            "id": "s7",
             "type": "skill",
             "label": "skills manifest",
             "tokenEstimate": 1649,
             "included": true
           },
           {
-            "id": "s7",
+            "id": "s8",
             "type": "latest_user_message",
             "label": "user request",
             "tokenEstimate": 15,
             "included": true
           },
           {
-            "id": "s8",
+            "id": "s9",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 2331,
+            "tokenEstimate": 2330,
             "included": true
           },
           {
-            "id": "s9",
+            "id": "s10",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15383,
+            "tokenEstimate": 15994,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -905,10 +947,10 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19647,
+          "estimatedInputTokensBeforeSend": 20277,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172161,
-          "toolSchemaTokensRebilled": 15383,
+          "estimatedRemainingCapacity": 171531,
+          "toolSchemaTokensRebilled": 15994,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -1077,7 +1119,14 @@
           "diagnostics": []
         },
         "baseProjectRevision": 0,
-        "currentProjectRevision": 1
+        "currentProjectRevision": 1,
+        "minted": {
+          "fact": 2,
+          "decision": 0,
+          "objective": 0,
+          "op": 1,
+          "verify": 0
+        }
       }
     },
     {
@@ -1229,7 +1278,14 @@
           "diagnostics": []
         },
         "baseProjectRevision": 0,
-        "currentProjectRevision": 1
+        "currentProjectRevision": 1,
+        "minted": {
+          "fact": 2,
+          "decision": 0,
+          "objective": 0,
+          "op": 1,
+          "verify": 1
+        }
       }
     },
     {

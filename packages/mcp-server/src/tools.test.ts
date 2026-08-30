@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TOOL_REGISTRY } from '@framepilot/ai-sdk';
+import { TOOL_REGISTRY, withToolInputContract } from '@framepilot/ai-sdk';
 import {
   SESSION_TOOLS,
   UI_INDEPENDENT_HOST_TOOLS,
@@ -81,10 +81,17 @@ describe('buildMcpTools (registry → MCP auto-sync)', () => {
     }
   });
 
-  it('reuses the registry JSON Schema verbatim (no drift)', () => {
+  it('advertises the CONTRACTED registry JSON Schema (no drift from what is enforced)', () => {
+    // Deliberately the contracted schema, not the bare registry one. `EditorSession.runTool`
+    // executes every tool through `withToolInputContract`, so advertising `t.parameters`
+    // published a schema the session would then refuse calls against: no `map_time`
+    // exclusivity, no keyframe `property` enum, no `color_grade`/`lut` enum, no gain or
+    // region bounds, no ordering prose. One object for both, so they cannot drift.
     for (const descriptor of tools) {
       const registered = TOOL_REGISTRY.find((t) => t.name === descriptor.name);
-      if (registered) expect(descriptor.inputSchema).toEqual(registered.parameters);
+      if (registered) {
+        expect(descriptor.inputSchema).toEqual(withToolInputContract(registered).parameters);
+      }
       expect(descriptor.inputSchema.type).toBe('object');
     }
   });

@@ -14541,3 +14541,112 @@ a.export-credits-license {
   font-weight: 500;
   color: var(--muted);
 }
+
+/* ---------------------------------------------------------------------------
+ * Attachments on a SENT message (read-only record inside the user bubble).
+ *
+ * Deliberately quieter than `.ai-ref-tile` in the composer: that one is a control
+ * the editor is still deciding about, this one is a record of what was asked. It
+ * sits inside a filled bubble, so it borrows the bubble's foreground rather than
+ * painting its own panel — a second card-on-a-card reads as a nested dialog.
+ * ------------------------------------------------------------------------- */
+.ai-msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1, 4px);
+  margin: var(--space-2, 8px) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.ai-msg-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  max-width: 100%;
+  padding: 3px 8px 3px 3px;
+  border-radius: var(--radius-md, 8px);
+  /* Tinted from the bubble's own text colour so it reads on the filled user bubble in
+     both themes without hard-coding a second palette. */
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.ai-msg-attachment-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 22px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+.ai-msg-attachment-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ai-msg-attachment-glyph {
+  opacity: 0.75;
+}
+.ai-msg-attachment-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs, 12px);
+}
+.ai-msg-attachment-role {
+  flex: 0 0 auto;
+  font-size: var(--text-2xs, 11px);
+  text-transform: lowercase;
+  opacity: 0.7;
+}
+.ai-msg-attachment[data-dismissed] {
+  opacity: 0.55;
+}
+.ai-msg-attachment-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+}
+.ai-msg-attachment-dismiss:hover,
+.ai-msg-attachment-dismiss:focus-visible {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 18%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+ * Why a project would not open.
+ *
+ * Persistent, not a toast: it is the answer to a click the user just made, and a
+ * notice that disappears on its own is how "the button does nothing" happened in
+ * the first place. Dismissed explicitly, or cleared by the next open attempt.
+ * ------------------------------------------------------------------------- */
+.launch-open-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 12px);
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto var(--space-4, 16px);
+  padding: var(--space-3, 12px) var(--space-3, 12px) var(--space-3, 12px) var(--space-4, 16px);
+  border: 1px solid color-mix(in srgb, var(--danger, #d92d20) 45%, var(--border-subtle));
+  border-radius: var(--radius-md, 8px);
+  background: color-mix(in srgb, var(--danger, #d92d20) 8%, var(--bg-elevated));
+  color: var(--text-primary);
+}
+.launch-open-error-text {
+  min-width: 0;
+  font-size: var(--text-sm, 13px);
+}

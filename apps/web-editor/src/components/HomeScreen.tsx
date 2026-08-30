@@ -13,13 +13,25 @@ import { getBridge, isDesktop } from '../editor/bridge.js';
 import { BROWSER_PATH_PREFIX, listBrowserProjectSummaries } from '../editor/persistence.js';
 import { useSettings } from '../editor/useSettings.js';
 import { Tooltip } from './Tooltip.js';
-import { Contrast, FileText, FolderOpen, Plus } from './icons.js';
+import { Contrast, FileText, FolderOpen, Plus, X } from './icons.js';
 import './HomeScreen.css';
 
 export interface HomeScreenProps {
   readonly onNew: () => void;
   readonly onOpen: () => void;
   readonly onOpenRecent: (path: string) => void;
+  /**
+   * Why the last open attempt failed, if it did.
+   *
+   * A project can fail to open for reasons the user can act on — the file was written by
+   * a newer FramePilot, it is corrupt, its media has moved — and the main process returns
+   * a good typed error for each. The renderer used to log it and return, so clicking a
+   * recent project did nothing at all, with no way to tell "nothing happened" from
+   * "something is wrong with that file".
+   */
+  readonly openError?: string | null;
+  /** Dismiss the failure notice — it must not outlive the attempt it describes. */
+  readonly onDismissOpenError?: () => void;
 }
 
 interface RecentEntry {
@@ -44,7 +56,13 @@ function formatDate(ms: number): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export function HomeScreen({ onNew, onOpen, onOpenRecent }: HomeScreenProps): JSX.Element {
+export function HomeScreen({
+  onNew,
+  onOpen,
+  onOpenRecent,
+  openError,
+  onDismissOpenError,
+}: HomeScreenProps): JSX.Element {
   const [recents, setRecents] = useState<RecentEntry[]>([]);
   const desktop = isDesktop();
   const { settings, update: updateSettings } = useSettings();
@@ -119,6 +137,24 @@ export function HomeScreen({ onNew, onOpen, onOpenRecent }: HomeScreenProps): JS
       </header>
 
       <main className="launch-main">
+        {openError != null && openError !== '' && (
+          // `alert`, not a toast: this is the answer to a click the user just made, and a
+          // notice that disappears on its own is how "the button does nothing" happened
+          // in the first place.
+          <div className="launch-open-error" role="alert">
+            <span className="launch-open-error-text">{openError}</span>
+            {onDismissOpenError !== undefined && (
+              <Button
+                variant="ghost"
+                type="button"
+                aria-label="Dismiss"
+                onClick={onDismissOpenError}
+              >
+                <X size={16} aria-hidden="true" />
+              </Button>
+            )}
+          </div>
+        )}
         <section className="launch-actions" aria-label="Project actions">
           <button
             type="button"

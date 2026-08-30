@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { rm, writeFile } from 'node:fs/promises';
-import { readProjectFile, writeProjectFile } from '@framepilot/timeline-schema/file';
+import { readProjectFile, serializeProject } from '@framepilot/timeline-schema/file';
 import { activePointerPath } from '@framepilot/shared-types/projects-root';
 import { EditorSession, SessionError, sessionFromEnv } from './session.js';
 import { makeProject, makeSandboxProject } from './__fixtures__/project.js';
@@ -50,14 +50,47 @@ describe('EditorSession — open/save', () => {
   it('rejects saveProject with a conflict when the file changed on disk since open', async () => {
     const { projectPath, session } = await openSession();
     await session.runTool('trim_clip', { clipId: 'clip_a', start: 0, end: 4 });
-    // Simulate the GUI (or another process) autosaving the open file underneath us.
-    await writeProjectFile(projectPath, makeProject({ name: 'Edited elsewhere' }));
+    // Simulate the GUI (or another process) autosaving the open file underneath us with a
+    // RAW write. Using `writeProjectFile` here would be this process's own writer, which
+    // updates its observed-content registry — i.e. it would fake the second process using
+    // exactly the knowledge a second OS process does not have, and prove nothing.
+    await writeFile(projectPath, serializeProject(makeProject({ name: 'Edited elsewhere' })));
 
     await expect(session.saveProject()).rejects.toThrow(
       expect.objectContaining({ code: 'conflict' }),
     );
     // The external edit is intact — the lost-update was prevented, not clobbered.
     expect((await readProjectFile(projectPath)).name).toBe('Edited elsewhere');
+  });
+
+  it('tells the agent how to recover from a save conflict', async () => {
+    // `dispatch.ts` renders a SessionError as `[code] message`; instructions that live
+    // anywhere but the message never reach the agent that has to act on them.
+    const { projectPath, session } = await openSession();
+    await session.runTool('trim_clip', { clipId: 'clip_a', start: 0, end: 4 });
+    await writeFile(projectPath, serializeProject(makeProject({ name: 'Edited elsewhere' })));
+
+    await expect(session.saveProject()).rejects.toThrow(
+      /changed on disk[\s\S]*open_project[\s\S]*save again/,
+    );
+  });
+
+  it('saves again once the project is reloaded after a conflict', async () => {
+    // A refusal must be recoverable, not a permanent lock-out: re-opening re-reads the
+    // file, which re-establishes the writer's baseline.
+    const { projectPath, session } = await openSession();
+    await writeFile(projectPath, serializeProject(makeProject({ name: 'Edited elsewhere' })));
+    await expect(session.saveProject()).rejects.toThrow(
+      expect.objectContaining({ code: 'conflict' }),
+    );
+
+    await session.openProject('project.fp.json');
+    await session.runTool('trim_clip', { clipId: 'clip_a', start: 0, end: 4 });
+    await session.saveProject();
+
+    const reopened = await readProjectFile(projectPath);
+    expect(reopened.name).toBe('Edited elsewhere');
+    expect(reopened.timeline.tracks[0]!.clips[0]!.end).toBe(4);
   });
 
   it('saveProject recreates the file when it was deleted on disk (no false conflict)', async () => {

@@ -144,6 +144,22 @@ prevents another redundant tool cycle while preserving an honest escape when a r
 creative decision is missing. A second failure converges normally; recovery is bounded.
 See [ADR 0068](../adr/0068-action-recovery-after-cached-reads.md).
 
+A refused call is remembered, and a call the run can PROVE will be refused again is not
+made twice. Two records back this. First, the run's operation ledger records a change the
+per-call validator refused as a `failed` operation with the validator's reason, so the
+state briefing shows it under "FAILED — fix the cause, do not retry unchanged"; before
+this, a per-call rejection returned zero operations out of band and was never written
+down, so a run could accumulate hundreds of refused operations against a ledger of nothing
+but successes. Second, the Conductor banks a `name:cause` key for every DETERMINISTIC
+refusal — schema validation of the arguments, or the per-call validator probe — and a
+later call that settles to a key already banked is replaced with an actionable refusal
+naming the error and the ways out. The key is the CAUSE, not the arguments: the operation
+locator (`op 12 of 63`) is stripped, because the same defect reported at a different
+position is the same defect. Host, executor and transport failures are never banked —
+those are transient, and a permanent block on one would refuse work that would have
+succeeded. Any applied edit clears the banked keys, since a validator verdict describes
+the arrangement it was shown.
+
 The visible plan ledger is evidence-based: read-only turns can gather prerequisites but
 cannot check off an edit step. A no-tool response cannot end a run while that committed
 ledger still has pending work: the Conductor grants one bounded mutation-only continuation

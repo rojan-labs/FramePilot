@@ -565,6 +565,47 @@ describe('StockPanel', () => {
     );
   });
 
+  it('carries the downloaded clip’s shape onto the asset', async () => {
+    // A stock library is overwhelmingly 16:9, so a shapeless stock asset is exactly the
+    // landscape-in-portrait case `list_assets`' letterbox note and the review's reframe
+    // check exist to catch — and both go quiet when the dimensions are missing. The wire
+    // carries the pair now; this pins that the renderer stops dropping it on the way to
+    // the media bin.
+    bridge.search.mockResolvedValue(okSearch([wireItem()]));
+    bridge.download.mockResolvedValue({
+      ok: true,
+      asset: {
+        relativePath: 'media/p1/city.mp4',
+        kind: 'video',
+        durationSeconds: 12,
+        width: 1920,
+        height: 1080,
+        media: { width: 1920, height: 1080, proxyPath: 'media/p1/city.proxy.mp4' },
+        source: {
+          provider: 'pexels',
+          remoteId: '3129671',
+          license: 'pexels',
+          attributionRequired: false,
+          attribution: 'Video by Ruvim on Pexels',
+          fetchedAt: '2026-08-24T12:00:00.000Z',
+        },
+        deduped: false,
+      },
+    });
+    const { onAddStock } = renderPanel();
+    await typeQuery('city');
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(onAddStock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        media: expect.objectContaining({ width: 1920, height: 1080 }),
+      }),
+    );
+  });
+
   it('keeps a download alive, with its progress and Cancel, across a tab switch', async () => {
     // The Stock tab unmounts when the user switches tabs — which is exactly what
     // someone does after queuing a 40 MB clip. Before the registry, coming back

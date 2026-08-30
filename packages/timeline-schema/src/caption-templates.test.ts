@@ -7,6 +7,9 @@
  * land on real templates, and the resolver's precedence must match the Python
  * mirror's.
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   CAPTION_TEMPLATE_CATALOG,
@@ -209,5 +212,31 @@ describe('resolveCaptionStyle — with a track default (schema v11)', () => {
     expect(resolveCaptionStyle({ templateId: 'karaoke' })).toEqual(
       resolveCaptionStyle({ templateId: 'karaoke' }, undefined),
     );
+  });
+});
+
+describe('committed schema/caption-templates.json (cross-language contract)', () => {
+  // The catalog is pure data that BOTH renderers interpret (ADR 0069), so the
+  // committed JSON is what the Python side actually reads. `test_caption_templates.py`
+  // only checks the engine's copy against that JSON; this is the assertion that
+  // ties the JSON back to the TypeScript it is generated from. Without it, a
+  // template edited here but never regenerated renders one way in the editor
+  // preview and another way at export.
+  it('matches the TS source (run `schema:generate` after editing the catalog)', () => {
+    const committed = JSON.parse(
+      readFileSync(
+        path.join(
+          path.dirname(fileURLToPath(import.meta.url)),
+          '..',
+          'schema',
+          'caption-templates.json',
+        ),
+        'utf-8',
+      ),
+    ) as unknown;
+    expect({
+      defaultTemplateId: DEFAULT_CAPTION_TEMPLATE_ID,
+      templates: CAPTION_TEMPLATE_CATALOG,
+    }).toEqual(committed);
   });
 });

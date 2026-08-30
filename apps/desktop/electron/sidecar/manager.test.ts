@@ -359,7 +359,11 @@ describe('SidecarManager', () => {
       await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2));
       // The wedged group is killed before the restart, so the port is actually free.
       expect(processes[0]!.killed).toBe(true);
-      expect(manager.restartCount).toBe(1);
+      // Was `expect(manager.restartCount).toBe(1)`. Since FM-11 the budget is REFUNDED as
+      // soon as the replacement answers a liveness check, so `restartCount` here is a
+      // value in flight, not a fact. What the test actually cares about — that exactly one
+      // restart was spent, and why — is reported at the moment it happens.
+      expect(details.some((d) => d?.includes('attempt 1 of 3'))).toBe(true);
       // The reason is stated when it happens; `ready` clears it again, so the assertion
       // is on what was reported, not on what is left over afterwards.
       expect(details.some((d) => d?.includes('stopped answering'))).toBe(true);
@@ -401,6 +405,35 @@ describe('SidecarManager', () => {
       for (let i = 0; i < 8; i++) await Promise.resolve();
       expect(manager.status.phase).toBe('stopped');
       expect(spawn).toHaveBeenCalledTimes(spawnsAtStop);
+    });
+
+    it('forgives the restart budget once a recovered engine answers a liveness check', async () => {
+      // FM-11: `restarts` only ever went up, and only stop() reset it. Three transient
+      // crashes spread across a long session — each fully recovered from — permanently
+      // disabled render/analysis/agent until the user relaunched the app.
+      const processes = [fakeProcess(), fakeProcess()];
+      let spawned = 0;
+      // A real macrotask per tick: the liveness loop must not starve `vi.waitFor`.
+      const tickSleep = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+      const manager = new SidecarManager({
+        spawn: () => processes[spawned++]!,
+        probe: async () => true,
+        sleep: tickSleep,
+        maxRestarts: 1,
+        livenessIntervalMs: 1,
+        livenessFailures: 3,
+      });
+
+      await manager.start();
+      processes[0]!.emitExit(137);
+      expect(manager.restartCount).toBe(1); // spent, before the engine has proven anything
+
+      await vi.waitFor(() => expect(manager.status.phase).toBe('ready'));
+      // Reaching `ready` alone must NOT refund the budget — only surviving a full
+      // liveness interval does, which is the manager's only honest evidence of recovery.
+      await vi.waitFor(() => expect(manager.restartCount).toBe(0));
+
+      manager.stop(); // retire the watch loop so it does not outlive the test
     });
 
     it('can be switched off entirely', async () => {

@@ -50,11 +50,19 @@ export interface HostExecutionContext {
    */
   readonly modelId?: string;
   /**
-   * The run's analysis budget (plan B5.4). When present, the executor
-   * pre-checks a capped call's charge before dispatch (an over-budget call
-   * fails honestly, never runs) and records the real consumption after. Absent
-   * ⇒ no per-run analysis cap is enforced (back-compat for callers that don't
-   * thread one, e.g. one-off MCP calls).
+   * The run's analysis budget (plan B5.4). When present, the executor pre-checks a capped
+   * call's charge before dispatch (an over-budget call fails honestly, never runs) and
+   * records the real consumption after — transcription in minutes of audio the recognizer
+   * got through, ffmpeg in wall-clock seconds the host measured around the dispatch.
+   *
+   * The shipped implementation of that contract is `sidecar-executor.ts#chargeAnalysisBudget`,
+   * and it is the only one: an executor that accepts this field and never calls
+   * `check`/`record` enforces nothing while reading as though it does, which is exactly
+   * how this paragraph was false for every run before the wiring existed. If you write
+   * another executor, wrap it in that helper rather than re-deriving the charges.
+   *
+   * Absent ⇒ no per-run analysis cap (back-compat for callers that don't thread one, e.g.
+   * one-off MCP calls).
    */
   readonly analysisBudget?: AnalysisBudget;
 }

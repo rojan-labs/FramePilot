@@ -329,6 +329,21 @@ export type ImportAssetResult =
       durationSeconds: number | null;
       kind: 'video' | 'audio' | 'image';
       media: {
+        /**
+         * Source pixel dimensions, when the engine probed them (schema v21).
+         *
+         * Both or neither — half a shape is not a shape. Declared here because this
+         * type is the IPC contract, and omitting the pair is what silently discarded
+         * it: the engine returns width/height and the desktop client forwards them,
+         * but nothing downstream could see them, so `AssetMedia.width/height` stayed
+         * empty for every imported asset. Schema v21 added those fields precisely to
+         * stop landscape sources rendering pillarboxed in a portrait sequence, and
+         * both safeguards that read them — `list_assets`' letterbox note and the
+         * review's reframe check — were disarmed by their absence rather than by any
+         * fault of their own.
+         */
+        width?: number;
+        height?: number;
         peaks?: number[];
         peaksPerSecond?: number;
         thumbnailPaths?: string[];
@@ -702,6 +717,17 @@ export interface AiStreamUserMemory {
  * Phase 3). Structurally the ai-sdk `ReferenceProfile`; validated by its zod schema in the
  * main process before it reaches the context builder.
  */
+/**
+ * References one turn may carry.
+ *
+ * Lives here, beside the wire type, because BOTH ends must agree on it. The host throws
+ * when a turn exceeds it (`parseReferences`), and the renderer derives the live set that
+ * has to fit — so a renderer holding a different number does not produce a warning, it
+ * produces a run that fails at the transport boundary with the composer already emptied
+ * and Retry replaying the same doomed set forever.
+ */
+export const MAX_REFERENCES_PER_TURN = 8;
+
 export interface AiStreamReferenceProfile {
   readonly id: string;
   readonly role:
@@ -735,9 +761,20 @@ export interface AnalyzeReferenceRequest {
   readonly refresh?: boolean;
 }
 
+/**
+ * Why a reference analysis did not happen, when the reason is not the file.
+ *
+ * `unlicensed` is the host refusing to run the work at all, and it is a different kind
+ * of answer from "this file could not be measured": nothing about the attachment is
+ * wrong, and retrying changes nothing until the app is activated. Without this flag the
+ * renderer could only report the refusal as a failed analysis with a Re-analyze button
+ * that is guaranteed to fail again.
+ */
+export type AnalyzeReferenceFailureReason = 'unlicensed';
+
 export type AnalyzeReferenceResult =
   | { ok: true; profile: AiStreamReferenceProfile; cached: boolean }
-  | { ok: false; error: string };
+  | { ok: false; error: string; reason?: AnalyzeReferenceFailureReason };
 
 export interface AiStreamRequest {
   readonly mode: AiStreamMode;
@@ -1545,7 +1582,23 @@ export interface StockDownloadedAssetWire {
   /** The rendition actually fetched, so the UI can report what it got. */
   readonly width?: number;
   readonly height?: number;
+  /**
+   * Engine-derived media, shaped exactly like `AssetMedia` (a compile-time lockstep in
+   * `apps/desktop/electron/media/asset-media-client.ts` fails typecheck if it drifts).
+   */
   readonly media?: {
+    /**
+     * Source pixel dimensions (schema v21). Both or neither — half a shape is not a shape.
+     *
+     * Declared here because omitting them is what discarded them: `materialize()` rebuilds
+     * the media object field by field, so a field this type does not name cannot survive
+     * the wire no matter what the engine probed. Stock media is overwhelmingly 16:9, so
+     * every stock photo and video reached the project `unmeasured` — which is precisely the
+     * landscape-in-a-portrait-sequence case `list_assets`' letterbox note and the review's
+     * reframe check exist to catch, and both were disarmed by the absence.
+     */
+    readonly width?: number | null;
+    readonly height?: number | null;
     readonly proxyPath?: string | null;
     readonly peaks?: readonly number[] | null;
     readonly peaksPerSecond?: number | null;

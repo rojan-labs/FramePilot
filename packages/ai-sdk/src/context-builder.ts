@@ -501,20 +501,25 @@ export function summarizeMediaBin(project: Project): string {
     project.timeline.tracks.flatMap((track) => track.clips.map((clip) => clip.assetId)),
   );
   const unplaced = assets.filter((asset) => !placed.has(asset.id)).length;
-  // Nothing waiting to be placed means the timeline summary above is already the complete
-  // account of the project's material, and a second listing of the same ids is weight the
-  // grounding tiers could have spent on the cut itself. The block exists to answer "what
-  // is there still to place"; with no answer, it says nothing.
-  if (unplaced === 0) return '';
+  // WHY the block survives "everything is placed": it used to return '' here, and that
+  // deleted the section on the exact turn it stopped being about what is left to place and
+  // started being the only statement of each asset's SOURCE duration. Nothing else in the
+  // context carries that — `summarizeTimeline` describes the trimmed clip, not the material
+  // — so a captioning/pacing run bought the same one-asset bin back with `list_assets` five
+  // times in one three-minute run. A digest line costs ~15 tokens; the re-read costs a turn.
   const head =
-    `Media bin — ${String(assets.length)} asset(s), ` +
-    `${String(assets.length - unplaced)} placed, ${String(unplaced)} not yet used:`;
+    unplaced === 0
+      ? `Media bin — ${String(assets.length)} asset(s), all placed:`
+      : `Media bin — ${String(assets.length)} asset(s), ` +
+        `${String(assets.length - unplaced)} placed, ${String(unplaced)} not yet used:`;
   const lines: string[] = [];
   let used = head.length;
   for (const [index, asset] of assets.entries()) {
     const duration =
       typeof asset.durationSeconds === 'number' ? ` ${round(asset.durationSeconds)}s` : '';
-    const line = `- ${asset.id} [${asset.kind}]${duration}${placed.has(asset.id) ? ' · placed' : ''}`;
+    // The per-line "· placed" marks the minority case. With nothing left to place the
+    // header has already said so for every line, and repeating it is pure per-turn weight.
+    const line = `- ${asset.id} [${asset.kind}]${duration}${unplaced > 0 && placed.has(asset.id) ? ' · placed' : ''}`;
     if (used + line.length > MEDIA_BIN_CHARS) {
       // Say what was left out and how to get it, never trail off. A run told "+37 more"
       // with no route to them is a run that invents ids.
@@ -539,7 +544,8 @@ const SOURCE_MEDIA_CHARS = 1800;
 
 /**
  * The per-asset facts an editor reads off a thumbnail and the model cannot: file name,
- * source dimensions, and whether the source's orientation matches the sequence's.
+ * source duration, source dimensions, and whether the source's orientation matches the
+ * sequence's.
  *
  * WHY: in the mission montage ledger the model spent five `recall_evidence` calls and
  * five `describe_footage` calls asking "is this landscape, will it letterbox?" — facts the
@@ -554,6 +560,11 @@ export function summarizeSourceMedia(project: Project): string {
   let used = 0;
   for (const [index, asset] of project.assets.entries()) {
     const name = asset.path.split('/').pop() ?? asset.path;
+    // Source duration, stated wherever the asset is stated. It is the fact runs re-bought
+    // `list_assets` for, and repeating it here costs ~3 tokens and makes the bin digest's
+    // absence under budget pressure survivable.
+    const duration =
+      typeof asset.durationSeconds === 'number' ? ` · ${round(asset.durationSeconds)}s` : '';
     const width = asset.media?.width ?? null;
     const height = asset.media?.height ?? null;
     let shape = '';
@@ -567,7 +578,7 @@ export function summarizeSourceMedia(project: Project): string {
     } else if (asset.kind === 'audio') {
       shape = ' · audio';
     }
-    const line = `- ${asset.id} ${name}${shape}`;
+    const line = `- ${asset.id} ${name}${duration}${shape}`;
     if (used + line.length > SOURCE_MEDIA_CHARS) {
       lines.push(
         `- …and ${String(project.assets.length - index)} more — call list_assets for their dimensions`,
@@ -577,7 +588,9 @@ export function summarizeSourceMedia(project: Project): string {
     lines.push(line);
     used += line.length + 1;
   }
-  return ['Source media (file · dimensions · fit in this sequence):', ...lines].join('\n');
+  return ['Source media (file · duration · dimensions · fit in this sequence):', ...lines].join(
+    '\n',
+  );
 }
 
 /**
@@ -836,12 +849,50 @@ const TIER_RECOVERY: Partial<Record<ContextTier, string>> = {
   selection: "the user's current selection — ask before assuming an edit is project-wide",
 };
 
-/** Render the declared-omission block, or '' when everything fit. */
-export function summarizeDroppedTiers(dropped: readonly ContextTier[]): string {
-  const lines = dropped
-    .map((tier) => TIER_RECOVERY[tier])
-    .filter((line): line is string => line !== undefined)
-    .map((line) => `- ${line}`);
+/**
+ * Recovery lines for BLOCKS that share a tier with something else.
+ *
+ * A tier is a budget priority, not a description of content, and two blocks can honestly
+ * share one: the references block rides `pinned` because an attachment the editor made and
+ * an entity the editor pinned are worth about the same when the budget is tight. What they
+ * are NOT worth is the same sentence. Dropping the references and telling the model "the
+ * entities the user pinned" were left out is a false account of the omission, in the one
+ * block whose whole job is an honest account of it — and a model told the wrong thing is
+ * missing compensates for the wrong thing.
+ *
+ * Keyed by the block's own label, so an added block that shares a tier either declares its
+ * own line here or is reported by its tier's line; there is no way for it to be reported as
+ * something it is not.
+ */
+const BLOCK_RECOVERY: Readonly<Record<string, string>> = {
+  references:
+    'the references the editor attached and their measured targets — no tool can re-read ' +
+    'them, so do not claim to have matched a reference you cannot see; ask instead',
+};
+
+/** One dropped block, as much of it as the omission notice needs. */
+export interface DroppedBlock {
+  readonly tier: ContextTier;
+  readonly label: string;
+}
+
+/**
+ * Render the declared-omission block, or '' when everything fit.
+ *
+ * Takes the blocks that were dropped rather than the bare tier names so a block with its
+ * own {@link BLOCK_RECOVERY} line is named for what it is. Tiers with nothing assembled
+ * under them (`history`, whose content lives outside `tiered`) are still reported through
+ * their tier line, which is why the tier fallback stays. Lines are de-duplicated: two
+ * blocks in the same tier with no line of their own describe one omission to the model.
+ */
+export function summarizeDroppedTiers(dropped: readonly DroppedBlock[]): string {
+  const lines = [
+    ...new Set(
+      dropped
+        .map(({ tier, label }) => BLOCK_RECOVERY[label] ?? TIER_RECOVERY[tier])
+        .filter((line): line is string => line !== undefined),
+    ),
+  ].map((line) => `- ${line}`);
   if (lines.length === 0) return '';
   return [
     'NOT IN THIS PROMPT (it did not fit, so do not treat its absence as absence from the',
@@ -946,6 +997,12 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // Priced here for the same reason: it rides the timeline tier and must not eat the
   // grounding slice that the transcript and clip retrievals are sized from.
   const sourceMedia = summarizeSourceMedia(project);
+  // The bin is priced here for the same reason, and it was not. Unpriced, it was spent
+  // twice: the grounding slice was sized as though the block were free, the assembled
+  // prompt then overshot the budget by exactly the bin's size, and DROP_ORDER answered a
+  // ~15-token overshoot by dropping the WHOLE transcript tier. Counting it costs the
+  // transcript slice a few words instead of all of them.
+  const mediaBin = summarizeMediaBin(project);
   const spentElsewhere = [
     SYSTEM_PROMPT,
     ...mandatory,
@@ -953,6 +1010,7 @@ export function assembleContext(input: ContextInput): AssembledContext {
     visualStatus,
     footageMap,
     sourceMedia,
+    mediaBin,
     promptBlock,
     ...history.map((m) => m.content),
   ].reduce((sum, text) => sum + estimateTokens(text), 0);
@@ -986,7 +1044,6 @@ export function assembleContext(input: ContextInput): AssembledContext {
   ];
   // The bin sits directly under the timeline summary: together they are "what has been
   // placed" and "what there is to place", which is the pair a montage reasons over.
-  const mediaBin = summarizeMediaBin(project);
   if (mediaBin !== '') {
     tiered.push({ tier: 'timeline', label: 'media bin', text: mediaBin });
   }
@@ -1033,7 +1090,15 @@ export function assembleContext(input: ContextInput): AssembledContext {
     if (present) dropped.add(tier);
   }
 
-  const omissionBlock = summarizeDroppedTiers([...dropped]);
+  // Report the BLOCKS that went, not just the tiers: a tier can carry two unrelated blocks
+  // (`pinned` holds both the pinned entities and the references), and naming only the tier
+  // tells the model the wrong thing was omitted. A dropped tier with no assembled block —
+  // `history` lives outside `tiered` — falls back to its tier line.
+  const droppedBlocks: DroppedBlock[] = [...dropped].flatMap((tier) => {
+    const blocks = tiered.filter((b) => b.tier === tier);
+    return blocks.length > 0 ? blocks.map(({ label }) => ({ tier, label })) : [{ tier, label: '' }];
+  });
+  const omissionBlock = summarizeDroppedTiers(droppedBlocks);
   const keptTiers = tiered.filter((b) => !dropped.has(b.tier));
   const keptBlocks = keptTiers.map((b) => b.text);
   const keptHistory = dropped.has('history') ? [] : history;
@@ -1057,13 +1122,29 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // The omission block rides with the timeline instead, because it is the one thing here
   // that genuinely re-renders: which tiers had to be dropped is a function of the budget
   // this turn, and the timeline growing is what moves it.
+  //
+  // AND SO DOES THE STATE HEADER, which used to lead `stable` and quietly cost the run
+  // everything the split was built to save. `renderStateBlock` embeds the timeline's
+  // duration, resolution, per-track clip counts and revision, so essentially every applied
+  // edit rewrites it — and it sat at BYTE ZERO of the cacheable prefix. A provider caches a
+  // byte-identical prefix, so one changed character there voids the whole thing: the
+  // transcript slice, the memory tiers, the session context, the references, the skills
+  // manifest and the editor's own brief were all re-billed at full price on the next turn.
+  // A captured run reported `cachedInputTokens: 0`.
+  //
+  // `state-block.ts` used to claim that its fixed key order "keeps the prompt-cache prefix
+  // byte-stable from turn to turn". A fixed key order does nothing of the sort when the
+  // VALUES move every turn; that claim has been removed from that file and it now points
+  // here, because this line is the rule. Moved into `volatile` the block costs ~40-60
+  // tokens re-billed per turn instead of the whole stable body, and it still reads before
+  // the briefing and the action log.
   const volatileBlocks = keptTiers.filter((b) => b.tier === 'timeline').map((b) => b.text);
   const stableBlocks = keptTiers.filter((b) => b.tier !== 'timeline').map((b) => b.text);
   const split: ContextSplit = {
-    stable: [header, ...stableBlocks, ...mandatory.filter((m) => m !== header), promptBlock].join(
+    stable: [...stableBlocks, ...mandatory.filter((m) => m !== header), promptBlock].join('\n\n'),
+    volatile: [header, ...volatileBlocks, ...(omissionBlock === '' ? [] : [omissionBlock])].join(
       '\n\n',
     ),
-    volatile: [...volatileBlocks, ...(omissionBlock === '' ? [] : [omissionBlock])].join('\n\n'),
   };
 
   // The per-section account (ADR 0080). Mandatory blocks are reported too, so the

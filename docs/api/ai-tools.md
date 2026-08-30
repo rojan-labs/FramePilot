@@ -35,6 +35,30 @@ patch — see [ADR 0012](../adr/0012-ai-tool-boundary-and-orchestrator.md)). The
 decides which tools a given mode may use (e.g. `plan` mode may call read tools but applies
 nothing; `edit` offers only write tools).
 
+### Execution contract: caching, cancellation, and the analysis budget
+
+Beyond the schema, every tool resolves a typed **execution contract**
+(`packages/ai-sdk/src/tool-contract.ts`) that the runtime — not the caller — obeys.
+
+- **Caching.** A host tool's result is memoized for the run only when its answer is
+  `revision_independent`: source material and provider catalogues, which no edit can
+  change (invariant 1: originals are never mutated). Anything that reads the timeline, the
+  asset bin or the transcript runs fresh every time, because a run changes all three
+  underneath its own questions. There is deliberately no revision-keyed tier — see the
+  2026-08-30 amendment in
+  [ADR 0107](../adr/0107-ai-tool-and-edit-contract-authority.md).
+- **Cancellation.** `AbortSignal` is the only channel. The run's signal reaches the model
+  provider, the host executor and the sidecar's HTTP request; Stop aborts the in-flight
+  call and the outcome settles as `cancelled`, never as a checkmark.
+- **Analysis budget.** Each run carries a per-run ceiling on the expensive host work
+  (`kernel/cost/analysis-caps.ts`): `maxTranscriptionMinutes` (default 60) over minutes of
+  audio actually transcribed, and `maxFfmpegSeconds` (default 900) over wall-clock seconds
+  of ffmpeg-backed analysis — the silence/scene/beat analyzers, `get_frame`,
+  `measure_color`. The host seam checks the budget before dispatch and records the real
+  consumption after, so a call over the ceiling **fails honestly and never runs**; its
+  summary names the resource and the totals. Callers that thread no budget (a one-off MCP
+  call) are uncapped, as before.
+
 ### Optional arguments at the untrusted boundary
 
 Strict validation is about _rejecting_ input the tool cannot honor. It is not about taking
@@ -187,6 +211,29 @@ track fields.
 `set_caption_style` applies the same `CaptionStyle` contract to one cue and wins over the track.
 Both accept `null` to clear their layer. Unknown template ids and unbundled font families are
 rejected at the tool boundary so DOM preview and deterministic export cannot silently diverge.
+
+---
+
+## When a patch is rejected
+
+A rejected call reaches the model as a single sentence, so that sentence has to say WHICH
+operation was refused:
+
+```
+op 49 of 126 (add_caption_layer, 18.067s–18.067s): add_caption_layer.end must be greater
+than start: both are 18.0667s, so it would occupy no time.
+```
+
+Batch tools propose one operation per cue or per entry, so an unlocated reason is the same
+sentence for every one of them. A captured run reissued the same `caption_the_edit` call
+four times — about ten of its eighteen model calls — because 63 near-identical cues all
+produced the identical rejection and nothing said which cue was bad.
+
+The position is 1-based and phrased "of N". The operation type and time range are appended
+only when the reason does not already name them. The location comes from
+`ValidationIssue.operationIndex`, which both gates populate: the semantic operation
+contract (replayed one operation at a time in `assembleEdit`) and the structural patch
+validator.
 
 ---
 

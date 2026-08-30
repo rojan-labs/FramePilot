@@ -53,3 +53,19 @@ describe('CAPTION_FONT_CATALOG', () => {
     }
   });
 });
+
+describe('committed schema/caption-fonts.json (cross-language contract)', () => {
+  // Same gap the effect/transition/caption catalogs had: the generated JSON is
+  // what non-TypeScript consumers read, and nothing pinned it to the source it
+  // is generated from. A font added here without `schema:generate` would be
+  // offered by the editor while the published catalog never listed it.
+  it('matches the TS source (run `schema:generate` after editing the font catalog)', () => {
+    const committed = JSON.parse(
+      readFileSync(`${root}/packages/timeline-schema/schema/caption-fonts.json`, 'utf-8'),
+    ) as unknown;
+    expect({
+      defaultFontFamily: DEFAULT_CAPTION_FONT_FAMILY,
+      fonts: CAPTION_FONT_CATALOG,
+    }).toEqual(committed);
+  });
+});

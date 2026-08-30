@@ -4,6 +4,7 @@ import {
   encodeMediaImportChunk,
   MEDIA_IMPORT_MAX_CHUNK_BYTES,
   type MediaImportChunkBridge,
+  type MediaImportDestination,
 } from '@framepilot/shared-types';
 import { getBridge, importAsset, importMedia, isDesktop } from './bridge.js';
 
@@ -59,8 +60,10 @@ export async function deriveEngineMedia(
   if (!isDesktop()) return undefined;
   const result = await importAsset({ inputPath: onDiskPath, proxy: true, ...brainRef });
   if (!result.ok) return undefined;
-  const { peaks, peaksPerSecond, thumbnailPaths, proxyPath } = result.media;
+  const { width, height, peaks, peaksPerSecond, thumbnailPaths, proxyPath } = result.media;
   if (
+    width === undefined &&
+    height === undefined &&
     peaks === undefined &&
     peaksPerSecond === undefined &&
     thumbnailPaths === undefined &&
@@ -68,6 +71,15 @@ export async function deriveEngineMedia(
   )
     return undefined;
   const media: AssetMedia = {};
+  // Both or neither: a reader that finds only a width cannot decide anything with it,
+  // and absent must keep meaning "not probed" rather than "square". Carrying the pair is
+  // what makes schema v21's `AssetMedia.width/height` reach an imported asset at all —
+  // without it every desktop import arrived shapeless, and the two checks that warn
+  // about a landscape source in a portrait frame could never fire.
+  if (width !== undefined && height !== undefined) {
+    media.width = width;
+    media.height = height;
+  }
   if (peaks !== undefined) media.peaks = peaks;
   if (peaksPerSecond !== undefined) media.peaksPerSecond = peaksPerSecond;
   if (thumbnailPaths !== undefined) media.thumbnailPaths = thumbnailPaths;
@@ -94,6 +106,7 @@ async function sendMediaChunk(args: {
   readonly offset: number;
   readonly final: boolean;
   readonly targetPath?: string;
+  readonly destination?: MediaImportDestination;
   readonly payload: Uint8Array;
 }): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
   const bridge = getBridge() as
@@ -107,6 +120,7 @@ async function sendMediaChunk(args: {
       offset: args.offset,
       final: args.final,
       ...(args.targetPath === undefined ? {} : { targetPath: args.targetPath }),
+      ...(args.destination === undefined ? {} : { destination: args.destination }),
       // `payload.buffer` may be a SharedArrayBuffer. IPC owns an exact, transferable ArrayBuffer
       // copy so the typed transport contract cannot alias mutable caller memory.
       data: Uint8Array.from(args.payload).buffer,
@@ -118,16 +132,26 @@ async function sendMediaChunk(args: {
       offset: args.offset,
       final: args.final,
       ...(args.targetPath === undefined ? {} : { targetPath: args.targetPath }),
+      ...(args.destination === undefined ? {} : { destination: args.destination }),
     },
     args.payload,
   );
   return importMedia({ projectId: args.projectId, fileName: args.fileName, data });
 }
 
+/**
+ * Copy a picked file into the project and return its on-disk path.
+ *
+ * @param destination - Omitted for a media-bin import. `'attachments'` puts the copy in
+ *   the folder the AI sidebar's reference sweep owns, which is the ONLY thing that makes
+ *   the file reclaimable later: an attachment written beside the user's footage cannot be
+ *   told apart from it and so can never be safely deleted.
+ */
 export async function materializeImportedMedia(
   media: ImportedMedia,
   file: File,
   projectId: string,
+  destination?: MediaImportDestination,
 ): Promise<ImportedMedia> {
   if (!isDesktop()) return media;
   const uploadId = nextUploadId();
@@ -144,6 +168,7 @@ export async function materializeImportedMedia(
       offset,
       final: end >= file.size,
       ...(targetPath === undefined ? {} : { targetPath }),
+      ...(destination === undefined ? {} : { destination }),
       payload,
     });
     if (!result.ok) return media;

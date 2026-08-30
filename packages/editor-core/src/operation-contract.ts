@@ -31,9 +31,21 @@ function finite(value: unknown, label: string): asserts value is number {
 const positiveRange = (start: number, end: number, label: string): void => {
   finite(start, `${label}.start`);
   finite(end, `${label}.end`);
-  if (start < 0) throw new OperationContractError(`${label}.start must be non-negative.`);
+  if (start < 0) {
+    throw new OperationContractError(`${label}.start must be non-negative, got ${start}s.`);
+  }
   if (end <= start) {
-    throw new OperationContractError(`${label}.end must be greater than start.`);
+    // Name the times. A bare "end must be greater than start" tells the author
+    // — often a model with no other view of the rejected patch — nothing about
+    // WHICH moment is wrong, so the only available next move is to reissue the
+    // same call and hope. That is exactly what happened in run 7d159862: four
+    // identical rejections, ~10 model calls, no way to tell a zero-length range
+    // from an inverted one.
+    const detail =
+      end === start
+        ? `both are ${start}s, so it would occupy no time`
+        : `${start}s → ${end}s runs backwards`;
+    throw new OperationContractError(`${label}.end must be greater than start: ${detail}.`);
   }
 };
 

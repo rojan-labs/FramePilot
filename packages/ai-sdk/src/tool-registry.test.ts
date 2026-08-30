@@ -405,7 +405,16 @@ describe('read tools', () => {
 
     const bin = getTool('list_assets')?.read?.({}, mediaCtx) as { assets: unknown[] };
     expect(bin.assets).toEqual([
-      { id: 'asset_v', path: 'media/v.mp4', kind: 'video', durationSeconds: 58 },
+      // `shape: 'unmeasured'` survives the strip on purpose: this asset carries derived
+      // media but no dimensions, and that gap is exactly what silently disarmed both
+      // letterbox safeguards. See model-view.ts.
+      {
+        id: 'asset_v',
+        path: 'media/v.mp4',
+        kind: 'video',
+        durationSeconds: 58,
+        shape: 'unmeasured',
+      },
     ]);
 
     const state = getTool('get_project_state')?.read?.({}, mediaCtx) as {
@@ -449,11 +458,12 @@ describe('read tools', () => {
       ['wide', 'landscape'],
       ['tall', 'portrait'],
       ['sq', 'square'],
-      // Absent means unmeasured, never square: a guess would send a run to crop the
-      // wrong axis.
+      // Still never guessed square — but no longer merely absent. An omission reads as
+      // "nothing to worry about"; `shape: 'unmeasured'` reads as the open question it is.
       ['unmeasured', undefined],
     ]);
     expect(bin.assets[0]?.aspect).toBe(1.333);
+    expect(bin.assets.map((a) => a.shape)).toEqual([undefined, undefined, undefined, 'unmeasured']);
   });
 
   it('warns that landscape sources will letterbox in a portrait project', () => {
@@ -482,16 +492,33 @@ describe('read tools', () => {
     ).toBeUndefined();
   });
 
-  it('says nothing about letterboxing when nothing has been measured', () => {
-    // Silence is the honest reading of "unknown"; warning about assets whose shape nobody
-    // measured would be noise on every un-probed project.
+  it('says the shape is UNKNOWN when nothing has been measured, rather than nothing', () => {
+    // This note used to stay silent here, on the reasoning that silence is the honest
+    // reading of "unknown". It is not: silence reads as "fine". A talking-head run got this
+    // empty result for a landscape source in a portrait project, placed it bare, and
+    // exported it pillarboxed under a passing review.
     const project = makeProject({
       resolution: { width: 1080, height: 1920 },
       assets: [{ id: 'p1', path: 'media/1.jpeg', kind: 'image' }],
     });
-    expect(
-      (getTool('list_assets')?.read?.({}, { project }) as { letterbox?: string }).letterbox,
-    ).toBeUndefined();
+    const letterbox = (getTool('list_assets')?.read?.({}, { project }) as { letterbox?: string })
+      .letterbox;
+    expect(letterbox).toContain('1 have not been measured');
+    expect(letterbox).toContain('p1');
+    expect(letterbox).toContain('no crop is applied automatically');
+  });
+
+  it('says nothing about an unmeasured AUDIO asset — sound has no shape', () => {
+    const project = makeProject({
+      resolution: { width: 1080, height: 1920 },
+      assets: [{ id: 'music', path: 'media/m.mp3', kind: 'audio' }],
+    });
+    const bin = getTool('list_assets')?.read?.({}, { project }) as {
+      assets: { shape?: string }[];
+      letterbox?: string;
+    };
+    expect(bin.assets[0]?.shape).toBeUndefined();
+    expect(bin.letterbox).toBeUndefined();
   });
 
   it('list_assets collapses provenance to the one fact the model can act on', () => {

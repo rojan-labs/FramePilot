@@ -20,6 +20,7 @@ import { compactFootageChapters, footageMapSchema } from './footage-map.js';
 import { indexFor } from './project-index.js';
 import type { AiImage, ToolCall } from './providers/types.js';
 import type { HostExecutionContext, HostToolExecutor, HostToolOutcome } from './tool-executor.js';
+import { outcomeCharge, preflightCharge } from './kernel/cost/analysis-caps.js';
 import { TemporalEvidenceBatchSchema, TEMPORAL_EVIDENCE_VERSION } from './temporal-review.js';
 import {
   VisualIndexClient,
@@ -158,6 +159,12 @@ export interface SidecarExecutorOptions {
   readonly fetchFn?: typeof fetch;
   /** Per-call timeout in ms; a hung engine must not hang the agent run. */
   readonly timeoutMs?: number;
+  /**
+   * Injectable clock, defaulting to `Date.now`. The run's `ffmpegSeconds` budget is
+   * charged from wall clock measured around each dispatch (see {@link chargeAnalysisBudget}),
+   * and a cap that can only be tested by actually waiting is a cap that goes untested.
+   */
+  readonly now?: () => number;
   /**
    * Resolve the host-owned credentials used by `index_media` at call time. Keeping
    * this a callback means Settings changes take effect without rebuilding the
@@ -309,6 +316,15 @@ export function summarizeAnalysis(name: string, data: unknown): string {
     // up empty.
     if (record.ranges.length === 0 && typeof record.reason === 'string') return record.reason;
     const n = record.ranges.length;
+    // `ranges` is filtered inside ffmpeg, so an empty list means "none that long", not
+    // "none at all" — and the engine now says which. Reporting "Found 0 silent ranges"
+    // over a measured 56 is the confident negative that made a whole run give up on
+    // dead-air removal.
+    if (n === 0 && typeof record.measuredCount === 'number' && record.measuredCount > 0) {
+      const longest =
+        typeof record.longestSeconds === 'number' ? Number(record.longestSeconds.toFixed(3)) : 0;
+      return `No gap that long — ${record.measuredCount} shorter silence(s) measured, longest ${String(longest)}s`;
+    }
     return `Found ${n} silent range${n === 1 ? '' : 's'}`;
   }
   if (name === 'detect_scenes' && Array.isArray(record.cuts)) {
@@ -1109,13 +1125,63 @@ export function planSidecarCall(
 }
 
 /**
+ * Enforce the run's per-call analysis budget around one dispatch (plan B5.4).
+ *
+ * This is where the cap `kernel/cost/analysis-caps.ts` describes actually happens, and the
+ * order matters: CHECK before the call (an over-budget call fails honestly and never runs,
+ * so the compute is not spent to discover it was unaffordable), RECORD after it settles
+ * from what the engine really did. Both are no-ops when the caller threads no budget — a
+ * one-off MCP call has no run to bound.
+ *
+ * The refusal is a `failed` outcome carrying the cap's own sentence, not a thrown error:
+ * the model must be able to read why it was refused and choose different work, which is
+ * the same standard every other honest unavailability on this seam is held to.
+ *
+ * @param dispatch - The real executor, invoked only when the budget allows the call.
+ * @param now - Injected clock; the ffmpeg charge is measured wall clock, so a test must be
+ *   able to make time pass deterministically.
+ */
+export async function chargeAnalysisBudget(
+  dispatch: HostToolExecutor,
+  call: ToolCall,
+  ctx: HostExecutionContext,
+  signal: AbortSignal | undefined,
+  now: () => number,
+): Promise<HostToolOutcome> {
+  const budget = ctx.analysisBudget;
+  if (!budget) return dispatch.run(call, ctx, signal);
+  const preflight = preflightCharge(call);
+  if (preflight) {
+    const decision = budget.check(preflight);
+    if (!decision.allowed) {
+      log.warn('run → refused, analysis budget exhausted', {
+        tool: call.name,
+        resource: preflight.resource,
+        reason: decision.reason,
+      });
+      return {
+        status: 'failed',
+        summary: `"${call.name}" was not run — ${decision.reason}.`,
+        data: decision.reason,
+      };
+    }
+  }
+  const startedAt = now();
+  const outcome = await dispatch.run(call, ctx, signal);
+  const charge = outcomeCharge(call.name, outcome.data, now() - startedAt);
+  if (charge) budget.record(charge);
+  return outcome;
+}
+
+/**
  * Create the sidecar-backed executor. Analysis tools run for real; render/export
  * actions are reported as not-yet-supported on this surface (honest `failed`,
  * so the model routes the user to the Export dialog instead of pretending).
  */
 export function createSidecarExecutor(options: SidecarExecutorOptions): HostToolExecutor {
   const fetchFn = options.fetchFn ?? fetch;
-  return {
+  const now = options.now ?? Date.now;
+  const dispatch: HostToolExecutor = {
     async run(
       call: ToolCall,
       ctx: HostExecutionContext,
@@ -1326,6 +1392,12 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
       });
       return outcome;
     },
+  };
+  // Every path above — the sidecar routes, the host overrides, the index job — goes
+  // through the budget, because every one of them can be the call that runs a bin's worth
+  // of media through the machine.
+  return {
+    run: (call, ctx, signal) => chargeAnalysisBudget(dispatch, call, ctx, signal, now),
   };
 }
 

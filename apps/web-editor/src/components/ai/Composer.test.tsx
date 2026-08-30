@@ -35,7 +35,6 @@ function setup(overrides: Partial<ComposerProps> = {}) {
     contextItems: context,
     onRemoveContext: vi.fn(),
     attachments: [],
-    onAddAttachment: vi.fn(),
     onRemoveAttachment: vi.fn(),
     atEntities,
     onPinEntity: vi.fn(),
@@ -139,15 +138,35 @@ describe('Composer', () => {
     expect(props.onRemoveAttachment).toHaveBeenCalledWith('a1');
   });
 
-  it('adds an attachment from a pasted file', () => {
-    const props = setup();
+  it('imports a pasted file through the same path as drop and the paperclip', () => {
+    // It used to mint the attachment itself and never import or analyze it, so the chip
+    // looked ordinary while the model was never given the file. One handler, or the
+    // quiet entry point drifts again.
+    const props = setup({ onAttachFiles: vi.fn() });
     const file = new File(['x'], 'pasted.png', { type: 'image/png' });
     fireEvent.paste(screen.getByLabelText('Message FramePilot'), {
       clipboardData: { files: [file] },
     });
-    expect(props.onAddAttachment).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'image', name: 'pasted.png' }),
-    );
+    expect(props.onAttachFiles).toHaveBeenCalledWith([file]);
+  });
+
+  it('takes every pasted file, not just the first', () => {
+    const props = setup({ onAttachFiles: vi.fn() });
+    const first = new File(['a'], 'a.png', { type: 'image/png' });
+    const second = new File(['b'], 'b.png', { type: 'image/png' });
+    fireEvent.paste(screen.getByLabelText('Message FramePilot'), {
+      clipboardData: { files: [first, second] },
+    });
+    expect(props.onAttachFiles).toHaveBeenCalledWith([first, second]);
+  });
+
+  it('ignores a pasted file this host cannot measure, and does not swallow the paste', () => {
+    const props = setup({ onAttachFiles: vi.fn() });
+    const doc = new File(['x'], 'brief.pdf', { type: 'application/pdf' });
+    fireEvent.paste(screen.getByLabelText('Message FramePilot'), {
+      clipboardData: { files: [doc] },
+    });
+    expect(props.onAttachFiles).not.toHaveBeenCalled();
   });
 
   it('submits on Enter only when not typing a slash command', () => {
@@ -286,7 +305,6 @@ describe('reference tiles (P3.6)', () => {
     expect(screen.getByText('analyzing…')).toBeTruthy();
   });
 });
-
 
 describe('reference tiles show the reference, not just its name (P3.1)', () => {
   const ready = {

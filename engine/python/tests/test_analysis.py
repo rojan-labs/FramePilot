@@ -22,9 +22,11 @@ from framepilot_engine.analysis.scenes import (
 from framepilot_engine.analysis.silence import (
     DEFAULT_MIN_SILENCE_SECONDS,
     DEFAULT_NOISE_FLOOR_DB,
+    SILENCE_PROBE_FLOOR_SECONDS,
     SilentRange,
     detect_silence,
     parse_silence_ranges,
+    summarize_silence,
 )
 from framepilot_engine.media.ffmpeg import FFmpegError, NoAudioStreamError
 from framepilot_engine.media.probe import MediaInfo, StreamInfo
@@ -113,6 +115,67 @@ def test_detect_silence_honours_custom_thresholds_and_duration() -> None:
     )
     assert ranges == [SilentRange(start=1.0, end=4.0, duration=3.0)]
     assert "silencedetect=noise=-40.0dB:d=0.25" in list(captured[0])
+
+
+# --- Silence: measured vs reported (the confident-negative fix) --------------
+
+
+def _gap(start: float, length: float) -> SilentRange:
+    return SilentRange(start=start, end=start + length, duration=length)
+
+
+def test_summarize_silence_reports_what_sat_below_the_threshold() -> None:
+    """The run this fixes: 56 gaps, longest 0.449s, asked for 0.55s.
+
+    The empty ``ranges`` is arithmetically true and, on its own, a lie by omission —
+    the summary has to carry the measurement that makes it readable.
+    """
+    measured = [_gap(i * 1.0, 0.19) for i in range(55)] + [_gap(55.0, 0.449)]
+    summary = summarize_silence(measured, min_silence_seconds=0.55)
+    assert summary.ranges == []
+    assert summary.measured_count == 56
+    assert summary.longest_seconds == pytest.approx(0.449)
+    assert summary.below_threshold_seconds == pytest.approx(55 * 0.19 + 0.449)
+    assert summary.probe_floor_seconds == SILENCE_PROBE_FLOOR_SECONDS
+
+
+def test_summarize_silence_keeps_qualifying_gaps_and_counts_the_rest() -> None:
+    summary = summarize_silence(
+        [_gap(0.0, 0.2), _gap(2.0, 1.5), _gap(5.0, 0.3)], min_silence_seconds=0.5
+    )
+    assert summary.ranges == [_gap(2.0, 1.5)]
+    assert summary.measured_count == 3
+    assert summary.longest_seconds == pytest.approx(1.5)
+    # Only the two short ones count as "below" — the kept range is not dead air left behind.
+    assert summary.below_threshold_seconds == pytest.approx(0.5)
+
+
+def test_summarize_silence_keeps_a_gap_sitting_exactly_on_the_threshold() -> None:
+    # ffmpeg reports to 5 decimals; an exactly-at-threshold gap must not fall to
+    # binary representation on either side of the TS/Python boundary.
+    summary = summarize_silence([_gap(1.0, 0.3)], min_silence_seconds=0.3)
+    assert len(summary.ranges) == 1
+
+
+def test_summarize_silence_on_continuous_speech_measures_nothing() -> None:
+    summary = summarize_silence([], min_silence_seconds=0.5, probe_floor_seconds=0.1)
+    assert summary.measured_count == 0
+    assert summary.longest_seconds == 0.0
+    assert summary.below_threshold_seconds == 0.0
+    assert summary.probe_floor_seconds == 0.1
+
+
+def test_summarize_silence_serializes_camel_case_for_the_orchestrator() -> None:
+    payload = summarize_silence([_gap(1.0, 0.2)], min_silence_seconds=0.5).model_dump(
+        mode="json", by_alias=True
+    )
+    assert set(payload) == {
+        "ranges",
+        "measuredCount",
+        "longestSeconds",
+        "belowThresholdSeconds",
+        "probeFloorSeconds",
+    }
 
 
 # --- Silence: decode failures are classified, not forwarded raw --------------

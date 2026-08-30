@@ -81,6 +81,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Agent runs stop re-buying facts they already have.** The media-bin block used to vanish
+  from the AI's context the moment every asset was on the timeline — taking the only
+  statement of each source's DURATION with it — so a run would fetch the same one-asset
+  list five times in three minutes. The bin now stays as a one-line-per-asset digest
+  (~15 tokens for a single-asset project), and source duration is stated beside the file
+  name and dimensions. Separately, looking at a rendered frame is no longer thrown away by
+  edits that cannot change the picture: adding an empty track used to force a fresh render
+  of the identical frame, once per track.
+
 - **Export is much faster on high-resolution footage.** A 30-second 4K project now exports in about 11 seconds instead of 48 — FramePilot asks the decoder for exactly the size the frame needs instead of shrinking every frame afterwards. The progress bar is more honest about it too.
 
 - **Settings:** the readiness panel no longer calls a provider "ready" just because a key is saved — it says "key saved" until that provider has actually answered a request, then reports when it last did.
@@ -129,6 +138,128 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   matches nothing says so instead of looking broken. (`apps/web-editor`)
 
 ### Fixed
+
+- **The assistant no longer misses a file you just imported.** Searching the project's media
+  during an AI run could answer from a snapshot taken before the run's own import: the
+  result was remembered against a counter that only moves when clip timing changes, so
+  adding an asset left it looking unchanged. The assistant would report that footage it had
+  just brought in was not in the project. Media searches, rendered frames and colour
+  measurements now always read the current project, and results are only remembered for
+  questions about the source material itself — which nothing an edit does can change.
+
+- **A long AI run can no longer quietly burn unlimited machine time.** The per-run ceiling
+  on expensive analysis (minutes of audio transcribed, seconds of video decoding) was
+  carried through the whole system and never actually counted, so it could not stop
+  anything. It is now charged against what really ran: a run that reaches its ceiling gets
+  a clear refusal naming the limit instead of another hour of processing, and a call that
+  is refused never starts, so the time is not spent discovering it was unaffordable.
+
+- **The prompt now tells the model the truth about what was left out.** When a request is
+  too large to fit the model's window, FramePilot lists what it had to leave behind. If a
+  reference file the editor attached was the thing dropped, the list said the editor's
+  *pinned items* were missing instead — so the model was told the wrong thing was absent and
+  could not compensate for the right one. Each omission is now named for what it is.
+
+- **Captions no longer flash by too fast to read.** Generating captions on a normally-paced
+  talking head produced cues that were on screen for a fraction of a second — one real
+  recording got a caption reading "We" held for ten milliseconds, and 25 of its 63 captions
+  were shorter than the half-second minimum. When speech is dense, the generator used to
+  break a caption in two to reduce how much text arrives at once; but the two halves land
+  back to back, so the first one gets no more time than before — and it kept breaking until
+  every caption was a single word. It now keeps a dense caption whole when splitting it
+  would leave a half nobody could read.
+
+- **"Add captions" no longer fails outright on ordinary speech.** Two captions of that same
+  recording were shorter than a single video frame, which the timeline cannot represent —
+  and because captions are written as one change, one impossible caption threw away all of
+  them. Asking for captions on a 50-second video silently produced none, four times in a
+  row. Captions are now generated on the project's frame grid, so this cannot happen, and
+  two captions the grid cannot tell apart become one instead of one becoming nothing.
+
+- **The assistant no longer checks its work against a stale picture.** After a colour change,
+  a punch-in or an effect, looking at a frame could return the picture from before the edit —
+  so the assistant judged its own change against the frame it had just replaced.
+
+- **A file you attach to a message now belongs to that message.** Attaching a reference and
+  asking "make it feel like this" left the file sitting in the composer after you sent it,
+  showed nothing in the message you had just sent, and then quietly attached it again to
+  every later message in the conversation. Scroll back and there was no record of what the
+  request had been about. An attachment now moves into the message when you send it: the
+  message shows it, the composer clears, and re-sending is something you choose rather than
+  something that happens. A reference you attach keeps applying to later turns — that part
+  was right — and you can stop using one from the message it arrived on, without the record
+  of having attached it disappearing.
+
+- **Pasting a file into the chat now actually attaches it.** Dropping a file worked and the
+  paperclip worked, but pasting produced a chip that looked identical and was never really
+  attached — the file was never read and the assistant never saw it. Pasting several files
+  also kept only the first. Both fixed, and all three ways of attaching now do the same thing.
+
+- **Undoing an AI edit sticks.** Pressing undo on a change the assistant made looked like it
+  worked, but if you made another edit within about two seconds the undo never reached disk —
+  reopen the project and the change was back. Undo is the safety net now that AI edits apply
+  as they land, so it now persists on its own rather than depending on a save that the next
+  edit could cancel.
+
+- **Removing a remembered preference no longer rolls back your own edits.** Dismissing one of
+  the assistant's remembered notes, or undoing a run, could write your last few manual edits
+  back out of the saved project — the timeline on screen was unchanged and the app said
+  "Saved", so nothing looked wrong until you reopened the file.
+
+- **An edit the app could not save now says so, and keeps saying so.** If a change was
+  refused — usually because the assistant had just changed the same part of the timeline —
+  the edit stayed on your screen but never reached disk, and the error indicator was cleared
+  by the next successful save. The app now re-saves what you can actually see, and the
+  warning stays up until it is resolved.
+
+- **Saving a project is safe when something else is editing it too.** The desktop app and an
+  external agent connected over MCP could write the same project file at the same time and
+  publish a mix of the two. Each save is now written to its own temporary file and flushed to
+  the disk before it replaces the real one, so a crash mid-save cannot leave an empty project
+  behind either.
+
+- **Importing two files with the same name keeps both.** Dragging in two folders that each
+  held a `clip.mp4` produced two entries in the bin pointing at one file — the second import
+  overwrote the first. Interrupted imports also left partial files behind forever; those are
+  now cleaned up on the next import into that project.
+
+- **Stock clips now know their own shape.** A downloaded stock clip arrived without its
+  dimensions, so nothing could tell that a 16:9 clip in a vertical project was going to
+  export with black bars — which is most stock footage.
+
+- **When the assistant's edit is refused, it is told which part was refused.** Asking for
+  captions builds one change per line of dialogue — over a hundred in a short video. If a
+  single one of them was impossible, the whole batch came back with one sentence explaining
+  the problem and no way to tell which line it was about. The assistant's only move was to
+  ask again, unchanged, and it did: one captured run spent more than half its work re-sending
+  the same rejected captions. A refusal now names the position of the change that caused it
+  and what that change was, so the next attempt fixes the one line instead of repeating all
+  of them.
+
+- **The assistant stops re-sending an edit that has already been refused.** A captured run
+  spent roughly ten of its eighteen model calls asking for captions four times and being
+  told the same thing each time — and shipped almost nothing. Two things kept it there.
+  Its record of what it had done listed only successes, because a change the validator
+  refused inside the call was never written down at all, so nothing in the run's own
+  memory said the attempt had ever been made. And nothing stopped a repeat: the run had
+  no way to notice it was asking a question it had already been answered. Refused changes
+  are now recorded with the reason they were refused, and a call that is turned down for a
+  reason this run has already been given is stopped with an explanation of what to do
+  instead — fix the cause, use a different tool, or move on. Only refusals the app can
+  prove will repeat count: a dropped connection or a restarted engine is still retried,
+  and any change that lands clears the slate.
+
+- **"Remove the dead air" no longer gives up on a recording that is full of it.** Asking the
+  assistant to cut dead air out of a 50-second talking head told it, twice, that there was
+  none — while the recording held 10.6 seconds of it across 56 pauses. The measurement was
+  only ever asked for pauses longer than half a second, this speaker's longest pause is 0.45
+  seconds, and "none that long" was reported as "no dead air at all". The assistant believed
+  it, raised the bar even higher, and dropped the request. It now measures every pause and
+  tells you what it found: how many, how long the longest one is, and how much silence sits
+  in the shorter gaps — so it can lower its own threshold and cut, instead of concluding your
+  recording is already tight. The breathing room kept on each side of a cut also no longer
+  counts against the length of the pause, which had quietly made the real threshold about a
+  quarter of a second longer than the one asked for.
 
 - **The engine's shutdown watchdog can now be called off.** The watchdog that stops a
   sidecar outliving the app that spawned it runs as a background thread whose last act is

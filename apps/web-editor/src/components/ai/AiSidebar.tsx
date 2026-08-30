@@ -71,7 +71,9 @@ import { useConversationView } from '../../ai/useConversationView.js';
 import { createFrameBatcher, createIntervalScheduler } from '../../ai/frameBatcher.js';
 import { emptyRunNotice, foldTurnEvent, initialTurnSignals } from '../../ai/runOutcome.js';
 import { latestStreamingAssistantText } from '../../ai/liveAnnouncement.js';
-import type { ReferenceProfile, ReferenceRole } from '@framepilot/ai-sdk';
+import type { MessageAttachment, ReferenceProfile, ReferenceRole } from '@framepilot/ai-sdk';
+import { ReferenceProfileSchema } from '@framepilot/ai-sdk';
+import { MAX_REFERENCES_PER_TURN, createLogger } from '@framepilot/shared-types';
 import { analyzeReference, getBridge, isDesktop } from '../../editor/bridge.js';
 import { materializeImportedMedia, probeMediaFile } from '../../editor/import.js';
 import {
@@ -120,7 +122,15 @@ import {
 } from '../../ai/composerActions.js';
 import { recordProviderSuccess } from '../../editor/providerHealth.js';
 import { LruCache } from '../../editor/lruCache.js';
-import { isDefaultUiState, type Attachment, type ConversationUiState } from '../../ai/conversation.js';
+import {
+  activeReferences,
+  isDefaultUiState,
+  referencesToDismissForCap,
+  toMessageAttachments,
+  type Attachment,
+  type Conversation,
+  type ConversationUiState,
+} from '../../ai/conversation.js';
 import { contextPhase, latestContextWindow } from './ContextWindowIndicator.js';
 import { type ContextDebugInfo, recentManifests } from './ContextDebugger.js';
 
@@ -277,6 +287,31 @@ export function projectSnapshotForAiRun(project: Project, editor?: UseEditor): P
   };
 }
 
+const log = createLogger('web-editor:ai-sidebar');
+
+/**
+ * Parse a profile the host returned into the SDK's canonical `ReferenceProfile`.
+ *
+ * The IPC type (`AiStreamReferenceProfile`) widens `video`/`image` to
+ * `Record<string, unknown>`, so it cannot be assigned to the type the run needs. The
+ * sidebar used to bridge that with `as unknown as ReferenceProfile` — a cast that
+ * silences the compiler in both directions and would have gone on compiling if either
+ * shape drifted. This is a real boundary: the analysis crosses a process, so its answer
+ * is external input and gets validated like any other.
+ *
+ * A profile that fails to parse is dropped rather than sent. A malformed profile reaching
+ * the model is worse than no profile: the run would cite constraints it cannot trust,
+ * whereas an absent one simply means the reference contributes nothing this turn.
+ */
+function toReferenceProfile(profile: unknown): ReferenceProfile | undefined {
+  const parsed = ReferenceProfileSchema.safeParse(profile);
+  if (parsed.success) return parsed.data;
+  log.warn('reference profile from host failed validation — dropping it', {
+    issues: parsed.error.issues.slice(0, 3).map((issue) => issue.message),
+  });
+  return undefined;
+}
+
 export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function AiSidebar(
   {
     project,
@@ -362,6 +397,19 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   const attachmentsRef = useRef<readonly Attachment[]>(attachments);
   attachmentsRef.current = attachments;
   /**
+   * References the editor has taken out of force (P3.5's removal, relocated).
+   *
+   * Removal used to be "delete the composer tile", which only worked because the tiles
+   * never cleared. Now that a sent attachment belongs to its message, the record of it
+   * must stay put and the POLICY has to move somewhere of its own — a message is history
+   * and history does not change. Dismissing is therefore conversation state, and the
+   * bubble's tile is where it is expressed, because that is where the reference is
+   * visible.
+   */
+  const [dismissedReferenceIds, setDismissedReferenceIds] = useState<readonly string[]>([]);
+  const dismissedReferenceIdsRef = useRef<readonly string[]>(dismissedReferenceIds);
+  dismissedReferenceIdsRef.current = dismissedReferenceIds;
+  /**
    * Reference attachments (plan/system-mission P3.1–P3.4): copy the file into the project
    * through the same chunked import the media bin uses, let the host analyze it once, and
    * hold the profile on the chip so the next turn sends it as `references`. The role is
@@ -390,6 +438,28 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
           ]);
           continue;
         }
+        // Refused HERE, where the editor still has the file in hand and the composer to
+        // remove something from. The host rejects a turn carrying more than this, and that
+        // refusal lands at the transport boundary — after submit has emptied the composer —
+        // so a run that discovers the limit has nothing left to fix and a Retry that fails
+        // identically. Counting what is already in force, not just what is in the composer,
+        // because references accumulate across turns.
+        const inForce =
+          activeReferences(activeEventsRef.current, dismissedReferenceIdsRef.current).length +
+          attachmentsRef.current.filter((a) => a.profile !== undefined).length;
+        if (inForce >= MAX_REFERENCES_PER_TURN) {
+          setAttachments((list) => [
+            ...list,
+            {
+              id,
+              kind,
+              name: file.name,
+              status: 'unsupported',
+              error: `Already using ${String(MAX_REFERENCES_PER_TURN)} references. Stop using one first.`,
+            },
+          ]);
+          continue;
+        }
         const decision = decideReferenceRole({ kind, fileName: file.name, promptText: draft });
         setAttachments((list) => [
           ...list,
@@ -406,7 +476,11 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         }
         try {
           const probed = await probeMediaFile(file);
-          const media = await materializeImportedMedia(probed, file, projectId);
+          // `'attachments'` — NOT the media bin. The copy lands in the folder the host's
+          // reachability sweep owns, which is what lets it ever be reclaimed: an
+          // attachment written beside the user's footage is indistinguishable from it and
+          // has to be kept forever.
+          const media = await materializeImportedMedia(probed, file, projectId, 'attachments');
           const result = await analyzeReference({
             projectId,
             inputPath: media.path,
@@ -416,10 +490,27 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
             role: decision.role,
           });
           if (!result.ok) {
-            update({ status: 'failed', error: result.error, path: media.path });
+            // A licensing refusal is not a failed measurement. `failed` opens the tile's
+            // detail with a Re-analyze button beside it, and that retry is guaranteed to
+            // be refused identically until the app is activated; `unsupported` states the
+            // reason and offers no action that cannot work.
+            update({
+              status: result.reason === 'unlicensed' ? 'unsupported' : 'failed',
+              error: result.error,
+              path: media.path,
+            });
             continue;
           }
-          update({ status: 'ready', path: media.path, profile: result.profile });
+          const profile = toReferenceProfile(result.profile);
+          if (profile === undefined) {
+            update({
+              status: 'failed',
+              path: media.path,
+              error: 'The analysis came back in a shape this build does not understand.',
+            });
+            continue;
+          }
+          update({ status: 'ready', path: media.path, profile });
         } catch (error) {
           update({
             status: 'failed',
@@ -472,10 +563,23 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         refresh: true,
       });
       if (!result.ok) {
-        update({ status: 'failed', error: result.error });
+        // Same distinction as the first analysis: an unlicensed build must not be
+        // re-offered a retry (see `attachReferenceFiles`).
+        update({
+          status: result.reason === 'unlicensed' ? 'unsupported' : 'failed',
+          error: result.error,
+        });
         return;
       }
-      update({ status: 'ready', profile: result.profile });
+      const profile = toReferenceProfile(result.profile);
+      if (profile === undefined) {
+        update({
+          status: 'failed',
+          error: 'The analysis came back in a shape this build does not understand.',
+        });
+        return;
+      }
+      update({ status: 'ready', profile });
     } catch (error) {
       update({ status: 'failed', error: error instanceof Error ? error.message : String(error) });
     }
@@ -714,7 +818,20 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   }, [diffEnabled, uncommittedDiffs, applyPatch]);
 
   // Remember the last turn so a failed/cancelled run can be retried.
-  const lastTurn = useRef<{ text: string } | null>(null);
+  /**
+   * The last turn Retry replays — and WHICH conversation it belongs to.
+   *
+   * A single ref with no owner was replayable into the wrong chat: switching conversation
+   * left it untouched, so a Retry offered on conversation B replayed A's prompt, and now
+   * A's attachments, appending them to B's log as though the editor had sent them there.
+   * Carrying the conversation id makes the ref answer "is this mine?" instead of the
+   * caller having to remember to clear it, which is the discipline that failed.
+   */
+  const lastTurn = useRef<{
+    conversationId: string;
+    text: string;
+    attachments: readonly MessageAttachment[];
+  } | null>(null);
   // The session driving the CURRENT run. `session` is rebuilt when the provider
   // config changes; if that happens mid-run, Stop must abort the session that
   // actually owns the in-flight stream — not the freshly built one (H9 race).
@@ -888,6 +1005,15 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   // on the virtualizer's scroll element is a re-subscribe on every tick).
   const activeIdRef = useRef<string | null>(null);
   activeIdRef.current = active?.id ?? null;
+  /**
+   * The conversation's event log, for handlers that run between commits.
+   *
+   * `attachReferenceFiles` counts the references already in force before accepting
+   * another, and it is an async event handler — reading `active` from its closure would
+   * count whatever the log held when the handler was created.
+   */
+  const activeEventsRef = useRef<readonly AiEvent[]>([]);
+  activeEventsRef.current = active?.events ?? [];
 
   const onScroll = useCallback(() => {
     const element = scrollRef.current;
@@ -924,6 +1050,18 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   // so a load that lands late can never overwrite live typing.
   const seededConversationId = useRef<string | null>(null);
   const seededDefaultUiState = useRef(false);
+  /**
+   * The last `uiState` this component itself dispatched (see the persist effect below).
+   *
+   * Without it the sidebar cannot tell a load arriving FROM DISK from its own write
+   * coming back through the store, and the difference decides everything: the reviewer's
+   * first keystroke into a stub makes that conversation's `uiState` non-default, which
+   * looked exactly like the late load and consumed the one-shot re-seed — so the real
+   * load, when it landed a moment later, was refused and its attachments were then
+   * overwritten. Identity is the honest test, because `withUiState` stores the very
+   * object that was dispatched.
+   */
+  const persistedUiState = useRef<ConversationUiState | null>(null);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   useLayoutEffect(() => {
@@ -934,16 +1072,50 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       !switched &&
       seededDefaultUiState.current &&
       uiState !== undefined &&
-      !isDefaultUiState(uiState) &&
-      draftRef.current === '' &&
-      attachmentsRef.current.length === 0;
+      uiState !== persistedUiState.current &&
+      !isDefaultUiState(uiState);
     if (!switched && !arrivedFromDisk) return;
     seededConversationId.current = id;
     seededDefaultUiState.current = uiState === undefined || isDefaultUiState(uiState);
+
+    // D7: the late load landed in a composer the reviewer has already used. Refusing the
+    // seed outright is what this used to do, and it protected the SCREEN while quietly
+    // destroying the DISK: the persist effect below runs on the very next commit and
+    // writes the live (empty) attachment list straight over the saved one, so references
+    // that were correctly persisted were gone by the next reload.
+    //
+    // Draft and attachments are not the same kind of state, and the fix is to stop
+    // treating them as one. A draft is a single buffer — it cannot be merged, so live
+    // typing wins and the saved text is dropped, exactly as before. Attachments are a
+    // SET, so the union is both lossless and honest: every chip the reviewer just added
+    // stays, and every chip they had previously attached and never removed comes back —
+    // which is what P3.1 promised in the first place. Nothing is taken off the screen,
+    // so this is not the clobber the guard exists to prevent.
+    const composerTouched = draftRef.current !== '' || attachmentsRef.current.length > 0;
+    if (!switched && composerTouched) {
+      const saved = (uiState?.attachments ?? []).filter((a) => a.status !== 'analyzing');
+      setAttachments((live) => {
+        const known = new Set(live.map((entry) => entry.id));
+        const restored = saved.filter((entry) => !known.has(entry.id));
+        // Identity-stable when there is nothing to add: a fresh array would make the
+        // persist effect below dispatch a no-op write on every late load.
+        return restored.length === 0 ? live : [...restored, ...live];
+      });
+      setDismissedReferenceIds((live) => {
+        const known = new Set(live);
+        const restored = (uiState?.dismissedReferenceIds ?? []).filter(
+          (entry) => !known.has(entry),
+        );
+        return restored.length === 0 ? live : [...live, ...restored];
+      });
+      return;
+    }
+
     setDraft(uiState?.composerDraft ?? '');
     // Reference chips survive a reload with their analyzed profiles (P3.1); an attachment
     // still `analyzing` when the state was saved can only be re-attached, so it is dropped.
     setAttachments((uiState?.attachments ?? []).filter((a) => a.status !== 'analyzing'));
+    setDismissedReferenceIds(uiState?.dismissedReferenceIds ?? []);
     setExpandedNodes(
       uiState && uiState.expandedToolIds.length > 0
         ? Object.fromEntries(uiState.expandedToolIds.map((nodeId) => [nodeId, true]))
@@ -1013,7 +1185,8 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       draft === active.uiState.composerDraft &&
       persistedOffset === active.uiState.scrollOffset &&
       sameIdSet(expandedToolIds, active.uiState.expandedToolIds) &&
-      attachments === active.uiState.attachments;
+      attachments === active.uiState.attachments &&
+      sameIdSet(dismissedReferenceIds, active.uiState.dismissedReferenceIds ?? []);
     if (unchanged) return;
     const nextUiState: ConversationUiState = {
       ...active.uiState,
@@ -1021,13 +1194,26 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       expandedToolIds,
       scrollOffset: persistedOffset,
       attachments,
+      dismissedReferenceIds,
     };
+    // Recorded BEFORE the dispatch: the seed effect above uses this identity to tell its
+    // own write apart from a load arriving from disk.
+    persistedUiState.current = nextUiState;
     conversations.setUiState(active.id, nextUiState);
     // `conversations.setUiState` alone (a `useMemo`-stabilized reference, not the
     // whole `conversations` object, which is a fresh object every render) — so
     // this effect is only ever SCHEDULED when something it actually reads
     // changed, not on every unrelated re-render of the sidebar.
-  }, [active, atBottom, draft, expandedNodes, scrollOffset, attachments, conversations.setUiState]);
+  }, [
+    active,
+    atBottom,
+    draft,
+    expandedNodes,
+    scrollOffset,
+    attachments,
+    dismissedReferenceIds,
+    conversations.setUiState,
+  ]);
 
   // UI lifecycle is not cancellation authority. A sidebar remount, tab switch, project
   // refresh, or renderer navigation detaches this projection while the durable host run
@@ -1045,26 +1231,64 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   }, []);
 
   const runTurn = useCallback(
-    async (text: string) => {
-      if (!text || running) return;
-      const conversation =
-        active ??
-        conversations.create({
-          id: newId(),
-          projectId: project.id,
-          model: activeProvider?.model ?? 'mock',
-          mode,
-        });
-      const turnId = newId();
-      lastTurn.current = { text };
-      // Capture prior turns BEFORE appending the new user message so "make it
-      // shorter" resolves its referent against the conversation so far (R2 B1).
-      const history = historyFromEvents(conversation.events);
-      const emitter = createTurnEmitter({ conversationId: conversation.id, turnId });
-      conversations.append(conversation.id, emitter.userMessage(text));
-      stickRef.current = true;
-      setAtBottom(true);
-      setRunning(true);
+    async (text: string, turnAttachments: readonly MessageAttachment[] = []) => {
+      // The REF, not the state value. `running` is whatever the closure captured at its
+      // last render, so two Enter presses inside one React commit both read `false`, both
+      // append a user message, and both overwrite `runningSession.current` — which leaves
+      // the first run streaming with no Stop that can reach it. The ref is written
+      // synchronously by `setRunning`, so claiming it here makes the second call a no-op.
+      //
+      // Released in `finally` unless the run actually started. Nothing between here and
+      // `setRunning(true)` RETURNS early — but `conversations.create`/`append` can THROW,
+      // and a claim leaked that way is unrecoverable: `runningRef` stays true while
+      // `running` state stays false, so the composer looks idle and silently refuses every
+      // later Enter for the life of the component.
+      if (!text || runningRef.current) return;
+      runningRef.current = true;
+      // Everything from creating the conversation to handing the lane to the run, in one
+      // step that either completes or releases the claim. `conversations.create` and
+      // `append` can throw; a claim leaked that way is not recoverable by any later action.
+      let handedOver = false;
+      const openTurn = (): {
+        conversation: Conversation;
+        turnId: string;
+        history: ReturnType<typeof historyFromEvents>;
+        emitter: ReturnType<typeof createTurnEmitter>;
+        pendingMessage: ReturnType<ReturnType<typeof createTurnEmitter>['userMessage']>;
+      } => {
+        const conversation =
+          active ??
+          conversations.create({
+            id: newId(),
+            projectId: project.id,
+            model: activeProvider?.model ?? 'mock',
+            mode,
+          });
+        const turnId = newId();
+        lastTurn.current = { conversationId: conversation.id, text, attachments: turnAttachments };
+        // Capture prior turns BEFORE appending the new user message so "make it
+        // shorter" resolves its referent against the conversation so far (R2 B1).
+        const history = historyFromEvents(conversation.events);
+        const emitter = createTurnEmitter({ conversationId: conversation.id, turnId });
+        // Built once and reused: this is both the event the log appends and the message
+        // whose attachments join the conversation's live reference set below.
+        // `conversation` was captured before the append, so its `events` do not contain it.
+        const pendingMessage = emitter.userMessage(text, turnAttachments);
+        conversations.append(conversation.id, pendingMessage);
+        stickRef.current = true;
+        setAtBottom(true);
+        setRunning(true);
+        handedOver = true;
+        return { conversation, turnId, history, emitter, pendingMessage };
+      };
+
+      let opened: ReturnType<typeof openTurn>;
+      try {
+        opened = openTurn();
+      } finally {
+        if (!handedOver) runningRef.current = false;
+      }
+      const { conversation, turnId, history, emitter, pendingMessage } = opened;
       stopRequestedRef.current = false;
       runningSession.current = session;
       // Intelligent, model-routed dispatch (ADR 0055). Agent mode — the smart default —
@@ -1111,9 +1335,36 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       const steeringQueue = createSteeringQueue();
       planApprovalGateRef.current = planApprovalGate;
       steeringQueueRef.current = steeringQueue;
-      const readyReferences = attachments.flatMap((a) =>
-        a.status === 'ready' && a.profile ? [a.profile as unknown as ReferenceProfile] : [],
-      );
+      // The COMPLETE LIVE SET for this conversation, which is what the SDK's contract
+      // asks for: "a reference the editor never removed still arrives on every turn, so a
+      // subject missing from this set means the tile is gone and its decision must stop
+      // binding" (kernel/conductor.ts, P3.5).
+      //
+      // Not the composer's array, which never cleared and so was really "everything ever
+      // attached, still sitting in the box". And not this message's own attachments
+      // either: that would send [] on the next turn and retire every reference the editor
+      // attached, which reads to the run as a deliberate removal. Derived from the
+      // messages that carry them, minus what has been dismissed — so attaching puts a
+      // reference in force, and only dismissing takes it out.
+      // A conversation can still arrive over the limit — state saved before the attach-time
+      // refusal existed, or a message whose attachments were all analyzed at once. Turn that
+      // into a REAL dismissal rather than a silent trim: the run and the bubble must agree
+      // about what is binding, and a reference that vanishes from the set with no record
+      // reads to the SDK as a removal the editor never asked for.
+      const conversationLog = [...conversation.events, pendingMessage];
+      const overCap = referencesToDismissForCap(conversationLog, dismissedReferenceIdsRef.current);
+      const dismissedNow =
+        overCap.length === 0
+          ? dismissedReferenceIdsRef.current
+          : [...dismissedReferenceIdsRef.current, ...overCap];
+      if (overCap.length > 0) {
+        setDismissedReferenceIds(dismissedNow);
+        log.warn('dropped the oldest references to fit the per-turn limit', {
+          dropped: overCap.length,
+          limit: MAX_REFERENCES_PER_TURN,
+        });
+      }
+      const readyReferences = activeReferences(conversationLog, dismissedNow);
       const runInputFor = (runMode: AiSessionMode): AiSessionInput => {
         const currentEditor = editorRef.current;
         const projectSnapshot = projectSnapshotForAiRun(projectRef.current, currentEditor);
@@ -1297,13 +1548,42 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   const submit = useCallback(async () => {
     const text = draft.trim();
     if (!text) return;
+    // Freeze the composer's attachments onto this message BEFORE clearing, then clear
+    // both. The message owns them from here: it renders them, it persists them, and it
+    // is what a Retry replays. The composer is emptied every time — a submit that left
+    // some chips behind is the half-state that made a sent attachment silently ride
+    // along on every later turn.
+    const outgoing = toMessageAttachments(attachmentsRef.current);
     setDraft('');
-    await runTurn(text);
+    setAttachments([]);
+    try {
+      await runTurn(text, outgoing);
+    } catch (error) {
+      // The composer is cleared BEFORE the run so the chips cannot ride along on a later
+      // turn — but a send that never started must not swallow the request with them. A
+      // throw here happens before the run reaches a terminal status, so the Retry
+      // affordance (gated on `failed`/`cancelled`) never appears: without this the text
+      // and every imported reference are simply gone, and the references would have to be
+      // re-imported and re-measured. Put back, so the editor can read the error and send
+      // again. `analyzing` is not restored — those were measured before submit.
+      setDraft(text);
+      setAttachments(outgoing.map((a) => ({ ...a, status: 'ready' as const })));
+      log.error('the turn could not be started; the composer was restored', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }, [draft, runTurn]);
 
+  /** The last turn, but only if it belongs to the conversation on screen. */
+  const replayableTurn = useCallback(() => {
+    const turn = lastTurn.current;
+    return turn !== null && turn.conversationId === active?.id ? turn : null;
+  }, [active?.id]);
+
   const retry = useCallback(() => {
-    if (lastTurn.current) void runTurn(lastTurn.current.text);
-  }, [runTurn]);
+    const turn = replayableTurn();
+    if (turn) void runTurn(turn.text, turn.attachments);
+  }, [replayableTurn, runTurn]);
 
   // R3 C2: Resume continues an interrupted agent run from its persisted checkpoint —
   // replaying the ops already applied and picking up at the next step — instead of
@@ -1423,8 +1703,15 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     const activeSession = runningSession.current ?? session;
     if (activeSession.rejectPlan) activeSession.rejectPlan();
     else planApprovalGateRef.current?.resolve('cancelled');
-    if (lastTurn.current) setDraft(lastTurn.current.text);
-  }, [session]);
+    const turn = replayableTurn();
+    if (turn) {
+      setDraft(turn.text);
+      // The request goes back to the composer to be refined, so what was attached to it
+      // goes back too — otherwise re-sending silently drops the references the rejected
+      // plan was built from. They return already analyzed; nothing is re-measured.
+      setAttachments(turn.attachments.map((a) => ({ ...a, status: 'ready' as const })));
+    }
+  }, [replayableTurn, session]);
 
   // P11.4: raw "Steering applied: …" notification texts this run has confirmed, so
   // the steering input can clear its own "queued" note once the run actually folds
@@ -1450,7 +1737,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   const canRetry =
     !running &&
     !canResume &&
-    lastTurn.current !== null &&
+    replayableTurn() !== null &&
     (view.status === 'failed' || view.status === 'cancelled');
 
   const items = virtualizer.getVirtualItems();
@@ -1616,6 +1903,18 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     }
   }, [editor, undoableRunEdits, lastRunPatchIds, view.nodes, onProjectChange, project, session]);
 
+  /**
+   * Take a reference out of force for the rest of the conversation (P3.5's removal).
+   *
+   * The message keeps showing it — the record of what was attached does not change — but
+   * `activeReferences` stops including it, so the next turn sends a set without it and the
+   * SDK retires the decision it was binding, which is exactly the semantics deleting the
+   * composer tile used to carry.
+   */
+  const dismissReference = useCallback((attachmentId: string) => {
+    setDismissedReferenceIds((ids) => (ids.includes(attachmentId) ? ids : [...ids, attachmentId]));
+  }, []);
+
   const renderNode = (node: ViewNode): JSX.Element => {
     // An edit that could not be written is the only diff state left worth calling out —
     // everything else applied, which the timeline itself already shows.
@@ -1641,6 +1940,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         // through the SAME `retry` callback the action bar uses below — never a
         // second retry implementation.
         {...(node.kind === 'notice' ? { onRetryNotice: retry, retryDisabled: running } : {})}
+        {...(node.kind === 'user'
+          ? { dismissedReferenceIds, onDismissReference: dismissReference }
+          : {})}
       />
     );
   };
@@ -2017,7 +2319,6 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
             atEntities={atEntities}
             onPinEntity={onPinEntity}
             attachments={attachments}
-            onAddAttachment={(a) => setAttachments((list) => [...list, a])}
             onAttachFiles={(files) => void attachReferenceFiles(files)}
             onRemoveAttachment={(id) => setAttachments((list) => list.filter((a) => a.id !== id))}
           />

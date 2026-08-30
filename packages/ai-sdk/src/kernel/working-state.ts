@@ -364,6 +364,29 @@ export const WorkingStateSchema = z.object({
   }),
   baseProjectRevision: ProjectRevisionSchema,
   currentProjectRevision: ProjectRevisionSchema,
+  /**
+   * How many ids of each kind this run has ever minted.
+   *
+   * Ids used to be `${prefix}_${list.length + 1}`, which is only unique while the list
+   * grows. `onProjectRevisionChanged` REMOVES timeline-dependent facts and evidence on
+   * every applied patch, so the length walks backwards and the next mint reuses an id
+   * already spent. Run 7d159862 finished holding two different `fact_7` and two different
+   * `fact_10`, which makes citation-by-id, evidence provenance and replay diffing unsound
+   * — silently, because nothing ever compares two facts for the same id.
+   *
+   * Counting mints rather than survivors keeps ids unique for the life of the run without
+   * a clock or a random source, so replay still reproduces a run exactly. Defaulted, so
+   * state persisted before this field migrates without a version bump.
+   */
+  minted: z
+    .object({
+      fact: z.number().int().nonnegative().default(0),
+      decision: z.number().int().nonnegative().default(0),
+      objective: z.number().int().nonnegative().default(0),
+      op: z.number().int().nonnegative().default(0),
+      verify: z.number().int().nonnegative().default(0),
+    })
+    .default({ fact: 0, decision: 0, objective: 0, op: 0, verify: 0 }),
 });
 
 export type RunWorkingState = z.infer<typeof WorkingStateSchema>;
@@ -416,6 +439,7 @@ export function initialWorkingState(args: {
     integrity: { status: 'valid', diagnostics: [] },
     baseProjectRevision: revision,
     currentProjectRevision: revision,
+    minted: { fact: 0, decision: 0, objective: 0, op: 0, verify: 0 },
   };
 }
 
@@ -713,9 +737,23 @@ export function revisitStage(
 // Knowledge
 // ---------------------------------------------------------------------------
 
-/** Deterministic id — no clock, no randomness, so replay reproduces the run exactly. */
-function nextId(prefix: string, count: number): string {
-  return `${prefix}_${count + 1}`;
+/** Kinds of record that carry a run-scoped id. */
+type MintedKind = keyof RunWorkingState['minted'];
+
+/**
+ * Deterministic id — no clock, no randomness, so replay reproduces the run exactly.
+ *
+ * Counts MINTS, not survivors: the collections it names are pruned on every applied
+ * patch, and numbering from the surviving length hands the next record an id the run
+ * already spent. Returns the id together with the advanced counter so the caller writes
+ * both in one `bump`.
+ */
+function mintId(
+  state: RunWorkingState,
+  kind: MintedKind,
+): { readonly id: string; readonly minted: RunWorkingState['minted'] } {
+  const next = state.minted[kind] + 1;
+  return { id: `${kind}_${next}`, minted: { ...state.minted, [kind]: next } };
 }
 
 /**
@@ -733,8 +771,9 @@ export function recordFact(
   },
 ): RunWorkingState {
   if (state.facts.some((f) => f.statement === fact.statement)) return state;
+  const { id, minted } = mintId(state, 'fact');
   const entry: Fact = {
-    id: nextId('fact', state.facts.length),
+    id,
     kind: fact.kind,
     statement: fact.statement,
     evidenceIds: [...(fact.evidenceIds ?? [])],
@@ -742,7 +781,7 @@ export function recordFact(
     observedAtRevision: state.currentProjectRevision,
     stage: state.stage,
   };
-  return bump(state, { facts: [...state.facts, entry] });
+  return bump(state, { facts: [...state.facts, entry], minted });
 }
 
 /** Register a raw payload in the evidence index (the payload itself lives elsewhere). */
@@ -777,8 +816,9 @@ export function recordDecision(
     readonly subject?: string;
   },
 ): RunWorkingState {
+  const { id, minted } = mintId(state, 'decision');
   const entry: Decision = {
-    id: nextId('decision', state.decisions.length),
+    id,
     decision: decision.decision,
     evidenceIds: [...(decision.evidenceIds ?? [])],
     stage: state.stage,
@@ -792,7 +832,7 @@ export function recordDecision(
     turnsCarried: 0,
     ...(decision.subject === undefined ? {} : { subject: decision.subject }),
   };
-  return bump(state, { decisions: [...state.decisions, entry] });
+  return bump(state, { decisions: [...state.decisions, entry], minted });
 }
 
 /**
@@ -975,13 +1015,14 @@ export function recordObjective(
   state: RunWorkingState,
   objective: { readonly description: string; readonly stage: RunStage },
 ): RunWorkingState {
+  const { id, minted } = mintId(state, 'objective');
   const entry: Objective = {
-    id: nextId('objective', state.objectives.length),
+    id,
     description: objective.description,
     stage: objective.stage,
     status: 'pending',
   };
-  return bump(state, { objectives: [...state.objectives, entry] });
+  return bump(state, { objectives: [...state.objectives, entry], minted });
 }
 
 /** Objectives still owed — what "remaining work" means, computed not asserted. */
@@ -1011,8 +1052,10 @@ export function recordOperation(
   const projectRevisionAfter = operation.projectRevisionAfter ?? state.currentProjectRevision;
   const prior = state.operations.find((o) => o.idempotencyKey === idempotencyKey);
   if (prior?.status === 'succeeded' && operation.status === 'succeeded') return state;
+  // A retry updates the record in place, so it keeps its id and mints nothing.
+  const fresh = prior === undefined ? mintId(state, 'op') : undefined;
   const entry: OperationRecord = {
-    id: prior?.id ?? nextId('op', state.operations.length),
+    id: prior?.id ?? fresh!.id,
     intent: operation.intent,
     status: operation.status,
     atRevision: state.currentProjectRevision,
@@ -1029,7 +1072,7 @@ export function recordOperation(
   const operations = prior
     ? state.operations.map((o) => (o.id === prior.id ? entry : o))
     : [...state.operations, entry];
-  return bump(state, { operations });
+  return bump(state, { operations, ...(fresh ? { minted: fresh.minted } : {}) });
 }
 
 /**
@@ -1094,8 +1137,9 @@ export function recordVerification(
     readonly objectiveId?: string;
   },
 ): RunWorkingState {
+  const { id, minted } = mintId(state, 'verify');
   const entry: VerificationRecord = {
-    id: nextId('verify', state.verifications.length),
+    id,
     criterion: verification.criterion,
     passed: verification.passed,
     atRevision: state.currentProjectRevision,
@@ -1107,7 +1151,7 @@ export function recordVerification(
           o.id === verification.objectiveId ? { ...o, status: 'satisfied' as const } : o,
         )
       : state.objectives;
-  return bump(state, { verifications: [...state.verifications, entry], objectives });
+  return bump(state, { verifications: [...state.verifications, entry], objectives, minted });
 }
 
 /**
@@ -1335,15 +1379,30 @@ export function carryForwardWorkingState(
     previous.identity.projectId === fresh.identity.projectId;
   if (!sameConversation || !sameProject) return fresh;
 
-  // Ids are re-prefixed because they are only unique WITHIN a run: `commitExecutionPlan`
-  // mints `decision_1…n` for the new run's own plan, and a carried `decision_1` would
-  // collide with it. The prefix also makes an inherited record identifiable in a dump.
-  const carriedId = (id: string): string => (id.startsWith('carried_') ? id : `carried_${id}`);
+  // Carried records are RENUMBERED from the fresh run's own counters, not re-prefixed.
+  //
+  // Ids are only unique within a run — `commitExecutionPlan` mints `decision_1…n` for the
+  // new run's plan, so a carried `decision_1` would collide with it — and the old fix for
+  // that was a `carried_` prefix applied idempotently (`startsWith('carried_') ? id : …`).
+  // That holds for exactly one generation. Run 1 mints `fact_1`; run 2 inherits it as
+  // `carried_fact_1` and mints its own `fact_1`; run 3 inherits BOTH, leaves the first
+  // alone because it is already prefixed, and prefixes the second to the same string. Two
+  // different facts, one id — the same unsound-provenance failure the within-run counters
+  // were introduced to end, displaced across the run boundary.
+  //
+  // Minting from `fresh.minted` cannot collide by construction: the counters only ever go
+  // up, and this run's own records draw from them too. The `carried_` prefix stays, purely
+  // so an inherited record is identifiable in a dump.
+  const minted = { ...fresh.minted };
+  const carriedId = (kind: 'fact' | 'decision'): string => {
+    minted[kind] += 1;
+    return `carried_${kind}_${String(minted[kind])}`;
+  };
   const facts = previous.facts
     .filter((fact) => fact.scope === 'revision_independent')
     .map((fact) => ({
       ...fact,
-      id: carriedId(fact.id),
+      id: carriedId('fact'),
       // Uncited on purpose, and marked. See the docstring: the handles do not resolve.
       evidenceIds: [],
       statement: fact.statement.startsWith(CARRIED_FACT_PREFIX)
@@ -1376,7 +1435,7 @@ export function carryForwardWorkingState(
     )
     .map((decision) => ({
       ...decision,
-      id: carriedId(decision.id),
+      id: carriedId('decision'),
       evidenceIds: [],
       stage: fresh.stage,
       // One more boundary crossed. This is what `expiresAfterTurns` counts: runs the
@@ -1389,6 +1448,9 @@ export function carryForwardWorkingState(
   const known = new Set(fresh.decisions.map((decision) => decision.decision));
   return {
     ...fresh,
+    // Advanced past everything carried, so a record this run mints later cannot land on
+    // an inherited id.
+    minted,
     facts: [...facts, ...fresh.facts],
     // Carried decisions come FIRST and this run's own plan decisions LAST, so what the
     // run was actually asked to do reads as the live commitment and the inherited answers

@@ -174,7 +174,24 @@ function renderDiff(node: Extract<ViewNode, { kind: 'diff' }>): readonly string[
 function renderNode(node: ViewNode): readonly string[] {
   switch (node.kind) {
     case 'user':
-      return [`### 👤 You · ${formatTs(node.ts)}`, '', node.text, ''];
+      return [
+        `### 👤 You · ${formatTs(node.ts)}`,
+        '',
+        node.text,
+        // What was attached to the request is part of the request. This is the last
+        // surface that could not say so — an exported transcript of "make it feel like
+        // this" that never names the reference is not a record of what was asked.
+        ...(node.attachments === undefined || node.attachments.length === 0
+          ? []
+          : [
+              '',
+              ...node.attachments.map((attachment) => {
+                const role = attachment.profile ? (attachment.role ?? 'reference') : 'not analyzed';
+                return `- 📎 ${attachment.name} · ${role}`;
+              }),
+            ]),
+        '',
+      ];
     case 'assistant':
       return [
         `### 💬 FramePilot · ${formatTs(node.ts)}${node.streaming ? ' (streaming)' : ''}`,

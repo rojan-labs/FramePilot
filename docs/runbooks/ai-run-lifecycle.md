@@ -151,6 +151,42 @@ Do not solve this by disabling the authoritative project refresh: the timeline s
 to re-seed from the host-owned committed project. Conversation selection is part of the
 run projection and must be restored alongside it.
 
+### Symptom: an analysis reported zero and the run gave up on that edit
+
+A deterministic analyzer that returns an empty list has told you one of two very different
+things, and the difference decides the next tool call:
+
+1. **there is nothing there** — the recording really is continuous, the take really has no
+   hard cut; or
+2. **nothing cleared the threshold you asked for** — which says nothing about the material.
+
+ffmpeg applies most analysis thresholds _inside the filter_, so (2) always arrives looking
+exactly like (1). `remove_silences` reported "No dead air to cut: 0 silence(s) measured" on a
+49.77 s talking head that held 10.65 s of dead air across 56 gaps: the request was 0.55 s, the
+longest gap in the recording was 0.449 s, and `silencedetect=…:d=0.55` therefore could not
+report any of them. The model read the sentence as a footage fact, RAISED the threshold to
+0.65 s, and abandoned dead-air removal for the rest of the run — the note had by then been
+distilled into run memory.
+
+To diagnose:
+
+1. Measure the source directly and vary the threshold, so you know which of the two you have:
+   `ffmpeg -i <asset> -af silencedetect=noise=-30dB:d=0.1 -vn -f null -` and repeat at
+   `d=0.2`, `d=0.3`. A count that collapses to zero as `d` rises is case (2).
+2. Read the sidecar line `ACT analyze-silence: asset=… → N of M measured silences at >=Xs`.
+   `M > N == 0` is case (2) stated by the engine itself; the response repeats it as
+   `measuredCount` / `longestSeconds` / `belowThresholdSeconds`. The engine always probes at
+   `SILENCE_PROBE_FLOOR_SECONDS` (0.1 s) and filters in Python for exactly this reason.
+3. Check the effective threshold, not the requested one. `keepSeconds` shrinks a cut; it must
+   never disqualify a silence. If a future change re-tests the _trimmed_ span, the real floor
+   silently becomes `minSilenceSeconds + 2 × keepSeconds`.
+
+The fix for a wrong answer here is never to relax the assertion in the note. It is to carry
+the measurement alongside the filtered result, and to keep the tool outcome a `warning` so
+what lands in run memory reads "not measurable at this threshold" rather than "no dead air".
+The same rule applies to `detect_scenes` (an empty `cuts` means one continuous take) and
+`detect_beats` (an engine `reason` means silent footage).
+
 ### Symptom: Electron reaches the V8 heap limit during a run
 
 Measure the run's `events.wal` before raising the heap limit. A captured failure reached roughly

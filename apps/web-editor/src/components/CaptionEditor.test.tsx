@@ -116,7 +116,7 @@ it('windows a feature-length cue list instead of mounting every caption row', ()
     const editor = useEditor({
       tracks: [{ id: 'caption_long', type: 'caption', clips }, videoTrack()],
     } as Timeline);
-    return <CaptionEditor editor={editor} transcript={[]} />;
+    return <CaptionEditor fps={30} editor={editor} transcript={[]} />;
   }
 
   render(<LongCaptionHost />);
@@ -130,7 +130,7 @@ describe('CaptionEditor — cue text editing', () => {
     const editor = useEditor(captionTimeline());
     return (
       <>
-        <CaptionEditor editor={editor} transcript={transcript} />
+        <CaptionEditor fps={30} editor={editor} transcript={transcript} />
         <span data-testid="undo">{String(editor.canUndo)}</span>
         <button type="button" onClick={() => editor.undo()}>
           undo
@@ -197,7 +197,7 @@ describe('CaptionEditor — split and merge', () => {
         <button type="button" onClick={() => editor.seek(0.4)}>
           seek-mid
         </button>
-        <CaptionEditor editor={editor} transcript={transcript} />
+        <CaptionEditor fps={30} editor={editor} transcript={transcript} />
         <span data-testid="cues">{String(editor.state.timeline.tracks[0]?.clips.length)}</span>
       </>
     );
@@ -239,7 +239,7 @@ describe('CaptionEditor — styling scope', () => {
     const editor = useEditor(captionTimeline());
     return (
       <>
-        <CaptionEditor editor={editor} transcript={transcript} />
+        <CaptionEditor fps={30} editor={editor} transcript={transcript} />
         <span data-testid="track-template">
           {String(editor.state.timeline.tracks[0]?.captionStyle?.templateId)}
         </span>
@@ -306,7 +306,7 @@ describe('CaptionEditor — styling scope', () => {
       ];
       return (
         <>
-          <CaptionEditor editor={editor} transcript={impactTranscript} />
+          <CaptionEditor fps={30} editor={editor} transcript={impactTranscript} />
           <span data-testid="track-style">
             {JSON.stringify(editor.state.timeline.tracks[0]?.captionStyle ?? null)}
           </span>
@@ -330,7 +330,7 @@ describe('CaptionEditor — styling scope', () => {
     function AiHost(): JSX.Element {
       const editor = useEditor(captionTimeline());
       return (
-        <CaptionEditor editor={editor} transcript={transcript} analyzeEmphasis={analyzeEmphasis} />
+        <CaptionEditor fps={30} editor={editor} transcript={transcript} analyzeEmphasis={analyzeEmphasis} />
       );
     }
     render(<AiHost />);
@@ -403,7 +403,7 @@ describe('CaptionEditor — styling scope', () => {
 describe('CaptionEditor — template gallery', () => {
   function Host(): JSX.Element {
     const editor = useEditor(captionTimeline());
-    return <CaptionEditor editor={editor} transcript={transcript} />;
+    return <CaptionEditor fps={30} editor={editor} transcript={transcript} />;
   }
 
   it('starts with All and exposes every category with style counts', () => {
@@ -483,7 +483,7 @@ describe('CaptionEditor — generation', () => {
     } as unknown as Timeline);
     return (
       <>
-        <CaptionEditor editor={editor} transcript={transcript} />
+        <CaptionEditor fps={30} editor={editor} transcript={transcript} />
         <span data-testid="cues">{String(editor.state.timeline.tracks[0]?.clips.length)}</span>
         <span data-testid="track-template">
           {String(editor.state.timeline.tracks[0]?.captionStyle?.templateId)}
@@ -523,6 +523,7 @@ describe('CaptionEditor — generation', () => {
           <CaptionEditor
             editor={editor}
             transcript={transcript}
+            fps={30}
             analyzeEmphasis={analyzeEmphasis}
           />
           <span data-testid="cues">{String(editor.state.timeline.tracks[0]?.clips.length)}</span>
@@ -562,7 +563,7 @@ describe('CaptionEditor — generation', () => {
       const editor = useEditor({
         tracks: [{ id: 'caption_1', type: 'caption', clips: [] }],
       } as unknown as Timeline);
-      return <CaptionEditor editor={editor} transcript={[]} />;
+      return <CaptionEditor fps={30} editor={editor} transcript={[]} />;
     }
     render(<Empty />);
     expect(screen.getByRole('button', { name: 'Generate captions' })).toHaveProperty(

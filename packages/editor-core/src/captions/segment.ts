@@ -34,6 +34,7 @@
  * what lets a caption golden be a golden.
  */
 import type { TranscriptWord } from '@framepilot/timeline-schema';
+import { secondsToFrame } from '../frame-grid.js';
 
 /**
  * How a transcript should be cut into cues. Every field is a hard limit except
@@ -165,9 +166,7 @@ export function captionSegmentConfig(
  * one-word register, a couple of words means short-form, and anything longer is
  * reading material and wants subtitle timing.
  */
-export function presetForWordsPerLine(
-  suggestedWordsPerLine: number,
-): CaptionSegmentPresetName {
+export function presetForWordsPerLine(suggestedWordsPerLine: number): CaptionSegmentPresetName {
   if (suggestedWordsPerLine <= 1) return 'one-word';
   return suggestedWordsPerLine >= 7 ? 'subtitle' : 'short-form';
 }
@@ -207,18 +206,85 @@ const ABBREVIATION = /^(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|e\.g|i\.e|fig|approx
  */
 const TRAILING_FUNCTION_WORDS = new Set([
   // Articles and determiners
-  'a', 'an', 'the', 'this', 'that', 'these', 'those', 'my', 'your', 'his',
-  'her', 'its', 'our', 'their', 'some', 'any', 'no', 'every', 'each',
+  'a',
+  'an',
+  'the',
+  'this',
+  'that',
+  'these',
+  'those',
+  'my',
+  'your',
+  'his',
+  'her',
+  'its',
+  'our',
+  'their',
+  'some',
+  'any',
+  'no',
+  'every',
+  'each',
   // Prepositions
-  'of', 'to', 'in', 'on', 'at', 'by', 'for', 'with', 'from', 'into', 'onto',
-  'over', 'under', 'about', 'as', 'than', 'through', 'between', 'against',
+  'of',
+  'to',
+  'in',
+  'on',
+  'at',
+  'by',
+  'for',
+  'with',
+  'from',
+  'into',
+  'onto',
+  'over',
+  'under',
+  'about',
+  'as',
+  'than',
+  'through',
+  'between',
+  'against',
   // Auxiliaries and copulas
-  'is', 'are', 'was', 'were', 'be', 'been', 'being', 'am', 'do', 'does',
-  'did', 'has', 'have', 'had', 'will', 'would', 'can', 'could', 'should',
-  'shall', 'may', 'might', 'must',
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'been',
+  'being',
+  'am',
+  'do',
+  'does',
+  'did',
+  'has',
+  'have',
+  'had',
+  'will',
+  'would',
+  'can',
+  'could',
+  'should',
+  'shall',
+  'may',
+  'might',
+  'must',
   // Coordinators and subordinators
-  'and', 'or', 'but', 'nor', 'so', 'yet', 'if', 'because', 'while', 'when',
-  'which', 'who', 'whom', 'whose', 'not',
+  'and',
+  'or',
+  'but',
+  'nor',
+  'so',
+  'yet',
+  'if',
+  'because',
+  'while',
+  'when',
+  'which',
+  'who',
+  'whom',
+  'whose',
+  'not',
 ]);
 
 /**
@@ -226,9 +292,28 @@ const TRAILING_FUNCTION_WORDS = new Set([
  * the seam where a reader expects a new thought to start.
  */
 const CLAUSE_STARTERS = new Set([
-  'and', 'but', 'or', 'so', 'because', 'although', 'though', 'while', 'when',
-  'if', 'unless', 'until', 'since', 'whereas', 'however', 'therefore', 'then',
-  'that', 'which', 'who', 'after', 'before',
+  'and',
+  'but',
+  'or',
+  'so',
+  'because',
+  'although',
+  'though',
+  'while',
+  'when',
+  'if',
+  'unless',
+  'until',
+  'since',
+  'whereas',
+  'however',
+  'therefore',
+  'then',
+  'that',
+  'which',
+  'who',
+  'after',
+  'before',
 ]);
 
 /** Strip punctuation and case, so "The," and "the" classify the same. */
@@ -382,7 +467,9 @@ const renderedLength = (
 ): number => {
   const emphasized = new Set(emphasisWords);
   return words.reduce((total, word, index) => {
-    const visualWeight = emphasized.has(bareWord(word.word)) ? Math.ceil(word.word.length * 0.45) : 0;
+    const visualWeight = emphasized.has(bareWord(word.word))
+      ? Math.ceil(word.word.length * 0.45)
+      : 0;
     return total + word.word.length + visualWeight + (index > 0 ? 1 : 0);
   }, 0);
 };
@@ -469,6 +556,25 @@ export function packSegment(
  * CaptionSegmentConfig.minCueSeconds} by `enforceTiming`, and it keeps the
  * on-screen text short enough to take in at a glance.
  *
+ * That last claim is a **precondition, not a guarantee**, and it is the one this
+ * stage has to check itself. `enforceTiming` can only hold a cue up to where the
+ * next one starts; two halves of a split abut by construction, so the left half's
+ * ceiling *is* the right half's first word. Where the words are packed tight
+ * enough to trip the density limit in the first place, that ceiling is often
+ * milliseconds away, and the minimum can never be applied. Splitting regardless
+ * recurses until every fragment is a single word, and the output is a burst of
+ * unreadable flashes: on a real 149-word talking head this stage produced a cue
+ * reading "We" held for **10ms**, and 25 of 63 cues came out under the 0.5s
+ * minimum. Two of them were shorter than a video frame, which then collapsed to
+ * zero length when the operation was snapped to the frame grid and took the whole
+ * caption patch down with them (run 7d159862).
+ *
+ * So a split is only taken when both halves can actually be *held* for
+ * `minCueSeconds`. When they cannot, the dense cue is kept whole: text slightly
+ * above the reading-speed ceiling is read at a glance, whereas the same text torn
+ * into sub-frame fragments cannot be read at all. Density is a soft target;
+ * legibility is not.
+ *
  * A single word is never split — there is nothing to split — so this always
  * terminates.
  */
@@ -491,10 +597,20 @@ export function enforceReadingSpeed(
       continue;
     }
     // Halve at the best internal break rather than the midpoint, so the split
-    // still lands on a syntactic seam where one exists.
-    let bestIndex = Math.floor((cue.length - 1) / 2);
+    // still lands on a syntactic seam where one exists — but only ever at a
+    // break the left half can survive.
+    //
+    // A split point fixes the left half's display time for good: its ceiling is
+    // the right half's first word, and that is precisely the bound
+    // `enforceTiming` will hit later, so a left half that is already too short
+    // here can never be extended. (The right half inherits this cue's own
+    // ceiling and stays extensible, so it needs no bound.) Scoring holdable
+    // breaks only — rather than picking on linguistics and then vetoing — keeps
+    // a good-but-unholdable seam from suppressing a viable one further along.
+    let bestIndex = -1;
     let bestScore = -Infinity;
     for (let index = 0; index < cue.length - 1; index += 1) {
+      if (cue[index + 1]!.start - cue[0]!.start < config.minCueSeconds) continue;
       const balance = 1 - Math.abs((index + 1) / cue.length - 0.5) * 2;
       const score = breakQuality(cue, index) + PACK_FILL_WEIGHT * balance;
       if (score >= bestScore) {
@@ -502,6 +618,14 @@ export function enforceReadingSpeed(
         bestIndex = index;
       }
     }
+    // No break leaves a readable first half: keep the dense cue whole. Text a
+    // little over the reading-speed ceiling is still read at a glance; the same
+    // text torn into sub-minimum fragments is not read at all.
+    if (bestIndex < 0) {
+      result.push(cue);
+      continue;
+    }
+
     // Re-queue BOTH halves rather than accepting the first: a very dense run may
     // need splitting more than once, and the first half is not known to be
     // readable yet. Terminates because each half is strictly shorter than `cue`
@@ -536,7 +660,8 @@ export function layoutLines(
 ): string {
   const tokens = words.map((word) => word.word);
   if (config.maxLines <= 1 || tokens.length < 2) return tokens.join(' ');
-  if (renderedLength(words, config.emphasisWords) <= config.maxCharsPerLine) return tokens.join(' ');
+  if (renderedLength(words, config.emphasisWords) <= config.maxCharsPerLine)
+    return tokens.join(' ');
 
   let bestIndex = 0;
   let bestScore = -Infinity;
@@ -593,14 +718,65 @@ export function enforceTiming(
 
     // Bridge a small gap entirely (no blink); otherwise hold for the minimum.
     const wanted =
-      gap <= config.bridgeGapSeconds
-        ? ceiling
-        : Math.max(spokenEnd, start + config.minCueSeconds);
+      gap <= config.bridgeGapSeconds ? ceiling : Math.max(spokenEnd, start + config.minCueSeconds);
 
     // Never overlap the next cue, and never end before the words finish. Finite
     // even for the last cue: an unbounded `ceiling` only ever widens the `min`.
     return { words, start, end: Math.max(spokenEnd, Math.min(wanted, ceiling)) };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Stage 3b — the frame grid
+// ---------------------------------------------------------------------------
+
+/**
+ * Merge cues that would begin on the SAME project frame.
+ *
+ * Sequence times are quantised to an integer frame at the patch boundary (ADR
+ * 0146, `normalizeOperationTime`), and a cue's on-screen window runs from its
+ * own first word to the next cue's first word — `enforceTiming` may not cross
+ * that ceiling. So two cues starting inside one frame describe a window the
+ * timeline cannot represent: after snapping, the earlier one has `start === end`
+ * and every `positiveRange` check rejects it.
+ *
+ * That is not a hypothetical rounding nicety. A 0.02s ASR artifact ("build",
+ * 18.06→18.08 at 30fps) collapsed onto frame 542 and took an entire
+ * 584-operation caption patch down with it, four times in one run (7d159862) —
+ * and the same defect had already been fixed once, for `delete_clip` alone, in
+ * `domain-tools/timeline.ts`. Promoting the cue to one frame instead would only
+ * trade the zero-length rejection for an overlap with the cue that starts on
+ * that very frame.
+ *
+ * Merging is the honest reading: two cues the grid cannot tell apart in time
+ * ARE one cue, and their words belong on screen together. Done here, before
+ * layout and timing, so the merged cue is laid out and held as the single cue
+ * it has become rather than being stitched together afterwards.
+ *
+ * It runs AFTER packing and reading-speed, so a merged cue can carry a word more
+ * than `maxCharsPerLine`/`maxWordsPerCue` would have allowed. Deliberate, and
+ * bounded: the only cue that merges is one whose whole span fits inside a single
+ * frame, which is at most a word or two of an ASR artifact. Re-packing after the
+ * merge would move the break the linguistics chose, and a caption that breaks in
+ * the wrong place reads worse than one that is a word over the line.
+ */
+export function coalesceSubFrameCues(
+  cues: readonly (readonly TranscriptWord[])[],
+  fps: number,
+): readonly (readonly TranscriptWord[])[] {
+  const merged: TranscriptWord[][] = [];
+  for (const cue of cues) {
+    const open = merged[merged.length - 1];
+    if (
+      open !== undefined &&
+      secondsToFrame(open[0]!.start, fps) === secondsToFrame(cue[0]!.start, fps)
+    ) {
+      open.push(...cue);
+      continue;
+    }
+    merged.push([...cue]);
+  }
+  return merged;
 }
 
 // ---------------------------------------------------------------------------
@@ -616,11 +792,16 @@ export function enforceTiming(
  *
  * @param words - Word-level transcript in timeline seconds, in time order.
  * @param config - Limits and readability targets; see {@link captionSegmentConfig}.
+ * @param fps - Project frame rate. Supplied, cues that would start on the same
+ *   frame are merged so none can be quantised out of existence at the patch
+ *   boundary; omitted, segmentation is unquantised (the Captions panel preview
+ *   and unit tests, which never build operations).
  * @returns Cues in time order, each with display text, its words, and its range.
  */
 export function segmentCaptions(
   words: readonly TranscriptWord[],
   config: CaptionSegmentConfig = captionSegmentConfig(),
+  fps?: number,
 ): readonly CaptionCueDraft[] {
   // Drop zero/negative-duration entries up front: they carry no readable time
   // and would otherwise skew every pause and reading-speed calculation.
@@ -630,7 +811,8 @@ export function segmentCaptions(
   const runs = splitIntoUtterances(usable, config.pauseSeconds);
   const packed = runs.flatMap((run) => packSegment(run, config));
   const readable = enforceReadingSpeed(packed, config);
-  return enforceTiming(readable, config).map(({ words: cueWords, start, end }) => ({
+  const gridded = fps === undefined ? readable : coalesceSubFrameCues(readable, fps);
+  return enforceTiming(gridded, config).map(({ words: cueWords, start, end }) => ({
     text: layoutLines(cueWords, config),
     words: cueWords,
     start,

@@ -42,6 +42,159 @@ provider (the AI journey and four failure rows are written and wired, never run 
 aggregate measurement needing the desktop harness, the engine-kill e2e that still does not
 pass, and a day of adversarial use.
 
+**Status snapshot (2026-08-30, PROMPT.md reliability mission — attachment ownership):** `[x]`
+**A sent message owns what was attached to it.** The anchor defect of the mission's W3: an
+attachment existed only in composer React state, so a sent message carried nothing but
+text. Everything followed from that one missing field — the chip stayed in the composer
+after sending, the bubble could not show it, and `references` were read from live composer
+state so a file attached to turn 1 was re-sent on every later turn.
+
+Split into `MessageAttachment` (immutable, message-owned, rendered, replayed by Retry) and
+the composer's work-in-progress `Attachment`. The first attempt at this introduced a WORSE
+regression than the bug and the audit caught it: the SDK's contract is that `references` is
+the COMPLETE LIVE SET each turn, and an id missing from it means "the editor removed that
+tile, stop applying its decision" (`kernel/conductor.ts`, P3.5) — so message-scoped
+references would have sent `[]` on turn 2 and silently retired everything. The live set is
+therefore DERIVED (every reference any message attached, minus dismissals, capped at
+`MAX_REFERENCES_PER_TURN`), and dismissal moved onto the bubble tile.
+
+Also closed, from the same audit: paste minted a ghost attachment that was never imported
+or analyzed while looking entirely ordinary (all three entry points now share one handler,
+and `onAddAttachment` is gone); nine references bricked a message irrecoverably because the
+host refuses above eight AFTER the composer is emptied; `lastTurn` was not
+conversation-scoped, so Retry could replay one chat's turn — and its attachments — into
+another. The two reference-profile types bridged by an `as unknown as` are converged on the
+Zod one, validated at the host boundary. A double-submit race in the same path read the
+`running` STATE rather than the ref, so two Enter presses in one commit started two runs and
+orphaned the first one's Stop.
+
+Tests: `src/ai/messageAttachments.test.ts` (18), `Composer.test.tsx` (30),
+`AiSidebar.test.tsx` (63) — the component cases verified to fail against the previous
+implementation. Docs: `CHANGELOG.md`.
+
+**Status snapshot (2026-08-30, AI-layer audit follow-ups — three claims the code did not
+keep):** `[x]` **Two inert safety mechanisms are now either real or gone, and the docstrings
+that described them say what the code does.** All in `packages/ai-sdk`:
+
+- **The revision-keyed host cache is removed** (`tool-contract.ts`, `kernel/effect-runtime.ts`).
+  `search_media` inherited `cacheScope: 'project_revision'` while reading the asset BIN, and
+  no bin operation moves `Timeline.revision` — so a run that imported a file and searched for
+  it was served the pre-import answer. Rather than fix a third instance (`get_frame` and
+  `measure_color` were the first two), the tier is gone: a host read whose answer the run can
+  change is uncacheable by DERIVATION, and only `revision_independent` source-material reads
+  memoize. `search_media` keeps an explicit row because its evidence scope is
+  `timeline_dependent` for the placements, not for the bin — reclassify it and the memo would
+  otherwise come back silently.
+- **The per-run analysis budget is charged for the first time** (`kernel/cost/analysis-caps.ts`,
+  `sidecar-executor.ts#chargeAnalysisBudget`). `preflightCharge` returned `null`
+  unconditionally and nothing ever called `check`/`record`, so both ceilings were inert while
+  `tool-executor.ts` documented them as enforced. Transcription is charged from the engine's
+  own word timings, ffmpeg from host-measured wall clock (an upper bound — the safe direction
+  for a ceiling), every settled outcome including failures, and an over-budget call is refused
+  before dispatch.
+- **`EffectRuntime.cancel`/`cancelTree` are deleted.** They had no production caller and could
+  not reach a `host_tool` or `model` effect at all (neither carries an `EffectControl`, so
+  neither has an id to be cancelled by). `AbortSignal` is now stated as the only cancellation
+  channel, and a test asserts it aborts all three effect kinds.
+- Docstring corrections where a file claimed a guard that cannot fire: `kernel/stage-policy.ts`
+  justified its `transcribe`/`get_frame` stage exemptions with `withheldCallOutcome`'s memo
+  hit, which only runs for a call the stage WITHHELD — the exemption is what stops it running,
+  and `transcribe` erases its own memo entry via `invalidate(['set_transcript'])` anyway. They
+  now name what really bounds them (`callNoveltyKey`, the analysis caps). `state-block.ts` no
+  longer claims its fixed key order keeps the prompt-cache prefix stable — the block moved
+  into the volatile tail, and the rule lives at the split site in `context-builder.ts`.
+- **The omission notice names the block that went, not its tier.** References share the
+  `pinned` tier, so a dropped reference was reported to the model as "the entities the user
+  pinned". Plus an invariant test for the bug class behind the media-bin fix: at any budget
+  where a fit exists, the assembler must find one without dropping a tier — which fails if any
+  assembled string is missing from `spentElsewhere`.
+
+Tests: `src/kernel/cost/analysis-caps.enforcement.test.ts` (16, new), `tool-contract.test.ts`
+(30), `kernel/effect-runtime{,.audit}.test.ts` (49), `context-builder.test.ts` (79),
+`sidecar-executor.test.ts` (125). Docs: `docs/api/ai-tools.md`, ADR 0107 amendment,
+`CHANGELOG.md`.
+
+**Status snapshot (2026-08-30, run `7d159862` — the context that deleted itself and the
+cache that dropped everything):** `[x]` **The agent no longer re-buys facts it already
+holds.** On a project with ONE asset and ONE clip, the run spent 5 `list_assets` and 5
+`get_frame` calls — ~10 of its 34 tool calls — on information it had. Two mechanical causes,
+both in `packages/ai-sdk`:
+
+- `context-builder.ts#summarizeMediaBin` returned `''` as soon as every asset was placed,
+  which deleted the block on the exact turn it became the only statement of each asset's
+  SOURCE duration (the timeline slice describes the trimmed clip; `summarizeSourceMedia`
+  carried dimensions but not duration). The bin now renders a one-line-per-asset digest in
+  the all-placed case — 15 tokens for the run's project, 342 for a 61-photo library, capped
+  by `MEDIA_BIN_CHARS` at ~1,013 — and duration is stated in both blocks. The bin is also
+  PRICED into `spentElsewhere` at last: unpriced, a ~15-token block overshot the budget and
+  `DROP_ORDER` answered by dropping the entire transcript tier.
+- `kernel/evidence-store.ts#invalidate` was handed the applied operation types and consulted
+  them only for the transcript and the bin, so EVERY `timeline_dependent` handle —
+  `get_frame` included — died on any applied patch. Three empty-track `add_layer`s bought
+  three re-renders (~1.2s each plus the model turn) of a pixel-identical frame. Invalidation
+  is now per facet (`picture` / `structure`), with the operation sets typed against
+  `editor-core`'s own `OperationType`/`ProjectOperationType` unions so a rename fails the
+  build; an unrecognised operation type invalidates everything, on purpose. The bin set also
+  gained the removal/refiling operations it was missing (`manage_assets` was a TOOL name
+  that never appears as an operation type, so `remove_asset` left a stale bin listing).
+
+Tests: `src/context-builder.test.ts` (66), `src/kernel/evidence-store.test.ts` (41). Docs:
+`docs/guides/context-and-memory.md`, `CHANGELOG.md`.
+
+**Status snapshot (2026-08-30, run `7d159862` — the rejection that named nothing):** `[x]`
+**A rejected patch now says WHICH operation was rejected.** `caption_the_edit` built 126
+operations; one cue was degenerate and the model was handed
+`add_caption_layer.end must be greater than start.` and nothing else. With 63 near-identical
+cues there was no way to tell them apart, so the call was reissued four times (584 operations
+rejected in total). The index existed at every step and was discarded twice: the semantic
+contract replay in `packages/ai-sdk/src/assemble.ts` iterated without tracking its position,
+and the orchestrator's per-call validator probe joined `issue.message` while dropping the
+`operationIndex` the structural validator already populates. Both fixed:
+`firstContractRejection` returns the offending index, `contractFailure` carries it on the
+issue, and `describeValidationIssue` renders
+`op 49 of 126 (add_caption_layer, 18.067s–18.067s): <reason>` — which is what `add_clips`
+already promised the model when it said a rejection "names the entry". Also corrected a
+false claim: the post-quantization contract gate was annotated "unreachable", and it is the
+branch that refused these captions (snapping a 0.02s cue puts both ends on one frame).
+Tests: `src/assemble.test.ts` (10). Docs: `docs/api/ai-tools.md`, `CHANGELOG.md`.
+
+**Status snapshot (2026-08-30, run `7d159862` — the refusal the run could not remember):**
+`[x]` **A refused tool call is now recorded, and a refusal the run has already been given
+is not paid for twice.** The captured run called `caption_the_edit` four times, was answered
+each time with the same validator sentence, and spent roughly ten of its eighteen model
+calls doing it. Two independent defects: a per-call validator rejection returns `ops: []`
+with the count out of band, so `turnOpCount` was 0 and NO operation row was recorded — the
+run finished with 584 rejected operations and a ledger of five, all `succeeded`, which meant
+the briefing's "FAILED — fix the cause, do not retry unchanged" section never rendered once;
+and nothing consulted the run's own history to refuse a repeat, because `seenCallKeys` banks
+only calls that ANSWERED and is read only to GRANT progress credit. Both are fixed in
+`packages/ai-sdk`: `conductor.ts#foldTurn` records a `failed` operation whenever the turn
+lost operations to the per-call validator, and `ConductorState.seenFailureKeys` banks a
+`name:cause` key for every DETERMINISTIC refusal (argument schema, validator probe) which
+`executeToolCalls` uses to replace a repeat with an actionable refusal. Host/transport
+failures are never banked — they carry no key by construction — and an applied edit clears
+the set. The key strips the operation locator (`op 12 of 63`), without which the third of
+the four captured attempts, which varied its arguments, would still have slipped through.
+Tests: `src/kernel/repeated-failure.test.ts` (11). Docs:
+`docs/architecture/ai-engine.md`, `CHANGELOG.md`.
+
+**Status snapshot (2026-08-30, run `7d159862` — the rejection that named nothing):** `[x]`
+**A rejected patch now says WHICH operation was rejected.** `caption_the_edit` built 126
+operations; one cue was degenerate and the model was handed
+`add_caption_layer.end must be greater than start.` and nothing else. With 63 near-identical
+cues there was no way to tell them apart, so the call was reissued four times (584 operations
+rejected in total). The index existed at every step and was discarded twice: the semantic
+contract replay in `packages/ai-sdk/src/assemble.ts` iterated without tracking its position,
+and the orchestrator's per-call validator probe joined `issue.message` while dropping the
+`operationIndex` the structural validator already populates. Both fixed:
+`firstContractRejection` returns the offending index, `contractFailure` carries it on the
+issue, and `describeValidationIssue` renders
+`op 49 of 126 (add_caption_layer, 18.067s–18.067s): <reason>` — which is what `add_clips`
+already promised the model when it said a rejection "names the entry". Also corrected a
+false claim: the post-quantization contract gate was annotated "unreachable", and it is the
+branch that refused these captions (snapping a 0.02s cue puts both ends on one frame).
+Tests: `src/assemble.test.ts` (10). Docs: `docs/api/ai-tools.md`, `CHANGELOG.md`.
+
 **Status snapshot (2026-08-29, run `ea8e46ec` — the beat-grid evidence deadlock):** `[x]`
 **A beat-synced montage can no longer be deadlocked by the run's own beat evidence.** The
 brief said "evaluate multiple suitable tracks and select the strongest one"; the run did
@@ -164,6 +317,30 @@ Two more from the same runs, also `[x]` fixed:
   "downstream code never re-guesses it" — and `settle` was re-guessing it, hardcoding
   `true` for every throw. It now reads the classification off the error; an unclassified
   throw keeps the optimistic default.
+
+One more from `run.md`, `[x]` fixed here:
+
+- `[x]` **"Remove the dead air" was told there was none, on a recording that is 21% dead
+  air.** Both `remove_silences` calls answered *"No dead air to cut: 0 silence(s) measured,
+  none longer than 0.55s where the asset plays."* Measured directly on the source with
+  `silencedetect` at -30 dB: **56 gaps, 10.65 s (21% of a 49.77 s take)** at `d=0.1`, 16 at
+  `d=0.2`, 7 at `d=0.3`, and **zero at `d=0.5`** — the longest pause this speaker takes is
+  **0.449 s**. The zero was arithmetically true and the sentence was false: `ranges.length`
+  is a POST-FILTER count, `silencedetect` applies `d=` inside ffmpeg, so it is 0 *by
+  construction* whenever the threshold overshoots. The model read it as a footage fact,
+  raised the threshold 0.55 → 0.65 (the wrong direction), abandoned dead-air removal, and the
+  sentence was distilled into run memory and re-injected into every later prompt. The engine
+  now always measures at a 0.1 s probe floor and filters in Python — same single decode — and
+  reports `measuredCount` / `longestSeconds` / `belowThresholdSeconds` alongside the filtered
+  ranges; the note states what was measured and names a threshold that can reach it. Three
+  defects fixed in the same change: the threshold was applied **twice** (ffmpeg, then again
+  to the `keepSeconds`-trimmed span, making the real floor `min + 2 × keep` = 0.79 s for a
+  request of 0.55 s); the TS default (0.8 s) disagreed with the engine's (0.5 s), so an
+  omitted argument discarded measured dead air; and `noiseFloorDb` was in the schema but
+  absent from the tool description, so the model could not know it existed. `reason` is now
+  honoured on this branch as it already was for `analyze_silence` / `detect_beats`. Silence
+  analyzer version bumped to **v2** so cached v1 rows (which carry no measurement) are not
+  served. See `docs/runbooks/ai-run-lifecycle.md`.
 
 Still open from these runs, **not** addressed here: the novelty accounting that let the spin
 run on. `callNoveltyKey` produces a stable key for `get_project_state`, so the repeats were
@@ -8242,8 +8419,15 @@ longer than the clip, treated as an error rather than as something to fit.
       transition into a legal one-frame edit, unknown arguments are named instead of silently
       stripped, locked tracks are enforced by the canonical patch authority (not just the UI),
       and `transcribe` is classified as the host mutation it always was. Host caching is
-      scoped by each tool's declared `cacheScope`, so preview/export/transcribe never replay
-      and `get_frame` is stamped with the timeline revision.
+      scoped by each tool's declared `cacheScope`, so preview/export/transcribe never replay.
+
+      > **Correction (2026-08-30):** this entry used to end "and `get_frame` is stamped with
+      > the timeline revision". That tier is gone. `Timeline.revision` advances only when clip
+      > timing moves, so it stood still through the colour grades, effects and bin imports the
+      > memoized reads were asked to check — `get_frame`, `measure_color` and `search_media`
+      > each shipped a stale-answer bug on it. A host read whose answer the run can change is
+      > now uncacheable by DERIVATION, not by each author remembering to declare `none`; only
+      > `revision_independent` source-material reads memoize.
 
       Verification: `pnpm verify` green — TS typecheck/lint/tests at the 100% coverage gate
       (editor-core 689, ai-sdk 2855), 2437 Python tests, `ruff`/`mypy` clean. The verification

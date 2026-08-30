@@ -105,7 +105,33 @@ export function setConversationUiState(
   return upsertConversation(state, withUiState(conversation, uiState));
 }
 
-/** Duplicate a conversation (copies its event log) under a new id. */
+/**
+ * Duplicate a conversation (copies its event log) under a new id.
+ *
+ * ## Attachment identity is deliberately NOT regenerated
+ *
+ * The copy carries the source's `uiState.attachments` and every message's attachments
+ * verbatim: same attachment ids, same on-disk `path`s, same `ReferenceProfile.id`s. Three
+ * separate questions were asked of that, and each answers "safe":
+ *
+ *  - **The files.** Two conversations naming one path is exactly the case the host's
+ *    reachability sweep is built for — a file is reclaimed only when NO conversation in
+ *    the project references it, so the copy keeps the original's attachments alive and
+ *    deleting either conversation strands nothing the other still shows.
+ *  - **`ReferenceProfile.id` as a decision subject.** A reference decision is bound to a
+ *    profile id and carried across runs by `carryForwardWorkingState`, which refuses to
+ *    carry anything unless the CONVERSATION and the project both match. A run in the copy
+ *    can therefore never inherit, retire, or reconsider a decision made in the original,
+ *    and `referenceDecisions` builds its lookup from one conversation's live references.
+ *    Uniqueness is required within a conversation, and duplication preserves that.
+ *  - **Dismissal.** `dismissedReferenceIds` lives in each conversation's own `uiState`, so
+ *    stopping a reference in the copy leaves the original using it.
+ *
+ * Regenerating the ids would have to rewrite the event log — a message's attachments, the
+ * profile inside it and the dismissal list all key off each other — which is a rewrite of
+ * history to solve a collision that has no consumer. If a project-scoped consumer of
+ * `ReferenceProfile.id` is ever added, this is the decision that has to be revisited.
+ */
 export function duplicateConversation(
   state: ConversationsState,
   id: string,

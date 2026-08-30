@@ -4,6 +4,7 @@ import {
   advanceStage,
   initialWorkingState,
   recordDecision,
+  REQUEST_ECHO_CHARS,
   recordObjective,
   setNextAction,
   setObjective,
@@ -167,6 +168,36 @@ describe('recoverWorkingState', () => {
     const outcome = ensureContextInvariants(state);
     expect(outcome.recovered).toContain('objective');
     expect(outcome.state.objective.outcome).toBe('make a 45s reel');
+  });
+
+  it('leaves the recovered objective replaceable by a real interpretation', () => {
+    // The recovery filled `outcome` but left `provisional` false, and `setObjective`
+    // only lets a real interpretation displace a placeholder that SAYS it is one. So a
+    // recovered run could never be given a genuine objective again — the recovery meant
+    // to unstick it locked it instead.
+    let state = initialWorkingState({ runId: 'run_1', request: 'make a 45s reel' });
+    state = advanceStage(state, 'inspect', 1);
+    const recoveredState = ensureContextInvariants(state).state;
+    expect(recoveredState.objective.provisional).toBe(true);
+
+    const interpreted = setObjective(recoveredState, {
+      outcome: 'Cut the interview to a 45s vertical reel with captions',
+      acceptance: [{ description: 'runs 45s ± 2s' }],
+    });
+    expect(interpreted.objective.outcome).toBe(
+      'Cut the interview to a 45s vertical reel with captions',
+    );
+    expect(interpreted.objective.provisional).toBe(false);
+  });
+
+  it('stores the fallback objective bounded, not as a second copy of the brief', () => {
+    // Serialized into the run state every turn, so an unbounded copy is paid per turn.
+    const request = `${'tighten the intro and '.repeat(40)}then export`;
+    let state = initialWorkingState({ runId: 'run_1', request });
+    state = advanceStage(state, 'inspect', 1);
+    const { outcome } = ensureContextInvariants(state).state.objective;
+    expect(outcome.length).toBeLessThanOrEqual(REQUEST_ECHO_CHARS + 1);
+    expect(outcome.endsWith('…')).toBe(true);
   });
 
   it('never invents acceptance criteria while recovering an objective', () => {

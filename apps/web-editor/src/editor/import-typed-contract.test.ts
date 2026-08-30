@@ -36,4 +36,36 @@ describe('desktop media chunk contract', () => {
       );
     }
   });
+
+  it('marks an AI-sidebar attachment as such on every chunk, and a bin import not at all', async () => {
+    const importMediaChunk = vi.fn(async (_request: { destination?: string }) => ({
+      ok: true as const,
+      path: 'media/project_1/attachments/ref.mp4',
+    }));
+    window.framepilot = { importMediaChunk } as unknown as FramePilotBridge &
+      MediaImportChunkBridge;
+
+    const bytes = new Uint8Array(MEDIA_IMPORT_CHUNK_BYTES + 5);
+    const file = new File([bytes], 'ref.mp4', { type: 'video/mp4' });
+    const media = {
+      path: URL.createObjectURL(file),
+      fileName: file.name,
+      durationSeconds: 1,
+      kind: 'video' as const,
+    };
+
+    await materializeImportedMedia(media, file, 'project_1', 'attachments');
+    // Every chunk, not just the first: the host reads the destination on the chunk that
+    // claims the name AND on the continuations that validate against that directory.
+    expect(importMediaChunk.mock.calls).toHaveLength(2);
+    for (const [request] of importMediaChunk.mock.calls) {
+      expect(request.destination).toBe('attachments');
+    }
+
+    importMediaChunk.mockClear();
+    await materializeImportedMedia(media, file, 'project_1');
+    for (const [request] of importMediaChunk.mock.calls) {
+      expect(request.destination).toBeUndefined();
+    }
+  });
 });

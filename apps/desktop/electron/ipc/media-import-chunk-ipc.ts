@@ -1,8 +1,5 @@
 import { app } from 'electron';
-import {
-  isMediaImportChunkRequest,
-  type MediaImportChunkResult,
-} from '@framepilot/shared-types';
+import { isMediaImportChunkRequest, type MediaImportChunkResult } from '@framepilot/shared-types';
 import { resolveProjectsDir } from '../projects/projects-dir.js';
 import { importMediaChunk } from '../projects/media-import.js';
 
@@ -22,6 +19,9 @@ export async function handleMediaImportChunk(value: unknown): Promise<MediaImpor
         offset: value.offset,
         final: value.final,
         ...(value.targetPath === undefined ? {} : { targetPath: value.targetPath }),
+        // Validated by `isMediaImportChunkRequest` to be the one allowed literal, so the
+        // destination the renderer asked for cannot name a directory of its own.
+        ...(value.destination === undefined ? {} : { destination: value.destination }),
       },
       new Uint8Array(value.data),
     );

@@ -378,3 +378,103 @@ describe('invalidation is scoped to what actually changed', () => {
     expect(store.size()).toBe(1);
   });
 });
+
+/**
+ * The waste this pins: `invalidate` was handed the applied operation types and consulted
+ * them only for the transcript and the bin, so EVERY `timeline_dependent` handle — a
+ * rendered frame included — died on any applied patch. In one three-minute run the agent
+ * added three empty tracks and re-rendered the frame at 2s after each of them, each render
+ * ~1.2s plus the model turn wrapped around it, to look at a picture that had not changed.
+ */
+describe('invalidation reads the operation types for the timeline too', () => {
+  const looked = () => {
+    const store = new EvidenceStore();
+    store.put({
+      key: 'get_frame:{"timeSeconds":2}',
+      source: 'get_frame',
+      descriptor: 'frame at 2s',
+      data: { image: 'base64…' },
+    });
+    store.put({
+      key: 'get_timeline:{}',
+      source: 'get_timeline',
+      descriptor: 'timeline',
+      data: { tracks: [{ id: 'video_1' }] },
+    });
+    return store;
+  };
+
+  it('keeps a rendered frame when the patch only added an empty track', () => {
+    const store = looked();
+    // An empty layer composites to nothing: every frame renders identically. The track
+    // LISTING did change, so that evidence still goes.
+    expect(store.invalidate(['add_layer'])).toBe(1);
+    expect(store.entries().map((e) => e.source)).toEqual(['get_frame']);
+  });
+
+  it('drops the frame when the same patch also placed a clip', () => {
+    const store = looked();
+    // Facets are unioned across the batch: one picture-changing operation anywhere in the
+    // patch makes the frame stale, whatever else rode along with it.
+    expect(store.invalidate(['add_layer', 'add_clip'])).toBe(2);
+    expect(store.size()).toBe(0);
+  });
+
+  it('drops the frame for a cut, exactly as before', () => {
+    const store = looked();
+    expect(store.invalidate(['ripple_delete'])).toBe(2);
+    expect(store.size()).toBe(0);
+  });
+
+  it('treats an operation type it does not recognise as changing everything', () => {
+    const store = looked();
+    // The load-bearing default. A stale frame presented as the current edit is far worse
+    // than a re-render, so a new operation in editor-core is expensive until someone
+    // classifies it deliberately.
+    expect(store.invalidate(['some_future_operation'])).toBe(2);
+    expect(store.size()).toBe(0);
+  });
+
+  it('keeps everything when the patch only wrote project memory', () => {
+    const store = looked();
+    // `remember_preference` emits `set_ai_memory`, which no read tool returns and no
+    // renderer reads. Recording a preference mid-edit used to cost the run its whole view.
+    expect(store.invalidate(['set_ai_memory'])).toBe(0);
+    expect(store.entries().map((e) => e.source)).toEqual(['get_frame', 'get_timeline']);
+  });
+
+  it('invalidates nothing when no operation was applied', () => {
+    const store = looked();
+    // A mutating tool can legitimately have nothing to do. Nothing applied, nothing stale.
+    expect(store.invalidate([])).toBe(0);
+    expect(store.size()).toBe(2);
+  });
+});
+
+describe('bin evidence tracks the operations that really change the bin', () => {
+  const binned = () => {
+    const store = new EvidenceStore();
+    store.put({
+      key: 'list_assets:{}',
+      source: 'list_assets',
+      descriptor: 'media bin',
+      data: { assets: 3 },
+    });
+    return store;
+  };
+
+  it('drops the listing when an asset is removed or refiled', () => {
+    // Previously only `add_asset` counted, so a removed asset stayed in the cached bin
+    // listing for the rest of the run and the model could cite an id the project no
+    // longer had.
+    expect(binned().invalidate(['remove_asset'])).toBe(1);
+    expect(binned().invalidate(['move_asset'])).toBe(1);
+    expect(binned().invalidate(['create_folder'])).toBe(1);
+  });
+
+  it('keeps the listing across a cut', () => {
+    const store = binned();
+    expect(store.invalidate(['ripple_delete', 'split_clip'])).toBe(0);
+    expect(store.size()).toBe(1);
+  });
+});

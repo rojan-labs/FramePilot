@@ -548,6 +548,11 @@ describe('download', () => {
     });
     if (!result.ok) throw new Error('expected ok');
     expect(result.asset.media).toEqual({
+      // Falls back to the variant's declared rendition size: this derive stub returned no
+      // probed dimensions, and a stock clip with no shape at all is what let 16:9 media
+      // reach a vertical sequence with `list_assets` unable to warn about letterboxing.
+      width: 1920,
+      height: 1080,
       proxyPath: '.framepilot-derived/d2d07e43afff/proxy.mp4',
       thumbnailPaths: ['.framepilot-derived/30679517a668/thumbs/thumb_000.png'],
       peaks: [0.1, 0.9],
@@ -573,11 +578,68 @@ describe('download', () => {
     });
     if (!result.ok) throw new Error('expected ok');
     expect(result.asset.media).toEqual({
+      width: 1920,
+      height: 1080,
       proxyPath: null,
       thumbnailPaths: null,
       peaks: null,
       peaksPerSecond: null,
     });
+  });
+
+  it('carries the engine-probed shape, preferring it over the declared rendition size', async () => {
+    // The regression: `materialize` rebuilt the media object field by field and simply did
+    // not name width/height, so every stock photo and video landed `unmeasured` even though
+    // the sidecar probed it. Stock media is overwhelmingly 16:9, which is exactly the
+    // landscape-in-a-portrait-frame case the shape exists to catch (schema v21).
+    const fetchImpl = vi.fn().mockImplementation(() => bytesResponse(body));
+    const service = makeService({
+      provider: stubProvider(page([VIDEO_ITEM])),
+      fetchImpl,
+      // The probe disagrees with the provider's declared 1920x1080 variant; the file on
+      // disk is what the timeline will render, so the probe wins.
+      derive: async () => ({
+        ok: true,
+        kind: 'video',
+        durationSeconds: 23.4,
+        media: { width: 1440, height: 1080 },
+      }),
+    });
+    await service.search({ text: 'q', kind: 'video' });
+    const result = await service.download({
+      projectId: PROJECT_ID,
+      remoteId: VIDEO_ITEM.remoteId,
+      operationId: 'op1',
+    });
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.asset.media?.width).toBe(1440);
+    expect(result.asset.media?.height).toBe(1080);
+  });
+
+  it('never emits half a shape when the probe returns only one dimension', async () => {
+    // Both or neither: a reader that finds only a width cannot decide anything with it,
+    // and "absent" must keep meaning "not probed", never "square".
+    const fetchImpl = vi.fn().mockImplementation(() => bytesResponse(body));
+    const service = makeService({
+      provider: stubProvider(page([VIDEO_ITEM])),
+      fetchImpl,
+      derive: async () => ({
+        ok: true,
+        kind: 'video',
+        durationSeconds: 23.4,
+        media: { width: 1440 } as { width: number },
+      }),
+    });
+    await service.search({ text: 'q', kind: 'video' });
+    const result = await service.download({
+      projectId: PROJECT_ID,
+      remoteId: VIDEO_ITEM.remoteId,
+      operationId: 'op1',
+    });
+    if (!result.ok) throw new Error('expected ok');
+    // The half-shape is discarded whole; the variant's complete pair stands in.
+    expect(result.asset.media?.width).toBe(1920);
+    expect(result.asset.media?.height).toBe(1080);
   });
 
   it('still adds the asset when derivation fails', async () => {

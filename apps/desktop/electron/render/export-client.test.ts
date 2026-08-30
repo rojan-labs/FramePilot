@@ -265,15 +265,25 @@ describe('exportViaSidecar — /render (async submit + poll contract, H1.3a)', (
     expect(result).toEqual({ ok: false, error: 'ECONNREFUSED' });
   });
 
-  it('reports a lost job when a mid-poll status check fails', async () => {
+  it('reports a lost job only after three consecutive failed status checks, and cancels it', async () => {
+    // FM-5: this used to give up after ONE null — including a 503 while the sidecar
+    // restarts under its own supervision — and left the job running, so ffmpeg finished
+    // and wrote the output while the user was told the export had failed.
     const jobId = 'job-4';
+    let statusCalls = 0;
+    let cancelCalled = false;
     const fetchFn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === `${BASE}/render` && init?.method === 'POST') {
         return jsonResponse({ jobId, status: 'queued' }, true, 202);
       }
+      if (url === `${BASE}/render/jobs/${jobId}/cancel`) {
+        cancelCalled = true;
+        return jsonResponse({ id: jobId, status: 'cancelled' });
+      }
       if (url === `${BASE}/render/jobs/${jobId}`) {
-        return jsonResponse('gone', false, 404);
+        statusCalls += 1;
+        return jsonResponse('service unavailable', false, 503);
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
@@ -284,7 +294,162 @@ describe('exportViaSidecar — /render (async submit + poll contract, H1.3a)', (
       fetchFn as unknown as typeof fetch,
       { sleepFn: noSleep },
     );
+
+    expect(statusCalls).toBe(3);
+    expect(cancelCalled).toBe(true); // the job is stopped, not abandoned mid-render
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain(jobId);
+  });
+
+  it('rides out a transient status failure and still completes the export', async () => {
+    // The sidecar manager restarts a dead engine on its own; an export must be at least
+    // as patient as the recovery it is racing.
+    const jobId = 'job-5';
+    const statuses: (string | null)[] = ['running', null, null, 'completed'];
+    let index = 0;
+    const fetchFn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === `${BASE}/render` && init?.method === 'POST') {
+        return jsonResponse({ jobId, status: 'queued' }, true, 202);
+      }
+      if (url === `${BASE}/render/jobs/${jobId}`) {
+        const status = statuses[index] ?? 'completed';
+        index += 1;
+        if (status === null) return jsonResponse('service unavailable', false, 503);
+        return jsonResponse({
+          id: jobId,
+          status,
+          result: status === 'completed' ? { state: 'completed', output_path: '/p/out.mp4' } : null,
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const result = await exportViaSidecar(
+      BASE,
+      { projectPath: '/p/project.fp.json' },
+      fetchFn as unknown as typeof fetch,
+      { sleepFn: noSleep },
+    );
+
+    expect(result).toEqual({ ok: true, outputPath: '/p/out.mp4', state: 'completed' });
+  });
+});
+
+describe('exportViaSidecar — request bounding (FM-2)', () => {
+  it('wires the caller signal into the submit request and the status polls', async () => {
+    // A `signal?.aborted` check BETWEEN poll iterations never observes an abort raised
+    // while awaiting a hung request. The signal has to reach `fetch` itself.
+    const jobId = 'job-6';
+    const controller = new AbortController();
+    const seen: (AbortSignal | null | undefined)[] = [];
+    const fetchFn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === `${BASE}/render` && init?.method === 'POST') {
+        seen.push(init.signal);
+        return jsonResponse({ jobId, status: 'queued' }, true, 202);
+      }
+      if (url === `${BASE}/render/jobs/${jobId}`) {
+        seen.push(init?.signal);
+        return jsonResponse({
+          id: jobId,
+          status: 'completed',
+          result: { state: 'completed', output_path: '/p/out.mp4' },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await exportViaSidecar(
+      BASE,
+      { projectPath: '/p/project.fp.json' },
+      fetchFn as unknown as typeof fetch,
+      { sleepFn: noSleep, signal: controller.signal },
+    );
+
+    expect(seen).toHaveLength(2);
+    for (const signal of seen) expect(signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('observes an abort raised while a status request is still in flight', async () => {
+    const jobId = 'job-7';
+    const controller = new AbortController();
+    let cancelCalled = false;
+    let statusCalls = 0;
+    const fetchFn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === `${BASE}/render` && init?.method === 'POST') {
+        return jsonResponse({ jobId, status: 'queued' }, true, 202);
+      }
+      if (url === `${BASE}/render/jobs/${jobId}/cancel`) {
+        cancelCalled = true;
+        return jsonResponse({ id: jobId, status: 'cancelled' });
+      }
+      if (url === `${BASE}/render/jobs/${jobId}`) {
+        statusCalls += 1;
+        if (statusCalls > 1) {
+          // The confirming read AFTER cancel deliberately carries no caller signal.
+          expect(init?.signal?.aborted).toBe(false);
+          return jsonResponse({ id: jobId, status: 'cancelled', result: null });
+        }
+        // Hang until the request's own signal aborts — the abort is raised only once we
+        // are already awaiting, which the old between-iterations check could never see.
+        return await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), {
+            once: true,
+          });
+          controller.abort();
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const result = await exportViaSidecar(
+      BASE,
+      { projectPath: '/p/project.fp.json' },
+      fetchFn as unknown as typeof fetch,
+      { sleepFn: noSleep, signal: controller.signal },
+    );
+
+    expect(cancelCalled).toBe(true);
+    expect(result).toEqual({ ok: false, error: 'Export cancelled.' });
+  });
+
+  it('reports an abort during the submit itself as a cancellation, not a render failure', async () => {
+    const controller = new AbortController();
+    const fetchFn = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) =>
+        await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), {
+            once: true,
+          });
+          controller.abort();
+        }),
+    );
+
+    const result = await exportViaSidecar(
+      BASE,
+      { projectPath: '/p/project.fp.json' },
+      fetchFn as unknown as typeof fetch,
+      { sleepFn: noSleep, signal: controller.signal },
+    );
+
+    expect(result).toEqual({ ok: false, error: 'Export cancelled.' });
+  });
+
+  it('leaves /render/preview unbounded — it is a full render on that one request', async () => {
+    // A submit-sized deadline here would abort real encoding work mid-flight.
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({ state: 'completed', output_path: '/p/preview.mp4' }),
+    );
+
+    await exportViaSidecar(
+      BASE,
+      { projectPath: '/p/project.fp.json', preview: true },
+      fetchFn as unknown as typeof fetch,
+    );
+
+    const init = fetchFn.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(init?.signal).toBeUndefined();
   });
 });

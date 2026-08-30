@@ -94,7 +94,6 @@ export interface ComposerProps {
   readonly contextItems: readonly ContextItem[];
   readonly onRemoveContext: (id: string) => void;
   readonly attachments: readonly Attachment[];
-  readonly onAddAttachment: (attachment: Attachment) => void;
   readonly onRemoveAttachment: (id: string) => void;
   /** Measure this reference again (P3.6) — e.g. after a failed analysis. */
   readonly onReanalyzeAttachment?: (id: string) => void;
@@ -165,20 +164,34 @@ export function Composer(props: ComposerProps): JSX.Element {
     props.onPinEntity(entity);
   };
 
+  /** Whether this host can import and measure a file at all (desktop only). */
+  const canAttach = props.onAttachFiles !== undefined;
+
+  /**
+   * Paste a file, and get exactly what dropping one gives you.
+   *
+   * It used to mint the attachment itself — `{ id, kind, name }` and nothing else — and
+   * never call `onAttachFiles`. So the file was never copied into the project and never
+   * analyzed, but the chip looked ordinary: no status pill, no disclosure, no
+   * Re-analyze, and it persisted across reloads forever. On submit it became a message
+   * attachment with no profile, so the bubble said the user had attached something the
+   * model was never given. Three entry points, two behaviours, and the broken one was
+   * the one that looked fine.
+   *
+   * Now it routes through the same handler as drop and the paperclip, which imports and
+   * measures. All files, not `files[0]` — pasting several silently discarded the rest.
+   */
   const onPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
-    const file = Array.from(event.clipboardData.files)[0];
-    if (file) {
-      event.preventDefault();
-      props.onAddAttachment({
-        id: `att_${Date.now()}`,
-        kind: file.type.startsWith('image/')
-          ? 'image'
-          : file.type.startsWith('video/')
-            ? 'video'
-            : 'document',
-        name: file.name || 'pasted',
-      });
-    }
+    if (!canAttach) return;
+    // Same filter as `onDrop`, and for the same reason stated there: only what this host
+    // can measure. Note the paperclip path is deliberately more talkative — it renders an
+    // `unsupported` chip explaining why — so pasting a PDF is quieter than choosing one.
+    const files = Array.from(event.clipboardData.files).filter(
+      (file) => file.type.startsWith('video/') || file.type.startsWith('image/'),
+    );
+    if (files.length === 0) return;
+    event.preventDefault();
+    props.onAttachFiles?.(files);
   };
 
   /**
@@ -192,7 +205,6 @@ export function Composer(props: ComposerProps): JSX.Element {
    */
   const dragDepth = useRef(0);
   const [dragging, setDragging] = useState(false);
-  const canAttach = props.onAttachFiles !== undefined;
 
   const dragCarriesFiles = (event: React.DragEvent<HTMLDivElement>): boolean =>
     Array.from(event.dataTransfer?.types ?? []).includes('Files');

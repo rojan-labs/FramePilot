@@ -16,6 +16,17 @@
 //
 //   pnpm --filter @framepilot/timeline-schema build && \
 //   pnpm --filter @framepilot/timeline-schema schema:generate
+//
+// `turbo.json`'s `schema:generate` task depends on this package's own
+// `build` (not `^build`) for the same reason: this script imports its own
+// package's built dist (`../dist/index.js`, `../dist/effect-catalog.js`), so
+// a stale dist would write a stale contract straight into
+// `engine/python/framepilot_engine/render/`. That task also sets
+// `cache: false` because it writes outside the package (the JSON catalogs
+// above, the font manifest, `apps/web-editor/src/fonts.css`), which turbo
+// cannot track as outputs. This only binds callers who go through turbo —
+// `pnpm --filter` bypasses it, so the `build && schema:generate` sequencing
+// above is still the protection there.
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';

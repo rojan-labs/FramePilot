@@ -79,8 +79,12 @@ built from distilled conclusions, not payloads — a read produces a one-line fa
 evidence handle, so the briefing stays flat in project duration.
 
 **The assembled context** (`context-builder.ts`) is the project material for this request:
-timeline slice, transcript slice, footage map, selection, pinned entities, project memory,
-skills manifest. Tiers are dropped lowest-priority-first to fit the budget, and the drop
+timeline slice, media bin, source media, transcript slice, footage map, selection, pinned
+entities, project memory, skills manifest. The **media bin** digest is present even when
+every asset is already on the timeline: the timeline slice describes the trimmed CLIP, and
+the bin is the only block that states each asset's SOURCE duration. Deleting it once
+everything was placed cost more in repeated `list_assets` calls than the ~15 tokens per
+asset it saved. Tiers are dropped lowest-priority-first to fit the budget, and the drop
 is reported rather than silent — **to the model as well as to the UI**, as a
 `NOT IN THIS PROMPT` block naming each missing tier and the call that returns it. A model
 that does not know the transcript was dropped reasons as though the project has no
@@ -125,6 +129,14 @@ An applied patch invalidates only `timeline_dependent` knowledge. The transcript
 map, the footage map and the source durations are `revision_independent` — a cut cannot
 change what was said or where the beats are — so they survive every edit. This is what
 stops a run re-deriving its whole reconnaissance each time an edit lands.
+
+Within `timeline_dependent`, the store asks WHICH operations landed
+(`kernel/evidence-store.ts`). A patch changes the **picture** (how a rendered frame looks),
+the **structure** (the track/clip listing), or both; `get_frame` evidence rests on the
+picture alone. So adding an empty track no longer discards a rendered frame that cannot
+have changed, while it does discard the track listing. Any operation type the store does
+not recognise — including a new one in `editor-core` — invalidates everything, deliberately:
+a stale frame presented as the current edit is worse than a re-render.
 
 ---
 

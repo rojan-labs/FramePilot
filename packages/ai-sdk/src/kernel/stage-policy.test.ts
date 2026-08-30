@@ -6,7 +6,11 @@
  * tools that would restart reconnaissance.
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
+  PRECONDITION_TOOL_NAMES,
   VALIDATOR_INPUT_TOOL_NAMES,
   settledStageFor,
   stageAdvanceFor,
@@ -101,23 +105,90 @@ describe('the locked plan is actually closed to re-analysis', () => {
    * to do. Whenever a prerequisite is NAMED in a description, it must be reachable in
    * every stage the tool itself is reachable in.
    */
+  /**
+   * The same contract, read from where the incident actually came from.
+   *
+   * The description scan below is phrasing-dependent by construction — it has to guess
+   * which sentences state an order — and it has already been widened twice after missing
+   * the real thing. But run 7d159862's deadlock was not in a description at all: it was a
+   * THROWN string, `"This project has no transcript yet ... Run transcribe first."`, from
+   * inside `caption_the_edit`'s handler. A thrown remedy is a stronger promise than a
+   * description: the model has just been refused and told exactly what to do about it.
+   *
+   * So this reads the handlers' source and needs no phrasing rule at all. Any registry
+   * tool name appearing in a message a domain tool throws is a remedy that tool is
+   * pointing at, and it must be reachable wherever the tool that names it is.
+   *
+   * Attributed per FILE rather than per handler: a file's tools share a domain, and
+   * over-constraining within one domain is the safe direction for a guard whose whole
+   * job is to fail closed.
+   */
+  it('never throws a remedy naming a tool the same stage withholds', () => {
+    const domainToolsDir = fileURLToPath(new URL('../domain-tools', import.meta.url));
+    const registryNames = TOOL_REGISTRY.map((t) => t.name);
+    // Message text of every `throw new Error(...)` in the file, template literals and
+    // concatenations included — the argument list up to the closing paren.
+    const THROWN = /throw new Error\(([\s\S]*?)\);/g;
+
+    for (const file of readdirSync(domainToolsDir)) {
+      if (!file.endsWith('.ts') || file.includes('.test.')) continue;
+      const source = readFileSync(join(domainToolsDir, file), 'utf8');
+      const thrown = [...source.matchAll(THROWN)].map((m) => m[1] ?? '').join('\n');
+      if (thrown === '') continue;
+      const remedies = registryNames.filter((name) => new RegExp(`\\b${name}\\b`).test(thrown));
+      if (remedies.length === 0) continue;
+      // The tools this file defines, by the `name:` field of each spec in it.
+      const defined = [...source.matchAll(/name: '([a-z_]+)'/g)]
+        .map((m) => m[1]!)
+        .filter((name) => registryNames.includes(name));
+
+      for (const toolName of defined) {
+        const tool = getTool(toolName);
+        if (!tool) continue;
+        for (const remedy of remedies) {
+          if (remedy === toolName) continue;
+          const remedySpec = getTool(remedy);
+          if (!remedySpec) continue;
+          for (const stage of RUN_STAGES) {
+            if (!stageAllowsTool(stage, tool.name, tool.mutates)) continue;
+            expect(
+              stageAllowsTool(stage, remedy, remedySpec.mutates),
+              `${file}: ${tool.name} is offered in "${stage}" and its handlers throw a message naming ${remedy}, which is withheld there`,
+            ).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
   it('never offers a tool in a stage that withholds the tool its description requires', () => {
-    const PREREQUISITE = /(?:call (?:this|\w+) before|use (\w+) first)/i;
+    // Both halves of this check used to be hand-written and both had holes wide
+    // enough to miss the real thing. "First read get_mapped_transcript" and "it
+    // needs get_mapped_transcript first" matched neither phrasing alternative,
+    // and even if they had, the name extractor only recognised `discover_*`,
+    // `get_timeline` and `search_*` — so the tool at the centre of run 7d159862
+    // was invisible to the guard written to catch exactly its failure.
+    //
+    // Match any phrasing that states an order, and extract against the REGISTRY
+    // rather than a pattern, so a newly named prerequisite cannot slip past.
+    const PREREQUISITE =
+      /(?:call (?:this|\w+) before|(?:use|read|run|call) \w+ first|needs \w+ first|first (?:read|run|call)|\bbefore you\b)/i;
+    const registryNames = TOOL_REGISTRY.map((t) => t.name);
     const named = (description: string): readonly string[] =>
-      [...description.matchAll(/\b(discover_[a-z_]+|get_timeline|search_[a-z_]+)\b/g)].map(
-        (m) => m[1]!,
-      );
+      registryNames.filter((name) => new RegExp(`\\b${name}\\b`).test(description));
     for (const tool of TOOL_REGISTRY) {
       if (!PREREQUISITE.test(tool.description)) continue;
       for (const prerequisite of named(tool.description)) {
+        if (prerequisite === tool.name) continue;
         const prerequisiteSpec = getTool(prerequisite);
         if (!prerequisiteSpec) continue;
         for (const stage of RUN_STAGES) {
-          const toolRoleHere = toolRole(tool.name, tool.mutates);
-          const prerequisiteRole = toolRole(prerequisite, prerequisiteSpec.mutates);
-          if (!stageAllowsRole(stage, toolRoleHere)) continue;
+          // Ask the question the runtime actually asks — `stageAllowsTool`, not the
+          // role alone — so a documented exemption counts as reachability and an
+          // undocumented gap still fails.
+          if (!stageAllowsTool(stage, tool.name, tool.mutates)) continue;
           expect(
-            stageAllowsRole(stage, prerequisiteRole),
+            stageAllowsTool(stage, prerequisite, prerequisiteSpec.mutates),
             `${tool.name} is offered in "${stage}" but its stated prerequisite ${prerequisite} is not`,
           ).toBe(true);
         }
@@ -159,25 +230,46 @@ describe('the locked plan is actually closed to re-analysis', () => {
     }
   });
 
-  it('exempts only the validator inputs — every other analysis tool still closes', () => {
+  it('exempts only the named carve-outs — every other analysis tool still closes', () => {
     const analysisTools = TOOL_REGISTRY.filter(
       (tool) => toolRole(tool.name, tool.mutates) === 'analysis',
     );
-    // The carve-out must not become a hole: the reconnaissance lockout is the whole point
-    // of the execution stages, and only the tools a guard actually reads may step past it.
-    expect(analysisTools.length).toBeGreaterThan(
-      VALIDATOR_INPUT_TOOL_NAMES.size + VERIFICATION_LOOK_TOOL_NAMES.size,
-    );
+    // Three named carve-outs, each with a written incident: the validator input a guard
+    // reads, the picture look that verifies an edit, and the precondition a mutation's own
+    // refusal names. The lockout is the whole point of the execution stages, so the
+    // exempted set must stay a small minority of the analysis surface.
+    const exempt = new Set([
+      ...VALIDATOR_INPUT_TOOL_NAMES,
+      ...VERIFICATION_LOOK_TOOL_NAMES,
+      ...PRECONDITION_TOOL_NAMES,
+    ]);
+    expect(analysisTools.length).toBeGreaterThan(exempt.size * 2);
     for (const tool of analysisTools) {
-      if (VALIDATOR_INPUT_TOOL_NAMES.has(tool.name)) continue;
-      // The picture look is the other named carve-out (P1.1b) — verification of an edit,
-      // not reconnaissance of the material.
-      if (VERIFICATION_LOOK_TOOL_NAMES.has(tool.name)) continue;
+      if (exempt.has(tool.name)) continue;
       for (const stage of RUN_STAGES.filter(isExecutionStage)) {
         expect(
           stageAllowsTool(stage, tool.name, tool.mutates),
-          `${tool.name} is not a validator input and must stay withheld in "${stage}"`,
+          `${tool.name} is not a named carve-out and must stay withheld in "${stage}"`,
         ).toBe(false);
+      }
+    }
+  });
+
+  it('reaches every precondition tool in every stage', () => {
+    // The property that makes the set legitimate rather than a convenience list:
+    // some registered mutation must name the tool as the remedy for its own refusal.
+    for (const name of PRECONDITION_TOOL_NAMES) {
+      const spec = getTool(name);
+      expect(spec, `${name} must be a registered tool`).toBeDefined();
+      const demanded = TOOL_REGISTRY.some(
+        (tool) => tool.mutates && new RegExp(`\\b${name}\\b`).test(tool.description),
+      );
+      expect(demanded, `${name} is exempt but no mutation names it as a precondition`).toBe(true);
+      for (const stage of RUN_STAGES) {
+        expect(
+          stageAllowsTool(stage, name, spec?.mutates === true),
+          `${name} is a stated precondition but is withheld in "${stage}"`,
+        ).toBe(true);
       }
     }
   });
@@ -257,7 +349,6 @@ describe('stageAllowsRole — the boundary is structural', () => {
     expect(stageAllowsRole('apply', 'other')).toBe(true);
   });
 });
-
 
 describe('settledStageFor — every transition a turn earns', () => {
   it('closes analysis and opens execution on the turn that first applies a patch', () => {

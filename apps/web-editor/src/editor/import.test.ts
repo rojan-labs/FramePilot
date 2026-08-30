@@ -80,6 +80,55 @@ describe('deriveEngineMedia', () => {
     });
   });
 
+  it('carries the probed pixel dimensions onto the asset', async () => {
+    // Schema v21 added `AssetMedia.width/height` so a landscape source in a portrait
+    // sequence could be recognised before it renders with black bars. The engine
+    // returned them and the desktop client forwarded them, but the IPC result type
+    // omitted the pair and this function destructured only the other four fields — so
+    // every imported asset arrived shapeless and BOTH safeguards that read the shape
+    // (`list_assets`' letterbox note, the review's reframe check) were silently
+    // disarmed. The schema shipped; the capability did not.
+    installBridge({
+      importAsset: async (): Promise<ImportAssetResult> => ({
+        ok: true,
+        durationSeconds: 12,
+        kind: 'video',
+        media: { width: 3840, height: 2160, proxyPath: 'proxy.mp4' },
+      }),
+    });
+    await expect(deriveEngineMedia('media/p/clip.mp4')).resolves.toEqual({
+      width: 3840,
+      height: 2160,
+      proxyPath: 'proxy.mp4',
+    });
+  });
+
+  it('keeps dimensions all-or-nothing, so absent never reads as square', async () => {
+    installBridge({
+      importAsset: async (): Promise<ImportAssetResult> => ({
+        ok: true,
+        durationSeconds: 12,
+        kind: 'video',
+        media: { width: 3840, peaks: [0.1] },
+      }),
+    });
+    await expect(deriveEngineMedia('x')).resolves.toEqual({ peaks: [0.1] });
+  });
+
+  it('treats a shape on its own as media worth keeping', async () => {
+    // An image has no peaks, no proxy and no thumbnails — its dimensions are the only
+    // handle it has, and returning undefined here would discard them.
+    installBridge({
+      importAsset: async (): Promise<ImportAssetResult> => ({
+        ok: true,
+        durationSeconds: null,
+        kind: 'image',
+        media: { width: 4032, height: 3024 },
+      }),
+    });
+    await expect(deriveEngineMedia('x')).resolves.toEqual({ width: 4032, height: 3024 });
+  });
+
   it('degrades on engine failure or empty media', async () => {
     installBridge({ importAsset: async () => ({ ok: false, error: 'down' }) });
     expect(await deriveEngineMedia('x')).toBeUndefined();
