@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { TOOL_REGISTRY, assembleEdit } from '@framepilot/ai-sdk';
 import { readProjectFile } from '@framepilot/timeline-schema/file';
 import { EditorSession, SessionError } from './session.js';
-import { buildMcpTools } from './tools.js';
+import { UI_INDEPENDENT_HOST_TOOLS, buildMcpTools } from './tools.js';
 import { makeProject, makeSandboxProject } from './__fixtures__/project.js';
 
 interface ParityCase {
@@ -136,7 +136,13 @@ describe('cross-host command/effect policy parity', () => {
 
   it('never offers interaction-dependent tools to a host without an interaction snapshot', () => {
     const exposed = new Set(buildMcpTools().map((tool) => tool.name));
-    const interactionDependent = TOOL_REGISTRY.filter((tool) => tool.hostUiOnly);
+    // `hostUiOnly` marks two different things: tools needing a live interaction
+    // snapshot (what this test is about) and tools merely resolved outside the
+    // Python sidecar. Only the former may be withheld here — see
+    // `UI_INDEPENDENT_HOST_TOOLS`.
+    const interactionDependent = TOOL_REGISTRY.filter(
+      (tool) => tool.hostUiOnly && !UI_INDEPENDENT_HOST_TOOLS.has(tool.name),
+    );
 
     // Guard that this stays meaningful as the professional surface grows.
     expect(interactionDependent.map((tool) => tool.name)).toEqual(

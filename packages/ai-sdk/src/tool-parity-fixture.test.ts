@@ -72,6 +72,12 @@ describe('tool-parity fixture', () => {
         // which the standalone MCP server also has no route to (ADR 0114).
         'detect_subjects',
         'track_subject_automatically',
+        // Not UI-dependent — flagged so the Python sidecar does not mirror it.
+        // Where a caption cue breaks must have exactly one authority
+        // (`segmentCaptions`, ADR 0071), and a second segmenter in Python would
+        // disagree with it word by word. MCP still serves this one; see
+        // `UI_INDEPENDENT_HOST_TOOLS` in packages/mcp-server.
+        'caption_the_edit',
       ].sort(),
     );
   });

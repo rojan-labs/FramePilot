@@ -19,7 +19,13 @@ import {
   CAPTION_TEMPLATE_CATALOG,
   getCaptionTemplate,
 } from '@framepilot/timeline-schema/caption-templates';
-import { buildTimelineMap, mapTranscript } from '@framepilot/editor-core';
+import {
+  buildTimelineMap,
+  captionSegmentConfig,
+  deriveCaptionCues,
+  mapTranscript,
+  type CaptionSegmentPresetName,
+} from '@framepilot/editor-core';
 import type { ToolSpec } from '../tool-registry.js';
 import { DEFAULT_CAPTION_TOLERANCE_SECONDS, verifyCaptions } from '../verify.js';
 import { mutateTool, readTool } from './tool-factories.js';
@@ -187,8 +193,10 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'several picture cuts is fine and is not reported — only an audio discontinuity ' +
         'is. Returns { ok, cueCount, issues[] }. Run this before saying captions are ' +
         'done: an operation returning "applied" is not evidence that anything is ' +
-        'synchronized. It checks TIMING only — it cannot see whether a cue is legible, ' +
-        'clipped by the frame edge, or sitting on a face.',
+        'synchronized. Repair whatever it reports by re-running caption_the_edit, which ' +
+        're-derives every cue from the current timeline in one call — do not delete and ' +
+        're-add cues one at a time. It checks TIMING only — it cannot see whether a cue ' +
+        'is legible, clipped by the frame edge, or sitting on a face.',
       capabilities: ['captions'],
     },
     z.object({ toleranceSeconds: seconds.optional() }).strict(),
@@ -271,12 +279,124 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
   ),
   mutateTool(
     {
+      name: 'caption_the_edit',
+      description:
+        'Caption the WHOLE edit in one call. Reads the mapped transcript, segments the ' +
+        'retained speech into readable phrase cues at linguistic breaks, and writes every ' +
+        'cue on the track — replacing whatever cues are already there. This is the tool to ' +
+        'use for "add captions"; it is also how you REPAIR captions that verify_captions ' +
+        'reports as stale or out of sync after a cut, because re-running it re-derives every ' +
+        'cue from the current timeline. Words in deleted footage are dropped and no cue can ' +
+        'span a cut, so it cannot produce the errors hand-placed cues do. preset picks the ' +
+        'register: short-form (default, punchy 1-2 lines), subtitle (broadcast, longer ' +
+        'reading lines), one-word (one word per cue, for the one-word template family). ' +
+        'Style the finished track with set_track_caption_style and emphasise with ' +
+        'auto_emphasize_captions. Requires a transcript — run transcribe first.',
+      capabilities: ['edit', 'captions'],
+      // Not mirrored into the Python sidecar registry. Where a caption cue breaks
+      // is a linguistic decision and `segmentCaptions` is deliberately its single
+      // authority (ADR 0071); a Python re-implementation would disagree with it
+      // word by word, which is the drift the caption parity contract exists to
+      // prevent. Registering a spec the sidecar dispatcher could never honour is,
+      // per that parity test, the inverse of the gap it closes — so the flag that
+      // means "resolved outside the sidecar" is the honest one.
+      //
+      // This tool is NOT UI-dependent, though, so MCP still serves it — see
+      // `UI_INDEPENDENT_HOST_TOOLS` in packages/mcp-server.
+      hostUiOnly: true,
+    },
+    z
+      .object({
+        trackId: z.string(),
+        preset: z.enum(['short-form', 'subtitle', 'one-word']).optional(),
+        maxWordsPerCue: numeric(z.number().int().min(1).max(MAX_CAPTION_CUE_WORDS)).optional(),
+      })
+      .strict(),
+    (a, ctx) => {
+      const track = ctx.project.timeline.tracks.find((candidate) => candidate.id === a.trackId);
+      if (track === undefined) {
+        throw new Error(`Unknown track "${a.trackId}". Use get_timeline to list real ids.`);
+      }
+      if (track.type !== 'caption') {
+        throw new Error(`Track "${a.trackId}" is not a caption track.`);
+      }
+      if (ctx.project.transcript.length === 0) {
+        throw new Error(
+          'This project has no transcript yet, so there is no speech to caption. Run transcribe first.',
+        );
+      }
+
+      const config = captionSegmentConfig(
+        (a.preset ?? 'short-form') as CaptionSegmentPresetName,
+        a.maxWordsPerCue === undefined ? {} : { maxWordsPerCue: a.maxWordsPerCue },
+      );
+      const cues = deriveCaptionCues(
+        buildTimelineMap(ctx.project.timeline),
+        ctx.project.transcript,
+        config,
+      );
+      if (cues.length === 0 && track.clips.length === 0) {
+        throw new Error(
+          'No speech survives on the timeline to caption. Check the transcript covers the footage that is still in the edit.',
+        );
+      }
+
+      // Clear first, in the same patch, so one undo restores the previous
+      // captions. Back-to-front so each delete_range names a range that is still
+      // present in the timeline the validator replays against.
+      const clears = [...track.clips]
+        .sort((left, right) => right.start - left.start)
+        .map((clip) => ({
+          type: 'delete_range' as const,
+          trackId: a.trackId,
+          start: clip.start,
+          end: clip.end,
+        }));
+
+      return [
+        ...clears,
+        ...cues.flatMap((cue) => {
+          // Ids embed the cue start in ms: stable across re-runs of the same
+          // transcript, and unique within one.
+          const clipId = `caption_${a.trackId}_${Math.round(cue.start * 1000)}`;
+          return [
+            {
+              type: 'add_caption_layer' as const,
+              trackId: a.trackId,
+              start: cue.start,
+              end: cue.end,
+              clipId,
+            },
+            {
+              type: 'set_caption_cue' as const,
+              clipId,
+              captionCue: {
+                text: cue.text,
+                words: [...cue.words],
+                derivedFromRevision: cue.revision,
+                source: {
+                  assetId: cue.assetId,
+                  clipId: cue.clipId,
+                  start: cue.sourceStart,
+                  end: cue.sourceEnd,
+                },
+              },
+            },
+          ];
+        }),
+      ];
+    },
+  ),
+  mutateTool(
+    {
       name: 'add_caption_layer',
       description:
         'Add ONE short transcript-driven caption cue on a track over a timeline range ' +
-        '(start/end seconds). Never use one call for a whole recording or song: first ' +
-        'read get_mapped_transcript, then add separate readable phrase cues (normally ' +
-        '3–7 words, never more than 12). Style the completed set track-wide.',
+        '(start/end seconds). To caption a whole recording use caption_the_edit instead — ' +
+        'it segments and writes every cue in a single call. Reach for this one only to ' +
+        'patch a specific gap by hand: it needs get_mapped_transcript first, and a range ' +
+        'longer than one readable phrase (3–7 words, never more than 12) is rejected. ' +
+        'Style the completed set track-wide.',
     },
     z.object({ trackId: z.string(), start: seconds, end: seconds }).strict(),
     (a, ctx) => {
@@ -285,13 +405,13 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
       const mappedWords = mapped.words.filter((word) => word.start < a.end && word.end > a.start);
       if (duration > MAX_CAPTION_CUE_SECONDS || mappedWords.length > MAX_CAPTION_CUE_WORDS) {
         throw new Error(
-          `add_caption_layer creates one readable cue, but ${a.start}s–${a.end}s spans ${+duration.toFixed(3)}s and ${mappedWords.length} mapped words. Split it into separate 3–7 word phrase cues; never use one layer for a whole recording or song.`,
+          `add_caption_layer creates one readable cue, but ${a.start}s–${a.end}s spans ${+duration.toFixed(3)}s and ${mappedWords.length} mapped words. To caption a stretch this long call caption_the_edit, which segments the whole edit in one call; to place this cue by hand, split it into separate 3–7 word phrases.`,
         );
       }
       const clipIds = new Set(mappedWords.map((word) => word.clipId));
       if (clipIds.size > 1) {
         throw new Error(
-          `add_caption_layer cannot cross an edit boundary (${a.start}s–${a.end}s contains words from ${clipIds.size} clips). Split the cue at the cut.`,
+          `add_caption_layer cannot cross an edit boundary (${a.start}s–${a.end}s contains words from ${clipIds.size} clips). Split the cue at the cut, or call caption_the_edit, which never places a cue across one.`,
         );
       }
 

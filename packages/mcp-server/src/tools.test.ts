@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { TOOL_REGISTRY } from '@framepilot/ai-sdk';
-import { SESSION_TOOLS, buildMcpTools, getSessionTool } from './tools.js';
+import {
+  SESSION_TOOLS,
+  UI_INDEPENDENT_HOST_TOOLS,
+  buildMcpTools,
+  getSessionTool,
+  servableOverMcp,
+} from './tools.js';
 
 describe('buildMcpTools (registry → MCP auto-sync)', () => {
   const tools = buildMcpTools();
@@ -22,7 +28,7 @@ describe('buildMcpTools (registry → MCP auto-sync)', () => {
     // ever answer.
     const sessionNames = new Set(SESSION_TOOLS.map((t) => t.name));
     const mcpRegistryTools = [...names].filter((name) => !sessionNames.has(name)).sort();
-    const availableRegistry = TOOL_REGISTRY.filter((t) => t.available && !t.hostUiOnly)
+    const availableRegistry = TOOL_REGISTRY.filter(servableOverMcp)
       .map((t) => t.name)
       .sort();
     expect(mcpRegistryTools).toEqual(availableRegistry);
@@ -31,9 +37,26 @@ describe('buildMcpTools (registry → MCP auto-sync)', () => {
   it('does NOT expose a host-UI-only tool (no UI here to ask through)', () => {
     // Concrete guard, not just the abstract set test above: an MCP client is itself an
     // agent with its own user — if it wants to ask something it asks them directly.
-    const hostUiOnly = TOOL_REGISTRY.filter((t) => t.hostUiOnly);
-    expect(hostUiOnly.map((t) => t.name)).toContain('ask_user'); // guard the test is meaningful
-    for (const tool of hostUiOnly) expect(names.has(tool.name)).toBe(false);
+    const uiDependent = TOOL_REGISTRY.filter(
+      (t) => t.hostUiOnly && !UI_INDEPENDENT_HOST_TOOLS.has(t.name),
+    );
+    expect(uiDependent.map((t) => t.name)).toContain('ask_user'); // guard the test is meaningful
+    for (const tool of uiDependent) expect(names.has(tool.name)).toBe(false);
+  });
+
+  it('serves the host-resolved tools that need no UI state', () => {
+    // `hostUiOnly` carries two meanings: "needs live editor interaction state" (why
+    // MCP refuses) and "not mirrored into the Python sidecar" (why engine parity
+    // skips). `caption_the_edit` is only the second — pure computation over the
+    // project, excluded from the mirror solely because caption segmentation must
+    // have one authority (ADR 0071). Refusing it here would push MCP clients back
+    // onto add_caption_layer one cue at a time, the failure it exists to remove.
+    for (const name of UI_INDEPENDENT_HOST_TOOLS) {
+      const tool = TOOL_REGISTRY.find((t) => t.name === name);
+      expect(tool, `${name} must still be a registered tool`).toBeDefined();
+      expect(tool?.hostUiOnly).toBe(true);
+      expect(names.has(name)).toBe(true);
+    }
   });
 
   it('auto-exposes newly-added registry tools (e.g. set_track_flags)', () => {

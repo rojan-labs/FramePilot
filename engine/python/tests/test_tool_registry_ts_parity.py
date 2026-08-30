@@ -108,6 +108,12 @@ def test_host_ui_only_tools_are_detected_and_excluded() -> None:
     assert host_ui_only == {
         "ask_user",
         "measure_color",
+        # Where a caption cue breaks is a linguistic decision and `segmentCaptions`
+        # is deliberately its single authority (ADR 0071). Mirroring it here would
+        # mean a second segmenter disagreeing with the first word by word — so this
+        # one is resolved outside the sidecar. MCP still serves it (it needs no UI
+        # state); see UI_INDEPENDENT_HOST_TOOLS in packages/mcp-server.
+        "caption_the_edit",
         # Main-process only: the provider network and the project media directory
         # live in Electron main, and there is no sidecar route to fall back to
         # (ADR 0139). Desktop Agent mode still offers them.
