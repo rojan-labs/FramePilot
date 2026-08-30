@@ -376,6 +376,24 @@ export interface ConductorState {
    * A call whose key is here taught the model nothing it did not already have.
    */
   readonly seenCallKeys: readonly string[];
+  /**
+   * `name:error` of every call the run's DETERMINISTIC refusal path has already turned
+   * down (see {@link TurnCallFact.failureKey}). A call that settles to a key already in
+   * here is refused instead of folded: the run has proof that exact refusal is what this
+   * tool answers, so paying for it again cannot teach it anything.
+   *
+   * Banked UNCONDITIONALLY, which is the exact inverse of {@link ConductorState.seenCallKeys}
+   * and for the mirrored reason: that set is a claim that the run HOLDS an answer, so only
+   * a call that answered may enter it. This one is a claim that the run has already been
+   * REFUSED, and only a failure can prove that.
+   *
+   * Cleared by any applied edit. A validator verdict is a statement about the arrangement
+   * that was in front of it ("this overlaps the clip at 3s"), so the patch that changes the
+   * arrangement retires it — the same reason {@link ConductorState.lastRejectionReason}
+   * clears there. Without that, one rejected `add_clip` would lock out every later
+   * `add_clip` whose cause the run had genuinely fixed.
+   */
+  readonly seenFailureKeys: readonly string[];
   /** Count + reasons of proposed ops the validator rejected (empty-run notice). */
   readonly rejectedOpCount: number;
   readonly rejectionReasons: readonly string[];
@@ -459,6 +477,7 @@ export function initialConductorState(turnRef: TurnRef): ConductorState {
     researchStreak: 0,
     recentOutputDeltas: [],
     seenCallKeys: [],
+    seenFailureKeys: [],
     rejectedOpCount: 0,
     rejectionReasons: [],
     lastRejectionReason: '',
@@ -521,6 +540,15 @@ export interface RunTurnEffect {
    * is deliberately stateless — every input a turn depends on arrives here.
    */
   readonly working?: RunWorkingState;
+  /**
+   * The `name:error` keys the run has already been refused with
+   * ({@link ConductorState.seenFailureKeys}), so the handler can refuse a call that
+   * settles to one of them instead of feeding the model the same sentence again.
+   *
+   * Omitted while the set is empty, which keeps the effect byte-identical to what every
+   * existing caller and fixture already asserts on.
+   */
+  readonly seenFailureKeys?: readonly string[];
 }
 
 /** Run the Critic self-check (+ one bounded repair pass) over the working copy. */
@@ -615,6 +643,22 @@ export interface TurnCallFact {
    * Absent for calls that conclude nothing (a recall, a failure, a memo hit).
    */
   readonly distilled?: Distillation;
+  /**
+   * `name:error` for a call the DETERMINISTIC refusal path turned down — argument
+   * validation or the per-call validator probe, never a host/transport error.
+   *
+   * The error is the identity, not the arguments. In run `7d159862` `caption_the_edit`
+   * was refused four times with the byte-identical sentence
+   * `add_caption_layer.end must be greater than start.`; three attempts shared one set of
+   * arguments and the fourth varied both `preset` and `maxWordsPerCue`, so an args-keyed
+   * guard would have waved that one through. Roughly ten of the run's eighteen model
+   * calls went into that loop.
+   *
+   * Absent for every success, every warning, and every host failure — the last of those
+   * deliberately, because a sidecar restart or a network timeout is transient and banking
+   * it would block work that would have succeeded on the next attempt.
+   */
+  readonly failureKey?: string;
 }
 
 /**
@@ -922,6 +966,7 @@ function runTurnEffect(state: ConductorState, stepIndex: number): RunTurnEffect 
     planSteps: state.planSteps,
     ledgerLength: state.ledgerLength,
     ...(state.actionRecoveryPending ? { actionRecovery: true } : {}),
+    ...(state.seenFailureKeys.length > 0 ? { seenFailureKeys: state.seenFailureKeys } : {}),
     stage: state.working.stage,
     working: state.working,
   };
@@ -1226,6 +1271,7 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
     researchStreak: 0,
     recentOutputDeltas: [],
     seenCallKeys: [],
+    seenFailureKeys: [],
     rejectedOpCount: 0,
     rejectionReasons: [],
     lastRejectionReason: '',
@@ -1753,6 +1799,10 @@ export function onTurnResult(
       // An edit landed, so whatever was refused before is behind the run.
       lastRejectionReason: '',
       seenCallKeys: mergeSeenKeys(state.seenCallKeys, r.callFacts),
+      // Same reason as `lastRejectionReason`: a deterministic refusal describes the
+      // arrangement the validator was shown, and this patch has just replaced it. Holding
+      // the keys across an applied edit would refuse a retry whose cause the edit fixed.
+      seenFailureKeys: [],
     };
     if (cumulativeOps.length >= state.config.maxOpsPerRun) {
       const note = `Reached the per-run cap of ${state.config.maxOpsPerRun} operations — stopping.`;
@@ -1798,6 +1848,7 @@ export function onTurnResult(
     (attemptedEdit && !repeatedRejection) ||
     turnLearnedSomethingNew(r.callFacts, state.seenCallKeys);
   const seenCallKeys = mergeSeenKeys(state.seenCallKeys, r.callFacts);
+  const seenFailureKeys = mergeFailureKeys(state.seenFailureKeys, r.callFacts);
   // Convergence is the sole behavioral stop: a turn that made no progress increments the
   // streak, any progress resets it. Two provable non-progress turns in a row (or an exact
   // verbatim repeat, caught immediately) mean the run is stuck — stop and finalize
@@ -1848,17 +1899,36 @@ export function onTurnResult(
   // A turn that proposed operations and lost them to the validator is recorded too: the
   // ledger must show what the run TRIED, or a failure looks identical to never having
   // attempted anything (the distinction ADR 0074's empty-run notice turns on).
+  //
+  // `turnOpCount > 0` alone did not see the commonest way to lose them. The PER-CALL
+  // validator probe refuses inside the call, so the outcome it returns is `ops: []` with
+  // the count carried out of band in `rejectedOpCount` — meaning the turn reported zero
+  // operations and nothing was recorded at all. Run `7d159862` ended with 584 rejected
+  // operations and a ledger of five rows, every one of them `succeeded`; the briefing's
+  // "FAILED — fix the cause, do not retry unchanged" section therefore never rendered
+  // once, and the model retried `caption_the_edit` four times with nothing in its memory
+  // to say it had ever been refused.
+  //
   // A turn whose edit was already on the timeline is recorded as SUCCEEDED, not failed:
   // the state it was trying to reach is the state that exists. Filing it as a failure put
   // it under the briefing's "FAILED — fix the cause, do not retry unchanged", which is
   // advice with no cause behind it; as a success it lands under "ALREADY APPLIED — do not
-  // repeat", which is both true and the instruction the run actually needs.
-  const workingAfterTurn = attemptedEdit
+  // repeat", which is both true and the instruction the run actually needs. Ops the
+  // validator refused are never "already there", so a turn that lost any is always failed.
+  const lostOpsPerCall = r.rejectedOpCount > 0;
+  const recordable = attemptedEdit || lostOpsPerCall;
+  const recordSucceeded = r.satisfied === true && !lostOpsPerCall;
+  // The per-call notes name the tool AND the validator's reason; the turn note carries
+  // every read result in the turn, which is far too much to put in front of the model as
+  // "the cause to fix".
+  const recordedFailureReason =
+    r.rejection ?? (r.rejectionNotes.length > 0 ? r.rejectionNotes.join('; ') : r.note);
+  const workingAfterTurn = recordable
     ? recordOperation(state.working, {
         intent: r.signature,
-        status: r.satisfied === true ? 'succeeded' : 'failed',
+        status: recordSucceeded ? 'succeeded' : 'failed',
         ...(r.patchId === undefined ? {} : { patchId: r.patchId }),
-        ...(r.satisfied === true ? {} : { failureReason: r.rejection ?? r.note }),
+        ...(recordSucceeded ? {} : { failureReason: recordedFailureReason }),
         planId: state.working.plan.id!,
         decisionId:
           state.working.plan.decisionIds[
@@ -1869,7 +1939,7 @@ export function onTurnResult(
         // are different facts about the run, and `recordOperation` keys updates on this.
         idempotencyKey:
           `${state.working.runId}:${state.working.plan.id!}:` +
-          `${r.signature}:${r.satisfied === true ? 'satisfied' : 'failed'}`,
+          `${r.signature}:${recordSucceeded ? 'satisfied' : 'failed'}`,
         projectRevisionBefore: state.working.currentProjectRevision,
         projectRevisionAfter: state.working.currentProjectRevision,
       })
@@ -1963,6 +2033,7 @@ export function onTurnResult(
     // repeat of it.
     lastRejectionReason: rejected ? (r.rejection ?? '') : state.lastRejectionReason,
     seenCallKeys,
+    seenFailureKeys,
   };
   // An exact repeated read batch used to terminate HERE before the next turn could act.
   // Give one deterministic recovery turn first: the handler withholds every read and
@@ -2083,6 +2154,24 @@ function bankIfStale(
  */
 function mergeSeenKeys(seen: readonly string[], facts: readonly TurnCallFact[]): readonly string[] {
   return [...new Set([...seen, ...facts.filter(callAnswered).map((f) => f.key)])];
+}
+
+/**
+ * Append this turn's deterministic refusals to the run's failure set, de-duplicated. Pure.
+ *
+ * Unconditional, unlike {@link mergeSeenKeys}: the runtime has already decided which
+ * failures are provable by attaching a {@link TurnCallFact.failureKey} at all, and it
+ * attaches one only on the deterministic argument/validator path. A transient host error
+ * carries no key and therefore cannot be banked here — the distinction has to live where
+ * the outcome is produced, because the reducer is pure and cannot tell a sidecar restart
+ * from a malformed argument by looking at a status.
+ */
+function mergeFailureKeys(
+  seen: readonly string[],
+  facts: readonly TurnCallFact[],
+): readonly string[] {
+  const keys = facts.map((f) => f.failureKey).filter((key): key is string => key !== undefined);
+  return keys.length === 0 ? seen : [...new Set([...seen, ...keys])];
 }
 
 /**

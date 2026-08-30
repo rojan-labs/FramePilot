@@ -130,6 +130,28 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **When the assistant's edit is refused, it is told which part was refused.** Asking for
+  captions builds one change per line of dialogue — over a hundred in a short video. If a
+  single one of them was impossible, the whole batch came back with one sentence explaining
+  the problem and no way to tell which line it was about. The assistant's only move was to
+  ask again, unchanged, and it did: one captured run spent more than half its work re-sending
+  the same rejected captions. A refusal now names the position of the change that caused it
+  and what that change was, so the next attempt fixes the one line instead of repeating all
+  of them.
+
+- **The assistant stops re-sending an edit that has already been refused.** A captured run
+  spent roughly ten of its eighteen model calls asking for captions four times and being
+  told the same thing each time — and shipped almost nothing. Two things kept it there.
+  Its record of what it had done listed only successes, because a change the validator
+  refused inside the call was never written down at all, so nothing in the run's own
+  memory said the attempt had ever been made. And nothing stopped a repeat: the run had
+  no way to notice it was asking a question it had already been answered. Refused changes
+  are now recorded with the reason they were refused, and a call that is turned down for a
+  reason this run has already been given is stopped with an explanation of what to do
+  instead — fix the cause, use a different tool, or move on. Only refusals the app can
+  prove will repeat count: a dropped connection or a restarted engine is still retried,
+  and any change that lands clears the slate.
+
 - **"Remove the dead air" no longer gives up on a recording that is full of it.** Asking the
   assistant to cut dead air out of a 50-second talking head told it, twice, that there was
   none — while the recording held 10.6 seconds of it across 56 pauses. The measurement was

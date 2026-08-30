@@ -1474,6 +1474,22 @@ interface AgentCallOutcome {
   finding?: string;
   status: ToolStatus;
   data?: unknown;
+  /**
+   * This `failed` outcome came from the run's DETERMINISTIC refusal path — schema
+   * validation of the arguments, or the per-call validator probe — so the same call
+   * against the same arrangement is refused with the same sentence every time.
+   *
+   * The discriminator has to exist, and it has to be opt-in. `status: 'failed'` alone is
+   * shared by around twenty return sites in this file, most of them HOST outcomes: a
+   * sidecar restart, a download timeout, a provider 5xx. Those are transient, and
+   * remembering one as proof that a tool cannot work would be a worse bug than the retry
+   * loop the memory exists to stop. So a failure is transient unless the branch that
+   * produced it says otherwise here.
+   *
+   * Consumed by `executeToolCalls` to build `TurnCallFact.failureKey`; absent ⇒ nothing
+   * about this failure is remembered for the rest of the run.
+   */
+  deterministicFailure?: boolean;
   /** The working copy advanced by this call's validated ops (mutating calls only). */
   project?: Project;
   /** How many proposed ops the validator rejected (drives the empty-run notice). */
@@ -3465,7 +3481,14 @@ export class Orchestrator {
         parsed = tool.parse(args) as typeof parsed;
       } catch (cause) {
         const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause)}`;
-        return { ops: [], note, summary: note, status: 'failed', data: note };
+        return {
+          ops: [],
+          note,
+          summary: note,
+          status: 'failed',
+          data: note,
+          deterministicFailure: true,
+        };
       }
       if (!host.askUser) {
         // No one is listening — the non-streaming paths (the legacy loop, the repair
@@ -3577,7 +3600,14 @@ export class Orchestrator {
         tool.parse(args);
       } catch (cause) {
         const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause)}`;
-        return { ops: [], note, summary: note, status: 'failed', data: note };
+        return {
+          ops: [],
+          note,
+          summary: note,
+          status: 'failed',
+          data: note,
+          deterministicFailure: true,
+        };
       }
       const result = await host.effectRuntime.run(
         {
@@ -4053,7 +4083,14 @@ export class Orchestrator {
         };
       } catch (cause) {
         const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause)}`;
-        return { ops: [], note, summary: note, status: 'failed', data: note };
+        return {
+          ops: [],
+          note,
+          summary: note,
+          status: 'failed',
+          data: note,
+          deterministicFailure: true,
+        };
       }
     }
     try {
@@ -4108,6 +4145,7 @@ export class Orchestrator {
           status: 'failed',
           data: problems,
           rejectedOpCount: ops.length,
+          deterministicFailure: true,
         };
       }
       // The NORMALIZED operations, not the raw ones the tool built.
@@ -4149,7 +4187,14 @@ export class Orchestrator {
       const reason = (error as ToolInvocationError).message;
       const note = `Rejected "${call.name}": ${reason}`;
       orchestratorLog.warn('tool call rejected — invalid args', { tool: call.name, reason });
-      return { ops: [], note, summary: note, status: 'failed', data: reason };
+      return {
+        ops: [],
+        note,
+        summary: note,
+        status: 'failed',
+        data: reason,
+        deterministicFailure: true,
+      };
     }
   }
 
@@ -5186,6 +5231,12 @@ export class Orchestrator {
      * withheld search is refused with the specific reason and the specific way out.
      */
     bankedSearches?: number,
+    /**
+     * `name:error` keys the run has already been refused with (`ConductorState.seenFailureKeys`).
+     * A call that settles to one of them is replaced by {@link repeatedFailureOutcome}
+     * instead of handing the model the same sentence a second time.
+     */
+    seenFailureKeys?: ReadonlySet<string>,
   ): AsyncGenerator<
     AiEvent,
     {
@@ -5382,7 +5433,28 @@ export class Orchestrator {
       // Fold the batch in original call order (reference pattern #2): results, notes,
       // callFacts, emitted events, and the stop-on-cancelled point are exactly what
       // serial execution produces for the same outcomes.
-      for (const { call, outcome, runtimeMs, announced } of settled) {
+      for (const { call, outcome: settledOutcome, runtimeMs, announced } of settled) {
+        // A repeat is caught the moment its refusal SETTLES, not before it runs, and the
+        // difference is not a detail. The key is `name:error` and the error is produced by
+        // the attempt — so the only thing knowable before execution is the tool's name,
+        // and blocking on that would refuse an `add_clip` at 30s because an earlier one
+        // overlapped a clip at 3s. Refusing a corrected retry is a worse bug than the loop.
+        //
+        // Nothing is wasted by letting it settle: every branch that can produce a
+        // `deterministicFailure` is in-process and side-effect-free (schema parse, op
+        // build, validator probe). Host work never reaches this test, because a host
+        // failure is never given a key.
+        const bankedKey = deterministicFailureKey(call.name, settledOutcome);
+        const isRepeat = bankedKey !== undefined && seenFailureKeys?.has(bankedKey) === true;
+        if (isRepeat) {
+          orchestratorLog.warn('tool call refused — already failed this run', {
+            tool: call.name,
+            error: settledOutcome.data,
+          });
+        }
+        const outcome = isRepeat
+          ? repeatedFailureOutcome(call, settledOutcome.data as string)
+          : settledOutcome;
         const cardExtra = cardExtraFor(call);
         if (!announced) {
           /* v8 ignore start -- E1.3 assertion: a concurrency-safe call must never produce
@@ -5463,12 +5535,14 @@ export class Orchestrator {
               ? { evidenceId: evidence.lookup(callMemoKey(call))!.id }
               : {}),
           });
+          const failureKey = deterministicFailureKey(call.name, outcome);
           callFacts.push({
             key: callNoveltyKey(call),
             status: outcome.status,
             fromCache: outcome.fromCache === true,
             role,
             ...(distilled ? { distilled } : {}),
+            ...(failureKey === undefined ? {} : { failureKey }),
           });
         }
         if (outcome.rejectedOpCount) {
@@ -7250,6 +7324,10 @@ export class Orchestrator {
           beatEvidence,
           controls.rememberDecision,
           withholdSearch ? bankedSearches : undefined,
+          // The run's proven-refusal memory, so a call that settles to a refusal this run
+          // has already had is answered with "that cannot work" instead of the same
+          // sentence again (see `ConductorState.seenFailureKeys`).
+          effect.seenFailureKeys ? new Set(effect.seenFailureKeys) : undefined,
         );
         if (callFacts.some(isContentEvidenceFact)) sawContentEvidence = true;
         // Hand this turn's frames to the NEXT request (see `pendingFrames`).
@@ -7668,6 +7746,86 @@ function withheldCallOutcome(
       'need, or ask_user. It becomes available again on the next turn.',
     summary: `${call.name} is unavailable this turn`,
     status: 'warning',
+  };
+}
+
+/**
+ * The run-memory key for a refusal the run can PROVE will repeat, or `undefined`.
+ *
+ * `name:error`, because the error is the identity and the arguments are not. In run
+ * `7d159862` `caption_the_edit` was refused four times with the byte-identical sentence
+ * `add_caption_layer.end must be greater than start.`; three of those attempts shared one
+ * set of arguments and the fourth varied both `preset` and `maxWordsPerCue`. An args-keyed
+ * guard would have let that one through — and it was the third of the four, so the loop
+ * would have run on regardless.
+ *
+ * Only a {@link AgentCallOutcome.deterministicFailure} yields a key: a host or transport
+ * failure is transient by nature, and a permanent block on one would refuse work that the
+ * next attempt would have completed.
+ */
+function deterministicFailureKey(
+  callName: string,
+  outcome: Pick<AgentCallOutcome, 'status' | 'data' | 'deterministicFailure'>,
+): string | undefined {
+  if (outcome.status !== 'failed' || outcome.deterministicFailure !== true) return undefined;
+  // The error text is the key's whole discriminating power; without it every failure of a
+  // tool would collapse to one key and the guard would block the tool outright.
+  if (typeof outcome.data !== 'string' || outcome.data.trim() === '') return undefined;
+  return `${callName}:${failureCause(outcome.data)}`;
+}
+
+/**
+ * The operation LOCATOR `describeValidationIssue` prefixes onto a rejection: which
+ * operation of how many, and what it was.
+ *
+ * Two shapes, because the locator drops the identity when the message already opens with
+ * the operation type: `op 12 of 63: ` and `op 1 of 1 (trim_clip, 0s–8s): `.
+ */
+const OPERATION_LOCATOR = /(^|; )op \d+ of \d+(?: \([^)]*?\))?: /g;
+
+/**
+ * A rejection with its operation locator removed — WHY it was refused, without WHERE.
+ *
+ * The locator is the right thing to show the author and the wrong thing to key run memory
+ * on. `caption_the_edit` proposes one operation per cue, so `maxWordsPerCue: 4` and
+ * `maxWordsPerCue: 5` produce different cue counts and the identical defect is reported at
+ * `op 12 of 63` and `op 9 of 48`. Keyed on the decorated string those read as two unrelated
+ * failures — which is precisely the attempt this guard exists to catch, since in run
+ * `7d159862` the third of four attempts was the one that varied its arguments.
+ *
+ * Nothing semantic is stripped. Every value the validator named — clip ids, track ids, the
+ * offending times — lives in the message body and survives, so a different defect is still
+ * a different key.
+ */
+function failureCause(error: string): string {
+  return error.replace(OPERATION_LOCATOR, '$1');
+}
+
+/**
+ * The outcome for a call the run has already been refused with, word for word.
+ *
+ * Settled as `failed`, NOT `warning` — the same trap `withheldCallOutcome`'s unknown-tool
+ * branch documents. `callAnswered` treats a warning as an answer, so a warning here would
+ * credit the turn with progress and bank the call's novelty key, which is to say the guard
+ * against spinning would reset the guards against spinning.
+ *
+ * The message names a way out, because a refusal with no legal move left is how a run gets
+ * stranded: fix the precondition the error names, pick a different tool, or move on.
+ */
+function repeatedFailureOutcome(call: ToolCall, error: string): AgentCallOutcome {
+  const note =
+    `"${call.name}" already failed this run with exactly this error: ${error} ` +
+    'Retrying it cannot succeed. Fix the precondition it names, use a different tool, ' +
+    'or move on to the next part of the request.';
+  return {
+    ops: [],
+    note,
+    summary: `Refused repeat of "${call.name}" — it already failed this run`,
+    status: 'failed',
+    // The ORIGINAL error, so this refusal keys back to the entry it matched instead of
+    // banking a second, wordier key for the same cause.
+    data: error,
+    deterministicFailure: true,
   };
 }
 
