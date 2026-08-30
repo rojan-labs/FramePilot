@@ -6756,6 +6756,18 @@ export class Orchestrator {
         const cause = reason ?? verdicts[firstRefused]!.reason!;
         hostRefusals.push({ patchId: patch.patchId, intent: patch.intent, reason: cause });
         log.push(`The editor could not write "${patch.intent}" — ${cause}`);
+        // FORGET the id as well as the ops. `patchIdFor` is a pure content hash of the
+        // normalized operations, so the corrected retry of a refused edit — which is very
+        // often the byte-identical call, because the refusal was the host's ("wrong project
+        // open", "revision moved"), not the model's — recomputes the SAME id. Left in
+        // `appliedPatchIds` it hit the no-op branch in `applyTurnEdit` and came back
+        // "already in place — this exact change is already on the timeline" with
+        // `satisfied: true`, which is excluded from the rejection path: green cards, a
+        // completion report claiming the edit, and a project that never received it.
+        //
+        // Removing it restores the only honest state — the run has NOT applied this patch —
+        // so a retry is assembled, validated and offered to the host again.
+        appliedPatchIds.delete(patch.patchId);
       }
       const removedOps = verdicts
         .slice(firstRefused)
@@ -7569,20 +7581,46 @@ export class Orchestrator {
         state: ConductorState,
       ): AsyncGenerator<AiEvent, void> {
         const emit = createTurnEmitter(state.turnRef, state.seq);
+        // THE BACKSTOP ON EVERY TERMINAL PATH.
+        //
+        // `reconcileHostVerdicts` otherwise runs only at a turn boundary and in `runVerify`.
+        // A cancelled run reaches neither: `kernel/conductor.ts`'s `cancelFinalize` goes
+        // straight to `finalize`, bypassing `toVerify`. So a Stop pressed after a refused
+        // patch left the last patches' verdicts uncollected, and the completion report
+        // below then told the editor about work the project never received — the exact
+        // failure the ledger exists to prevent, surviving on the one path that skipped it.
+        //
+        // Idempotent: `unsettledPatches` is spliced empty by each call, so the normal
+        // post-verify path reaches this with nothing outstanding and it costs nothing.
+        const refusalsBefore = hostRefusals.length;
+        await reconcileHostVerdicts();
+        const refusedAtTheEnd = hostRefusals.length > refusalsBefore;
+        // `effect.ops` was snapshotted by the reducer BEFORE those verdicts existed, so it
+        // still counts the refused patches. `cumulativeOps` is this closure's mirror and HAS
+        // been rewound by the reconcile above, which makes it the only honest account of
+        // what the project actually holds. Used only when a refusal landed here, so every
+        // other run keeps the reducer's list byte-for-byte.
+        const reportedOps = refusedAtTheEnd ? cumulativeOps : effect.ops;
         // C1: the run's real, combined cost (classifier + every turn + any repair pass) —
         // emitted once at the terminal boundary, mirroring `streamRecipe`/
         // the single terminal `emit.usage(...)` contract every route shares.
         yield emit.usage({ tokens: usageTokens, usd: usageUsd, modelCalls });
+        // Say the refusal out loud. The per-turn path emits these as warnings through the
+        // reducer (`onTurnResult`); a run that ends here has no turn left to carry them, and
+        // silence is how "your edit was refused" becomes "your edit was applied".
+        for (const refusal of hostRefusals.slice(refusalsBefore)) {
+          yield emit.warning(`Couldn’t apply “${refusal.intent}” — ${refusal.reason}`);
+        }
         // A cancelled run still gets a receipt when it applied something. Stopping a run
         // does not un-apply its edits — run e30c1fe9 left 38 operations in the project and
         // said nothing about any of them, because this gate treated "cancelled" as "there
         // is nothing to report". The last word the editor got was a perceptual warning
         // about frames, over a timeline they had no summary of.
-        if (!effect.failed && effect.ops.length > 0) {
+        if (!effect.failed && reportedOps.length > 0) {
           yield emit.assistant(
             emit.assistantId,
             agentCompletionReport({
-              ops: effect.ops,
+              ops: reportedOps,
               names: projectNames(working),
               steps: Math.max(effect.appliedTurns, 1),
               rejectedOpCount: effect.rejectedOpCount,

@@ -3939,6 +3939,77 @@ describe('streamAgent host commit verdict', () => {
     expect(fedBack).not.toMatch(/Rejected —/);
   });
 
+  it('retries a host-refused edit instead of answering “already in place”', async () => {
+    // `patchIdFor` is a pure content hash of the normalized ops, so the retry of a refused
+    // edit — very often the byte-identical call, because the refusal was the HOST's ("wrong
+    // project open", "revision moved") and not the model's — recomputes the same id.
+    // `reconcileHostVerdicts` rewound `working` and `cumulativeOps` but left that id in
+    // `appliedPatchIds`, so the retry hit the no-op branch and came back "already in place"
+    // with `satisfied: true` — which is excluded from the rejection path, so the cards
+    // stayed green and the run reported an edit the project never received.
+    const ledger = new InMemoryPatchCommitLedger();
+    const provider = new ScriptedProvider([
+      { text: 'trimming', toolCalls: [trim] },
+      { text: 'trying again', toolCalls: [{ ...trim, id: 'e2' }] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const diffIds: string[] = [];
+    for await (const event of new Orchestrator(provider).streamAgent(input, opts(), {
+      commitLedger: ledger,
+      maxSteps: 4,
+    })) {
+      if (event.type !== 'diff') continue;
+      // Refuse the first proposal; accept the retry — the sequence the fix has to make
+      // reachable at all.
+      ledger.record(
+        event.edit.patch.patchId,
+        diffIds.length === 0
+          ? { state: 'stale', reason: 'this project is not open in FramePilot' }
+          : { state: 'committed', revision: 2 },
+      );
+      diffIds.push(event.edit.patch.patchId);
+    }
+    // Two proposals with the SAME id: the second was really re-offered to the host.
+    expect(diffIds).toHaveLength(2);
+    expect(diffIds[1]).toBe(diffIds[0]);
+    const fedBack = JSON.stringify(provider.requests.map((r) => r.messages));
+    expect(fedBack).not.toMatch(/already in place/);
+  });
+
+  it('collects the last patch’s verdict even when the editor stops the run', async () => {
+    // `reconcileHostVerdicts` ran only at a turn boundary and inside `runVerify`.
+    // `cancelFinalize` (kernel/conductor.ts) goes straight to `finalize`, bypassing
+    // `toVerify`, so a Stop pressed after a refused patch left its verdict uncollected and
+    // the completion report told the editor about work the project never received.
+    const ledger = new InMemoryPatchCommitLedger();
+    const controller = new AbortController();
+    const provider = new ScriptedProvider([
+      { text: 'trimming', toolCalls: [trim] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events: AiEvent[] = [];
+    for await (const event of new Orchestrator(provider).streamAgent(
+      input,
+      { ...opts(), signal: controller.signal },
+      { commitLedger: ledger, maxSteps: 4 },
+    )) {
+      if (event.type === 'diff') {
+        ledger.record(event.edit.patch.patchId, {
+          state: 'stale',
+          reason: 'this project is not open in FramePilot',
+        });
+        // The editor stops the run in the same breath — the exact race the backstop is for.
+        controller.abort();
+      }
+      events.push(event);
+    }
+    expect(events.at(-1)).toMatchObject({ status: 'cancelled' });
+    // The refusal must be SAID, on the one path that had no turn left to say it on.
+    expect(JSON.stringify(events)).toMatch(/this project is not open in FramePilot/);
+    // …and the receipt must not claim the edit. Before this it read "**Applied 1 edit**".
+    expect(JSON.stringify(events)).not.toMatch(/\*\*Applied \d+ edits?\*\*/);
+  });
+
   // Every surface without a host arbiter (the browser build, MCP, these tests) passes no
   // ledger, and local validation stays the last word because it is the only word.
   it('is unchanged when no host is listening', async () => {
