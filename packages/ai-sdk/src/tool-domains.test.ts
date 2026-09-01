@@ -21,6 +21,11 @@ import {
 } from './tool-domains.js';
 import { toolSchemaCost } from './kernel/context/manifest.js';
 import { AGENT_MAX_OPS_PER_TURN } from './kernel/conductor.js';
+import {
+  PRECONDITION_TOOL_NAMES,
+  VALIDATOR_INPUT_TOOL_NAMES,
+  VERIFICATION_LOOK_TOOL_NAMES,
+} from './kernel/stage-policy.js';
 
 const NONE = new Set<ToolDomain>();
 
@@ -157,5 +162,45 @@ describe('derived fan-out is a short, justified list', () => {
       folderId: 'f',
     }));
     expect(() => tool?.parse({ strategy: 'plan', assignments: overLong })).toThrow();
+  });
+});
+
+/**
+ * The invariant that connects this file to `kernel/stage-policy.ts`.
+ *
+ * That file exempts three tools from every stage narrowing, and each exemption was
+ * written after a run died without it: `get_frame` is how the agent looks at its own
+ * edit; `detect_beats` is the payload the beat grid VALIDATES a cut against (run
+ * `ea8e46ec` was told "detect_beats is unavailable this turn" twice and died); and
+ * `transcribe` is what a caption mutation's own precondition tells the model to run.
+ *
+ * A tool the runtime has decided must ALWAYS be reachable must not then have to be asked
+ * for. Progressive disclosure got this wrong on its first pass — all three landed in
+ * domains — and `admitCall` hid the damage, because naming one still admits it. That is
+ * not good enough for `get_frame` in particular: an agent checks its own work only if the
+ * means to is in front of it, so hiding it turns the self-check into an opt-in.
+ */
+describe('a tool the stage policy always allows is always advertised', () => {
+  const alwaysReachable = [
+    ...VERIFICATION_LOOK_TOOL_NAMES,
+    ...VALIDATOR_INPUT_TOOL_NAMES,
+    ...PRECONDITION_TOOL_NAMES,
+  ];
+
+  it('keeps every stage-policy exemption in the core set', () => {
+    expect(alwaysReachable.length).toBeGreaterThan(0);
+    for (const name of alwaysReachable) {
+      expect(toolDomain(name), `${name} is exempt from stage narrowing but not core`).toBe('core');
+    }
+  });
+
+  it('offers them to a run that has loaded nothing', () => {
+    const core = new Set(toolDescriptors((t) => toolIsAdvertised(t.name, NONE)).map((t) => t.name));
+    for (const name of alwaysReachable) {
+      // `get_frame` carries the `vision` capability, so a text-only model is still
+      // withheld it by `agentTools` — that gate is about what the model can USE, and is
+      // orthogonal to this one.
+      expect(core, `${name} must not need load_tools`).toContain(name);
+    }
   });
 });
