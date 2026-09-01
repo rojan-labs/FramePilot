@@ -61,8 +61,7 @@ export type ToolDomain =
  * module names, because the model is choosing by what it is trying to do.
  */
 export const DOMAIN_SUMMARY: Readonly<Record<Exclude<ToolDomain, 'core'>, string>> = {
-  captions:
-    'write, restyle and emphasise captions; browse caption templates; check caption sync',
+  captions: 'write, restyle and emphasise captions; browse caption templates; check caption sync',
   audio:
     'transcribe; adjust levels; find and cut silence; detect beats to cut to; add music; professional audio moves',
   color: 'grade and correct colour; measure what is on screen now',
@@ -153,14 +152,16 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'verify_captions',
     'discover_caption_styles',
   ],
-  audio: [
-    'adjust_audio',
-    'analyze_silence',
-    'remove_silences',
-    'professional_audio',
-  ],
+  audio: ['adjust_audio', 'analyze_silence', 'remove_silences', 'professional_audio'],
   color: ['apply_color_grade', 'measure_color', 'professional_color'],
-  motion: ['add_keyframes', 'punch_in', 'set_clip_speed', 'set_clip_crop', 'professional_motion'],
+  motion: [
+    'add_keyframes',
+    'remove_keyframes',
+    'punch_in',
+    'set_clip_speed',
+    'set_clip_crop',
+    'professional_motion',
+  ],
   effects: [
     'add_text_layer',
     'add_transition',

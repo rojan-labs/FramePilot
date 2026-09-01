@@ -82,6 +82,39 @@ export const MOTION_TOOLS: readonly ToolSpec[] = [
   ),
   mutateTool(
     {
+      name: 'remove_keyframes',
+      description:
+        'Take animation OFF a clip: clear one property entirely, or remove a single ' +
+        'keyframe at a time. Name the clip and the properties — `{property: "scale"}` ' +
+        'clears every scale keyframe, `{property: "scale", time: 2}` removes just the ' +
+        'one two seconds into the clip. This is how a punch-in or a move is undone; ' +
+        'add_keyframes can only ever add more, so without this a clip the editor asked ' +
+        'you to "stop zooming" could not be fixed. Times are seconds from the clip\'s ' +
+        'start, the same clock add_keyframes uses. Removing something that is not ' +
+        'there changes nothing rather than failing.',
+    },
+    z
+      .object({
+        clipId: z.string(),
+        targets: z
+          .array(z.object({ property: z.string(), time: seconds.optional() }).strict())
+          .min(1),
+      })
+      .strict(),
+    (a) => [
+      {
+        type: 'remove_keyframes',
+        clipId: a.clipId,
+        targets: a.targets.map((target) =>
+          target.time === undefined
+            ? { property: target.property }
+            : { property: target.property, time: target.time },
+        ),
+      },
+    ],
+  ),
+  mutateTool(
+    {
       name: 'punch_in',
       description:
         'Add a zoom/punch-in (animated scale) to a clip. Times are clip-relative; ' +

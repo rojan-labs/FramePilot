@@ -1132,6 +1132,30 @@ describe('mutating tools — build valid operations', () => {
   // 30-step budget, interleaved with a re-read per batch. The run managed 34 in four apply
   // turns and the batches decayed 12 → 9 → 8 → 5 as reasoning ate the output reservation.
   // Per-clip granularity is right for fixing one shot and wrong for building a sequence.
+  it('remove_keyframes can clear a property or drop one keyframe, so animation is reversible', () => {
+    // Without this tool the agent could only ever ADD motion: asked to "stop the
+    // zoom on that shot" it had `add_keyframes` and nothing else, so the request
+    // had no tool that could answer it.
+    expect(
+      build('remove_keyframes', { clipId: 'clip_a', targets: [{ property: 'scale' }] }),
+    ).toEqual([{ type: 'remove_keyframes', clipId: 'clip_a', targets: [{ property: 'scale' }] }]);
+    expect(
+      build('remove_keyframes', { clipId: 'clip_a', targets: [{ property: 'scale', time: 2 }] }),
+    ).toEqual([
+      { type: 'remove_keyframes', clipId: 'clip_a', targets: [{ property: 'scale', time: 2 }] },
+    ]);
+  });
+
+  it('omits `time` entirely rather than sending undefined, which means "clear all"', () => {
+    // `applyRemoveKeyframes` treats a target with no `time` as "clear the whole
+    // property", so the key has to be absent — not present-and-undefined, which
+    // survives a JSON round trip differently.
+    const [op] = build('remove_keyframes', { clipId: 'clip_a', targets: [{ property: 'x' }] }) as [
+      { targets: readonly Record<string, unknown>[] },
+    ];
+    expect('time' in op.targets[0]!).toBe(false);
+  });
+
   it('never relocates PICTURE off the lane it was aimed at, even when it collides', () => {
     // `picture-occupancy.ts`: the preview flattens picture clips from every track
     // into one chain while the export composites stacked layers, so two picture
