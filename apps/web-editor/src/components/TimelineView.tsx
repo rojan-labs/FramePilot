@@ -2595,7 +2595,9 @@ export function TimelineView({
         // back to what its advisory type implies while it is still empty. Without
         // the fallback a new, empty caption lane was named `L1` — the generic
         // last-resort prefix — while its glyph already said "captions".
-        track.type === 'effect' ? undefined : (layerKind(track, assetById) ?? ADVISORY_KIND[track.type]),
+        track.type === 'effect'
+          ? undefined
+          : (layerKind(track, assetById) ?? ADVISORY_KIND[track.type]),
       ),
     [visibleTracks, assetById],
   );
@@ -2614,7 +2616,10 @@ export function TimelineView({
    * already-computed junctions rather than a re-derivation.
    */
   const joinsByTrack = useMemo(() => {
-    const map = new Map<string, { readonly left: ReadonlySet<string>; readonly right: ReadonlySet<string> }>();
+    const map = new Map<
+      string,
+      { readonly left: ReadonlySet<string>; readonly right: ReadonlySet<string> }
+    >();
     for (const track of visibleTracks) {
       const left = new Set<string>();
       const right = new Set<string>();

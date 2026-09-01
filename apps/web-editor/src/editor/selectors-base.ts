@@ -721,9 +721,7 @@ export function compactTimeLabel(
   // every label on the ruler would carry a constant `0:` prefix. Below that the
   // minute field leads, so a bare `:02` can never be misread as two frames.
   const showHours = span >= 3600 || hh >= 1;
-  const fields = showHours
-    ? [`${hh}`, pad2(mm), pad2(ss)]
-    : [`${mm}`, pad2(ss)];
+  const fields = showHours ? [`${hh}`, pad2(mm), pad2(ss)] : [`${mm}`, pad2(ss)];
   // The frame field appears only once the ruler resolves finer than a second;
   // above that step every tick would print a constant `:00`.
   if (step < 1) fields.push(pad2(frame));
