@@ -8,6 +8,24 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **De-umming a long recording now works.** Asking the AI to cut the dead air out of
+  anything past about seventeen minutes of speech removed nothing at all — the cuts were
+  measured correctly and then discarded whole, because an internal limit on how much one
+  step may change was counting the pauses your recording happens to contain. The same
+  applied to organizing a media bin of more than ~200 clips. Both now count only the
+  changes the AI chose to make.
+- **Transcribing a video with no sound says so.** It used to answer with a page of ffmpeg
+  version and build information, which told you nothing and told the AI less. It now says
+  the file has no audio track and what to do instead.
+- **When something goes wrong inside the media engine, you're told what.** Failures used
+  to surface as a bare "Internal Server Error" — most often when the AI tried to look at a
+  frame of your edit, which it does to check its own work. The real reason now reaches
+  both you and the AI.
+- **A rejected trim explains itself.** "trim_clip produces invalid source range" named the
+  clip and nothing else; the AI would re-send the same request. It now states where the
+  clip sits, what footage it plays, and which number is out of bounds — the confusion
+  behind almost every one of these is timeline time used where source time was needed.
+
 - **Captioning a video longer than about 45 seconds now works in Agent mode.** Asking the
   AI to add or restyle captions on anything longer was reporting "No edits were applied —
   N proposed changes couldn't be applied to the timeline" with nothing in the brackets

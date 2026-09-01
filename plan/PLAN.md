@@ -40,8 +40,43 @@ timeline (; ; )`. One exported constant now; the branch names the cap; the reduc
   re-read the same transcript at turn 9 and re-browsed caption styles it had already seen.
   The window is a floor now; the budget is the bound.
 
-Suites: ai-sdk **4014**, Python engine **2782**, e2e gate **95**, workspace typecheck 17/17,
-lint clean. Maintainer verifies the real desktop run by hand.
+Second pass, mining `framepilot.runs.jsonl` (2,783 real tool calls over four days, **325
+failed — 11.7%**) rather than waiting for the next report:
+
+- `[x]` **The same fan-out defect in two more tools.** `remove_silences` emits one
+  `ripple_delete` per measured silence (~250 on a twenty-minute interview) and
+  `manage_assets` one `move_asset` per asset (301 on a 300-photo bin). Both were charged
+  against a bound meant to stop a runaway model, so both were refused for the project being
+  large. The regression test drives 230 silences and gets **0 of 230** without the fix. The
+  first fix had stamped only the generic path and missed the four host-backed branches;
+  one helper covers all of them now, and the derived-fan-out set is asserted exactly.
+- `[x]` **A failed engine call now says what failed.** `get_frame` — the agent's only way
+  to LOOK at its own edit — failed **132 of 388 times, 100 of them with the body
+  `Internal Server Error`**, because nothing installed an exception handler and
+  `sidecar-executor.ts` shows the body verbatim. Every route was equally silent. The
+  underlying 500 is NOT fixed (not reproducible without the mission media); it is now
+  diagnosable, which it was not for 132 calls.
+- `[x]` **`trim_clip produces invalid source range on X`** named the clip and nothing else
+  — 29 of 34 `trim_clip` failures, reissued verbatim. Both engines now state both time
+  domains and both ranges, byte-identical and asserted from both sides.
+- `[x]` **Transcribing a silent video** returned ffmpeg's banner as the 422 body; it now
+  answers the way `analysis/silence.py` already did.
+- `[x]` **My own regression, caught by reading `stage-policy.ts`:** progressive disclosure
+  had hidden `get_frame`, `detect_beats` and `transcribe` behind `load_tools`, and those
+  are precisely the three tools the runtime exempts from every stage narrowing because runs
+  died without them. Now core, with a test asserting the invariant both ways.
+- `[x]` **The agent is told its tool list is not the whole product** (+101 tokens/request
+  against the 12,232 disclosure removes), so a capability it never guesses at is not a
+  feature the editor loses.
+- `[x]` **`pnpm verify` was failing intermittently** on a property test that only exceeded
+  its timeout under coverage instrumentation. Collect-then-assert: 4.3s → 556ms, and the
+  report now names every offending case rather than the first.
+
+Verified fixed while here: a run whose every model call fails settles as `failed` (both
+shapes probed against the live orchestrator).
+
+Suites: ai-sdk **4028**, Python engine **2796**, e2e gate **95**, `pnpm verify` **17/17**.
+Maintainer verifies the real desktop run by hand.
 
 **Status snapshot (2026-08-29, SYSMISSION — system mission plan):** `[~]` **The end-to-end
 system mission is executed on `feat/system-mission`: 65 of 69 tasks `[x]`, none partial,
@@ -8557,10 +8592,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                                                      Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                                                      a pre-existing local edit commenting out temperature forwarding, untouched here);
-                                                      engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                                                      **Last updated:** 2026-08-14
+                                                        Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                                                        a pre-existing local edit commenting out temperature forwarding, untouched here);
+                                                        engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                                                        **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 
