@@ -59,7 +59,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from framepilot_engine.media.ffmpeg import FFmpegNotFoundError, find_ffmpeg
+from framepilot_engine.media.ffmpeg import FFmpegError, FFmpegNotFoundError, find_ffmpeg
+from framepilot_engine.media.probe import inspect_media
 from framepilot_engine.subprocess_safety import validate_safe_argv
 from framepilot_engine.timeline.models import TranscriptWord
 
@@ -105,6 +106,10 @@ class AsrSetupBusyError(AsrError):
 
 class AsrTranscriptionError(AsrError):
     """The whisper-cli subprocess failed or produced no usable output."""
+
+
+class AsrNoAudioError(AsrError):
+    """The media carries no audio stream, so there is nothing to transcribe."""
 
 
 # ---------------------------------------------------------------------------
@@ -736,7 +741,10 @@ _DTW_PRESETS: dict[str, str] = {
 def _prepare_mono16k_wav(
     media_path: Path, out_path: Path, *, run: SubprocessRunner, timeout: float | None
 ) -> None:
-    """Extract mono 16kHz PCM WAV via ffmpeg — the input format whisper.cpp expects."""
+    """Extract mono 16kHz PCM WAV via ffmpeg — the input format whisper.cpp expects.
+
+    :raises AsrNoAudioError: If the decode failed because there is no audio stream.
+    """
     argv = [
         find_ffmpeg(),
         "-y",
@@ -750,7 +758,38 @@ def _prepare_mono16k_wav(
         "wav",
         str(out_path),
     ]
-    run(argv, timeout)
+    try:
+        run(argv, timeout)
+    except FFmpegError as exc:
+        raise _decode_failure(media_path, exc, timeout=timeout) from exc
+
+
+def _decode_failure(path: Path, exc: FFmpegError, *, timeout: float | None) -> Exception:
+    """Classify a failed audio decode of ``path`` into the error worth reporting.
+
+    A video with no audio track fails this decode with ffmpeg's whole banner followed by
+    "Output file does not contain any stream", and that string was going back to the
+    caller — and from there to the model — as the 422 body. It names no cause the caller
+    can act on and does not say the one thing that is true: this file has no sound in it.
+    A run asked to caption a silent screen recording was told to read a codec dump.
+
+    `analysis/silence.py` already answers the identical case with a sentence, and this is
+    the same classification against the same probe: ask ffprobe what streams exist, and
+    only when it answers "no audio" replace the failure. Anything else — a corrupt file, a
+    missing codec, an unreadable path — is a different fault and is returned untouched.
+
+    :returns: An :class:`AsrNoAudioError` when the media has no audio, else ``exc``.
+    """
+    try:
+        info = inspect_media(path, timeout=timeout)
+    except (FFmpegError, FileNotFoundError):
+        return exc
+    if info.has_audio:
+        return exc
+    return AsrNoAudioError(
+        f"{path.name} has no audio track, so there is nothing to transcribe. "
+        "Transcribe an asset that carries sound, or add one to the project."
+    )
 
 
 def extract_mono16k_wav(

@@ -48,8 +48,9 @@ writes one JSON row per run.
 Scenarios: UC-01, UC-02, UC-03, UC-05, UC-08 (as a second turn after UC-01), UC-09.
 Per run record: model calls, orchestration rounds, input/output/cached tokens per call,
 prompt bytes by context tier (from the token manifest), tool calls and repeats (same tool
-+ same args), analysis calls that hit cache vs recomputed, wall time, USD, final timeline
-outcome hash. Three runs per scenario; report p50 and spread.
+
+- same args), analysis calls that hit cache vs recomputed, wall time, USD, final timeline
+  outcome hash. Three runs per scenario; report p50 and spread.
 
 Also produce the **call ledger**: for each scenario, a table of every model call with the
 question "why does this call exist?" answered in one line, and a column for the Phase 1
@@ -118,12 +119,20 @@ and failure list. The after-numbers are `01-after.md`.
 ## Discovered
 
 (Add defects found during measurement here as `- [ ] <one line> → phase N`.)
-- [ ] `POST /transcribe` on a video with no audio stream returns a 422 whose detail is the raw
-      ffmpeg banner + "Output file does not contain any stream" (`talk-1080p-98s.mp4`).
-      `/analyze-silence` already answers the same case with `{ranges: [], reason}`; transcribe
-      should probe for an audio stream first and return a typed "no audio track" outcome → Phase 5
-      (P5.4 error contracts) / Phase 8 (sidebar shows it in plain words).
-- [ ] **A run whose every model call fails still reports `completed` and applies an edit.**
+
+- [x] `POST /transcribe` on a video with no audio stream returned a 422 whose detail was the
+      raw ffmpeg banner + "Output file does not contain any stream" (`talk-1080p-98s.mp4`).
+      **Fixed 2026-09-01:** `asr.py#_decode_failure` classifies the decode failure against the
+      same ffprobe `has_audio` check `analysis/silence.py` already used, and raises a typed
+      `AsrNoAudioError` — "<file> has no audio track, so there is nothing to transcribe."
+      The route's existing `AsrError → 422` mapping carries it through. A file that DOES have
+      audio and still failed, or one ffprobe cannot answer for, keeps its original error
+      (`tests/test_asr_no_audio.py`, 3 rows).
+- [x] **A run whose every model call fails still reports `completed` and applies an edit.**
+      **Verified fixed 2026-09-01** by probing both shapes against the live orchestrator: a
+      provider that throws, and one that returns an empty response (the captured shape — 0 ms,
+      0 tokens, `errors: []`). Both settle the run as `failed` with zero diffs. Left below for
+      the record of what it was.
       Smoke run with the DeepSeek provider answering `402 Insufficient Balance`: 2 captured
       provider calls at 0 ms / 0 tokens, `errors: []`, final status `completed`, two
       `delete_range` tool calls (one repeated) and one operation applied to the podcast
@@ -142,7 +151,13 @@ and failure list. The after-numbers are `01-after.md`.
       `delete_clip` on it is rejected with "delete_range.end must be greater than start" —
       four model requests spent on it. Either the split must not create it or delete must
       accept it → Phase 4 (editor-core `timeline-engineer`).
-- [ ] **A run that has committed its edits stays in `apply` and never reaches `verify`.**
+- [x] **A run that has committed its edits stays in `apply` and never reaches `verify`.**
+      Still true of the stage machine — `stageAdvanceFor` has no `apply` case, so a run that
+      applies a patch never advances during turns. It no longer costs the run anything:
+      `get_frame` is exempt from every stage narrowing
+      (`stage-policy.ts#VERIFICATION_LOOK_TOOL_NAMES`), and as of 2026-09-01 it is in the
+      always-advertised core tool set as well, with a test asserting every stage-policy
+      exemption stays there.
       Montage ledger: from request #11 to #44 the stage is `apply`; the model's seven
       `get_frame` attempts to check its crops were refused ("unavailable this turn") across
       five requests (~110k prompt tokens). The schema list and the allowed set are the same
@@ -153,4 +168,3 @@ and failure list. The after-numbers are `01-after.md`.
 - [ ] **Baseline counters:** `tool_call` events carry a `running` and a terminal row; the
       first baseline JSON (montage r1–r3, podcast) counted both — tools/repeats there are 2×.
       Fixed in the script; the report uses the ledger run's corrected counts.
-
