@@ -26,7 +26,12 @@ import {
   searchTransitions,
 } from '@framepilot/timeline-schema/transition-catalog';
 import { transitionParamsForKind } from '@framepilot/timeline-schema/transition-params';
-import { type Operation, textEffectId, textOverlayClipId } from '@framepilot/editor-core';
+import {
+  createLaneAllocator,
+  type Operation,
+  textEffectId,
+  textOverlayClipId,
+} from '@framepilot/editor-core';
 import { verifyTransitions } from '../verify.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
@@ -193,8 +198,10 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       name: 'add_text_layer',
       description:
         'Add a text overlay clip on a track over a timeline range (start/end seconds). ' +
-        'Clips on one track can never overlap — stack simultaneous text elements on ' +
-        'separate tracks with a free range. Style it here: sizePercent is the glyph ' +
+        'Simultaneous text elements are fine: clips on one track cannot overlap, so if ' +
+        'the track you name is already busy over that range the overlay is placed on ' +
+        'another free overlay track, or a new one, and the result reports where it ' +
+        'landed. Style it here: sizePercent is the glyph ' +
         'height as a percentage of the frame (8 is a caption, 18+ is a headline that ' +
         'dominates the frame), xPercent/yPercent place the box centre (50/50 is the ' +
         'middle, y 15 is a title card near the top), and color/background/align/' +
@@ -217,12 +224,36 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         yPercent: numeric(z.number().min(0).max(100)).optional(),
       })
       .strict(),
-    (a) => {
-      const clipId = textOverlayClipId(a.trackId, a.start);
+    (a, ctx) => {
+      // Resolve the lane instead of trusting the one the model named.
+      //
+      // A track cannot hold overlapping clips, and the description below has always
+      // said so — but a description is a request, not a constraint, and the model
+      // routinely put two simultaneous text elements on one track anyway. The whole
+      // patch was then refused by the validator with
+      //
+      //     Clips 'text__t_motion_gfx_18000' and 'text__t_motion_gfx_22800'
+      //     overlap on track 't_motion_gfx'.
+      //
+      // which cost a turn, taught the run nothing it could act on, and left the
+      // editor looking at an error for a request that was perfectly sensible. The
+      // named lane still wins whenever it has room; when it does not, the overlay
+      // goes on another free overlay lane, or onto a new one — which is exactly
+      // what the description was asking the model to do by hand.
+      //
+      // Shared with `add_clip` and `add_caption_layer`: one rule for every kind of
+      // clip, so a placement never depends on which tool happened to make it. The
+      // allocator keeps the fallback inside the role that was named — lanes are
+      // type-agnostic, so an unconstrained search happily put a title on the audio
+      // bed just because it was free.
+      const placed = createLaneAllocator(ctx.project.timeline).allocate(a.trackId, a.start, a.end);
+      const trackId = placed.trackId;
+      const clipId = textOverlayClipId(trackId, a.start);
       const ops: Operation[] = [
+        ...placed.setupOps,
         {
           type: 'add_text_overlay',
-          trackId: a.trackId,
+          trackId,
           text: a.text,
           start: a.start,
           end: a.end,

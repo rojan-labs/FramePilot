@@ -15,6 +15,9 @@ import {
   buildAddMusicOps,
   buildAddStockOps,
   firstFreePictureStart,
+  createLaneAllocator,
+  nextLayerId as coreNextLayerId,
+  trackHasRoomFor,
   nextMusicLayerId,
   picturePlacementConflict as corePicturePlacementConflict,
   type AdjustAudioOp,
@@ -1383,15 +1386,10 @@ export function setTrackFlagsPatch(
 // ---------------------------------------------------------------------------
 
 /** A non-colliding, deterministic id for a new layer of the given role. */
-function nextLayerId(timeline: Timeline, layerType: Track['type']): string {
-  let n = timeline.tracks.length + 1;
-  let id = `layer_${layerType}_${n}`;
-  while (timeline.tracks.some((t) => t.id === id)) {
-    n += 1;
-    id = `layer_${layerType}_${n}`;
-  }
-  return id;
-}
+// Was a byte-for-byte copy of the same walk in `stock-placement.ts`. Both now
+// resolve through `@framepilot/editor-core`, so the renderer, the stock placer and
+// the agent cannot drift on what a new lane is called.
+const nextLayerId = coreNextLayerId;
 
 /**
  * Insert a new (empty) layer at `atIndex` (default 0 = visual front). The
@@ -1453,12 +1451,9 @@ function layerTypeForKind(kind: ClipKind): Track['type'] {
   return 'video'; // video + image are picture layers
 }
 
-/** True when no clip on `track` overlaps the half-open span `[start, end)`. */
-function hasRoomFor(track: Track, start: number, end: number): boolean {
-  return !track.clips.some(
-    (c) => c.start < end - MIN_EDIT_SECONDS && c.end > start + MIN_EDIT_SECONDS,
-  );
-}
+// The third copy of this test lived here; it is now one shared rule (and one
+// shared epsilon) in `@framepilot/editor-core`.
+const hasRoomFor = trackHasRoomFor;
 
 /**
  * Auto-layering placement (Phase 2, ADR 0032 — CapCut-style). Place `asset` at
@@ -1773,11 +1768,28 @@ export function addTextOverlayPatch(
   if (!track || text.trim() === '' || end - start <= MIN_EDIT_SECONDS) {
     return null;
   }
+  // Resolve the lane rather than trusting the one that was aimed at.
+  //
+  // A track cannot hold overlapping clips, so dropping a second title across the
+  // span of the first used to build a patch the validator then refused — the user
+  // saw an error and no edit, for an intent ("both of these on screen here") that
+  // was never ambiguous. Stacking simultaneous elements on separate lanes is what
+  // lanes are for, and it is what asset drops have always done.
+  //
+  // The same allocator the agent's placement tools use, so a drop and a prompt
+  // that ask for the same thing put it in the same place.
+  const placed = createLaneAllocator(timeline).allocate(trackId, start, end);
+  const newLane = placed.setupOps.length > 0;
   return {
-    patchId: patchId(`overlay_${trackId}_${ms(start)}_${ms(end)}`),
+    patchId: patchId(`overlay_${placed.trackId}_${ms(start)}_${ms(end)}`),
     createdBy: 'user',
-    reason: `Add text overlay "${text}" at ${start.toFixed(2)}s`,
-    operations: [{ type: 'add_text_overlay', trackId, text, start, end }],
+    reason: newLane
+      ? `Add text overlay "${text}" on a new layer at ${start.toFixed(2)}s`
+      : `Add text overlay "${text}" at ${start.toFixed(2)}s`,
+    operations: [
+      ...placed.setupOps,
+      { type: 'add_text_overlay', trackId: placed.trackId, text, start, end },
+    ],
   };
 }
 

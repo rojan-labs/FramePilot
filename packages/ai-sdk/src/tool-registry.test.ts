@@ -56,8 +56,12 @@ describe('tool registry — shape', () => {
       build('add_clip', {
         trackId: 'video_1',
         assetId: 'asset_intro',
-        start: '5',
-        end: '10.5',
+        // A FREE range. The fixture lane holds clips across 0–10, and `add_clip`
+        // now reroutes a colliding placement to a lane that has room — which is
+        // the right behaviour and the wrong thing for a test about string
+        // coercion to be entangled with.
+        start: '10',
+        end: '15.5',
         sourceStart: '0',
         sourceEnd: '5.5',
       }),
@@ -66,8 +70,8 @@ describe('tool registry — shape', () => {
         type: 'add_clip',
         trackId: 'video_1',
         assetId: 'asset_intro',
-        start: 5,
-        end: 10.5,
+        start: 10,
+        end: 15.5,
         sourceStart: 0,
         sourceEnd: 5.5,
       },
@@ -733,20 +737,33 @@ describe('mutating tools — build valid operations', () => {
       sourceStart: 0,
       sourceEnd: 0.46000000000000085,
     });
-    expect(
-      build('add_text_layer', { trackId: 'video_1', text: 'Hi', start: 1, end: 2 })[0],
-    ).toMatchObject({ type: 'add_text_overlay', text: 'Hi' });
-    expect(build('add_caption_layer', { trackId: 'video_1', start: 0, end: 1 })).toEqual([
+    // `add_text_layer` resolves its own lane, so the overlay op is not always
+    // first: when the named track has no room over the range (here `video_1`
+    // already holds a clip across it) the tool opens a lane and the overlay
+    // follows it, in one patch.
+    const textOps = build('add_text_layer', { trackId: 'video_1', text: 'Hi', start: 10, end: 11 });
+    expect(textOps.find((op) => op.type === 'add_text_overlay')).toMatchObject({
+      type: 'add_text_overlay',
+      text: 'Hi',
+    });
+    // The cue's range is fixed by the transcript (the words at 0–1s), and `video_1`
+    // is holding `clip_a` across it — a cue cannot share a lane with the clip it
+    // captions. So the placement opens a lane, and the cue follows it in the same
+    // patch. What the cue SAYS, and where it came from, is unchanged.
+    const cueOps = build('add_caption_layer', { trackId: 'video_1', start: 0, end: 1 });
+    const lane = cueOps[0] as { type: string; layerId: string };
+    expect(lane.type).toBe('add_layer');
+    expect(cueOps.slice(1)).toEqual([
       {
         type: 'add_caption_layer',
-        trackId: 'video_1',
+        trackId: lane.layerId,
         start: 0,
         end: 1,
-        clipId: 'caption_video_1_0',
+        clipId: `caption_${lane.layerId}_0`,
       },
       {
         type: 'set_caption_cue',
-        clipId: 'caption_video_1_0',
+        clipId: `caption_${lane.layerId}_0`,
         captionCue: {
           text: 'hello world',
           words: [
@@ -947,7 +964,9 @@ describe('mutating tools — build valid operations', () => {
   });
 
   it('add_caption_layer allows a legal range with no mapped words (no source provenance)', () => {
-    const ops = build('add_caption_layer', { trackId: 'video_1', start: 2, end: 2.05 });
+    // Free range: the fixture lane is occupied 0–10 and a colliding cue is now
+    // rerouted to a lane with room, which would shift the op indices below.
+    const ops = build('add_caption_layer', { trackId: 'video_1', start: 12, end: 12.05 });
     expect(ops[1]).toMatchObject({
       type: 'set_caption_cue',
       captionCue: { text: '', words: [] },
@@ -1114,11 +1133,13 @@ describe('mutating tools — build valid operations', () => {
   // turns and the batches decayed 12 → 9 → 8 → 5 as reasoning ate the output reservation.
   // Per-clip granularity is right for fixing one shot and wrong for building a sequence.
   it('add_clips places a whole sequence in one patch, by add_clip’s rules', () => {
+    // Placed past the fixture's own clips (which fill 0–10), so the batch stays on
+    // the named lane and this test stays about batching rather than placement.
     const batch = build('add_clips', {
       trackId: 'video_1',
       clips: [
-        { assetId: 'asset_1', start: 0, end: 1.5 },
-        { assetId: 'asset_1', start: 1.5, end: 2, sourceStart: 4 },
+        { assetId: 'asset_1', start: 10, end: 11.5 },
+        { assetId: 'asset_1', start: 11.5, end: 12, sourceStart: 4 },
       ],
     });
     expect(batch).toEqual([
@@ -1126,8 +1147,8 @@ describe('mutating tools — build valid operations', () => {
         type: 'add_clip',
         trackId: 'video_1',
         assetId: 'asset_1',
-        start: 0,
-        end: 1.5,
+        start: 10,
+        end: 11.5,
         sourceStart: 0,
         sourceEnd: 1.5,
       },
@@ -1135,8 +1156,8 @@ describe('mutating tools — build valid operations', () => {
         type: 'add_clip',
         trackId: 'video_1',
         assetId: 'asset_1',
-        start: 1.5,
-        end: 2,
+        start: 11.5,
+        end: 12,
         sourceStart: 4,
         // Derived from the timeline span, exactly as the singular tool derives it — a
         // batch that placed clips by different rules would be worse than no batch.
@@ -1147,9 +1168,9 @@ describe('mutating tools — build valid operations', () => {
 
   it('add_clips produces exactly what the same placements would through add_clip', () => {
     const placements = [
-      { assetId: 'asset_1', start: 0, end: 1 },
-      { assetId: 'asset_1', start: 1, end: 2.25, sourceStart: 3 },
-      { assetId: 'asset_1', start: 2.25, end: 3 },
+      { assetId: 'asset_1', start: 10, end: 11 },
+      { assetId: 'asset_1', start: 11, end: 12.25, sourceStart: 3 },
+      { assetId: 'asset_1', start: 12.25, end: 13 },
     ];
     expect(build('add_clips', { trackId: 'video_1', clips: placements })).toEqual(
       placements.flatMap((clip) => build('add_clip', { trackId: 'video_1', ...clip })),
@@ -1165,7 +1186,9 @@ describe('mutating tools — build valid operations', () => {
   // `Turn rejected: 120 operations exceeds the per-turn cap`, which names no fix and
   // invites the model to re-send the same batch.
   it('refuses a batch longer than one turn could apply, and states the limit', () => {
-    const entry = (i: number) => ({ assetId: 'asset_1', start: i, end: i + 0.5 });
+    // Past the fixture's clips, so every entry stays on the named lane and the op
+    // count is one per entry rather than one plus a lane.
+    const entry = (i: number) => ({ assetId: 'asset_1', start: 10 + i, end: 10 + i + 0.5 });
     const atCap = Array.from({ length: MAX_CLIPS_PER_BATCH }, (_, i) => entry(i));
     expect(build('add_clips', { trackId: 'video_1', clips: atCap })).toHaveLength(
       MAX_CLIPS_PER_BATCH,

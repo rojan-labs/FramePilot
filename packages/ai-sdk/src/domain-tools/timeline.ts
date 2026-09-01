@@ -24,6 +24,10 @@ import {
   mapTranscript,
 } from '@framepilot/editor-core';
 import type { Operation } from '@framepilot/editor-core';
+import { createLaneAllocator } from '@framepilot/editor-core';
+
+/** The per-call lane bookkeeping `addClipOperation` needs; see `createLaneAllocator`. */
+type LaneAllocator = ReturnType<typeof createLaneAllocator>;
 import { frameToSeconds, secondsToFrame } from '../frame-time.js';
 import { readEditSignals } from '../proposers/edit-signals.js';
 import type { ToolContext } from '../tool-context.js';
@@ -357,12 +361,26 @@ function addClipOperation(
     readonly sourceStart: number;
   },
   ctx: ToolContext,
+  lanes: LaneAllocator,
 ): Operation[] {
-  const crop = autoReframeCrop(ctx, clip);
-  const clipId = crop ? placementClipId(clip) : undefined;
+  // Resolve the lane rather than trusting the one that was named.
+  //
+  // Clips on one track can never overlap, and the description says so — but a
+  // description is a request, not a constraint. A placement that collided used to
+  // take the whole patch down with the validator's overlap error, which is a dead
+  // end for an intent ("this shot here, over that one") that lanes exist to
+  // express. The named lane still wins whenever it has room.
+  //
+  // The allocator, rather than a lookup, because `add_clips` plans every entry
+  // against the same pre-call timeline: without booking each span as it is handed
+  // out, two overlapping entries in one batch would both be told the lane was free.
+  const placed = lanes.allocate(clip.trackId, clip.start, clip.end);
+  const cropClip = { ...clip, trackId: placed.trackId };
+  const crop = autoReframeCrop(ctx, cropClip);
+  const clipId = crop ? placementClipId(cropClip) : undefined;
   const add: Operation = {
     type: 'add_clip',
-    trackId: clip.trackId,
+    trackId: placed.trackId,
     assetId: clip.assetId,
     start: clip.start,
     end: clip.end,
@@ -370,8 +388,9 @@ function addClipOperation(
     sourceEnd: clip.sourceStart + (clip.end - clip.start),
     ...(clipId ? { clipId } : {}),
   };
-  if (!crop || !clipId) return [add];
-  return [add, { type: 'set_clip_crop', clipId, crop }];
+  const ops = [...placed.setupOps, add];
+  if (!crop || !clipId) return ops;
+  return [...ops, { type: 'set_clip_crop', clipId, crop }];
 }
 
 export const TIMELINE_TOOLS: readonly ToolSpec[] = [
@@ -869,7 +888,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         sourceEnd: seconds.optional(),
       })
       .strict(),
-    (a, ctx) => addClipOperation(a, ctx),
+    (a, ctx) => addClipOperation(a, ctx, createLaneAllocator(ctx.project.timeline)),
   ),
   mutateTool(
     {
@@ -907,7 +926,14 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
           .max(MAX_CLIPS_PER_BATCH),
       })
       .strict(),
-    (a, ctx) => a.clips.flatMap((clip) => addClipOperation({ ...clip, trackId: a.trackId }, ctx)),
+    (a, ctx) => {
+      // ONE allocator for the whole batch, so entry N sees the lanes entries
+      // 1..N-1 already took.
+      const lanes = createLaneAllocator(ctx.project.timeline);
+      return a.clips.flatMap((clip) =>
+        addClipOperation({ ...clip, trackId: a.trackId }, ctx, lanes),
+      );
+    },
   ),
   mutateTool(
     {

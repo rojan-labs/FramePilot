@@ -22,6 +22,7 @@ import {
 import {
   buildTimelineMap,
   captionSegmentConfig,
+  createLaneAllocator,
   deriveCaptionCues,
   mapTranscript,
   type CaptionSegmentPresetName,
@@ -420,13 +421,18 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         );
       }
 
-      const clipId = id('caption', a.trackId, a.start);
+      // Cues are clips, so they cannot overlap on one lane either. A cue that
+      // collides used to take the patch down with the validator's overlap error;
+      // it now lands on another caption lane, or a new one, in the same patch.
+      const placed = createLaneAllocator(ctx.project.timeline).allocate(a.trackId, a.start, a.end);
+      const clipId = id('caption', placed.trackId, a.start);
       const first = mappedWords[0];
       const last = mappedWords[mappedWords.length - 1];
       return [
+        ...placed.setupOps,
         {
           type: 'add_caption_layer' as const,
-          trackId: a.trackId,
+          trackId: placed.trackId,
           start: a.start,
           end: a.end,
           clipId,
