@@ -13,24 +13,26 @@ import type { Timeline } from '@framepilot/timeline-schema';
 import { useEditor } from '../editor/useEditor.js';
 import { Toolbar } from './Toolbar.js';
 
+const makeClip = (id: string, start: number, end: number) => ({
+  id,
+  assetId: 'a',
+  trackId: 'v',
+  start,
+  end,
+  sourceStart: 0,
+  sourceEnd: end - start,
+  effects: [],
+  keyframes: [],
+});
+
 const timeline: Timeline = {
   tracks: [
     {
       id: 'v',
       type: 'video',
-      clips: [
-        {
-          id: 'c1',
-          assetId: 'a',
-          trackId: 'v',
-          start: 0,
-          end: 6,
-          sourceStart: 0,
-          sourceEnd: 6,
-          effects: [],
-          keyframes: [],
-        },
-      ],
+      // `c2` starts later on purpose: one playhead is a different clip-relative
+      // offset in each, which is what the multi-clip write has to get right.
+      clips: [makeClip('c1', 0, 6), makeClip('c2', 6, 12)],
     },
   ],
 };
@@ -132,5 +134,52 @@ describe('Toolbar — keyframe control', () => {
     expect(byProperty.get('scale')).toBe(1);
     expect(byProperty.get('opacity')).toBe(1);
     expect(byProperty.get('x')).toBe(0);
+  });
+});
+
+describe('Toolbar — keyframe control across a multi-selection', () => {
+  const keyframesFor = (
+    latest: () => ReturnType<typeof useEditor>,
+    clipId: string,
+  ): readonly { property: string; time: number }[] =>
+    latest().state.timeline.tracks[0]!.clips.find((c) => c.id === clipId)!.keyframes;
+
+  it('records every selected clip the playhead is inside, in ONE patch', () => {
+    const { latest } = renderToolbar();
+    act(() => {
+      latest().selectMany(['c1', 'c2']);
+      latest().seek(3);
+    });
+    act(() => fireEvent.click(keyframeButton()));
+
+    // The playhead is inside c1 (0–6) but not c2 (6–12), so only c1 is written.
+    expect(keyframesFor(latest, 'c1').length).toBeGreaterThan(0);
+    expect(keyframesFor(latest, 'c2')).toHaveLength(0);
+  });
+
+  it('writes each clip at its OWN clip-relative time', () => {
+    const { latest } = renderToolbar();
+    act(() => {
+      latest().selectMany(['c1', 'c2']);
+      // 6s is the boundary: the end of c1 and the start of c2, so both take part.
+      latest().seek(6);
+    });
+    act(() => fireEvent.click(keyframeButton()));
+
+    // 6s is 6s into c1 and 0s into c2 — one shared number would misplace one.
+    expect(keyframesFor(latest, 'c1').every((k) => k.time === 6)).toBe(true);
+    expect(keyframesFor(latest, 'c2').every((k) => k.time === 0)).toBe(true);
+  });
+
+  it('takes the whole multi-clip write back in one undo', () => {
+    const { latest } = renderToolbar();
+    act(() => {
+      latest().selectMany(['c1', 'c2']);
+      latest().seek(6);
+    });
+    act(() => fireEvent.click(keyframeButton()));
+    act(() => latest().undo());
+    expect(keyframesFor(latest, 'c1')).toHaveLength(0);
+    expect(keyframesFor(latest, 'c2')).toHaveLength(0);
   });
 });

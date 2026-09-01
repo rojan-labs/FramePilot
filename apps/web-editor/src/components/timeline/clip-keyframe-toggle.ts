@@ -98,3 +98,55 @@ export function clipKeyframeIntent(clip: Clip, clipTime: number): ClipKeyframeIn
     })),
   };
 }
+
+/** One clip's share of a multi-clip keyframe action. */
+export interface ClipKeyframePlan {
+  readonly clipId: string;
+  /** Clip-relative time the write/removal lands at. */
+  readonly clipTime: number;
+  readonly intent: ClipKeyframeIntent;
+}
+
+/** What the control should do across a whole selection. */
+export interface SelectionKeyframeIntent {
+  readonly kind: 'add' | 'remove' | 'none';
+  /** The clips actually acted on — those the playhead is inside. */
+  readonly plans: readonly ClipKeyframePlan[];
+}
+
+/**
+ * The same decision across a multi-clip selection, resolved to ONE action.
+ *
+ * Two rules, both chosen so the control stays a toggle rather than becoming a
+ * coin flip:
+ *
+ *  - **Only clips the playhead is inside take part.** Selecting a clip does not
+ *    make it animatable at a time it does not cover, and silently writing a
+ *    keyframe clamped to some other clip's edge would be worse than doing nothing.
+ *  - **It removes only when EVERY participating clip has a keyframe there.**
+ *    Otherwise it adds. A mixed selection therefore resolves toward *uniform*: one
+ *    press makes them all animated at this instant, and the next press clears them
+ *    all. The alternative — per-clip toggling — means one press both adds and
+ *    removes, and the user cannot predict which clips ended up with what.
+ *
+ * `add` re-records clips that already have a keyframe there; the write is
+ * replace-mode, so that is idempotent rather than duplicating.
+ *
+ * @param clips - The selected clips, with their timeline positions.
+ * @param playhead - Timeline position, in seconds.
+ */
+export function selectionKeyframeIntent(
+  clips: readonly Clip[],
+  playhead: number,
+): SelectionKeyframeIntent {
+  const plans: ClipKeyframePlan[] = [];
+  for (const clip of clips) {
+    const clipTime = playhead - clip.start;
+    const intent = clipKeyframeIntent(clip, clipTime);
+    if (intent.kind === 'none') continue;
+    plans.push({ clipId: clip.id, clipTime, intent });
+  }
+  if (plans.length === 0) return { kind: 'none', plans: [] };
+  const allRemove = plans.every((plan) => plan.intent.kind === 'remove');
+  return { kind: allRemove ? 'remove' : 'add', plans };
+}

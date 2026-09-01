@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Clip, Keyframe } from '@framepilot/timeline-schema';
-import { clipKeyframeIntent } from './clip-keyframe-toggle.js';
+import { clipKeyframeIntent, selectionKeyframeIntent } from './clip-keyframe-toggle.js';
 
 const kf = (property: string, time: number, value: number): Keyframe =>
   ({ id: `${property}_${time}`, property, time, value, easing: 'linear' }) as Keyframe;
@@ -80,5 +80,60 @@ describe('clipKeyframeIntent', () => {
     expect(clipKeyframeIntent(clip(), 6).kind).toBe('add'); // exactly the duration
     expect(clipKeyframeIntent(clip(), 6.01).kind).toBe('none');
     expect(clipKeyframeIntent(clip(), Number.NaN).kind).toBe('none');
+  });
+});
+
+describe('selectionKeyframeIntent', () => {
+  const at = (id: string, start: number, end: number, keyframes: Keyframe[] = []): Clip =>
+    ({
+      id,
+      assetId: 'a',
+      trackId: 't',
+      start,
+      end,
+      sourceStart: 0,
+      sourceEnd: end - start,
+      effects: [],
+      keyframes,
+    }) as Clip;
+
+  it('acts only on the clips the playhead is actually inside', () => {
+    // Selecting a clip does not make it animatable at a time it does not cover,
+    // and writing a keyframe clamped to some other clip's edge would be worse
+    // than doing nothing.
+    const result = selectionKeyframeIntent([at('a', 0, 5), at('b', 10, 15)], 3);
+    expect(result.kind).toBe('add');
+    expect(result.plans.map((p) => p.clipId)).toEqual(['a']);
+  });
+
+  it('reports none when the playhead is inside nothing selected', () => {
+    expect(selectionKeyframeIntent([at('a', 0, 5), at('b', 10, 15)], 7).kind).toBe('none');
+    expect(selectionKeyframeIntent([], 3).kind).toBe('none');
+  });
+
+  it('adds to ALL when the selection is mixed, resolving toward uniform', () => {
+    // The alternative — toggling each clip independently — means one press both
+    // adds and removes, and the user cannot predict what they ended up with.
+    const animated = at('a', 0, 5, [kf('scale', 3, 2)]);
+    const plain = at('b', 0, 5);
+    const result = selectionKeyframeIntent([animated, plain], 3);
+    expect(result.kind).toBe('add');
+    expect(result.plans.map((p) => p.clipId)).toEqual(['a', 'b']);
+  });
+
+  it('removes only when EVERY participating clip has a keyframe there', () => {
+    const result = selectionKeyframeIntent(
+      [at('a', 0, 5, [kf('scale', 3, 2)]), at('b', 0, 5, [kf('x', 3, 10)])],
+      3,
+    );
+    expect(result.kind).toBe('remove');
+    expect(result.plans).toHaveLength(2);
+  });
+
+  it('gives each clip its own clip-relative time', () => {
+    // The clips start at different places, so one playhead is a different offset
+    // in each — writing both at the same number would misplace one of them.
+    const result = selectionKeyframeIntent([at('a', 0, 10), at('b', 2, 10)], 4);
+    expect(result.plans.map((p) => p.clipTime)).toEqual([4, 2]);
   });
 });

@@ -27,25 +27,25 @@ import { Button } from '@framepilot/ui';
 import type { Timeline } from '@framepilot/timeline-schema';
 import type { UseEditor } from '../../editor/useEditor.js';
 import { findClip } from '../../editor/selectors.js';
-import { removeKeyframesPatch, setKeyframesAtPlayheadPatch } from '../../editor/patch-builders.js';
+import { removeKeyframesPatch, setKeyframesForClipsPatch } from '../../editor/patch-builders.js';
 import { Tooltip, TooltipInfo } from '../Tooltip.js';
 import { MenuItem } from '../Menu.js';
 import { Diamond, ICON_SIZE } from '../icons.js';
-import { clipKeyframeIntent, type ClipKeyframeIntent } from './clip-keyframe-toggle.js';
+import { selectionKeyframeIntent, type SelectionKeyframeIntent } from './clip-keyframe-toggle.js';
 
 /** Re-render granularity for the subscription (30fps is finer than the eye needs). */
 const SUBSCRIBE_FPS = 30;
 
 interface KeyframeControl {
-  readonly intent: ClipKeyframeIntent;
+  readonly intent: SelectionKeyframeIntent;
   readonly toggle: () => void;
 }
 
-/** The live intent for the focused clip, plus the action that commits it. */
+/** The live intent for the whole selection, plus the action that commits it. */
 function useKeyframeControl(
   editor: UseEditor,
   timeline: Timeline,
-  selection: string | null,
+  selectedIds: readonly string[],
 ): KeyframeControl {
   // Subscribe for the re-render; the value itself is only a frame counter.
   useSyncExternalStore(
@@ -54,19 +54,34 @@ function useKeyframeControl(
     () => 0,
   );
 
-  const found = selection === null ? null : findClip(timeline, selection);
-  const intent: ClipKeyframeIntent =
-    found === null
-      ? { kind: 'none' }
-      : clipKeyframeIntent(found.clip, editor.getPlayhead() - found.clip.start);
+  // Every selected clip, not just the primary one — `duplicate` already treats a
+  // multi-selection as the thing the user is acting on, and keyframing four
+  // selected clips is one action that should cost one press of undo.
+  const clips = selectedIds
+    .map((id) => findClip(timeline, id)?.clip)
+    .filter((clip): clip is NonNullable<typeof clip> => clip !== undefined);
+  const intent = selectionKeyframeIntent(clips, editor.getPlayhead());
 
   const toggle = (): void => {
-    if (found === null || intent.kind === 'none') return;
-    const clipTime = editor.getPlayhead() - found.clip.start;
+    if (intent.kind === 'none') return;
     const patch =
       intent.kind === 'remove'
-        ? removeKeyframesPatch(timeline, intent.removals)
-        : setKeyframesAtPlayheadPatch(timeline, found.clip.id, intent.writes, clipTime);
+        ? removeKeyframesPatch(
+            timeline,
+            intent.plans.flatMap((plan) =>
+              plan.intent.kind === 'remove' ? plan.intent.removals : [],
+            ),
+          )
+        : setKeyframesForClipsPatch(
+            timeline,
+            intent.plans.map((plan) => ({
+              clipId: plan.clipId,
+              // A clip already holding a keyframe here re-records it; the write is
+              // replace-mode, so that is idempotent rather than duplicating.
+              writes: plan.intent.kind === 'add' ? plan.intent.writes : [],
+              time: plan.clipTime,
+            })),
+          );
     if (patch) editor.applyPatch(patch);
   };
 
@@ -76,16 +91,17 @@ function useKeyframeControl(
 export interface KeyframeToolbarControlProps {
   readonly editor: UseEditor;
   readonly timeline: Timeline;
-  readonly selection: string | null;
+  /** The whole selection; the control acts on every clip the playhead is inside. */
+  readonly selectedIds: readonly string[];
 }
 
 /** The icon button, for the expanded toolbar. */
 export function KeyframeToolbarButton({
   editor,
   timeline,
-  selection,
+  selectedIds,
 }: KeyframeToolbarControlProps): JSX.Element {
-  const { intent, toggle } = useKeyframeControl(editor, timeline, selection);
+  const { intent, toggle } = useKeyframeControl(editor, timeline, selectedIds);
   const removing = intent.kind === 'remove';
   return (
     <Tooltip
@@ -122,10 +138,10 @@ export function KeyframeToolbarButton({
 export function KeyframeMenuItem({
   editor,
   timeline,
-  selection,
+  selectedIds,
   onSelected,
 }: KeyframeToolbarControlProps & { readonly onSelected: () => void }): JSX.Element {
-  const { intent, toggle } = useKeyframeControl(editor, timeline, selection);
+  const { intent, toggle } = useKeyframeControl(editor, timeline, selectedIds);
   return (
     <MenuItem
       icon={<Diamond size={ICON_SIZE.sm} aria-hidden="true" />}

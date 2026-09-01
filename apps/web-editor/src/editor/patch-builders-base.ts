@@ -926,6 +926,68 @@ export function setKeyframesAtPlayheadPatch(
 }
 
 /**
+ * Record a pose on SEVERAL clips at once, as one patch.
+ *
+ * The multi-selection form of {@link setKeyframesAtPlayheadPatch}. One
+ * `add_keyframes` op per clip, all in a single patch, for the same reason the
+ * single-clip plural exists: keyframing four selected clips is one thing the user
+ * did, and it should cost one press of undo, not four.
+ *
+ * Each entry carries its OWN time, because one playhead is a different offset in
+ * every clip — the clips start at different places, so a shared number would
+ * misplace all but one of them.
+ *
+ * Entries naming a missing clip, or carrying no finite value, are skipped; `null`
+ * when nothing survives, since a patch that changes nothing still costs an undo.
+ *
+ * @param timeline - Current timeline.
+ * @param entries - Per-clip writes and the clip-relative time to write them at.
+ * @param easing - Interpolation for the new keyframes.
+ */
+export function setKeyframesForClipsPatch(
+  timeline: Timeline,
+  entries: readonly {
+    readonly clipId: string;
+    readonly writes: readonly { readonly property: string; readonly value: number }[];
+    readonly time: number;
+  }[],
+  easing: Easing = 'linear',
+): Patch | null {
+  const operations: Operation[] = [];
+  const stamps: string[] = [];
+  for (const entry of entries) {
+    const found = findClip(timeline, entry.clipId);
+    if (!found) continue;
+    const valid = entry.writes.filter((write) => Number.isFinite(write.value));
+    if (valid.length === 0) continue;
+    const at = clampToClip(found.clip, entry.time);
+    stamps.push(`${entry.clipId}_${ms(at)}`);
+    operations.push({
+      type: 'add_keyframes',
+      clipId: entry.clipId,
+      keyframes: valid.map((write) => ({
+        id: `kf_${entry.clipId}_${write.property}_${ms(at)}`,
+        time: at,
+        property: write.property,
+        value: write.value,
+        easing,
+      })),
+      replace: true,
+    });
+  }
+  if (operations.length === 0) return null;
+  return {
+    patchId: patchId(`setkfs_multi_${stamps.join('__')}`),
+    createdBy: 'user',
+    reason:
+      operations.length === 1
+        ? `Add keyframe on "${entries[0]!.clipId}"`
+        : `Add keyframe on ${String(operations.length)} clips`,
+    operations,
+  };
+}
+
+/**
  * Remove a keyframe — one at `time`, or the property's whole animation when `time` is
  * omitted.
  *

@@ -215,7 +215,7 @@ export function Toolbar({
                 <KeyframeMenuItem
                   editor={editor}
                   timeline={timeline}
-                  selection={selection}
+                  selectedIds={editor.state.selectedIds}
                   onSelected={close}
                 />
                 <MenuItem
@@ -284,7 +284,11 @@ export function Toolbar({
                 <Scissors size={ICON_SIZE.sm} aria-hidden="true" />
               </Button>
             </Tooltip>
-            <KeyframeToolbarButton editor={editor} timeline={timeline} selection={selection} />
+            <KeyframeToolbarButton
+              editor={editor}
+              timeline={timeline}
+              selectedIds={editor.state.selectedIds}
+            />
             <Tooltip
               label={
                 <TooltipInfo term="Delete clip">
