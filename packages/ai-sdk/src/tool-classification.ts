@@ -183,6 +183,10 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   // The bin survives cutting. Adding a clip does not add an asset.
   list_assets: { role: 'inspection', scope: 'asset_dependent' },
   load_skill: { role: 'guidance', scope: 'revision_independent' },
+  // Progressive disclosure (`tool-domains.ts`). Guidance for the same reason `load_skill`
+  // is: it changes what the run can reach, not what the timeline says, so its answer is
+  // the same at every revision and it must never read as reconnaissance.
+  load_tools: { role: 'guidance', scope: 'revision_independent' },
   recall_evidence: { role: 'recall', scope: 'revision_independent' },
   // Candidate edits are proposed against the current arrangement.
   read_edit_signals: { role: 'analysis', scope: 'timeline_dependent' },

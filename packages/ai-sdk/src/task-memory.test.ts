@@ -238,11 +238,19 @@ describe('stages drive the run forward (M2)', () => {
     expect(offered[1]).toContain('get_transcript');
     expect(offered[3]).not.toContain('get_transcript');
     // Reference data stays open (GAP-008): a catalog or a playbook is not observation of
-    // the material, so there is nothing stored to recall in its place — and withholding
-    // it stranded an executing run with `add_transition` on offer and no legal way to
-    // learn a transition id.
+    // the material, so there is nothing stored to recall in its place.
     expect(offered[3]).toContain('load_skill');
-    expect(offered[3]).toContain('discover_transitions');
+    // The GAP-008 hazard was an executing run holding `add_transition` with no legal way
+    // to learn a transition id. Progressive disclosure (`tool-domains.ts`) now settles
+    // that by construction rather than by exemption: both tools are in the `effects`
+    // domain, so a run either has both or neither. Assert the invariant, not the
+    // exemption — this run never loaded `effects`, and correctly has neither.
+    expect(offered[3]).not.toContain('add_transition');
+    for (const turnTools of offered) {
+      if (turnTools.includes('add_transition')) {
+        expect(turnTools).toContain('discover_transitions');
+      }
+    }
     // Inspection and recall stay open — a patch is written against the current
     // arrangement, and reading back stored evidence is not research.
     expect(offered[3]).toContain('get_timeline');

@@ -99,6 +99,13 @@ import type {
   RunVerifyEffect,
 } from './kernel/conductor.js';
 import {
+  type ToolDomain,
+  SKILL_DOMAINS,
+  domainMembers,
+  toolDomain,
+  toolIsAdvertised,
+} from './tool-domains.js';
+import {
   AGENT_MAX_OPS_PER_RUN,
   AGENT_MAX_OPS_PER_TURN,
   DIMINISHING_RETURNS_MIN_OUTPUT_TOKENS,
@@ -1432,6 +1439,14 @@ interface HostCallContext {
    */
   readonly loadedSkills: Map<string, string>;
   /**
+   * Per-run ledger of the tool domains this run has pinned (progressive disclosure —
+   * see `tool-domains.ts`). Only the core set is advertised up front; `load_tools` adds
+   * a domain here and it stays for the rest of the run, exactly as a loaded skill does.
+   * Non-optional for the same reason as {@link loadedSkills}: every `HostCallContext`
+   * this file constructs threads the run's ledger.
+   */
+  readonly loadedToolDomains: Set<ToolDomain>;
+  /**
    * Resolves the model's own questions (P12). Optional on purpose: only a surface with a
    * live editor in front of it can answer, so the non-streaming paths leave it out and
    * `ask_user` degrades honestly rather than inventing what the editor "said".
@@ -2310,6 +2325,13 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
       const fontList = `fonts: ${fonts.map((f) => String(f.family)).join(', ')}`;
       return [head, ...catalog, fontList].join('\n');
     }
+    case 'load_tools': {
+      // The names, not the JSON. What the model needs from this call is which tools it
+      // may now reach; the default preview would render that as an escaped object.
+      const loaded = Array.isArray(obj.loaded) ? obj.loaded.map(String) : [];
+      const names = Array.isArray(obj.tools) ? obj.tools.map(String) : [];
+      return `${loaded.join(', ')} loaded — now available: ${names.join(', ')}`;
+    }
     case 'load_skill': {
       // ADR 0057 §6: load_skill returns the FULL skill — the body IS the deliverable,
       // and the model asked for it precisely because it does not already know it. The
@@ -3106,6 +3128,12 @@ export class Orchestrator {
   public agentTools(
     scope: AgentToolScope = 'agent',
     stage?: RunStage,
+    /**
+     * Tool domains this run has pinned (progressive disclosure — `tool-domains.ts`).
+     * Absent means "advertise everything", which is what the budget reservation and the
+     * MCP-facing callers want; a live agent turn always passes the run's ledger.
+     */
+    loadedDomains?: ReadonlySet<ToolDomain>,
   ): ReturnType<typeof toolDescriptors> {
     const questionScope =
       scope === 'question'
@@ -3180,6 +3208,11 @@ export class Orchestrator {
       // project can always search) and released by the first successful placement.
       if (scope === 'commit-only' && isCatalogueSearch(tool.name)) return false;
       if (questionScope !== undefined && !questionScope.has(tool.name)) return false;
+      // Progressive disclosure. The core set plus whatever this run has asked for; see
+      // `tool-domains.ts` for the measurement that made this necessary. Applied last so
+      // every narrowing above still holds — a domain being loaded never re-admits a tool
+      // the stage, the recovery turn, or the commit-only scope has withheld.
+      if (loadedDomains !== undefined && !toolIsAdvertised(tool.name, loadedDomains)) return false;
       return stage === undefined || stageAllowsTool(stage, tool.name, tool.mutates);
     });
   }
@@ -4063,6 +4096,11 @@ export class Orchestrator {
           if (!alreadyLoaded) {
             host.loadedSkills.set(skill.name, summarizeReadResult(call.name, value));
           }
+          // A playbook and the tools it tells the run to use arrive together. Loading the
+          // caption playbook and then discovering the caption tools are not advertised is
+          // a round trip the run should never have to spend, and the pairing is a fact
+          // about the skill, not a judgement the model has to make (see `SKILL_DOMAINS`).
+          for (const domain of SKILL_DOMAINS[skill.name] ?? []) host.loadedToolDomains.add(domain);
           return {
             ops: [],
             note: `${desc} → ${
@@ -4075,6 +4113,36 @@ export class Orchestrator {
             // pacing playbook → Reading the pacing playbook" does not tell the next turn
             // which craft instructions it is already holding.
             finding: `${skill.name} playbook loaded — its instructions are pinned in your context`,
+            status: 'completed',
+            data: value,
+          };
+        }
+        // Progressive disclosure (`tool-domains.ts`): the pin lives here, with the run's
+        // ledger, for the same reason `load_skill`'s does — the tool itself is a pure
+        // function of its arguments and the orchestrator owns run-scoped state.
+        //
+        // Deliberately NOT memoized below. A repeat `load_tools` is cheap, idempotent, and
+        // its answer is the list of names now reachable; routing it through the read memo
+        // would answer "unchanged since you last read it" to a call whose entire purpose is
+        // to change what the next request advertises.
+        if (call.name === 'load_tools') {
+          const loaded = (value as { loaded?: readonly string[] }).loaded ?? [];
+          const fresh = loaded.filter(
+            (domain) => !host.loadedToolDomains.has(domain as ToolDomain),
+          );
+          for (const domain of loaded) host.loadedToolDomains.add(domain as ToolDomain);
+          const names = loaded.flatMap((domain) =>
+            domainMembers(domain as Exclude<ToolDomain, 'core'>),
+          );
+          const note =
+            fresh.length > 0
+              ? `${desc} → loaded ${fresh.join(', ')} — these tools are available from your next turn: ${names.join(', ')}.`
+              : `${desc} → already loaded earlier this run; these tools are already available to you: ${names.join(', ')}. Use them now rather than loading again.`;
+          return {
+            ops: [],
+            note,
+            summary: desc,
+            finding: `tools loaded: ${loaded.join(', ')}`,
             status: 'completed',
             data: value,
           };
@@ -4308,6 +4376,8 @@ export class Orchestrator {
      * callers always thread the run's ledger — never a ledger-less repair pass.
      */
     loadedSkills: Map<string, string>;
+    /** The run's tool-domain ledger, so a repair keeps the tools the run loaded. */
+    loadedToolDomains: Set<ToolDomain>;
     // Non-optional: both callers (below) always thread the run's up-front
     // `createAnalysisBudget()` result — never a budget-less repair pass.
     /** The run's analysis budget (B5.4), so a repair pass's analysis is capped too. */
@@ -4401,7 +4471,11 @@ export class Orchestrator {
       { role: 'user' as const, content: instruction },
     ];
     const response = await this.completeModel(
-      { messages, tools: this.agentTools() },
+      // The repair pass is the LAST TURN OF THE SAME RUN, so it advertises the same set
+      // that run's turns did. Advertising the full registry here would both hand the
+      // repair a surface no earlier turn had and break the prompt-prefix stability the
+      // tool block's cache key depends on (E3.3).
+      { messages, tools: this.agentTools('agent', undefined, args.loadedToolDomains) },
       args.signal,
       args.effectRuntime,
       'large',
@@ -4436,6 +4510,7 @@ export class Orchestrator {
         ...(args.signal ? { signal: args.signal } : {}),
         effectRuntime: args.effectRuntime,
         loadedSkills: args.loadedSkills,
+        loadedToolDomains: args.loadedToolDomains,
         // Every caller of `attemptRepair` threads the run's `analysisBudget` (created
         // once, up front, and always truthy) straight through — see `HostCallContext`.
         analysisBudget: args.analysisBudget,
@@ -4538,7 +4613,6 @@ export class Orchestrator {
     const maxSteps = options.maxSteps ?? DEFAULT_MAX_AGENT_STEPS;
     const maxOpsPerTurn = options.maxOpsPerTurn ?? DEFAULT_MAX_OPS_PER_TURN;
     const maxOpsPerRun = options.maxOpsPerRun ?? DEFAULT_MAX_OPS_PER_RUN;
-    const tools = this.agentTools();
     const steps: AgentStep[] = [];
     const log: string[] = [];
     const cumulativeOps: AnyOperation[] = [];
@@ -4562,6 +4636,7 @@ export class Orchestrator {
     const beatEvidence = createBeatEvidence();
     // ADR 0057: per-run skill ledger — see the streaming loop's identical comment.
     const loadedSkills = new Map<string, string>();
+    const loadedToolDomains = new Set<ToolDomain>();
     // Per-run analysis budget (B5.4): caps frames/ffmpeg-seconds/transcription across
     // the whole run so a spinning loop hits an honest ceiling, not the compute wall.
     const analysisBudget = createAnalysisBudget(options.analysisCaps);
@@ -4600,7 +4675,9 @@ export class Orchestrator {
             pendingFrames,
             options,
           ).messages,
-          tools,
+          // Re-read every turn: `load_tools` pins a domain mid-run and the next request
+          // must advertise it (progressive disclosure — `tool-domains.ts`).
+          tools: this.agentTools('agent', undefined, loadedToolDomains),
         },
         undefined,
         effectRuntime,
@@ -4650,6 +4727,7 @@ export class Orchestrator {
             evidence,
             beatEvidence,
             loadedSkills,
+            loadedToolDomains,
             analysisBudget,
           },
         );
@@ -4775,6 +4853,7 @@ export class Orchestrator {
         maxOpsPerTurn,
         effectRuntime,
         loadedSkills,
+        loadedToolDomains,
         analysisBudget,
       });
       if (repair) {
@@ -5268,6 +5347,8 @@ export class Orchestrator {
     evidence: EvidenceStore,
     /** The run's skill ledger (ADR 0057), so a playbook is loaded once per run. */
     loadedSkills: Map<string, string>,
+    /** The run's tool-domain ledger (see `HostCallContext.loadedToolDomains`). */
+    loadedToolDomains: Set<ToolDomain>,
     /** Answers the model's questions (P12); absent ⇒ `ask_user` degrades honestly. */
     askUser: AskUser | undefined,
     signal: AbortSignal | undefined,
@@ -5277,6 +5358,17 @@ export class Orchestrator {
     analysisBudget: AnalysisBudget,
     /** Enforce an exceptional route-scoped descriptor set at execution time. */
     allowedToolNames?: ReadonlySet<string>,
+    /**
+     * Names that {@link allowedToolNames} withholds ONLY because their tool domain is not
+     * pinned yet (progressive disclosure — `tool-domains.ts`).
+     *
+     * A model that names one of these has guessed a real tool correctly and is being
+     * refused over token economy, not policy. Refusing it would cost a turn and teach it
+     * nothing, so the domain is pinned and the call runs. Every other narrowing — the
+     * stage policy, the recovery turn, the commit-only latch — is a behavioural rail and
+     * is NOT in this set, so it still refuses exactly as before.
+     */
+    domainGatedToolNames?: ReadonlySet<string>,
     /**
      * The run's beat ledger (see `HostCallContext.beatEvidence`). Absent on routes
      * that never edit — the question route can call `detect_beats` to answer a question,
@@ -5352,11 +5444,28 @@ export class Orchestrator {
       evidence,
       ...(beatEvidence ? { beatEvidence } : {}),
       loadedSkills,
+      loadedToolDomains,
       ...(askUser ? { askUser } : {}),
       ...(rememberDecision ? { rememberDecision } : {}),
       // `analysisBudget` is created once up front (always truthy) and threaded
       // through every turn of this loop — see `HostCallContext.analysisBudget`.
       analysisBudget,
+    };
+    /**
+     * May this call run — and, if the only thing standing in its way is an unpinned tool
+     * domain, pin it so that it can.
+     *
+     * Idempotent and safe to ask repeatedly: the concurrency planner asks before the
+     * executor does, and both must get the same answer for one call.
+     */
+    const admitCall = (call: ToolCall): boolean => {
+      if (allowedToolNames === undefined || allowedToolNames.has(call.name)) return true;
+      if (domainGatedToolNames?.has(call.name) !== true) return false;
+      const domain = toolDomain(call.name);
+      if (domain === undefined || domain === 'core') return false;
+      loadedToolDomains.add(domain);
+      orchestratorLog.action('tool domain pinned by use', { tool: call.name, domain });
+      return true;
     };
     // The card shows the human title plus a compact args line (U4) so the
     // user can see WHAT the call was asked to do without opening details.
@@ -5377,7 +5486,7 @@ export class Orchestrator {
     const batches = partitionConcurrencyBatches(
       calls,
       (call) => {
-        if (allowedToolNames && !allowedToolNames.has(call.name)) return false;
+        if (!admitCall(call)) return false;
         const tool = getTool(call.name);
         if (!tool || !tool.available) return false;
         return concurrencySafe(tool, sanitizeToolArgs(tool, call.arguments));
@@ -5417,7 +5526,7 @@ export class Orchestrator {
     const warmable = calls.filter(
       (call) =>
         (call.name === 'add_stock' || call.name === 'add_music') &&
-        (allowedToolNames === undefined || allowedToolNames.has(call.name)),
+        admitCall(call),
     );
     if (warmable.length > 1) {
       orchestratorLog.action('warming sourcing downloads', {
@@ -5475,7 +5584,7 @@ export class Orchestrator {
         // the paths that cannot. A malformed ask emits nothing and fails its own card in
         // `runAgentCall` instead of rendering a prompt built from junk. (An `ask` is never
         // concurrency-safe, so it always takes this branch.)
-        const inScope = allowedToolNames === undefined || allowedToolNames.has(call.name);
+        const inScope = admitCall(call);
         const asked = inScope ? askQuestionFor(call) : undefined;
         if (asked) yield emit.ask(call.id, asked.question, asked.options);
         const started = now();
@@ -5864,6 +5973,7 @@ export class Orchestrator {
     // Per-run read memo/budget — same roles as the agent loop's, scoped to this turn.
     const evidence = new EvidenceStore();
     const loadedSkills = new Map<string, string>();
+    const loadedToolDomains = new Set<ToolDomain>();
     const analysisBudget = createAnalysisBudget();
     const { runtime: effectRuntime, finish: finishEffects } = this.createRunRuntime(
       this.controlEffectExecutor(chatOptions.controls ?? {}),
@@ -5931,12 +6041,14 @@ export class Orchestrator {
             effectRuntime,
             evidence,
             loadedSkills,
+            loadedToolDomains,
             chatOptions.controls?.askUser,
             options.signal,
             Date.now,
             analysisBudget,
             // A question turn can `ask_user` too, and an answer given there is just as
             // worth keeping as one given mid-edit.
+            undefined,
             undefined,
             undefined,
             chatOptions.controls?.rememberDecision,
@@ -6735,6 +6847,7 @@ export class Orchestrator {
     // pass, so a playbook is fetched once and stays pinned in context for the rest of
     // the run (see `HostCallContext.loadedSkills` / `agentSkillsBlock`).
     const loadedSkills = new Map<string, string>();
+    const loadedToolDomains = new Set<ToolDomain>();
     // Per-run analysis budget (B5.4) — same role as the non-streaming loop's; shared
     // across the run's turns AND its repair pass so the ceiling is truly per-run.
     const analysisBudget = createAnalysisBudget(agentOptions.analysisCaps);
@@ -7185,8 +7298,8 @@ export class Orchestrator {
               // Stage-scoped surface (ADR 0075 §3.6): action recovery still wins when it
               // fires, but an executing run is closed to fresh reconnaissance regardless.
               tools: effect.actionRecovery
-                ? self.agentTools('action-recovery')
-                : self.agentTools(turnScope, effect.stage),
+                ? self.agentTools('action-recovery', undefined, loadedToolDomains)
+                : self.agentTools(turnScope, effect.stage, loadedToolDomains),
             },
             signal,
             // Per-step thinking (U3, redesign §12): each step captures the model's
@@ -7376,6 +7489,7 @@ export class Orchestrator {
           effectRuntime,
           evidence,
           loadedSkills,
+          loadedToolDomains,
           controls.askUser,
           signal,
           now,
@@ -7384,6 +7498,15 @@ export class Orchestrator {
           // the recovery path, so a stage-narrowed tool called anyway executed normally —
           // the narrowing was a suggestion. A withholding scope that the model can step
           // around is the same advisory lever that has now failed four times.
+          new Set(
+            (effect.actionRecovery
+              ? self.agentTools('action-recovery', undefined, loadedToolDomains)
+              : self.agentTools(turnScope, effect.stage, loadedToolDomains)
+            ).map((tool) => tool.name),
+          ),
+          // The same set with every domain pinned, minus the set above: the names this
+          // turn withholds for token economy alone. `admitCall` loads their domain and
+          // runs them rather than spending a turn refusing a correct guess.
           new Set(
             (effect.actionRecovery
               ? self.agentTools('action-recovery')
@@ -7576,6 +7699,7 @@ export class Orchestrator {
             maxOpsPerTurn,
             effectRuntime,
             loadedSkills,
+            loadedToolDomains,
             analysisBudget,
             // A repair is the last turn of the SAME run, so it is briefed with what that
             // run established rather than fixing against context it has to re-derive.

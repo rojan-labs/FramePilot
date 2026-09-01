@@ -127,6 +127,12 @@ def test_host_ui_only_tools_are_detected_and_excluded() -> None:
         "professional_edit",
         "professional_motion",
         "professional_tracking_mask",
+        # Progressive tool disclosure (packages/ai-sdk/src/tool-domains.ts). The ledger
+        # this call writes to lives for the length of one TS orchestrator run and decides
+        # what that run's NEXT request advertises. The sidecar holds no such ledger and
+        # does not assemble the request, so mirroring it would give the engine a tool that
+        # reports having loaded something and changes nothing.
+        "load_tools",
     }
     assert "trim_clip" not in host_ui_only
 

@@ -3071,9 +3071,19 @@ describe('streamAgent host tool execution (Phase T)', () => {
             ).edit.patch.operations.map((op) => op.type)
           : [];
       expect(laterOps).toContain('add_asset');
-      // And the descriptor was really advertised — not merely accepted when called.
+      // The ADR 0143 hazard was `add_stock` being WITHHELD from an executing run, leaving
+      // it no way to put picture on the timeline. Progressive disclosure
+      // (`tool-domains.ts`) does not advertise the sourcing domain up front, so what has
+      // to hold now is reachability, not advertisement — and the two assertions above
+      // already prove it: the call ran and its patch landed, from a turn where the
+      // descriptor was not on offer. Naming a real tool correctly pins its domain rather
+      // than costing the run a turn.
       const secondTurnTools = (provider.requests[1]?.tools ?? []).map((t) => t.name);
-      expect(secondTurnTools).toContain('add_stock');
+      expect(secondTurnTools).not.toContain('add_stock');
+      // And the pin PERSISTS: having been used once, it is advertised from then on.
+      const thirdTurnTools = (provider.requests[2]?.tools ?? []).map((t) => t.name);
+      expect(thirdTurnTools).toContain('add_stock');
+      expect(thirdTurnTools).toContain('search_stock');
     });
 
     // The rule that made gathering impossible must not apply to gathering.
@@ -4619,5 +4629,53 @@ describe('a long caption pass survives the blast-radius bound (run 35746d4c)', (
     // The `(; ; )` regression: bare punctuation where the reasons should be.
     expect(warnings).not.toMatch(/\(\s*;[\s;]*\)/);
     expect(warnings).toMatch(/per-turn cap/);
+  });
+});
+
+/**
+ * Progressive tool disclosure end to end (`tool-domains.ts`).
+ *
+ * The economics are asserted in `tool-domains.test.ts`; what matters here is that the run
+ * can still reach everything. A cheaper prompt that strands a run is not an improvement.
+ */
+describe('load_tools changes what the next turn is offered', () => {
+  const loadCall = {
+    id: 'lt',
+    name: 'load_tools',
+    arguments: { domains: ['captions'] },
+  };
+
+  it('withholds a domain up front and advertises it from the turn after it is loaded', async () => {
+    const provider = new ScriptedProvider([
+      { text: 'getting the caption tools', toolCalls: [loadCall] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    await drain(new Orchestrator(provider).streamAgent(input, opts()));
+
+    const offered = (i: number) => (provider.requests[i]?.tools ?? []).map((t) => t.name);
+    // Turn 1: the core set. `load_tools` itself is core — a run that could not ask for a
+    // domain would be stranded in the core set forever.
+    expect(offered(0)).toContain('load_tools');
+    expect(offered(0)).not.toContain('caption_the_edit');
+    expect(offered(0)).not.toContain('set_track_caption_style');
+    // Turn 2: the domain it asked for, and only that one.
+    expect(offered(1)).toContain('caption_the_edit');
+    expect(offered(1)).toContain('discover_caption_styles');
+    expect(offered(1)).not.toContain('apply_color_grade');
+    // And the core set is not traded away for it.
+    expect(offered(1)).toContain('get_mapped_transcript');
+    expect(offered(1)).toContain('trim_clip');
+  });
+
+  it('costs the run a smaller prompt, not a lost capability', async () => {
+    const provider = new ScriptedProvider([
+      { text: 'getting the caption tools', toolCalls: [loadCall] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    await drain(new Orchestrator(provider).streamAgent(input, opts()));
+    const first = provider.requests[0]?.tools ?? [];
+    const second = provider.requests[1]?.tools ?? [];
+    // Loading a domain grows the block; the point is that turn one never paid for it.
+    expect(second.length).toBeGreaterThan(first.length);
   });
 });
