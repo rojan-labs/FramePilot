@@ -187,6 +187,7 @@ function assignWordsToCues(
  */
 function checkCueSync(
   clip: Clip,
+  words: readonly MappedWord[],
   owned: readonly MappedWord[],
   tolerance: number,
   issues: VerificationIssue[],
@@ -194,7 +195,12 @@ function checkCueSync(
   const cue = clip.captionCue;
   if (cue === undefined || cue.words.length === 0) return;
 
-  if (owned.length === 0) {
+  // "Is there any speech here at all" is an OVERLAP question, and stays one: a cue sitting
+  // over the middle of one long word owns none of it but is not over silence, and telling
+  // the editor it is captioning cut footage would send them to fix the wrong thing. Only
+  // the drift comparison below needs ownership.
+  const audible = words.some((word) => word.start < clip.end && word.end > clip.start);
+  if (!audible) {
     issues.push({
       code: 'caption_over_no_speech',
       clipId: clip.id,
@@ -203,6 +209,9 @@ function checkCueSync(
     });
     return;
   }
+  // Audible speech this cue does not own belongs to a neighbour; there is nothing here to
+  // measure the cue's own first word against.
+  if (owned.length === 0) return;
 
   const first = cue.words[0];
   if (first !== undefined) {
@@ -385,7 +394,7 @@ export function verifyCaptions(
       });
     }
     checkCueBoundaries(clip, mapped.runs, issues);
-    checkCueSync(clip, owned, tolerance, issues);
+    checkCueSync(clip, mapped.words, owned, tolerance, issues);
     checkCueCurrency(clip, owned, tolerance, issues);
 
     const displayedWordCount = clip.captionCue?.words.length ?? owned.length;
