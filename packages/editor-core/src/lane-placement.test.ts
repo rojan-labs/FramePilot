@@ -157,6 +157,30 @@ describe('createLaneAllocator', () => {
     expect(alloc.allocate('ghost', 0, 2)).toEqual({ trackId: 'ghost', setupOps: [] });
   });
 
+  it('never FALLS BACK onto a hidden or muted lane', () => {
+    // Relocating onto a hidden lane would report success and produce an edit that
+    // appears in neither the preview nor the export — worse than the rejection
+    // this rescue replaces.
+    const timeline: Timeline = {
+      tracks: [
+        track('v1', 'video', [clip('x', 0, 10, 'v1')]),
+        { ...track('v2', 'video'), hidden: true } as Track,
+        { ...track('v3', 'video'), muted: true } as Track,
+      ],
+    };
+    const got = createLaneAllocator(timeline).allocate('v1', 2, 6);
+    expect(got.trackId).not.toBe('v2');
+    expect(got.trackId).not.toBe('v3');
+    expect(got.setupOps).toHaveLength(1);
+  });
+
+  it('still honours a hidden lane the caller NAMED, because that is a choice', () => {
+    const timeline: Timeline = {
+      tracks: [{ ...track('v1', 'video'), hidden: true } as Track],
+    };
+    expect(createLaneAllocator(timeline).allocate('v1', 0, 5).trackId).toBe('v1');
+  });
+
   it('never allocates a locked lane', () => {
     const locked: Timeline = {
       tracks: [{ ...track('v1', 'video'), locked: true } as Track],

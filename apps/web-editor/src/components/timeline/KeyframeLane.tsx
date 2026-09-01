@@ -196,7 +196,15 @@ export function KeyframeLane({
               event.preventDefault();
               event.stopPropagation();
               const rate = Number.isFinite(fps) && fps > 0 ? fps : 30;
-              onMove(key, (step * (event.shiftKey ? 10 : 1)) / rate);
+              // Through the SAME clamp the drag uses. Without it a nudge could push
+              // one member of a selection past the clip edge while the rest moved:
+              // `moveKeyframesPatch` drops the one it cannot place, so the group
+              // silently changes shape — something a drag can never do — and the
+              // unmoved keyframe's key then matches nothing, deselecting it.
+              const raw = (step * (event.shiftKey ? 10 : 1)) / rate;
+              const delta = clampGroupDelta(draggingTimes(key), raw, duration);
+              if (delta === 0) return;
+              onMove(key, delta);
             }}
             onPointerDown={(event) => {
               // BOTH, and in this order: stopPropagation keeps the clip-drag handler

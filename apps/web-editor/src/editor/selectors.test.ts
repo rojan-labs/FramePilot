@@ -1053,6 +1053,97 @@ describe('formatTime', () => {
   });
 });
 
+describe('snapTargets — excluding the gestured clip', () => {
+  const two: Timeline = {
+    tracks: [
+      {
+        id: 'v',
+        type: 'video',
+        clips: [
+          {
+            id: 'a',
+            assetId: 'x',
+            trackId: 'v',
+            start: 0,
+            end: 4,
+            sourceStart: 0,
+            sourceEnd: 4,
+            effects: [],
+            keyframes: [],
+          },
+          {
+            id: 'b',
+            assetId: 'x',
+            trackId: 'v',
+            start: 6,
+            end: 10,
+            sourceStart: 0,
+            sourceEnd: 4,
+            effects: [],
+            keyframes: [],
+          },
+        ],
+      },
+    ],
+  };
+
+  it("drops the dragged clip's own edges, so it is not stuck to where it already is", () => {
+    // Without this the first pointer move of a drag lands inside the capture
+    // radius of the edge the clip started on, and the clip will not move until the
+    // pointer has travelled the whole release distance.
+    expect(snapTargets(two, [], 'a')).not.toContain(4);
+    expect(snapTargets(two, [], 'a')).toContain(6);
+    expect(snapTargets(two, [], 'a')).toContain(10);
+  });
+
+  it('keeps an edge that a DIFFERENT clip also sits on', () => {
+    // A butt-joined neighbour's start is a real place to land; that it equals this
+    // clip's end is a coincidence of the join, not a reason to drop it.
+    const joined: Timeline = {
+      tracks: [
+        {
+          id: 'v',
+          type: 'video',
+          clips: [
+            {
+              id: 'a',
+              assetId: 'x',
+              trackId: 'v',
+              start: 0,
+              end: 4,
+              sourceStart: 0,
+              sourceEnd: 4,
+              effects: [],
+              keyframes: [],
+            },
+            {
+              id: 'b',
+              assetId: 'x',
+              trackId: 'v',
+              start: 4,
+              end: 8,
+              sourceStart: 0,
+              sourceEnd: 4,
+              effects: [],
+              keyframes: [],
+            },
+          ],
+        },
+      ],
+    };
+    expect(snapTargets(joined, [], 'a')).toContain(4);
+  });
+
+  it('is unchanged when no clip is being dragged', () => {
+    expect(snapTargets(two, [])).toEqual(snapTargets(two, [], null));
+    expect(snapTargets(two, [], 'ghost')).toEqual(snapTargets(two, []));
+  });
+
+  it('still merges the extra targets it is given', () => {
+    expect(snapTargets(two, [7.5], 'a')).toContain(7.5);
+  });
+});
+
 describe('magnetSnap', () => {
   const edges = [0, 4, 10];
 

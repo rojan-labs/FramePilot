@@ -436,8 +436,13 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
       const timeline = ctx.project.timeline;
       const sourceTrack = timeline.tracks.find((t) => t.id === a.trackId);
       const placed = createLaneAllocator(timeline).allocate(a.trackId, a.start, a.end);
+      // Whenever the cue MOVED, not only when a lane was created. An existing free
+      // caption lane can carry a different style (or none), which would render this
+      // one cue in a different look — exactly the "one odd-looking caption" this
+      // guard exists to prevent, and what the tool description promises against.
+      const relocated = placed.trackId !== a.trackId;
       const inheritedStyle =
-        placed.setupOps.length > 0 && sourceTrack?.captionStyle !== undefined
+        relocated && sourceTrack?.captionStyle !== undefined
           ? [
               {
                 type: 'set_track_caption_style' as const,

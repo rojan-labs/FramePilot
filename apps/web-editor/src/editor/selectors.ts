@@ -57,7 +57,49 @@ function baseTargets(timeline: Timeline): readonly number[] {
   return sorted;
 }
 
-export function snapTargets(timeline: Timeline, extra: readonly number[] = []): readonly number[] {
+/**
+ * Snap targets for a gesture, optionally EXCLUDING one clip's own edges.
+ *
+ * `excludeClipId` exists because a clip cannot meaningfully snap to where it
+ * already is. Without it the first pointer move of a drag lands inside the capture
+ * radius of the edge the clip started on, the magnet grabs it, and the clip then
+ * will not move until the pointer has travelled the whole release distance — a
+ * dead zone at the start of every move and trim.
+ *
+ * The exclusion deliberately skips the identity cache: it is one array walk per
+ * pointer frame over the clips of a timeline that is otherwise memoised, and
+ * caching per (timeline, extra, clipId) would keep a strong key per dragged clip
+ * for the life of the timeline object.
+ */
+export function snapTargets(
+  timeline: Timeline,
+  extra: readonly number[] = [],
+  excludeClipId?: string | null,
+): readonly number[] {
+  if (excludeClipId !== undefined && excludeClipId !== null) {
+    const excluded = new Set<number>();
+    for (const track of timeline.tracks) {
+      for (const clip of track.clips) {
+        if (clip.id !== excludeClipId) continue;
+        excluded.add(clip.start);
+        excluded.add(clip.end);
+      }
+    }
+    if (excluded.size > 0) {
+      const full = snapTargets(timeline, extra);
+      // An edge shared with another clip stays a target: a butt-joined neighbour's
+      // start is a real place to land, and it happens to equal this clip's end.
+      const shared = new Set<number>();
+      for (const track of timeline.tracks) {
+        for (const clip of track.clips) {
+          if (clip.id === excludeClipId) continue;
+          if (excluded.has(clip.start)) shared.add(clip.start);
+          if (excluded.has(clip.end)) shared.add(clip.end);
+        }
+      }
+      return full.filter((time) => !excluded.has(time) || shared.has(time));
+    }
+  }
   const prior = mergedSnapTargets.get(timeline);
   if (prior && sameNumbers(prior.extra, extra)) return prior.targets;
   const base = baseTargets(timeline);
@@ -107,9 +149,11 @@ export function snap(time: number, targets: readonly number[], threshold: number
   const index = lowerBound(targets, clamped);
   const before = index > 0 ? targets[index - 1] : undefined;
   const after = targets[index];
-  const beforeDistance = before === undefined ? Number.POSITIVE_INFINITY : Math.abs(before - clamped);
+  const beforeDistance =
+    before === undefined ? Number.POSITIVE_INFINITY : Math.abs(before - clamped);
   const afterDistance = after === undefined ? Number.POSITIVE_INFINITY : Math.abs(after - clamped);
-  if (after !== undefined && afterDistance <= beforeDistance && afterDistance <= threshold) return after;
+  if (after !== undefined && afterDistance <= beforeDistance && afterDistance <= threshold)
+    return after;
   if (before !== undefined && beforeDistance <= threshold) return before;
   return clamped;
 }

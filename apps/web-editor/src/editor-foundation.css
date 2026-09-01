@@ -182,7 +182,17 @@ body {
  * their x-origin. This block owns only the value; `.timeline-grid` in styles.css
  * reads the token, so there is no second grid declaration to keep in sync.
  * ---------------------------------------------------------------------- */
-:root {
+/* Higher specificity than the shared token's plain `:root`, deliberately.
+ *
+ * Both declared `--tl-gutter-w` at `:root`, so which one won depended purely on
+ * stylesheet order — and it resolved correctly only because `main.tsx` happens to
+ * import this file after the one that pulls in the tokens. `packages/ui`
+ * components import `tokens.css` directly, so any consumer or bundler that ordered
+ * them the other way would get the 156px default against a header laid out for
+ * 174px, which is exactly the clipped-lock overflow the note above describes.
+ * `:root:root` is the same element at twice the specificity: it cannot lose to a
+ * plain `:root` whatever the order. */
+:root:root {
   --tl-gutter-w: 174px;
 }
 

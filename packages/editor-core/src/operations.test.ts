@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { Clip, Keyframe, Timeline, Track } from '@framepilot/timeline-schema';
+import { TimelineSchema } from '@framepilot/timeline-schema';
 import {
   applyOperation,
   CAPTION_ASSET_ID,
@@ -117,10 +118,26 @@ describe('trimming re-bases clip-relative keyframes', () => {
       end: 10,
     });
     const kf = findClipById(after, 'a')!.keyframes;
-    expect(kf.map((k) => k.time)).toEqual([-3, 1]);
+    // The keyframe that fell before the new start is RESAMPLED to 0 rather than
+    // kept at a negative time: `KeyframeSchema.time` is non-negative, so a negative
+    // one fails validation and, on desktop, throws the edit away.
+    expect(kf.map((k) => k.time)).toEqual([0, 1]);
+    expect(kf.every((k) => k.time >= 0)).toBe(true);
     // The frame that showed scale 2 still shows scale 2: it was 4s into the old
     // clip and is 1s into the trimmed one.
     expect(scaleAt(after, 1)).toBeCloseTo(2, 6);
+  });
+
+  it('produces keyframes the schema accepts, which is what makes the edit survive', () => {
+    // The guard this whole shape exists for: `parseProject` runs on every committed
+    // patch on desktop, so one negative time loses the user's edit outright.
+    const after = applyOperation(animated(), {
+      type: 'trim_clip',
+      clipId: 'a',
+      start: 3,
+      end: 10,
+    });
+    expect(() => TimelineSchema.parse(after)).not.toThrow();
   });
 
   it('preserves the visible curve at the new edge rather than flattening it', () => {
@@ -133,8 +150,10 @@ describe('trimming re-bases clip-relative keyframes', () => {
       start: 2,
       end: 10,
     });
-    // 2s into the original ramp is halfway from 1 to 2.
+    // 2s into the original ramp is halfway from 1 to 2 — and that value is now
+    // carried by a real keyframe at 0 rather than by a neighbour off the front.
     expect(scaleAt(after, 0)).toBeCloseTo(1.5, 6);
+    expect(findClipById(after, 'a')!.keyframes[0]).toMatchObject({ time: 0, value: 1.5 });
   });
 
   it('leaves keyframes alone when only the tail moves', () => {
@@ -154,7 +173,7 @@ describe('trimming re-bases clip-relative keyframes', () => {
       start: 0,
       end: 3,
     });
-    expect(findClipById(after, 'a')!.keyframes.map((k) => k.time)).toEqual([-3, 1]);
+    expect(findClipById(after, 'a')!.keyframes.map((k) => k.time)).toEqual([0, 1]);
   });
 
   it('still round-trips through its inverse', () => {

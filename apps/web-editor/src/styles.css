@@ -6006,7 +6006,13 @@ input[type='checkbox']:focus-visible {
    shows what. Not centred, and not over the footage: this is chrome about the
    agent, and the program monitor is the one thing that must never be covered. */
 .agent-fab {
-  position: absolute;
+  /* `fixed`, not `absolute`. The overlay slot it renders into has no positioned
+     ancestor, so `absolute` resolved against the initial containing block — which
+     puts it in the right corner today only because the shell happens to be exactly
+     the viewport and never scrolls. `fixed` anchors it to the viewport by
+     definition, which is what a floating control means, and it stops depending on
+     a layout fact nothing states. */
+  position: fixed;
   right: var(--space-4);
   bottom: var(--space-4);
   z-index: var(--z-toast);

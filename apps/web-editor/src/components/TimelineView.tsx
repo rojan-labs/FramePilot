@@ -1691,7 +1691,21 @@ export function TimelineView({
         magnetHeldRef.current = null;
         return { value: clamped, snapped: false };
       }
-      const targets = snapTargets(timeline, [...markers.map((m) => m.time), editor.getPlayhead()]);
+      // The gestured clip's OWN edges are not targets.
+      //
+      // `snapTargets` collects every clip start and end, including the one being
+      // dragged — so the very first pointer move after the drag threshold sits
+      // within the capture radius of the edge it started on, the magnet grabs it,
+      // and the clip then refuses to move until the pointer travels the full
+      // release distance. Widening the release radius turned that from an 8px
+      // annoyance into an 18px dead zone at the start of every move and trim. A
+      // clip cannot meaningfully snap to where it already is.
+      const gesturedClipId = gestureRef.current?.clip.id ?? null;
+      const targets = snapTargets(
+        timeline,
+        [...markers.map((m) => m.time), editor.getPlayhead()],
+        gesturedClipId,
+      );
       const { value, held } = magnetSnap(
         clamped,
         targets,

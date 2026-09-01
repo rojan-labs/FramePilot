@@ -85,6 +85,14 @@ export function ScrubNumber({
     if (!trackDragRef.current) return;
     onChange(valueAtX(event.clientX));
   };
+  /**
+   * Ends the track drag, however it ended.
+   *
+   * Bound to `pointercancel` and `lostpointercapture` as well as `pointerup`: a
+   * touch interrupted by the browser, or capture taken away mid-gesture, fires
+   * neither `pointerup` nor a click — and the flag left `true` means every later
+   * pointer move over the rail keeps writing values with no button held.
+   */
   const onTrackPointerUp = (event: React.PointerEvent): void => {
     trackDragRef.current = false;
     try {
@@ -136,6 +144,8 @@ export function ScrubNumber({
         onPointerDown={onTrackPointerDown}
         onPointerMove={onTrackPointerMove}
         onPointerUp={onTrackPointerUp}
+        onPointerCancel={onTrackPointerUp}
+        onLostPointerCapture={onTrackPointerUp}
         onDoubleClick={defaultValue !== undefined ? reset : undefined}
       >
         <span className="scrub-track-fill" style={{ width: `${progress}%` }} />

@@ -981,7 +981,10 @@ export function setKeyframesForClipsPatch(
     createdBy: 'user',
     reason:
       operations.length === 1
-        ? `Add keyframe on "${entries[0]!.clipId}"`
+        ? // The SURVIVING op's clip, not `entries[0]`: an entry naming a missing
+          // clip is skipped, so entry 0 may not be the one that produced the op,
+          // and the history would name a clip the patch never touched.
+          `Add keyframe on "${(operations[0] as { readonly clipId: string }).clipId}"`
         : `Add keyframe on ${String(operations.length)} clips`,
     operations,
   };

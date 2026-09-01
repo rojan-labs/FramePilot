@@ -172,7 +172,21 @@ export function createLaneAllocator(timeline: Timeline): {
         timeline,
         start,
         end,
-        (track) => !track.locked && track.type === role && bookedHasRoom(track.id, start, end),
+        (track) =>
+          // Hidden and muted lanes are not fallbacks. A hidden lane renders
+          // nothing, so relocating onto one would report success and produce an
+          // edit invisible in both the preview and the export — worse than the
+          // rejection this rescue replaces. Muted is the same bargain for anything
+          // audible. The lane the caller NAMED is still honoured whatever flags it
+          // carries, because `laneWithRoomFor` tests the preferred one first:
+          // pointing at a hidden lane is a choice, landing on one is an accident.
+          !track.locked &&
+          track.type === role &&
+          bookedHasRoom(track.id, start, end) &&
+          // The exemption is what makes the comment above true: `laneWithRoomFor`
+          // applies this same predicate to the preferred lane, so without it a
+          // deliberately-named hidden lane would be refused too.
+          (track.id === preferredTrackId || (track.hidden !== true && track.muted !== true)),
         preferredTrackId,
       );
       if (existing) {
