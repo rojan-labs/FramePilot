@@ -1824,8 +1824,16 @@ export function TimelineView({
         junction &&
         findClip(timeline, g.kind === 'trim-l' ? junction.fromClipId : junction.toClipId)?.clip;
 
+      // Every gesture tracks the DELTA from where the pointer went down, never the
+      // pointer's absolute position. A trim handle is 7px wide and sits 5px inside
+      // the clip at a butt join, so reading the cursor directly snapped the edge up
+      // to 8px sideways the instant it was grabbed — enough to break contact with a
+      // neighbour the user was trying to stay flush against.
       if (g.kind === 'trim-l') {
-        const { value, snapped } = snapValue(cursor, snapDisabled(event.altKey));
+        const { value, snapped } = snapValue(
+          g.clip.start + (cursor - g.downSeconds),
+          snapDisabled(event.altKey),
+        );
         const bounds = neighbor ? rollBounds(neighbor, g.clip) : null;
         const start = bounds
           ? Math.min(bounds.max, Math.max(bounds.min, value))
@@ -1843,7 +1851,10 @@ export function TimelineView({
         return;
       }
 
-      const { value, snapped } = snapValue(cursor, snapDisabled(event.altKey));
+      const { value, snapped } = snapValue(
+        g.clip.end + (cursor - g.downSeconds),
+        snapDisabled(event.altKey),
+      );
       const bounds = neighbor ? rollBounds(g.clip, neighbor) : null;
       const end = bounds
         ? Math.min(bounds.max, Math.max(bounds.min, value))
