@@ -17,6 +17,7 @@ import {
   TEXT_OVERLAY_ASSET_ID,
   type Operation,
 } from './operations.js';
+import { evaluateKeyframes } from './keyframes.js';
 
 // --- fixtures --------------------------------------------------------------
 
@@ -75,6 +76,91 @@ const expectRoundTrip = (before: Timeline, op: Operation): Timeline => {
 };
 
 // --- type guard ------------------------------------------------------------
+
+describe('trimming re-bases clip-relative keyframes', () => {
+  /** A clip animating `scale` 1 → 2 across 0–10s of its own timeline. */
+  const animated = (): Timeline => ({
+    tracks: [
+      {
+        id: 'video_1',
+        type: 'video',
+        clips: [
+          clip({
+            id: 'a',
+            trackId: 'video_1',
+            start: 0,
+            end: 10,
+            sourceStart: 0,
+            sourceEnd: 10,
+            keyframes: [
+              { id: 'k0', property: 'scale', time: 0, value: 1, easing: 'linear' },
+              { id: 'k4', property: 'scale', time: 4, value: 2, easing: 'linear' },
+            ] as Keyframe[],
+          }),
+        ],
+      },
+    ],
+  });
+
+  const scaleAt = (tl: Timeline, clipTime: number): number | undefined =>
+    evaluateKeyframes(findClipById(tl, 'a')!.keyframes, 'scale', clipTime);
+
+  it('keeps the animation locked to the footage when the head is trimmed', () => {
+    // REGRESSION: keyframe times are clip-relative, and `truncateClip` used to move
+    // only `start`/`end`. A keyframe 4s into the clip stayed "4s in" after a 3s head
+    // trim — one second later in the FOOTAGE than where it was put — so a punch-in
+    // placed on a gesture drifted off it the moment the clip was trimmed.
+    const after = applyOperation(animated(), {
+      type: 'trim_clip',
+      clipId: 'a',
+      start: 3,
+      end: 10,
+    });
+    const kf = findClipById(after, 'a')!.keyframes;
+    expect(kf.map((k) => k.time)).toEqual([-3, 1]);
+    // The frame that showed scale 2 still shows scale 2: it was 4s into the old
+    // clip and is 1s into the trimmed one.
+    expect(scaleAt(after, 1)).toBeCloseTo(2, 6);
+  });
+
+  it('preserves the visible curve at the new edge rather than flattening it', () => {
+    // The keyframe now before the clip start is KEPT, because `evaluateKeyframes`
+    // interpolates between it and the next one — dropping it would make the clip
+    // open at a flat 2 instead of partway up the ramp.
+    const after = applyOperation(animated(), {
+      type: 'trim_clip',
+      clipId: 'a',
+      start: 2,
+      end: 10,
+    });
+    // 2s into the original ramp is halfway from 1 to 2.
+    expect(scaleAt(after, 0)).toBeCloseTo(1.5, 6);
+  });
+
+  it('leaves keyframes alone when only the tail moves', () => {
+    const after = applyOperation(animated(), {
+      type: 'trim_clip',
+      clipId: 'a',
+      start: 0,
+      end: 6,
+    });
+    expect(findClipById(after, 'a')!.keyframes.map((k) => k.time)).toEqual([0, 4]);
+  });
+
+  it('re-bases through ripple_delete too, which trims heads via the same path', () => {
+    const after = applyOperation(animated(), {
+      type: 'ripple_delete',
+      trackId: 'video_1',
+      start: 0,
+      end: 3,
+    });
+    expect(findClipById(after, 'a')!.keyframes.map((k) => k.time)).toEqual([-3, 1]);
+  });
+
+  it('still round-trips through its inverse', () => {
+    expectRoundTrip(animated(), { type: 'trim_clip', clipId: 'a', start: 3, end: 10 });
+  });
+});
 
 describe('isOperationOfType', () => {
   it('narrows by discriminant', () => {

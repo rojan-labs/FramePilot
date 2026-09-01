@@ -1246,10 +1246,38 @@ function sourceOffsetForTimeline(clip: Clip, timelineDelta: Seconds): Seconds {
  * - **Forward, constant or ramped**: the integral mapping, with the ramp re-based.
  */
 function truncateClip(clip: Clip, newStart: Seconds, newEnd: Seconds, id: string): Clip {
-  const base = { ...clone(clip), id, start: newStart, end: newEnd };
   const headSeconds = newStart - clip.start;
   const tailSeconds = clip.end - newEnd;
   const speed = clip.speed ?? 1;
+  // Keyframe times are CLIP-relative, so trimming the head has to re-base them or
+  // the animation slides.
+  //
+  // This was the bug: `truncateClip` cloned the clip verbatim and moved only
+  // `start`/`end`, so a keyframe two seconds into a clip stayed "two seconds in"
+  // after a one-second head trim — which is one second later in the footage than
+  // where the user put it. A punch-in placed on a gesture drifted off it the
+  // moment the clip was trimmed, and `delete_range`/`ripple_delete` inherited the
+  // same slide through `subtractRange`. (`split_clip` was already correct: it
+  // partitions and re-bases its own keyframes after calling this.)
+  //
+  // Times are timeline-relative to the clip's start, NOT source seconds, so the
+  // shift is `headSeconds` at any speed — including a reverse clip, whose source
+  // mapping is inverted below while its keyframe times are not.
+  //
+  // Keyframes that fall outside the new bounds are KEPT, not dropped:
+  // `evaluateKeyframes` clamps to the first/last point and interpolates between
+  // them, so an out-of-range neighbour is exactly what preserves the visible curve
+  // at the new edges. Dropping them would silently flatten the animation at the
+  // trim. The clip's own marker strip already ignores times outside `[0, duration]`,
+  // so nothing renders where it should not.
+  const keyframes =
+    headSeconds === 0
+      ? clone(clip).keyframes
+      : clip.keyframes.map((keyframe) => ({
+          ...clone(keyframe),
+          time: keyframe.time - headSeconds,
+        }));
+  const base = { ...clone(clip), id, start: newStart, end: newEnd, keyframes };
 
   if (!hasSpeedRamp(clip) && speed === 0) return base;
 
