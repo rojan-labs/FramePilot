@@ -600,19 +600,28 @@ export function unusableTurnReason(
   stage: RunStage | undefined,
 ): 'empty' | 'truncated' | undefined {
   if (turn.calls.length > 0) return undefined;
-  if (turn.text.trim() === '') return 'empty';
-  // A turn that ASKED for tools and lost every one of them to a cut-off stream is unusable
-  // whatever else is true of the run. This case is checked before the survivability rules
-  // below because those rules read a call-less turn as the model declaring itself finished
-  // — and a model whose `add_clip` was discarded in transit declared nothing of the kind.
-  // In the captured run that misreading ended turn 1 as "completed" on a sentence that
-  // stopped mid-word, with the motion work it had just promised never attempted.
-  if ((turn.droppedToolCalls ?? []).length > 0) return 'truncated';
-  // A truncated reply after work has landed is survivable — the run keeps the edits and the
-  // reducer settles it — and a run already at verify/complete is allowed to finish on prose.
-  if (appliedOpsSoFar > 0) return undefined;
-  if (stage === 'verify' || stage === 'complete') return undefined;
-  return turn.truncated === true ? 'truncated' : undefined;
+  const dropped = (turn.droppedToolCalls ?? []).length > 0;
+  // WHAT WE KNOW ABOUT WHY IT STOPPED COMES FIRST. Reading the empty case first — as this
+  // did — labels a reply the provider explicitly cut off at its token ceiling as a dropped
+  // request, and the two are retried differently: `empty` replays the turn verbatim, which
+  // for a model that has just spent its whole output budget produces the identical empty
+  // reply. In the captured run both attempts billed 8,192 output tokens and returned
+  // nothing, and the run failed telling the creator the gateway was overloaded.
+  if (turn.truncated === true || dropped) {
+    // A turn that ASKED for tools and lost every one of them to a cut-off stream was still
+    // asking: the run has more to do whatever it has already applied. That misreading is
+    // what ended the captured run's first turn as "completed" on a sentence that stopped
+    // mid-word, with the motion work it had promised one line earlier never attempted.
+    if (dropped) return 'truncated';
+    // Cut off with nothing said and nothing asked. There is no answer here to keep.
+    if (turn.text.trim() === '') return 'truncated';
+    // A truncated reply after work has landed is survivable — the run keeps the edits and
+    // the reducer settles it — and a run already at verify/complete may finish on prose.
+    if (appliedOpsSoFar > 0) return undefined;
+    if (stage === 'verify' || stage === 'complete') return undefined;
+    return 'truncated';
+  }
+  return turn.text.trim() === '' ? 'empty' : undefined;
 }
 
 // Named `orchestratorLog` (not `log`) because the agent-run closure has a local

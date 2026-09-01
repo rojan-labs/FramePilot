@@ -235,6 +235,19 @@ describe('unusableTurnReason', () => {
     ).toBe('truncated');
   });
 
+  it('calls a cut-off reply with nothing in it truncated, not empty', () => {
+    // The two are retried differently: `empty` replays the turn verbatim, and a model that
+    // has just spent its whole output budget returns the identical empty reply. Both of the
+    // captured run's final attempts billed 8,192 output tokens and said nothing.
+    expect(unusableTurnReason({ text: '', calls: [], truncated: true }, 0, 'apply')).toBe(
+      'truncated',
+    );
+  });
+
+  it('still calls a silent turn the provider said nothing about empty', () => {
+    expect(unusableTurnReason({ text: '', calls: [] }, 0, 'apply')).toBe('empty');
+  });
+
   it('leaves a turn that produced calls alone', () => {
     expect(
       unusableTurnReason({ ...spoke, calls: [{}], droppedToolCalls: ['add_clip'] }, 0, 'apply'),
