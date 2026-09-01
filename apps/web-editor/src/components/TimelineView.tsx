@@ -44,6 +44,8 @@ import {
   assetDisplayName,
   clipKind,
   clipsIntersectingRect,
+  compactDuration,
+  compactTimeLabel,
   effectLayersIntersectingRect,
   findClip,
   findEffectLayer,
@@ -72,6 +74,7 @@ import {
 import { ClipWaveform } from './ClipWaveform.js';
 import { ClipFilmstrip, filmstripSlots } from './ClipFilmstrip.js';
 import { TimelineMinimap } from './TimelineMinimap.js';
+import { laneNames } from './timeline/lane-names.js';
 import { useSettings } from '../editor/useSettings.js';
 import {
   TRACK_HEIGHT_BOUNDS,
@@ -464,9 +467,17 @@ interface Ghost {
   readonly rollWith?: string;
 }
 
-/** Whole-clip duration label, honouring the active time-display mode. */
+/**
+ * Whole-clip duration label, honouring the active time-display mode.
+ *
+ * Compact, not full SMPTE. The badge sits inside the clip's own header, sharing a
+ * row with the clip name: eleven characters of `00:00:06:00` there is not a
+ * readout, it is a wall that pushes the name out at any ordinary clip width, and
+ * ten of those characters are the same on every clip in the project. `0:06` says
+ * the same thing and leaves the row to the name.
+ */
 const clipDurationLabel = (clip: Clip, fps: number, mode: TimeDisplay): string =>
-  formatTime(clip.end - clip.start, fps, mode);
+  compactDuration(clip.end - clip.start, fps, mode);
 
 /**
  * A clean, kind-aware label for a clip (master-prompt §3.11). Text clips show their
@@ -757,6 +768,10 @@ interface TimelineClipProps {
   readonly selected: boolean;
   /** Draw the filmstrip picture layer (Settings → Editing → timeline thumbnails). */
   readonly showThumbnails: boolean;
+  /** This clip butt-joins the clip before it — the left edge is a cut, not an end. */
+  readonly joinLeft?: boolean;
+  /** This clip butt-joins the clip after it — the right edge is a cut, not an end. */
+  readonly joinRight?: boolean;
   readonly assetById: ReadonlyMap<string, Asset>;
   readonly beginGesture: (
     event: React.PointerEvent,
@@ -802,6 +817,8 @@ const TimelineClip = memo(function TimelineClip({
   timeDisplay,
   selected,
   showThumbnails,
+  joinLeft,
+  joinRight,
   assetById,
   beginGesture,
   onPointerMove,
@@ -981,7 +998,9 @@ const TimelineClip = memo(function TimelineClip({
       type="button"
       className={`clip-block ${KIND_META[kind].cls} ${isGhost && ghostKind ? `is-${ghostKind}` : ''}${
         isGhost && ghostDuplicate ? ' is-duplicate' : ''
-      }${isGhost && ghostRoll ? ' is-roll' : ''}`}
+      }${isGhost && ghostRoll ? ' is-roll' : ''}${joinLeft ? ' is-join-l' : ''}${
+        joinRight ? ' is-join-r' : ''
+      }`}
       // The id, not the name: every test in the repo and both e2e suites address
       // clips by it, and Playwright substring-matches where RTL exact-matches, so
       // changing this text breaks one suite or the other. The human name reaches
@@ -2533,12 +2552,81 @@ export function TimelineView({
             className="ruler-tick is-major tabular"
             style={{ left: `${secondsToPx(t, pxPerSecond)}px` }}
           >
-            {formatTime(t, fps, timeDisplay)}
+            {/* Compact, scale-aware — see `compactTimeLabel`. The ruler targets
+                ~72px between labels; the full `HH:MM:SS:FF` readout is wider than
+                that, so it used to collide with its neighbour and have its first
+                character clipped by the lane origin. */}
+            {compactTimeLabel(t, fps, ticks.stepSeconds, laneSeconds, timeDisplay)}
           </span>
         ))}
       </>
     );
-  }, [ticks, pxPerSecond, fps, timeDisplay, windowStartPx, windowEndPx]);
+  }, [ticks, pxPerSecond, fps, timeDisplay, laneSeconds, windowStartPx, windowEndPx]);
+
+  /**
+   * Short lane names (`V1`, `A2`) for the track headers, and the pixel pitch of the
+   * lanes' vertical time grid.
+   *
+   * The grid is deliberately NOT a set of elements. One rule per labelled tick,
+   * across every lane, is thousands of nodes on a zoomed-in sequence and they all
+   * live under the clips, which is the subtree horizontal culling exists to keep
+   * cheap. A repeating background gradient sized by this one custom property costs
+   * a single paint and stays exact, because it is driven by the same
+   * `stepSeconds × pxPerSecond` the ruler's own labels are.
+   */
+  // Clamped: a repeating gradient whose period is 0 (or NaN) is an invalid value
+  // the whole background declaration is dropped for, so the lanes would silently
+  // lose their grid rather than fail loudly. 8px is below any pitch the tick
+  // selector can actually choose, so the clamp never alters a real zoom.
+  const gridPitchPx = Math.max(8, ticks.stepSeconds * pxPerSecond || 0);
+  /**
+   * Whether the overview strip has anything to navigate.
+   *
+   * `clientWidth` is 0 until the lane viewport has been measured (first paint,
+   * jsdom), and a 0-width viewport would report every sequence as overflowing —
+   * so an unmeasured viewport shows no strip rather than a wrong one.
+   */
+  const overviewNeeded = viewport.clientWidth > 0 && laneWidth > viewport.clientWidth + 1;
+  const trackNames = useMemo(
+    () =>
+      laneNames(visibleTracks, (track) =>
+        // Same resolution `layerMeta` uses for the glyph, so the name and the icon
+        // can never disagree: the kind of clip the lane actually holds, falling
+        // back to what its advisory type implies while it is still empty. Without
+        // the fallback a new, empty caption lane was named `L1` — the generic
+        // last-resort prefix — while its glyph already said "captions".
+        track.type === 'effect' ? undefined : (layerKind(track, assetById) ?? ADVISORY_KIND[track.type]),
+      ),
+    [visibleTracks, assetById],
+  );
+
+  /**
+   * Which clips are butt-joined to a neighbour, per lane.
+   *
+   * A cut is not a gap, and it should not look like one. Two adjacent clips each
+   * drew their own full rounded outline, so a hard cut — the most common thing on
+   * a timeline — rendered as two separate boxes with a dark notch between them,
+   * visually identical to a real gap of a few frames. Squaring the joined corners
+   * and dropping the doubled edge makes a run of cuts read as one strip divided by
+   * hairlines, and leaves an actual gap looking like one.
+   *
+   * `trackJunctions` is memoised per immutable Track, so this is a walk over
+   * already-computed junctions rather than a re-derivation.
+   */
+  const joinsByTrack = useMemo(() => {
+    const map = new Map<string, { readonly left: ReadonlySet<string>; readonly right: ReadonlySet<string> }>();
+    for (const track of visibleTracks) {
+      const left = new Set<string>();
+      const right = new Set<string>();
+      for (const junction of trackJunctions(track)) {
+        if (!junction.touching) continue;
+        left.add(junction.toClipId);
+        right.add(junction.fromClipId);
+      }
+      if (left.size > 0 || right.size > 0) map.set(track.id, { left, right });
+    }
+    return map;
+  }, [visibleTracks]);
 
   // The track lanes are the timeline's heavy subtree (every clip, waveform, badge
   // and keyframe). They do NOT depend on the playhead, so we memoise them: during
@@ -2668,6 +2756,7 @@ export function TimelineView({
               ))}
             {track.clips.map((clip) => {
               const isGhost = ghost?.clipId === clip.id;
+              const joins = joinsByTrack.get(track.id);
               // Horizontal windowing: only clips intersecting the render
               // window mount. The gestured (ghost) clip always mounts — it
               // holds pointer capture and may be dragged past the window.
@@ -2690,6 +2779,10 @@ export function TimelineView({
                   timeDisplay={timeDisplay}
                   selected={selectedSet.has(clip.id)}
                   showThumbnails={showTimelineThumbnails}
+                  // A dragged clip is lifted out of the run, so it keeps its own
+                  // full outline even where it started butt-joined.
+                  joinLeft={!isGhost && joins?.left.has(clip.id) === true}
+                  joinRight={!isGhost && joins?.right.has(clip.id) === true}
                   assetById={assetById}
                   beginGesture={beginGesture}
                   onPointerMove={onClipPointerMove}
@@ -2972,6 +3065,13 @@ export function TimelineView({
                   <li
                     key={track.id}
                     draggable
+                    // NOT `data-track-id`: that attribute is how the lane column
+                    // identifies a drop target — `elementFromPoint(...).closest(
+                    // '[data-track-id]')` is the cross-lane move hit test — and the
+                    // header column comes first in the DOM, so sharing the name
+                    // would let a header answer for its lane and make a clip
+                    // "move" onto a lane by hovering its title.
+                    data-track-head={track.id}
                     className={`track-head ${meta.cls}${track.locked ? ' is-locked' : ''}${
                       track.hidden ? ' is-hidden' : ''
                     }${track.muted || soloMuted ? ' is-muted' : ''}${
@@ -3029,8 +3129,13 @@ export function TimelineView({
                     <button
                       type="button"
                       className="track-collapse"
+                      // Named by the LANE, not the raw track id: "Collapse track
+                      // t_video_1" announces a database key. The lane name is what
+                      // the header shows and what the user calls it.
                       aria-label={
-                        view.collapsed ? `Expand track ${track.id}` : `Collapse track ${track.id}`
+                        view.collapsed
+                          ? `Expand lane ${trackNames.get(track.id) ?? track.id}`
+                          : `Collapse lane ${trackNames.get(track.id) ?? track.id}`
                       }
                       aria-expanded={!view.collapsed}
                       title={view.collapsed ? 'Expand lane' : 'Collapse lane'}
@@ -3045,6 +3150,17 @@ export function TimelineView({
                     {/* Type glyph — coloured icon showing the dominant clip kind */}
                     <span className="track-glyph" aria-hidden="true">
                       <meta.icon size={14} />
+                    </span>
+                    {/*
+                      The lane's name (`V1`, `A2`). Not decoration: it is what the
+                      user, the shortcuts and the AI all call this lane, and it is
+                      the only thing left in the header once the flag controls
+                      recede at rest. `aria-hidden` because the row already carries
+                      the full accessible name; a screen reader reading "V1" after
+                      "track V1" is noise.
+                    */}
+                    <span className="track-name tabular" aria-hidden="true">
+                      {trackNames.get(track.id) ?? ''}
                     </span>
                     <span className="track-controls">
                       {LAYER_CONTROLS.map((control) => {
@@ -3124,7 +3240,12 @@ export function TimelineView({
             <div
               className={`timeline-lanes ${razor ? 'is-razor' : ''}`}
               ref={lanesRef}
-              style={{ position: 'relative', width: `${laneWidth}px` }}
+              style={{
+                position: 'relative',
+                width: `${laneWidth}px`,
+                // Pitch of the lanes' vertical time grid — see `gridPitchPx`.
+                ['--tl-grid-pitch' as string]: `${gridPitchPx}px`,
+              }}
             >
               <RulerBar
                 editor={editor}
@@ -3214,7 +3335,13 @@ export function TimelineView({
                       if (patch) applyPatch(patch);
                     }}
                   >
-                    <span className="timeline-empty-label">Drop media here to start</span>
+                    {/* Names the thing and the two real ways to make one. The old
+                        label was a tracked, upper-cased "DROP MEDIA HERE TO START",
+                        which shouts an instruction without saying where media comes
+                        from or that the gutter's Add track does the same job. */}
+                    <span className="timeline-empty-label">
+                      Drag a clip from Assets to start, or use Add track
+                    </span>
                   </li>
                 )}
                 {trackLanes}
@@ -3237,16 +3364,25 @@ export function TimelineView({
       </div>
 
       {/* Minimap / overview strip — compressed full-sequence navigation. Pure
-          chrome: dragging it only pans the lane viewport (see TimelineMinimap). */}
-      <TimelineMinimap
-        timeline={timeline}
-        trackOrder={visibleTrackIds}
-        pxPerSecond={pxPerSecond}
-        contentWidth={laneWidth}
-        scrollLeft={viewport.scrollLeft}
-        clientWidth={viewport.clientWidth}
-        onScrollTo={scrollLaneTo}
-      />
+          chrome: dragging it only pans the lane viewport (see TimelineMinimap).
+
+          Mounted ONLY when the sequence is wider than its viewport, which is the
+          contract TimelineMinimap has always documented and this parent never
+          honoured. With everything already on screen the viewport window covers
+          the whole strip, so the map rendered as a solid accent slab that hid the
+          very clip blocks it exists to show — an overview of "you can see all of
+          it" that also cost the lanes 22px of height. */}
+      {overviewNeeded && (
+        <TimelineMinimap
+          timeline={timeline}
+          trackOrder={visibleTrackIds}
+          pxPerSecond={pxPerSecond}
+          contentWidth={laneWidth}
+          scrollLeft={viewport.scrollLeft}
+          clientWidth={viewport.clientWidth}
+          onScrollTo={scrollLaneTo}
+        />
+      )}
 
       {menu && (
         <ClipContextMenu
