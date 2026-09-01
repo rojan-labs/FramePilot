@@ -162,6 +162,66 @@ describe('trimming re-bases clip-relative keyframes', () => {
   });
 });
 
+describe('speed stretches keyframes with the clip', () => {
+  const animated = (): Timeline => ({
+    tracks: [
+      {
+        id: 'video_1',
+        type: 'video',
+        clips: [
+          clip({
+            id: 'a',
+            trackId: 'video_1',
+            start: 0,
+            end: 10,
+            sourceStart: 0,
+            sourceEnd: 10,
+            keyframes: [
+              { id: 'k0', property: 'scale', time: 0, value: 1, easing: 'linear' },
+              { id: 'k4', property: 'scale', time: 4, value: 2, easing: 'linear' },
+            ] as Keyframe[],
+          }),
+        ],
+      },
+    ],
+  });
+
+  it('keeps a keyframe on the same MOMENT OF FOOTAGE at 2x', () => {
+    // REGRESSION: speed halved the clip's span and left keyframe times alone, so
+    // the keyframe that sat 40% through the shot ended up 80% through it. A
+    // punch-in placed on a gesture drifted off the gesture, further the faster
+    // the clip ran.
+    const after = applyOperation(animated(), { type: 'set_clip_speed', clipId: 'a', speed: 2 });
+    const next = findClipById(after, 'a')!;
+    expect(next.end - next.start).toBeCloseTo(5, 6);
+    expect(next.keyframes.map((k) => k.time)).toEqual([0, 2]);
+  });
+
+  it('stretches the other way when the clip is slowed down', () => {
+    const after = applyOperation(animated(), { type: 'set_clip_speed', clipId: 'a', speed: 0.5 });
+    const next = findClipById(after, 'a')!;
+    expect(next.end - next.start).toBeCloseTo(20, 6);
+    expect(next.keyframes.map((k) => k.time)).toEqual([0, 8]);
+  });
+
+  it('leaves a freeze frame alone, since its span does not change', () => {
+    const after = applyOperation(animated(), { type: 'set_clip_speed', clipId: 'a', speed: 0 });
+    expect(findClipById(after, 'a')!.keyframes.map((k) => k.time)).toEqual([0, 4]);
+  });
+
+  it('scales by magnitude on a reverse clip, without mirroring the animation', () => {
+    // Whether a reversed clip's animation should also run backwards is a separate
+    // question with a real argument either way; deciding it silently here would be
+    // the same class of mistake this fix corrects.
+    const after = applyOperation(animated(), { type: 'set_clip_speed', clipId: 'a', speed: -2 });
+    expect(findClipById(after, 'a')!.keyframes.map((k) => k.time)).toEqual([0, 2]);
+  });
+
+  it('still round-trips through its inverse', () => {
+    expectRoundTrip(animated(), { type: 'set_clip_speed', clipId: 'a', speed: 2 });
+  });
+});
+
 describe('isOperationOfType', () => {
   it('narrows by discriminant', () => {
     const op: Operation = { type: 'trim_clip', clipId: 'a', start: 1, end: 5 };

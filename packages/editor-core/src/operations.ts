@@ -1975,6 +1975,42 @@ function applySetCaptionStyle(timeline: Timeline, op: SetCaptionStyleOp): Timeli
   return replaceClipAt(timeline, loc, next);
 }
 
+/**
+ * Scale a clip's keyframe times so its animation stays locked to the FOOTAGE when
+ * its timeline duration changes.
+ *
+ * Speed is a time stretch. A keyframe 40% of the way through a clip is on a
+ * particular moment of the picture, and it should still be on that moment after
+ * the clip is played at 2x — which means 40% of the way through the new, shorter
+ * span. Leaving the raw times alone (what this used to do) keeps the animation on
+ * the same *wall clock* instead, so the punch-in the editor placed on a gesture
+ * ends up somewhere else in the shot, and the faster the clip the further it
+ * drifts. Premiere and After Effects both stretch keyframes with a time stretch,
+ * for the same reason.
+ *
+ * Deliberately NOT mirrored for a reverse clip: `speed < 0` flips which end of the
+ * source plays first, and the duration below already uses the magnitude. Whether a
+ * reversed clip's animation should also run backwards is a separate question with
+ * a real argument on both sides, and silently deciding it here would be the same
+ * class of mistake this function fixes.
+ *
+ * @param clip - The clip before the speed change.
+ * @param newDuration - Its new timeline duration, in seconds.
+ */
+function scaleKeyframesToDuration(clip: Clip, newDuration: Seconds): Keyframe[] {
+  const oldDuration = clip.end - clip.start;
+  if (
+    clip.keyframes.length === 0 ||
+    oldDuration <= EPSILON ||
+    newDuration <= EPSILON ||
+    Math.abs(newDuration - oldDuration) <= EPSILON
+  ) {
+    return clone(clip).keyframes;
+  }
+  const ratio = newDuration / oldDuration;
+  return clip.keyframes.map((keyframe) => ({ ...clone(keyframe), time: keyframe.time * ratio }));
+}
+
 function applySetClipSpeed(timeline: Timeline, op: SetClipSpeedOp): Timeline {
   const loc = findClip(timeline, op.clipId);
   const speed = op.speed ?? 1;
@@ -1995,7 +2031,11 @@ function applySetClipSpeed(timeline: Timeline, op: SetClipSpeedOp): Timeline {
   // derive from a division by zero. The clip keeps the timeline span it had —
   // holding a frame for the length it already occupied is the only answer that
   // does not invent a number, and the UI sets the span explicitly afterwards.
-  if (speed !== 0) next.end = clip.start + sourceDuration / Math.abs(speed);
+  if (speed !== 0) {
+    next.end = clip.start + sourceDuration / Math.abs(speed);
+    // The clip's span changed, so its animation stretches with it.
+    next.keyframes = scaleKeyframesToDuration(clip, next.end - next.start);
+  }
   // Canonicalize 1x as *absent* (like set_track_flags canonicalizes "off"): a
   // reset lands on a deep-equal timeline to a clip that never had a speed set.
   if (Math.abs(speed - 1) <= EPSILON) delete next.speed;
@@ -2075,7 +2115,11 @@ function applySetClipSpeedRamp(timeline: Timeline, op: SetClipSpeedRampOp): Time
     delete next.speed;
   }
   const duration = clipTimelineDuration(next);
-  if (duration !== null) next.end = clip.start + duration;
+  if (duration !== null) {
+    next.end = clip.start + duration;
+    // Same rule as a constant speed: a ramp is a time stretch too.
+    next.keyframes = scaleKeyframesToDuration(clip, next.end - next.start);
+  }
   return replaceClipAt(timeline, loc, next);
 }
 
