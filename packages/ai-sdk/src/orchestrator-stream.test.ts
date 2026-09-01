@@ -1376,9 +1376,15 @@ describe('streamAgent', () => {
   });
 
   it('keeps a pinned playbook past the action log window (ADR 0057)', async () => {
-    // The action log feeds back only the last AGENT_LOG_RECENT (6) steps. A body left in
-    // the log would age out mid-run — so a long run would lose the craft it paid a turn
-    // for, and re-load it. Pinning is what makes load_skill a once-per-run cost.
+    // A playbook body left in the rolling action log would be re-sent every turn AND
+    // could be compacted away mid-run, so a long run would lose the craft it paid a turn
+    // for and re-load it. Pinning is what makes load_skill a once-per-run cost.
+    //
+    // This used to assert the run had outrun a six-entry log window. That window is a
+    // budget now, not a turn count (`compactAgentLog`), so a nine-turn run of short trim
+    // notes fits whole and never compacts — which is the improvement, not a regression.
+    // The ADR 0057 invariant is asserted directly instead: the body rides once, in the
+    // pinned Skills section, and never in the log.
     const { BUNDLED_SKILLS } = await import('./skills.js');
     const skill = BUNDLED_SKILLS.find((s) => s.name === 'keyframe-animation');
     if (!skill) throw new Error('fixture skill missing');
@@ -1418,13 +1424,15 @@ describe('streamAgent', () => {
     );
 
     const last = (requests.at(-1)?.messages ?? []).map((m) => m.content).join('\n');
-    // The run really did outlive the log window: the log itself says it compacted
-    // earlier steps away...
+    // The run really is long — many turns past the one that loaded the playbook.
     expect(requests.length).toBeGreaterThan(7);
-    expect(last).toContain('earlier step');
-    // ...yet the turn-1 playbook is still there, whole, because it is pinned rather than
-    // left in the rolling log.
+    // The turn-1 playbook is still there, whole, on the LAST turn of the run.
     expect(last).toContain(skill.body);
+    // Once, not once per turn: a body duplicated into the rolling log would be re-billed
+    // every turn and would age out with it.
+    expect(last.split(skill.body)).toHaveLength(2);
+    // And the log note points at the pinned copy rather than repeating it.
+    expect(last).toContain('keyframe-animation playbook loaded');
   });
 
   it('honours a caller-supplied skills manifest instead of defaulting to the bundle', async () => {

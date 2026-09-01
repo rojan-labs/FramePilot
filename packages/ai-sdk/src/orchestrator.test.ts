@@ -1056,17 +1056,27 @@ describe('compactAgentLog (B4)', () => {
     expect(compactAgentLog(['a', 'b'], 6)).toEqual(['a', 'b']);
   });
 
-  it('digests older steps and keeps the recent window verbatim', () => {
+  it('keeps every step when the log fits the budget it was given', () => {
+    // The behaviour change (see `compactAgentLog`): the window is a floor, not a ceiling.
+    // Ten one-line steps are nowhere near any budget, and discarding the first seven of
+    // them is how a run forgets what it read at turn 3 and re-reads it at turn 9.
     const log = Array.from({ length: 10 }, (_, i) => `step ${i}`);
-    const out = compactAgentLog(log, 3);
+    expect(compactAgentLog(log, 3)).toEqual(log);
+  });
+
+  it('digests older steps once the log no longer fits', () => {
+    const log = Array.from({ length: 10 }, (_, i) => `step ${i} ${'x'.repeat(400)}`);
+    // A budget only three of these can fit.
+    const out = compactAgentLog(log, 3, estimateTokens(log.slice(-3).join('\n')));
     expect(out).toHaveLength(4); // 1 digest + 3 recent
     expect(out[0]).toMatch(/7 earlier steps summarized/);
-    expect(out.slice(1)).toEqual(['step 7', 'step 8', 'step 9']);
+    expect(out.slice(1)).toEqual(log.slice(-3));
   });
 
   it('uses singular phrasing for a single omitted step', () => {
-    const log = Array.from({ length: 7 }, (_, i) => `s${i}`);
-    expect(compactAgentLog(log, 6)[0]).toMatch(/1 earlier step summarized/);
+    const log = Array.from({ length: 7 }, (_, i) => `s${i} ${'y'.repeat(400)}`);
+    const out = compactAgentLog(log, 6, estimateTokens(log.slice(-6).join('\n')));
+    expect(out[0]).toMatch(/1 earlier step summarized/);
   });
 });
 
@@ -1179,11 +1189,28 @@ describe('micro-compaction of old tool results (E2)', () => {
         { length: 10 },
         (_, i) => `Step ${i + 1}: Read the timeline → ${bigPayload}`,
       );
-      const out = compactAgentLog(log, 3);
+      // Clearing runs first and is usually enough on its own — ten cleared entries are
+      // small. Squeeze the budget below even that so the window tier engages too, which
+      // is the composition under test.
+      const out = compactAgentLog(log, 3, 40);
       expect(out).toHaveLength(4);
       expect(out[0]).toMatch(/7 earlier steps summarized/);
       expect(out[1]).toContain(CLEARED_RESULT_MARKER);
       expect(out[3]).toContain(bigPayload); // freshest entries keep payloads
+    });
+
+    it('clearing alone saves the window from having to drop anything', () => {
+      // The order matters and this is why: the cheap tier is tried first, and when it
+      // brings the log inside the budget the run keeps its whole call history.
+      const log = Array.from(
+        { length: 10 },
+        (_, i) => `Step ${i + 1}: Read the timeline → ${bigPayload}`,
+      );
+      // Room for the two freshest entries' payloads plus eight cleared lines.
+      const out = compactAgentLog(log, 3, estimateTokens(log.slice(-2).join('\n')) + 200);
+      expect(out).toHaveLength(10);
+      expect(out[0]).toContain(CLEARED_RESULT_MARKER);
+      expect(out.at(-1)).toContain(bigPayload);
     });
   });
 });

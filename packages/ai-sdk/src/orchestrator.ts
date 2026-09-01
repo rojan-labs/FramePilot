@@ -697,16 +697,31 @@ export function clearNotePayloads(entry: string): string {
 
 /**
  * Bound the agent action log fed back each turn (R2 B4 + E2). Two tiers, cheapest
- * first:
+ * first, and BOTH now decide against the same budget:
  *
- * 1. **Micro-compaction (E2.2)** — when the estimated log size exceeds
- *    {@link AGENT_LOG_CLEAR_THRESHOLD_TOKENS}, the re-derivable read/analysis payloads
- *    of every entry except the freshest {@link AGENT_LOG_PAYLOAD_FRESH} are cleared in
- *    place (see {@link clearNotePayloads}) — the model keeps the full call history but
- *    stops paying for stale data it can re-read for free via the run memo. Token
- *    estimation is the shared chars/4 heuristic ({@link estimateTokens}, E2.3).
- * 2. **Rolling window (R2 B4)** — the last `recent` entries ride verbatim (well,
- *    post-clearing); older ones collapse into a single deterministic digest line.
+ * 1. **Micro-compaction (E2.2)** — when the estimated log size exceeds `budgetTokens`,
+ *    the re-derivable read/analysis payloads of every entry except the freshest
+ *    {@link AGENT_LOG_PAYLOAD_FRESH} are cleared in place (see {@link clearNotePayloads})
+ *    — the model keeps the full call history but stops paying for stale data it can
+ *    re-read for free via the run memo. Token estimation is the shared chars/4 heuristic
+ *    ({@link estimateTokens}, E2.3).
+ * 2. **Rolling window (R2 B4)** — oldest entries collapse into one deterministic digest
+ *    line, but ONLY while the log still does not fit. `recent` is the floor this will not
+ *    trim below, not a ceiling it always trims to.
+ *
+ * That second sentence is the change. The window used to be a hard count of six entries
+ * applied regardless of budget, which is a bound in the wrong unit: it controls tokens by
+ * counting turns. Measured on a realistic ten-turn log — two tool notes a turn, modest
+ * payloads — it discarded the first four turns while occupying 11% of the 24,000-token
+ * budget computed for it one line above. What it discarded, in captured run `35746d4c`,
+ * was the transcript read from turn 3; the run re-read the same transcript at turn 9, and
+ * re-browsed the same caption styles it had already browsed. Every one of those was a
+ * whole model call at ~20k tokens of input, spent to recover something the run had
+ * already paid for and thrown away with room to spare.
+ *
+ * Growth stays bounded, and by the thing that actually costs: `budgetTokens` is at most
+ * {@link FINDINGS_BUDGET_CEILING_TOKENS}, so a hundred-turn run's log is capped in tokens
+ * rather than in turns.
  *
  * Pure.
  */
@@ -715,17 +730,23 @@ export function compactAgentLog(
   recent: number = AGENT_LOG_RECENT,
   budgetTokens: number = AGENT_LOG_CLEAR_THRESHOLD_TOKENS,
 ): string[] {
-  const cleared =
-    estimateTokens(log.join('\n')) > budgetTokens
-      ? log.map((entry, i) =>
-          i < log.length - AGENT_LOG_PAYLOAD_FRESH ? clearNotePayloads(entry) : entry,
-        )
-      : [...log];
-  if (cleared.length <= recent) return cleared;
-  const omitted = cleared.length - recent;
+  const overBudget = (entries: readonly string[]): boolean =>
+    estimateTokens(entries.join('\n')) > budgetTokens;
+  const cleared = overBudget(log)
+    ? log.map((entry, i) =>
+        i < log.length - AGENT_LOG_PAYLOAD_FRESH ? clearNotePayloads(entry) : entry,
+      )
+    : [...log];
+  // Drop from the oldest end only for as long as the log does not fit. `recent` is the
+  // floor: below it the run has too little of its own history to act on, and dropping
+  // further would trade a prompt it can afford for a turn spent re-deriving.
+  let keep = cleared.length;
+  while (keep > recent && overBudget(cleared.slice(cleared.length - keep))) keep -= 1;
+  if (keep >= cleared.length) return cleared;
+  const omitted = cleared.length - keep;
   return [
     `(… ${omitted} earlier step${omitted === 1 ? '' : 's'} summarized for brevity)`,
-    ...cleared.slice(-recent),
+    ...cleared.slice(-keep),
   ];
 }
 

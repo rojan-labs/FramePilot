@@ -208,9 +208,34 @@ describe('compactAgentLog honours the budget it is given', () => {
     expect(out.join('\n')).not.toContain('old result cleared');
   });
 
-  it('still applies the rolling window independently of the payload budget', () => {
-    const out = compactAgentLog(bulky(20), 6, findingsBudgetTokens(97_000));
-    expect(out).toHaveLength(7);
+  it('no longer applies the rolling window when the budget accommodates the log', () => {
+    // This assertion is the inverse of the one it replaces, and deliberately so. The
+    // window used to run "independently of the payload budget" — a hard count of six
+    // entries, applied to a log that fitted its budget several times over. Controlling
+    // tokens by counting turns is what made a run re-read the transcript it had read six
+    // turns earlier, at the price of a whole model call. It is a floor now: the log is
+    // trimmed from the oldest end only while it does not fit.
+    const log = bulky(20);
+    expect(compactAgentLog(log, 6, findingsBudgetTokens(97_000))).toEqual(log);
+  });
+
+  it('lets the cheap tier save the log before the window drops anything', () => {
+    // At the 1,000-token floor a 20-entry log is far over budget — but clearing the stale
+    // payloads brings it back under on its own, so the run keeps its whole call history
+    // and loses only data it can re-read from the memo for free. This ordering is the
+    // point of having two tiers.
+    const out = compactAgentLog(bulky(20), 6, AGENT_LOG_CLEAR_THRESHOLD_TOKENS);
+    expect(out).toHaveLength(20);
+    expect(out.join('\n')).toContain('old result cleared');
+  });
+
+  it('still trims from the oldest end when even the cleared log does not fit', () => {
+    // A budget below what the freshest entries alone cost, so clearing cannot rescue it.
+    const out = compactAgentLog(bulky(20), 6, 40);
+    expect(out.length).toBeLessThan(20);
     expect(out[0]).toContain('earlier steps summarized');
+    // Never below the floor, however tight the budget: a run with no history of its own
+    // has nothing to act on and re-derives everything.
+    expect(out.length).toBeGreaterThanOrEqual(7);
   });
 });
