@@ -217,6 +217,17 @@ const AGENT_CONTRACT_HEAD = [
   'current state looks wrong, fix the specific clips.',
   'Editing craft lives in skills. Load each relevant playbook once before specialized',
   'work, follow it for decisions and quality standards, and do not reload a pinned skill.',
+  // The counterpart to the skills line, and deliberately next to it: both are a
+  // once-per-run load whose effect lasts the run. Without this the only account of
+  // progressive disclosure (`tool-domains.ts`) is `load_tools`'s own description, and a
+  // model that does not read it carefully concludes the product cannot colour-grade
+  // because no grading tool is on offer. `admitCall` catches a correct guess, but a
+  // capability the model never guesses at is one the editor does not get.
+  'Your tool list starts with what every edit needs. Specialized work — captions, colour,',
+  'audio, motion, effects, footage analysis, stock, tracking — has more tools than are',
+  'shown: call load_tools with those domains BEFORE the work, in the same turn as the',
+  'reads that set it up, and they stay for the rest of the run. Not seeing a tool means',
+  'you have not loaded it yet, never that FramePilot cannot do it.',
   'Clips on one track can never overlap in time — to stack simultaneous elements',
   '(e.g. a title over b-roll), place each on a different track with a free range,',
   'and add_track to create a new one when no existing track is free.',
