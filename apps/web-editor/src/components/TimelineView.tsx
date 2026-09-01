@@ -2189,6 +2189,8 @@ export function TimelineView({
   // another reorders the layer stack (one `move_layer` patch), replacing the old
   // up/down nudge chevrons.
   const [dragTrackId, setDragTrackId] = useState<string | null>(null);
+  /** An asset is hovering the open area below the lane stack (drop → new lane). */
+  const [assetOverUnderspace, setAssetOverUnderspace] = useState(false);
   const [dropTarget, setDropTarget] = useState<{ overId: string; after: boolean } | null>(null);
 
   const clearTrackDrag = (): void => {
@@ -3392,6 +3394,47 @@ export function TimelineView({
           onScrollTo={scrollLaneTo}
         />
       )}
+
+      {/*
+        The space below the stack.
+
+        The lane stack hugs the top of the dock, so whatever the user has left the
+        divider at shows up as one open area underneath. It used to be exactly that
+        — an empty area — and a large panel of nothing between the last lane and the
+        overview strip reads as a broken layout rather than as room.
+
+        It is the obvious place to drop something, so it accepts a drop: media
+        landing here starts on a new lane at the sequence's own start, through the
+        same `placeAssetPatch` the empty timeline uses. Purely additive — clicking
+        it does nothing, it takes no focus, and it disappears when the lanes fill
+        the dock.
+      */}
+      <div
+        className={`timeline-underspace${assetOverUnderspace ? ' is-drop-target' : ''}`}
+        aria-hidden="true"
+        onDragOver={(event) => {
+          if (!event.dataTransfer.types.includes(ASSET_DND_TYPE)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
+          setAssetOverUnderspace(true);
+        }}
+        onDragLeave={() => setAssetOverUnderspace(false)}
+        onDrop={(event) => {
+          setAssetOverUnderspace(false);
+          const assetId =
+            event.dataTransfer.getData(ASSET_DND_TYPE) || event.dataTransfer.getData('text/plain');
+          if (!assetId) return;
+          event.preventDefault();
+          const asset = assets.find((a) => a.id === assetId);
+          if (!asset) return;
+          const patch = placeAssetPatch(timeline, assetById, asset, xToSeconds(event.clientX));
+          if (patch) applyPatch(patch);
+        }}
+      >
+        {visibleTracks.length > 0 && (
+          <span className="timeline-underspace-hint">Drop media here for a new lane</span>
+        )}
+      </div>
 
       {menu && (
         <ClipContextMenu

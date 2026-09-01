@@ -4792,11 +4792,56 @@ input[type='checkbox']:focus-visible {
 }
 
 /* Vertical scroll viewport wrapping both grid columns so many lanes window
-   vertically; the ruler/header-tools top row stays pinned while lanes scroll. */
+   vertically; the ruler/header-tools top row stays pinned while lanes scroll.
+
+   `flex: 0 1 auto`, not `flex: 1`. Growing to fill the dock put the lane stack at
+   the top and the overview strip at the very bottom, with a tall panel of nothing
+   between them — the "unnecessary white space" that made a four-lane sequence look
+   like a broken layout. Hugging its content keeps the stack, the strip and the open
+   area in that order, so the empty space is one contiguous region below the
+   timeline rather than a gap inside it. Shrinking is still allowed (and
+   `min-height: 0` still permits it), so a stack taller than the dock scrolls
+   exactly as before. */
 .timeline-vscroll {
   overflow-y: auto;
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
+}
+
+/* The open area below the stack. Takes whatever height is left, and accepts a
+   media drop as "start a new lane" — the affordance the empty region was already
+   implying. Quiet at rest: a single hint that only appears on hover, because the
+   lanes above it are the content and this is the margin. */
+.timeline-underspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-top: 1px solid transparent;
+  color: var(--text-disabled);
+  font-size: var(--font-size-xs);
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+
+.timeline-underspace-hint {
+  opacity: 0;
+  pointer-events: none;
+  user-select: none;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+.timeline-underspace:hover .timeline-underspace-hint,
+.timeline-underspace.is-drop-target .timeline-underspace-hint {
+  opacity: 1;
+}
+
+.timeline-underspace.is-drop-target {
+  border-top-color: var(--tl-select);
+  background: color-mix(in srgb, var(--tl-select) 7%, transparent);
+  color: var(--text-secondary);
 }
 
 .timeline-vscroll .ruler-spacer,
