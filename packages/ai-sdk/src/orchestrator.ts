@@ -534,21 +534,42 @@ function bankedSearchCount(working: RunWorkingState | undefined): number {
  * produces an identical, identically cut-off reply. Telling it, and asking for smaller
  * steps, is what turns the second attempt into a different one.
  */
-export function truncationRetryHint(): string {
-  return (
+export function truncationRetryHint(dropped: readonly string[] = []): string {
+  const base =
     'Your previous reply was cut off before any tool call completed, so nothing was ' +
     'applied. Do the same work in smaller pieces: make at most four tool calls now, ' +
-    'with short arguments, and continue with the rest on the next turn.'
+    'with short arguments, and continue with the rest on the next turn.';
+  if (dropped.length === 0) return base;
+  // Naming the tools is what makes the second attempt DIFFERENT. Without it the model
+  // has no way to know which of its asks never arrived — the conversation, from its side,
+  // simply continues — so it repeats the same batch and it is cut at the same place.
+  const names = [...new Set(dropped)].join(', ');
+  return (
+    `${base} The arguments for ${names} arrived incomplete and were discarded, so ` +
+    'nothing from that call ran. Re-issue it on its own, with the shortest arguments ' +
+    'that still do the job.'
   );
 }
 
 export function unusableTurnReason(
-  turn: { readonly text: string; readonly calls: readonly unknown[]; readonly truncated?: boolean },
+  turn: {
+    readonly text: string;
+    readonly calls: readonly unknown[];
+    readonly truncated?: boolean;
+    readonly droppedToolCalls?: readonly string[];
+  },
   appliedOpsSoFar: number,
   stage: RunStage | undefined,
 ): 'empty' | 'truncated' | undefined {
   if (turn.calls.length > 0) return undefined;
   if (turn.text.trim() === '') return 'empty';
+  // A turn that ASKED for tools and lost every one of them to a cut-off stream is unusable
+  // whatever else is true of the run. This case is checked before the survivability rules
+  // below because those rules read a call-less turn as the model declaring itself finished
+  // — and a model whose `add_clip` was discarded in transit declared nothing of the kind.
+  // In the captured run that misreading ended turn 1 as "completed" on a sentence that
+  // stopped mid-word, with the motion work it had just promised never attempted.
+  if ((turn.droppedToolCalls ?? []).length > 0) return 'truncated';
   // A truncated reply after work has landed is survivable — the run keeps the edits and the
   // reducer settles it — and a run already at verify/complete is allowed to finish on prose.
   if (appliedOpsSoFar > 0) return undefined;
@@ -4752,19 +4773,14 @@ export class Orchestrator {
           fromCache,
           images,
           derivedOpCount: callDerivedOps,
-        } = await this.runAgentCall(
-          call,
-          ctx,
-          names,
-          {
-            effectRuntime,
-            evidence,
-            beatEvidence,
-            loadedSkills,
-            loadedToolDomains,
-            analysisBudget,
-          },
-        );
+        } = await this.runAgentCall(call, ctx, names, {
+          effectRuntime,
+          evidence,
+          beatEvidence,
+          loadedSkills,
+          loadedToolDomains,
+          analysisBudget,
+        });
         turnOps.push(...ops);
         notes.push(note);
         if (callDerivedOps) derivedOpCount += callDerivedOps;
@@ -5171,7 +5187,14 @@ export class Orchestrator {
     },
   ): AsyncGenerator<
     AiEvent,
-    { text: string; calls: ToolCall[]; aborted: boolean; usage?: Usage; truncated?: boolean }
+    {
+      text: string;
+      calls: ToolCall[];
+      aborted: boolean;
+      usage?: Usage;
+      truncated?: boolean;
+      droppedToolCalls?: readonly string[];
+    }
   > {
     let text = '';
     // The narration boundary (kernel/narration.ts). Assistant text reaches the UI as live
@@ -5190,6 +5213,10 @@ export class Orchestrator {
     // The provider's own "I stopped because I ran out of room" (see `ProviderChunk`'s
     // `done.truncated`). Never inferred from the prose.
     let truncated = false;
+    // Tool calls the stream carried but could not be reassembled (see `done.droppedToolCalls`).
+    // Named so the retry can tell the model WHICH ask never arrived — a blind retry of a
+    // turn whose `add_clip` was cut in half asks for the same thing the same way.
+    let droppedToolCalls: readonly string[] = [];
     // Built once, just before the call, and reused when the provider settles.
     let manifest: ContextManifest | undefined;
     const captureReasoning = sink.kind === 'assistant' && sink.captureReasoning === true;
@@ -5321,6 +5348,7 @@ export class Orchestrator {
           // The text is already accumulated from the deltas; what only 'done' carries is
           // whether the provider cut the reply off.
           truncated = chunk.truncated === true;
+          droppedToolCalls = chunk.droppedToolCalls ?? [];
         }
       }
       settled = true;
@@ -5350,6 +5378,7 @@ export class Orchestrator {
         aborted: signal?.aborted ?? false,
         ...(usage ? { usage } : {}),
         ...(truncated ? { truncated: true } : {}),
+        ...(droppedToolCalls.length > 0 ? { droppedToolCalls } : {}),
       };
     } finally {
       if (!settled) {
@@ -5558,9 +5587,7 @@ export class Orchestrator {
     // fails is discarded in silence — the serial call will make the same request and report
     // the failure through the normal path, so an error is never reported twice or early.
     const warmable = calls.filter(
-      (call) =>
-        (call.name === 'add_stock' || call.name === 'add_music') &&
-        admitCall(call),
+      (call) => (call.name === 'add_stock' || call.name === 'add_music') && admitCall(call),
     );
     if (warmable.length > 1) {
       orchestratorLog.action('warming sourcing downloads', {
@@ -7383,7 +7410,13 @@ export class Orchestrator {
           const retryPrompt = built();
           const retryMessages =
             unusable === 'truncated'
-              ? [...retryPrompt.messages, { role: 'user' as const, content: truncationRetryHint() }]
+              ? [
+                  ...retryPrompt.messages,
+                  {
+                    role: 'user' as const,
+                    content: truncationRetryHint(turn.droppedToolCalls ?? []),
+                  },
+                ]
               : retryPrompt.messages;
           // The attempt being replaced was still billed, so fold its usage in before it is
           // overwritten; the surviving attempt is folded in by the block below, once.
@@ -7409,12 +7442,23 @@ export class Orchestrator {
         }
         if (unusable === 'truncated' && !turn.aborted) {
           // Publishing the fragment would make a cut-off sentence the run's last word.
+          //
+          // Two shapes, and telling them apart is the whole point of the message. With
+          // nothing applied the run genuinely produced no edit. With edits already on the
+          // timeline the run STOPPED EARLY holding real work — which used to be reported
+          // as an ordinary finish, so a run that was cut off halfway through the plan it
+          // had just narrated closed as "completed" with the rest silently abandoned.
+          const applied = state.cumulativeOps.length > 0;
           yield emit.warning(
-            'The model ran out of output room mid-reply and asked for no tool call, on every attempt. Nothing was applied. Retry, or ask for a smaller step.',
+            applied
+              ? 'The model ran out of output room mid-reply on every attempt, so this run stopped early. The edits from the earlier steps are kept — ask for the rest in a smaller step.'
+              : 'The model ran out of output room mid-reply and asked for no tool call, on every attempt. Nothing was applied. Retry, or ask for a smaller step.',
           );
           return turnBase(index, emit.seq(), {
             done: true,
-            note: 'The model response was truncated before it proposed anything.',
+            note: applied
+              ? 'The model response was truncated; the run stopped early with the earlier edits kept.'
+              : 'The model response was truncated before it proposed anything.',
           });
         }
         if (turn.aborted) return turnBase(index, emit.seq(), { aborted: true });
@@ -7555,6 +7599,17 @@ export class Orchestrator {
           // sentence again (see `ConductorState.seenFailureKeys`).
           effect.seenFailureKeys ? new Set(effect.seenFailureKeys) : undefined,
         );
+        // Some calls survived the stream and some did not. The survivors already ran, so the
+        // turn is usable — but the model must be told which of its asks never arrived, or it
+        // will read the next turn's timeline as proof that the missing call did nothing and
+        // move on without it.
+        for (const lost of new Set(turn.droppedToolCalls ?? [])) {
+          const note =
+            `"${lost}" was not run: its arguments arrived incomplete and were discarded. ` +
+            'Nothing from that call happened. Call it again on its own.';
+          notes.push(note);
+          log.push(`Step ${index}: ${note}`);
+        }
         if (callFacts.some(isContentEvidenceFact)) sawContentEvidence = true;
         // Hand this turn's frames to the NEXT request (see `pendingFrames`).
         pendingFrames = frames;
