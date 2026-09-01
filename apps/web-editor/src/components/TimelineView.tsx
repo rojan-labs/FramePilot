@@ -61,7 +61,7 @@ import {
   secondsToPx,
   shouldAutoFollow,
   wheelIntent,
-  snap,
+  magnetSnap,
   spanInRenderWindow,
   snapTargets,
   timelineDuration,
@@ -286,6 +286,16 @@ const observeLaneRectWithFallback: typeof observeElementRect = (instance, cb) =>
   );
 /** Snap engages within this many pixels of a target (converted to seconds by zoom). */
 const SNAP_PX = 8;
+/**
+ * How far (px) the pointer must pull to break a magnet's hold.
+ *
+ * Wider than {@link SNAP_PX} on purpose — the gap between capture and release IS
+ * the resistance. Too small and the join has no weight; too large and an edge
+ * cannot be placed near a cut without fighting it. 18px is roughly two
+ * comfortable pointer tremors, and well inside the distance a deliberate
+ * pull-away covers.
+ */
+const MAGNET_RELEASE_PX = 18;
 /** Pointer travel (px) before a press becomes a drag rather than a click/select. */
 const DRAG_THRESHOLD_PX = 3;
 /**
@@ -1647,14 +1657,43 @@ export function TimelineView({
     [settings.snapping],
   );
 
-  /** Snap a raw time to nearby edges/markers/playhead unless snapping is disabled. */
+  /**
+   * The edge the current gesture's magnet is holding, if any.
+   *
+   * Gesture-scoped memory rather than state: it changes on every pointer move and
+   * nothing renders from it directly, so putting it in state would re-render the
+   * timeline at pointer frequency to store a number the DOM never reads.
+   */
+  const magnetHeldRef = useRef<number | null>(null);
+
+  /**
+   * Snap a raw time to nearby edges/markers/playhead unless snapping is disabled.
+   *
+   * A magnet, not a nearest-neighbour lookup: an edge is captured within
+   * {@link SNAP_PX} and then keeps hold until the pointer drags past
+   * {@link MAGNET_RELEASE_PX}. That gap is what a user feels as two clips joining
+   * and then being pulled apart — and it is also what stops an edge parked exactly
+   * on the threshold from flickering in and out of alignment with every tremor.
+   * Holding Alt still bypasses the whole thing (see `snapDisabled`), which is the
+   * escape hatch for placing an edge somewhere a magnet would refuse to leave.
+   */
   const snapValue = useCallback(
     (raw: number, disable: boolean): { value: number; snapped: boolean } => {
       const clamped = Math.max(0, raw);
-      if (disable) return { value: clamped, snapped: false };
+      if (disable) {
+        magnetHeldRef.current = null;
+        return { value: clamped, snapped: false };
+      }
       const targets = snapTargets(timeline, [...markers.map((m) => m.time), editor.getPlayhead()]);
-      const value = snap(clamped, targets, SNAP_PX / pxPerSecond);
-      return { value, snapped: Math.abs(value - clamped) > 1e-6 };
+      const { value, held } = magnetSnap(
+        clamped,
+        targets,
+        SNAP_PX / pxPerSecond,
+        MAGNET_RELEASE_PX / pxPerSecond,
+        magnetHeldRef.current,
+      );
+      magnetHeldRef.current = held;
+      return { value, snapped: held !== null };
     },
     [timeline, markers, pxPerSecond],
   );
@@ -1668,6 +1707,9 @@ export function TimelineView({
       if (track.locked) return; // a locked lane ignores move/trim gestures
       if (razor) return; // razor mode handles the press as a split, not a drag
       event.currentTarget.setPointerCapture(event.pointerId);
+      // A fresh gesture starts unmagnetised: a hold left over from the last drag
+      // would silently stick this one to an edge the user never approached.
+      magnetHeldRef.current = null;
       gestureRef.current = {
         kind,
         clip,

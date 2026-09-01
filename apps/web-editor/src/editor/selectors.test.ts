@@ -27,6 +27,7 @@ import {
   clipCompositing,
   compactDuration,
   compactTimeLabel,
+  magnetSnap,
   pxDeltaToSeconds,
   isIdentityCompositing,
   clipKind,
@@ -1049,6 +1050,45 @@ describe('formatTime', () => {
 
   it('renders plain seconds when asked', () => {
     expect(formatTime(2.5, 30, 'seconds')).toBe('2.50s');
+  });
+});
+
+describe('magnetSnap', () => {
+  const edges = [0, 4, 10];
+
+  it('captures an edge that comes within the capture radius', () => {
+    expect(magnetSnap(4.05, edges, 0.2, 0.5, null)).toEqual({ value: 4, held: 4 });
+  });
+
+  it('leaves a value alone when nothing is near', () => {
+    expect(magnetSnap(6, edges, 0.2, 0.5, null)).toEqual({ value: 6, held: null });
+  });
+
+  it('keeps holding past the capture radius, which is the resistance', () => {
+    // 0.35s away: too far to be captured fresh, close enough that a hold survives.
+    // This gap is what makes a join something the user feels themselves break,
+    // instead of an alignment that blinks off at an invisible line.
+    expect(magnetSnap(4.35, edges, 0.2, 0.5, 4)).toEqual({ value: 4, held: 4 });
+    expect(magnetSnap(4.35, edges, 0.2, 0.5, null)).toEqual({ value: 4.35, held: null });
+  });
+
+  it('lets go once the pointer pulls beyond the release radius', () => {
+    expect(magnetSnap(4.6, edges, 0.2, 0.5, 4)).toEqual({ value: 4.6, held: null });
+  });
+
+  it('does not let a nearer edge steal an unbroken hold', () => {
+    // Dragging along a run of butt-joined clips would otherwise hop from cut to
+    // cut without the user ever releasing one.
+    expect(magnetSnap(4.4, [4, 4.5], 0.2, 0.5, 4)).toEqual({ value: 4, held: 4 });
+  });
+
+  it('behaves like plain snap when the release radius adds nothing', () => {
+    expect(magnetSnap(4.3, edges, 0.2, 0, 4)).toEqual({ value: 4.3, held: null });
+  });
+
+  it('clamps below zero and tolerates an empty target set', () => {
+    expect(magnetSnap(-3, edges, 0.2, 0.5, null)).toEqual({ value: 0, held: 0 });
+    expect(magnetSnap(5, [], 0.2, 0.5, null)).toEqual({ value: 5, held: null });
   });
 });
 

@@ -578,6 +578,83 @@ export function snapTargets(timeline: Timeline, extra: readonly number[] = []): 
  * @param targets - Candidate snap times (see {@link snapTargets}).
  * @param threshold - Maximum distance, in seconds, at which snapping engages.
  */
+
+/** A magnet's decision: where the value landed, and which edge is holding it. */
+export interface MagnetSnap {
+  /** The (possibly snapped) time. */
+  readonly value: number;
+  /** The edge currently holding the value, or `null` when nothing is. */
+  readonly held: number | null;
+}
+
+/**
+ * Snapping with hysteresis — a magnet, rather than a nearest-neighbour lookup.
+ *
+ * Plain `snap` re-decides from scratch on every pointer move, so an edge sitting
+ * exactly at the threshold flickers in and out of alignment as the pointer
+ * trembles, and pulling away feels like nothing at all: the clip simply stops
+ * being snapped the instant the pointer crosses an invisible line. Neither reads
+ * as two things joining.
+ *
+ * A magnet has two radii instead of one. An edge is CAPTURED when it comes within
+ * `captureRadius`, and then keeps hold until the pointer drags beyond the wider
+ * `releaseRadius`. The gap between them is the resistance: it removes the flicker,
+ * it makes the join something you feel yourself break, and it means a deliberate
+ * pull-away is unambiguous while a small hand tremor is not.
+ *
+ * Pure. The caller owns `held` — it is the gesture's memory, threaded from the
+ * previous move — so this stays a function of its inputs and is unit-testable
+ * without a pointer.
+ *
+ * @param time - The raw, unsnapped time under the pointer.
+ * @param targets - Sorted candidate times (clip edges, markers, the playhead).
+ * @param captureRadius - How close an edge must come to grab the value, in seconds.
+ * @param releaseRadius - How far the pointer must pull to break a hold, in seconds.
+ *   Values at or below `captureRadius` disable the hysteresis and this behaves like
+ *   plain {@link snap}.
+ * @param held - The edge holding the value from the previous move, or `null`.
+ */
+export function magnetSnap(
+  time: number,
+  targets: readonly number[],
+  captureRadius: number,
+  releaseRadius: number,
+  held: number | null,
+): MagnetSnap {
+  const clamped = time < 0 ? 0 : time;
+  if (targets.length === 0 || captureRadius < 0) return { value: clamped, held: null };
+  // An existing hold survives until the pointer leaves the wider radius. Checked
+  // FIRST so a nearer edge cannot steal a hold the user has not broken yet —
+  // otherwise dragging along a run of butt-joined clips would hop from cut to cut
+  // without ever letting go.
+  if (held !== null && Math.abs(clamped - held) <= Math.max(captureRadius, releaseRadius)) {
+    return { value: held, held };
+  }
+  // Nearest by binary search rather than by comparing `snap`'s output to the input:
+  // when the pointer sits exactly ON an edge those two are equal, and "already
+  // aligned" would be indistinguishable from "nothing in range" — the magnet would
+  // refuse to hold precisely where it should hold hardest.
+  let low = 0;
+  let high = targets.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if ((targets[middle] as number) < clamped) low = middle + 1;
+    else high = middle;
+  }
+  let nearest: number | null = null;
+  for (const index of [low - 1, low]) {
+    const candidate = targets[index];
+    if (candidate === undefined) continue;
+    if (nearest === null || Math.abs(candidate - clamped) < Math.abs(nearest - clamped)) {
+      nearest = candidate;
+    }
+  }
+  if (nearest === null || Math.abs(nearest - clamped) > captureRadius) {
+    return { value: clamped, held: null };
+  }
+  return { value: nearest, held: nearest };
+}
+
 export function snap(time: number, targets: readonly number[], threshold: number): number {
   const clamped = time < 0 ? 0 : time;
   let best = clamped;

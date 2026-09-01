@@ -5018,9 +5018,37 @@ input[type='checkbox']:focus-visible {
   pointer-events: none;
 }
 
+/* The magnet's guide.
+
+   Not just "a line where the edge landed": while it is up, two things are held
+   together, and the caps at each end say which line is doing the holding. They are
+   the only part that is heavier than a hairline, so the guide still disappears into
+   the surface the moment the pointer pulls away — a snap indicator that shouts is
+   worse than none, because it is on screen during the one gesture that needs the
+   footage visible. */
 .snap-guide {
   background: var(--tl-select);
   box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.4);
+}
+
+.snap-guide::before,
+.snap-guide::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  transform: translateX(-50%);
+  background: var(--tl-select);
+  border-radius: 1px;
+}
+
+.snap-guide::before {
+  top: 0;
+}
+
+.snap-guide::after {
+  bottom: 0;
 }
 
 .razor-guide {
