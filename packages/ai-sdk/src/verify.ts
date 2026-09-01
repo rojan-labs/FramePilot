@@ -95,6 +95,89 @@ const MAX_VERIFIABLE_CAPTION_WORDS = 12;
 const at = (n: number): string => `${+n.toFixed(3)}s`;
 
 /**
+ * The word→cue ownership partition every caption check reads from.
+ *
+ * ## WHY this exists, and why a midpoint test was not enough
+ *
+ * A cue's boundaries are frame-quantised at the patch boundary; the words it was built
+ * from are not. So a cue that begins on a word can end up starting up to a frame away
+ * from it, and any ownership rule computed from raw times then disagrees with the
+ * segmenter that produced the cue — always at a boundary, always by exactly one word.
+ *
+ * That disagreement is not a cosmetic mis-count. It made this verifier's findings
+ * **unsatisfiable**, and a captured run proves the cost. `verify_captions` reported six
+ * defects; the agent did the one thing the finding asked for and regenerated every cue
+ * from the current mapped transcript; the generator produced cues with byte-identical
+ * timings; the verifier reported the same six defects. 102 operations — 34 deletions and
+ * 34 identical re-insertions — and the run's remaining turns were spent on a loop that
+ * could not converge, because the generator and the verifier were partitioning the same
+ * words two different ways.
+ *
+ * Two concrete cases from that run, both one frame wide at 30fps:
+ *
+ * - Cue `15.967s–17.567s` records "with one mission.", first word "with" at 15.98s. The
+ *   word "school" runs 15.57–15.98 and therefore OVERLAPS the cue by 13ms, so an
+ *   overlap-based "first audible word" test compared the cue against a word belonging to
+ *   its predecessor and reported it 0.41s out of sync. It is not out of sync at all.
+ * - Cue `35.8s–37.833s` records 6 words. The next cue begins on "The" at 37.820s,
+ *   quantised up to 37.833s — so "The"'s MIDPOINT (37.825s) fell inside the previous cue
+ *   and a midpoint test reported 7 words playing across a 6-word cue, stale.
+ *
+ * ## The rule
+ *
+ * A word belongs to the LAST cue that begins at or before it, allowing one frame of slack
+ * for exactly the quantisation above, and only when the word is still inside that cue.
+ * That reproduces the segmenter's partition — it walks words in order and opens a new cue
+ * at a word boundary — and it partitions: every word has at most one owner, so the sync
+ * check, the currency check and the coverage figure can no longer disagree with each
+ * other about which words a cue is answerable for.
+ */
+interface CaptionOwnership {
+  /** Words owned by each cue, keyed by clip id, in time order. */
+  readonly byClip: ReadonlyMap<string, readonly MappedWord[]>;
+  /** Retained words no cue covers — what `speechCoverage` counts. */
+  readonly uncovered: readonly MappedWord[];
+}
+
+/**
+ * One frame of slack at the project's own rate.
+ *
+ * A frame, not half of one: `secondsToFrame` rounds to nearest by default, but the
+ * placement path may floor or ceil, and a rule that is right for one rounding and wrong
+ * for another is the defect this replaces. A frame is far inside
+ * {@link DEFAULT_CAPTION_TOLERANCE_SECONDS}, so nothing a viewer could see as drift is
+ * absorbed by it.
+ */
+const frameSlack = (fps: number): number => (Number.isFinite(fps) && fps > 0 ? 1 / fps : 1 / 30);
+
+function assignWordsToCues(
+  cues: readonly Clip[],
+  words: readonly MappedWord[],
+  fps: number,
+): CaptionOwnership {
+  const slack = frameSlack(fps);
+  const ordered = [...cues].sort((a, b) => a.start - b.start);
+  const byClip = new Map<string, MappedWord[]>();
+  for (const clip of ordered) byClip.set(clip.id, []);
+  const uncovered: MappedWord[] = [];
+
+  for (const word of words) {
+    // The last cue that has begun by the time this word starts. Scanned from the end so
+    // overlapping cues (a hand-authored track may have them) resolve to the latest, which
+    // is the one a viewer reads.
+    const owner = [...ordered]
+      .reverse()
+      .find((clip) => clip.start <= word.start + slack && word.start < clip.end + slack);
+    if (owner === undefined) {
+      uncovered.push(word);
+      continue;
+    }
+    (byClip.get(owner.id) as MappedWord[]).push(word);
+  }
+  return { byClip, uncovered };
+}
+
+/**
  * Check a caption clip against the words that are actually audible during it.
  *
  * The core sync test: take the cue's own word timings, and compare them to where
@@ -104,15 +187,14 @@ const at = (n: number): string => `${+n.toFixed(3)}s`;
  */
 function checkCueSync(
   clip: Clip,
-  words: readonly MappedWord[],
+  owned: readonly MappedWord[],
   tolerance: number,
   issues: VerificationIssue[],
 ): void {
   const cue = clip.captionCue;
   if (cue === undefined || cue.words.length === 0) return;
 
-  const audible = words.filter((w) => w.start < clip.end && w.end > clip.start);
-  if (audible.length === 0) {
+  if (owned.length === 0) {
     issues.push({
       code: 'caption_over_no_speech',
       clipId: clip.id,
@@ -124,20 +206,25 @@ function checkCueSync(
 
   const first = cue.words[0];
   if (first !== undefined) {
-    // Compare the cue's first word against the first audible word: if the cue
-    // was built in source time, this gap is the whole accumulated edit offset.
-    const drift = Math.abs(first.start - (audible[0] as MappedWord).start);
+    // Compare the cue's first word against the first word this cue OWNS: if the cue was
+    // built in source time, this gap is the whole accumulated edit offset.
+    //
+    // It used to compare against the first word that merely OVERLAPPED the cue, and a word
+    // straddling the cue's start overlaps both neighbours — so the cue was measured against
+    // its predecessor's last word and reported an offset that was really the length of that
+    // word. See {@link assignWordsToCues} for the run this cost.
+    const drift = Math.abs(first.start - (owned[0] as MappedWord).start);
     if (drift > tolerance) {
       issues.push({
         code: 'caption_out_of_sync',
         clipId: clip.id,
         at: clip.start,
-        detail: `Caption "${cue.text.slice(0, 40)}" starts ${at(drift)} away from the word it captions (cue says ${at(first.start)}, the audio is at ${at((audible[0] as MappedWord).start)}). Tolerance is ${at(tolerance)}.`,
+        detail: `Caption "${cue.text.slice(0, 40)}" starts ${at(drift)} away from the word it captions (cue says ${at(first.start)}, the audio is at ${at((owned[0] as MappedWord).start)}). Tolerance is ${at(tolerance)}.`,
       });
     }
   }
 
-  const spoken = new Set(audible.map((w) => w.word.toLowerCase()));
+  const spoken = new Set(owned.map((w) => w.word.toLowerCase()));
   const shown = cue.words.filter((w) => !spoken.has(w.word.toLowerCase()));
   if (shown.length > 0 && shown.length === cue.words.length) {
     issues.push({
@@ -147,24 +234,6 @@ function checkCueSync(
       detail: `Caption "${cue.text.slice(0, 40)}" at ${at(clip.start)} shows none of the words audible there — it is describing different footage.`,
     });
   }
-}
-
-/**
- * The mapped words this cue OWNS: those whose midpoint falls inside it.
- *
- * Overlap (`w.start < clip.end && w.end > clip.start`) is the right predicate for "is
- * any speech audible here", and {@link checkCueSync} keeps using it for that. It is the
- * wrong one for "which words is this cue answerable for": a word straddling a cue
- * boundary overlaps BOTH neighbours, so an overlap-based count reports one word too many
- * on each side and every cue in a word-aligned track looks wrong. Midpoint ownership
- * partitions the words — each belongs to exactly one cue — which is the rule
- * `speechCoverage` already uses below, so the two numbers cannot disagree.
- */
-function ownedWords(clip: Clip, words: readonly MappedWord[]): readonly MappedWord[] {
-  return words.filter((word) => {
-    const mid = (word.start + word.end) / 2;
-    return mid >= clip.start - 1e-6 && mid <= clip.end + 1e-6;
-  });
 }
 
 /**
@@ -197,7 +266,9 @@ function checkCueBoundaries(
   runs: readonly MappedRun[],
   issues: VerificationIssue[],
 ): void {
-  const bridged = runs.filter((run) => run.start > clip.start + 1e-6 && run.start < clip.end - 1e-6);
+  const bridged = runs.filter(
+    (run) => run.start > clip.start + 1e-6 && run.start < clip.end - 1e-6,
+  );
   const first = bridged[0];
   if (first === undefined) return;
   issues.push({
@@ -228,13 +299,12 @@ function checkCueBoundaries(
  */
 function checkCueCurrency(
   clip: Clip,
-  words: readonly MappedWord[],
+  owned: readonly MappedWord[],
   tolerance: number,
   issues: VerificationIssue[],
 ): void {
   const cue = clip.captionCue;
   if (cue === undefined || cue.words.length === 0) return;
-  const owned = ownedWords(clip, words);
   // Owning no speech at all is `caption_over_no_speech`'s finding, already reported.
   if (owned.length === 0) return;
   const stale = (detail: string, atTime: number): void => {
@@ -246,7 +316,9 @@ function checkCueCurrency(
         cue.words.length === 1 ? '' : 's'
       } but ${owned.length} now play across it (${owned
         .map((word) => word.word)
-        .join(' ')}). A later edit changed what is spoken here — regenerate the cue from the current mapped transcript.`,
+        .join(
+          ' ',
+        )}). A later edit changed what is spoken here — regenerate the cue from the current mapped transcript.`,
       clip.start,
     );
     return;
@@ -288,8 +360,13 @@ export function verifyCaptions(
   const issues: VerificationIssue[] = [];
 
   const cues = captionTracks(project).flatMap((track) => track.clips.filter(isCaptionClip));
+  // ONE partition, computed once and read by every check below. Three checks each deriving
+  // their own answer to "which words is this cue answerable for" is what let the verifier
+  // contradict itself — and, worse, contradict the generator whose output it was judging.
+  const ownership = assignWordsToCues(cues, mapped.words, project.fps);
 
   for (const clip of cues) {
+    const owned = ownership.byClip.get(clip.id) ?? [];
     if (clip.end > map.duration + 1e-6) {
       issues.push({
         code: 'caption_past_end',
@@ -308,13 +385,10 @@ export function verifyCaptions(
       });
     }
     checkCueBoundaries(clip, mapped.runs, issues);
-    checkCueSync(clip, mapped.words, tolerance, issues);
-    checkCueCurrency(clip, mapped.words, tolerance, issues);
+    checkCueSync(clip, owned, tolerance, issues);
+    checkCueCurrency(clip, owned, tolerance, issues);
 
-    const audibleWords = mapped.words.filter(
-      (word) => word.start < clip.end - 1e-6 && word.end > clip.start + 1e-6,
-    );
-    const displayedWordCount = clip.captionCue?.words.length ?? audibleWords.length;
+    const displayedWordCount = clip.captionCue?.words.length ?? owned.length;
     if (displayedWordCount > MAX_VERIFIABLE_CAPTION_WORDS) {
       issues.push({
         code: 'caption_too_dense',
@@ -339,10 +413,10 @@ export function verifyCaptions(
   }
 
   // Retained speech with no caption over it. Reported as one issue rather than
-  // hundreds, with the worst gap named, so it is actionable rather than noise.
-  const covered = (t: number): boolean =>
-    cues.some((c) => c.start <= t + 1e-6 && c.end >= t - 1e-6);
-  const uncovered = mapped.words.filter((w) => !covered((w.start + w.end) / 2));
+  // hundreds, with the worst gap named, so it is actionable rather than noise. Read from
+  // the same partition the per-cue checks used, so a word can never be both "owned by a
+  // cue" and "uncaptioned".
+  const uncovered = ownership.uncovered;
   const speechCoverage = mapped.words.length === 0 ? 1 : 1 - uncovered.length / mapped.words.length;
   if (uncovered.length > 0) {
     issues.push({
