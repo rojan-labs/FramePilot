@@ -15,6 +15,9 @@ import {
   buildAddMusicOps,
   buildAddStockOps,
   firstFreePictureStart,
+  createLaneAllocator,
+  nextLayerId as coreNextLayerId,
+  trackHasRoomFor,
   nextMusicLayerId,
   picturePlacementConflict as corePicturePlacementConflict,
   type AdjustAudioOp,
@@ -865,6 +868,129 @@ export function setKeyframeAtPlayheadPatch(
 }
 
 /**
+ * Set several of a clip's properties at one time, as ONE patch.
+ *
+ * The plural of {@link setKeyframeAtPlayheadPatch}, and it exists because the
+ * toolbar's keyframe button records a *pose* — every animatable property at once.
+ * Looping the singular builder would produce one patch per property, so starting an
+ * animation would cost five presses of undo to take back, and the history would read
+ * as five unrelated edits rather than the one thing the user did.
+ *
+ * Every write goes in a single `add_keyframes` op with `replace: true`, so pressing
+ * it twice at the same time overwrites rather than accumulating duplicates at the
+ * same instant.
+ *
+ * Returns `null` when the clip is missing or nothing valid was asked for — a patch
+ * that changes nothing would still cost the user an undo press.
+ *
+ * @param timeline - Current timeline.
+ * @param clipId - The clip to animate.
+ * @param writes - Property/value pairs to record.
+ * @param time - Clip-relative time, clamped into the clip.
+ * @param easing - Interpolation for the new keyframes.
+ */
+export function setKeyframesAtPlayheadPatch(
+  timeline: Timeline,
+  clipId: string,
+  writes: readonly { readonly property: string; readonly value: number }[],
+  time: number,
+  easing: Easing = 'linear',
+): Patch | null {
+  const found = findClip(timeline, clipId);
+  if (!found) return null;
+  const valid = writes.filter((write) => Number.isFinite(write.value));
+  if (valid.length === 0) return null;
+  const at = clampToClip(found.clip, time);
+  return {
+    patchId: patchId(`setkfs_${clipId}_${ms(at)}_${valid.map((w) => w.property).join('-')}`),
+    createdBy: 'user',
+    reason:
+      valid.length === 1
+        ? `Set ${valid[0]!.property} keyframe on "${clipId}" @ ${at.toFixed(2)}s`
+        : `Add keyframe on "${clipId}" @ ${at.toFixed(2)}s`,
+    operations: [
+      {
+        type: 'add_keyframes',
+        clipId,
+        keyframes: valid.map((write) => ({
+          id: `kf_${clipId}_${write.property}_${ms(at)}`,
+          time: at,
+          property: write.property,
+          value: write.value,
+          easing,
+        })),
+        replace: true,
+      },
+    ],
+  };
+}
+
+/**
+ * Record a pose on SEVERAL clips at once, as one patch.
+ *
+ * The multi-selection form of {@link setKeyframesAtPlayheadPatch}. One
+ * `add_keyframes` op per clip, all in a single patch, for the same reason the
+ * single-clip plural exists: keyframing four selected clips is one thing the user
+ * did, and it should cost one press of undo, not four.
+ *
+ * Each entry carries its OWN time, because one playhead is a different offset in
+ * every clip — the clips start at different places, so a shared number would
+ * misplace all but one of them.
+ *
+ * Entries naming a missing clip, or carrying no finite value, are skipped; `null`
+ * when nothing survives, since a patch that changes nothing still costs an undo.
+ *
+ * @param timeline - Current timeline.
+ * @param entries - Per-clip writes and the clip-relative time to write them at.
+ * @param easing - Interpolation for the new keyframes.
+ */
+export function setKeyframesForClipsPatch(
+  timeline: Timeline,
+  entries: readonly {
+    readonly clipId: string;
+    readonly writes: readonly { readonly property: string; readonly value: number }[];
+    readonly time: number;
+  }[],
+  easing: Easing = 'linear',
+): Patch | null {
+  const operations: Operation[] = [];
+  const stamps: string[] = [];
+  for (const entry of entries) {
+    const found = findClip(timeline, entry.clipId);
+    if (!found) continue;
+    const valid = entry.writes.filter((write) => Number.isFinite(write.value));
+    if (valid.length === 0) continue;
+    const at = clampToClip(found.clip, entry.time);
+    stamps.push(`${entry.clipId}_${ms(at)}`);
+    operations.push({
+      type: 'add_keyframes',
+      clipId: entry.clipId,
+      keyframes: valid.map((write) => ({
+        id: `kf_${entry.clipId}_${write.property}_${ms(at)}`,
+        time: at,
+        property: write.property,
+        value: write.value,
+        easing,
+      })),
+      replace: true,
+    });
+  }
+  if (operations.length === 0) return null;
+  return {
+    patchId: patchId(`setkfs_multi_${stamps.join('__')}`),
+    createdBy: 'user',
+    reason:
+      operations.length === 1
+        ? // The SURVIVING op's clip, not `entries[0]`: an entry naming a missing
+          // clip is skipped, so entry 0 may not be the one that produced the op,
+          // and the history would name a clip the patch never touched.
+          `Add keyframe on "${(operations[0] as { readonly clipId: string }).clipId}"`
+        : `Add keyframe on ${String(operations.length)} clips`,
+    operations,
+  };
+}
+
+/**
  * Remove a keyframe — one at `time`, or the property's whole animation when `time` is
  * omitted.
  *
@@ -1383,15 +1509,11 @@ export function setTrackFlagsPatch(
 // ---------------------------------------------------------------------------
 
 /** A non-colliding, deterministic id for a new layer of the given role. */
-function nextLayerId(timeline: Timeline, layerType: Track['type']): string {
-  let n = timeline.tracks.length + 1;
-  let id = `layer_${layerType}_${n}`;
-  while (timeline.tracks.some((t) => t.id === id)) {
-    n += 1;
-    id = `layer_${layerType}_${n}`;
-  }
-  return id;
-}
+// Was a byte-for-byte copy of the same walk in `stock-placement.ts`. This one now
+// resolves through `@framepilot/editor-core`, so the renderer and the agent cannot
+// drift on what a new lane is called. `stock-placement.ts` still keeps its own — see
+// the note in `lane-placement.ts` for why it was left alone.
+const nextLayerId = coreNextLayerId;
 
 /**
  * Insert a new (empty) layer at `atIndex` (default 0 = visual front). The
@@ -1453,12 +1575,9 @@ function layerTypeForKind(kind: ClipKind): Track['type'] {
   return 'video'; // video + image are picture layers
 }
 
-/** True when no clip on `track` overlaps the half-open span `[start, end)`. */
-function hasRoomFor(track: Track, start: number, end: number): boolean {
-  return !track.clips.some(
-    (c) => c.start < end - MIN_EDIT_SECONDS && c.end > start + MIN_EDIT_SECONDS,
-  );
-}
+// One of three copies of this test lived here; it now uses the shared rule (and the
+// shared epsilon) from `@framepilot/editor-core`.
+const hasRoomFor = trackHasRoomFor;
 
 /**
  * Auto-layering placement (Phase 2, ADR 0032 — CapCut-style). Place `asset` at
@@ -1773,11 +1892,28 @@ export function addTextOverlayPatch(
   if (!track || text.trim() === '' || end - start <= MIN_EDIT_SECONDS) {
     return null;
   }
+  // Resolve the lane rather than trusting the one that was aimed at.
+  //
+  // A track cannot hold overlapping clips, so dropping a second title across the
+  // span of the first used to build a patch the validator then refused — the user
+  // saw an error and no edit, for an intent ("both of these on screen here") that
+  // was never ambiguous. Stacking simultaneous elements on separate lanes is what
+  // lanes are for, and it is what asset drops have always done.
+  //
+  // The same allocator the agent's placement tools use, so a drop and a prompt
+  // that ask for the same thing put it in the same place.
+  const placed = createLaneAllocator(timeline).allocate(trackId, start, end);
+  const newLane = placed.setupOps.length > 0;
   return {
-    patchId: patchId(`overlay_${trackId}_${ms(start)}_${ms(end)}`),
+    patchId: patchId(`overlay_${placed.trackId}_${ms(start)}_${ms(end)}`),
     createdBy: 'user',
-    reason: `Add text overlay "${text}" at ${start.toFixed(2)}s`,
-    operations: [{ type: 'add_text_overlay', trackId, text, start, end }],
+    reason: newLane
+      ? `Add text overlay "${text}" on a new layer at ${start.toFixed(2)}s`
+      : `Add text overlay "${text}" at ${start.toFixed(2)}s`,
+    operations: [
+      ...placed.setupOps,
+      { type: 'add_text_overlay', trackId: placed.trackId, text, start, end },
+    ],
   };
 }
 

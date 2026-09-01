@@ -18,6 +18,29 @@
   --fp-orange-border: rgba(239, 100, 39, 0.34);
   --fp-chrome-radius: 7px;
   --fp-control-radius: 6px;
+
+  /* One state colour for the editor, in BOTH themes.
+   *
+   * The editor ran two accents at once. Every control that reports state — an
+   * engaged tool, a focus ring, the AI mark, the light-theme playhead — was the
+   * brand orange, while the timeline directly beneath that toolbar drew its
+   * playhead, selection rings, snap guides, marquee and overview window in the
+   * shared blue `--accent`. Two accents in one surface is not a palette, it is a
+   * seam; and the specific consequence was worse than the inconsistency, because
+   * a video clip's own colour IS blue, so a blue selection ring around a blue clip
+   * was very nearly invisible — the timeline's single most important state.
+   *
+   * These two aliases point the timeline's state colour and its playhead at the
+   * accent the surrounding chrome already uses. Orange is also the only hue in
+   * play that separates from all four clip kinds (blue video, green audio, amber
+   * caption, violet overlay) at once.
+   *
+   * Deliberately scoped to STATE. `--accent` still owns primary actions (Export,
+   * the AI send button), where the light theme's near-black and the dark theme's
+   * blue are the intended treatment; repointing that token would repaint the whole
+   * application, which is a separate decision from making the timeline coherent. */
+  --tl-select: var(--fp-orange);
+  --playhead: var(--fp-orange);
 }
 
 @media (prefers-color-scheme: light) {
@@ -43,6 +66,11 @@
     --accent-text: #ffffff;
     --accent-subtle: rgba(17, 17, 15, 0.075);
     --focus-ring: rgba(239, 100, 39, 0.62);
+    /* Repeated in each theme block on purpose. The shared tokens declare
+       `--playhead` inside `:root:not([data-theme='dark'])` and
+       `:root[data-theme='light']`, both of which outrank a plain `:root` no matter
+       how late it loads — so the alias in the `:root` block above governs the dark
+       theme only, and light silently kept the shared blue. */
     --playhead: var(--fp-orange);
     --bg-raised: #fafaf8;
     --track-lane: rgba(17, 17, 15, 0.018);
@@ -80,6 +108,8 @@
   --accent-text: #ffffff;
   --accent-subtle: rgba(17, 17, 15, 0.075);
   --focus-ring: rgba(239, 100, 39, 0.62);
+  /* See the note in the media-query block above: a plain `:root` cannot outrank
+     this selector, so the alias is repeated here. */
   --playhead: var(--fp-orange);
   --bg-raised: #fafaf8;
   --track-lane: rgba(17, 17, 15, 0.018);
@@ -397,18 +427,30 @@ select:focus-visible,
 }
 
 .timeline,
-.timeline-view,
-.timeline-shell,
 .timeline-vscroll,
 .lane-scroll {
   background-color: var(--bg-surface);
 }
 
-.track-header,
-.timeline-track-header,
-.timeline-ruler {
+/* The ruler and the header gutter are part of the same surface as the lanes.
+ *
+ * This block used to name `.track-header`, `.timeline-track-header`,
+ * `.timeline-ruler`, `.timeline-view` and `.timeline-shell` — five class names,
+ * none of which the timeline has ever rendered (the real ones are `.track-head`
+ * and `.ruler`). So it matched nothing, the ruler kept the `--bg-panel` it gets
+ * from the sticky-header rule in styles.css, and the timeline shipped with a
+ * visible two-tone seam between its ruler and its own body in both themes. */
+.track-head,
+.ruler,
+.ruler-spacer,
+.timeline-vscroll .ruler-spacer,
+.timeline-vscroll .ruler {
   background: var(--bg-surface);
-  border-color: var(--border-subtle);
+}
+
+/* The overview strip is chrome under the lanes, not a lane. */
+.minimap {
+  background: var(--bg-panel);
 }
 
 /* AI / Inspector --------------------------------------------------------- */

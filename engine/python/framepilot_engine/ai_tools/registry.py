@@ -214,6 +214,22 @@ class AddKeyframesArgs(BaseModel):
     keyframes: list[KeyframeArg] = Field(min_length=1)
 
 
+class RemoveKeyframeTargetArg(BaseModel):
+    """One removal target: a property, and optionally the single time to remove."""
+
+    model_config = _STRICT
+    property: str
+    time: float | None = Field(default=None, ge=0.0)
+
+
+class RemoveKeyframesArgs(BaseModel):
+    """Clear a property's animation, or remove one keyframe at a time."""
+
+    model_config = _STRICT
+    clip_id: str = Field(alias="clipId")
+    targets: list[RemoveKeyframeTargetArg] = Field(min_length=1)
+
+
 class PunchInArgs(BaseModel):
     """Zoom/punch-in (animated scale) on a clip; times are clip-relative."""
 
@@ -1309,6 +1325,20 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "seconds from the clip's start.",
         kind="mutate",
         input_model=AddKeyframesArgs,
+        mutating=True,
+    ),
+    "remove_keyframes": _spec(
+        "remove_keyframes",
+        # Mirrors `domain-tools/motion.ts` — the two tool surfaces advertise one
+        # contract. Without this the agent could add animation and never take it
+        # off, so "stop zooming on that shot" had no tool to answer it.
+        "Take animation OFF a clip: clear one property entirely, or remove a single "
+        "keyframe at a time. `{property: \"scale\"}` clears every scale keyframe, "
+        "`{property: \"scale\", time: 2}` removes just the one two seconds in. Times "
+        "are seconds from the clip's start. Removing something that is not there "
+        "changes nothing rather than failing.",
+        kind="mutate",
+        input_model=RemoveKeyframesArgs,
         mutating=True,
     ),
     "punch_in": _spec(

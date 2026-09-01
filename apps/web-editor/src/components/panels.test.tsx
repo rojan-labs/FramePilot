@@ -637,7 +637,7 @@ describe('Inspector keyframes', () => {
 
   it('shows the empty state until a clip is selected', () => {
     render(<Host />);
-    expect(screen.getByLabelText('inspector').textContent).toContain('empty here');
+    expect(screen.getByLabelText('inspector').textContent).toContain('Nothing selected');
   });
 
   it('adds a mask effect to the selected clip', () => {
@@ -791,7 +791,7 @@ describe('TimelineView drag-and-drop', () => {
     expect(clipCount(container)).toBe(3);
   });
 
-  it('uses a coarser ruler step (frame-accurate timecode labels) when zoomed out', () => {
+  it('uses a coarser ruler step, labelled only as finely as that step resolves', () => {
     function Host(): JSX.Element {
       const editor = useEditor(demoProject.timeline, assetIdsOf(demoProject));
       return (
@@ -805,8 +805,35 @@ describe('TimelineView drag-and-drop', () => {
     }
     render(<Host />);
     fireEvent.click(screen.getByRole('button', { name: 'set zoom to 10px/s' }));
-    // At 10 px/s the ruler steps every 10s; labels are frame-accurate HH:MM:SS:FF.
-    expect(screen.getByText('00:00:10:00')).toBeDefined();
+    // At 10 px/s the ruler steps every 10s, so the label carries minutes and
+    // seconds and nothing else: the hour field is constant across a 14s sequence
+    // and the frame field is constant across a 10s step, so both are dropped
+    // (`compactTimeLabel`). The full `00:00:10:00` needs ~78px of tabular digits
+    // against the ~72px `rulerTicks` leaves between labels, which is why every
+    // label used to collide with its neighbour and the first was clipped.
+    expect(screen.getByText('0:10')).toBeDefined();
+    expect(screen.queryByText('00:00:10:00')).toBeNull();
+  });
+
+  it('adds the frame field only once the ruler resolves finer than a second', () => {
+    function Host(): JSX.Element {
+      const editor = useEditor(demoProject.timeline, assetIdsOf(demoProject));
+      return (
+        <>
+          <button type="button" onClick={() => editor.setZoom(240)}>
+            zoom in
+          </button>
+          <TimelineView editor={editor} assets={demoProject.assets} fps={30} />
+        </>
+      );
+    }
+    render(<Host />);
+    fireEvent.click(screen.getByRole('button', { name: 'zoom in' }));
+    // 240 px/s is MAX_PX_PER_SECOND, and it puts the ~72px major step at 10
+    // frames — under a second. Frames are then the field that distinguishes one
+    // tick from the next, so the label grows a third group rather than repeating
+    // an identical `0:00` at every tick.
+    expect(screen.getByText('0:00:10')).toBeDefined();
   });
 });
 

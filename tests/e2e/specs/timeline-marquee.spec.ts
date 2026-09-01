@@ -15,7 +15,18 @@ async function box(page: Page, id: string) {
   return (await clip(page, id).boundingBox())!;
 }
 
-/** Drag a marquee rectangle between two viewport points. */
+/**
+ * Drag a marquee rectangle between two viewport points.
+ *
+ * Band edges are anchored INSIDE a lane's own clips (`y + 2`, `y + height - 2`)
+ * rather than a few pixels outside them. An offset past a clip's edge silently
+ * encodes how wide the channel between lanes happens to be: at a 12px channel
+ * `intro.y - 4` sat in the video row and `intro.y + height + 4` sat in the gap,
+ * and when the lanes tightened the first landed on the ruler (starting a scrub,
+ * not a marquee) and the second landed on the audio clip (selecting a lane the
+ * test meant to exclude). Anchoring inside the clip states the intent — "this
+ * row, not that one" — at any lane height.
+ */
 async function marquee(page: Page, from: { x: number; y: number }, to: { x: number; y: number }) {
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
@@ -30,8 +41,8 @@ test('marquee from empty space selects both video clips', async ({ page }) => {
   const body = await box(page, 'clip_body');
   await marquee(
     page,
-    { x: body.x + body.width + 60, y: intro.y - 4 },
-    { x: intro.x + 10, y: intro.y + intro.height + 4 },
+    { x: body.x + body.width + 60, y: intro.y + 2 },
+    { x: intro.x + 10, y: intro.y + intro.height - 2 },
   );
   await expect(clip(page, 'clip_intro')).toHaveAttribute('data-selected', 'true');
   await expect(clip(page, 'clip_body')).toHaveAttribute('data-selected', 'true');
@@ -40,11 +51,14 @@ test('marquee from empty space selects both video clips', async ({ page }) => {
 test('a tall marquee spans multiple track rows (video + audio)', async ({ page }) => {
   await openEditor(page);
   const intro = await box(page, 'clip_intro');
+  const body = await box(page, 'clip_body');
   const vo = await box(page, 'clip_vo');
-  // Start right of the clips at the video row, drag down-left into the audio row.
+  // Start in empty space PAST the last clip on the video row — starting over a
+  // clip would begin a move gesture, not a band — then drag down-left into the
+  // audio row.
   await marquee(
     page,
-    { x: intro.x + intro.width + 60, y: intro.y - 4 },
+    { x: body.x + body.width + 60, y: intro.y + 2 },
     { x: intro.x + 20, y: vo.y + vo.height / 2 },
   );
   await expect(clip(page, 'clip_intro')).toHaveAttribute('data-selected', 'true');
@@ -57,10 +71,12 @@ test('marquee-selected clips delete together with one keypress', async ({ page }
   const intro = await box(page, 'clip_intro');
   const body = await box(page, 'clip_body');
   await expect(clipCount(page)).toHaveCount(3); // intro, body, vo
+  // Confined to the video row: both edges sit inside the video clips themselves,
+  // so the band cannot reach the audio lane however tight the channel is.
   await marquee(
     page,
-    { x: body.x + body.width + 60, y: intro.y - 4 },
-    { x: intro.x + 10, y: intro.y + intro.height + 4 },
+    { x: body.x + body.width + 60, y: intro.y + 2 },
+    { x: intro.x + 10, y: intro.y + intro.height - 2 },
   );
   await page.keyboard.press('Delete');
   // Both video clips removed; the audio clip remains.

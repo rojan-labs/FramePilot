@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { Clip, Keyframe, Timeline, Track } from '@framepilot/timeline-schema';
+import { TimelineSchema } from '@framepilot/timeline-schema';
 import {
   applyOperation,
   CAPTION_ASSET_ID,
@@ -17,6 +18,7 @@ import {
   TEXT_OVERLAY_ASSET_ID,
   type Operation,
 } from './operations.js';
+import { evaluateKeyframes } from './keyframes.js';
 
 // --- fixtures --------------------------------------------------------------
 
@@ -75,6 +77,243 @@ const expectRoundTrip = (before: Timeline, op: Operation): Timeline => {
 };
 
 // --- type guard ------------------------------------------------------------
+
+describe('trimming re-bases clip-relative keyframes', () => {
+  /** A clip animating `scale` 1 → 2 across 0–10s of its own timeline. */
+  const animated = (): Timeline => ({
+    tracks: [
+      {
+        id: 'video_1',
+        type: 'video',
+        clips: [
+          clip({
+            id: 'a',
+            trackId: 'video_1',
+            start: 0,
+            end: 10,
+            sourceStart: 0,
+            sourceEnd: 10,
+            keyframes: [
+              { id: 'k0', property: 'scale', time: 0, value: 1, easing: 'linear' },
+              { id: 'k4', property: 'scale', time: 4, value: 2, easing: 'linear' },
+            ] as Keyframe[],
+          }),
+        ],
+      },
+    ],
+  });
+
+  const scaleAt = (tl: Timeline, clipTime: number): number | undefined =>
+    evaluateKeyframes(findClipById(tl, 'a')!.keyframes, 'scale', clipTime);
+
+  it('keeps the animation locked to the footage when the head is trimmed', () => {
+    // REGRESSION: keyframe times are clip-relative, and `truncateClip` used to move
+    // only `start`/`end`. A keyframe 4s into the clip stayed "4s in" after a 3s head
+    // trim — one second later in the FOOTAGE than where it was put — so a punch-in
+    // placed on a gesture drifted off it the moment the clip was trimmed.
+    const after = applyOperation(animated(), {
+      type: 'trim_clip',
+      clipId: 'a',
+      start: 3,
+      end: 10,
+    });
+    const kf = findClipById(after, 'a')!.keyframes;
+    // The keyframe that fell before the new start is RESAMPLED to 0 rather than
+    // kept at a negative time: `KeyframeSchema.time` is non-negative, so a negative
+    // one fails validation and, on desktop, throws the edit away.
+    expect(kf.map((k) => k.time)).toEqual([0, 1]);
+    expect(kf.every((k) => k.time >= 0)).toBe(true);
+    // The frame that showed scale 2 still shows scale 2: it was 4s into the old
+    // clip and is 1s into the trimmed one.
+    expect(scaleAt(after, 1)).toBeCloseTo(2, 6);
+  });
+
+  it('produces keyframes the schema accepts, which is what makes the edit survive', () => {
+    // The guard this whole shape exists for: `parseProject` runs on every committed
+    // patch on desktop, so one negative time loses the user's edit outright.
+    const after = applyOperation(animated(), {
+      type: 'trim_clip',
+      clipId: 'a',
+      start: 3,
+      end: 10,
+    });
+    expect(() => TimelineSchema.parse(after)).not.toThrow();
+  });
+
+  it('preserves the visible curve at the new edge rather than flattening it', () => {
+    // The keyframe now before the clip start is KEPT, because `evaluateKeyframes`
+    // interpolates between it and the next one — dropping it would make the clip
+    // open at a flat 2 instead of partway up the ramp.
+    const after = applyOperation(animated(), {
+      type: 'trim_clip',
+      clipId: 'a',
+      start: 2,
+      end: 10,
+    });
+    // 2s into the original ramp is halfway from 1 to 2 — and that value is now
+    // carried by a real keyframe at 0 rather than by a neighbour off the front.
+    expect(scaleAt(after, 0)).toBeCloseTo(1.5, 6);
+    expect(findClipById(after, 'a')!.keyframes[0]).toMatchObject({ time: 0, value: 1.5 });
+  });
+
+  it('leaves keyframes alone when only the tail moves', () => {
+    const after = applyOperation(animated(), {
+      type: 'trim_clip',
+      clipId: 'a',
+      start: 0,
+      end: 6,
+    });
+    expect(findClipById(after, 'a')!.keyframes.map((k) => k.time)).toEqual([0, 4]);
+  });
+
+  it('re-bases through ripple_delete too, which trims heads via the same path', () => {
+    const after = applyOperation(animated(), {
+      type: 'ripple_delete',
+      trackId: 'video_1',
+      start: 0,
+      end: 3,
+    });
+    expect(findClipById(after, 'a')!.keyframes.map((k) => k.time)).toEqual([0, 1]);
+  });
+
+  it('still round-trips through its inverse', () => {
+    expectRoundTrip(animated(), { type: 'trim_clip', clipId: 'a', start: 3, end: 10 });
+  });
+});
+
+describe('clips with no time-based source trim in BOTH directions', () => {
+  /** A text overlay: generated at render time, so `sourceStart: 0` means nothing. */
+  const overlay = (): Timeline => ({
+    tracks: [
+      {
+        id: 'ov',
+        type: 'overlay',
+        clips: [
+          clip({
+            id: 't',
+            trackId: 'ov',
+            assetId: TEXT_OVERLAY_ASSET_ID,
+            start: 4,
+            end: 7,
+            sourceStart: 0,
+            sourceEnd: 3,
+          }),
+        ],
+      },
+    ],
+  });
+
+  it('can be extended EARLIER, which a real source range would forbid', () => {
+    // REGRESSION: `truncateClip` mapped the trim through the source arithmetic, so
+    // pulling the left edge back drove `sourceStart` negative and `applyTrim`
+    // rejected it. A text overlay could be stretched forwards and never backwards.
+    const after = applyOperation(overlay(), { type: 'trim_clip', clipId: 't', start: 1, end: 7 });
+    const next = findClipById(after, 't')!;
+    expect(next.start).toBe(1);
+    expect(next.end).toBe(7);
+    // Its window is always the whole of itself.
+    expect(next.sourceStart).toBe(0);
+    expect(next.sourceEnd).toBe(6);
+  });
+
+  it('still shortens from either edge', () => {
+    const left = applyOperation(overlay(), { type: 'trim_clip', clipId: 't', start: 5, end: 7 });
+    expect(findClipById(left, 't')).toMatchObject({
+      start: 5,
+      end: 7,
+      sourceStart: 0,
+      sourceEnd: 2,
+    });
+    const right = applyOperation(overlay(), { type: 'trim_clip', clipId: 't', start: 4, end: 6 });
+    expect(findClipById(right, 't')).toMatchObject({
+      start: 4,
+      end: 6,
+      sourceStart: 0,
+      sourceEnd: 2,
+    });
+  });
+
+  it('produces a clip the schema accepts', () => {
+    const after = applyOperation(overlay(), { type: 'trim_clip', clipId: 't', start: 0, end: 7 });
+    expect(() => TimelineSchema.parse(after)).not.toThrow();
+  });
+
+  it('leaves a clip WITH a real source bounded by its in-point, as before', () => {
+    // The constraint is real for footage: there is no picture before the file starts.
+    const footage: Timeline = {
+      tracks: [
+        {
+          id: 'v',
+          type: 'video',
+          clips: [clip({ id: 'a', trackId: 'v', start: 4, end: 8, sourceStart: 0, sourceEnd: 4 })],
+        },
+      ],
+    };
+    expect(() =>
+      applyOperation(footage, { type: 'trim_clip', clipId: 'a', start: 1, end: 8 }),
+    ).toThrow();
+  });
+});
+
+describe('speed stretches keyframes with the clip', () => {
+  const animated = (): Timeline => ({
+    tracks: [
+      {
+        id: 'video_1',
+        type: 'video',
+        clips: [
+          clip({
+            id: 'a',
+            trackId: 'video_1',
+            start: 0,
+            end: 10,
+            sourceStart: 0,
+            sourceEnd: 10,
+            keyframes: [
+              { id: 'k0', property: 'scale', time: 0, value: 1, easing: 'linear' },
+              { id: 'k4', property: 'scale', time: 4, value: 2, easing: 'linear' },
+            ] as Keyframe[],
+          }),
+        ],
+      },
+    ],
+  });
+
+  it('keeps a keyframe on the same MOMENT OF FOOTAGE at 2x', () => {
+    // REGRESSION: speed halved the clip's span and left keyframe times alone, so
+    // the keyframe that sat 40% through the shot ended up 80% through it. A
+    // punch-in placed on a gesture drifted off the gesture, further the faster
+    // the clip ran.
+    const after = applyOperation(animated(), { type: 'set_clip_speed', clipId: 'a', speed: 2 });
+    const next = findClipById(after, 'a')!;
+    expect(next.end - next.start).toBeCloseTo(5, 6);
+    expect(next.keyframes.map((k) => k.time)).toEqual([0, 2]);
+  });
+
+  it('stretches the other way when the clip is slowed down', () => {
+    const after = applyOperation(animated(), { type: 'set_clip_speed', clipId: 'a', speed: 0.5 });
+    const next = findClipById(after, 'a')!;
+    expect(next.end - next.start).toBeCloseTo(20, 6);
+    expect(next.keyframes.map((k) => k.time)).toEqual([0, 8]);
+  });
+
+  it('leaves a freeze frame alone, since its span does not change', () => {
+    const after = applyOperation(animated(), { type: 'set_clip_speed', clipId: 'a', speed: 0 });
+    expect(findClipById(after, 'a')!.keyframes.map((k) => k.time)).toEqual([0, 4]);
+  });
+
+  it('scales by magnitude on a reverse clip, without mirroring the animation', () => {
+    // Whether a reversed clip's animation should also run backwards is a separate
+    // question with a real argument either way; deciding it silently here would be
+    // the same class of mistake this fix corrects.
+    const after = applyOperation(animated(), { type: 'set_clip_speed', clipId: 'a', speed: -2 });
+    expect(findClipById(after, 'a')!.keyframes.map((k) => k.time)).toEqual([0, 2]);
+  });
+
+  it('still round-trips through its inverse', () => {
+    expectRoundTrip(animated(), { type: 'set_clip_speed', clipId: 'a', speed: 2 });
+  });
+});
 
 describe('isOperationOfType', () => {
   it('narrows by discriminant', () => {

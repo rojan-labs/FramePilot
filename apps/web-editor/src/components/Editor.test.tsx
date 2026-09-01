@@ -42,7 +42,9 @@ describe('Editor workspace', () => {
     expect(screen.getByLabelText('track audio_1')).toBeDefined();
     expect(screen.getByLabelText('track caption_1')).toBeDefined();
     expect(
-      screen.getByText('Choose a clip, transition, text layer, or effect from the timeline.'),
+      screen.getByText(
+        'Click a clip, transition, text layer or effect on the timeline to edit it here.',
+      ),
     ).toBeDefined();
   });
 
@@ -207,7 +209,9 @@ describe('Editor workspace', () => {
 
     expect(clipCount(container)).toBe(2);
     expect(
-      screen.getByText('Choose a clip, transition, text layer, or effect from the timeline.'),
+      screen.getByText(
+        'Click a clip, transition, text layer or effect on the timeline to edit it here.',
+      ),
     ).toBeDefined();
   });
 

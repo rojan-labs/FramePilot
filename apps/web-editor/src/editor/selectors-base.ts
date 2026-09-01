@@ -26,7 +26,7 @@ import {
   type ResolvedTransition,
 } from '../preview/transitions/transition-engine.js';
 import { LEGACY_TRANSITION_IDS } from '@framepilot/timeline-schema/transition-catalog';
-import { TRANSITION_OUT_EFFECT_TYPE } from '@framepilot/editor-core';
+import { hasTimeBasedSource, TRANSITION_OUT_EFFECT_TYPE } from '@framepilot/editor-core';
 
 /**
  * A clean, human display name for an asset: the basename of its file path
@@ -570,6 +570,82 @@ export function snapTargets(timeline: Timeline, extra: readonly number[] = []): 
   return [...targets].sort((a, b) => a - b);
 }
 
+/** A magnet's decision: where the value landed, and which edge is holding it. */
+export interface MagnetSnap {
+  /** The (possibly snapped) time. */
+  readonly value: number;
+  /** The edge currently holding the value, or `null` when nothing is. */
+  readonly held: number | null;
+}
+
+/**
+ * Snapping with hysteresis — a magnet, rather than a nearest-neighbour lookup.
+ *
+ * Plain `snap` re-decides from scratch on every pointer move, so an edge sitting
+ * exactly at the threshold flickers in and out of alignment as the pointer
+ * trembles, and pulling away feels like nothing at all: the clip simply stops
+ * being snapped the instant the pointer crosses an invisible line. Neither reads
+ * as two things joining.
+ *
+ * A magnet has two radii instead of one. An edge is CAPTURED when it comes within
+ * `captureRadius`, and then keeps hold until the pointer drags beyond the wider
+ * `releaseRadius`. The gap between them is the resistance: it removes the flicker,
+ * it makes the join something you feel yourself break, and it means a deliberate
+ * pull-away is unambiguous while a small hand tremor is not.
+ *
+ * Pure. The caller owns `held` — it is the gesture's memory, threaded from the
+ * previous move — so this stays a function of its inputs and is unit-testable
+ * without a pointer.
+ *
+ * @param time - The raw, unsnapped time under the pointer.
+ * @param targets - Sorted candidate times (clip edges, markers, the playhead).
+ * @param captureRadius - How close an edge must come to grab the value, in seconds.
+ * @param releaseRadius - How far the pointer must pull to break a hold, in seconds.
+ *   Values at or below `captureRadius` disable the hysteresis and this behaves like
+ *   plain {@link snap}.
+ * @param held - The edge holding the value from the previous move, or `null`.
+ */
+export function magnetSnap(
+  time: number,
+  targets: readonly number[],
+  captureRadius: number,
+  releaseRadius: number,
+  held: number | null,
+): MagnetSnap {
+  const clamped = time < 0 ? 0 : time;
+  if (targets.length === 0 || captureRadius < 0) return { value: clamped, held: null };
+  // An existing hold survives until the pointer leaves the wider radius. Checked
+  // FIRST so a nearer edge cannot steal a hold the user has not broken yet —
+  // otherwise dragging along a run of butt-joined clips would hop from cut to cut
+  // without ever letting go.
+  if (held !== null && Math.abs(clamped - held) <= Math.max(captureRadius, releaseRadius)) {
+    return { value: held, held };
+  }
+  // Nearest by binary search rather than by comparing `snap`'s output to the input:
+  // when the pointer sits exactly ON an edge those two are equal, and "already
+  // aligned" would be indistinguishable from "nothing in range" — the magnet would
+  // refuse to hold precisely where it should hold hardest.
+  let low = 0;
+  let high = targets.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if ((targets[middle] as number) < clamped) low = middle + 1;
+    else high = middle;
+  }
+  let nearest: number | null = null;
+  for (const index of [low - 1, low]) {
+    const candidate = targets[index];
+    if (candidate === undefined) continue;
+    if (nearest === null || Math.abs(candidate - clamped) < Math.abs(nearest - clamped)) {
+      nearest = candidate;
+    }
+  }
+  if (nearest === null || Math.abs(nearest - clamped) > captureRadius) {
+    return { value: clamped, held: null };
+  }
+  return { value: nearest, held: nearest };
+}
+
 /**
  * Snap `time` to the nearest target within `threshold` seconds; if none is
  * close enough, `time` is returned unchanged. Negative times clamp to zero.
@@ -578,6 +654,59 @@ export function snapTargets(timeline: Timeline, extra: readonly number[] = []): 
  * @param targets - Candidate snap times (see {@link snapTargets}).
  * @param threshold - Maximum distance, in seconds, at which snapping engages.
  */
+/** Two clip edges meeting at an instant: what the timeline highlights mid-gesture. */
+export interface EdgeContact {
+  /** Where they meet, in timeline seconds. */
+  readonly time: number;
+  /** The clip whose edge is being met. */
+  readonly clipId: string;
+  /** Which of its edges: the clip starts here, or it ends here. */
+  readonly edge: 'start' | 'end';
+}
+
+/**
+ * The clip edge a moving edge has landed on, or `null` when it is in open space.
+ *
+ * This is the fact the timeline highlights while you drag: not "the value snapped
+ * to something" — a marker or the playhead are also snap targets, and landing on
+ * them is not two clips meeting — but specifically that the edge under the pointer
+ * is now flush against another clip's start or end. That is the placement a cut
+ * depends on, and the one worth confirming on screen.
+ *
+ * The gestured clip is excluded, since a clip is always flush with itself.
+ *
+ * Pure, so the geometry is unit-tested without a pointer. Linear in the number of
+ * clips, called once per committed drag frame.
+ *
+ * @param timeline - Current timeline.
+ * @param time - The moving edge's time, in seconds.
+ * @param excludeClipId - The clip being dragged or trimmed.
+ * @param tolerance - How close counts as touching, in seconds.
+ */
+export function clipEdgeContact(
+  timeline: Timeline,
+  time: number,
+  excludeClipId: string | null,
+  tolerance: number,
+): EdgeContact | null {
+  if (!Number.isFinite(time) || tolerance < 0) return null;
+  let best: EdgeContact | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const track of timeline.tracks) {
+    for (const clip of track.clips) {
+      if (clip.id === excludeClipId) continue;
+      for (const edge of ['start', 'end'] as const) {
+        const edgeTime = edge === 'start' ? clip.start : clip.end;
+        const distance = Math.abs(edgeTime - time);
+        if (distance > tolerance || distance >= bestDistance) continue;
+        bestDistance = distance;
+        best = { time: edgeTime, clipId: clip.id, edge };
+      }
+    }
+  }
+  return best;
+}
+
 export function snap(time: number, targets: readonly number[], threshold: number): number {
   const clamped = time < 0 ? 0 : time;
   let best = clamped;
@@ -653,6 +782,109 @@ export function formatSeconds(seconds: number): string {
  */
 export function formatTime(seconds: number, fps: number, mode: TimeDisplay = 'timecode'): string {
   return mode === 'seconds' ? formatSeconds(seconds) : formatTimecode(seconds, fps);
+}
+
+/**
+ * A compact, scale-aware time label — the format a ruler tick or a clip badge
+ * should carry, as opposed to the full `HH:MM:SS:FF` readout the program monitor
+ * owns.
+ *
+ * Full SMPTE is the right format for exactly one thing: the authoritative
+ * playhead readout, where every field must be present so the number can be typed
+ * back in. On a ruler it is the wrong format, because it spends eleven characters
+ * restating fields that do not change across the whole visible span — and at the
+ * ~72px tick spacing the ruler targets, an eleven-character label physically
+ * cannot fit, so labels collide and the first one is clipped by the lane origin.
+ *
+ * The label therefore keeps only the fields the current scale can actually
+ * distinguish, from the largest field the span reaches down to the smallest field
+ * the step resolves:
+ *
+ * | span      | step      | example    |
+ * | --------- | --------- | ---------- |
+ * | `< 1h`    | `>= 1s`   | `2:30`     |
+ * | `< 1h`    | `< 1s`    | `2:30:12`  |
+ * | `>= 1h`   | `>= 1s`   | `1:02:30`  |
+ * | `>= 1h`   | `< 1s`    | `1:02:30:12` |
+ *
+ * Minutes are always present so a bare `:02` can never be misread as frames, and
+ * fields below the minute are always zero-padded so the column stays tabular.
+ *
+ * In `seconds` display mode the same rule applies to decimals: the label carries
+ * only as many decimal places as the step resolves (`0`, `2.5`, `0.25`).
+ *
+ * Pure, so the ruler's label geometry is unit-tested without the DOM.
+ *
+ * @param seconds - Position on the timeline, in seconds.
+ * @param fps - Project frame rate (used for the frame field).
+ * @param stepSeconds - The tick interval this label sits on (see {@link rulerTicks}).
+ * @param spanSeconds - Total visible span, which decides whether hours appear.
+ * @param mode - The active display mode (defaults to `timecode`).
+ * @returns A short, tabular label.
+ */
+export function compactTimeLabel(
+  seconds: number,
+  fps: number,
+  stepSeconds: number,
+  spanSeconds: number,
+  mode: TimeDisplay = 'timecode',
+): string {
+  const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+  const step = Number.isFinite(stepSeconds) && stepSeconds > 0 ? stepSeconds : 1;
+  if (mode === 'seconds') {
+    // Only as much precision as the step can distinguish: a 0.5s step needs one
+    // decimal, a 1/30s step needs two, a 5s step needs none.
+    const decimals = step >= 1 ? 0 : step >= 0.1 ? 1 : 2;
+    return safe.toFixed(decimals);
+  }
+  const rate = Number.isFinite(fps) && fps > 0 ? fps : FALLBACK_FPS;
+  const wholeRate = Math.round(rate);
+  const totalFrames = Math.round(safe * rate);
+  const frame = totalFrames % wholeRate;
+  const totalSeconds = Math.floor(totalFrames / wholeRate);
+  const ss = totalSeconds % 60;
+  const mm = Math.floor(totalSeconds / 60) % 60;
+  const hh = Math.floor(totalSeconds / 3600);
+  const span = Number.isFinite(spanSeconds) && spanSeconds > 0 ? spanSeconds : 0;
+  // Hours lead (unpadded) only when the sequence actually reaches one — otherwise
+  // every label on the ruler would carry a constant `0:` prefix. Below that the
+  // minute field leads, so a bare `:02` can never be misread as two frames.
+  const showHours = span >= 3600 || hh >= 1;
+  const fields = showHours ? [`${hh}`, pad2(mm), pad2(ss)] : [`${mm}`, pad2(ss)];
+  // The frame field appears only once the ruler resolves finer than a second;
+  // above that step every tick would print a constant `:00`.
+  if (step < 1) fields.push(pad2(frame));
+  return fields.join(':');
+}
+
+/**
+ * A clip's own duration, in the same compact grammar as the ruler.
+ *
+ * A duration is not a position, so it never carries hours it does not have, and
+ * it shows frames only for clips shorter than a second — where `0:00` would
+ * otherwise be the whole label. `mode` is honoured so the badge agrees with the
+ * ruler and the monitor.
+ *
+ * @param seconds - Clip duration, in seconds.
+ * @param fps - Project frame rate.
+ * @param mode - The active display mode (defaults to `timecode`).
+ */
+export function compactDuration(
+  seconds: number,
+  fps: number,
+  mode: TimeDisplay = 'timecode',
+): string {
+  const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+  if (mode === 'seconds') return `${safe.toFixed(safe < 10 ? 1 : 0)}s`;
+  const rate = Number.isFinite(fps) && fps > 0 ? fps : FALLBACK_FPS;
+  const wholeRate = Math.round(rate);
+  const totalFrames = Math.round(safe * rate);
+  const totalSeconds = Math.floor(totalFrames / wholeRate);
+  if (totalSeconds < 1) return `${totalFrames % wholeRate}f`;
+  const ss = totalSeconds % 60;
+  const mm = Math.floor(totalSeconds / 60) % 60;
+  const hh = Math.floor(totalSeconds / 3600);
+  return hh > 0 ? `${hh}:${pad2(mm)}:${pad2(ss)}` : `${mm}:${pad2(ss)}`;
 }
 
 /**
@@ -891,9 +1123,32 @@ export function adjacentMarker(
 /** Convert a duration in seconds to a pixel width at the given zoom. */
 export const secondsToPx = (seconds: number, pxPerSecond: number): number => seconds * pxPerSecond;
 
-/** Convert a pixel offset to seconds at the given zoom (clamped to ≥ 0). */
+/**
+ * Convert a pixel POSITION to a time at the given zoom, clamped to >= 0.
+ *
+ * The clamp is correct here and only here: an x of -20 on the lane is before the
+ * start of the sequence, and there is no such time.
+ *
+ * It is wrong for a signed delta — use {@link pxDeltaToSeconds} for those.
+ */
 export const pxToSeconds = (px: number, pxPerSecond: number): number =>
   pxPerSecond <= 0 ? 0 : Math.max(0, px / pxPerSecond);
+
+/**
+ * Convert a signed pixel DELTA to a signed duration at the given zoom.
+ *
+ * The sibling of {@link pxToSeconds}, and deliberately not the same function. A
+ * position cannot be negative, so `pxToSeconds` clamps; a drag delta is negative
+ * every time the pointer moves left, and clamping it silently turns "drag left"
+ * into "do not move".
+ *
+ * That is not hypothetical: the audio fade handles converted their drag delta with
+ * the position helper, so a fade could be dragged longer but never shorter — the
+ * handle simply ignored every leftward pointer move, and released at the value it
+ * already had. Any gesture that reads a delta belongs here.
+ */
+export const pxDeltaToSeconds = (deltaPx: number, pxPerSecond: number): number =>
+  pxPerSecond <= 0 || !Number.isFinite(deltaPx) ? 0 : deltaPx / pxPerSecond;
 
 /** Shortest clip a UI trim/drag may produce, in seconds (keeps clips grabbable). */
 export const MIN_CLIP_SECONDS = 0.05;
@@ -1033,7 +1288,12 @@ export const tracksCompatible = (a: Track['type'], b: Track['type']): boolean =>
  * before the (fixed) right edge.
  */
 export function clampTrimStart(clip: Clip, desiredStart: number): number {
-  const earliest = clip.start - clip.sourceStart; // sourceStart → 0 here
+  // A clip with no time-based source (a text overlay, a caption cue) is generated
+  // at render time and has no in-point to run out of, so its left edge is bounded
+  // only by the start of the timeline. Reading its `sourceStart: 0` as a real
+  // in-point made `earliest` equal to where the clip already began — which is why
+  // these could be extended forwards and not backwards.
+  const earliest = hasTimeBasedSource(clip) ? clip.start - clip.sourceStart : 0;
   const latest = clip.end - MIN_CLIP_SECONDS;
   return clampRange(desiredStart, earliest, latest);
 }
@@ -1859,7 +2119,7 @@ export function shouldAutoFollow(inputs: AutoFollowInputs): boolean {
 }
 
 /** What a wheel event over the timeline should do (UX-06). */
-export type WheelIntent = 'zoom' | 'scroll-horizontal' | 'browser';
+export type WheelIntent = 'zoom' | 'scroll-horizontal' | 'scroll-vertical' | 'browser';
 
 export interface WheelInputs {
   readonly deltaX: number;
@@ -1886,13 +2146,21 @@ export interface WheelInputs {
  * - Otherwise a vertical wheel scrolls the timeline horizontally, UNLESS the lanes
  *   are tall enough to scroll vertically — where scrolling the track stack is what
  *   the gesture obviously means, and stealing it would be worse than the bug.
+ *
+ * That last case returns `scroll-vertical` rather than handing the gesture back to
+ * the browser. Handing it back relies on scroll chaining from the horizontal lane
+ * container to the vertical one above it, and that did not happen: the lane
+ * container is itself a scroll container on both axes (a non-`visible` overflow on
+ * one axis computes the other to `auto`), so the gesture stopped there and the
+ * stack never moved. Naming the axis makes the caller do it, which is one line and
+ * cannot be undone by a layout detail.
  */
 export function wheelIntent(inputs: WheelInputs): WheelIntent {
   if (inputs.zoomModifier) return 'zoom';
   if (inputs.shiftKey) return 'browser';
   if (Math.abs(inputs.deltaX) > Math.abs(inputs.deltaY)) return 'browser';
-  if (inputs.canScrollVertically) return 'browser';
-  return inputs.deltaY === 0 ? 'browser' : 'scroll-horizontal';
+  if (inputs.deltaY === 0) return 'browser';
+  return inputs.canScrollVertically ? 'scroll-vertical' : 'scroll-horizontal';
 }
 
 /**

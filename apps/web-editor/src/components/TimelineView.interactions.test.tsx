@@ -237,9 +237,28 @@ describe('TimelineView direct manipulation', () => {
     fireEvent.pointerUp(handle, { clientX: 40, pointerId: 1 });
     // The overlay wedge widens to the committed fade duration.
     expect((c1.querySelector('.clip-fade-overlay-in') as HTMLElement).style.width).toBe('40px');
+
+    // REGRESSION: and it can be dragged BACK. The handler converted its drag delta
+    // with `pxToSeconds`, which clamps to >= 0 because it exists to turn an x into
+    // a time — so every leftward pointer move computed a delta of exactly zero and
+    // the handle released at the value it already had. A fade could be grown, and
+    // then never shortened or removed, for the life of the clip.
+    // −20px ⇒ −0.5s at 40px/s, landing on a whole frame at 30fps so the committed
+    // value is exact rather than frame-quantised to something near it.
+    fireEvent.pointerDown(handle, { clientX: 40, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: 20, pointerId: 1 });
+    fireEvent.pointerUp(handle, { clientX: 20, pointerId: 1 });
+    expect((c1.querySelector('.clip-fade-overlay-in') as HTMLElement).style.width).toBe('20px');
+
+    // And all the way back to none, which is how a fade is removed by direct
+    // manipulation at all.
+    fireEvent.pointerDown(handle, { clientX: 20, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: -60, pointerId: 1 });
+    fireEvent.pointerUp(handle, { clientX: -60, pointerId: 1 });
+    expect((c1.querySelector('.clip-fade-overlay-in') as HTMLElement).style.width).toBe('0px');
   });
 
-  it('snaps a dragged clip to a nearby clip edge (snap guide appears)', () => {
+  it('marks contact when a dragged clip meets a neighbour edge', () => {
     // A second clip ends at 6s; dragging c1 so its start lands ~6s should snap.
     const twoClips: Timeline = {
       tracks: [
@@ -283,10 +302,84 @@ describe('TimelineView direct manipulation', () => {
     // end (8s); landing there sits c1 adjacent to c2 (no overlap, so it validates).
     fireEvent.pointerDown(c1, { clientX: 0, pointerId: 1 });
     fireEvent.pointerMove(c1, { clientX: 318, pointerId: 1 }); // 7.95s
-    expect(container.querySelector('.snap-guide')).not.toBeNull();
+    // The two clips are now flush, so this is contact — the join marker, not the
+    // plain snap guide. The guide is reserved for snapping to something that is
+    // not another clip (the playhead, a marker), where nothing is "meeting".
+    expect(container.querySelector('.edge-contact')).not.toBeNull();
+    expect(container.querySelector('.snap-guide')).toBeNull();
     fireEvent.pointerUp(c1, { clientX: 318, pointerId: 1 });
     // Snapped to 8s ⇒ 320px (not 318px).
     expect(screen.getByLabelText('clip c1').style.left).toBe('320px');
+    // Temporary by construction: the marker belongs to the drag, so releasing
+    // takes it away rather than leaving a rule behind on the timeline.
+    expect(container.querySelector('.edge-contact')).toBeNull();
+  });
+
+  it('marks contact on BOTH edges, and without needing the magnet to fire', () => {
+    // c1 is 2s long; the gap between c0 (ends 4s) and c2 (starts 6s) is exactly
+    // 2s. Dropping c1 into it puts its head on c0's end and its tail on c2's
+    // start at the same time — two joins, so two markers.
+    const gap: Timeline = {
+      tracks: [
+        {
+          id: 'v',
+          type: 'video',
+          clips: [
+            {
+              id: 'c0',
+              assetId: 'a',
+              trackId: 'v',
+              start: 2,
+              end: 4,
+              sourceStart: 0,
+              sourceEnd: 2,
+              effects: [],
+              keyframes: [],
+            },
+            {
+              id: 'c1',
+              assetId: 'a',
+              trackId: 'v',
+              start: 10,
+              end: 12,
+              sourceStart: 0,
+              sourceEnd: 2,
+              effects: [],
+              keyframes: [],
+            },
+            {
+              id: 'c2',
+              assetId: 'a',
+              trackId: 'v',
+              start: 6,
+              end: 8,
+              sourceStart: 0,
+              sourceEnd: 2,
+              effects: [],
+              keyframes: [],
+            },
+          ],
+        },
+      ],
+    };
+    function GapHost(): JSX.Element {
+      const editor = useEditor(gap, ['a']);
+      return <TimelineView editor={editor} assets={[]} fps={30} />;
+    }
+    const { container } = render(<GapHost />);
+    const c1 = screen.getByLabelText('clip c1');
+
+    // Alt bypasses the magnet entirely, so nothing snaps and the landing time is
+    // whatever the pointer says. Contact is a question about what the edges LOOK
+    // like, not about whether the snap engine fired — at 40px/s this lands 0.05s
+    // from flush, which is 2px, and must still read as touching. Before this the
+    // marker keyed off exact equality after a snap and stayed dark all gesture.
+    fireEvent.pointerDown(c1, { clientX: 400, pointerId: 1 }); // 10s, c1's head
+    fireEvent.pointerMove(c1, { clientX: 162, pointerId: 1, altKey: true }); // 4.05s
+    const marks = container.querySelectorAll('.edge-contact');
+    expect(marks).toHaveLength(2);
+    expect([...marks].map((m) => (m as HTMLElement).style.left).sort()).toEqual(['160px', '240px']);
+    fireEvent.pointerUp(c1, { clientX: 162, pointerId: 1, altKey: true });
   });
 
   it('moves a clip onto a compatible track under the pointer', () => {

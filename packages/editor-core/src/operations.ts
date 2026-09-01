@@ -40,6 +40,7 @@ import type {
   AudioEqBand,
 } from './edit-value-contracts.js';
 import { transitionEligibility } from './edit-boundaries.js';
+import { evaluateKeyframes } from './keyframes.js';
 import {
   DEFAULT_TRANSITION_ALIGNMENT,
   TRANSITION_EFFECT_TYPE,
@@ -699,6 +700,25 @@ export const SUPPORTED_COLOR_GRADE_EFFECTS = ['color_grade', 'lut', 'transform']
 export const TEXT_OVERLAY_ASSET_ID = '__text__';
 export const CAPTION_ASSET_ID = '__caption__';
 
+/**
+ * Does this clip draw from a real, time-based source?
+ *
+ * A video or an audio file has a timeline of its own, and a clip on it is a
+ * WINDOW onto that timeline: `sourceStart` says where the window begins, and the
+ * window cannot be dragged before the file starts. That constraint is what stops a
+ * left-edge trim from asking for footage that does not exist.
+ *
+ * Text overlays and caption cues have no such source. They are generated at render
+ * time from their own parameters, so every instant of them is as available as every
+ * other, and `sourceStart: 0` on one of them means "nothing to say" rather than
+ * "the file starts here". Treating that 0 as a real in-point is what made a text
+ * overlay extendable forwards and immovable backwards: its earliest possible start
+ * computed to exactly where it already was.
+ */
+export function hasTimeBasedSource(clip: Clip): boolean {
+  return clip.assetId !== TEXT_OVERLAY_ASSET_ID && clip.assetId !== CAPTION_ASSET_ID;
+}
+
 /** Runtime type guard for a given operation kind. */
 export const isOperationOfType = <T extends OperationType>(
   op: Operation,
@@ -1245,11 +1265,112 @@ function sourceOffsetForTimeline(clip: Clip, timelineDelta: Seconds): Seconds {
  *   this backwards is invisible in the duration check and obvious in the picture.
  * - **Forward, constant or ramped**: the integral mapping, with the ramp re-based.
  */
+/**
+ * Re-base a clip's keyframes for a head trim of `headSeconds`, keeping the curve.
+ *
+ * Everything shifts by `-headSeconds`. Points that land before the new start are
+ * replaced, per property, by ONE keyframe at time 0 carrying the value the
+ * animation actually had there — resampling the curve rather than discarding it.
+ *
+ * Both halves matter. Keeping negative times is not an option:
+ * `KeyframeSchema.time` is non-negative, so the patch would fail validation and
+ * the edit would be lost. Dropping them outright is not either: the evaluator
+ * interpolates from whichever point precedes the time it is asked for, so the clip
+ * would open on a flat value instead of partway along its ramp.
+ *
+ * The boundary keyframe inherits the easing of the point that governed the segment
+ * running into it — easing describes the segment LEAVING a keyframe, so that is
+ * the one still in force at 0 — and takes a deterministic id, since the same trim
+ * must produce the same patch twice.
+ *
+ * @param clip - The clip before the trim.
+ * @param headSeconds - How much is being taken off the front, in seconds.
+ * @param id - The id the truncated clip will carry (keyframe ids derive from it).
+ */
+function rebaseKeyframes(clip: Clip, headSeconds: Seconds, id: string): Keyframe[] {
+  if (headSeconds === 0 || clip.keyframes.length === 0) return clone(clip).keyframes;
+  const shifted = clip.keyframes.map((keyframe) => ({
+    ...clone(keyframe),
+    time: keyframe.time - headSeconds,
+  }));
+  if (shifted.every((keyframe) => keyframe.time >= -EPSILON)) {
+    // Nothing crossed the new start; clamp away float dust and keep the rest.
+    return shifted.map((keyframe) => (keyframe.time < 0 ? { ...keyframe, time: 0 } : keyframe));
+  }
+
+  const kept: Keyframe[] = [];
+  const properties = new Set(shifted.map((keyframe) => keyframe.property));
+  for (const property of properties) {
+    const points = shifted
+      .filter((keyframe) => keyframe.property === property)
+      .sort((a, b) => a.time - b.time);
+    const before = points.filter((keyframe) => keyframe.time < -EPSILON);
+    const after = points.filter((keyframe) => keyframe.time >= -EPSILON);
+    if (before.length === 0) {
+      kept.push(...after);
+      continue;
+    }
+    const atStart = after.find((keyframe) => Math.abs(keyframe.time) <= EPSILON);
+    if (atStart === undefined) {
+      const value = evaluateKeyframes(shifted, property, 0);
+      const governing = before[before.length - 1]!;
+      kept.push({
+        ...clone(governing),
+        id: `kf_${id}_${property}_0`,
+        time: 0,
+        value: value ?? governing.value,
+      });
+    }
+    kept.push(...after);
+  }
+  return kept;
+}
+
 function truncateClip(clip: Clip, newStart: Seconds, newEnd: Seconds, id: string): Clip {
-  const base = { ...clone(clip), id, start: newStart, end: newEnd };
+  // A clip with no time-based source has no source range to consume: its window is
+  // always the whole of itself. Mapping the trim through the source arithmetic
+  // below would drive `sourceStart` negative when the left edge moves earlier, and
+  // `applyTrim` rejects that — which is why a text overlay could be extended
+  // forwards but never backwards.
+  if (!hasTimeBasedSource(clip)) {
+    return {
+      ...clone(clip),
+      id,
+      start: newStart,
+      end: newEnd,
+      sourceStart: 0,
+      sourceEnd: newEnd - newStart,
+      keyframes: rebaseKeyframes(clip, newStart - clip.start, id),
+    };
+  }
   const headSeconds = newStart - clip.start;
   const tailSeconds = clip.end - newEnd;
   const speed = clip.speed ?? 1;
+  // Keyframe times are CLIP-relative, so trimming the head has to re-base them or
+  // the animation slides.
+  //
+  // This was the bug: `truncateClip` cloned the clip verbatim and moved only
+  // `start`/`end`, so a keyframe two seconds into a clip stayed "two seconds in"
+  // after a one-second head trim — which is one second later in the footage than
+  // where the user put it. A punch-in placed on a gesture drifted off it the
+  // moment the clip was trimmed, and `delete_range`/`ripple_delete` inherited the
+  // same slide through `subtractRange`. (`split_clip` was already correct: it
+  // partitions and re-bases its own keyframes after calling this.)
+  //
+  // Times are timeline-relative to the clip's start, NOT source seconds, so the
+  // shift is `headSeconds` at any speed — including a reverse clip, whose source
+  // mapping is inverted below while its keyframe times are not.
+  //
+  // Keyframes shifted BEFORE the new start cannot simply be kept:
+  // `KeyframeSchema.time` is `nonnegative`, so a negative time makes the whole
+  // patch fail validation and, on desktop, throws away the edit. They cannot
+  // simply be dropped either — `evaluateKeyframes` interpolates from the
+  // neighbour, so losing it flattens the animation exactly where the user
+  // trimmed. So the curve is RESAMPLED at the new start: the value the animation
+  // actually had at that instant becomes a keyframe at 0, and the points before it
+  // go. The visible motion is identical and the times are all legal.
+  const keyframes = rebaseKeyframes(clip, headSeconds, id);
+  const base = { ...clone(clip), id, start: newStart, end: newEnd, keyframes };
 
   if (!hasSpeedRamp(clip) && speed === 0) return base;
 
@@ -1947,6 +2068,42 @@ function applySetCaptionStyle(timeline: Timeline, op: SetCaptionStyleOp): Timeli
   return replaceClipAt(timeline, loc, next);
 }
 
+/**
+ * Scale a clip's keyframe times so its animation stays locked to the FOOTAGE when
+ * its timeline duration changes.
+ *
+ * Speed is a time stretch. A keyframe 40% of the way through a clip is on a
+ * particular moment of the picture, and it should still be on that moment after
+ * the clip is played at 2x — which means 40% of the way through the new, shorter
+ * span. Leaving the raw times alone (what this used to do) keeps the animation on
+ * the same *wall clock* instead, so the punch-in the editor placed on a gesture
+ * ends up somewhere else in the shot, and the faster the clip the further it
+ * drifts. Premiere and After Effects both stretch keyframes with a time stretch,
+ * for the same reason.
+ *
+ * Deliberately NOT mirrored for a reverse clip: `speed < 0` flips which end of the
+ * source plays first, and the duration below already uses the magnitude. Whether a
+ * reversed clip's animation should also run backwards is a separate question with
+ * a real argument on both sides, and silently deciding it here would be the same
+ * class of mistake this function fixes.
+ *
+ * @param clip - The clip before the speed change.
+ * @param newDuration - Its new timeline duration, in seconds.
+ */
+function scaleKeyframesToDuration(clip: Clip, newDuration: Seconds): Keyframe[] {
+  const oldDuration = clip.end - clip.start;
+  if (
+    clip.keyframes.length === 0 ||
+    oldDuration <= EPSILON ||
+    newDuration <= EPSILON ||
+    Math.abs(newDuration - oldDuration) <= EPSILON
+  ) {
+    return clone(clip).keyframes;
+  }
+  const ratio = newDuration / oldDuration;
+  return clip.keyframes.map((keyframe) => ({ ...clone(keyframe), time: keyframe.time * ratio }));
+}
+
 function applySetClipSpeed(timeline: Timeline, op: SetClipSpeedOp): Timeline {
   const loc = findClip(timeline, op.clipId);
   const speed = op.speed ?? 1;
@@ -1967,7 +2124,11 @@ function applySetClipSpeed(timeline: Timeline, op: SetClipSpeedOp): Timeline {
   // derive from a division by zero. The clip keeps the timeline span it had —
   // holding a frame for the length it already occupied is the only answer that
   // does not invent a number, and the UI sets the span explicitly afterwards.
-  if (speed !== 0) next.end = clip.start + sourceDuration / Math.abs(speed);
+  if (speed !== 0) {
+    next.end = clip.start + sourceDuration / Math.abs(speed);
+    // The clip's span changed, so its animation stretches with it.
+    next.keyframes = scaleKeyframesToDuration(clip, next.end - next.start);
+  }
   // Canonicalize 1x as *absent* (like set_track_flags canonicalizes "off"): a
   // reset lands on a deep-equal timeline to a clip that never had a speed set.
   if (Math.abs(speed - 1) <= EPSILON) delete next.speed;
@@ -2047,7 +2208,11 @@ function applySetClipSpeedRamp(timeline: Timeline, op: SetClipSpeedRampOp): Time
     delete next.speed;
   }
   const duration = clipTimelineDuration(next);
-  if (duration !== null) next.end = clip.start + duration;
+  if (duration !== null) {
+    next.end = clip.start + duration;
+    // Same rule as a constant speed: a ramp is a time stretch too.
+    next.keyframes = scaleKeyframesToDuration(clip, next.end - next.start);
+  }
   return replaceClipAt(timeline, loc, next);
 }
 
@@ -2130,7 +2295,17 @@ function assertPositiveRange(start: Seconds, end: Seconds, label: string): void 
 export function invertOperation(timelineBefore: Timeline, op: Operation): Operation[] {
   switch (op.type) {
     case 'trim_clip': {
-      const { clip } = findClip(timelineBefore, op.clipId);
+      const { clip, track } = findClip(timelineBefore, op.clipId);
+      // An ANIMATED clip inverts by restoring the track, not by trimming back.
+      //
+      // A head trim re-bases keyframes and resamples the curve at the new start
+      // (see `rebaseKeyframes`), which is deliberately lossy: the points that fell
+      // off the front are replaced by one carrying their combined effect. Trimming
+      // back out cannot invent them again, so the same-shape inverse would return a
+      // clip that looks right and no longer holds the animation it had. The file's
+      // own rule for an inverse that cannot be exact is `restore_clips`, and the
+      // cost is paid only by clips that actually carry keyframes.
+      if (clip.keyframes.length > 0) return [restoreFor(track)];
       return [{ type: 'trim_clip', clipId: op.clipId, start: clip.start, end: clip.end }];
     }
     case 'set_clip_source_range': {
@@ -2300,8 +2475,15 @@ export function invertOperation(timelineBefore: Timeline, op: Operation): Operat
       return [{ type: 'set_caption_cue', clipId: op.clipId, captionCue: clip.captionCue ?? null }];
     }
     case 'set_clip_speed':
-    case 'set_clip_speed_ramp':
+    case 'set_clip_speed_ramp': {
+      // Same reasoning as `trim_clip`: a speed change scales keyframe times by
+      // `newDuration / oldDuration`, and scaling back by the reciprocal is not
+      // exact in floating point — the times drift a little on every undo, and the
+      // drift accumulates over repeated speed edits. Restoring the track is exact.
+      const { clip, track } = findClip(timelineBefore, op.clipId);
+      if (clip.keyframes.length > 0) return [restoreFor(track)];
       return invertSpeedChange(timelineBefore, op.clipId);
+    }
     case 'set_clip_crop': {
       // Same-shape inverse: restore the clip's prior crop wholesale (`null`
       // when it had none), exactly like `set_caption_style`/`set_clip_speed`.

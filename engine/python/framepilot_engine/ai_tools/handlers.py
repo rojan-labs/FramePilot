@@ -48,6 +48,7 @@ from framepilot_engine.ai_tools.registry import (
     PunchInArgs,
     RangeOnTrackArgs,
     RememberPreferenceArgs,
+    RemoveKeyframesArgs,
     RemoveMarkerArgs,
     RemoveTrackArgs,
     SetCaptionStyleArgs,
@@ -400,6 +401,22 @@ def add_keyframes(args: AddKeyframesArgs, ctx: ToolContext) -> Operations:
         for k in args.keyframes
     ]
     return [{"type": "add_keyframes", "clipId": args.clip_id, "keyframes": keyframes}]
+
+
+def remove_keyframes(args: RemoveKeyframesArgs, ctx: ToolContext) -> Operations:
+    """Clear a property's animation, or remove one keyframe at a time.
+
+    ``time`` is OMITTED, never sent as ``None``: the operation reads a target with
+    no ``time`` as "clear the whole property", and an explicit null is a different
+    thing that would clear nothing.
+    """
+    targets: list[dict[str, object]] = []
+    for target in args.targets:
+        if target.time is None:
+            targets.append({"property": target.property})
+        else:
+            targets.append({"property": target.property, "time": target.time})
+    return [{"type": "remove_keyframes", "clipId": args.clip_id, "targets": targets}]
 
 
 def _clip_duration(project: Project, clip_id: str) -> float | None:

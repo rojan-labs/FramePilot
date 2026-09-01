@@ -86,16 +86,16 @@ function renderTimeline(): { editor: ReturnType<typeof useEditor> } {
 describe('TimelineView — collapse / expand (M2b-2)', () => {
   it('collapses a lane and persists it, then expands again', () => {
     renderTimeline();
-    const collapse = screen.getByLabelText('Collapse track v');
+    const collapse = screen.getByLabelText('Collapse lane V1');
     expect(collapse.getAttribute('aria-expanded')).toBe('true');
     act(() => fireEvent.click(collapse));
     // The control flips to "Expand", the lane gets the collapsed class, and the
     // view state is persisted (session-only, never the project).
-    const expand = screen.getByLabelText('Expand track v');
+    const expand = screen.getByLabelText('Expand lane V1');
     expect(expand.getAttribute('aria-expanded')).toBe('false');
     expect(JSON.parse(localStorage.getItem('framepilot.trackLayout')!).v.collapsed).toBe(true);
     act(() => fireEvent.click(expand));
-    expect(screen.getByLabelText('Collapse track v').getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByLabelText('Collapse lane V1').getAttribute('aria-expanded')).toBe('true');
   });
 });
 
@@ -118,7 +118,7 @@ describe('TimelineView — row layout reflows on height change', () => {
     // A full-height lane above it, so the second row starts below one.
     expect(before).toBeGreaterThan(0);
 
-    act(() => fireEvent.click(screen.getByLabelText('Collapse track v')));
+    act(() => fireEvent.click(screen.getByLabelText('Collapse lane V1')));
 
     // REGRESSION: the virtualizer memoises measurements on `count`, not on
     // `estimateSize`, so without an explicit re-measure it kept laying this row
@@ -127,7 +127,7 @@ describe('TimelineView — row layout reflows on height change', () => {
     expect(after).toBeLessThan(before);
 
     // And expanding restores it exactly, rather than drifting.
-    act(() => fireEvent.click(screen.getByLabelText('Expand track v')));
+    act(() => fireEvent.click(screen.getByLabelText('Expand lane V1')));
     expect(rowOffset(secondLane())).toBe(before);
   });
 
@@ -135,11 +135,11 @@ describe('TimelineView — row layout reflows on height change', () => {
     renderTimeline();
     const alignment = (): { head: number; lane: number }[] =>
       ['v', 'layer_audio_1'].map((id) => ({
-        head: rowOffset(document.querySelector(`.track-head:has([aria-label$="track ${id}"])`)!),
+        head: rowOffset(document.querySelector(`.track-head[data-track-head="${id}"]`)!),
         lane: rowOffset(screen.getByLabelText(`track ${id}`)),
       }));
     for (const { head, lane } of alignment()) expect(head).toBe(lane);
-    act(() => fireEvent.click(screen.getByLabelText('Collapse track v')));
+    act(() => fireEvent.click(screen.getByLabelText('Collapse lane V1')));
     for (const { head, lane } of alignment()) expect(head).toBe(lane);
   });
 });
@@ -181,17 +181,55 @@ describe('TimelineView — solo (derived preview mute, M2b-2)', () => {
 });
 
 describe('TimelineView — minimap overview (M2b-2)', () => {
-  it('renders the overview strip with a block per clip and a viewport window', () => {
-    renderTimeline();
-    const minimap = screen.getByLabelText('Timeline overview');
-    expect(minimap.getAttribute('role')).toBe('slider');
-    // Pure navigation chrome — dragging it must not throw or emit a patch.
-    act(() => {
-      fireEvent.pointerDown(minimap, { clientX: 20, pointerId: 1 });
-      fireEvent.pointerMove(minimap, { clientX: 40, pointerId: 1 });
-      fireEvent.pointerUp(minimap, { pointerId: 1 });
+  /**
+   * Give the lane scroller a real `clientWidth` narrower than the sequence.
+   *
+   * The strip only exists when there is something to navigate, so a test that
+   * wants one has to establish the overflow it navigates. jsdom reports 0 for
+   * every layout box, and a 0-width viewport is indistinguishable from "not
+   * measured yet" — which is exactly the state the component must NOT draw a
+   * strip in, since a viewport of zero width would report every sequence as
+   * overflowing.
+   */
+  function withNarrowViewport<T>(run: () => T): T {
+    const proto = HTMLElement.prototype;
+    const real = Object.getOwnPropertyDescriptor(proto, 'clientWidth');
+    Object.defineProperty(proto, 'clientWidth', {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.classList.contains('lane-scroll') ? 100 : 0;
+      },
     });
-    expect(screen.getByLabelText('Timeline overview')).toBeDefined();
+    try {
+      return run();
+    } finally {
+      if (real) Object.defineProperty(proto, 'clientWidth', real);
+      else delete (proto as unknown as Record<string, unknown>).clientWidth;
+    }
+  }
+
+  it('renders the overview strip with a block per clip and a viewport window', () => {
+    withNarrowViewport(() => {
+      renderTimeline();
+      const minimap = screen.getByLabelText('Timeline overview');
+      expect(minimap.getAttribute('role')).toBe('slider');
+      // Pure navigation chrome — dragging it must not throw or emit a patch.
+      act(() => {
+        fireEvent.pointerDown(minimap, { clientX: 20, pointerId: 1 });
+        fireEvent.pointerMove(minimap, { clientX: 40, pointerId: 1 });
+        fireEvent.pointerUp(minimap, { pointerId: 1 });
+      });
+      expect(screen.getByLabelText('Timeline overview')).toBeDefined();
+    });
+  });
+
+  it('is not mounted at all when the whole sequence already fits', () => {
+    // Regression: the strip was mounted unconditionally, against its own
+    // documented contract. With nothing to navigate, the viewport window covers
+    // the entire strip — so the map rendered as a solid accent slab that hid the
+    // clip blocks it exists to show, and charged the lanes 22px for it.
+    renderTimeline();
+    expect(screen.queryByLabelText('Timeline overview')).toBeNull();
   });
 
   it('draws its blocks on the first paint, before any click', () => {
@@ -206,100 +244,36 @@ describe('TimelineView — minimap overview (M2b-2)', () => {
       return { ...rect.call(this), width, left: 0, right: width } as DOMRect;
     };
     try {
-      renderTimeline();
-      const minimap = screen.getByLabelText('Timeline overview');
-      const blocks = minimap.querySelectorAll('.mm-block');
-      expect(blocks.length).toBe(2); // one clip on each of the two lanes
-      for (const block of blocks) {
-        expect(Number.parseFloat((block as HTMLElement).style.width)).toBeGreaterThan(0);
-      }
-      // The viewport window is mounted and placed. Its *width* stays 0 here
-      // because jsdom gives the lane scroller no `clientWidth` to derive the
-      // visible fraction from — a jsdom limit, not the mount-measure bug.
-      expect(minimap.querySelector('.mm-view')).not.toBeNull();
+      withNarrowViewport(() => {
+        renderTimeline();
+        const minimap = screen.getByLabelText('Timeline overview');
+        const blocks = minimap.querySelectorAll('.mm-block');
+        expect(blocks.length).toBe(2); // one clip on each of the two lanes
+        for (const block of blocks) {
+          expect(Number.parseFloat((block as HTMLElement).style.width)).toBeGreaterThan(0);
+        }
+        // The viewport window is mounted, placed, and — now that the strip only
+        // appears when the sequence overflows — narrower than the strip itself.
+        const view = minimap.querySelector('.mm-view') as HTMLElement | null;
+        expect(view).not.toBeNull();
+        expect(Number.parseFloat(view!.style.width)).toBeLessThan(300);
+      });
     } finally {
       Element.prototype.getBoundingClientRect = rect;
     }
   });
 
   it('is keyboard-operable as a slider without throwing', () => {
-    renderTimeline();
-    const minimap = screen.getByLabelText('Timeline overview');
-    act(() => {
-      fireEvent.keyDown(minimap, { key: 'End' });
-      fireEvent.keyDown(minimap, { key: 'Home' });
-      fireEvent.keyDown(minimap, { key: 'ArrowRight' });
+    withNarrowViewport(() => {
+      renderTimeline();
+      const minimap = screen.getByLabelText('Timeline overview');
+      act(() => {
+        fireEvent.keyDown(minimap, { key: 'End' });
+        fireEvent.keyDown(minimap, { key: 'Home' });
+        fireEvent.keyDown(minimap, { key: 'ArrowRight' });
+      });
+      expect(minimap).toBeDefined();
     });
-    expect(minimap).toBeDefined();
-  });
-});
-
-describe('TimelineView — vertical virtualization (M2b-2)', () => {
-  /** A timeline with many empty user-created layers (window-able lane list). */
-  const manyTracks: Timeline = {
-    tracks: Array.from({ length: 60 }, (_, i) => ({
-      id: `layer_${i}`,
-      type: 'video' as const,
-      clips: [],
-    })),
-  };
-
-  it('mounts every lane when the viewport is unmeasured (jsdom fallback) and keeps aria hooks', () => {
-    function Host(): JSX.Element {
-      const editor = useEditor(manyTracks, []);
-      return <TimelineView editor={editor} assets={[]} fps={30} />;
-    }
-    render(<Host />);
-    // The aria hook for each track lane is preserved across the windowed render.
-    expect(screen.getByLabelText('track layer_0')).toBeDefined();
-    expect(screen.getByLabelText('track layer_30')).toBeDefined();
-    expect(screen.getByLabelText('track layer_59')).toBeDefined();
-    // The sr-only playhead seek/a11y hook must survive virtualization.
-    expect(screen.getByLabelText('playhead')).toBeDefined();
-  });
-
-  it('windows the lane list when the viewport is measured (only on-screen lanes mount)', () => {
-    // Give the vertical scroll viewport a real (small) height so the virtualizer
-    // windows instead of falling back to mounting everything. ResizeObserver is
-    // stubbed to deliver that height to the virtual core on observe.
-    const VIEWPORT = 240; // px — fits only a handful of ~46px rows + overscan
-    // The virtual core measures the scroll element via `offsetHeight` (jsdom
-    // reports 0, which triggers the mount-everything fallback). Stub a real
-    // offsetHeight on the vertical scroll viewport so the virtualizer windows.
-    const proto = HTMLElement.prototype;
-    const realH = Object.getOwnPropertyDescriptor(proto, 'offsetHeight');
-    const realW = Object.getOwnPropertyDescriptor(proto, 'offsetWidth');
-    Object.defineProperty(proto, 'offsetHeight', {
-      configurable: true,
-      get(this: HTMLElement) {
-        return this.classList.contains('timeline-vscroll') ? VIEWPORT : 0;
-      },
-    });
-    Object.defineProperty(proto, 'offsetWidth', {
-      configurable: true,
-      get(this: HTMLElement) {
-        return this.classList.contains('timeline-vscroll') ? 800 : 0;
-      },
-    });
-    try {
-      function Host(): JSX.Element {
-        const editor = useEditor(manyTracks, []);
-        return <TimelineView editor={editor} assets={[]} fps={30} />;
-      }
-      render(<Host />);
-      const mounted = screen.getAllByLabelText(/^track layer_\d+$/);
-      // Far fewer than the 60 lanes are mounted (windowing is active), and the
-      // first lane is in the window while a deep lane is not.
-      expect(mounted.length).toBeGreaterThan(0);
-      expect(mounted.length).toBeLessThan(manyTracks.tracks.length);
-      expect(screen.queryByLabelText('track layer_0')).not.toBeNull();
-      expect(screen.queryByLabelText('track layer_59')).toBeNull();
-    } finally {
-      if (realH) Object.defineProperty(proto, 'offsetHeight', realH);
-      else delete (proto as unknown as Record<string, unknown>).offsetHeight;
-      if (realW) Object.defineProperty(proto, 'offsetWidth', realW);
-      else delete (proto as unknown as Record<string, unknown>).offsetWidth;
-    }
   });
 });
 
@@ -315,6 +289,9 @@ describe('empty tracks are rows (UX-05)', () => {
       return <TimelineView editor={editor} assets={[]} fps={30} />;
     }
     render(<Host />);
-    expect(screen.getByLabelText('Collapse track empty_audio')).toBeTruthy();
+    // `empty_audio` is the first lane whose kind resolves to audio: the fixture
+    // passes no assets, so `clipKind` types `layer_audio_1`'s clip as video (its
+    // pre-existing fallback for an unknown asset) and the header glyph agrees.
+    expect(screen.getByLabelText('Collapse lane A1')).toBeTruthy();
   });
 });

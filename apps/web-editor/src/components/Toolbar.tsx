@@ -24,6 +24,7 @@ import {
   rippleDeleteClipPatch,
   splitClipPatch,
 } from '../editor/patch-builders.js';
+import { KeyframeMenuItem, KeyframeToolbarButton } from './timeline/KeyframeToolbarControl.js';
 import { MAX_PX_PER_SECOND, MIN_PX_PER_SECOND } from '../editor/store.js';
 import {
   Bookmark,
@@ -211,6 +212,12 @@ export function Toolbar({
                 >
                   Split at playhead
                 </MenuItem>
+                <KeyframeMenuItem
+                  editor={editor}
+                  timeline={timeline}
+                  selectedIds={editor.state.selectedIds}
+                  onSelected={close}
+                />
                 <MenuItem
                   icon={<Trash2 size={ICON_SIZE.sm} aria-hidden="true" />}
                   disabled={!hasSelection}
@@ -277,6 +284,11 @@ export function Toolbar({
                 <Scissors size={ICON_SIZE.sm} aria-hidden="true" />
               </Button>
             </Tooltip>
+            <KeyframeToolbarButton
+              editor={editor}
+              timeline={timeline}
+              selectedIds={editor.state.selectedIds}
+            />
             <Tooltip
               label={
                 <TooltipInfo term="Delete clip">

@@ -24,6 +24,10 @@ import {
   mapTranscript,
 } from '@framepilot/editor-core';
 import type { Operation } from '@framepilot/editor-core';
+import { createLaneAllocator } from '@framepilot/editor-core';
+
+/** The per-call lane bookkeeping `addClipOperation` needs; see `createLaneAllocator`. */
+type LaneAllocator = ReturnType<typeof createLaneAllocator>;
 import { frameToSeconds, secondsToFrame } from '../frame-time.js';
 import { readEditSignals } from '../proposers/edit-signals.js';
 import type { ToolContext } from '../tool-context.js';
@@ -357,12 +361,40 @@ function addClipOperation(
     readonly sourceStart: number;
   },
   ctx: ToolContext,
+  lanes: LaneAllocator,
 ): Operation[] {
-  const crop = autoReframeCrop(ctx, clip);
-  const clipId = crop ? placementClipId(clip) : undefined;
+  // Resolve the lane rather than trusting the one that was named — but NEVER for
+  // picture.
+  //
+  // Clips on one track can never overlap, and a placement that collided used to
+  // take the whole patch down with the validator's overlap error. For an overlay,
+  // a caption or an audio bed that is a dead end for an intent lanes exist to
+  // express, so those are relocated to a lane with room.
+  //
+  // Picture is different, and `picture-occupancy.ts` says why in as many words:
+  // the preview flattens picture clips from EVERY track into one time-ordered
+  // chain while the export composites stacked layers properly, so two picture
+  // clips overlapping IN TIME render one way and preview another (blocker #1,
+  // SUC-P1). "Overlap is measured in time, not by layer" — which means moving a
+  // colliding video or image to another lane does not solve the problem, it
+  // creates it, and hands the user an edit that looks right until they export.
+  // `add_stock` already refuses for exactly this reason; so does this, by leaving
+  // the named lane in place and letting the validator reject as before.
+  //
+  // The allocator, rather than a lookup, because `add_clips` plans every entry
+  // against the same pre-call timeline: without booking each span as it is handed
+  // out, two overlapping entries in one batch would both be told the lane was free.
+  const kind = ctx.project.assets?.find((a) => a.id === clip.assetId)?.kind;
+  const isPicture = kind === 'video' || kind === 'image' || kind === undefined;
+  const placed = isPicture
+    ? { trackId: clip.trackId, setupOps: [] as Operation[] }
+    : lanes.allocate(clip.trackId, clip.start, clip.end);
+  const cropClip = { ...clip, trackId: placed.trackId };
+  const crop = autoReframeCrop(ctx, cropClip);
+  const clipId = crop ? placementClipId(cropClip) : undefined;
   const add: Operation = {
     type: 'add_clip',
-    trackId: clip.trackId,
+    trackId: placed.trackId,
     assetId: clip.assetId,
     start: clip.start,
     end: clip.end,
@@ -370,8 +402,9 @@ function addClipOperation(
     sourceEnd: clip.sourceStart + (clip.end - clip.start),
     ...(clipId ? { clipId } : {}),
   };
-  if (!crop || !clipId) return [add];
-  return [add, { type: 'set_clip_crop', clipId, crop }];
+  const ops = [...placed.setupOps, add];
+  if (!crop || !clipId) return ops;
+  return [...ops, { type: 'set_clip_crop', clipId, crop }];
 }
 
 export const TIMELINE_TOOLS: readonly ToolSpec[] = [
@@ -869,7 +902,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         sourceEnd: seconds.optional(),
       })
       .strict(),
-    (a, ctx) => addClipOperation(a, ctx),
+    (a, ctx) => addClipOperation(a, ctx, createLaneAllocator(ctx.project.timeline)),
   ),
   mutateTool(
     {
@@ -907,7 +940,14 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
           .max(MAX_CLIPS_PER_BATCH),
       })
       .strict(),
-    (a, ctx) => a.clips.flatMap((clip) => addClipOperation({ ...clip, trackId: a.trackId }, ctx)),
+    (a, ctx) => {
+      // ONE allocator for the whole batch, so entry N sees the lanes entries
+      // 1..N-1 already took.
+      const lanes = createLaneAllocator(ctx.project.timeline);
+      return a.clips.flatMap((clip) =>
+        addClipOperation({ ...clip, trackId: a.trackId }, ctx, lanes),
+      );
+    },
   ),
   mutateTool(
     {

@@ -9,6 +9,7 @@ import {
   moveKeyframePatch,
   removeKeyframePatch,
   setKeyframeAtPlayheadPatch,
+  setKeyframesAtPlayheadPatch,
   setKeyframeEasingPatch,
   addMarkerPatch,
   addTextOverlayPatch,
@@ -120,6 +121,69 @@ describe('keyframe patch builders (revamp Phase 5)', () => {
 
   const scaleKeyframes = (state: ReturnType<typeof animate>) =>
     state.timeline.tracks[0]!.clips[0]!.keyframes.filter((k) => k.property === 'scale');
+
+  describe('setKeyframesAtPlayheadPatch', () => {
+    it('writes a whole pose as ONE patch, so it is one press of undo to take back', () => {
+      // The reason this exists rather than looping the singular builder: the
+      // toolbar's keyframe button records every animatable property at once, and
+      // five patches would be five undo steps for one thing the user did.
+      const patch = setKeyframesAtPlayheadPatch(
+        tl,
+        'clip_intro',
+        [
+          { property: 'scale', value: 1 },
+          { property: 'x', value: 0 },
+          { property: 'opacity', value: 1 },
+        ],
+        2.5,
+      )!;
+      expect(patch.operations).toHaveLength(1);
+      const op = patch.operations[0] as AddKeyframesOp;
+      expect(op.replace).toBe(true);
+      expect(op.keyframes.map((k) => k.property)).toEqual(['scale', 'x', 'opacity']);
+      expect(op.keyframes.every((k) => k.time === 2.5)).toBe(true);
+    });
+
+    it('clamps the time into the clip, like the singular builder', () => {
+      const patch = setKeyframesAtPlayheadPatch(
+        tl,
+        'clip_intro',
+        [{ property: 'scale', value: 2 }],
+        99,
+      )!;
+      expect((patch.operations[0] as AddKeyframesOp).keyframes[0]!.time).toBe(6);
+    });
+
+    it('returns null rather than a patch that would change nothing', () => {
+      // A no-op patch still costs the user an undo press.
+      expect(setKeyframesAtPlayheadPatch(tl, 'clip_intro', [], 1)).toBeNull();
+      expect(
+        setKeyframesAtPlayheadPatch(tl, 'ghost', [{ property: 'scale', value: 1 }], 1),
+      ).toBeNull();
+      expect(
+        setKeyframesAtPlayheadPatch(
+          tl,
+          'clip_intro',
+          [{ property: 'scale', value: Number.NaN }],
+          1,
+        ),
+      ).toBeNull();
+    });
+
+    it('replaces rather than stacking when pressed twice at the same time', () => {
+      let state = animate([2]);
+      state = applyUserPatch(
+        state,
+        setKeyframesAtPlayheadPatch(
+          state.timeline,
+          'clip_intro',
+          [{ property: 'scale', value: 9 }],
+          2,
+        )!,
+      );
+      expect(scaleKeyframes(state).map((k) => k.value)).toEqual([9]);
+    });
+  });
 
   describe('setKeyframeAtPlayheadPatch', () => {
     it('writes ONE replace-mode keyframe at the playhead, not at time 0', () => {

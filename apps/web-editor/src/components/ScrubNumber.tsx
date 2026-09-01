@@ -37,9 +37,10 @@ export function ScrubNumber({
   defaultValue,
 }: ScrubNumberProps): JSX.Element {
   const dragRef = useRef<{ startX: number; startValue: number } | null>(null);
+  const trackRef = useRef<HTMLSpanElement>(null);
+  const trackDragRef = useRef(false);
   const canReset = defaultValue !== undefined && value !== defaultValue;
-  const progress =
-    ((clamp(value, min, max) - min) / Math.max(Number.EPSILON, max - min)) * 100;
+  const progress = ((clamp(value, min, max) - min) / Math.max(Number.EPSILON, max - min)) * 100;
   const reset = (): void => {
     if (defaultValue !== undefined) onChange(defaultValue);
   };
@@ -63,6 +64,44 @@ export function ScrubNumber({
     }
   };
 
+  /**
+   * Absolute positioning for the track: where along the rail the pointer is IS the
+   * value. Quantised to `step` so it can only produce values the field could also
+   * be typed to.
+   */
+  const valueAtX = (clientX: number): number => {
+    const rail = trackRef.current?.getBoundingClientRect();
+    if (!rail || rail.width <= 0) return value;
+    const ratio = Math.min(1, Math.max(0, (clientX - rail.left) / rail.width));
+    const raw = min + ratio * (max - min);
+    return clamp(Math.round(raw / step) * step, min, max);
+  };
+  const onTrackPointerDown = (event: React.PointerEvent): void => {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    trackDragRef.current = true;
+    onChange(valueAtX(event.clientX));
+  };
+  const onTrackPointerMove = (event: React.PointerEvent): void => {
+    if (!trackDragRef.current) return;
+    onChange(valueAtX(event.clientX));
+  };
+  /**
+   * Ends the track drag, however it ended.
+   *
+   * Bound to `pointercancel` and `lostpointercapture` as well as `pointerup`: a
+   * touch interrupted by the browser, or capture taken away mid-gesture, fires
+   * neither `pointerup` nor a click — and the flag left `true` means every later
+   * pointer move over the rail keeps writing values with no button held.
+   */
+  const onTrackPointerUp = (event: React.PointerEvent): void => {
+    trackDragRef.current = false;
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      /* ignore lost capture */
+    }
+  };
+
   return (
     <div className="scrub-number">
       <span
@@ -78,7 +117,37 @@ export function ScrubNumber({
       >
         {label}
       </span>
-      <span className="scrub-track" aria-hidden="true">
+      {/*
+        The track is a control, not a readout — and it is operated the way it is
+        DRAWN.
+
+        It renders a filled bar and a knob at `progress%` of its own width, which
+        is the picture of an absolute-position slider, while only the label carried
+        pointer handlers. In the inspector's row layout that label is hidden (the
+        row draws its own in the aligned column), so the one thing that looked
+        draggable was inert and the one thing that was draggable was invisible.
+
+        The label keeps RELATIVE scrubbing (one step per pixel, the precision
+        gesture — it can exceed the rail and does not care how wide it is). The
+        track is ABSOLUTE: pointer position maps to position in [min, max], so the
+        knob stays under the finger, a click jumps to a value, and both ends of the
+        range are reachable. Handling it relatively here would have left the knob
+        trailing the pointer and the top of the range unreachable on a 90px rail.
+
+        `aria-hidden` stays: this is a second pointer path to a value the real
+        number input beside it already exposes to assistive tech and the keyboard.
+      */}
+      <span
+        ref={trackRef}
+        className="scrub-track"
+        aria-hidden="true"
+        onPointerDown={onTrackPointerDown}
+        onPointerMove={onTrackPointerMove}
+        onPointerUp={onTrackPointerUp}
+        onPointerCancel={onTrackPointerUp}
+        onLostPointerCapture={onTrackPointerUp}
+        onDoubleClick={defaultValue !== undefined ? reset : undefined}
+      >
         <span className="scrub-track-fill" style={{ width: `${progress}%` }} />
       </span>
       <span className="scrub-input">

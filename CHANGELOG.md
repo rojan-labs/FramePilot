@@ -6,7 +6,54 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- **The timeline has been redesigned.** Every lane now carries its name (`V1`, `A2`,
+  `C1`), the ruler labels itself only as finely as the current zoom can distinguish
+  (`0:02` where it used to print `00:00:02:00` and clip the first label), and the lanes
+  carry a time grid, so a clip's length is something you can count against the ruler
+  instead of judging by eye. A cut between two clips reads as a cut rather than a gap.
+  Clips are quiet at rest and only show their full colour on hover, so a lane of
+  ordinary clips no longer looks like a lane of selected ones — and selection is now
+  unmistakable, because the ring is the same orange as the rest of the editor instead
+  of the blue that used to disappear against a blue video clip.
+- **Keyframes, finished.** A keyframe button on the timeline toolbar records how the
+  selected clip looks right now — position, scale, rotation and opacity — at the
+  playhead, and takes it away again when you press it there a second time. It works
+  across a multi-selection (every selected clip the playhead is inside, in one undo
+  step), it stays available when the toolbar is too narrow for the full row, and
+  keyframes can now be nudged a frame at a time with the arrow keys instead of only
+  dragged. The AI can also take animation *off* a clip now, not only put it on.
+- **Snapping is a magnet you can feel.** An edge is caught as it comes near a cut and
+  keeps hold until you deliberately pull away, instead of blinking in and out of
+  alignment while your hand rests. Holding Alt still turns it off for one drag.
+- **The Inspector fits.** Property rows are the 28px they were always meant to be
+  rather than 44, nested boxes are gone, and text that had drifted to 8.5px is back on
+  the normal scale — the Speed panel now fits on screen alongside Position & size
+  instead of being cut off. Dragging a value's bar now actually changes it; before,
+  only an invisible label did.
+- **The overview strip only appears when there is something to navigate.** It used to
+  be a solid bar across the bottom of every project, covering the clips it exists to
+  show, and it was drawn a full track-header width to the left of them.
+
 ### Fixed
+
+- **Two titles at the same moment no longer fail.** Placing a clip, caption or text
+  overlay where another already sits used to refuse the whole edit with an internal
+  "clips overlap on track" error. It now goes on a free lane of the same kind, or a new
+  one, which is what lanes are for — for drops in the editor and for anything the AI
+  places.
+- **Trimming an animated clip no longer slides its animation.** Keyframe times are
+  measured from the clip's start, and trimming the front of a clip did not move them —
+  so a punch-in placed on a gesture drifted off that gesture, a little further with
+  every trim. Deleting a range or ripple-deleting had the same effect. The animation
+  now stays locked to the footage.
+- **An audio fade can be shortened again.** Dragging a fade handle outward worked;
+  dragging it back did nothing at all, so once a clip had a fade you could never reduce
+  or remove it by hand.
+- **The empty space under the timeline is usable.** A tall timeline panel left a large
+  blank area between the last lane and the overview strip; the lanes now sit together at
+  the top and dropping media in the space below starts a new lane.
 
 - **The AI can describe your footage again.** Asking it what's in a clip reported "not indexed"
   for footage that was fully indexed — every photo project was affected. Importing a photo indexes

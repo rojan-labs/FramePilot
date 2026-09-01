@@ -46,6 +46,8 @@ import {
 import type { AnyOperation } from '@framepilot/editor-core';
 import { safeParseProject, type Project } from '@framepilot/timeline-schema';
 import { toReviewCard } from '../../editor/ai.js';
+import { clearAgentActivity, publishAgentActivity } from '../../editor/agent-activity.js';
+import { toolMeta } from './toolMeta.js';
 import type { Patch } from '@framepilot/editor-core';
 import {
   type AiSession,
@@ -290,6 +292,26 @@ export function projectSnapshotForAiRun(project: Project, editor?: UseEditor): P
 const log = createLogger('web-editor:ai-sidebar');
 
 /**
+ * The short phrase the floating agent control shows for one streamed event.
+ *
+ * Only events that mark a change of activity produce a phrase; everything else
+ * returns the previous one by returning `null`, which the control renders as a
+ * plain "Working". Deliberately reuses `toolMeta`'s labels — the same words the
+ * sidebar shows for that tool — so the button and the panel never describe the
+ * same step differently.
+ */
+export function activityLabelFor(event: AiEvent): string | null {
+  // Structural, not a `kind === 'tool'` narrow: the union has several shapes and
+  // only some carry `toolName`, so this reads the two fields it needs without
+  // asserting which member it was handed.
+  const candidate = event as { readonly kind?: unknown; readonly toolName?: unknown };
+  if (candidate.kind === 'tool' && typeof candidate.toolName === 'string') {
+    return toolMeta(candidate.toolName).label;
+  }
+  return null;
+}
+
+/**
  * Parse a profile the host returned into the SDK's canonical `ReferenceProfile`.
  *
  * The IPC type (`AiStreamReferenceProfile`) widens `video`/`image` to
@@ -389,7 +411,18 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   const setRunning = useCallback((next: boolean) => {
     runningRef.current = next;
     setRunningState(next);
+    // Mirror it into the out-of-React activity store, so the floating control can
+    // offer a way back to this run from anywhere without the editor subscribing to
+    // anything. One chokepoint, so the two can never disagree about whether a run
+    // is live — see `editor/agent-activity.ts` for why it is not a prop.
+    if (next) publishAgentActivity({ running: true, label: null });
+    else clearAgentActivity();
   }, []);
+  // Clear the agent indicator if this panel goes away mid-run — closing or
+  // switching projects unmounts it, and the store is module scope, so without this
+  // a run that never reaches its own `setRunning(false)` would leave a permanent,
+  // undismissable "FramePilot is working" button over the NEXT project.
+  useEffect(() => clearAgentActivity, []);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [removedContext, setRemovedContext] = useState<readonly string[]>([]);
   const [attachments, setAttachments] = useState<readonly Attachment[]>([]);
@@ -1421,6 +1454,11 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       try {
         for await (const event of session.run(effectiveMode, runInputFor(effectiveMode))) {
           signals = foldTurnEvent(signals, event);
+          // Name the current step for the floating control, so it reports what the
+          // agent is DOING and not merely that something is. `publishAgentActivity`
+          // is idempotent, so this can run on every event without a guard, and the
+          // store notifies nobody when the phrase has not changed.
+          publishAgentActivity({ running: true, label: activityLabelFor(event) });
           batcher.push(event);
         }
         // The run finished cleanly. If it was meant to edit but produced nothing,

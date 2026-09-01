@@ -36,6 +36,7 @@ import {
   type PixelRect,
   type TimeDisplay,
   type TransitionPlacement,
+  type EdgeContact,
   type ZoomTarget,
   assetKind,
   audioSettings,
@@ -43,7 +44,10 @@ import {
   clampTrimStart,
   assetDisplayName,
   clipKind,
+  clipEdgeContact,
   clipsIntersectingRect,
+  compactDuration,
+  compactTimeLabel,
   effectLayersIntersectingRect,
   findClip,
   findEffectLayer,
@@ -52,12 +56,14 @@ import {
   layerKind,
   nextAutoScrollLeft,
   pxToSeconds,
+  pxDeltaToSeconds,
   orderedClips,
   rollBounds,
   rulerTicks,
   secondsToPx,
   shouldAutoFollow,
   wheelIntent,
+  magnetSnap,
   snap,
   spanInRenderWindow,
   snapTargets,
@@ -72,6 +78,7 @@ import {
 import { ClipWaveform } from './ClipWaveform.js';
 import { ClipFilmstrip, filmstripSlots } from './ClipFilmstrip.js';
 import { TimelineMinimap } from './TimelineMinimap.js';
+import { laneNames } from './timeline/lane-names.js';
 import { useSettings } from '../editor/useSettings.js';
 import {
   TRACK_HEIGHT_BOUNDS,
@@ -224,13 +231,28 @@ export interface TimelineViewProps {
    * truth (TIMELINE-TOOLBAR-REORG). Defaults to `'select'`.
    */
   readonly tool?: Tool;
+  /**
+   * The user deliberately clicked a clip. Not "the selection changed" — see
+   * `onClipClick`. Optional, so a surface that does not care omits it.
+   */
+  readonly onItemActivate?: (() => void) | undefined;
 }
 
 /** A non-zero lane width so an empty/short timeline is still visible. */
 const MIN_LANE_SECONDS = 10;
-/** Vertical gap (px) around each lane/header row — folded into the windowed row
- *  height so the absolutely-positioned lanes line up with the header column. */
-const TRACK_ROW_GAP = 6;
+/**
+ * Vertical gap (px) around each lane/header row — folded into the windowed row
+ * height so the absolutely-positioned lanes line up with the header column.
+ *
+ * 2px, down from 6. The gap between two clips was never just this number: each
+ * clip is also inset inside its own lane, so a 6px row gap plus two 3px insets
+ * put TWELVE pixels of empty panel between one clip and the clip below it. On a
+ * surface whose whole job is to show which things are stacked on which, that
+ * much dead space between rows reads as separation where the truth is
+ * simultaneity. Two here and one of inset leaves a 4px channel — enough to tell
+ * the lanes apart, not enough to pull them apart.
+ */
+const TRACK_ROW_GAP = 2;
 /**
  * Half the gap — the inset each row is drawn at inside its virtualizer band, so
  * the gap reads as breathing room on BOTH sides of a lane.
@@ -282,6 +304,40 @@ const observeLaneRectWithFallback: typeof observeElementRect = (instance, cb) =>
   );
 /** Snap engages within this many pixels of a target (converted to seconds by zoom). */
 const SNAP_PX = 8;
+/**
+ * How far (px) the pointer must pull to break a magnet's hold.
+ *
+ * Wider than {@link SNAP_PX} on purpose — the gap between capture and release IS
+ * the resistance. Too small and the join has no weight; too large and an edge
+ * cannot be placed near a cut without fighting it. 18px is roughly two
+ * comfortable pointer tremors, and well inside the distance a deliberate
+ * pull-away covers.
+ */
+const MAGNET_RELEASE_PX = 18;
+/**
+ * How much of the lane stack must be out of view before a bare wheel scrolls
+ * VERTICALLY instead of along the timeline.
+ *
+ * One collapsed lane row. Below that the hidden part is layout slack (row insets,
+ * the overview strip) rather than content, and scrolling to reveal twenty pixels
+ * of nothing is indistinguishable from the timeline refusing to scroll at all.
+ */
+const VERTICAL_WHEEL_MIN_OVERFLOW_PX = 24;
+/**
+ * How close two edges must be, in PIXELS, to read as touching.
+ *
+ * Deliberately a pixel distance rather than a duration. The marker answers a
+ * question about what the user can SEE — "are these two flush?" — and at 200
+ * px/s a hundredth of a second is a fifth of a pixel while at 5 px/s it is half
+ * a clip. A fixed tolerance in seconds is therefore either invisible or absurd
+ * depending on the zoom, which is why the first version of this only ever lit on
+ * an exact snap landing and stayed dark the rest of the time.
+ *
+ * Six pixels is inside {@link SNAP_PX}, so an edge the magnet has captured always
+ * reads as in contact, and an edge dragged past a neighbour without the magnet
+ * (Alt held) still confirms itself when it looks flush.
+ */
+const CONTACT_PX = 6;
 /** Pointer travel (px) before a press becomes a drag rather than a click/select. */
 const DRAG_THRESHOLD_PX = 3;
 /**
@@ -457,6 +513,14 @@ interface Ghost {
   readonly kind: GestureKind;
   /** Time the gesture snapped to, for the guide line; `null` when not snapped. */
   readonly snapTime: number | null;
+  /**
+   * The other clip's edge this one has landed flush against, or `null`.
+   *
+   * Distinct from {@link snapTime}: a marker or the playhead are snap targets too,
+   * and landing on one is not two clips meeting. Only this drives the contact
+   * highlight, because only this is the placement a cut depends on.
+   */
+  readonly contact: readonly EdgeContact[];
   /** Cmd/Ctrl held during a move — drop a copy instead of relocating the original. */
   readonly duplicate?: boolean;
   /** Cmd/Ctrl held during a trim on a butt-joined cut — roll the edit against
@@ -464,9 +528,17 @@ interface Ghost {
   readonly rollWith?: string;
 }
 
-/** Whole-clip duration label, honouring the active time-display mode. */
+/**
+ * Whole-clip duration label, honouring the active time-display mode.
+ *
+ * Compact, not full SMPTE. The badge sits inside the clip's own header, sharing a
+ * row with the clip name: eleven characters of `00:00:06:00` there is not a
+ * readout, it is a wall that pushes the name out at any ordinary clip width, and
+ * ten of those characters are the same on every clip in the project. `0:06` says
+ * the same thing and leaves the row to the name.
+ */
 const clipDurationLabel = (clip: Clip, fps: number, mode: TimeDisplay): string =>
-  formatTime(clip.end - clip.start, fps, mode);
+  compactDuration(clip.end - clip.start, fps, mode);
 
 /**
  * A clean, kind-aware label for a clip (master-prompt §3.11). Text clips show their
@@ -757,6 +829,10 @@ interface TimelineClipProps {
   readonly selected: boolean;
   /** Draw the filmstrip picture layer (Settings → Editing → timeline thumbnails). */
   readonly showThumbnails: boolean;
+  /** This clip butt-joins the clip before it — the left edge is a cut, not an end. */
+  readonly joinLeft?: boolean;
+  /** This clip butt-joins the clip after it — the right edge is a cut, not an end. */
+  readonly joinRight?: boolean;
   readonly assetById: ReadonlyMap<string, Asset>;
   readonly beginGesture: (
     event: React.PointerEvent,
@@ -802,6 +878,8 @@ const TimelineClip = memo(function TimelineClip({
   timeDisplay,
   selected,
   showThumbnails,
+  joinLeft,
+  joinRight,
   assetById,
   beginGesture,
   onPointerMove,
@@ -858,7 +936,10 @@ const TimelineClip = memo(function TimelineClip({
   const onFadePointerMove = (event: React.PointerEvent): void => {
     const g = fadeDragRef.current;
     if (!g) return;
-    const deltaSeconds = pxToSeconds(event.clientX - g.startX, pxPerSecond);
+    // A signed DELTA, so it must not go through the position helper — that one
+    // clamps to >= 0, which turned every leftward drag into no drag at all and
+    // made a fade growable but never shrinkable.
+    const deltaSeconds = pxDeltaToSeconds(event.clientX - g.startX, pxPerSecond);
     const raw = g.edge === 'in' ? g.startSeconds + deltaSeconds : g.startSeconds - deltaSeconds;
     const seconds = Math.min(FADE_MAX_SECONDS, Math.max(0, Math.min(raw, clipSeconds)));
     g.current = seconds;
@@ -981,7 +1062,9 @@ const TimelineClip = memo(function TimelineClip({
       type="button"
       className={`clip-block ${KIND_META[kind].cls} ${isGhost && ghostKind ? `is-${ghostKind}` : ''}${
         isGhost && ghostDuplicate ? ' is-duplicate' : ''
-      }${isGhost && ghostRoll ? ' is-roll' : ''}`}
+      }${isGhost && ghostRoll ? ' is-roll' : ''}${joinLeft ? ' is-join-l' : ''}${
+        joinRight ? ' is-join-r' : ''
+      }`}
       // The id, not the name: every test in the repo and both e2e suites address
       // clips by it, and Playwright substring-matches where RTL exact-matches, so
       // changing this text breaks one suite or the other. The human name reaches
@@ -1216,6 +1299,7 @@ export function TimelineView({
   onRevealAssetInBin,
   onOpenTransitionLibrary,
   tool = 'select',
+  onItemActivate,
   selectedEffectLayerIds = [],
   // Defaulted to a no-op so the component still works standalone in tests that do
   // not exercise effect selection.
@@ -1624,16 +1708,81 @@ export function TimelineView({
     [settings.snapping],
   );
 
-  /** Snap a raw time to nearby edges/markers/playhead unless snapping is disabled. */
+  /**
+   * The edge the current gesture's magnet is holding, if any.
+   *
+   * Gesture-scoped memory rather than state: it changes on every pointer move and
+   * nothing renders from it directly, so putting it in state would re-render the
+   * timeline at pointer frequency to store a number the DOM never reads.
+   */
+  const magnetHeldRef = useRef<number | null>(null);
+
+  /**
+   * Snap a raw time to nearby edges/markers/playhead unless snapping is disabled.
+   *
+   * A magnet, not a nearest-neighbour lookup: an edge is captured within
+   * {@link SNAP_PX} and then keeps hold until the pointer drags past
+   * {@link MAGNET_RELEASE_PX}. That gap is what a user feels as two clips joining
+   * and then being pulled apart — and it is also what stops an edge parked exactly
+   * on the threshold from flickering in and out of alignment with every tremor.
+   * Holding Alt still bypasses the whole thing (see `snapDisabled`), which is the
+   * escape hatch for placing an edge somewhere a magnet would refuse to leave.
+   */
   const snapValue = useCallback(
     (raw: number, disable: boolean): { value: number; snapped: boolean } => {
       const clamped = Math.max(0, raw);
-      if (disable) return { value: clamped, snapped: false };
-      const targets = snapTargets(timeline, [...markers.map((m) => m.time), editor.getPlayhead()]);
-      const value = snap(clamped, targets, SNAP_PX / pxPerSecond);
-      return { value, snapped: Math.abs(value - clamped) > 1e-6 };
+      if (disable) {
+        magnetHeldRef.current = null;
+        return { value: clamped, snapped: false };
+      }
+      // The gestured clip's OWN edges are not targets.
+      //
+      // `snapTargets` collects every clip start and end, including the one being
+      // dragged — so the very first pointer move after the drag threshold sits
+      // within the capture radius of the edge it started on, the magnet grabs it,
+      // and the clip then refuses to move until the pointer travels the full
+      // release distance. Widening the release radius turned that from an 8px
+      // annoyance into an 18px dead zone at the start of every move and trim. A
+      // clip cannot meaningfully snap to where it already is.
+      const gesturedClipId = gestureRef.current?.clip.id ?? null;
+      const targets = snapTargets(
+        timeline,
+        [...markers.map((m) => m.time), editor.getPlayhead()],
+        gesturedClipId,
+      );
+      const { value, held } = magnetSnap(
+        clamped,
+        targets,
+        SNAP_PX / pxPerSecond,
+        MAGNET_RELEASE_PX / pxPerSecond,
+        magnetHeldRef.current,
+      );
+      magnetHeldRef.current = held;
+      return { value, snapped: held !== null };
     },
     [timeline, markers, pxPerSecond],
+  );
+
+  /**
+   * Every distinct clip edge the given times are touching, in gesture order.
+   *
+   * Deduplicated by clip and edge: a very short clip dropped into a very short
+   * gap can put both of its edges within tolerance of the same neighbouring
+   * edge, and drawing two markers on the same pixel is just a brighter line.
+   */
+  const contactsAt = useCallback(
+    (excludeClipId: string, ...times: readonly number[]): readonly EdgeContact[] => {
+      const tolerance = CONTACT_PX / pxPerSecond;
+      const found: EdgeContact[] = [];
+      for (const time of times) {
+        const hit = clipEdgeContact(timeline, time, excludeClipId, tolerance);
+        if (hit === null) continue;
+        if (found.some((f) => f.clipId === hit.clipId && f.edge === hit.edge)) continue;
+        found.push(hit);
+      }
+      return found;
+    },
+    [timeline, pxPerSecond],
   );
 
   // --- Clip gestures (move / trim) ------------------------------------------
@@ -1645,6 +1794,9 @@ export function TimelineView({
       if (track.locked) return; // a locked lane ignores move/trim gestures
       if (razor) return; // razor mode handles the press as a split, not a drag
       event.currentTarget.setPointerCapture(event.pointerId);
+      // A fresh gesture starts unmagnetised: a hold left over from the last drag
+      // would silently stick this one to an edge the user never approached.
+      magnetHeldRef.current = null;
       gestureRef.current = {
         kind,
         clip,
@@ -1687,6 +1839,10 @@ export function TimelineView({
           end: start + span,
           kind: g.kind,
           snapTime: snapped ? start : null,
+          // A move lands TWO edges, and dropping a clip into a gap that exactly
+          // fits it puts BOTH in contact at once. Report each one that touches:
+          // showing only the head would claim the tail landed by luck.
+          contact: contactsAt(g.clip.id, start, start + span),
           duplicate: event.metaKey || event.ctrlKey,
         });
         return;
@@ -1705,8 +1861,16 @@ export function TimelineView({
         junction &&
         findClip(timeline, g.kind === 'trim-l' ? junction.fromClipId : junction.toClipId)?.clip;
 
+      // Every gesture tracks the DELTA from where the pointer went down, never the
+      // pointer's absolute position. A trim handle is 7px wide and sits 5px inside
+      // the clip at a butt join, so reading the cursor directly snapped the edge up
+      // to 8px sideways the instant it was grabbed — enough to break contact with a
+      // neighbour the user was trying to stay flush against.
       if (g.kind === 'trim-l') {
-        const { value, snapped } = snapValue(cursor, snapDisabled(event.altKey));
+        const { value, snapped } = snapValue(
+          g.clip.start + (cursor - g.downSeconds),
+          snapDisabled(event.altKey),
+        );
         const bounds = neighbor ? rollBounds(neighbor, g.clip) : null;
         const start = bounds
           ? Math.min(bounds.max, Math.max(bounds.min, value))
@@ -1718,12 +1882,16 @@ export function TimelineView({
           end: g.clip.end,
           kind: g.kind,
           snapTime: snapped ? start : null,
+          contact: contactsAt(g.clip.id, start),
           ...(bounds && neighbor ? { rollWith: neighbor.id } : {}),
         });
         return;
       }
 
-      const { value, snapped } = snapValue(cursor, snapDisabled(event.altKey));
+      const { value, snapped } = snapValue(
+        g.clip.end + (cursor - g.downSeconds),
+        snapDisabled(event.altKey),
+      );
       const bounds = neighbor ? rollBounds(g.clip, neighbor) : null;
       const end = bounds
         ? Math.min(bounds.max, Math.max(bounds.min, value))
@@ -1735,16 +1903,23 @@ export function TimelineView({
         end,
         kind: g.kind,
         snapTime: snapped ? end : null,
+        contact: contactsAt(g.clip.id, end),
         ...(bounds && neighbor ? { rollWith: neighbor.id } : {}),
       });
     },
-    [timeline, snapValue, snapDisabled, xToSeconds, commitGhost],
+    [timeline, snapValue, snapDisabled, xToSeconds, commitGhost, contactsAt],
   );
 
   const onClipPointerUp = useCallback(
     (event: React.PointerEvent): void => {
       const g = gestureRef.current;
       gestureRef.current = null;
+      // Release the magnet with the gesture. Clearing it only in `beginGesture`
+      // left the last hold alive between drags, and `snapValue` is shared with
+      // consumers that are NOT gestures — the asset-drop path and the effect-layer
+      // chips. A stale hold within the release radius would then pull an unrelated
+      // drop onto the cut the previous trim happened to end on.
+      magnetHeldRef.current = null;
       try {
         event.currentTarget.releasePointerCapture(event.pointerId);
       } catch {
@@ -1833,8 +2008,14 @@ export function TimelineView({
       // selected effect layer drops out — otherwise Delete would still take the
       // layer down with the clip (they delete together now).
       if (mode === 'replace') setSelectedEffectLayerIds([]);
+      // A DELIBERATE click on a clip, distinct from selection changing for any
+      // other reason. The "open the Inspector when I click something" preference
+      // hangs off this rather than off `state.selection`, so a selection the AI
+      // makes mid-run — or a marquee, or an undo restoring one — never yanks the
+      // rail out from under the user.
+      onItemActivate?.();
     },
-    [razor, timeline, xToSeconds, applyPatch, select, setSelectedEffectLayerIds],
+    [razor, timeline, xToSeconds, applyPatch, select, setSelectedEffectLayerIds, onItemActivate],
   );
 
   // --- Marquee (rubber-band) selection on empty lane area (M2a) -------------
@@ -2037,9 +2218,39 @@ export function TimelineView({
         deltaY: event.deltaY,
         zoomModifier: event.metaKey || event.ctrlKey,
         shiftKey: event.shiftKey,
-        canScrollVertically: sc.scrollHeight - sc.clientHeight > 1,
+        // Measured on the VERTICAL scroller, not on `sc`, and against a
+        // meaningful amount of overflow.
+        //
+        // `sc` is `.lane-scroll`, which only ever scrolls horizontally — its
+        // `scrollHeight` equals its `clientHeight`, so this was permanently false
+        // and the bare wheel scrolled the timeline sideways even when the track
+        // stack was too tall to fit. The lanes overflow on `.timeline-vscroll`,
+        // one level up, which is also the element the browser scrolls once the
+        // gesture is handed back to it.
+        //
+        // The threshold is a whole lane row, not a pixel. The stack carries a
+        // little slack even when everything fits — row insets and the strip below
+        // it add up to ~20px — and treating that as "scrollable" handed every
+        // wheel to the browser, which then moved the view by twenty pixels and
+        // stopped. That reads exactly like the horizontal scroll being broken. If
+        // less than one row is hidden there is nothing worth scrolling TO, so the
+        // wheel belongs to the timeline's own axis.
+        canScrollVertically: (() => {
+          const vs = vScrollRef.current;
+          return vs !== null && vs.scrollHeight - vs.clientHeight > VERTICAL_WHEEL_MIN_OVERFLOW_PX;
+        })(),
       });
       if (intent === 'browser') return;
+      if (intent === 'scroll-vertical') {
+        // Scroll the stack ourselves rather than leaving it to the browser: the
+        // lane container is a scroll container on both axes, so the gesture never
+        // chained up to the element that actually overflows.
+        const vs = vScrollRef.current;
+        if (vs === null) return;
+        event.preventDefault();
+        vs.scrollTop += event.deltaY;
+        return;
+      }
       if (intent === 'scroll-horizontal') {
         // UX-06: the bare wheel moves along the timeline, the axis it actually has.
         // Counts as a manual scroll, so playback follow stands down exactly as it does
@@ -2166,6 +2377,8 @@ export function TimelineView({
   // another reorders the layer stack (one `move_layer` patch), replacing the old
   // up/down nudge chevrons.
   const [dragTrackId, setDragTrackId] = useState<string | null>(null);
+  /** An asset is hovering the open area below the lane stack (drop → new lane). */
+  const [assetOverUnderspace, setAssetOverUnderspace] = useState(false);
   const [dropTarget, setDropTarget] = useState<{ overId: string; after: boolean } | null>(null);
 
   const clearTrackDrag = (): void => {
@@ -2226,10 +2439,22 @@ export function TimelineView({
     readonly y: number;
   } | null>(null);
 
-  /** Snap helper in the shape `EffectLayerChip` wants (seconds → seconds). */
+  /**
+   * Snap helper in the shape `EffectLayerChip` wants (seconds → seconds).
+   *
+   * Deliberately NOT `snapValue`: that one is the clip gesture's magnet and carries
+   * a hold across pointer moves. An effect chip runs its own drag, and a drop is a
+   * single isolated question, so sharing the gesture's memory let one surface's
+   * hold decide another surface's answer. This is the plain, stateless snap.
+   */
   const snapSeconds = useCallback(
-    (seconds: number, disabled: boolean): number => snapValue(seconds, disabled).value,
-    [snapValue],
+    (seconds: number, disabled: boolean): number => {
+      const clamped = Math.max(0, seconds);
+      if (disabled) return clamped;
+      const targets = snapTargets(timeline, [...markers.map((m) => m.time), editor.getPlayhead()]);
+      return snap(clamped, targets, SNAP_PX / pxPerSecond);
+    },
+    [timeline, markers, pxPerSecond, editor],
   );
 
   const onSelectEffectLayer = useCallback(
@@ -2533,12 +2758,100 @@ export function TimelineView({
             className="ruler-tick is-major tabular"
             style={{ left: `${secondsToPx(t, pxPerSecond)}px` }}
           >
-            {formatTime(t, fps, timeDisplay)}
+            {/* Compact, scale-aware — see `compactTimeLabel`. The ruler targets
+                ~72px between labels; the full `HH:MM:SS:FF` readout is wider than
+                that, so it used to collide with its neighbour and have its first
+                character clipped by the lane origin. */}
+            {compactTimeLabel(t, fps, ticks.stepSeconds, laneSeconds, timeDisplay)}
           </span>
         ))}
       </>
     );
-  }, [ticks, pxPerSecond, fps, timeDisplay, windowStartPx, windowEndPx]);
+  }, [ticks, pxPerSecond, fps, timeDisplay, laneSeconds, windowStartPx, windowEndPx]);
+
+  /**
+   * Short lane names (`V1`, `A2`) for the track headers, and the pixel pitch of the
+   * lanes' vertical time grid.
+   *
+   * The grid is deliberately NOT a set of elements. One rule per labelled tick,
+   * across every lane, is thousands of nodes on a zoomed-in sequence and they all
+   * live under the clips, which is the subtree horizontal culling exists to keep
+   * cheap. A repeating background gradient sized by this one custom property costs
+   * a single paint and stays exact, because it is driven by the same
+   * `stepSeconds × pxPerSecond` the ruler's own labels are.
+   */
+  // The pitch is taken from the ticks the ruler ACTUALLY drew, not from the
+  // interval it asked for.
+  //
+  // `rulerTicks` quantises every major tick to a whole frame, so at a fractional
+  // frame rate the two differ: at 29.97fps a requested 1s step becomes 30 frames,
+  // which is 1.001s. A 0.1% error is invisible for one tick and cumulative for a
+  // gradient — by ten minutes the grid would sit half a pitch off the ruler it is
+  // documented to be locked to. Measuring the real spacing between the first two
+  // majors keeps them identical by construction at any frame rate.
+  //
+  // Clamped: a repeating gradient whose period is 0 (or NaN) is an invalid value
+  // the whole background declaration is dropped for, so the lanes would silently
+  // lose their grid rather than fail loudly. 8px is below any pitch the tick
+  // selector can actually choose, so the clamp never alters a real zoom.
+  const majorStepSeconds =
+    ticks.major.length >= 2
+      ? (ticks.major[1] as number) - (ticks.major[0] as number)
+      : ticks.stepSeconds;
+  const gridPitchPx = Math.max(8, majorStepSeconds * pxPerSecond || 0);
+  /**
+   * Whether the overview strip has anything to navigate.
+   *
+   * `clientWidth` is 0 until the lane viewport has been measured (first paint,
+   * jsdom), and a 0-width viewport would report every sequence as overflowing —
+   * so an unmeasured viewport shows no strip rather than a wrong one.
+   */
+  const overviewNeeded = viewport.clientWidth > 0 && laneWidth > viewport.clientWidth + 1;
+  const trackNames = useMemo(
+    () =>
+      laneNames(visibleTracks, (track) =>
+        // Same resolution `layerMeta` uses for the glyph, so the name and the icon
+        // can never disagree: the kind of clip the lane actually holds, falling
+        // back to what its advisory type implies while it is still empty. Without
+        // the fallback a new, empty caption lane was named `L1` — the generic
+        // last-resort prefix — while its glyph already said "captions".
+        track.type === 'effect'
+          ? undefined
+          : (layerKind(track, assetById) ?? ADVISORY_KIND[track.type]),
+      ),
+    [visibleTracks, assetById],
+  );
+
+  /**
+   * Which clips are butt-joined to a neighbour, per lane.
+   *
+   * A cut is not a gap, and it should not look like one. Two adjacent clips each
+   * drew their own full rounded outline, so a hard cut — the most common thing on
+   * a timeline — rendered as two separate boxes with a dark notch between them,
+   * visually identical to a real gap of a few frames. Squaring the joined corners
+   * and dropping the doubled edge makes a run of cuts read as one strip divided by
+   * hairlines, and leaves an actual gap looking like one.
+   *
+   * `trackJunctions` is memoised per immutable Track, so this is a walk over
+   * already-computed junctions rather than a re-derivation.
+   */
+  const joinsByTrack = useMemo(() => {
+    const map = new Map<
+      string,
+      { readonly left: ReadonlySet<string>; readonly right: ReadonlySet<string> }
+    >();
+    for (const track of visibleTracks) {
+      const left = new Set<string>();
+      const right = new Set<string>();
+      for (const junction of trackJunctions(track)) {
+        if (!junction.touching) continue;
+        left.add(junction.toClipId);
+        right.add(junction.fromClipId);
+      }
+      if (left.size > 0 || right.size > 0) map.set(track.id, { left, right });
+    }
+    return map;
+  }, [visibleTracks]);
 
   // The track lanes are the timeline's heavy subtree (every clip, waveform, badge
   // and keyframe). They do NOT depend on the playhead, so we memoise them: during
@@ -2625,7 +2938,9 @@ export function TimelineView({
               // Use the lane-relative cursor (clientX − lane left), not the
               // event's offsetX — offsetX is relative to whatever child took
               // the drop (often an existing clip), which mis-places the clip.
-              const { value } = snapValue(xToSeconds(event.clientX), snapDisabled(event.altKey));
+              // A drop is one isolated question, so it uses the stateless snap —
+              // the gesture magnet's hold belongs to the drag that created it.
+              const value = snapSeconds(xToSeconds(event.clientX), snapDisabled(event.altKey));
               // An effect dragged from the library lands as a new layer at the
               // drop position on this lane (schema v13).
               if (event.dataTransfer.types.includes(EFFECT_DND_TYPE)) {
@@ -2668,6 +2983,7 @@ export function TimelineView({
               ))}
             {track.clips.map((clip) => {
               const isGhost = ghost?.clipId === clip.id;
+              const joins = joinsByTrack.get(track.id);
               // Horizontal windowing: only clips intersecting the render
               // window mount. The gestured (ghost) clip always mounts — it
               // holds pointer capture and may be dragged past the window.
@@ -2690,6 +3006,10 @@ export function TimelineView({
                   timeDisplay={timeDisplay}
                   selected={selectedSet.has(clip.id)}
                   showThumbnails={showTimelineThumbnails}
+                  // A dragged clip is lifted out of the run, so it keeps its own
+                  // full outline even where it started butt-joined.
+                  joinLeft={!isGhost && joins?.left.has(clip.id) === true}
+                  joinRight={!isGhost && joins?.right.has(clip.id) === true}
                   assetById={assetById}
                   beginGesture={beginGesture}
                   onPointerMove={onClipPointerMove}
@@ -2972,6 +3292,13 @@ export function TimelineView({
                   <li
                     key={track.id}
                     draggable
+                    // NOT `data-track-id`: that attribute is how the lane column
+                    // identifies a drop target — `elementFromPoint(...).closest(
+                    // '[data-track-id]')` is the cross-lane move hit test — and the
+                    // header column comes first in the DOM, so sharing the name
+                    // would let a header answer for its lane and make a clip
+                    // "move" onto a lane by hovering its title.
+                    data-track-head={track.id}
                     className={`track-head ${meta.cls}${track.locked ? ' is-locked' : ''}${
                       track.hidden ? ' is-hidden' : ''
                     }${track.muted || soloMuted ? ' is-muted' : ''}${
@@ -3029,8 +3356,13 @@ export function TimelineView({
                     <button
                       type="button"
                       className="track-collapse"
+                      // Named by the LANE, not the raw track id: "Collapse track
+                      // t_video_1" announces a database key. The lane name is what
+                      // the header shows and what the user calls it.
                       aria-label={
-                        view.collapsed ? `Expand track ${track.id}` : `Collapse track ${track.id}`
+                        view.collapsed
+                          ? `Expand lane ${trackNames.get(track.id) ?? track.id}`
+                          : `Collapse lane ${trackNames.get(track.id) ?? track.id}`
                       }
                       aria-expanded={!view.collapsed}
                       title={view.collapsed ? 'Expand lane' : 'Collapse lane'}
@@ -3045,6 +3377,17 @@ export function TimelineView({
                     {/* Type glyph — coloured icon showing the dominant clip kind */}
                     <span className="track-glyph" aria-hidden="true">
                       <meta.icon size={14} />
+                    </span>
+                    {/*
+                      The lane's name (`V1`, `A2`). Not decoration: it is what the
+                      user, the shortcuts and the AI all call this lane, and it is
+                      the only thing left in the header once the flag controls
+                      recede at rest. `aria-hidden` because the row already carries
+                      the full accessible name; a screen reader reading "V1" after
+                      "track V1" is noise.
+                    */}
+                    <span className="track-name tabular" aria-hidden="true">
+                      {trackNames.get(track.id) ?? ''}
                     </span>
                     <span className="track-controls">
                       {LAYER_CONTROLS.map((control) => {
@@ -3124,7 +3467,12 @@ export function TimelineView({
             <div
               className={`timeline-lanes ${razor ? 'is-razor' : ''}`}
               ref={lanesRef}
-              style={{ position: 'relative', width: `${laneWidth}px` }}
+              style={{
+                position: 'relative',
+                width: `${laneWidth}px`,
+                // Pitch of the lanes' vertical time grid — see `gridPitchPx`.
+                ['--tl-grid-pitch' as string]: `${gridPitchPx}px`,
+              }}
             >
               <RulerBar
                 editor={editor}
@@ -3148,7 +3496,22 @@ export function TimelineView({
                 onPointerMove={onRulerPointerMove}
                 onPointerUp={onRulerPointerUp}
               />
-              {ghost?.snapTime != null && (
+              {/*
+                Two clips meeting. Shown only while the gesture is live and only
+                when the moving edge is flush against another clip's start or end —
+                the placement a cut depends on. A plain snap to the playhead or a
+                marker keeps the thinner guide below; it is useful, but it is not
+                two clips joining and should not claim to be.
+              */}
+              {ghost?.contact.map((contact) => (
+                <div
+                  key={`${contact.clipId}:${contact.edge}`}
+                  className="edge-contact"
+                  aria-hidden="true"
+                  style={{ left: `${secondsToPx(contact.time, pxPerSecond)}px` }}
+                />
+              ))}
+              {ghost?.snapTime != null && ghost.contact.length === 0 && (
                 <div
                   className="snap-guide"
                   aria-hidden="true"
@@ -3214,7 +3577,13 @@ export function TimelineView({
                       if (patch) applyPatch(patch);
                     }}
                   >
-                    <span className="timeline-empty-label">Drop media here to start</span>
+                    {/* Names the thing and the two real ways to make one. The old
+                        label was a tracked, upper-cased "DROP MEDIA HERE TO START",
+                        which shouts an instruction without saying where media comes
+                        from or that the gutter's Add track does the same job. */}
+                    <span className="timeline-empty-label">
+                      Drag a clip from Assets to start, or use Add track
+                    </span>
                   </li>
                 )}
                 {trackLanes}
@@ -3236,17 +3605,68 @@ export function TimelineView({
         </div>
       </div>
 
-      {/* Minimap / overview strip — compressed full-sequence navigation. Pure
-          chrome: dragging it only pans the lane viewport (see TimelineMinimap). */}
-      <TimelineMinimap
-        timeline={timeline}
-        trackOrder={visibleTrackIds}
-        pxPerSecond={pxPerSecond}
-        contentWidth={laneWidth}
-        scrollLeft={viewport.scrollLeft}
-        clientWidth={viewport.clientWidth}
-        onScrollTo={scrollLaneTo}
-      />
+      {/*
+        The space below the stack.
+
+        The lane stack hugs the top of the dock, so whatever the user has left the
+        divider at shows up as one open area underneath. It used to be exactly that
+        — an empty area — and a large panel of nothing between the last lane and the
+        overview strip reads as a broken layout rather than as room.
+
+        It is the obvious place to drop something, so it accepts a drop, through the
+        same `placeAssetPatch` the empty timeline uses: the clip lands at the time
+        under the cursor, on the frontmost lane of its kind that has room there, or
+        on a new lane when none does. Purely additive — clicking it does nothing, it
+        takes no focus, and it disappears when the lanes fill the dock.
+      */}
+      <div
+        className={`timeline-underspace${assetOverUnderspace ? ' is-drop-target' : ''}`}
+        aria-hidden="true"
+        onDragOver={(event) => {
+          if (!event.dataTransfer.types.includes(ASSET_DND_TYPE)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
+          setAssetOverUnderspace(true);
+        }}
+        onDragLeave={() => setAssetOverUnderspace(false)}
+        onDrop={(event) => {
+          setAssetOverUnderspace(false);
+          const assetId =
+            event.dataTransfer.getData(ASSET_DND_TYPE) || event.dataTransfer.getData('text/plain');
+          if (!assetId) return;
+          event.preventDefault();
+          const asset = assets.find((a) => a.id === assetId);
+          if (!asset) return;
+          const patch = placeAssetPatch(timeline, assetById, asset, xToSeconds(event.clientX));
+          if (patch) applyPatch(patch);
+        }}
+      >
+        {visibleTracks.length > 0 && (
+          <span className="timeline-underspace-hint">Drop media here to place it</span>
+        )}
+      </div>
+
+      {/* Minimap / overview strip — compressed full-sequence navigation, LAST so it
+          sits at the foot of the dock with the open area above pushing it there.
+          Pure chrome: dragging it only pans the lane viewport (see TimelineMinimap).
+
+          Mounted ONLY when the sequence is wider than its viewport, which is the
+          contract TimelineMinimap has always documented and this parent never
+          honoured. With everything already on screen the viewport window covers
+          the whole strip, so the map rendered as a solid accent slab that hid the
+          very clip blocks it exists to show — an overview of "you can see all of
+          it" that also cost the lanes 22px of height. */}
+      {overviewNeeded && (
+        <TimelineMinimap
+          timeline={timeline}
+          trackOrder={visibleTrackIds}
+          pxPerSecond={pxPerSecond}
+          contentWidth={laneWidth}
+          scrollLeft={viewport.scrollLeft}
+          clientWidth={viewport.clientWidth}
+          onScrollTo={scrollLaneTo}
+        />
+      )}
 
       {menu && (
         <ClipContextMenu

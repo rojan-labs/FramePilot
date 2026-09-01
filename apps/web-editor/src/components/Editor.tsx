@@ -30,6 +30,7 @@ import { requestAiCaptionEmphasis } from '../editor/ai.js';
 import { withOrientation } from '../editor/orientation.js';
 import { selectionRange, webCodecsPreviewEligible } from '../editor/selectors.js';
 import { useSettings } from '../editor/useSettings.js';
+import { AgentFab } from './AgentFab.js';
 import { projectForAi, restoreStrippedHistory } from '../editor/project-for-ai.js';
 import { Toolbar } from './Toolbar.js';
 import { TimelineView } from './TimelineView.js';
@@ -506,6 +507,21 @@ export function Editor({
   );
   const ProgramPreview = useWebCodecsPreview ? WebCodecsPreviewPlayer : PreviewPlayer;
 
+  /**
+   * "Open the Inspector when I click something" (Settings → Editing).
+   *
+   * Bound to a deliberate click on a clip, not to `state.selection` changing, so a
+   * selection made by the AI mid-run — or by a marquee, or by an undo — never
+   * yanks the rail out from under the user.
+   *
+   * When it does take the rail from a running agent, the run is not lost: it moves
+   * to `AgentFab`, which is one click back to it.
+   */
+  const openInspectorOnSelect = settings.openInspectorOnSelect;
+  const onItemActivate = useCallback(() => {
+    if (openInspectorOnSelect) setRightTab('inspector');
+  }, [openInspectorOnSelect, setRightTab]);
+
   const onAskAiForClip = useCallback(
     (clipId: string) => {
       editor.select(clipId);
@@ -711,6 +727,7 @@ export function Editor({
         selectedEffectLayerIds={selectedEffectLayerIds}
         onSelectEffectLayers={setSelectedEffectLayerIds}
         onKeyframeSelectionChange={setSelectedKeyframes}
+        onItemActivate={onItemActivate}
       />
     ),
     [
@@ -720,6 +737,7 @@ export function Editor({
       editMode,
       trackLayout,
       onAskAiForClip,
+      onItemActivate,
       revealAssetInBin,
       openTransitionLibrary,
       tool,
@@ -972,6 +990,10 @@ export function Editor({
       }}
       overlay={
         <>
+          {/* Mounted unconditionally: it renders null unless a run is live and its
+              panel is off screen, and it subscribes to the agent store directly, so
+              this costs one subscription and never re-renders the editor. */}
+          <AgentFab aiPanelVisible={rightTab === 'ai'} onOpenAi={() => setRightTab('ai')} />
           {toastsEl}
           <HistoryPanel
             editor={editor}

@@ -535,13 +535,16 @@ describe('agent mode', () => {
     expect(run.steps[0]?.note).toMatch(/Rejected "trim_clip"/);
   });
 
-  it('fails an overlapping overlay on ITS OWN call, keeps the valid one, and applies the corrected retry', async () => {
-    // Regression for the "No edits were applied … Try rephrasing" dead end: the model
-    // stacks two overlapping text layers on one track in a single turn. The second
-    // call must fail immediately with the validator's overlap reason (checked against
-    // the turn's speculative copy that already holds the first overlay), the first
-    // overlay must still land, and the model — reading the reason from the log —
-    // corrects course next turn instead of the run stopping.
+  it('stacks two simultaneous overlays on separate lanes instead of rejecting the second', async () => {
+    // The model asks for two text elements that are on screen at the same time and
+    // names one track for both — the ordinary way to phrase "title over subtitle".
+    //
+    // This used to be a dead end. A track cannot hold overlapping clips, so the
+    // second call was refused with the validator's overlap reason, the editor saw an
+    // error, and the run spent a turn recovering from a request that was never
+    // ambiguous. `add_text_layer` now resolves the lane: the named track is kept
+    // when it has room, and when it does not the overlay goes to another free
+    // overlay lane or a new one. Both land, in one turn.
     const provider = new ScriptedProvider([
       {
         text: 'add the intro overlays',
@@ -550,22 +553,25 @@ describe('agent mode', () => {
           call('add_text_layer', { trackId: 'video_1', text: 'Subtitle', start: 13, end: 16 }),
         ],
       },
-      {
-        text: 'retry the subtitle on a free range',
-        toolCalls: [
-          call('add_text_layer', { trackId: 'video_1', text: 'Subtitle', start: 15, end: 18 }),
-        ],
-      },
       { text: 'done', toolCalls: [] },
     ]);
     const run = await new Orchestrator(provider).agent(input, { maxSteps: 4 });
-    // Turn 1 lands the valid overlay and records the overlap rejection; turn 2 lands
-    // the corrected one — the combined reviewable patch holds both.
-    expect(run.result.patch.operations).toHaveLength(2);
-    expect(run.result.validation.valid).toBe(true);
+
     expect(run.steps[0]?.applied).toBe(true);
-    expect(run.steps[0]?.note).toMatch(/Rejected "add_text_layer" — .*overlap/);
-    expect(run.steps[1]?.applied).toBe(true);
+    expect(run.steps[0]?.note).not.toMatch(/Rejected "add_text_layer"/);
+    expect(run.result.validation.valid).toBe(true);
+
+    // Three operations, not two: the second overlay had to open a lane to live on,
+    // and that `add_layer` rides the same patch so undo removes both together.
+    const ops = run.result.patch.operations;
+    const overlays = ops.filter((op) => op.type === 'add_text_overlay');
+    expect(overlays).toHaveLength(2);
+    expect(ops.some((op) => op.type === 'add_layer')).toBe(true);
+
+    // The point of the whole exercise: they are on DIFFERENT lanes, so the overlap
+    // that would have been rejected simply does not exist.
+    const lanes = new Set(overlays.map((op) => (op as { trackId: string }).trackId));
+    expect(lanes.size).toBe(2);
   });
 
   it('recovers from a rejected tool call instead of aborting the run', async () => {

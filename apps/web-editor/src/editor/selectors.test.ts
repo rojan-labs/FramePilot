@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Clip, Timeline } from '@framepilot/timeline-schema';
+import { TEXT_OVERLAY_ASSET_ID } from '@framepilot/editor-core';
 import type { Asset } from '@framepilot/timeline-schema';
 import {
   assetDisplayName,
@@ -25,6 +26,11 @@ import {
   canvasPreviewEligible,
   webCodecsPreviewEligible,
   clipCompositing,
+  clipEdgeContact,
+  compactDuration,
+  compactTimeLabel,
+  magnetSnap,
+  pxDeltaToSeconds,
   isIdentityCompositing,
   clipKind,
   pictureSegments,
@@ -1049,6 +1055,303 @@ describe('formatTime', () => {
   });
 });
 
+describe('clipEdgeContact', () => {
+  const tl: Timeline = {
+    tracks: [
+      {
+        id: 'v',
+        type: 'video',
+        clips: [
+          {
+            id: 'a',
+            assetId: 'x',
+            trackId: 'v',
+            start: 0,
+            end: 4,
+            sourceStart: 0,
+            sourceEnd: 4,
+            effects: [],
+            keyframes: [],
+          },
+          {
+            id: 'b',
+            assetId: 'x',
+            trackId: 'v',
+            start: 6,
+            end: 10,
+            sourceStart: 0,
+            sourceEnd: 4,
+            effects: [],
+            keyframes: [],
+          },
+        ],
+      },
+      {
+        id: 'a1',
+        type: 'audio',
+        clips: [
+          {
+            id: 'm',
+            assetId: 'y',
+            trackId: 'a1',
+            start: 8,
+            end: 12,
+            sourceStart: 0,
+            sourceEnd: 4,
+            effects: [],
+            keyframes: [],
+          },
+        ],
+      },
+    ],
+  };
+
+  it('reports the clip edge a moving edge has landed on', () => {
+    expect(clipEdgeContact(tl, 4, 'b', 0.05)).toEqual({ time: 4, clipId: 'a', edge: 'end' });
+    expect(clipEdgeContact(tl, 6, 'a', 0.05)).toEqual({ time: 6, clipId: 'b', edge: 'start' });
+  });
+
+  it('finds edges on OTHER lanes too — clips line up across tracks', () => {
+    expect(clipEdgeContact(tl, 8, 'a', 0.05)).toEqual({ time: 8, clipId: 'm', edge: 'start' });
+  });
+
+  it('is null in open space', () => {
+    expect(clipEdgeContact(tl, 5, 'a', 0.05)).toBeNull();
+  });
+
+  it('never reports the gestured clip against itself', () => {
+    // A clip is always flush with its own edges; saying so would mean the marker
+    // was lit for the entire drag.
+    expect(clipEdgeContact(tl, 0, 'a', 0.05)).toBeNull();
+    expect(clipEdgeContact(tl, 4, 'a', 0.05)).toBeNull();
+  });
+
+  it('picks the NEAREST edge when two are within tolerance', () => {
+    expect(clipEdgeContact(tl, 5.9, null, 2)).toEqual({ time: 6, clipId: 'b', edge: 'start' });
+  });
+
+  it('respects the tolerance, and tolerates hostile input', () => {
+    expect(clipEdgeContact(tl, 4.2, 'b', 0.05)).toBeNull();
+    expect(clipEdgeContact(tl, 4.2, 'b', 0.5)).toEqual({ time: 4, clipId: 'a', edge: 'end' });
+    expect(clipEdgeContact(tl, Number.NaN, null, 0.05)).toBeNull();
+    expect(clipEdgeContact({ tracks: [] }, 4, null, 0.05)).toBeNull();
+  });
+});
+
+describe('snapTargets — excluding the gestured clip', () => {
+  const two: Timeline = {
+    tracks: [
+      {
+        id: 'v',
+        type: 'video',
+        clips: [
+          {
+            id: 'a',
+            assetId: 'x',
+            trackId: 'v',
+            start: 0,
+            end: 4,
+            sourceStart: 0,
+            sourceEnd: 4,
+            effects: [],
+            keyframes: [],
+          },
+          {
+            id: 'b',
+            assetId: 'x',
+            trackId: 'v',
+            start: 6,
+            end: 10,
+            sourceStart: 0,
+            sourceEnd: 4,
+            effects: [],
+            keyframes: [],
+          },
+        ],
+      },
+    ],
+  };
+
+  it("drops the dragged clip's own edges, so it is not stuck to where it already is", () => {
+    // Without this the first pointer move of a drag lands inside the capture
+    // radius of the edge the clip started on, and the clip will not move until the
+    // pointer has travelled the whole release distance.
+    expect(snapTargets(two, [], 'a')).not.toContain(4);
+    expect(snapTargets(two, [], 'a')).toContain(6);
+    expect(snapTargets(two, [], 'a')).toContain(10);
+  });
+
+  it('keeps an edge that a DIFFERENT clip also sits on', () => {
+    // A butt-joined neighbour's start is a real place to land; that it equals this
+    // clip's end is a coincidence of the join, not a reason to drop it.
+    const joined: Timeline = {
+      tracks: [
+        {
+          id: 'v',
+          type: 'video',
+          clips: [
+            {
+              id: 'a',
+              assetId: 'x',
+              trackId: 'v',
+              start: 0,
+              end: 4,
+              sourceStart: 0,
+              sourceEnd: 4,
+              effects: [],
+              keyframes: [],
+            },
+            {
+              id: 'b',
+              assetId: 'x',
+              trackId: 'v',
+              start: 4,
+              end: 8,
+              sourceStart: 0,
+              sourceEnd: 4,
+              effects: [],
+              keyframes: [],
+            },
+          ],
+        },
+      ],
+    };
+    expect(snapTargets(joined, [], 'a')).toContain(4);
+  });
+
+  it('is unchanged when no clip is being dragged', () => {
+    expect(snapTargets(two, [])).toEqual(snapTargets(two, [], null));
+    expect(snapTargets(two, [], 'ghost')).toEqual(snapTargets(two, []));
+  });
+
+  it('still merges the extra targets it is given', () => {
+    expect(snapTargets(two, [7.5], 'a')).toContain(7.5);
+  });
+});
+
+describe('magnetSnap', () => {
+  const edges = [0, 4, 10];
+
+  it('captures an edge that comes within the capture radius', () => {
+    expect(magnetSnap(4.05, edges, 0.2, 0.5, null)).toEqual({ value: 4, held: 4 });
+  });
+
+  it('leaves a value alone when nothing is near', () => {
+    expect(magnetSnap(6, edges, 0.2, 0.5, null)).toEqual({ value: 6, held: null });
+  });
+
+  it('keeps holding past the capture radius, which is the resistance', () => {
+    // 0.35s away: too far to be captured fresh, close enough that a hold survives.
+    // This gap is what makes a join something the user feels themselves break,
+    // instead of an alignment that blinks off at an invisible line.
+    expect(magnetSnap(4.35, edges, 0.2, 0.5, 4)).toEqual({ value: 4, held: 4 });
+    expect(magnetSnap(4.35, edges, 0.2, 0.5, null)).toEqual({ value: 4.35, held: null });
+  });
+
+  it('lets go once the pointer pulls beyond the release radius', () => {
+    expect(magnetSnap(4.6, edges, 0.2, 0.5, 4)).toEqual({ value: 4.6, held: null });
+  });
+
+  it('does not let a nearer edge steal an unbroken hold', () => {
+    // Dragging along a run of butt-joined clips would otherwise hop from cut to
+    // cut without the user ever releasing one.
+    expect(magnetSnap(4.4, [4, 4.5], 0.2, 0.5, 4)).toEqual({ value: 4, held: 4 });
+  });
+
+  it('behaves like plain snap when the release radius adds nothing', () => {
+    expect(magnetSnap(4.3, edges, 0.2, 0, 4)).toEqual({ value: 4.3, held: null });
+  });
+
+  it('clamps below zero and tolerates an empty target set', () => {
+    expect(magnetSnap(-3, edges, 0.2, 0.5, null)).toEqual({ value: 0, held: 0 });
+    expect(magnetSnap(5, [], 0.2, 0.5, null)).toEqual({ value: 5, held: null });
+  });
+});
+
+describe('pxDeltaToSeconds', () => {
+  it('keeps the sign, so a leftward drag is a negative duration', () => {
+    expect(pxDeltaToSeconds(40, 40)).toBe(1);
+    expect(pxDeltaToSeconds(-40, 40)).toBe(-1);
+    expect(pxDeltaToSeconds(0, 40)).toBe(0);
+  });
+
+  it('does NOT clamp the way the position helper does', () => {
+    // The whole reason this function is separate. `pxToSeconds` clamps to >= 0
+    // because an x before the start of the lane is not a time; a drag delta of
+    // -40px is a perfectly real "shorten by one second", and clamping it made the
+    // audio fade handles growable but never shrinkable.
+    expect(pxToSeconds(-40, 40)).toBe(0);
+    expect(pxDeltaToSeconds(-40, 40)).toBe(-1);
+  });
+
+  it('returns 0 rather than Infinity or NaN for a degenerate zoom or delta', () => {
+    expect(pxDeltaToSeconds(40, 0)).toBe(0);
+    expect(pxDeltaToSeconds(40, -10)).toBe(0);
+    expect(pxDeltaToSeconds(Number.NaN, 40)).toBe(0);
+    expect(pxDeltaToSeconds(Number.POSITIVE_INFINITY, 40)).toBe(0);
+  });
+});
+
+describe('compactTimeLabel', () => {
+  it('drops the fields the current scale cannot distinguish', () => {
+    // A 14s sequence stepped every 2s: hours and frames are constant, so both go.
+    expect(compactTimeLabel(0, 30, 2, 14)).toBe('0:00');
+    expect(compactTimeLabel(2, 30, 2, 14)).toBe('0:02');
+    expect(compactTimeLabel(74, 30, 2, 140)).toBe('1:14');
+  });
+
+  it('keeps the minute field so a label can never be misread as frames', () => {
+    expect(compactTimeLabel(2, 30, 2, 14).startsWith('0:')).toBe(true);
+  });
+
+  it('adds frames only once the step resolves finer than a second', () => {
+    expect(compactTimeLabel(1.5, 30, 0.5, 14)).toBe('0:01:15');
+    // Seconds truncate, exactly as the full timecode does — a label never
+    // rounds up into a second the playhead has not reached.
+    expect(compactTimeLabel(1.5, 30, 1, 14)).toBe('0:01');
+  });
+
+  it('adds hours only once the span reaches one', () => {
+    expect(compactTimeLabel(3700, 30, 60, 7200)).toBe('1:01:40');
+    expect(compactTimeLabel(600, 30, 60, 1200)).toBe('10:00');
+  });
+
+  it('honours the seconds display mode with step-sized precision', () => {
+    expect(compactTimeLabel(2.5, 30, 5, 60, 'seconds')).toBe('3');
+    expect(compactTimeLabel(2.5, 30, 0.5, 60, 'seconds')).toBe('2.5');
+    expect(compactTimeLabel(2.25, 30, 1 / 30, 60, 'seconds')).toBe('2.25');
+  });
+
+  it('clamps hostile input instead of rendering NaN', () => {
+    expect(compactTimeLabel(Number.NaN, 30, 2, 14)).toBe('0:00');
+    expect(compactTimeLabel(-5, 30, 2, 14)).toBe('0:00');
+    expect(compactTimeLabel(2, 0, 0, 14)).toBe('0:02');
+  });
+});
+
+describe('compactDuration', () => {
+  it('reads as a length, not a position', () => {
+    expect(compactDuration(6, 30)).toBe('0:06');
+    expect(compactDuration(74, 30)).toBe('1:14');
+    expect(compactDuration(3725, 30)).toBe('1:02:05');
+  });
+
+  it('falls back to frames for sub-second clips, where 0:00 says nothing', () => {
+    expect(compactDuration(0.5, 30)).toBe('15f');
+    expect(compactDuration(0.2, 25)).toBe('5f');
+  });
+
+  it('honours the seconds display mode', () => {
+    expect(compactDuration(6, 30, 'seconds')).toBe('6.0s');
+    expect(compactDuration(74, 30, 'seconds')).toBe('74s');
+  });
+
+  it('clamps hostile input', () => {
+    expect(compactDuration(Number.NaN, 30)).toBe('0f');
+    expect(compactDuration(-3, 30)).toBe('0f');
+  });
+});
+
 /** Two video tracks (stacked) + an audio track, for navigation tests. */
 const navTimeline: Timeline = {
   tracks: [
@@ -1168,6 +1471,31 @@ describe('clampTrimStart', () => {
 
   it('cannot cross the right edge (keeps a minimum length)', () => {
     expect(clampTrimStart(sampleClip, 100)).toBeCloseTo(10 - 0.05);
+  });
+
+  it('lets a clip with NO time-based source be extended earlier', () => {
+    // REGRESSION: a text overlay is generated at render time, so its `sourceStart: 0`
+    // is not an in-point — but it was read as one, making `earliest` equal to where
+    // the clip already began. The result was an overlay you could stretch forwards
+    // and never backwards.
+    const overlay = {
+      ...sampleClip,
+      assetId: TEXT_OVERLAY_ASSET_ID,
+      start: 6,
+      end: 10,
+      sourceStart: 0,
+      sourceEnd: 4,
+    };
+    expect(clampTrimStart(overlay, 1)).toBe(1);
+    expect(clampTrimStart(overlay, 0)).toBe(0);
+    // Still bounded by the start of the timeline and by the minimum length.
+    expect(clampTrimStart(overlay, -5)).toBe(0);
+    expect(clampTrimStart(overlay, 100)).toBeCloseTo(10 - 0.05);
+  });
+
+  it('keeps the in-point bound for a clip that HAS a real source', () => {
+    // The constraint is real for footage: there is no picture before the file starts.
+    expect(clampTrimStart(sampleClip, 0)).toBe(4);
   });
 
   it('falls back to the earliest start when the clip is shorter than the minimum', () => {
@@ -1852,7 +2180,20 @@ describe('wheelIntent (UX-06)', () => {
     expect(wheelIntent({ ...base, deltaY: 0 })).toBe('browser');
   });
 
-  it('never steals a vertical wheel from a track stack tall enough to scroll', () => {
-    expect(wheelIntent({ ...base, canScrollVertically: true })).toBe('browser');
+  it('scrolls the STACK when it is tall enough to have somewhere to go', () => {
+    // Named rather than handed back to the browser: the lane container is a scroll
+    // container on both axes, so the gesture never chained up to the element that
+    // actually overflows and the stack simply did not move.
+    expect(wheelIntent({ ...base, canScrollVertically: true })).toBe('scroll-vertical');
+    expect(wheelIntent({ ...base, canScrollVertically: true, deltaY: -100 })).toBe(
+      'scroll-vertical',
+    );
+  });
+
+  it('still leaves an explicit horizontal gesture to the browser, stack or no stack', () => {
+    expect(wheelIntent({ ...base, canScrollVertically: true, shiftKey: true })).toBe('browser');
+    expect(wheelIntent({ ...base, canScrollVertically: true, deltaX: -120, deltaY: 4 })).toBe(
+      'browser',
+    );
   });
 });

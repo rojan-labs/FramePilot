@@ -38,6 +38,13 @@ test.describe('visual regression @visual', () => {
   test('timeline surface', async ({ page }) => {
     await openEditor(page);
     await selectClip(page, 'clip_intro');
+    // Park the pointer off the timeline before the shot, the way the captions
+    // test does. `selectClip` clicks, which leaves the cursor on the clip — so the
+    // baseline was capturing that clip's hover state (trim grips, hover lift, the
+    // lane's on-cut transition affordance) on top of the selection it means to
+    // show. Resting state is both what this baseline is for and the frame that
+    // does not shift when hover styling is tuned.
+    await page.mouse.move(10, 10);
     await expect(page.getByRole('region', { name: 'timeline' })).toHaveScreenshot('timeline.png');
   });
 

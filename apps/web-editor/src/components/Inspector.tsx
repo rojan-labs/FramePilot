@@ -243,14 +243,18 @@ export function Inspector({
 
   if (selection.primary === null) {
     return (
+      // Four elements said one thing: a glyph in a filled tile, a tracked all-caps
+      // `PROPERTIES` kicker, "It's empty here", and the instruction. The kicker
+      // repeated the panel's own tab, and "It's empty here" described the panel
+      // rather than telling the user anything. What is left names the state and
+      // gives the one action that leaves it.
       <section className="inspector inspector-pro inspector-empty-state" aria-label="inspector">
         <span className="inspector-empty-icon" aria-hidden="true">
           <SlidersHorizontal size={ICON_SIZE.lg} />
         </span>
-        <p className="inspector-eyebrow">Properties</p>
-        <h2>It’s empty here</h2>
+        <h2>Nothing selected</h2>
         <p className="inspector-empty">
-          Choose a clip, transition, text layer, or effect from the timeline.
+          Click a clip, transition, text layer or effect on the timeline to edit it here.
         </p>
       </section>
     );
@@ -263,8 +267,7 @@ export function Inspector({
   const sharedTrack = sharedFrom(selection.clips, (location) => location.track.id);
   const clipKind = displayClipKind(track.type);
   const activeTab = tabs.some((tab) => tab.id === preferredTab) ? preferredTab : 'basic';
-  const activeTabLabel =
-    INSPECTOR_TABS.find((tab) => tab.id === activeTab)?.label ?? 'Basic';
+  const activeTabLabel = INSPECTOR_TABS.find((tab) => tab.id === activeTab)?.label ?? 'Basic';
 
   const applyProperties = (properties: ClipProperties, reason: string): void => {
     const patch = applyClipPropertiesPatch(timeline, targetIds, properties, reason);
@@ -362,7 +365,9 @@ export function Inspector({
           <Layers size={ICON_SIZE.md} />
         </span>
         <div className="inspector-clip-copy">
-          <strong title={clip.id}>{multi ? `${selection.clips.length} clips selected` : clip.id}</strong>
+          <strong title={clip.id}>
+            {multi ? `${selection.clips.length} clips selected` : clip.id}
+          </strong>
           <span>
             {clipKind}
             {!sharedTrack.mixed && ` · ${track.id}`}

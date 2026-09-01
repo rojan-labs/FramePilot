@@ -81,6 +81,7 @@ _EXPECTED_FLAGS: dict[str, tuple[bool, bool]] = {
     "add_text_layer": (True, True),
     "add_caption_layer": (True, True),
     "add_keyframes": (True, True),
+    "remove_keyframes": (True, True),
     "punch_in": (True, True),
     "apply_color_grade": (True, True),
     "adjust_audio": (True, True),
@@ -880,6 +881,32 @@ def test_add_keyframes(ctx: ToolContext, project: Project) -> None:
 def test_add_keyframes_requires_at_least_one(ctx: ToolContext) -> None:
     with pytest.raises(ToolInputError):
         run_tool("add_keyframes", {"clipId": "A", "keyframes": []}, ctx)
+
+
+def test_remove_keyframes_clears_a_property_or_one_time(
+    ctx: ToolContext, project: Project
+) -> None:
+    """Animation has to be reversible: `add_keyframes` can only ever add more."""
+    whole = run_tool("remove_keyframes", {"clipId": "A", "targets": [{"property": "scale"}]}, ctx)
+    assert whole.operations is not None
+    op = whole.operations[0]
+    assert op["type"] == "remove_keyframes" and op["clipId"] == "A"
+    # No `time` key at all — `applyRemoveKeyframes` reads its ABSENCE as
+    # "clear the whole property", which an explicit null would not survive as.
+    assert op["targets"] == [{"property": "scale"}]
+
+    one = run_tool(
+        "remove_keyframes",
+        {"clipId": "A", "targets": [{"property": "scale", "time": 1.0}]},
+        ctx,
+    )
+    assert one.operations is not None
+    assert one.operations[0]["targets"] == [{"property": "scale", "time": 1.0}]
+
+
+def test_remove_keyframes_requires_at_least_one_target(ctx: ToolContext) -> None:
+    with pytest.raises(ToolInputError):
+        run_tool("remove_keyframes", {"clipId": "A", "targets": []}, ctx)
 
 
 def test_punch_in_defaults_to_whole_clip(ctx: ToolContext, project: Project) -> None:
