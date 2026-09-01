@@ -656,6 +656,111 @@ export function formatTime(seconds: number, fps: number, mode: TimeDisplay = 'ti
 }
 
 /**
+ * A compact, scale-aware time label — the format a ruler tick or a clip badge
+ * should carry, as opposed to the full `HH:MM:SS:FF` readout the program monitor
+ * owns.
+ *
+ * Full SMPTE is the right format for exactly one thing: the authoritative
+ * playhead readout, where every field must be present so the number can be typed
+ * back in. On a ruler it is the wrong format, because it spends eleven characters
+ * restating fields that do not change across the whole visible span — and at the
+ * ~72px tick spacing the ruler targets, an eleven-character label physically
+ * cannot fit, so labels collide and the first one is clipped by the lane origin.
+ *
+ * The label therefore keeps only the fields the current scale can actually
+ * distinguish, from the largest field the span reaches down to the smallest field
+ * the step resolves:
+ *
+ * | span      | step      | example    |
+ * | --------- | --------- | ---------- |
+ * | `< 1h`    | `>= 1s`   | `2:30`     |
+ * | `< 1h`    | `< 1s`    | `2:30:12`  |
+ * | `>= 1h`   | `>= 1s`   | `1:02:30`  |
+ * | `>= 1h`   | `< 1s`    | `1:02:30:12` |
+ *
+ * Minutes are always present so a bare `:02` can never be misread as frames, and
+ * fields below the minute are always zero-padded so the column stays tabular.
+ *
+ * In `seconds` display mode the same rule applies to decimals: the label carries
+ * only as many decimal places as the step resolves (`0`, `2.5`, `0.25`).
+ *
+ * Pure, so the ruler's label geometry is unit-tested without the DOM.
+ *
+ * @param seconds - Position on the timeline, in seconds.
+ * @param fps - Project frame rate (used for the frame field).
+ * @param stepSeconds - The tick interval this label sits on (see {@link rulerTicks}).
+ * @param spanSeconds - Total visible span, which decides whether hours appear.
+ * @param mode - The active display mode (defaults to `timecode`).
+ * @returns A short, tabular label.
+ */
+export function compactTimeLabel(
+  seconds: number,
+  fps: number,
+  stepSeconds: number,
+  spanSeconds: number,
+  mode: TimeDisplay = 'timecode',
+): string {
+  const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+  const step = Number.isFinite(stepSeconds) && stepSeconds > 0 ? stepSeconds : 1;
+  if (mode === 'seconds') {
+    // Only as much precision as the step can distinguish: a 0.5s step needs one
+    // decimal, a 1/30s step needs two, a 5s step needs none.
+    const decimals = step >= 1 ? 0 : step >= 0.1 ? 1 : 2;
+    return safe.toFixed(decimals);
+  }
+  const rate = Number.isFinite(fps) && fps > 0 ? fps : FALLBACK_FPS;
+  const wholeRate = Math.round(rate);
+  const totalFrames = Math.round(safe * rate);
+  const frame = totalFrames % wholeRate;
+  const totalSeconds = Math.floor(totalFrames / wholeRate);
+  const ss = totalSeconds % 60;
+  const mm = Math.floor(totalSeconds / 60) % 60;
+  const hh = Math.floor(totalSeconds / 3600);
+  const span = Number.isFinite(spanSeconds) && spanSeconds > 0 ? spanSeconds : 0;
+  // Hours lead (unpadded) only when the sequence actually reaches one — otherwise
+  // every label on the ruler would carry a constant `0:` prefix. Below that the
+  // minute field leads, so a bare `:02` can never be misread as two frames.
+  const showHours = span >= 3600 || hh >= 1;
+  const fields = showHours
+    ? [`${hh}`, pad2(mm), pad2(ss)]
+    : [`${mm}`, pad2(ss)];
+  // The frame field appears only once the ruler resolves finer than a second;
+  // above that step every tick would print a constant `:00`.
+  if (step < 1) fields.push(pad2(frame));
+  return fields.join(':');
+}
+
+/**
+ * A clip's own duration, in the same compact grammar as the ruler.
+ *
+ * A duration is not a position, so it never carries hours it does not have, and
+ * it shows frames only for clips shorter than a second — where `0:00` would
+ * otherwise be the whole label. `mode` is honoured so the badge agrees with the
+ * ruler and the monitor.
+ *
+ * @param seconds - Clip duration, in seconds.
+ * @param fps - Project frame rate.
+ * @param mode - The active display mode (defaults to `timecode`).
+ */
+export function compactDuration(
+  seconds: number,
+  fps: number,
+  mode: TimeDisplay = 'timecode',
+): string {
+  const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+  if (mode === 'seconds') return `${safe.toFixed(safe < 10 ? 1 : 0)}s`;
+  const rate = Number.isFinite(fps) && fps > 0 ? fps : FALLBACK_FPS;
+  const wholeRate = Math.round(rate);
+  const totalFrames = Math.round(safe * rate);
+  const totalSeconds = Math.floor(totalFrames / wholeRate);
+  if (totalSeconds < 1) return `${totalFrames % wholeRate}f`;
+  const ss = totalSeconds % 60;
+  const mm = Math.floor(totalSeconds / 60) % 60;
+  const hh = Math.floor(totalSeconds / 3600);
+  return hh > 0 ? `${hh}:${pad2(mm)}:${pad2(ss)}` : `${mm}:${pad2(ss)}`;
+}
+
+/**
  * Clips on `trackId` that start at or after `atStart` — the "downstream" clips an
  * Insert placement must push right to make room (plan/TIMELINE-REVAMP.md §4). A
  * clip is downstream when its start is at/after the insertion point (within

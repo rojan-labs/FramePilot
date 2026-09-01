@@ -25,6 +25,8 @@ import {
   canvasPreviewEligible,
   webCodecsPreviewEligible,
   clipCompositing,
+  compactDuration,
+  compactTimeLabel,
   isIdentityCompositing,
   clipKind,
   pictureSegments,
@@ -1046,6 +1048,66 @@ describe('formatTime', () => {
 
   it('renders plain seconds when asked', () => {
     expect(formatTime(2.5, 30, 'seconds')).toBe('2.50s');
+  });
+});
+
+describe('compactTimeLabel', () => {
+  it('drops the fields the current scale cannot distinguish', () => {
+    // A 14s sequence stepped every 2s: hours and frames are constant, so both go.
+    expect(compactTimeLabel(0, 30, 2, 14)).toBe('0:00');
+    expect(compactTimeLabel(2, 30, 2, 14)).toBe('0:02');
+    expect(compactTimeLabel(74, 30, 2, 140)).toBe('1:14');
+  });
+
+  it('keeps the minute field so a label can never be misread as frames', () => {
+    expect(compactTimeLabel(2, 30, 2, 14).startsWith('0:')).toBe(true);
+  });
+
+  it('adds frames only once the step resolves finer than a second', () => {
+    expect(compactTimeLabel(1.5, 30, 0.5, 14)).toBe('0:01:15');
+    // Seconds truncate, exactly as the full timecode does — a label never
+    // rounds up into a second the playhead has not reached.
+    expect(compactTimeLabel(1.5, 30, 1, 14)).toBe('0:01');
+  });
+
+  it('adds hours only once the span reaches one', () => {
+    expect(compactTimeLabel(3700, 30, 60, 7200)).toBe('1:01:40');
+    expect(compactTimeLabel(600, 30, 60, 1200)).toBe('10:00');
+  });
+
+  it('honours the seconds display mode with step-sized precision', () => {
+    expect(compactTimeLabel(2.5, 30, 5, 60, 'seconds')).toBe('3');
+    expect(compactTimeLabel(2.5, 30, 0.5, 60, 'seconds')).toBe('2.5');
+    expect(compactTimeLabel(2.25, 30, 1 / 30, 60, 'seconds')).toBe('2.25');
+  });
+
+  it('clamps hostile input instead of rendering NaN', () => {
+    expect(compactTimeLabel(Number.NaN, 30, 2, 14)).toBe('0:00');
+    expect(compactTimeLabel(-5, 30, 2, 14)).toBe('0:00');
+    expect(compactTimeLabel(2, 0, 0, 14)).toBe('0:02');
+  });
+});
+
+describe('compactDuration', () => {
+  it('reads as a length, not a position', () => {
+    expect(compactDuration(6, 30)).toBe('0:06');
+    expect(compactDuration(74, 30)).toBe('1:14');
+    expect(compactDuration(3725, 30)).toBe('1:02:05');
+  });
+
+  it('falls back to frames for sub-second clips, where 0:00 says nothing', () => {
+    expect(compactDuration(0.5, 30)).toBe('15f');
+    expect(compactDuration(0.2, 25)).toBe('5f');
+  });
+
+  it('honours the seconds display mode', () => {
+    expect(compactDuration(6, 30, 'seconds')).toBe('6.0s');
+    expect(compactDuration(74, 30, 'seconds')).toBe('74s');
+  });
+
+  it('clamps hostile input', () => {
+    expect(compactDuration(Number.NaN, 30)).toBe('0f');
+    expect(compactDuration(-3, 30)).toBe('0f');
   });
 });
 
