@@ -258,7 +258,7 @@ describe('TimelineView direct manipulation', () => {
     expect((c1.querySelector('.clip-fade-overlay-in') as HTMLElement).style.width).toBe('0px');
   });
 
-  it('snaps a dragged clip to a nearby clip edge (snap guide appears)', () => {
+  it('marks contact when a dragged clip meets a neighbour edge', () => {
     // A second clip ends at 6s; dragging c1 so its start lands ~6s should snap.
     const twoClips: Timeline = {
       tracks: [
@@ -302,10 +302,17 @@ describe('TimelineView direct manipulation', () => {
     // end (8s); landing there sits c1 adjacent to c2 (no overlap, so it validates).
     fireEvent.pointerDown(c1, { clientX: 0, pointerId: 1 });
     fireEvent.pointerMove(c1, { clientX: 318, pointerId: 1 }); // 7.95s
-    expect(container.querySelector('.snap-guide')).not.toBeNull();
+    // The two clips are now flush, so this is contact — the join marker, not the
+    // plain snap guide. The guide is reserved for snapping to something that is
+    // not another clip (the playhead, a marker), where nothing is "meeting".
+    expect(container.querySelector('.edge-contact')).not.toBeNull();
+    expect(container.querySelector('.snap-guide')).toBeNull();
     fireEvent.pointerUp(c1, { clientX: 318, pointerId: 1 });
     // Snapped to 8s ⇒ 320px (not 318px).
     expect(screen.getByLabelText('clip c1').style.left).toBe('320px');
+    // Temporary by construction: the marker belongs to the drag, so releasing
+    // takes it away rather than leaving a rule behind on the timeline.
+    expect(container.querySelector('.edge-contact')).toBeNull();
   });
 
   it('moves a clip onto a compatible track under the pointer', () => {

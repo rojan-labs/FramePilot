@@ -36,6 +36,7 @@ import {
   type PixelRect,
   type TimeDisplay,
   type TransitionPlacement,
+  type EdgeContact,
   type ZoomTarget,
   assetKind,
   audioSettings,
@@ -43,6 +44,7 @@ import {
   clampTrimStart,
   assetDisplayName,
   clipKind,
+  clipEdgeContact,
   clipsIntersectingRect,
   compactDuration,
   compactTimeLabel,
@@ -302,6 +304,24 @@ const SNAP_PX = 8;
  * pull-away covers.
  */
 const MAGNET_RELEASE_PX = 18;
+/**
+ * How much of the lane stack must be out of view before a bare wheel scrolls
+ * VERTICALLY instead of along the timeline.
+ *
+ * One collapsed lane row. Below that the hidden part is layout slack (row insets,
+ * the overview strip) rather than content, and scrolling to reveal twenty pixels
+ * of nothing is indistinguishable from the timeline refusing to scroll at all.
+ */
+const VERTICAL_WHEEL_MIN_OVERFLOW_PX = 24;
+/**
+ * How close two edges must be to count as MEETING, in seconds.
+ *
+ * A frame at 240fps is ~4ms, so this sits below any real edit boundary while still
+ * absorbing the float noise a drag accumulates. The magnet has already put the
+ * edge on the target by the time this is asked; the tolerance only has to survive
+ * the arithmetic, not do the aligning.
+ */
+const CONTACT_EPSILON = 1e-3;
 /** Pointer travel (px) before a press becomes a drag rather than a click/select. */
 const DRAG_THRESHOLD_PX = 3;
 /**
@@ -477,6 +497,14 @@ interface Ghost {
   readonly kind: GestureKind;
   /** Time the gesture snapped to, for the guide line; `null` when not snapped. */
   readonly snapTime: number | null;
+  /**
+   * The other clip's edge this one has landed flush against, or `null`.
+   *
+   * Distinct from {@link snapTime}: a marker or the playhead are snap targets too,
+   * and landing on one is not two clips meeting. Only this drives the contact
+   * highlight, because only this is the placement a cut depends on.
+   */
+  readonly contact: EdgeContact | null;
   /** Cmd/Ctrl held during a move — drop a copy instead of relocating the original. */
   readonly duplicate?: boolean;
   /** Cmd/Ctrl held during a trim on a butt-joined cut — roll the edit against
@@ -1773,6 +1801,11 @@ export function TimelineView({
           end: start + span,
           kind: g.kind,
           snapTime: snapped ? start : null,
+          // A move lands TWO edges; report whichever is actually touching, so
+          // butting a clip up on either side lights the marker.
+          contact:
+            clipEdgeContact(timeline, start, g.clip.id, CONTACT_EPSILON) ??
+            clipEdgeContact(timeline, start + span, g.clip.id, CONTACT_EPSILON),
           duplicate: event.metaKey || event.ctrlKey,
         });
         return;
@@ -1804,6 +1837,7 @@ export function TimelineView({
           end: g.clip.end,
           kind: g.kind,
           snapTime: snapped ? start : null,
+          contact: clipEdgeContact(timeline, start, g.clip.id, CONTACT_EPSILON),
           ...(bounds && neighbor ? { rollWith: neighbor.id } : {}),
         });
         return;
@@ -1821,6 +1855,7 @@ export function TimelineView({
         end,
         kind: g.kind,
         snapTime: snapped ? end : null,
+        contact: clipEdgeContact(timeline, end, g.clip.id, CONTACT_EPSILON),
         ...(bounds && neighbor ? { rollWith: neighbor.id } : {}),
       });
     },
@@ -2135,9 +2170,39 @@ export function TimelineView({
         deltaY: event.deltaY,
         zoomModifier: event.metaKey || event.ctrlKey,
         shiftKey: event.shiftKey,
-        canScrollVertically: sc.scrollHeight - sc.clientHeight > 1,
+        // Measured on the VERTICAL scroller, not on `sc`, and against a
+        // meaningful amount of overflow.
+        //
+        // `sc` is `.lane-scroll`, which only ever scrolls horizontally — its
+        // `scrollHeight` equals its `clientHeight`, so this was permanently false
+        // and the bare wheel scrolled the timeline sideways even when the track
+        // stack was too tall to fit. The lanes overflow on `.timeline-vscroll`,
+        // one level up, which is also the element the browser scrolls once the
+        // gesture is handed back to it.
+        //
+        // The threshold is a whole lane row, not a pixel. The stack carries a
+        // little slack even when everything fits — row insets and the strip below
+        // it add up to ~20px — and treating that as "scrollable" handed every
+        // wheel to the browser, which then moved the view by twenty pixels and
+        // stopped. That reads exactly like the horizontal scroll being broken. If
+        // less than one row is hidden there is nothing worth scrolling TO, so the
+        // wheel belongs to the timeline's own axis.
+        canScrollVertically: (() => {
+          const vs = vScrollRef.current;
+          return vs !== null && vs.scrollHeight - vs.clientHeight > VERTICAL_WHEEL_MIN_OVERFLOW_PX;
+        })(),
       });
       if (intent === 'browser') return;
+      if (intent === 'scroll-vertical') {
+        // Scroll the stack ourselves rather than leaving it to the browser: the
+        // lane container is a scroll container on both axes, so the gesture never
+        // chained up to the element that actually overflows.
+        const vs = vScrollRef.current;
+        if (vs === null) return;
+        event.preventDefault();
+        vs.scrollTop += event.deltaY;
+        return;
+      }
       if (intent === 'scroll-horizontal') {
         // UX-06: the bare wheel moves along the timeline, the axis it actually has.
         // Counts as a manual scroll, so playback follow stands down exactly as it does
@@ -3383,7 +3448,21 @@ export function TimelineView({
                 onPointerMove={onRulerPointerMove}
                 onPointerUp={onRulerPointerUp}
               />
-              {ghost?.snapTime != null && (
+              {/*
+                Two clips meeting. Shown only while the gesture is live and only
+                when the moving edge is flush against another clip's start or end —
+                the placement a cut depends on. A plain snap to the playhead or a
+                marker keeps the thinner guide below; it is useful, but it is not
+                two clips joining and should not claim to be.
+              */}
+              {ghost?.contact != null && (
+                <div
+                  className="edge-contact"
+                  aria-hidden="true"
+                  style={{ left: `${secondsToPx(ghost.contact.time, pxPerSecond)}px` }}
+                />
+              )}
+              {ghost?.snapTime != null && ghost.contact == null && (
                 <div
                   className="snap-guide"
                   aria-hidden="true"

@@ -15,6 +15,7 @@ import {
   Captions,
   Check,
   Crop,
+  Diamond,
   Download,
   Eye,
   FileText,
@@ -81,6 +82,9 @@ const TOOL_META: Record<string, ToolMeta> = {
   // kind of work needs. Named for what the user sees happening — the agent is
   // reaching for a specialised set — rather than for the mechanism.
   load_tools: { label: 'Load tools', Icon: Wrench },
+  // The undo half of `add_keyframes`. Named for what the editor sees happen —
+  // motion coming off a clip — not for the operation that does it.
+  remove_keyframes: { label: 'Remove animation', Icon: Diamond },
   recall_evidence: { label: 'Recall earlier finding', Icon: BookOpen },
   manage_assets: { label: 'Organize media', Icon: Folder },
 

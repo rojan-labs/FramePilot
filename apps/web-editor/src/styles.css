@@ -5018,6 +5018,68 @@ input[type='checkbox']:focus-visible {
   pointer-events: none;
 }
 
+/* Two clips meeting.
+
+   The confirmation that an edge landed where it was aimed: while a move or a trim
+   is in flight and the moving edge sits flush against another clip's start or end,
+   this lights at the join. It is temporary by construction — it hangs off the drag
+   ghost, so it exists only for the duration of the gesture and takes nothing with
+   it on release.
+
+   Deliberately louder than the plain snap guide, and shaped differently: a snap to
+   the playhead is alignment, this is CONTACT, and the two should not look alike.
+   The caps read as the seam between two blocks. */
+.edge-contact {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  z-index: var(--z-playhead);
+  pointer-events: none;
+  background: var(--tl-select);
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.45),
+    0 0 8px color-mix(in srgb, var(--tl-select) 55%, transparent);
+  animation: edge-contact-in var(--dur-fast) var(--ease) both;
+}
+
+/* Enters once when the edges meet, then holds — it is a state, not an activity. */
+@keyframes edge-contact-in {
+  from {
+    opacity: 0;
+    transform: scaleY(0.82);
+  }
+}
+
+/* Caps at both ends, so the mark reads as a join between two blocks rather than as
+   another vertical rule in a surface that already has a playhead and a grid. */
+.edge-contact::before,
+.edge-contact::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  transform: translateX(-50%) rotate(45deg);
+  background: var(--tl-select);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.45);
+}
+
+.edge-contact::before {
+  top: 2px;
+}
+
+.edge-contact::after {
+  bottom: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .edge-contact {
+    animation: none;
+  }
+}
+
 /* The magnet's guide.
 
    Not just "a line where the edge landed": while it is up, two things are held

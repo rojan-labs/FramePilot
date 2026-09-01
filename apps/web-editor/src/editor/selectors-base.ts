@@ -654,6 +654,59 @@ export function magnetSnap(
  * @param targets - Candidate snap times (see {@link snapTargets}).
  * @param threshold - Maximum distance, in seconds, at which snapping engages.
  */
+/** Two clip edges meeting at an instant: what the timeline highlights mid-gesture. */
+export interface EdgeContact {
+  /** Where they meet, in timeline seconds. */
+  readonly time: number;
+  /** The clip whose edge is being met. */
+  readonly clipId: string;
+  /** Which of its edges: the clip starts here, or it ends here. */
+  readonly edge: 'start' | 'end';
+}
+
+/**
+ * The clip edge a moving edge has landed on, or `null` when it is in open space.
+ *
+ * This is the fact the timeline highlights while you drag: not "the value snapped
+ * to something" — a marker or the playhead are also snap targets, and landing on
+ * them is not two clips meeting — but specifically that the edge under the pointer
+ * is now flush against another clip's start or end. That is the placement a cut
+ * depends on, and the one worth confirming on screen.
+ *
+ * The gestured clip is excluded, since a clip is always flush with itself.
+ *
+ * Pure, so the geometry is unit-tested without a pointer. Linear in the number of
+ * clips, called once per committed drag frame.
+ *
+ * @param timeline - Current timeline.
+ * @param time - The moving edge's time, in seconds.
+ * @param excludeClipId - The clip being dragged or trimmed.
+ * @param tolerance - How close counts as touching, in seconds.
+ */
+export function clipEdgeContact(
+  timeline: Timeline,
+  time: number,
+  excludeClipId: string | null,
+  tolerance: number,
+): EdgeContact | null {
+  if (!Number.isFinite(time) || tolerance < 0) return null;
+  let best: EdgeContact | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const track of timeline.tracks) {
+    for (const clip of track.clips) {
+      if (clip.id === excludeClipId) continue;
+      for (const edge of ['start', 'end'] as const) {
+        const edgeTime = edge === 'start' ? clip.start : clip.end;
+        const distance = Math.abs(edgeTime - time);
+        if (distance > tolerance || distance >= bestDistance) continue;
+        bestDistance = distance;
+        best = { time: edgeTime, clipId: clip.id, edge };
+      }
+    }
+  }
+  return best;
+}
+
 export function snap(time: number, targets: readonly number[], threshold: number): number {
   const clamped = time < 0 ? 0 : time;
   let best = clamped;
@@ -2066,7 +2119,7 @@ export function shouldAutoFollow(inputs: AutoFollowInputs): boolean {
 }
 
 /** What a wheel event over the timeline should do (UX-06). */
-export type WheelIntent = 'zoom' | 'scroll-horizontal' | 'browser';
+export type WheelIntent = 'zoom' | 'scroll-horizontal' | 'scroll-vertical' | 'browser';
 
 export interface WheelInputs {
   readonly deltaX: number;
@@ -2093,13 +2146,21 @@ export interface WheelInputs {
  * - Otherwise a vertical wheel scrolls the timeline horizontally, UNLESS the lanes
  *   are tall enough to scroll vertically — where scrolling the track stack is what
  *   the gesture obviously means, and stealing it would be worse than the bug.
+ *
+ * That last case returns `scroll-vertical` rather than handing the gesture back to
+ * the browser. Handing it back relies on scroll chaining from the horizontal lane
+ * container to the vertical one above it, and that did not happen: the lane
+ * container is itself a scroll container on both axes (a non-`visible` overflow on
+ * one axis computes the other to `auto`), so the gesture stopped there and the
+ * stack never moved. Naming the axis makes the caller do it, which is one line and
+ * cannot be undone by a layout detail.
  */
 export function wheelIntent(inputs: WheelInputs): WheelIntent {
   if (inputs.zoomModifier) return 'zoom';
   if (inputs.shiftKey) return 'browser';
   if (Math.abs(inputs.deltaX) > Math.abs(inputs.deltaY)) return 'browser';
-  if (inputs.canScrollVertically) return 'browser';
-  return inputs.deltaY === 0 ? 'browser' : 'scroll-horizontal';
+  if (inputs.deltaY === 0) return 'browser';
+  return inputs.canScrollVertically ? 'scroll-vertical' : 'scroll-horizontal';
 }
 
 /**

@@ -26,6 +26,7 @@ import {
   canvasPreviewEligible,
   webCodecsPreviewEligible,
   clipCompositing,
+  clipEdgeContact,
   compactDuration,
   compactTimeLabel,
   magnetSnap,
@@ -1051,6 +1052,89 @@ describe('formatTime', () => {
 
   it('renders plain seconds when asked', () => {
     expect(formatTime(2.5, 30, 'seconds')).toBe('2.50s');
+  });
+});
+
+describe('clipEdgeContact', () => {
+  const tl: Timeline = {
+    tracks: [
+      {
+        id: 'v',
+        type: 'video',
+        clips: [
+          {
+            id: 'a',
+            assetId: 'x',
+            trackId: 'v',
+            start: 0,
+            end: 4,
+            sourceStart: 0,
+            sourceEnd: 4,
+            effects: [],
+            keyframes: [],
+          },
+          {
+            id: 'b',
+            assetId: 'x',
+            trackId: 'v',
+            start: 6,
+            end: 10,
+            sourceStart: 0,
+            sourceEnd: 4,
+            effects: [],
+            keyframes: [],
+          },
+        ],
+      },
+      {
+        id: 'a1',
+        type: 'audio',
+        clips: [
+          {
+            id: 'm',
+            assetId: 'y',
+            trackId: 'a1',
+            start: 8,
+            end: 12,
+            sourceStart: 0,
+            sourceEnd: 4,
+            effects: [],
+            keyframes: [],
+          },
+        ],
+      },
+    ],
+  };
+
+  it('reports the clip edge a moving edge has landed on', () => {
+    expect(clipEdgeContact(tl, 4, 'b', 0.05)).toEqual({ time: 4, clipId: 'a', edge: 'end' });
+    expect(clipEdgeContact(tl, 6, 'a', 0.05)).toEqual({ time: 6, clipId: 'b', edge: 'start' });
+  });
+
+  it('finds edges on OTHER lanes too — clips line up across tracks', () => {
+    expect(clipEdgeContact(tl, 8, 'a', 0.05)).toEqual({ time: 8, clipId: 'm', edge: 'start' });
+  });
+
+  it('is null in open space', () => {
+    expect(clipEdgeContact(tl, 5, 'a', 0.05)).toBeNull();
+  });
+
+  it('never reports the gestured clip against itself', () => {
+    // A clip is always flush with its own edges; saying so would mean the marker
+    // was lit for the entire drag.
+    expect(clipEdgeContact(tl, 0, 'a', 0.05)).toBeNull();
+    expect(clipEdgeContact(tl, 4, 'a', 0.05)).toBeNull();
+  });
+
+  it('picks the NEAREST edge when two are within tolerance', () => {
+    expect(clipEdgeContact(tl, 5.9, null, 2)).toEqual({ time: 6, clipId: 'b', edge: 'start' });
+  });
+
+  it('respects the tolerance, and tolerates hostile input', () => {
+    expect(clipEdgeContact(tl, 4.2, 'b', 0.05)).toBeNull();
+    expect(clipEdgeContact(tl, 4.2, 'b', 0.5)).toEqual({ time: 4, clipId: 'a', edge: 'end' });
+    expect(clipEdgeContact(tl, Number.NaN, null, 0.05)).toBeNull();
+    expect(clipEdgeContact({ tracks: [] }, 4, null, 0.05)).toBeNull();
   });
 });
 
@@ -2096,7 +2180,20 @@ describe('wheelIntent (UX-06)', () => {
     expect(wheelIntent({ ...base, deltaY: 0 })).toBe('browser');
   });
 
-  it('never steals a vertical wheel from a track stack tall enough to scroll', () => {
-    expect(wheelIntent({ ...base, canScrollVertically: true })).toBe('browser');
+  it('scrolls the STACK when it is tall enough to have somewhere to go', () => {
+    // Named rather than handed back to the browser: the lane container is a scroll
+    // container on both axes, so the gesture never chained up to the element that
+    // actually overflows and the stack simply did not move.
+    expect(wheelIntent({ ...base, canScrollVertically: true })).toBe('scroll-vertical');
+    expect(wheelIntent({ ...base, canScrollVertically: true, deltaY: -100 })).toBe(
+      'scroll-vertical',
+    );
+  });
+
+  it('still leaves an explicit horizontal gesture to the browser, stack or no stack', () => {
+    expect(wheelIntent({ ...base, canScrollVertically: true, shiftKey: true })).toBe('browser');
+    expect(wheelIntent({ ...base, canScrollVertically: true, deltaX: -120, deltaY: 4 })).toBe(
+      'browser',
+    );
   });
 });
