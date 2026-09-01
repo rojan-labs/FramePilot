@@ -17,6 +17,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   ordinary clips no longer looks like a lane of selected ones — and selection is now
   unmistakable, because the ring is the same orange as the rest of the editor instead
   of the blue that used to disappear against a blue video clip.
+- **Keyframes, finished.** A keyframe button on the timeline toolbar records how the
+  selected clip looks right now — position, scale, rotation and opacity — at the
+  playhead, and takes it away again when you press it there a second time. It works
+  across a multi-selection (every selected clip the playhead is inside, in one undo
+  step), it stays available when the toolbar is too narrow for the full row, and
+  keyframes can now be nudged a frame at a time with the arrow keys instead of only
+  dragged. The AI can also take animation *off* a clip now, not only put it on.
 - **Snapping is a magnet you can feel.** An edge is caught as it comes near a cut and
   keeps hold until you deliberately pull away, instead of blinking in and out of
   alignment while your hand rests. Holding Alt still turns it off for one drag.
@@ -36,6 +43,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   "clips overlap on track" error. It now goes on a free lane of the same kind, or a new
   one, which is what lanes are for — for drops in the editor and for anything the AI
   places.
+- **Trimming an animated clip no longer slides its animation.** Keyframe times are
+  measured from the clip's start, and trimming the front of a clip did not move them —
+  so a punch-in placed on a gesture drifted off that gesture, a little further with
+  every trim. Deleting a range or ripple-deleting had the same effect. The animation
+  now stays locked to the footage.
 - **An audio fade can be shortened again.** Dragging a fade handle outward worked;
   dragging it back did nothing at all, so once a clip had a fade you could never reduce
   or remove it by hand.
