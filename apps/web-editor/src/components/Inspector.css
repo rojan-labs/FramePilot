@@ -803,24 +803,35 @@
   background: var(--bg-panel);
 }
 
+/* The glyph, not a tile holding a glyph. A 46px filled rounded box around a 20px
+   icon is decoration standing in for hierarchy — and an icon in a coloured tile is
+   on `design.md`'s reject list for exactly that reason. The words carry the state;
+   the glyph only softens the emptiness. */
 .inspector-pro.inspector-empty-state .inspector-empty-icon {
   display: grid;
   place-items: center;
-  width: 46px;
-  height: 46px;
-  margin-bottom: 8px;
-  border-radius: var(--radius-lg);
-  background: var(--bg-elevated);
-  color: var(--text-secondary);
+  width: 24px;
+  height: 24px;
+  margin-bottom: 10px;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-disabled);
 }
 
+/* The empty state's kicker.
+
+   Sentence case, untracked. `PROPERTIES` at 0.12em above "It's empty here" was a
+   tracked all-caps eyebrow — the single most recognisable generated-design tell,
+   and the thing `design.md` names first in its reject list. It also said nothing
+   the heading below it did not already say, so it is now a quiet label rather than
+   a shout. */
 .inspector-pro .inspector-eyebrow {
   margin: 0 0 3px;
   color: var(--text-tertiary);
   font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .inspector-pro.inspector-empty-state h2 {

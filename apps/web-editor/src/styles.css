@@ -6000,6 +6000,104 @@ input[type='checkbox']:focus-visible {
   touch-action: none;
 }
 
+/* ---- Agent FAB — the way back to a run you navigated away from --------- */
+/* Sits just above the timeline dock, on the side the AI panel is on, so the eye
+   travels the shortest distance from "something is happening" to the panel that
+   shows what. Not centred, and not over the footage: this is chrome about the
+   agent, and the program monitor is the one thing that must never be covered. */
+.agent-fab {
+  position: absolute;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: var(--z-toast);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px 0 9px;
+  border: 1px solid var(--tl-select);
+  border-radius: var(--radius-pill);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  /* Enter once, then hold still. A control that reports ongoing work must not
+     itself keep moving — the ring below is the only thing that animates, and it
+     is what carries "still going". */
+  animation: agent-fab-in var(--dur) var(--ease) both;
+}
+
+@keyframes agent-fab-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.agent-fab:hover {
+  background: var(--bg-surface);
+}
+
+.agent-fab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* The mark: the accent ring is the "still working" signal. One slow rotation —
+   fast enough to read as alive, slow enough not to pull the eye off the edit. */
+.agent-fab-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--tl-select);
+}
+
+.agent-fab-mark::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 1.5px solid transparent;
+  border-top-color: var(--tl-select);
+  border-right-color: var(--tl-select);
+  animation: agent-fab-spin 1.1s linear infinite;
+}
+
+@keyframes agent-fab-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The caption names the current step. Bounded, because an agent's own words are
+   not a layout contract — a long tool name must not stretch the control across
+   the editor. */
+.agent-fab-copy {
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Reduced motion: the ring stops turning and the button simply appears. The
+   button is still there and still says "working" in its accessible name, so
+   nothing is lost but the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .agent-fab {
+    animation: none;
+  }
+  .agent-fab-mark::before {
+    animation: none;
+    border-color: var(--tl-select);
+    opacity: 0.5;
+  }
+}
+
 /* ---- Minimap / overview strip (M2b-2) --------------------------------- */
 /* A compressed full-sequence strip under the timeline. Pure navigation: every
    clip is a tiny block; the bright window is the current viewport, draggable. */
@@ -6013,13 +6111,18 @@ input[type='checkbox']:focus-visible {
      flexible child left when the dock is short and it gets squeezed — it was
      rendering as a half-height sliver clipped by the timeline's own overflow. */
   flex: none;
-  /* Shares the LANES' x-origin, not the timeline's. The strip is a sibling of the
-     whole two-column grid, so at margin 0 its x=0 sat under the track-header
-     gutter: every block and the viewport window were drawn a full gutter width to
-     the left of the clips they map, and the strip ran under the headers, which map
-     nothing. One token keeps it aligned with the grid column it mirrors. */
-  margin-left: var(--tl-gutter-w);
-  margin-top: 3px;
+  /* FULL WIDTH, at the bottom of the dock.
+
+     It is not a lane and it does not have to line up with one: it is a compressed
+     map of the WHOLE sequence, with its own coordinate space (the geometry selector
+     maps the sequence onto the strip's measured width, whatever that is). Insetting
+     it by the track-header gutter to match the lanes bought nothing — the blocks
+     still did not correspond to lane positions, because the strip is a different
+     scale — and cost the map the width that makes it readable. As a full-bleed bar
+     across the foot of the dock it reads as what it is: the overview for the panel
+     above it, not a sixth lane. */
+  margin-left: 0;
+  margin-top: 0;
   border-top: 1px solid var(--border-subtle);
   /* Ordinary chrome (an abstract clip overview, not footage) — follows the
      theme like every other surface. --bg-canvas would stay dark even in

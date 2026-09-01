@@ -80,7 +80,7 @@ const sectionNames = (): string[] =>
 describe('Inspector — context awareness', () => {
   it('shows an empty state and no sections with nothing selected', () => {
     render(<Host />);
-    expect(screen.getByText('It’s empty here')).toBeTruthy();
+    expect(screen.getByText('Nothing selected')).toBeTruthy();
     expect(sectionNames()).toEqual([]);
   });
 

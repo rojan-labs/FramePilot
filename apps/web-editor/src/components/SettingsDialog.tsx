@@ -1627,6 +1627,12 @@ function SettingsDialogContent({
                       checked={settings.autoFollow}
                       onChange={(autoFollow) => update({ autoFollow })}
                     />
+                    <Toggle
+                      label="Open the Inspector when I click a clip"
+                      hint="The right panel follows your selection. A running agent moves to a button above the timeline rather than being hidden."
+                      checked={settings.openInspectorOnSelect}
+                      onChange={(openInspectorOnSelect) => update({ openInspectorOnSelect })}
+                    />
                   </SettingGroup>
                   <SettingGroup
                     title="New elements"

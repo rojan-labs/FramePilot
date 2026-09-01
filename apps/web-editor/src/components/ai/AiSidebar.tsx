@@ -46,6 +46,7 @@ import {
 import type { AnyOperation } from '@framepilot/editor-core';
 import { safeParseProject, type Project } from '@framepilot/timeline-schema';
 import { toReviewCard } from '../../editor/ai.js';
+import { clearAgentActivity, publishAgentActivity } from '../../editor/agent-activity.js';
 import type { Patch } from '@framepilot/editor-core';
 import {
   type AiSession,
@@ -389,6 +390,12 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   const setRunning = useCallback((next: boolean) => {
     runningRef.current = next;
     setRunningState(next);
+    // Mirror it into the out-of-React activity store, so the floating control can
+    // offer a way back to this run from anywhere without the editor subscribing to
+    // anything. One chokepoint, so the two can never disagree about whether a run
+    // is live — see `editor/agent-activity.ts` for why it is not a prop.
+    if (next) publishAgentActivity({ running: true, label: null });
+    else clearAgentActivity();
   }, []);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [removedContext, setRemovedContext] = useState<readonly string[]>([]);

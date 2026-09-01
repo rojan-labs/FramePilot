@@ -23,6 +23,15 @@ export interface EditorSettings {
   readonly theme: Theme;
   readonly snapping: boolean;
   readonly showTimelineThumbnails: boolean;
+  /**
+   * Clicking a clip on the timeline brings up the Inspector.
+   *
+   * Off by default. On, the right rail follows the selection — which is what an
+   * editor who lives in the Inspector wants, and an interruption to one who lives
+   * in the AI panel. A running agent is not hidden by it: it moves to a floating
+   * control that leads back (see `AgentFab`).
+   */
+  readonly openInspectorOnSelect: boolean;
   readonly autoFollow: boolean;
   readonly defaultOverlaySeconds: number;
   readonly loopByDefault: boolean;
@@ -51,6 +60,7 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   theme: 'system',
   snapping: true,
   showTimelineThumbnails: true,
+  openInspectorOnSelect: false,
   autoFollow: true,
   defaultOverlaySeconds: 3,
   loopByDefault: false,
@@ -94,6 +104,7 @@ export function mergeSettings(partial: unknown): EditorSettings {
         : DEFAULT_SETTINGS.theme,
     snapping: p.snapping === false ? false : true,
     showTimelineThumbnails: p.showTimelineThumbnails === false ? false : true,
+    openInspectorOnSelect: p.openInspectorOnSelect === true,
     autoFollow: p.autoFollow === false ? false : true,
     defaultOverlaySeconds:
       typeof p.defaultOverlaySeconds === 'number' && Number.isFinite(p.defaultOverlaySeconds)

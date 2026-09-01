@@ -229,6 +229,11 @@ export interface TimelineViewProps {
    * truth (TIMELINE-TOOLBAR-REORG). Defaults to `'select'`.
    */
   readonly tool?: Tool;
+  /**
+   * The user deliberately clicked a clip. Not "the selection changed" — see
+   * `onClipClick`. Optional, so a surface that does not care omits it.
+   */
+  readonly onItemActivate?: (() => void) | undefined;
 }
 
 /** A non-zero lane width so an empty/short timeline is still visible. */
@@ -1250,6 +1255,7 @@ export function TimelineView({
   onRevealAssetInBin,
   onOpenTransitionLibrary,
   tool = 'select',
+  onItemActivate,
   selectedEffectLayerIds = [],
   // Defaulted to a no-op so the component still works standalone in tests that do
   // not exercise effect selection.
@@ -1905,8 +1911,14 @@ export function TimelineView({
       // selected effect layer drops out — otherwise Delete would still take the
       // layer down with the clip (they delete together now).
       if (mode === 'replace') setSelectedEffectLayerIds([]);
+      // A DELIBERATE click on a clip, distinct from selection changing for any
+      // other reason. The "open the Inspector when I click something" preference
+      // hangs off this rather than off `state.selection`, so a selection the AI
+      // makes mid-run — or a marquee, or an undo restoring one — never yanks the
+      // rail out from under the user.
+      onItemActivate?.();
     },
-    [razor, timeline, xToSeconds, applyPatch, select, setSelectedEffectLayerIds],
+    [razor, timeline, xToSeconds, applyPatch, select, setSelectedEffectLayerIds, onItemActivate],
   );
 
   // --- Marquee (rubber-band) selection on empty lane area (M2a) -------------
@@ -3451,27 +3463,6 @@ export function TimelineView({
         </div>
       </div>
 
-      {/* Minimap / overview strip — compressed full-sequence navigation. Pure
-          chrome: dragging it only pans the lane viewport (see TimelineMinimap).
-
-          Mounted ONLY when the sequence is wider than its viewport, which is the
-          contract TimelineMinimap has always documented and this parent never
-          honoured. With everything already on screen the viewport window covers
-          the whole strip, so the map rendered as a solid accent slab that hid the
-          very clip blocks it exists to show — an overview of "you can see all of
-          it" that also cost the lanes 22px of height. */}
-      {overviewNeeded && (
-        <TimelineMinimap
-          timeline={timeline}
-          trackOrder={visibleTrackIds}
-          pxPerSecond={pxPerSecond}
-          contentWidth={laneWidth}
-          scrollLeft={viewport.scrollLeft}
-          clientWidth={viewport.clientWidth}
-          onScrollTo={scrollLaneTo}
-        />
-      )}
-
       {/*
         The space below the stack.
 
@@ -3512,6 +3503,28 @@ export function TimelineView({
           <span className="timeline-underspace-hint">Drop media here to place it</span>
         )}
       </div>
+
+      {/* Minimap / overview strip — compressed full-sequence navigation, LAST so it
+          sits at the foot of the dock with the open area above pushing it there.
+          Pure chrome: dragging it only pans the lane viewport (see TimelineMinimap).
+
+          Mounted ONLY when the sequence is wider than its viewport, which is the
+          contract TimelineMinimap has always documented and this parent never
+          honoured. With everything already on screen the viewport window covers
+          the whole strip, so the map rendered as a solid accent slab that hid the
+          very clip blocks it exists to show — an overview of "you can see all of
+          it" that also cost the lanes 22px of height. */}
+      {overviewNeeded && (
+        <TimelineMinimap
+          timeline={timeline}
+          trackOrder={visibleTrackIds}
+          pxPerSecond={pxPerSecond}
+          contentWidth={laneWidth}
+          scrollLeft={viewport.scrollLeft}
+          clientWidth={viewport.clientWidth}
+          onScrollTo={scrollLaneTo}
+        />
+      )}
 
       {menu && (
         <ClipContextMenu
