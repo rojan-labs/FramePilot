@@ -129,6 +129,16 @@ const folderPlanSchema = z
 const assignmentSchema = z
   .object({ assetId: z.string(), folderId: z.string().nullable() })
   .strict();
+/**
+ * Longest explicit plan one `manage_assets` call may carry.
+ *
+ * The by-kind path is bounded by the bin (see the tool's `derivedFanOut` note); an
+ * EXPLICIT plan is composed by the model, so it is bounded here — at the schema, where
+ * the description states the limit and a refusal names the fix, rather than at the
+ * turn's blast-radius rail, where the only message is a count.
+ */
+export const MAX_ASSET_PLAN_ENTRIES = 200;
+
 const manageAssetsSchema = z
   .object({
     /**
@@ -136,8 +146,8 @@ const manageAssetsSchema = z
      * Video/Audio/Images folders. Otherwise provide an explicit semantic plan.
      */
     strategy: z.enum(['by-kind', 'plan']).optional(),
-    folders: z.array(folderPlanSchema).optional(),
-    assignments: z.array(assignmentSchema).optional(),
+    folders: z.array(folderPlanSchema).max(MAX_ASSET_PLAN_ENTRIES).optional(),
+    assignments: z.array(assignmentSchema).max(MAX_ASSET_PLAN_ENTRIES).optional(),
   })
   .strict();
 
@@ -291,8 +301,16 @@ export const PROJECT_TOOLS: readonly ToolSpec[] = [
       name: 'manage_assets',
       description:
         'Organize the media bin into folders. Provide an explicit semantic plan ' +
-        '(folders + assignments) to group assets by meaning (e.g. "B-roll", ' +
-        '"Music"), or pass strategy="by-kind" to auto-group into Video/Audio/Images.',
+        `(folders + assignments, at most ${String(MAX_ASSET_PLAN_ENTRIES)} of each) to group ` +
+        'assets by meaning (e.g. "B-roll", "Music"), or pass strategy="by-kind" to ' +
+        'auto-group into Video/Audio/Images.',
+      // by-kind emits one `move_asset` per asset in the bin, so a 300-photo montage is
+      // 301 operations and the whole "organize my bin" turn was discarded by the
+      // blast-radius bound. That count is a fact about the project, not a choice the
+      // model made. The EXPLICIT plan is a choice, and is bounded at the schema instead
+      // (`MAX_ASSET_PLAN_ENTRIES`) so this exemption cannot be used to smuggle one
+      // through. See `ToolSpec.derivedFanOut`.
+      derivedFanOut: true,
     },
     manageAssetsSchema,
     (a, ctx) => {

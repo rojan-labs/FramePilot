@@ -8,8 +8,9 @@
  * never an unreachable one.
  */
 import { describe, expect, it } from 'vitest';
-import { TOOL_REGISTRY, toolDescriptors } from './tool-registry.js';
+import { TOOL_REGISTRY, getTool, toolDescriptors } from './tool-registry.js';
 import { MAX_CLIPS_PER_BATCH } from './domain-tools/timeline.js';
+import { MAX_ASSET_PLAN_ENTRIES } from './domain-tools/project.js';
 import {
   DOMAIN_SUMMARY,
   LOADABLE_DOMAINS,
@@ -124,8 +125,11 @@ describe('derived fan-out is a short, justified list', () => {
       // head re-captions in ~110 operations, a three-minute one in ~400, and the cue
       // count is a fact about the transcript.
       'caption_the_edit',
-      // One `ripple_delete` per measured silence — ~110 on a ten-minute podcast, and
-      // the count is a fact about the recording.
+      // One `move_asset` per asset in the bin on the by-kind path — 301 for a 300-photo
+      // montage. Its EXPLICIT plan is model-composed and bounded at the schema instead.
+      'manage_assets',
+      // One `ripple_delete` per measured silence — ~250 on a twenty-minute interview,
+      // and the count is a fact about the recording.
       'remove_silences',
     ]);
   });
@@ -139,5 +143,19 @@ describe('derived fan-out is a short, justified list', () => {
     expect(addClips?.description).toMatch(/\d+/);
     // And the schema bound sits under the turn bound, so a legal batch always fits.
     expect(MAX_CLIPS_PER_BATCH).toBeLessThan(AGENT_MAX_OPS_PER_TURN);
+  });
+
+  it('bounds the model-composed half of a tool that is exempt on its derived half', () => {
+    // `manage_assets` is the one tool with both shapes. The exemption is for `by-kind`,
+    // whose op count is the bin's; the explicit plan is the model's and must not ride in
+    // on the same ticket. A schema bound is what keeps the two apart.
+    const tool = getTool('manage_assets');
+    expect(tool?.derivedFanOut).toBe(true);
+    expect(tool?.description).toContain(String(MAX_ASSET_PLAN_ENTRIES));
+    const overLong = Array.from({ length: MAX_ASSET_PLAN_ENTRIES + 1 }, (_, i) => ({
+      assetId: `a${String(i)}`,
+      folderId: 'f',
+    }));
+    expect(() => tool?.parse({ strategy: 'plan', assignments: overLong })).toThrow();
   });
 });
