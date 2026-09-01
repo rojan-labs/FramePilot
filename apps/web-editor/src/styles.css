@@ -5551,7 +5551,7 @@ input[type='checkbox']:focus-visible {
 .clip-transition-add {
   position: absolute;
   top: 50%;
-  width: 9px;
+  width: 10px;
   height: 60%;
   transform: translate(-50%, -50%);
   border-radius: var(--radius-xs);
@@ -5565,17 +5565,21 @@ input[type='checkbox']:focus-visible {
   border: 0;
   opacity: 0;
   cursor: copy;
-  /* BELOW the trim handles (z-index 2), not above them.
+  /* Above the clips, and no longer ON the trim handles.
 
-     Three affordances overlap at every butt-joined cut: the outgoing clip's right
-     trim, the incoming clip's left trim, and this. They are not equal — trimming
-     an edge is the far more frequent gesture and it is the one that needs the
-     exact pixel, so it wins the hit test at the edges while this holds the middle
-     of the junction. It also carries no grip line, because it is not a drag
-     handle: it is a double-click and drop target (`cursor: copy`). Giving it one
-     put three white grips within nine pixels of each other, which read as a single
-     grey widget parked on the cut. */
-  z-index: 1;
+     `z-index: 1` was an attempt to put this UNDER them, and it could not work:
+     `.clip-block` carries `content-visibility: auto`, which implies paint
+     containment and therefore makes each clip its own stacking context. A trim
+     handle's `z-index: 2` is local to its clip, so anything at lane level with
+     `z-index >= 1` sits above the WHOLE clip, handles included. The result was an
+     invisible target covering both trim handles at every butt-joined cut, so
+     trimming at a cut silently did nothing.
+
+     The two are separated geometrically instead (see the trim inset below): this
+     holds the middle of the junction, the handles sit just outside it, and both
+     are reachable. It carries no grip line, because it is not a drag handle — it
+     is a click and drop target (`cursor: copy`). */
+  z-index: 3;
   transition: opacity var(--dur-fast) var(--ease);
 }
 
@@ -5692,6 +5696,24 @@ input[type='checkbox']:focus-visible {
 .clip-badge svg {
   width: 11px;
   height: 11px;
+}
+
+/* At a butt-joined cut on a lane that can carry a transition, the facing trim
+   handles step 5px inside the join so the add-transition target can hold the
+   middle without covering them. Both stay 7px and grabbable; they simply sit just
+   inside the clip, which is where a pro NLE puts the trim zone at a cut anyway.
+
+   Scoped to video and audio lanes because that is exactly where the affordance is
+   rendered (`TRANSITIONABLE_TRACK_TYPES`) — a caption or overlay run keeps its
+   handles flush to the join, since nothing else is competing for those pixels. */
+.track-lane[data-track-type='video'] .clip-block.is-join-r .clip-trim-r,
+.track-lane[data-track-type='audio'] .clip-block.is-join-r .clip-trim-r {
+  right: 5px;
+}
+
+.track-lane[data-track-type='video'] .clip-block.is-join-l .clip-trim-l,
+.track-lane[data-track-type='audio'] .clip-block.is-join-l .clip-trim-l {
+  left: 5px;
 }
 
 /* Edge-trim affordances — slim, revealed on hover, full clip height.

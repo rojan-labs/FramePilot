@@ -26,7 +26,7 @@ import {
   type ResolvedTransition,
 } from '../preview/transitions/transition-engine.js';
 import { LEGACY_TRANSITION_IDS } from '@framepilot/timeline-schema/transition-catalog';
-import { TRANSITION_OUT_EFFECT_TYPE } from '@framepilot/editor-core';
+import { hasTimeBasedSource, TRANSITION_OUT_EFFECT_TYPE } from '@framepilot/editor-core';
 
 /**
  * A clean, human display name for an asset: the basename of its file path
@@ -1235,7 +1235,12 @@ export const tracksCompatible = (a: Track['type'], b: Track['type']): boolean =>
  * before the (fixed) right edge.
  */
 export function clampTrimStart(clip: Clip, desiredStart: number): number {
-  const earliest = clip.start - clip.sourceStart; // sourceStart → 0 here
+  // A clip with no time-based source (a text overlay, a caption cue) is generated
+  // at render time and has no in-point to run out of, so its left edge is bounded
+  // only by the start of the timeline. Reading its `sourceStart: 0` as a real
+  // in-point made `earliest` equal to where the clip already began — which is why
+  // these could be extended forwards and not backwards.
+  const earliest = hasTimeBasedSource(clip) ? clip.start - clip.sourceStart : 0;
   const latest = clip.end - MIN_CLIP_SECONDS;
   return clampRange(desiredStart, earliest, latest);
 }

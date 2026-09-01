@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Clip, Timeline } from '@framepilot/timeline-schema';
+import { TEXT_OVERLAY_ASSET_ID } from '@framepilot/editor-core';
 import type { Asset } from '@framepilot/timeline-schema';
 import {
   assetDisplayName,
@@ -1386,6 +1387,31 @@ describe('clampTrimStart', () => {
 
   it('cannot cross the right edge (keeps a minimum length)', () => {
     expect(clampTrimStart(sampleClip, 100)).toBeCloseTo(10 - 0.05);
+  });
+
+  it('lets a clip with NO time-based source be extended earlier', () => {
+    // REGRESSION: a text overlay is generated at render time, so its `sourceStart: 0`
+    // is not an in-point — but it was read as one, making `earliest` equal to where
+    // the clip already began. The result was an overlay you could stretch forwards
+    // and never backwards.
+    const overlay = {
+      ...sampleClip,
+      assetId: TEXT_OVERLAY_ASSET_ID,
+      start: 6,
+      end: 10,
+      sourceStart: 0,
+      sourceEnd: 4,
+    };
+    expect(clampTrimStart(overlay, 1)).toBe(1);
+    expect(clampTrimStart(overlay, 0)).toBe(0);
+    // Still bounded by the start of the timeline and by the minimum length.
+    expect(clampTrimStart(overlay, -5)).toBe(0);
+    expect(clampTrimStart(overlay, 100)).toBeCloseTo(10 - 0.05);
+  });
+
+  it('keeps the in-point bound for a clip that HAS a real source', () => {
+    // The constraint is real for footage: there is no picture before the file starts.
+    expect(clampTrimStart(sampleClip, 0)).toBe(4);
   });
 
   it('falls back to the earliest start when the clip is shorter than the minimum', () => {

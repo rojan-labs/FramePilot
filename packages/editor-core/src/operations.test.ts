@@ -181,6 +181,80 @@ describe('trimming re-bases clip-relative keyframes', () => {
   });
 });
 
+describe('clips with no time-based source trim in BOTH directions', () => {
+  /** A text overlay: generated at render time, so `sourceStart: 0` means nothing. */
+  const overlay = (): Timeline => ({
+    tracks: [
+      {
+        id: 'ov',
+        type: 'overlay',
+        clips: [
+          clip({
+            id: 't',
+            trackId: 'ov',
+            assetId: TEXT_OVERLAY_ASSET_ID,
+            start: 4,
+            end: 7,
+            sourceStart: 0,
+            sourceEnd: 3,
+          }),
+        ],
+      },
+    ],
+  });
+
+  it('can be extended EARLIER, which a real source range would forbid', () => {
+    // REGRESSION: `truncateClip` mapped the trim through the source arithmetic, so
+    // pulling the left edge back drove `sourceStart` negative and `applyTrim`
+    // rejected it. A text overlay could be stretched forwards and never backwards.
+    const after = applyOperation(overlay(), { type: 'trim_clip', clipId: 't', start: 1, end: 7 });
+    const next = findClipById(after, 't')!;
+    expect(next.start).toBe(1);
+    expect(next.end).toBe(7);
+    // Its window is always the whole of itself.
+    expect(next.sourceStart).toBe(0);
+    expect(next.sourceEnd).toBe(6);
+  });
+
+  it('still shortens from either edge', () => {
+    const left = applyOperation(overlay(), { type: 'trim_clip', clipId: 't', start: 5, end: 7 });
+    expect(findClipById(left, 't')).toMatchObject({
+      start: 5,
+      end: 7,
+      sourceStart: 0,
+      sourceEnd: 2,
+    });
+    const right = applyOperation(overlay(), { type: 'trim_clip', clipId: 't', start: 4, end: 6 });
+    expect(findClipById(right, 't')).toMatchObject({
+      start: 4,
+      end: 6,
+      sourceStart: 0,
+      sourceEnd: 2,
+    });
+  });
+
+  it('produces a clip the schema accepts', () => {
+    const after = applyOperation(overlay(), { type: 'trim_clip', clipId: 't', start: 0, end: 7 });
+    expect(() => TimelineSchema.parse(after)).not.toThrow();
+  });
+
+  it('leaves a clip WITH a real source bounded by its in-point, as before', () => {
+    // The constraint is real for footage: there is no picture before the file starts.
+    const footage: Timeline = {
+      tracks: [
+        {
+          id: 'v',
+          type: 'video',
+          clips: [clip({ id: 'a', trackId: 'v', start: 4, end: 8, sourceStart: 0, sourceEnd: 4 })],
+        },
+      ],
+    };
+    expect(() =>
+      applyOperation(footage, { type: 'trim_clip', clipId: 'a', start: 1, end: 8 }),
+    ).toThrow();
+  });
+});
+
 describe('speed stretches keyframes with the clip', () => {
   const animated = (): Timeline => ({
     tracks: [
