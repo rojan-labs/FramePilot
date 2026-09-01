@@ -8,8 +8,12 @@
  * call assembled from half its arguments, a message routed to the wrong role.
  */
 import { describe, expect, it } from 'vitest';
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import type { BaseMessage } from '@langchain/core/messages';
 import {
-  mergeArgs,
+  LangChainChatProvider,
+  ToolCallAccumulator,
+  toolCallArguments,
   mergeUsage,
   openAiCacheBoundaryContent,
   reasoningFromKwargs,
@@ -18,7 +22,7 @@ import {
   toChatMessages,
   usageFromMetadata,
 } from './langchain-chat.js';
-import type { AiCompletionRequest } from './types.js';
+import type { AiCompletionRequest, ProviderChunk } from './types.js';
 
 describe('textAndReasoning', () => {
   it('passes a plain string through as visible text', () => {
@@ -90,28 +94,98 @@ describe('reasoningFromKwargs', () => {
   });
 });
 
-describe('mergeArgs', () => {
-  it('returns what it had when the fragment is absent or empty', () => {
-    expect(mergeArgs({ a: 1 }, undefined)).toEqual({ a: 1 });
-    expect(mergeArgs({ a: 1 }, '')).toEqual({ a: 1 });
-    expect(mergeArgs(undefined, undefined)).toEqual({});
+describe('ToolCallAccumulator', () => {
+  const settle = (
+    fragments: readonly { index?: number; id?: string; name?: string; args?: string }[],
+  ): readonly { name: string; args: Record<string, unknown> | undefined }[] => {
+    const accumulator = new ToolCallAccumulator();
+    for (const fragment of fragments) accumulator.push(fragment);
+    return accumulator.settle().map((call) => ({
+      name: call.name,
+      args: toolCallArguments(call),
+    }));
+  };
+
+  it('joins fragments until the whole argument string parses', () => {
+    expect(
+      settle([
+        { index: 0, id: 'a', name: 'trim_clip', args: '' },
+        { index: 0, args: '{"clipId":' },
+        { index: 0, args: '"clip_a"}' },
+      ]),
+    ).toEqual([{ name: 'trim_clip', args: { clipId: 'clip_a' } }]);
   });
 
-  it('parses a fragment that is already complete JSON', () => {
-    expect(mergeArgs(undefined, '{"clipId":"clip_a"}')).toEqual({ clipId: 'clip_a' });
+  it('keeps the raw text after a prefix happens to parse on its own', () => {
+    // The previous implementation parsed after every fragment and kept the OBJECT when the
+    // concatenation parsed, throwing the text away — so the next fragment restarted from
+    // an empty buffer and the call silently lost everything before it.
+    expect(
+      settle([
+        { index: 0, id: 'a', name: 'add_clip', args: '{"start":1' },
+        { index: 0, args: '2,"end":20}' },
+      ]),
+    ).toEqual([{ name: 'add_clip', args: { start: 12, end: 20 } }]);
   });
 
-  it('carries an unparseable fragment forward rather than throwing', () => {
-    // Fragments arrive as partial JSON; only the concatenation parses. Throwing here
-    // would abort a tool call that is merely incomplete.
-    const partial = mergeArgs(undefined, '{"clipId":');
-    expect(partial).toEqual({ __partial: '{"clipId":' });
+  it('refuses arguments that were cut off mid-JSON rather than repairing them', () => {
+    // `{"start":1` could be `1`, `12` or `1.5`. Closing the brace would dispatch an edit at
+    // an invented time; `undefined` makes the caller drop the call and retry the step.
+    expect(settle([{ index: 0, id: 'a', name: 'add_clip', args: '{"start":1' }])).toEqual([
+      { name: 'add_clip', args: undefined },
+    ]);
   });
 
-  it('joins fragments across calls until the whole parses', () => {
-    const first = mergeArgs(undefined, '{"clipId":');
-    const second = mergeArgs(first, '"clip_a"}');
-    expect(second).toEqual({ clipId: 'clip_a' });
+  it('reads an empty argument string as no arguments', () => {
+    expect(settle([{ index: 0, id: 'a', name: 'list_assets', args: '' }])).toEqual([
+      { name: 'list_assets', args: {} },
+    ]);
+  });
+
+  it('keeps calls apart when the gateway omits `index` entirely', () => {
+    // Captured OpenRouter defect: with `index ?? 0` all three calls collapsed onto key 0,
+    // their argument strings were concatenated into garbage, and the turn reached the
+    // executor as ONE call whose arguments were the single character `{`.
+    expect(
+      settle([
+        { id: 'a', name: 'transcribe', args: '{"assetId":"asset_1"}' },
+        { id: 'b', name: 'add_clip', args: '{"trackId":"v_main"}' },
+        { id: 'c', name: 'add_clip', args: '{"trackId":"music_1"}' },
+      ]),
+    ).toEqual([
+      { name: 'transcribe', args: { assetId: 'asset_1' } },
+      { name: 'add_clip', args: { trackId: 'v_main' } },
+      { name: 'add_clip', args: { trackId: 'music_1' } },
+    ]);
+  });
+
+  it('keeps calls apart when the gateway restarts `index` at 0 for each call', () => {
+    expect(
+      settle([
+        { index: 0, id: 'a', name: 'get_timeline', args: '{}' },
+        { index: 0, id: 'b', name: 'list_assets', args: '{}' },
+      ]),
+    ).toEqual([
+      { name: 'get_timeline', args: {} },
+      { name: 'list_assets', args: {} },
+    ]);
+  });
+
+  it('takes a complete tool call the provider already parsed', () => {
+    // `AIMessageChunk` leaves `tool_call_chunks` empty and fills `tool_calls` when the
+    // gateway sent the call in one piece; a reader that only looks at fragments loses it.
+    const accumulator = new ToolCallAccumulator();
+    accumulator.pushComplete({ id: 'a', name: 'get_timeline', args: { verbose: true } });
+    expect(accumulator.settle().map((call) => toolCallArguments(call))).toEqual([
+      { verbose: true },
+    ]);
+  });
+
+  it('does not produce a call twice when both shapes arrive for it', () => {
+    const accumulator = new ToolCallAccumulator();
+    accumulator.push({ index: 0, id: 'a', name: 'get_timeline', args: '{"verbose":true}' });
+    accumulator.pushComplete({ id: 'a', name: 'get_timeline', args: { verbose: true } });
+    expect(accumulator.settle()).toHaveLength(1);
   });
 });
 
@@ -319,5 +393,117 @@ describe('cache breakpoints ride an OpenAI-shaped body too', () => {
       text: 'look at this',
       cache_control: { type: 'ephemeral' },
     });
+  });
+});
+
+/**
+ * The streaming half, driven by a chat model that yields exactly the chunk shapes a real
+ * gateway produces. These are end-to-end over `stream()` rather than over the accumulator
+ * alone, because the defect they cover lived in what `stream()` did with the accumulation
+ * at the end, not in the accumulation itself.
+ */
+describe('LangChainChatProvider.stream', () => {
+  class StubProvider extends LangChainChatProvider {
+    public readonly name = 'openrouter' as const;
+
+    public constructor(private readonly chunks: readonly unknown[]) {
+      super({ name: 'openrouter', model: 'openrouter/auto' });
+    }
+
+    public get modelId(): string {
+      return 'openrouter/auto';
+    }
+
+    protected buildModel(): BaseChatModel {
+      const chunks = this.chunks;
+      const model = {
+        bindTools: () => model,
+        // `stream()` is awaited by the caller, so a plain generator is as good as a promise.
+        stream: () =>
+          (async function* () {
+            for (const chunk of chunks) yield chunk;
+          })(),
+      };
+      return model as unknown as BaseChatModel;
+    }
+
+    protected buildMessages(): BaseMessage[] {
+      return [];
+    }
+  }
+
+  const ASK: AiCompletionRequest = { messages: [{ role: 'user', content: 'edit it' }] };
+
+  const collect = async (chunks: readonly unknown[]): Promise<ProviderChunk[]> => {
+    const out: ProviderChunk[] = [];
+    for await (const chunk of new StubProvider(chunks).stream(ASK)) out.push(chunk);
+    return out;
+  };
+
+  it('never dispatches a tool call whose streamed arguments were cut off', async () => {
+    // The captured failure: `transcribe` reached the executor with `{ __partial: '{' }`,
+    // was rejected as an unrecognized key, and the repeated-failure guard then refused
+    // every later `transcribe` in the run. Nothing about that was the model's mistake.
+    const chunks = await collect([
+      { content: '', tool_call_chunks: [{ index: 0, id: 'a', name: 'transcribe', args: '{' }] },
+    ]);
+    expect(chunks.filter((chunk) => chunk.type === 'tool-call')).toEqual([]);
+    expect(chunks.at(-1)).toEqual({
+      type: 'done',
+      text: '',
+      truncated: true,
+      droppedToolCalls: ['transcribe'],
+    });
+  });
+
+  it('keeps the calls that did survive when only one was cut off', async () => {
+    const chunks = await collect([
+      {
+        content: '',
+        tool_call_chunks: [
+          { index: 0, id: 'a', name: 'get_timeline', args: '{}' },
+          { index: 1, id: 'b', name: 'add_clip', args: '{"trackId":' },
+        ],
+      },
+    ]);
+    expect(chunks.filter((chunk) => chunk.type === 'tool-call')).toEqual([
+      { type: 'tool-call', call: { id: 'a', name: 'get_timeline', arguments: {} } },
+    ]);
+    expect(chunks.at(-1)).toMatchObject({ truncated: true, droppedToolCalls: ['add_clip'] });
+  });
+
+  it('emits every call when a gateway sends them without an index', async () => {
+    const chunks = await collect([
+      { content: '', tool_call_chunks: [{ id: 'a', name: 'transcribe', args: '{"assetId":"x"}' }] },
+      { content: '', tool_call_chunks: [{ id: 'b', name: 'get_timeline', args: '{}' }] },
+    ]);
+    expect(chunks.filter((chunk) => chunk.type === 'tool-call')).toEqual([
+      { type: 'tool-call', call: { id: 'a', name: 'transcribe', arguments: { assetId: 'x' } } },
+      { type: 'tool-call', call: { id: 'b', name: 'get_timeline', arguments: {} } },
+    ]);
+  });
+
+  it('reads a tool call the gateway delivered whole, with no fragments', async () => {
+    const chunks = await collect([
+      {
+        content: '',
+        tool_call_chunks: [],
+        tool_calls: [{ id: 'a', name: 'get_timeline', args: { verbose: true } }],
+      },
+    ]);
+    expect(chunks.filter((chunk) => chunk.type === 'tool-call')).toEqual([
+      { type: 'tool-call', call: { id: 'a', name: 'get_timeline', arguments: { verbose: true } } },
+    ]);
+  });
+
+  it('leaves a clean turn untouched', async () => {
+    const chunks = await collect([
+      { content: 'Trimming the head.' },
+      {
+        content: '',
+        tool_call_chunks: [{ index: 0, id: 'a', name: 'trim_clip', args: '{"c":1}' }],
+      },
+    ]);
+    expect(chunks.at(-1)).toEqual({ type: 'done', text: 'Trimming the head.' });
   });
 });

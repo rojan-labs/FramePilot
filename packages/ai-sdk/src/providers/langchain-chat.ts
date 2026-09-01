@@ -198,23 +198,175 @@ export function reasoningFromKwargs(kwargs: unknown): string {
 }
 
 /**
- * Merge a streamed tool-argument fragment into what is accumulated so far.
+ * One tool call being reassembled from a stream, before its arguments are parsed.
  *
- * Fragments arrive as partial JSON strings; only the concatenation parses. A
- * fragment that does not yet parse leaves the accumulated object untouched
- * rather than throwing — an incomplete tool call is data, not an exception.
+ * The raw argument TEXT is what is accumulated, never a partially-parsed object. The
+ * previous implementation parsed after every fragment and kept the object when the
+ * concatenation happened to parse — which threw the raw text away, so the next fragment
+ * restarted from an empty buffer and the call's arguments silently became whichever
+ * suffix happened to parse on its own. Text in, one parse at the end, is the only shape
+ * that cannot lose a fragment.
  */
-export function mergeArgs(
-  existing: Record<string, unknown> | undefined,
-  fragment: string | undefined,
-): Record<string, unknown> {
-  if (fragment === undefined || fragment === '') return existing ?? {};
-  const carried = (existing?.__partial as string | undefined) ?? '';
-  const joined = carried + fragment;
+export interface StreamingToolCall {
+  readonly id: string;
+  readonly name: string;
+  /** Every `args` fragment seen for this call, concatenated in arrival order. */
+  readonly argsText: string;
+  /**
+   * Arguments the provider handed over ALREADY PARSED (LangChain's `tool_calls`, which a
+   * chunk carries instead of `tool_call_chunks` when the gateway did not stream the call
+   * in fragments). Authoritative when present — there is no text to parse.
+   */
+  readonly parsedArgs?: Record<string, unknown>;
+}
+
+/**
+ * Accumulate streamed tool-call fragments without ever letting two calls collide.
+ *
+ * ## Why this is not a `Map<number, …>`
+ *
+ * Fragments carry `index`, and the obvious implementation keys on `index ?? 0`. Two
+ * different gateways break that:
+ *
+ * - one omits `index` entirely, so every fragment of every call lands on key `0` and
+ *   three tool calls arrive as one, with their argument strings concatenated into
+ *   unparseable garbage;
+ * - one restarts `index` at `0` for each call it emits, with the same result.
+ *
+ * Both were visible in a captured OpenRouter run: a turn that asked for `transcribe` plus
+ * two `add_clip`s reached the executor as a single `transcribe` whose arguments were the
+ * one character `{`.
+ *
+ * So a fragment carrying an `id` or a `name` that DISAGREES with what is open at its index
+ * starts a new call rather than overwriting the open one. Order is preserved because
+ * finished calls are pushed to a list in the order they were closed.
+ */
+export class ToolCallAccumulator {
+  private readonly open = new Map<number, StreamingToolCall>();
+
+  private readonly closed: StreamingToolCall[] = [];
+
+  /** Take one `tool_call_chunk`. */
+  public push(fragment: {
+    readonly index?: number;
+    readonly id?: string;
+    readonly name?: string;
+    readonly args?: string;
+  }): void {
+    const index = fragment.index ?? 0;
+    const existing = this.open.get(index);
+    if (existing !== undefined && this.startsNewCall(existing, fragment)) {
+      this.closed.push(existing);
+      this.open.delete(index);
+    }
+    const current = this.open.get(index);
+    this.open.set(index, {
+      id: fragment.id ?? current?.id ?? '',
+      name: fragment.name ?? current?.name ?? '',
+      argsText: (current?.argsText ?? '') + (fragment.args ?? ''),
+      ...(current?.parsedArgs !== undefined ? { parsedArgs: current.parsedArgs } : {}),
+    });
+  }
+
+  /**
+   * Take a COMPLETE tool call the provider already parsed.
+   *
+   * `AIMessageChunk`'s constructor fills `tool_calls` and leaves `tool_call_chunks` empty
+   * whenever the gateway delivered the call in one piece, so a reader that looks only at
+   * the fragments drops those calls on the floor — silently, which is the worst way to
+   * lose a tool call. Matched to an open accumulation by id so a provider that sends both
+   * shapes for the same call does not produce it twice.
+   */
+  public pushComplete(call: {
+    readonly id?: string;
+    readonly name?: string;
+    readonly args?: unknown;
+  }): void {
+    const args = isArgsObject(call.args) ? call.args : undefined;
+    const id = call.id ?? '';
+    const name = call.name ?? '';
+    for (const [index, open] of this.open) {
+      if (open.id !== '' && open.id === id) {
+        this.open.set(index, {
+          ...open,
+          name: open.name !== '' ? open.name : name,
+          ...(args !== undefined ? { parsedArgs: args } : {}),
+        });
+        return;
+      }
+    }
+    if (this.closed.some((done) => done.id !== '' && done.id === id)) return;
+    this.open.set(this.nextFreeIndex(), {
+      id,
+      name,
+      argsText: '',
+      ...(args !== undefined ? { parsedArgs: args } : {}),
+    });
+  }
+
+  /** Every call seen, in the order it was opened. */
+  public settle(): readonly StreamingToolCall[] {
+    return [
+      ...this.closed,
+      ...[...this.open.entries()].sort(([a], [b]) => a - b).map(([, c]) => c),
+    ];
+  }
+
+  /**
+   * Does this fragment belong to a DIFFERENT call than the one open at its index?
+   *
+   * Only a disagreeing non-empty id or name says so. A fragment that merely repeats the
+   * open call's id/name, or carries neither (the ordinary argument-fragment shape), is a
+   * continuation.
+   */
+  private startsNewCall(
+    open: StreamingToolCall,
+    fragment: { readonly id?: string; readonly name?: string },
+  ): boolean {
+    if (fragment.id !== undefined && fragment.id !== '' && open.id !== '') {
+      return fragment.id !== open.id;
+    }
+    if (fragment.name !== undefined && fragment.name !== '' && open.name !== '') {
+      return fragment.name !== open.name;
+    }
+    return false;
+  }
+
+  private nextFreeIndex(): number {
+    let index = 0;
+    while (this.open.has(index)) index += 1;
+    return index;
+  }
+}
+
+/** Is this what a provider handed over as already-parsed tool arguments? */
+function isArgsObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The arguments of a reassembled tool call, or `undefined` when they cannot be trusted.
+ *
+ * ## WHY a truncated argument string is never repaired
+ *
+ * The tempting fix for `{"trackId":"v_main","start":12` is to close the brace and dispatch
+ * what parsed. That is a wrong edit dressed as a recovery: the stream stopped mid-token,
+ * so `12` may be the head of `12.5`, and an `add_clip` at the wrong second is worse than
+ * an `add_clip` that never happened. Anything that does not parse as COMPLETE JSON is
+ * therefore refused, and the turn is reported as truncated so the model is asked again.
+ *
+ * An empty argument string is `{}` — legitimately what a no-argument tool sends, and for a
+ * tool with required parameters the registry's own schema error is the clearer message.
+ */
+export function toolCallArguments(call: StreamingToolCall): Record<string, unknown> | undefined {
+  if (call.parsedArgs !== undefined) return call.parsedArgs;
+  const text = call.argsText.trim();
+  if (text === '') return {};
   try {
-    return JSON.parse(joined) as Record<string, unknown>;
+    const parsed: unknown = JSON.parse(text);
+    return isArgsObject(parsed) ? parsed : undefined;
   } catch {
-    return { ...(existing ?? {}), __partial: joined };
+    return undefined;
   }
 }
 
@@ -357,7 +509,7 @@ export abstract class LangChainChatProvider implements AiProvider {
     let full = '';
     let usage: Usage | undefined;
     let truncated = false;
-    const toolCalls = new Map<number, ToolCall>();
+    const accumulator = new ToolCallAccumulator();
 
     try {
       for await (const chunk of await runnable.stream(
@@ -381,15 +533,14 @@ export abstract class LangChainChatProvider implements AiProvider {
         // Tool-call fragments arrive per index and are only complete at the end, so
         // they are accumulated and emitted once the stream settles — the native
         // adapters' `content_block_stop` behavior.
-        /* v8 ignore next 2 -- same: optional in the types, always emitted in practice */
-        for (const fragment of chunk.tool_call_chunks ?? []) {
-          const index = fragment.index ?? 0;
-          const existing = toolCalls.get(index);
-          toolCalls.set(index, {
-            id: fragment.id ?? existing?.id ?? '',
-            name: fragment.name ?? existing?.name ?? '',
-            arguments: mergeArgs(existing?.arguments, fragment.args),
-          });
+        const fragments = chunk.tool_call_chunks ?? [];
+        for (const fragment of fragments) accumulator.push(fragment);
+        // A chunk carries `tool_calls` INSTEAD of `tool_call_chunks` when the gateway did
+        // not stream the call in pieces (`AIMessageChunk`'s constructor: no fragments ⇒
+        // `tool_call_chunks: []` and `tool_calls` passed straight through). Reading only
+        // the fragments dropped every such call without a trace.
+        if (fragments.length === 0) {
+          for (const complete of chunk.tool_calls ?? []) accumulator.pushComplete(complete);
         }
         const chunkUsage = usageFromMetadata(
           chunk.usage_metadata as LangChainUsageMetadata | undefined,
@@ -407,11 +558,42 @@ export abstract class LangChainChatProvider implements AiProvider {
       rethrowClassified(this.name, error);
     }
 
-    for (const call of toolCalls.values()) {
-      if (call.name) yield { type: 'tool-call', call };
+    // ONE parse per call, at the end — and a call whose arguments did not survive the
+    // stream is REPORTED, never dispatched. Dispatching it was the defect this replaced:
+    // the half-parsed fragment reached the executor as `{ __partial: '{' }`, the tool
+    // rejected it as an unrecognized key, and the run's repeated-failure guard then banked
+    // that rejection and refused every later attempt at the same tool.
+    const dropped: string[] = [];
+    for (const settled of accumulator.settle()) {
+      if (settled.name === '') {
+        // No name, nothing to call. Named as `(unnamed)` rather than skipped silently so a
+        // gateway that loses the function name shows up as a dropped call, not as a turn
+        // where the model asked for less than it did.
+        dropped.push('(unnamed)');
+        continue;
+      }
+      const args = toolCallArguments(settled);
+      if (args === undefined) {
+        log.warn('dropped a tool call whose streamed arguments never parsed', {
+          provider: this.name,
+          tool: settled.name,
+          argsChars: settled.argsText.length,
+        });
+        dropped.push(settled.name);
+        continue;
+      }
+      yield { type: 'tool-call', call: { id: settled.id, name: settled.name, arguments: args } };
     }
     if (usage) yield { type: 'usage', usage };
-    yield { type: 'done', text: full, ...(truncated ? { truncated: true } : {}) };
+    yield {
+      type: 'done',
+      text: full,
+      // A dropped call IS a truncated reply, whatever the provider's own `finish_reason`
+      // said: the model asked for work that did not arrive intact. Saying so is what lets
+      // the agent loop retry the step instead of reading the turn as a finished answer.
+      ...(truncated || dropped.length > 0 ? { truncated: true } : {}),
+      ...(dropped.length > 0 ? { droppedToolCalls: dropped } : {}),
+    };
   }
 }
 
