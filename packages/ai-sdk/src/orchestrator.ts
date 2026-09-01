@@ -7598,18 +7598,7 @@ export class Orchestrator {
               operation.idempotencyKey.startsWith(idempotencyPrefix),
           )
         ) {
-          // The guard is right to stop here — the model asked for a step it has already
-          // completed, against a timeline that has not moved since. What was wrong was
-          // stopping SILENTLY. In the captured run this is where turn 1 ended, and the
-          // creator was shown "Applied 176 edits" with no hint that the agent had halted on
-          // a repeat with the motion work it had promised still untouched. A notification
-          // is a status line; a warning is what the run's summary actually carries.
           yield emit.notification('Skipped an already committed operation during retry recovery.');
-          yield emit.warning(
-            'The agent asked to repeat a step it had already completed, so this run stopped ' +
-              'there rather than doing it twice. Anything still outstanding needs a new ' +
-              'message — say what is left and it will pick that up.',
-          );
           return turnBase(index, emit.seq(), {
             done: true,
             note: 'Idempotency hit: this planned operation already succeeded.',
