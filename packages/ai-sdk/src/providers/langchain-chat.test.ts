@@ -181,6 +181,18 @@ describe('ToolCallAccumulator', () => {
     ]);
   });
 
+  it('keeps the model’s own call order when a gateway reuses an index mid-stream', () => {
+    // Order is not cosmetic: a mutating call advances the working copy the next one is
+    // validated against, so a reordered batch can produce a different edit.
+    expect(
+      settle([
+        { index: 0, id: 'a', name: 'trim_clip', args: '{"clipId":"c1"}' },
+        { index: 1, id: 'b', name: 'add_clip', args: '{"trackId":"v_main"}' },
+        { index: 0, id: 'c', name: 'delete_clip', args: '{"clipId":"c2"}' },
+      ]).map((call) => call.name),
+    ).toEqual(['trim_clip', 'add_clip', 'delete_clip']);
+  });
+
   it('does not produce a call twice when both shapes arrive for it', () => {
     const accumulator = new ToolCallAccumulator();
     accumulator.push({ index: 0, id: 'a', name: 'get_timeline', args: '{"verbose":true}' });

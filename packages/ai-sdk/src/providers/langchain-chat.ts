@@ -242,9 +242,16 @@ export interface StreamingToolCall {
  * finished calls are pushed to a list in the order they were closed.
  */
 export class ToolCallAccumulator {
-  private readonly open = new Map<number, StreamingToolCall>();
+  /**
+   * Every call seen, in the order its first fragment arrived — which is the order the model
+   * asked for them and therefore the order the turn must run them in. A mutating call
+   * advances the working copy the next one is validated against, so reordering a batch can
+   * change what it produces.
+   */
+  private readonly calls: StreamingToolCall[] = [];
 
-  private readonly closed: StreamingToolCall[] = [];
+  /** Where in {@link calls} the call currently open at each stream index lives. */
+  private readonly openAt = new Map<number, number>();
 
   /** Take one `tool_call_chunk`. */
   public push(fragment: {
@@ -254,17 +261,22 @@ export class ToolCallAccumulator {
     readonly args?: string;
   }): void {
     const index = fragment.index ?? 0;
-    const existing = this.open.get(index);
-    if (existing !== undefined && this.startsNewCall(existing, fragment)) {
-      this.closed.push(existing);
-      this.open.delete(index);
+    const position = this.openAt.get(index);
+    const current = position === undefined ? undefined : this.calls[position];
+    if (current !== undefined && !startsNewCall(current, fragment)) {
+      this.calls[position as number] = {
+        id: fragment.id ?? current.id,
+        name: fragment.name ?? current.name,
+        argsText: current.argsText + (fragment.args ?? ''),
+        ...(current.parsedArgs !== undefined ? { parsedArgs: current.parsedArgs } : {}),
+      };
+      return;
     }
-    const current = this.open.get(index);
-    this.open.set(index, {
-      id: fragment.id ?? current?.id ?? '',
-      name: fragment.name ?? current?.name ?? '',
-      argsText: (current?.argsText ?? '') + (fragment.args ?? ''),
-      ...(current?.parsedArgs !== undefined ? { parsedArgs: current.parsedArgs } : {}),
+    this.openAt.set(index, this.calls.length);
+    this.calls.push({
+      id: fragment.id ?? '',
+      name: fragment.name ?? '',
+      argsText: fragment.args ?? '',
     });
   }
 
@@ -274,8 +286,8 @@ export class ToolCallAccumulator {
    * `AIMessageChunk`'s constructor fills `tool_calls` and leaves `tool_call_chunks` empty
    * whenever the gateway delivered the call in one piece, so a reader that looks only at
    * the fragments drops those calls on the floor — silently, which is the worst way to
-   * lose a tool call. Matched to an open accumulation by id so a provider that sends both
-   * shapes for the same call does not produce it twice.
+   * lose a tool call. Matched to an accumulation by id so a provider that sends both shapes
+   * for the same call does not produce it twice.
    */
   public pushComplete(call: {
     readonly id?: string;
@@ -285,18 +297,17 @@ export class ToolCallAccumulator {
     const args = isArgsObject(call.args) ? call.args : undefined;
     const id = call.id ?? '';
     const name = call.name ?? '';
-    for (const [index, open] of this.open) {
-      if (open.id !== '' && open.id === id) {
-        this.open.set(index, {
-          ...open,
-          name: open.name !== '' ? open.name : name,
-          ...(args !== undefined ? { parsedArgs: args } : {}),
-        });
-        return;
-      }
+    const existing = id === '' ? -1 : this.calls.findIndex((seen) => seen.id === id);
+    if (existing !== -1) {
+      const seen = this.calls[existing] as StreamingToolCall;
+      this.calls[existing] = {
+        ...seen,
+        name: seen.name !== '' ? seen.name : name,
+        ...(args !== undefined ? { parsedArgs: args } : {}),
+      };
+      return;
     }
-    if (this.closed.some((done) => done.id !== '' && done.id === id)) return;
-    this.open.set(this.nextFreeIndex(), {
+    this.calls.push({
       id,
       name,
       argsText: '',
@@ -306,37 +317,28 @@ export class ToolCallAccumulator {
 
   /** Every call seen, in the order it was opened. */
   public settle(): readonly StreamingToolCall[] {
-    return [
-      ...this.closed,
-      ...[...this.open.entries()].sort(([a], [b]) => a - b).map(([, c]) => c),
-    ];
+    return this.calls;
   }
+}
 
-  /**
-   * Does this fragment belong to a DIFFERENT call than the one open at its index?
-   *
-   * Only a disagreeing non-empty id or name says so. A fragment that merely repeats the
-   * open call's id/name, or carries neither (the ordinary argument-fragment shape), is a
-   * continuation.
-   */
-  private startsNewCall(
-    open: StreamingToolCall,
-    fragment: { readonly id?: string; readonly name?: string },
-  ): boolean {
-    if (fragment.id !== undefined && fragment.id !== '' && open.id !== '') {
-      return fragment.id !== open.id;
-    }
-    if (fragment.name !== undefined && fragment.name !== '' && open.name !== '') {
-      return fragment.name !== open.name;
-    }
-    return false;
+/**
+ * Does this fragment belong to a DIFFERENT call than the one open at its index?
+ *
+ * Only a disagreeing non-empty id or name says so. A fragment that merely repeats the open
+ * call's id/name, or carries neither (the ordinary argument-fragment shape), is a
+ * continuation.
+ */
+function startsNewCall(
+  open: StreamingToolCall,
+  fragment: { readonly id?: string; readonly name?: string },
+): boolean {
+  if (fragment.id !== undefined && fragment.id !== '' && open.id !== '') {
+    return fragment.id !== open.id;
   }
-
-  private nextFreeIndex(): number {
-    let index = 0;
-    while (this.open.has(index)) index += 1;
-    return index;
+  if (fragment.name !== undefined && fragment.name !== '' && open.name !== '') {
+    return fragment.name !== open.name;
   }
+  return false;
 }
 
 /** Is this what a provider handed over as already-parsed tool arguments? */
