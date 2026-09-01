@@ -99,6 +99,8 @@ import type {
   RunVerifyEffect,
 } from './kernel/conductor.js';
 import {
+  AGENT_MAX_OPS_PER_RUN,
+  AGENT_MAX_OPS_PER_TURN,
   DIMINISHING_RETURNS_MIN_OUTPUT_TOKENS,
   DIMINISHING_RETURNS_TURNS,
   PLAN_STEP_HEADROOM,
@@ -408,14 +410,13 @@ const DEFAULT_MAX_AGENT_STEPS = 30;
 /**
  * Blast-radius bounds for one agent run (R3 C1).
  *
- * NOTE `maxOpsPerRun` mirrors `kernel/conductor.ts`; `maxOpsPerTurn` does NOT — that path
- * allows 200, for the same reason it allows more steps (it has behavioral rails this legacy
- * loop does not). Anything that must parse on either path — `add_clips`, whose whole batch
- * lands in one turn — bounds itself by the SMALLER of the two. See
- * `domain-tools/timeline.ts#MAX_CLIPS_PER_BATCH`.
+ * Both are imported, not declared. This file used to hold its own smaller `maxOpsPerTurn`
+ * (100) and enforce it in the streaming path, while `kernel/conductor.ts` held 200 and
+ * reported it — so a 101-to-200-operation turn was dropped by the enforcing half and never
+ * seen by the reporting half. See {@link AGENT_MAX_OPS_PER_TURN} for what that cost.
  */
-const DEFAULT_MAX_OPS_PER_TURN = 100;
-const DEFAULT_MAX_OPS_PER_RUN = 800;
+const DEFAULT_MAX_OPS_PER_TURN = AGENT_MAX_OPS_PER_TURN;
+const DEFAULT_MAX_OPS_PER_RUN = AGENT_MAX_OPS_PER_RUN;
 const USER_WAIT_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 
 /** How many recent step notes the agent context keeps verbatim before digesting (B4). */
@@ -1484,6 +1485,12 @@ interface AgentCallOutcome {
   project?: Project;
   /** How many proposed ops the validator rejected (drives the empty-run notice). */
   rejectedOpCount?: number;
+  /**
+   * How many of this call's applied ops are DERIVED fan-out rather than model-composed
+   * choices, and so do not count against the blast-radius bounds. See
+   * `ToolSpec.derivedFanOut`. Absent ⇒ zero.
+   */
+  derivedOpCount?: number;
   /**
    * The run's memo served this call — no engine work ran and no new information
    * arrived. Absent ⇒ false. Feeds the reducer's productive/spinning split.
@@ -4219,6 +4226,11 @@ export class Orchestrator {
         note,
         summary: note,
         status: 'completed',
+        // A tool whose op count the model cannot influence does not spend the run's
+        // blast-radius budget (see `ToolSpec.derivedFanOut`).
+        ...(getTool(call.name)?.derivedFanOut === true
+          ? { derivedOpCount: normalized.length }
+          : {}),
         project: applyProjectPatch(ctx.project, probe.patch),
       };
     } catch (error) {
@@ -4618,8 +4630,18 @@ export class Orchestrator {
       const notes: string[] = [];
       const callFacts: TurnCallFact[] = [];
       const turnFrames: AiImage[] = [];
+      /** Ops a tool derived from the project — excluded from the bound (see below). */
+      let derivedOpCount = 0;
       for (const call of calls) {
-        const { ops, note, project, status, fromCache, images } = await this.runAgentCall(
+        const {
+          ops,
+          note,
+          project,
+          status,
+          fromCache,
+          images,
+          derivedOpCount: callDerivedOps,
+        } = await this.runAgentCall(
           call,
           ctx,
           names,
@@ -4633,6 +4655,7 @@ export class Orchestrator {
         );
         turnOps.push(...ops);
         notes.push(note);
+        if (callDerivedOps) derivedOpCount += callDerivedOps;
         if (images) turnFrames.push(...images);
         // Parity with the streaming loop's `executeToolCalls` (K1.2): both control paths
         // must judge progress identically, or the parity harness diverges.
@@ -4652,9 +4675,11 @@ export class Orchestrator {
 
       // Blast-radius bound (R3 C1): a single runaway turn that tries to make an
       // implausible number of edits is rejected wholesale with a diagnostic, not
-      // applied — the human can still re-prompt with a narrower goal.
-      if (turnOps.length > maxOpsPerTurn) {
-        const note = `Turn rejected: ${turnOps.length} operations exceeds the per-turn cap of ${maxOpsPerTurn}.`;
+      // applied — the human can still re-prompt with a narrower goal. It counts what the
+      // MODEL composed; operations a tool derived from the project are excluded, on the
+      // same terms as the streaming path (`ToolSpec.derivedFanOut`).
+      if (turnOps.length - derivedOpCount > maxOpsPerTurn) {
+        const note = `Turn rejected: ${turnOps.length - derivedOpCount} operations exceeds the per-turn cap of ${maxOpsPerTurn}.`;
         steps.push({ index, rationale, toolCalls: calls.map((c) => c.name), applied: false, note });
         log.push(`Step ${index}: ${note}`);
         break;
@@ -5280,6 +5305,7 @@ export class Orchestrator {
       /** Calls the harness refused this turn (commit-only latch, recovery surface). */
       withheldCallCount: number;
       rejectedOpCount: number;
+      derivedOpCount: number;
       rejectionNotes: string[];
       /** Per-call progress facts the reducer folds (see `TurnCallFact`). */
       callFacts: TurnCallFact[];
@@ -5311,6 +5337,7 @@ export class Orchestrator {
     // Per-call validator rejections (ops proposed but refused) — the honest
     // empty-run notice is built from these when the whole run lands nothing.
     let rejectedOpCount = 0;
+    let derivedOpCount = 0;
     const rejectionNotes: string[] = [];
     const proposalCards: { id: string; name: string }[] = [];
     // The turn's speculative working copy: each validated mutating call advances it,
@@ -5582,6 +5609,7 @@ export class Orchestrator {
           rejectedOpCount += outcome.rejectedOpCount;
           rejectionNotes.push(outcome.note);
         }
+        if (outcome.derivedOpCount) derivedOpCount += outcome.derivedOpCount;
         if (outcome.project) {
           turnCtx = { ...turnCtx, project: outcome.project };
           turnNames = projectNames(outcome.project);
@@ -5603,6 +5631,7 @@ export class Orchestrator {
       turnStatuses,
       withheldCallCount,
       rejectedOpCount,
+      derivedOpCount,
       rejectionNotes,
       callFacts,
       frames,
@@ -7334,6 +7363,7 @@ export class Orchestrator {
           turnStatuses,
           withheldCallCount,
           rejectedOpCount,
+          derivedOpCount,
           rejectionNotes,
           callFacts,
           frames,
@@ -7383,6 +7413,7 @@ export class Orchestrator {
           signature,
           callFacts,
           rejectedOpCount,
+          derivedOpCount,
           rejectionNotes,
           // E4.1: the turn's real reported usage, so the reducer can measure the
           // output-token delta this turn actually produced (diminishing-returns stop).
@@ -7401,12 +7432,26 @@ export class Orchestrator {
           });
         }
 
-        // Blast-radius bound: the reducer emits the `failed` step + warning.
-        if (turnOps.length > maxOpsPerTurn) {
+        // Blast-radius bound. It counts what the MODEL composed: operations a tool
+        // derived from the project (`ToolSpec.derivedFanOut`) are excluded, because a
+        // caption pass whose length is a fact about the transcript is not a runaway turn.
+        //
+        // The reducer emits the `failed` step + warning — but this branch states the
+        // reason itself rather than relying on that. It used to return `...common` alone,
+        // so `turnBase`'s `note: ''` default travelled to the reducer as the reason the
+        // turn was refused, and the editor was shown a rejection count with three empty
+        // strings where the reasons should have been. A veto that cannot say why is worse
+        // than no veto: the model reads this note next turn and had nothing to fix.
+        if (turnOps.length - derivedOpCount > maxOpsPerTurn) {
           yield* settleProposalCards(emit, proposalCards);
+          const overCap =
+            `Turn rejected: ${turnOps.length - derivedOpCount} model-composed operations ` +
+            `exceeds the per-turn cap of ${maxOpsPerTurn}. Make the change in smaller steps.`;
           return turnBase(index, emit.seq(), {
             ...common,
             anyToolFailed,
+            note: overCap,
+            rejection: overCap,
             turnOpCount: turnOps.length,
             turnPlacementCount: placementCount(turnOps),
           });

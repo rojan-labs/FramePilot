@@ -33,6 +33,8 @@ import type { HostToolExecutor, HostToolOutcome } from './tool-executor.js';
 import type { ContextInput } from './context-builder.js';
 import { makeProject } from './__fixtures__/project.js';
 import { assembleEdit } from './assemble.js';
+import { getTool } from './tool-registry.js';
+import type { Project } from '@framepilot/timeline-schema';
 
 const input: ContextInput = { project: makeProject(), userPrompt: 'tighten the intro' };
 const opts = (signal?: AbortSignal): StreamOptions => ({
@@ -4493,5 +4495,129 @@ describe('streamAgent diminishing-returns stop (E4)', () => {
       events.some((e) => e.type === 'notification' && e.reason === 'diminishing_returns'),
     ).toBe(false);
     expect(provider.requests).toHaveLength(4);
+  });
+});
+
+/**
+ * The captured failure of run `35746d4c` (`run.md`), end to end through the path the
+ * desktop app actually runs.
+ *
+ * The editor asked for different captions on a 50-second talking head. `caption_the_edit`
+ * built the whole re-caption — every operation valid, every one passing the per-call
+ * probe — and the run reported `No edits were applied — 313 proposed changes couldn't be
+ * applied to the timeline (; ; )`. Eleven model calls, 230k tokens, $1.20, nothing on the
+ * timeline, and three empty strings where the reasons belonged.
+ *
+ * Two defects, both pinned here:
+ *  1. A re-caption costs ~3 operations per cue, so it cleared the streaming path's
+ *     per-turn cap of 100 while the reducer that REPORTS that cap held its own copy
+ *     saying 200 — enforced by one half of the path, invisible to the other.
+ *  2. The enforcing branch stated no reason, so the count reached the editor with nothing
+ *     to explain it and the model with nothing to fix.
+ */
+describe('a long caption pass survives the blast-radius bound (run 35746d4c)', () => {
+  /** ~150 words over 50 seconds — enough that a re-caption passes 100 operations. */
+  const transcript = Array.from({ length: 150 }, (_, i) => ({
+    word: `word${i}`,
+    start: i * 0.33,
+    end: i * 0.33 + 0.3,
+    assetId: 'asset_1',
+  }));
+
+  const captionProject = () =>
+    makeProject({
+      assets: [{ id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 60 }],
+      transcript,
+      timeline: {
+        tracks: [
+          {
+            id: 'video_1',
+            type: 'video',
+            clips: [
+              {
+                id: 'clip_a',
+                assetId: 'asset_1',
+                trackId: 'video_1',
+                start: 0,
+                end: 50,
+                sourceStart: 0,
+                sourceEnd: 50,
+                effects: [],
+                keyframes: [],
+              },
+            ],
+          },
+          { id: 'captions_main', type: 'caption', clips: [] },
+        ],
+        markers: [],
+      },
+    } as never);
+
+  const captionOps = (project: Project) => {
+    const tool = getTool('caption_the_edit');
+    if (!tool?.buildOps) throw new Error('caption_the_edit is not a mutate tool');
+    const ops = tool.buildOps(
+      { trackId: 'captions_main', preset: 'one-word' },
+      { project },
+    ) as AnyOperation[];
+    return assembleEdit(project, ops, 're-caption', 'agent');
+  };
+
+  const captionCall = {
+    id: 'c',
+    name: 'caption_the_edit',
+    arguments: { trackId: 'captions_main', preset: 'one-word' },
+  };
+
+  it('applies a re-caption whose op count is set by the transcript, not the model', async () => {
+    // Caption once, so the second pass must also clear the existing cues — the shape that
+    // tipped the captured run over the cap (~3 operations per cue instead of 2).
+    const project = applyProjectPatch(captionProject(), captionOps(captionProject()).patch);
+    expect(
+      project.timeline.tracks.find((t) => t.id === 'captions_main')?.clips.length ?? 0,
+    ).toBeGreaterThan(40);
+
+    const again = captionOps(project);
+    // The exact condition that broke the captured run: more operations than the old cap
+    // allowed, every one of them valid.
+    expect(again.patch.operations.length).toBeGreaterThan(100);
+    expect(again.validation.issues.filter((i) => i.severity === 'error')).toEqual([]);
+
+    const events = await drain(
+      new Orchestrator(
+        new FakeProvider({ text: 're-caption', toolCalls: [captionCall] }),
+      ).streamAgent(
+        { project, userPrompt: 'i dont like the current captioning, use a different template' },
+        opts(),
+      ),
+    );
+    // What the editor used to be shown instead of an edit.
+    expect(
+      events
+        .filter((e) => e.type === 'warning')
+        .map((e) => (e as { text: string }).text)
+        .join('\n'),
+    ).not.toMatch(/couldn't be applied/);
+    // What must happen: the captions reach the timeline.
+    expect(events.some((e) => e.type === 'diff')).toBe(true);
+  });
+
+  it('never reports a rejection with the reason missing', async () => {
+    // A genuinely over-cap turn of MODEL-composed operations. The bound still bites here;
+    // what changed is that it now says why.
+    const events = await drain(
+      new Orchestrator(new FakeProvider({ text: 'big', toolCalls: [editCall] })).streamAgent(
+        input,
+        opts(),
+        { maxOpsPerTurn: 0 },
+      ),
+    );
+    const warnings = events
+      .filter((e) => e.type === 'warning')
+      .map((e) => (e as { text: string }).text)
+      .join('\n');
+    // The `(; ; )` regression: bare punctuation where the reasons should be.
+    expect(warnings).not.toMatch(/\(\s*;[\s;]*\)/);
+    expect(warnings).toMatch(/per-turn cap/);
   });
 });

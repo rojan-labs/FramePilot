@@ -104,10 +104,30 @@ import { assessEditCompletion } from '../completion-gate.js';
 // `streamAgent` loop in `orchestrator.ts` keeps its own, much smaller default (30); the
 // two are independent by design — that path has no research budget to protect it.
 const DEFAULT_MAX_AGENT_STEPS = 300;
-// Deliberately larger than `orchestrator.ts`'s 100, for the same reason the step ceiling
-// above is: the rails exist here. `MAX_CLIPS_PER_BATCH` bounds itself by the smaller one.
-const DEFAULT_MAX_OPS_PER_TURN = 200;
-const DEFAULT_MAX_OPS_PER_RUN = 800;
+/**
+ * The blast-radius bound on ONE agent turn, and the single owner of that number.
+ *
+ * It used to be two numbers. `orchestrator.ts` declared 100 and enforced it in the
+ * streaming path's `runTurn` handler; this file declared 200 and reported it from the
+ * reducer, and a comment on each explained that the divergence was deliberate because
+ * the reducer "has rails the legacy loop does not". That was true of a loop this handler
+ * is not: `agentRun` IS the conductor path, so the two halves of one code path disagreed
+ * about the same cap. A turn between 101 and 200 operations was refused by the enforcing
+ * half and invisible to the reporting half, which is how run `35746d4c` told an editor
+ * `313 proposed changes couldn't be applied to the timeline (; ; )` — three empty strings
+ * where three reasons belonged. Both halves now import this.
+ *
+ * It bounds what the MODEL composed. Operations a tool derives from the project rather
+ * than from the model's arguments do not count against it — see
+ * {@link ToolSpec.derivedFanOut}. Without that split the bound was not a blast-radius
+ * rail at all but a ceiling on how long a video could be captioned, and it sat below the
+ * length of an ordinary talking head.
+ */
+export const AGENT_MAX_OPS_PER_TURN = 200;
+/** The same bound across a whole run. Also excludes derived fan-out. */
+export const AGENT_MAX_OPS_PER_RUN = 800;
+const DEFAULT_MAX_OPS_PER_TURN = AGENT_MAX_OPS_PER_TURN;
+const DEFAULT_MAX_OPS_PER_RUN = AGENT_MAX_OPS_PER_RUN;
 /** How many distinct validator-rejection reasons to retain for the empty-run notice. */
 const MAX_REJECTION_REASONS = 3;
 
@@ -317,6 +337,12 @@ export interface ConductorState {
   /** 1-based index of the turn currently executing / just folded. */
   readonly stepIndex: number;
   readonly cumulativeOps: readonly AnyOperation[];
+  /**
+   * How many of {@link cumulativeOps} are derived fan-out (`ToolSpec.derivedFanOut`).
+   * The per-run bound subtracts these for the same reason the per-turn one does — it
+   * bounds the model, not the length of the video being captioned.
+   */
+  readonly derivedOpTotal: number;
   /** Turns that produced applied edits (the completion report's step count). */
   readonly appliedTurns: number;
   /**
@@ -471,6 +497,7 @@ export function initialConductorState(turnRef: TurnRef): ConductorState {
     },
     stepIndex: 0,
     cumulativeOps: [],
+    derivedOpTotal: 0,
     appliedTurns: 0,
     noProgress: [],
     stallStreak: 0,
@@ -698,6 +725,12 @@ export interface AgentTurnResult {
    * behaviour every existing caller and fixture had.
    */
   readonly turnPlacementCount?: number;
+  /**
+   * How many of {@link turnOpCount} are DERIVED fan-out — operations a tool built from
+   * the project rather than from the model's arguments (`ToolSpec.derivedFanOut`). The
+   * blast-radius bounds subtract these: they bound the model, not the media. Absent ⇒ 0.
+   */
+  readonly derivedOpCount?: number;
   /** Operations the turn proposed, before validation (drives the per-turn cap). */
   readonly turnOpCount: number;
   /** Ops proposed by the turn's calls but refused by the per-call validator. */
@@ -1265,6 +1298,7 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
     config,
     stepIndex: 1,
     cumulativeOps: [],
+    derivedOpTotal: 0,
     appliedTurns: 0,
     noProgress: [],
     stallStreak: 0,
@@ -1494,6 +1528,7 @@ export function onResumeResult(state: ConductorState, r: ResumeResult, em: Emitt
     ...state,
     phase: 'executing',
     cumulativeOps: [...r.ops],
+    derivedOpTotal: 0,
     appliedTurns: r.stepsCompleted,
     stepIndex: startIndex,
     log: [...r.log],
@@ -1534,6 +1569,7 @@ export function onTurnResult(
       // The refused ops never reached the project, so they must not go on counting toward
       // the run's completion report or its "what landed" account.
       cumulativeOps: [],
+      derivedOpTotal: 0,
     };
     for (const refusal of r.hostRefusals) {
       events.push(em.warning(`Couldn’t apply “${refusal.intent}” — ${refusal.reason}`));
@@ -1665,8 +1701,9 @@ export function onTurnResult(
 
   // Blast-radius bound: a single runaway turn is rejected wholesale (not applied) —
   // its step fails with the diagnostic and the run stops to verify.
-  if (r.turnOpCount > state.config.maxOpsPerTurn) {
-    const note = `Turn rejected: ${r.turnOpCount} operations exceeds the per-turn cap of ${state.config.maxOpsPerTurn}.`;
+  const modelComposedOps = r.turnOpCount - (r.derivedOpCount ?? 0);
+  if (modelComposedOps > state.config.maxOpsPerTurn) {
+    const note = `Turn rejected: ${modelComposedOps} operations exceeds the per-turn cap of ${state.config.maxOpsPerTurn}.`;
     const planSteps = withStep(r.planSteps, r.planStepIndex, {
       ...r.planSteps[r.planStepIndex]!,
       status: 'failed',
@@ -1703,6 +1740,9 @@ export function onTurnResult(
   // lands nothing, so this only ever surfaces honest, user-relevant reasons.
   const rejectionTally = [...state.rejectionReasons];
   for (const note of r.rejectionNotes) {
+    // Never bank a blank. These become the user-facing "(reason; reason)" list, and an
+    // empty one renders as bare punctuation that says nothing and cannot be acted on.
+    if (note.trim() === '') continue;
     if (rejectionTally.length < MAX_REJECTION_REASONS) rejectionTally.push(note);
   }
   const withPlan = {
@@ -1719,6 +1759,7 @@ export function onTurnResult(
       events.push(em.timelineAction(a.action, a.detail, a.refs));
     }
     const cumulativeOps = [...state.cumulativeOps, ...r.appliedOps];
+    const derivedOpTotal = state.derivedOpTotal + (r.applied ? (r.derivedOpCount ?? 0) : 0);
     // Task memory (ADR 0075): the edit landed, so the project moved to a new revision.
     // Recording the operation is what makes completion COMPUTABLE later — an objective is
     // discharged by an applied patch plus a passing verification, never by the model
@@ -1782,6 +1823,7 @@ export function onTurnResult(
       ...withPlan,
       working,
       cumulativeOps,
+      derivedOpTotal,
       appliedTurns: state.appliedTurns + 1,
       // A real edit landed — the run is progressing, so the convergence streak resets,
       // and so does the diminishing-returns delta window (E4.2: the streak requires
@@ -1804,7 +1846,7 @@ export function onTurnResult(
       // the keys across an applied edit would refuse a retry whose cause the edit fixed.
       seenFailureKeys: [],
     };
-    if (cumulativeOps.length >= state.config.maxOpsPerRun) {
+    if (cumulativeOps.length - derivedOpTotal >= state.config.maxOpsPerRun) {
       const note = `Reached the per-run cap of ${state.config.maxOpsPerRun} operations — stopping.`;
       events.push(em.notification(note));
       return toVerify(s, em, events);
@@ -1824,9 +1866,18 @@ export function onTurnResult(
   // were simply already on the timeline. A run that misreports its own outcome to the person
   // reviewing it is worse than one that says nothing.
   const rejected = attemptedEdit && r.satisfied !== true;
+  // `??` is not enough here: `AgentTurnResult.note` DEFAULTS to the empty string, so a
+  // rejecting branch that forgets to state a reason contributes `''` rather than falling
+  // through. That is exactly what happened — three refused turns produced three empty
+  // strings, and the editor was shown `(; ; )`. Fall through blanks, and if a branch still
+  // manages to refuse a turn without saying why, say THAT rather than showing nothing.
+  const rejectionReason = [r.rejection, r.note].find((candidate) => candidate?.trim());
   const rejectionReasons =
     rejected && withPlan.rejectionReasons.length < MAX_REJECTION_REASONS
-      ? [...withPlan.rejectionReasons, r.rejection ?? r.note]
+      ? [
+          ...withPlan.rejectionReasons,
+          rejectionReason ?? 'the edit was refused without a stated reason',
+        ]
       : withPlan.rejectionReasons;
   const rejectedOpCount = withPlan.rejectedOpCount + (rejected ? r.turnOpCount : 0);
 

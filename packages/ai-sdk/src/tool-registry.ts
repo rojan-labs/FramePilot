@@ -146,6 +146,27 @@ export interface ToolSpec {
    * Absent ⇒ concurrency is decided purely by {@link kind} (see {@link concurrencySafe}).
    */
   readonly serialOnly?: boolean;
+  /**
+   * True when this tool's OPERATION COUNT is derived from the project rather than
+   * chosen by the model — so its operations do not count against the per-turn and
+   * per-run blast-radius bounds (see `kernel/conductor.ts#AGENT_MAX_OPS_PER_TURN`).
+   *
+   * `caption_the_edit` is the case that forced the distinction. It emits one
+   * `delete_range` per existing cue plus two operations per new one, and how many
+   * cues there are is a fact about the transcript, not a decision the model made:
+   * a 50-second talking head re-captions in ~110 operations and a three-minute one
+   * in ~400. Counting those against a bound that exists to stop a runaway model made
+   * the bound a ceiling on video length instead, and captioning anything past about
+   * 45 seconds could not succeed at any setting — the model's only visible signal
+   * being that its change "couldn't be applied to the timeline".
+   *
+   * This is not an escape hatch for a tool that emits a lot of operations. It is for
+   * a tool whose fan-out the model cannot influence through its arguments, and whose
+   * every operation has already passed the validator against the working copy. The
+   * ops still count toward what the run reports and toward the patch it commits;
+   * they are simply not evidence that the model is running away.
+   */
+  readonly derivedFanOut?: boolean;
   /** Validate untrusted tool arguments. Throws `ZodError` on mismatch. */
   parse(rawArgs: unknown): unknown;
   /**
