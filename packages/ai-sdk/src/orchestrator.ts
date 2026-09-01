@@ -551,6 +551,44 @@ export function truncationRetryHint(dropped: readonly string[] = []): string {
   );
 }
 
+/**
+ * What to tell the creator when a step came back with no answer and no tool call.
+ *
+ * Two very different causes wear the same empty completion, and only one of them is the
+ * provider's fault:
+ *
+ * - the request was dropped after a 200 — an overloaded or rate-limited gateway;
+ * - the model spent its ENTIRE output budget on reasoning and had nothing left to say
+ *   with. A reasoning model behind a conservative output cap does this readily, and the
+ *   billing proves it: the turn is charged for the whole reservation.
+ *
+ * The captured run was the second, charged 8,192 output tokens against an 8,192-token
+ * reservation, and was told the provider was overloaded — an explanation that pointed the
+ * creator at the one thing they could not have changed. The fix for that run is a bigger
+ * output reservation or a smaller step, and the message now says so.
+ *
+ * `usage` absent ⇒ nothing was reported, so the cause is unknowable and the message stays
+ * the general one. Exported for tests.
+ */
+export function emptyResponseDetail(
+  usage: Usage | undefined,
+  reservedOutputTokens: number,
+): string {
+  const spent = usage?.outputTokens ?? 0;
+  if (spent > 0 && reservedOutputTokens > 0 && spent >= reservedOutputTokens) {
+    return (
+      `The model used its entire output allowance (${spent} tokens) without producing an ` +
+      'answer or a tool call, on every attempt — a reasoning model can spend the whole ' +
+      'budget thinking. Ask for a smaller step, or raise the output limit for this model.'
+    );
+  }
+  return (
+    'The model returned an empty response — no answer and no tool call, on every ' +
+    'attempt. This is usually the provider dropping the request (overloaded or ' +
+    'rate-limited).'
+  );
+}
+
 export function unusableTurnReason(
   turn: {
     readonly text: string;
@@ -7474,10 +7512,19 @@ export class Orchestrator {
           if (!turn.text.trim()) {
             // The bounded retry above has already been spent, so this is the provider
             // failing repeatedly rather than a single dropped request.
-            const detail =
-              'The model returned an empty response — no answer and no tool call, on every ' +
-              'attempt. This is usually the provider dropping the request (overloaded or ' +
-              'rate-limited).';
+            //
+            // Unless it BILLED for the whole reply. A reasoning model handed a small output
+            // cap can spend every one of those tokens thinking and emit no visible answer:
+            // the wire carries an empty completion, but the cause is a budget, not an
+            // outage. The captured run charged 8,192 output tokens — exactly the reserved
+            // room — and was reported to the creator as the provider being overloaded, an
+            // explanation that pointed at the one thing they could not have fixed.
+            const detail = emptyResponseDetail(
+              turn.usage,
+              outputRoomFor(self.provider, {
+                reservedOutputTokens: reservedOutputFor(input, self.provider),
+              }),
+            );
             if (state.cumulativeOps.length > 0) {
               log.push(`Step ${index}: empty model response — keeping the edits already applied.`);
               yield emit.warning(`${detail} The edits from earlier steps are kept.`);
@@ -7542,7 +7589,18 @@ export class Orchestrator {
               operation.idempotencyKey.startsWith(idempotencyPrefix),
           )
         ) {
+          // The guard is right to stop here — the model asked for a step it has already
+          // completed, against a timeline that has not moved since. What was wrong was
+          // stopping SILENTLY. In the captured run this is where turn 1 ended, and the
+          // creator was shown "Applied 176 edits" with no hint that the agent had halted on
+          // a repeat with the motion work it had promised still untouched. A notification
+          // is a status line; a warning is what the run's summary actually carries.
           yield emit.notification('Skipped an already committed operation during retry recovery.');
+          yield emit.warning(
+            'The agent asked to repeat a step it had already completed, so this run stopped ' +
+              'there rather than doing it twice. Anything still outstanding needs a new ' +
+              'message — say what is left and it will pick that up.',
+          );
           return turnBase(index, emit.seq(), {
             done: true,
             note: 'Idempotency hit: this planned operation already succeeded.',

@@ -8,6 +8,7 @@ import type {
 import {
   Orchestrator,
   callMemoKey,
+  emptyResponseDetail,
   outputRoomFor,
   truncationRetryHint,
   unusableTurnReason,
@@ -238,5 +239,29 @@ describe('unusableTurnReason', () => {
     expect(
       unusableTurnReason({ ...spoke, calls: [{}], droppedToolCalls: ['add_clip'] }, 0, 'apply'),
     ).toBeUndefined();
+  });
+});
+
+describe('emptyResponseDetail', () => {
+  it('blames the provider when the turn was barely billed', () => {
+    const detail = emptyResponseDetail({ inputTokens: 900, outputTokens: 3 }, 8_192);
+    expect(detail).toContain('overloaded');
+    expect(detail).not.toContain('output allowance');
+  });
+
+  it('names the output budget when the model spent all of it and said nothing', () => {
+    // The captured run: 8,192 output tokens charged against an 8,192-token reservation,
+    // reported to the creator as the provider being overloaded — the one cause they could
+    // not have done anything about.
+    const detail = emptyResponseDetail({ inputTokens: 722, outputTokens: 8_192 }, 8_192);
+    expect(detail).toContain('entire output allowance');
+    expect(detail).toContain('8192');
+    expect(detail).toContain('smaller step');
+    expect(detail).not.toContain('overloaded');
+  });
+
+  it('stays general when the provider reported no usage at all', () => {
+    // A count is never fabricated, so an unreported turn cannot be diagnosed either.
+    expect(emptyResponseDetail(undefined, 8_192)).toContain('overloaded');
   });
 });
