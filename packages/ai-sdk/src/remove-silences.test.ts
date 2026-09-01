@@ -4,6 +4,7 @@ import type { AiCompletionRequest, AiProvider, AiResponse, ProviderChunk } from 
 import type { HostToolExecutor } from './tool-executor.js';
 import { Orchestrator } from './orchestrator.js';
 import { makeProject } from './__fixtures__/project.js';
+import { AGENT_MAX_OPS_PER_TURN } from './kernel/conductor.js';
 
 /** One turn that calls remove_silences, then a closing turn with no calls. */
 function scriptedProvider(): AiProvider {
@@ -144,5 +145,92 @@ describe('remove_silences (plan/system-mission P4.1)', () => {
     });
     expect(edited).toBe(true);
     expect(summaries.some((s) => /Removed 1 silence\(s\)/.test(s))).toBe(true);
+  });
+});
+
+/**
+ * A long interview is the length this tool exists for, and its op count is a fact
+ * about the recording: one `ripple_delete` per measured silence. Charged against the
+ * blast-radius bound that exists to stop a runaway MODEL, that count refused a long
+ * interview for being long — the same defect, for the same reason, as the one that made
+ * captioning a 50-second talking head impossible.
+ *
+ * The first version of the derived-fan-out fix stamped only the generic `operationsFor`
+ * path and missed the four host-backed branches; `remove_silences` is the one where that
+ * mattered, and this is the test that would have caught it.
+ */
+describe('remove_silences on a long recording', () => {
+  const twentyMinuteProject = (): Project => {
+    const base = makeProject();
+    return {
+      ...base,
+      assets: [{ id: 'asset_1', path: 'media/talk.mp4', kind: 'video', durationSeconds: 600 }],
+      timeline: {
+        ...base.timeline,
+        tracks: [
+          {
+            id: 'video_1',
+            type: 'video',
+            clips: [
+              {
+                id: 'clip_a',
+                assetId: 'asset_1',
+                trackId: 'video_1',
+                start: 0,
+                end: 1200,
+                sourceStart: 0,
+                sourceEnd: 1200,
+                effects: [],
+                keyframes: [],
+              },
+            ],
+          },
+          { id: 'audio_1', type: 'audio', clips: [] },
+        ],
+      },
+    } as Project;
+  };
+
+  it('cuts more silences in one turn than a model is allowed to compose', async () => {
+    // A realistic density for twenty minutes of interview: a pause every ~5 seconds. The
+    // count is what makes this the test — it must clear `AGENT_MAX_OPS_PER_TURN`, or the
+    // bound is never exercised and the test passes with or without the fix.
+    const ranges = Array.from({ length: 230 }, (_, i) => ({
+      start: 3 + i * 5,
+      end: 3 + i * 5 + 0.9,
+    }));
+    const executor: HostToolExecutor = {
+      async run() {
+        return {
+          status: 'completed',
+          summary: `Found ${String(ranges.length)} silent ranges`,
+          data: { assetId: 'asset_1', ranges },
+        };
+      },
+    };
+    const events = [];
+    for await (const event of new Orchestrator(scriptedProvider(), { executor }).streamAgent(
+      { project: twentyMinuteProject(), userPrompt: 'remove the dead air' },
+      { conversationId: 'c', turnId: 't' },
+      {},
+    ))
+      events.push(event);
+
+    // More operations than the per-turn bound allows a model to compose — and every one
+    // of them dictated by the measurement, not chosen.
+    const diffs = events.filter((e) => e.type === 'diff' && e.edit.validation.valid);
+    const ops = diffs.flatMap(
+      (d) => (d as { edit: { patch: { operations: { type: string }[] } } }).edit.patch.operations,
+    );
+    expect(ranges.length).toBeGreaterThan(AGENT_MAX_OPS_PER_TURN);
+    expect(ops.filter((o) => o.type === 'ripple_delete').length).toBe(ranges.length);
+
+    // And the run must not report the bound, or the empty-run notice, at all.
+    const warnings = events
+      .filter((e) => e.type === 'warning')
+      .map((e) => (e as { text: string }).text)
+      .join('\n');
+    expect(warnings).not.toMatch(/per-turn cap/);
+    expect(warnings).not.toMatch(/couldn't be applied/);
   });
 });

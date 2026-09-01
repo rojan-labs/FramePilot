@@ -1539,6 +1539,19 @@ interface AgentCallOutcome {
   images?: readonly AiImage[];
 }
 
+/**
+ * `{ derivedOpCount }` when this tool's fan-out is the project's, not the model's.
+ *
+ * One helper because the op-producing returns come in two shapes — the generic
+ * `operationsFor` path and the host-backed branches (`transcribe`, `remove_silences`,
+ * `add_music`, `add_stock`) — and the first version of this stamped only the generic one.
+ * `remove_silences` is where that mattered: it emits one ripple_delete per measured
+ * silence, ~250 on a twenty-minute interview, so the bound meant to stop a runaway model
+ * was again a ceiling on recording length. See `ToolSpec.derivedFanOut`.
+ */
+const derivedOps = (name: string, ops: readonly unknown[]): { derivedOpCount?: number } =>
+  getTool(name)?.derivedFanOut === true ? { derivedOpCount: ops.length } : {};
+
 /** Bound a JSON value to a short single-line preview for model-facing notes. */
 function previewJson(value: unknown, max = 240): string {
   const data = JSON.stringify(value) ?? 'null';
@@ -3768,6 +3781,7 @@ export class Orchestrator {
           note: outcome.summary,
           summary: outcome.summary,
           status: 'completed',
+          ...derivedOps(call.name, ops),
           project: applyProjectPatch(ctx.project, probe.patch),
           data: outcome.data,
         };
@@ -3828,6 +3842,7 @@ export class Orchestrator {
           note: `${summary}. Breath of ${String(options.keepSeconds)}s kept on each side; the timeline is ${removedSeconds.toFixed(1)}s shorter.`,
           summary,
           status: 'completed',
+          ...derivedOps(call.name, ops),
           project: applyProjectPatch(ctx.project, probe.patch),
           data: outcome.data,
         };
@@ -4317,9 +4332,7 @@ export class Orchestrator {
         status: 'completed',
         // A tool whose op count the model cannot influence does not spend the run's
         // blast-radius budget (see `ToolSpec.derivedFanOut`).
-        ...(getTool(call.name)?.derivedFanOut === true
-          ? { derivedOpCount: normalized.length }
-          : {}),
+        ...derivedOps(call.name, normalized),
         project: applyProjectPatch(ctx.project, probe.patch),
       };
     } catch (error) {
