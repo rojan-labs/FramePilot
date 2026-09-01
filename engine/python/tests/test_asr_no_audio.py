@@ -12,6 +12,7 @@ codec dump — naming no cause it could act on, and not saying the one thing tha
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -28,7 +29,7 @@ FFMPEG_BANNER = (
 )
 
 
-def _failing_run(_argv: list[str], _timeout: float | None) -> None:
+def _failing_run(_argv: Sequence[str], _timeout: float | None) -> None:
     raise FFmpegError(FFMPEG_BANNER)
 
 

@@ -4050,6 +4050,35 @@ def create_app(
         )
         return VisualSearchResponse(available=True, backend=backend, packets=packets)
 
+    def _describe_uses_twelvelabs(resolved_root: Path, req: VisualDescribeRequest) -> bool:
+        """Which backend actually HOLDS evidence for this asset?
+
+        Three cases, and the middle one is the bug this answers:
+
+        - a ready ``tl:video`` mapping → TwelveLabs holds it;
+        - no mapping, but local spans exist → the on-device path holds it. This is a
+          still photo, which the INDEXER deliberately routed there because TwelveLabs
+          cannot attach one to a Marengo index;
+        - neither → TwelveLabs, so the honest ``not_indexed`` still comes from the
+          backend that WOULD index it. "Nothing found locally" would read as "there is
+          nothing in this footage" for an asset that is merely still uploading.
+
+        Fails OPEN — an unreadable brain answers True — so a genuine store problem
+        surfaces through ``_tl_describe``'s own honest reasons rather than being
+        silently rerouted to a local store that is equally unreadable.
+        """
+        try:
+            with open_brain(resolved_root, req.project_id) as store:
+                mapping = read_video_mapping(store, req.asset_id)
+                if mapping is not None and mapping.ready:
+                    return True
+                return not any(
+                    span.asset_id == req.asset_id
+                    for span in store.list_visual_spans(model=MODEL_ID)
+                )
+        except (BrainError, BrainSchemaError, PathTraversalError, OSError):
+            return True
+
     def _tl_describe(
         client: TwelveLabsClient, req: VisualDescribeRequest, resolved_root: Path
     ) -> VisualSearchResponse:
@@ -4150,8 +4179,23 @@ def create_app(
         # cached chapter map IS a time-ordered walk of the footage — exactly what
         # describe enumerates (plan FI2.2, fixes G1). Serve that instead of the old
         # "not supported" stub; still honest when the map is unavailable.
+        #
+        # PER ASSET, not per project. Indexing already routes per asset: a still photo
+        # cannot be attached to a Marengo index (TwelveLabs answers 404
+        # `resource_not_exists`), so `_asset_is_still_image` sends stills to the on-device
+        # embedder and their evidence lands in `visual_spans`/`visual_captions`. Reading
+        # did not mirror that. Any project with a TwelveLabs key configured sent EVERY
+        # describe to `_tl_describe`, which only knows `tl:video` mappings — so an asset
+        # that had been indexed perfectly well, on the path the indexer deliberately chose
+        # for it, was reported `not_indexed`.
+        #
+        # Measured on this machine: `project_champadevi_hike` holds **60 indexed spans**
+        # and answered `describe_footage` with `not_indexed` and zero packets. So did every
+        # other photo project — the ones where the built-in path is the ONLY path that can
+        # work. A routing decision made at write time has to be honoured at read time, or
+        # the store is written to and never read from.
         tl = resolve_twelvelabs(req.twelve_labs_key or settings.twelvelabs_api_key)
-        if tl.client is not None:
+        if tl.client is not None and _describe_uses_twelvelabs(root.resolve(), req):
             return _tl_describe(tl.client, req, root.resolve())
 
         project_doc: Project | None = None
@@ -4216,6 +4260,24 @@ def create_app(
             backend,
             len(packets),
         )
+        # Spans with no captions are indexed for SEARCH, not for reading. `describe`'s
+        # whole deliverable is the description, and a packet whose caption is empty is
+        # noise the model has to reason about: it reads as "this moment contains nothing",
+        # which is a claim about the footage rather than about our coverage. Say what is
+        # actually true, and name what DOES work — `get_frame` renders any moment through
+        # the export compiler and needs no index at all.
+        if packets and not caption_by_scene:
+            return VisualSearchResponse(
+                available=True,
+                backend=backend,
+                packets=[],
+                reason=(
+                    f"indexed_without_descriptions: {len(packets)} span(s) of this asset are "
+                    "embedded for search but none has been described, so there is nothing to "
+                    "read in order. Look at a moment with get_frame, or search_visual by "
+                    "content."
+                ),
+            )
         return VisualSearchResponse(available=True, backend=backend, packets=packets)
 
     @app.get("/health", response_model=HealthResponse)

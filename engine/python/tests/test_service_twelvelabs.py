@@ -17,7 +17,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 import framepilot_engine.service as service_module
+from framepilot_engine.analysis.visual_sampler import SAMPLER_VERSION
 from framepilot_engine.audio.asr import WhisperCliNotFoundError
+from framepilot_engine.brain.models import VisualCaptionRow, VisualSpanRow
 from framepilot_engine.brain.store import open_brain
 from framepilot_engine.brain.twelvelabs import (
     TaskStatus,
@@ -31,6 +33,7 @@ from framepilot_engine.brain.twelvelabs import (
     TwelveLabsPegasusUnavailableError,
 )
 from framepilot_engine.brain.twelvelabs_index import store_index_id, store_video_mapping
+from framepilot_engine.brain.visual_embed import MODEL_ID
 from framepilot_engine.config import Settings
 from framepilot_engine.media.probe import MediaInfo, StreamInfo
 from framepilot_engine.service import create_app
@@ -386,6 +389,65 @@ def test_describe_reports_not_indexed_without_mapping(
     body = client.post("/brain/visual/describe", json={"projectId": "p1", "assetId": "vid"}).json()
     assert body["available"] is True and body["reason"] == "not_indexed"
     assert body["packets"] == []
+
+
+def test_describe_reads_a_still_from_the_path_that_indexed_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A photo indexed on-device is described from there, even with a TwelveLabs key set.
+
+    THE DEFECT. Indexing already routes per asset: a still cannot be attached to a
+    Marengo index (TwelveLabs answers 404 `resource_not_exists`), so
+    `_asset_is_still_image` sends stills to the on-device embedder and their evidence
+    lands in `visual_spans`/`visual_captions`. Reading did not mirror that — any project
+    with a TwelveLabs key sent EVERY describe to `_tl_describe`, which only knows
+    `tl:video` mappings. So an asset indexed perfectly well, on the path the indexer
+    deliberately chose for it, answered `not_indexed` with zero packets.
+
+    Measured on a real machine before the fix: `project_champadevi_hike` held **60
+    indexed spans** and described as `not_indexed`. So did every other photo project —
+    the ones where the on-device path is the only path that can work.
+    """
+    (tmp_path / "photo.jpg").write_bytes(b"\xff\xd8fake")
+    with open_brain(tmp_path, "p1") as store:
+        store.upsert_asset("pic", path="photo.jpg", content_sha256="sha-pic")
+        store.upsert_visual_spans(
+            [
+                VisualSpanRow(
+                    asset_id="pic",
+                    model=MODEL_ID,
+                    sampler_version=SAMPLER_VERSION,
+                    t0=0.0,
+                    t1=0.0,
+                    scene_index=0,
+                    keyframe_t=0.0,
+                    phash=0,
+                    frame_count=1,
+                    content_hash="sha-pic",
+                )
+            ]
+        )
+        store.upsert_visual_captions(
+            [
+                VisualCaptionRow(
+                    asset_id="pic",
+                    scene_index=0,
+                    t0=0.0,
+                    t1=0.0,
+                    text="A man stands in a dry, grassy field.",
+                    model="caption-model",
+                    content_hash="sha-pic",
+                )
+            ]
+        )
+    # A TwelveLabs key IS configured and resolves — that is the whole point.
+    client = _client(tmp_path, monkeypatch, _FakeTL())
+    body = client.post("/brain/visual/describe", json={"projectId": "p1", "assetId": "pic"}).json()
+    assert body["available"] is True
+    assert body["reason"] is None
+    assert body["backend"] != "twelvelabs"
+    assert len(body["packets"]) == 1
+    assert "grassy field" in body["packets"][0]["caption"]
 
 
 # --- footage-map: cache is authoritative (no re-billing; survives reopen) --------
