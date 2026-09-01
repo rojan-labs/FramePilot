@@ -8,6 +8,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The AI can describe your footage again.** Asking it what's in a clip reported "not indexed"
+  for footage that was fully indexed — every photo project was affected. Importing a photo indexes
+  it on your own machine (the hosted service can't take stills), but the AI was only ever asking the
+  hosted service. It now reads whichever one actually holds the footage. If a clip is indexed for
+  search but has no descriptions yet, it says that plainly instead of returning empty results.
+- **When the media engine can't produce a frame, it tells you why.** The last unguarded step —
+  encoding the picture — could still surface as a bare "Internal Server Error".
+
 - **De-umming a long recording now works.** Asking the AI to cut the dead air out of
   anything past about seventeen minutes of speech removed nothing at all — the cuts were
   measured correctly and then discarded whole, because an internal limit on how much one

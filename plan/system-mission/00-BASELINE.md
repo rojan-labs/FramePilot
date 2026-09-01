@@ -146,7 +146,22 @@ and failure list. The after-numbers are `01-after.md`.
       app. Fixed at the root: `electron/env.ts` (`parseDotEnv`/`applyDotEnv`, process env
       wins, table-tested), `main.ts` uses `loadDotEnvFile`. Found while building
       `tests/e2e-desktop` (P9.0 pulled forward because P0.4/P0.6 need the desktop host).
-- [ ] **A split can leave a zero-length clip that cannot be deleted.** Montage ledger: after
+- [~] **A split can leave a zero-length clip that cannot be deleted.** **Reproduced and bounded
+  2026-09-01, deliberately not fixed — read this before attempting it.** The undeletable half is
+  already fixed (`ai-sdk/domain-tools/timeline.ts#clipDeleteOp` floors the start and ceils the end,
+  so `delete_clip` covers an off-grid clip's every frame). What remains is that the husk is still
+  CREATED. Driven through the real commit path (`commitProjectPatch`, which quantizes once per
+  ADR 0146): a clip ending **off-grid** at 134.675 with `delete_range 122.5→134.674` leaves
+  **0.008333 s** (¼ frame); the same delete against an **on-grid** clip end leaves exactly one
+  frame, which is legitimate. So the husk needs an off-grid clip edge — legacy or imported data,
+  not something a new edit creates, since every committed operation is snapped.
+  Harm is now hygiene only: sub-frame clips render as nothing and are deletable.
+  **Why it was left:** every fix considered either changes delete/ripple arithmetic (which changes
+  undo and shift amounts on the hottest path in the editor) or synthesises an outward-snapped
+  delete that can eat into a neighbouring clip. Neither is worth doing without the ability to run a
+  real agent against it. The principled fix is to snap CLIP EDGES at commit, not just operation
+  times — a deliberate semantic change that rewrites the user's timeline, and a maintainer call.
+- [ ] **(original wording, kept for the record)** A split can leave a zero-length clip that cannot be deleted. Montage ledger: after
       `ripple_delete 122.5–134.675` the right half `clip_005__r` exists with end ≤ start;
       `delete_clip` on it is rejected with "delete_range.end must be greater than start" —
       four model requests spent on it. Either the split must not create it or delete must

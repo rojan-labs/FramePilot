@@ -75,7 +75,33 @@ failed — 11.7%**) rather than waiting for the next report:
 Verified fixed while here: a run whose every model call fails settles as `failed` (both
 shapes probed against the live orchestrator).
 
-Suites: ai-sdk **4028**, Python engine **2796**, e2e gate **95**, `pnpm verify` **17/17**.
+Third pass, driving the **real sidecar against the real project store** rather than fixtures:
+
+- `[x]` **`describe_footage` was reading the wrong backend.** Indexing routes per ASSET (a still
+  cannot attach to a Marengo index, so it goes on-device); reading routed per PROJECT, so any project
+  with a TwelveLabs key sent every describe to `_tl_describe`. `project_champadevi_hike` holds **60
+  indexed spans** and answered with zero packets. Now routed by which backend actually HOLDS evidence
+  for the asset. Verified live on four shapes; regression test fails without the fix.
+- `[x]` **Every frame-grab failure is now a named 422**, not a bare 500. The encode step was the last
+  unguarded stretch.
+- `[!]` **`get_frame`'s historical 500s are NOT reproducible.** Tried 7 project shapes, sequential and
+  16-way concurrent, inline and saved-path: **0 failures**. The 132/388 in `framepilot.runs.jsonl` are
+  all dated 08-28/29, before the still-image routing fix and against mission fixtures whose media is
+  not on this machine. Every escape path is now guarded, so the next occurrence names itself.
+- `[!]` **A cold frame grab costs a full timeline compile — measured 51.8 s** on `project_scenery`
+  (87 clips / 12 video assets). The composition cache makes the second grab 0.1 s, but it is keyed on
+  the project document and the agent's copy changes every edit, so its edit→look→edit→look pattern is
+  a miss every time — ~52 s per self-check against a 120 s budget. **A windowed compile was built,
+  measured (61.7 s → 14.2 s; 11.5 s → 0.1 s) and REVERTED**: pixel-comparing full vs windowed over 14
+  frames on 4 real projects found **2 wrong frames** (max ±118 and ±244), both on clips carrying a
+  `transition` effect — a transition-in dissolves against the _previous_ clip, which a time-overlap
+  filter drops. A wrong frame is worse than a slow one on the tool the model uses to check itself.
+  Needs the render engine's owner and a transition-aware window.
+- `[~]` **Sub-frame husk clips reproduced and bounded** (see `plan/system-mission/00-BASELINE.md`) —
+  needs an off-grid clip edge, so legacy data only; harm is hygiene. Deliberately not fixed; the
+  principled fix snaps clip edges at commit and is a maintainer call.
+
+Suites: ai-sdk **4028**, Python engine **2797**, e2e gate **95**, `pnpm verify` **17/17**.
 Maintainer verifies the real desktop run by hand.
 
 **Status snapshot (2026-08-29, SYSMISSION — system mission plan):** `[~]` **The end-to-end
@@ -8592,10 +8618,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                                                        Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                                                        a pre-existing local edit commenting out temperature forwarding, untouched here);
-                                                        engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                                                        **Last updated:** 2026-08-14
+                                                          Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                                                          a pre-existing local edit commenting out temperature forwarding, untouched here);
+                                                          engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                                                          **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 
