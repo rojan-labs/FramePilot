@@ -637,7 +637,7 @@ describe('Inspector keyframes', () => {
 
   it('shows the empty state until a clip is selected', () => {
     render(<Host />);
-    expect(screen.getByLabelText('inspector').textContent).toContain('empty here');
+    expect(screen.getByLabelText('inspector').textContent).toContain('Nothing selected');
   });
 
   it('adds a mask effect to the selected clip', () => {
