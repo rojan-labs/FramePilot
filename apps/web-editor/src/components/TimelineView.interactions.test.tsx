@@ -237,6 +237,25 @@ describe('TimelineView direct manipulation', () => {
     fireEvent.pointerUp(handle, { clientX: 40, pointerId: 1 });
     // The overlay wedge widens to the committed fade duration.
     expect((c1.querySelector('.clip-fade-overlay-in') as HTMLElement).style.width).toBe('40px');
+
+    // REGRESSION: and it can be dragged BACK. The handler converted its drag delta
+    // with `pxToSeconds`, which clamps to >= 0 because it exists to turn an x into
+    // a time — so every leftward pointer move computed a delta of exactly zero and
+    // the handle released at the value it already had. A fade could be grown, and
+    // then never shortened or removed, for the life of the clip.
+    // −20px ⇒ −0.5s at 40px/s, landing on a whole frame at 30fps so the committed
+    // value is exact rather than frame-quantised to something near it.
+    fireEvent.pointerDown(handle, { clientX: 40, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: 20, pointerId: 1 });
+    fireEvent.pointerUp(handle, { clientX: 20, pointerId: 1 });
+    expect((c1.querySelector('.clip-fade-overlay-in') as HTMLElement).style.width).toBe('20px');
+
+    // And all the way back to none, which is how a fade is removed by direct
+    // manipulation at all.
+    fireEvent.pointerDown(handle, { clientX: 20, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: -60, pointerId: 1 });
+    fireEvent.pointerUp(handle, { clientX: -60, pointerId: 1 });
+    expect((c1.querySelector('.clip-fade-overlay-in') as HTMLElement).style.width).toBe('0px');
   });
 
   it('snaps a dragged clip to a nearby clip edge (snap guide appears)', () => {

@@ -994,9 +994,32 @@ export function adjacentMarker(
 /** Convert a duration in seconds to a pixel width at the given zoom. */
 export const secondsToPx = (seconds: number, pxPerSecond: number): number => seconds * pxPerSecond;
 
-/** Convert a pixel offset to seconds at the given zoom (clamped to ≥ 0). */
+/**
+ * Convert a pixel POSITION to a time at the given zoom, clamped to >= 0.
+ *
+ * The clamp is correct here and only here: an x of -20 on the lane is before the
+ * start of the sequence, and there is no such time.
+ *
+ * It is wrong for a signed delta — use {@link pxDeltaToSeconds} for those.
+ */
 export const pxToSeconds = (px: number, pxPerSecond: number): number =>
   pxPerSecond <= 0 ? 0 : Math.max(0, px / pxPerSecond);
+
+/**
+ * Convert a signed pixel DELTA to a signed duration at the given zoom.
+ *
+ * The sibling of {@link pxToSeconds}, and deliberately not the same function. A
+ * position cannot be negative, so `pxToSeconds` clamps; a drag delta is negative
+ * every time the pointer moves left, and clamping it silently turns "drag left"
+ * into "do not move".
+ *
+ * That is not hypothetical: the audio fade handles converted their drag delta with
+ * the position helper, so a fade could be dragged longer but never shorter — the
+ * handle simply ignored every leftward pointer move, and released at the value it
+ * already had. Any gesture that reads a delta belongs here.
+ */
+export const pxDeltaToSeconds = (deltaPx: number, pxPerSecond: number): number =>
+  pxPerSecond <= 0 || !Number.isFinite(deltaPx) ? 0 : deltaPx / pxPerSecond;
 
 /** Shortest clip a UI trim/drag may produce, in seconds (keeps clips grabbable). */
 export const MIN_CLIP_SECONDS = 0.05;

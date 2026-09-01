@@ -27,6 +27,7 @@ import {
   clipCompositing,
   compactDuration,
   compactTimeLabel,
+  pxDeltaToSeconds,
   isIdentityCompositing,
   clipKind,
   pictureSegments,
@@ -1048,6 +1049,30 @@ describe('formatTime', () => {
 
   it('renders plain seconds when asked', () => {
     expect(formatTime(2.5, 30, 'seconds')).toBe('2.50s');
+  });
+});
+
+describe('pxDeltaToSeconds', () => {
+  it('keeps the sign, so a leftward drag is a negative duration', () => {
+    expect(pxDeltaToSeconds(40, 40)).toBe(1);
+    expect(pxDeltaToSeconds(-40, 40)).toBe(-1);
+    expect(pxDeltaToSeconds(0, 40)).toBe(0);
+  });
+
+  it('does NOT clamp the way the position helper does', () => {
+    // The whole reason this function is separate. `pxToSeconds` clamps to >= 0
+    // because an x before the start of the lane is not a time; a drag delta of
+    // -40px is a perfectly real "shorten by one second", and clamping it made the
+    // audio fade handles growable but never shrinkable.
+    expect(pxToSeconds(-40, 40)).toBe(0);
+    expect(pxDeltaToSeconds(-40, 40)).toBe(-1);
+  });
+
+  it('returns 0 rather than Infinity or NaN for a degenerate zoom or delta', () => {
+    expect(pxDeltaToSeconds(40, 0)).toBe(0);
+    expect(pxDeltaToSeconds(40, -10)).toBe(0);
+    expect(pxDeltaToSeconds(Number.NaN, 40)).toBe(0);
+    expect(pxDeltaToSeconds(Number.POSITIVE_INFINITY, 40)).toBe(0);
   });
 });
 

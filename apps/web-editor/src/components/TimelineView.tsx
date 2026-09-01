@@ -54,6 +54,7 @@ import {
   layerKind,
   nextAutoScrollLeft,
   pxToSeconds,
+  pxDeltaToSeconds,
   orderedClips,
   rollBounds,
   rulerTicks,
@@ -875,7 +876,10 @@ const TimelineClip = memo(function TimelineClip({
   const onFadePointerMove = (event: React.PointerEvent): void => {
     const g = fadeDragRef.current;
     if (!g) return;
-    const deltaSeconds = pxToSeconds(event.clientX - g.startX, pxPerSecond);
+    // A signed DELTA, so it must not go through the position helper — that one
+    // clamps to >= 0, which turned every leftward drag into no drag at all and
+    // made a fade growable but never shrinkable.
+    const deltaSeconds = pxDeltaToSeconds(event.clientX - g.startX, pxPerSecond);
     const raw = g.edge === 'in' ? g.startSeconds + deltaSeconds : g.startSeconds - deltaSeconds;
     const seconds = Math.min(FADE_MAX_SECONDS, Math.max(0, Math.min(raw, clipSeconds)));
     g.current = seconds;
