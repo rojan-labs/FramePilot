@@ -38,6 +38,32 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The AI no longer loses tool calls in transit.** When a reply was cut off part-way
+  through asking for an edit, the half-finished request was sent to the tool anyway,
+  where it was rejected as malformed — and the run then refused to let the AI try that
+  tool again for the rest of the session, because from its side the tool had "already
+  failed". A run asked to lay a talking head down, bed music under it and transcribe the
+  speech spent three minutes restating its plan and landing none of it. A request that
+  does not arrive whole is now discarded rather than half-applied, the step is retried,
+  and the AI is told which of its asks went missing so the second attempt is a different
+  one. Requests the provider sent in one piece, which used to be dropped without a
+  trace, are read too.
+- **A run that was cut off no longer reports itself finished.** If the model ran out of
+  room mid-sentence after some edits had already landed, the run closed as "completed"
+  with whatever it had just promised to do next silently abandoned — you saw a count of
+  applied edits and no hint that anything was missing. It now says it stopped early and
+  kept the edits so far. And when a step comes back empty because the model spent its
+  entire output budget thinking, the message says that, instead of blaming the provider
+  for being overloaded — the first is something you can act on, the second was not.
+- **Captions no longer get regenerated forever.** The caption checker and the caption
+  generator disagreed about which words belong to which cue whenever a cue boundary
+  landed within a frame of a word, so the checker reported perfectly good captions as
+  out of sync or stale, the AI regenerated them exactly as they were, and the checker
+  reported the same faults again. One run burned a hundred operations deleting and
+  re-adding an identical caption track, and the rest of its turns on a loop it could not
+  win. They now agree, so a clean caption track verifies clean — and a caption that
+  really is off its words is still caught.
+
 - **Two titles at the same moment no longer fail.** Placing a clip, caption or text
   overlay where another already sits used to refuse the whole edit with an internal
   "clips overlap on track" error. It now goes on a free lane of the same kind, or a new
