@@ -978,12 +978,43 @@ function applyOperationInner(timeline: Timeline, op: Operation): Timeline {
   }
 }
 
+/**
+ * Say WHICH numbers are wrong, and in which time domain.
+ *
+ * `trim_clip produces invalid source range on clip_002` names the clip and nothing else.
+ * The author is usually a model whose only other view of the rejection is that sentence,
+ * so its available next moves are to reissue the same call or give up — and in the
+ * captured runs (`framepilot.runs.jsonl`) it reissued: **34 `trim_clip` failures, 29 of
+ * them this message**, three clips, over and over.
+ *
+ * The cause it could not see is almost always one confusion: TIMELINE time passed where
+ * the clip's SOURCE range is what constrains it. A clip sitting at 4s–9s that plays
+ * source 0s–5s cannot be trimmed to timeline 0s–5s; that asks for source −4s. Naming both
+ * domains and both ranges turns a dead end into an arithmetic the author can redo.
+ */
+const sourceRangeRejection = (
+  label: string,
+  clip: Clip,
+  attempted: { readonly sourceStart: number; readonly sourceEnd: number },
+): string => {
+  const r = (value: number): string => `${Number(value.toFixed(3))}s`;
+  const cause =
+    attempted.sourceStart < -EPSILON
+      ? `that needs source ${r(attempted.sourceStart)}, which is before the media starts`
+      : `that needs source ${r(attempted.sourceStart)} to ${r(attempted.sourceEnd)}, which occupies no time`;
+  return (
+    `${label} produces an invalid source range on ${clip.id}: it sits at timeline ` +
+    `${r(clip.start)} to ${r(clip.end)} playing source ${r(clip.sourceStart)} to ${r(clip.sourceEnd)}, ` +
+    `and ${cause}. Timeline times and source times are different domains; use get_clip to read both.`
+  );
+};
+
 function applyTrim(timeline: Timeline, op: TrimClipOp): Timeline {
   const loc = findClip(timeline, op.clipId);
   if (op.end - op.start <= EPSILON) {
     throw new OperationError(
       'invalid_range',
-      `trim_clip would give non-positive duration on ${op.clipId}`,
+      `trim_clip would give ${op.clipId} no duration: ${Number(op.start.toFixed(3))}s → ${Number(op.end.toFixed(3))}s.`,
     );
   }
   const { clip } = loc;
@@ -994,10 +1025,7 @@ function applyTrim(timeline: Timeline, op: TrimClipOp): Timeline {
   // every speed case, so trim, delete_range and ripple_delete cannot disagree.
   const next: Clip = truncateClip(clip, op.start, op.end, clip.id);
   if (next.sourceStart < -EPSILON || next.sourceEnd - next.sourceStart <= EPSILON) {
-    throw new OperationError(
-      'invalid_range',
-      `trim_clip produces invalid source range on ${op.clipId}`,
-    );
+    throw new OperationError('invalid_range', sourceRangeRejection('trim_clip', clip, next));
   }
   const clips = loc.track.clips.slice();
   clips[loc.clipIndex] = next;
@@ -1009,7 +1037,7 @@ function applySetClipSourceRange(timeline: Timeline, op: SetClipSourceRangeOp): 
   if (op.sourceStart < -EPSILON || op.sourceEnd - op.sourceStart <= EPSILON) {
     throw new OperationError(
       'invalid_range',
-      `set_clip_source_range produces invalid source range on ${op.clipId}`,
+      sourceRangeRejection('set_clip_source_range', loc.clip, op),
     );
   }
   const next: Clip = {

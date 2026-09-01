@@ -130,6 +130,49 @@ describe('trim_clip', () => {
       /source range/,
     );
   });
+
+  it('states both time domains and both ranges when the source range is invalid', () => {
+    // `trim_clip produces invalid source range on a` named the clip and nothing else. A
+    // model whose only view of the rejection is that sentence can reissue the same call
+    // or give up, and in the captured runs (`framepilot.runs.jsonl`) it reissued: 34
+    // `trim_clip` failures, 29 of them this message, across three clips.
+    //
+    // The cause it could not see is one confusion — timeline time used where the clip's
+    // SOURCE range is what constrains it. The message has to name both.
+    const tl: Timeline = {
+      tracks: [
+        {
+          id: 'video_1',
+          type: 'video',
+          clips: [
+            clip({ id: 'a', trackId: 'video_1', start: 3, end: 10, sourceStart: 1, sourceEnd: 8 }),
+          ],
+        },
+      ],
+    };
+    let message = '';
+    try {
+      applyOperation(tl, { type: 'trim_clip', clipId: 'a', start: 0, end: 10 });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain('timeline 3s to 10s');
+    expect(message).toContain('source 1s to 8s');
+    // The number that is actually out of bounds, said plainly.
+    expect(message).toContain('needs source -2s, which is before the media starts');
+    // And the fix, because naming the fault without the move is half an answer.
+    expect(message).toContain('get_clip');
+  });
+
+  it('says which times gave a trim no duration', () => {
+    let message = '';
+    try {
+      applyOperation(baseTimeline(), { type: 'trim_clip', clipId: 'a', start: 5, end: 5 });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain('5s → 5s');
+  });
 });
 
 // --- set_clip_source_range -------------------------------------------------
