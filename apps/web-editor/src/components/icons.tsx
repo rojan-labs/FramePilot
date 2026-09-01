@@ -106,6 +106,7 @@ export {
   Crop,
   Layers,
   BookOpen,
+  Wrench,
   CloudUpload,
   Bookmark,
   // The keyframe marker, in the inspector and (Phase 6) on the timeline. Outline at

@@ -44,6 +44,7 @@ import {
   Type,
   Volume2,
   Wand2,
+  Wrench,
   ZoomIn,
 } from '../icons.js';
 
@@ -76,6 +77,10 @@ const TOOL_META: Record<string, ToolMeta> = {
   render_preview: { label: 'Render preview', Icon: Eye },
   ask_user: { label: 'A question for you', Icon: MessageCircleQuestion },
   load_skill: { label: 'Load skill', Icon: BookOpen },
+  // Progressive disclosure (tool-registry.ts): the agent asks for the tools a
+  // kind of work needs. Named for what the user sees happening — the agent is
+  // reaching for a specialised set — rather than for the mechanism.
+  load_tools: { label: 'Load tools', Icon: Wrench },
   recall_evidence: { label: 'Recall earlier finding', Icon: BookOpen },
   manage_assets: { label: 'Organize media', Icon: Folder },
 
