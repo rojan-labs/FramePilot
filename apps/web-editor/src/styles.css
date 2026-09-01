@@ -6805,13 +6805,22 @@ details.inspector-panel[open] > .inspector-section-head::before {
   opacity: 1;
 }
 
+/* A DISABLED chevron recedes at rest exactly like an enabled one.
+
+   This rule used to set `opacity: 0.35` unconditionally, and being later in the
+   file at equal specificity it beat the `opacity: 0` above — so the one case where
+   the chevrons say nothing at all (a clip with no keyframes, where both are
+   disabled) was the case that drew them permanently. Every property row carried two
+   grey ghosts that could not be clicked, which is the opposite of what the comment
+   above this block describes. The dimming now applies only once the row is
+   revealed, where "there is nowhere to jump to" is information. */
 .keyframe-nav[disabled] {
   cursor: default;
   color: var(--text-disabled, var(--text-tertiary));
-  opacity: 0.35;
 }
 
-.inspector-row:hover .keyframe-nav[disabled] {
+.inspector-row:hover .keyframe-nav[disabled],
+.keyframe-nav[disabled]:focus-visible {
   opacity: 0.35;
 }
 
