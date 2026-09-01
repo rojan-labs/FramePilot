@@ -1,4 +1,20 @@
 /*
+ * NOTE ON COLOUR (redesign pass): every accent in this file is STATE — the active
+ * tab's rule, an engaged chip, a focus ring, a selection wash, the clip glyph — so
+ * they resolve through `--tl-select` (the editor's state colour, which the timeline
+ * playhead and selection also use) rather than `--accent`, which owns primary
+ * ACTIONS. The panel's own tab is drawn in the state colour, so an accent chip
+ * inside it put a second hue on one surface for no reason.
+ *
+ * NOTE ON TYPE (redesign pass): every font-size in this file below the documented
+ * 11px ordinary-text floor, and every font-weight outside the 400/500/600 set, was
+ * normalised to the shared tokens. The panel had accumulated 8.5px/9px/9.5px/10px
+ * text at weights of 550/620/650 — a private type scale that no other surface used,
+ * that `editor-foundation.css` was separately trying to correct, and that made the
+ * densest panel in the app also its least legible. See DESIGN_SYSTEM.md and
+ * design.md; sizes come from --font-size-*, weights from --font-weight-*.
+ */
+/*
  * Contextual desktop-editor inspector.
  *
  * The hierarchy follows the focused property-page model used by CapCut, Premiere,
@@ -31,15 +47,18 @@
   background: var(--bg-panel);
 }
 
+/* The glyph, not a tile holding a glyph. A filled, rounded box around a 16px icon
+   is decoration standing in for hierarchy — the clip's NAME is the heading here,
+   and the icon only says which kind it is. */
 .inspector-pro .inspector-clip-icon {
   display: grid;
   flex: none;
   place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-md);
-  background: var(--bg-elevated);
-  color: var(--accent);
+  width: 20px;
+  height: 20px;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-tertiary);
 }
 
 .inspector-pro .inspector-clip-copy {
@@ -61,13 +80,13 @@
 .inspector-pro .inspector-clip-copy strong {
   color: var(--text-primary);
   font-size: 11.5px;
-  font-weight: 620;
+  font-weight: var(--font-weight-semibold);
   letter-spacing: -0.01em;
 }
 
 .inspector-pro .inspector-clip-copy span {
   color: var(--text-tertiary);
-  font-size: 9.5px;
+  font-size: var(--font-size-xs);
 }
 
 .inspector-pro .inspector-clip-actions {
@@ -87,8 +106,8 @@
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-secondary);
-  font-size: 9.5px;
-  font-weight: 550;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
   transition:
     background var(--dur-fast) var(--ease),
     border-color var(--dur-fast) var(--ease),
@@ -116,7 +135,7 @@
 .inspector-pro .inspector-text-button:focus-visible,
 .inspector-pro .inspector-tab:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 1px var(--accent);
+  box-shadow: inset 0 0 0 1px var(--tl-select);
 }
 
 .inspector-pro .inspector-icon-button:disabled,
@@ -157,8 +176,8 @@
   border: 0;
   background: transparent;
   color: var(--text-tertiary);
-  font-size: 10.5px;
-  font-weight: 550;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
   cursor: pointer;
   transition: color var(--dur-fast) var(--ease);
 }
@@ -170,7 +189,7 @@
   left: 0;
   height: 2px;
   border-radius: 2px 2px 0 0;
-  background: var(--accent);
+  background: var(--tl-select);
   content: '';
   opacity: 0;
   transform: scaleX(0.45);
@@ -185,7 +204,7 @@
 }
 
 .inspector-pro .inspector-tab.is-active {
-  font-weight: 620;
+  font-weight: var(--font-weight-semibold);
 }
 
 .inspector-pro .inspector-tab.is-active::after {
@@ -198,9 +217,9 @@
   margin: 9px var(--inspector-inline) 0;
   padding: 7px 9px;
   border-radius: var(--radius-sm);
-  background: var(--accent-subtle);
+  background: var(--tl-select-subtle);
   color: var(--text-secondary);
-  font-size: 9.5px;
+  font-size: var(--font-size-xs);
   line-height: 1.45;
 }
 
@@ -228,10 +247,13 @@
   background: transparent;
 }
 
+/* 43px of chrome above every group, on a rail that has five groups, is 215px spent
+   on headings before a single property is shown. 32px still clears the accessible
+   target for the disclosure it is. */
 .inspector-pro .inspector-section-head {
   display: flex;
   align-items: center;
-  min-height: 43px;
+  min-height: 32px;
   gap: 7px;
   margin: 0;
   padding: 0;
@@ -247,7 +269,7 @@
 
 .inspector-pro .inspector-section-head:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 1px var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--focus-ring);
 }
 
 .inspector-pro .inspector-section-icon {
@@ -265,7 +287,7 @@
   overflow: hidden;
   color: var(--text-primary);
   font-size: 11.5px;
-  font-weight: 620;
+  font-weight: var(--font-weight-semibold);
   letter-spacing: -0.005em;
   text-overflow: ellipsis;
   text-transform: none;
@@ -309,36 +331,60 @@
   }
 }
 
+/* No card.
+   The base rule gives every subpanel a border, a radius, a fill and 8px of padding.
+   Inside a section that is already a bounded region, that is a card in a card — a
+   box drawn to repair a hierarchy that spacing and a heading already express, and
+   it costs two borders plus 16px of horizontal padding on the narrowest surface in
+   the app. The heading and the gap carry the grouping instead. */
 .inspector-pro .inspector-subpanel {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .inspector-pro .inspector-subpanel + .inspector-subpanel {
-  margin-top: 15px;
-  padding-top: 14px;
+  margin-top: 12px;
+  padding-top: 10px;
   border-top: 1px solid var(--border-subtle);
 }
 
+/* Sentence case, on the scale, at an allowed weight.
+   `PUNCH-IN (ZOOM)` at 9.5px/650 with tracking was three separate breaks of the
+   type contract at once: below the 11px ordinary-text floor, a weight outside the
+   400/500/600 set, and upper-casing with tracking — which is the one typographic
+   move that makes a short label harder to read rather than more important. */
 .inspector-pro .inspector-subpanel h4 {
-  margin: 0 0 7px;
+  margin: 0 0 6px;
   color: var(--text-secondary);
-  font-size: 9.5px;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0;
+  text-transform: none;
 }
 
+/* The row.
+
+   `InspectorRow`'s own header states the density contract as a 28px row, and the
+   panel shipped at 44 — the 34px minimum here plus padding plus a 24px keyframe
+   button that nothing had made room for. Five properties then cost 220px of a rail
+   that has to hold transform, speed, colour, audio and effects, so every panel
+   became a scroll. 28px is the contract, and it is exactly what the accessible
+   24px keyframe target needs plus its breathing room; the gap tightens to match. */
 .inspector-pro .inspector-row,
 .inspector-pro .scrub-number {
   display: grid;
   grid-template-columns: var(--inspector-label-width) minmax(0, 1fr) auto auto auto;
   align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  padding: 1px 0;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0;
 }
 
 .inspector-pro .inspector-row-label,
@@ -348,7 +394,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-weight: 500;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -374,11 +420,18 @@
 
 .inspector-pro .scrub-number {
   grid-template-columns: var(--inspector-label-width) minmax(38px, 1fr) 62px;
+  /* 28px rows separated by 8px read as a 36px pitch, which is the loose end of the
+     range for a panel that has to hold transform, speed, colour, audio and effects
+     without becoming a scroll. 4px keeps the rows grouped as one block. */
+  margin-bottom: 4px;
 }
 
 .inspector-pro .scrub-track {
   position: relative;
   height: 12px;
+  /* It is a handle (see ScrubNumber), so it says so. */
+  cursor: ew-resize;
+  touch-action: none;
 }
 
 .inspector-pro .scrub-track::before,
@@ -397,9 +450,13 @@
   background: var(--border-strong);
 }
 
+/* The filled part of the value track is STATE — how much of this property's range
+   is in play — so it takes the editor's state colour, the same one the timeline's
+   playhead and selection use. It was `--accent`, which is the ACTION colour, and on
+   a panel whose own tab is orange that put a third hue on screen for no reason. */
 .inspector-pro .scrub-track-fill {
   right: auto;
-  background: var(--accent);
+  background: var(--tl-select);
 }
 
 .inspector-pro .scrub-track-fill::after {
@@ -428,7 +485,7 @@
   position: relative;
   display: flex;
   align-items: center;
-  min-height: 27px;
+  min-height: 22px;
   padding: 0 5px 0 7px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
@@ -444,22 +501,22 @@
 }
 
 .inspector-pro .scrub-input:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent-soft);
+  border-color: var(--tl-select);
+  box-shadow: 0 0 0 1px var(--focus-ring);
   background: var(--bg-elevated);
 }
 
 .inspector-pro .scrub-input input[type='number'] {
   width: 100%;
   min-width: 0;
-  height: 25px;
+  height: 20px;
   padding: 0;
   border: 0;
   outline: 0;
   background: transparent;
   color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -474,7 +531,7 @@
   flex: none;
   padding-left: 3px;
   color: var(--text-tertiary);
-  font-size: 8.5px;
+  font-size: var(--font-size-xs);
 }
 
 .inspector-pro .scrub-reset {
@@ -491,7 +548,7 @@
   border-radius: var(--radius-sm);
   background-color: var(--bg-surface);
   color: var(--text-primary);
-  font-size: 9.5px;
+  font-size: var(--font-size-xs);
 }
 
 .inspector-pro select:hover,
@@ -502,8 +559,8 @@
 .inspector-pro select:focus,
 .inspector-pro .select select:focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent-soft);
+  border-color: var(--tl-select);
+  box-shadow: 0 0 0 1px var(--focus-ring);
 }
 
 .inspector-pro .inspector-row-reset,
@@ -533,7 +590,7 @@
   gap: 6px;
   margin: 4px 0 8px;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
 }
 
 .inspector-pro .inspector-textarea {
@@ -543,7 +600,7 @@
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
   color: var(--text-primary);
-  font-size: 10.5px;
+  font-size: var(--font-size-xs);
   line-height: 1.45;
   resize: vertical;
 }
@@ -554,8 +611,8 @@
 
 .inspector-pro .inspector-textarea:focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent-soft);
+  border-color: var(--tl-select);
+  box-shadow: 0 0 0 1px var(--focus-ring);
 }
 
 .inspector-pro .inspector-color-row,
@@ -567,7 +624,7 @@
   min-height: 34px;
   margin: 0;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
 }
 
 .inspector-pro input[type='color'] {
@@ -582,7 +639,7 @@
 .inspector-pro .checkbox {
   min-height: 30px;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
 }
 
 .inspector-pro .inspector-actions {
@@ -595,7 +652,7 @@
 .inspector-pro .inspector-actions > *,
 .inspector-pro .inspector-subpanel > [data-variant] {
   min-height: 28px;
-  font-size: 9.5px;
+  font-size: var(--font-size-xs);
 }
 
 .inspector-pro .inspector-actions > :first-child {
@@ -615,14 +672,16 @@
 }
 
 .inspector-pro .inspector-chip {
-  min-height: 28px;
-  padding: 0 7px;
+  min-height: 24px;
+  padding: 0 8px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
   color: var(--text-secondary);
-  font-size: 9px;
-  font-weight: 550;
+  /* Was 9px/550: two-thirds of the documented ordinary-text floor, at a weight the
+     system does not define. A speed preset is a control, not a footnote. */
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
 }
 
 .inspector-pro .inspector-chip:hover {
@@ -631,9 +690,9 @@
 }
 
 .inspector-pro .inspector-chip.is-active {
-  border-color: var(--accent);
-  background: var(--accent-subtle);
-  color: var(--accent);
+  border-color: var(--tl-select);
+  background: var(--tl-select-subtle);
+  color: var(--tl-select);
 }
 
 .inspector-pro .inspector-note,
@@ -644,7 +703,7 @@
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
   color: var(--text-tertiary);
-  font-size: 9px;
+  font-size: var(--font-size-xs);
   line-height: 1.45;
 }
 
@@ -668,14 +727,14 @@
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
   color: var(--text-secondary);
-  font-size: 9.5px;
+  font-size: var(--font-size-xs);
 }
 
 .inspector-pro .inspector-effect-list code {
   min-width: 0;
   overflow: hidden;
   color: var(--text-tertiary);
-  font-size: 8.5px;
+  font-size: var(--font-size-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -703,9 +762,9 @@
 }
 
 .inspector-pro .transition-align-option.is-active {
-  border-color: var(--accent);
-  background: var(--accent-subtle);
-  color: var(--accent);
+  border-color: var(--tl-select);
+  background: var(--tl-select-subtle);
+  color: var(--tl-select);
 }
 
 .inspector-pro .inspector-statusbar {
@@ -723,7 +782,7 @@
   background: var(--bg-panel);
   color: var(--text-tertiary);
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -758,8 +817,8 @@
 .inspector-pro .inspector-eyebrow {
   margin: 0 0 3px;
   color: var(--text-tertiary);
-  font-size: 8.5px;
-  font-weight: 650;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -768,7 +827,7 @@
   margin: 0;
   color: var(--text-primary);
   font-size: 13px;
-  font-weight: 650;
+  font-weight: var(--font-weight-semibold);
   letter-spacing: -0.01em;
   text-transform: none;
 }
@@ -777,7 +836,7 @@
   max-width: 30ch;
   margin: 4px 0 0;
   color: var(--text-tertiary);
-  font-size: 9.5px;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
   text-align: center;
 }

@@ -38,8 +38,7 @@ export function ScrubNumber({
 }: ScrubNumberProps): JSX.Element {
   const dragRef = useRef<{ startX: number; startValue: number } | null>(null);
   const canReset = defaultValue !== undefined && value !== defaultValue;
-  const progress =
-    ((clamp(value, min, max) - min) / Math.max(Number.EPSILON, max - min)) * 100;
+  const progress = ((clamp(value, min, max) - min) / Math.max(Number.EPSILON, max - min)) * 100;
   const reset = (): void => {
     if (defaultValue !== undefined) onChange(defaultValue);
   };
@@ -78,7 +77,28 @@ export function ScrubNumber({
       >
         {label}
       </span>
-      <span className="scrub-track" aria-hidden="true">
+      {/*
+        The track is a drag handle too, not just a readout.
+
+        It draws a filled bar with a knob at its end — the exact picture of a
+        slider — while only the label carried the pointer handlers, and in the
+        panel's own row layout that label is hidden (the row renders its own
+        label in the aligned column). So the one thing that looked draggable was
+        inert, and the one thing that was draggable was invisible: the control
+        offered an affordance it did not honour.
+
+        `role="presentation"` and `aria-hidden` stay as they were — this adds a
+        second pointer path to the same value, and the real number input beside it
+        is what assistive tech and the keyboard operate.
+      */}
+      <span
+        className="scrub-track"
+        aria-hidden="true"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onDoubleClick={defaultValue !== undefined ? reset : undefined}
+      >
         <span className="scrub-track-fill" style={{ width: `${progress}%` }} />
       </span>
       <span className="scrub-input">
