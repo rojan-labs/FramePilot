@@ -4489,12 +4489,13 @@ input[type='checkbox']:focus-visible {
 
 .timeline-grid {
   display: grid;
-  /* Track-header gutter: wide enough for the type icon + flag controls + z-order
-     chevrons WITHOUT crowding. Bumped 124→140px so the glyph sits left and the
-     four flag controls cluster right with clear space between them.
-     NOTE: `editor-foundation.css` overrides this — it enlarges the controls to the
-     accessible hit target and owns the matching gutter width. Change it there. */
-  grid-template-columns: 140px minmax(0, 1fr);
+  /* Track-header gutter. The width lives in ONE place (`--tl-gutter-w` in
+     @framepilot/ui tokens) because three things must agree on it: this column, the
+     overview strip below the lanes (which shares the lanes' x-origin, not the
+     timeline's), and the arithmetic that sizes the header row. They used to be
+     three literals in three files, which is how the overview strip ended up drawn
+     156px to the left of the clips it maps. */
+  grid-template-columns: var(--tl-gutter-w) minmax(0, 1fr);
   flex: 1;
   min-height: 0;
 }
@@ -4508,8 +4509,14 @@ input[type='checkbox']:focus-visible {
 .ruler-spacer {
   display: flex;
   align-items: center;
-  height: 1.875rem; /* 30px, per timeline-mock (H7) */
-  padding-left: 2px;
+  /* px, not rem: this cell must stay exactly as tall as the ruler beside it, and
+     the ruler's height is a chrome dimension, not a text measure. In rem both
+     drifted together under compact density — which happened to keep them aligned,
+     but only by luck, and it made the ruler shrink for a reason that has nothing
+     to do with it. */
+  height: var(--tl-ruler-h);
+  padding-left: 6px;
+  border-bottom: 1px solid var(--border-default);
 }
 
 .track-head {
@@ -4524,14 +4531,48 @@ input[type='checkbox']:focus-visible {
   height: 56px;
   /* See `.track` — vertical spacing is TRACK_ROW_INSET, applied inline. */
   margin: 0;
-  padding: 0 8px;
-  border-right: 1px solid var(--line);
-  font-size: 0.68rem;
+  padding: 0 6px;
+  border-right: 1px solid var(--border-default);
+  font-size: var(--font-size-xs);
   color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 500;
+  /* No uppercase, no tracking. Both were inherited from a header that had no text
+     in it; now that the row carries a lane name they would only make `V1` harder
+     to read than `V1`. */
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: var(--font-weight-medium);
   position: relative;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+/* The whole row responds, so it is clear which lane the flags about to be
+   revealed belong to. */
+.track-head:hover,
+.track-head:focus-within {
+  background: var(--bg-hover);
+}
+
+/* The lane's name (`V1`, `A2`) — the one piece of the header that is always
+   legible, including at rest when every control has receded. */
+.track-name {
+  flex: none;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  padding-inline-start: 1px;
+}
+
+.track-head:hover .track-name,
+.track-head:focus-within .track-name {
+  color: var(--text-primary);
+}
+
+/* A lane switched off says so in its name, not only in its glyph. */
+.track-head.is-hidden .track-name,
+.track-head.is-locked .track-name {
+  color: var(--text-disabled);
 }
 
 /* Per-type glyph: small colored icon identifying the track's dominant clip kind. */
@@ -4615,8 +4656,17 @@ input[type='checkbox']:focus-visible {
      is the wrong story for visibility/mute/lock/solo on ONE lane. */
   gap: 0;
   margin-left: auto; /* cluster flags to the right edge, away from the glyph */
-  opacity: 0.55;
-  transition: opacity var(--dur-fast) var(--ease);
+}
+
+/* Chrome recedes until the row is hovered or focused. Four permanently-visible
+   grey glyphs on every lane is four times the ink of the thing they describe, and
+   at rest the answer to "is this lane muted?" is the same on every row — so the
+   row shows nothing and says nothing. An ENGAGED flag is a different matter: it is
+   a state the user must be able to see without hunting, so it stays lit at rest
+   (rule below). Visibility is by opacity, not display, so nothing shifts when the
+   cluster appears. */
+.track-control {
+  opacity: 0;
 }
 
 /* Drag-to-reorder layers (replaces the up/down nudge chevrons). The whole header
@@ -4635,8 +4685,7 @@ input[type='checkbox']:focus-visible {
   left: 0;
   right: 0;
   height: 2px;
-  background: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent-subtle);
+  background: var(--tl-select);
   z-index: 3;
   pointer-events: none;
 }
@@ -4653,11 +4702,10 @@ input[type='checkbox']:focus-visible {
   cursor: pointer;
 }
 
-.track-head:hover .track-controls,
-.track-head:focus-within .track-controls,
-.track-head.is-locked .track-controls,
-.track-head.is-hidden .track-controls,
-.track-head.is-muted .track-controls {
+.track-head:hover .track-control,
+.track-head:focus-within .track-control,
+.track-control.is-active,
+.track-control.is-solo-muted {
   opacity: 1;
 }
 
@@ -4678,8 +4726,8 @@ input[type='checkbox']:focus-visible {
 }
 
 .track-control:hover {
-  color: var(--text);
-  background: var(--surface);
+  color: var(--text-primary);
+  background: var(--bg-active);
 }
 
 /* An engaged flag reads in the accent colour so the state is unmistakable. */
@@ -4761,30 +4809,53 @@ input[type='checkbox']:focus-visible {
 
 .ruler {
   position: relative;
-  height: 1.875rem; /* 30px, per timeline-mock (H7) */
+  height: var(--tl-ruler-h);
   cursor: ew-resize;
   touch-action: none;
   z-index: 4;
+  /* Seats the ruler on the lanes instead of letting the two surfaces meet at an
+     invisible join. */
+  border-bottom: 1px solid var(--border-default);
 }
 
+/* Tick anatomy: the LABEL sits at the top of the ruler, the MARK rises from the
+   bottom edge, where it meets the lanes and continues as the lane grid. The old
+   rule made the major tick a full-height 1px rule through the ruler — so every
+   labelled tick was as loud as the playhead, and the ruler read as a table of
+   columns rather than a scale. */
 .ruler-tick {
   position: absolute;
   top: 0;
+  bottom: 0;
   pointer-events: none;
 }
 
-.ruler-tick.is-major {
-  font-size: 0.656rem; /* 10.5px, per timeline-mock (H7) */
-  color: var(--muted-2);
-  border-left: 1px solid var(--line);
-  padding-left: 3px;
-  height: 100%;
+.ruler-tick::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 1px;
 }
 
-.ruler-tick.is-minor {
-  bottom: 0;
-  height: 0.75rem; /* 12px, per timeline-mock (H7) */
-  border-left: 1px solid var(--line-soft);
+.ruler-tick.is-major {
+  padding: 4px 0 0 5px;
+  font-size: var(--font-size-xs);
+  line-height: 1.1;
+  color: var(--text-tertiary);
+  /* Not tracked. Tracking exists to open up display type; on an 11px tabular
+     figure it only makes the digits harder to compare across ticks. */
+  letter-spacing: 0;
+}
+
+.ruler-tick.is-major::after {
+  height: 9px;
+  background: var(--ruler-tick);
+}
+
+.ruler-tick.is-minor::after {
+  height: 5px;
+  background: var(--border-default);
 }
 
 /* Playhead wrapper: zero-width, positioned at the playhead time. Children (the
@@ -4810,19 +4881,35 @@ input[type='checkbox']:focus-visible {
   width: 1px; /* hairline, per the timeline-mock reference (H7) */
   background: var(--playhead);
   pointer-events: none;
+  /* A hairline crossing bright thumbnail frames loses itself in them. A half-pixel
+     dark rim costs no extra element and keeps the line readable over any picture,
+     in either theme. */
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.45);
 }
 
-/* The grab handle: a rounded knob with a downward tip, centered on the line. */
+/* The grab handle.
+
+   The BUTTON is a generous, invisible 24×22 hit box (pro-NLE feel: precise pickup
+   must never require pixel-hunting an 11px marker). The visible marker is drawn
+   inside it, as a pseudo-element, in ONE shape: a flat-topped tab tapering to the
+   line it sits on.
+
+   It used to be a rounded rectangle with a separate CSS-triangle hung below it —
+   two shapes pretending to be one, whose radius and edges never met cleanly at any
+   device pixel ratio but 1. A `clip-path` draws the whole marker as a single path,
+   so there is nothing left to misalign. The path lives on the pseudo-element and
+   not on the button, because `clip-path` clips an element's entire rendering: on
+   the button it would have cut the hit box down to the marker's own silhouette,
+   which is precisely what the hit box exists to avoid. */
 .playhead-head {
   position: absolute;
   top: 0;
-  left: -6px;
-  width: 12px;
-  height: 14px;
+  left: -12px;
+  width: 24px;
+  height: 22px;
   padding: 0;
   border: none;
-  border-radius: 3px;
-  background: var(--playhead);
+  background: transparent;
   cursor: ew-resize;
   pointer-events: auto;
   touch-action: none;
@@ -4831,40 +4918,39 @@ input[type='checkbox']:focus-visible {
 .playhead-head::after {
   content: '';
   position: absolute;
-  left: 0;
-  bottom: -4px;
-  border: 6px solid transparent;
-  border-top-color: var(--playhead);
+  top: 0;
+  left: 50%;
+  width: 11px;
+  height: 15px;
+  transform: translateX(-50%);
+  background: var(--playhead);
+  clip-path: polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%);
+  transition: background-color var(--dur-fast) var(--ease);
 }
 
-/* Generous invisible hit area (pro-NLE feel): the visual knob stays 12px wide,
-   but the grab target extends well past it so precise pickup never requires
-   pixel-hunting a 12px handle. */
-.playhead-head::before {
-  content: '';
-  position: absolute;
-  inset: -6px -10px -10px;
+.playhead-head:hover::after,
+.playhead-head:active::after {
+  background: var(--accent-hover);
 }
 
-.playhead-head:hover,
-.playhead-head:active {
-  filter: brightness(1.15);
+.playhead-head:focus-visible::after {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
 }
 
-.playhead-head {
-  transition: filter var(--dur-fast) var(--ease);
-}
-
-/* Live time bubble beside the head — revealed while hovering/scrubbing the knob. */
+/* Live time bubble beside the head — revealed while hovering/scrubbing the knob.
+   Offset from the button's CENTRE (where the marker is), not its left edge, which
+   is now 12px further out than the marker it holds. */
 .playhead-bubble {
   position: absolute;
   top: 0;
-  left: 9px;
+  left: calc(50% + 9px);
   padding: 1px 5px;
   border-radius: var(--radius-xs);
   background: var(--playhead);
-  color: var(--bg-canvas);
-  font-size: 0.6rem;
+  color: var(--accent-text);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
   line-height: 1.45;
   white-space: nowrap;
   opacity: 0;
@@ -4888,8 +4974,8 @@ input[type='checkbox']:focus-visible {
 }
 
 .snap-guide {
-  background: var(--accent-2);
-  box-shadow: 0 0 0 0.5px var(--accent-soft);
+  background: var(--tl-select);
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.4);
 }
 
 .razor-guide {
@@ -4902,8 +4988,8 @@ input[type='checkbox']:focus-visible {
 .marquee {
   position: absolute;
   z-index: var(--z-drag-ghost);
-  background: var(--accent-subtle);
-  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--tl-select) 12%, transparent);
+  border: 1px solid var(--tl-select);
   border-radius: 2px;
   pointer-events: none;
 }
@@ -4925,36 +5011,39 @@ input[type='checkbox']:focus-visible {
   position: relative;
 }
 
-/* CapCut-style empty timeline drop zone */
+/* Empty timeline: names the thing and both ways to make one. */
 .timeline-empty-state {
   display: flex;
   align-items: center;
   justify-content: center;
   height: 56px;
   margin: 3px 0;
-  border: 1.5px dashed var(--border-default);
-  border-radius: 4px;
+  border: 1px dashed var(--border-default);
+  border-radius: var(--tl-clip-radius);
   color: var(--text-tertiary);
-  font-size: 0.76rem;
-  letter-spacing: 0.04em;
+  font-size: var(--font-size-xs);
+  letter-spacing: 0;
   cursor: default;
   transition:
     border-color var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
+    color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
 }
 
 .timeline-empty-state:hover,
 .timeline-empty-state.is-drop-target {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--accent-subtle);
+  border-color: var(--tl-select);
+  color: var(--text-secondary);
+  background: var(--bg-hover);
 }
 
 .timeline-empty-label {
   pointer-events: none;
   user-select: none;
-  text-transform: uppercase;
-  font-weight: 500;
+  /* Sentence case. The label was tracked upper-case, which is the one typographic
+     move that makes a short instruction harder to read, not more important. */
+  text-transform: none;
+  font-weight: var(--font-weight-regular);
 }
 
 .track-head-empty {
@@ -4973,15 +5062,42 @@ input[type='checkbox']:focus-visible {
   position: relative;
   /* Height driven by the style prop from the virtualizer; 56px is the CSS fallback. */
   height: 56px;
-  background: var(--bg-panel);
-  border-top: 1px solid var(--border-subtle);
+  /* ONE separator, not two. A lane drew a top AND a bottom hairline, so every
+     boundary between two lanes was a 2px double rule with the row gap's background
+     trapped between them — the heaviest line in a surface whose real structure is
+     horizontal. */
   border-bottom: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+
+  /* The lane's vertical time grid.
+
+     This is what makes a stack of coloured bars read as a *time*line: a clip's
+     length stops being an abstract width and becomes a distance you can count
+     against the ruler above it. The pitch is `--tl-grid-pitch`, set once on the
+     lane container from the same `stepSeconds × pxPerSecond` the ruler labels its
+     own ticks with, so the two can never disagree.
+
+     Drawn as a background gradient rather than elements: one rule per labelled
+     tick per lane is thousands of nodes on a zoomed-in sequence, all of them
+     under the clips — inside the exact subtree that horizontal culling exists to
+     keep cheap. A gradient costs one paint and scrolls with the lane for free. */
+  background-color: var(--bg-panel);
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--tl-grid) 0,
+    var(--tl-grid) 1px,
+    transparent 1px,
+    transparent var(--tl-grid-pitch, 100px)
+  );
 }
 
-/* Alternating lane background — subtle visual separation between tracks. */
-.track:nth-child(even) .track-lane {
-  background: var(--bg-surface);
-}
+/* No alternating lane fill.
+
+   It was `.track:nth-child(even)`, and the lane rows are VIRTUALIZED: the `<li>`s
+   in the DOM are the visible window, not the whole stack, so `nth-child` counted
+   mounted rows rather than lanes. Scrolling a long stack made every lane's shade
+   flip as rows recycled. The row gap and the single separator carry the same
+   separation without lying about which lane you are looking at. */
 
 .clip-block {
   position: absolute;
@@ -5001,15 +5117,55 @@ input[type='checkbox']:focus-visible {
      long timeline zooms and scrolls at the cost of only the on-screen clips.
      The element keeps its box (explicit left/width), a11y, and find-in-page. */
   content-visibility: auto;
+
+  /* Per-kind edge, as two custom properties rather than a rule per kind per state.
+     `--clip-edge` is the RESTING edge (roughly half contrast) and
+     `--clip-edge-strong` is the same hue at full strength, used on hover and focus.
+     Before this split every clip wore its saturated kind border at all times, so a
+     lane of ordinary clips looked like a lane of selected ones and selection had
+     nothing left to say. */
+  --clip-edge: var(--clip-video-edge);
+  --clip-edge-strong: var(--clip-video-border);
   background: var(--clip-video);
-  border: 1px solid var(--clip-video-border); /* per timeline-mock (H7) */
-  border-radius: 5px; /* per timeline-mock (H7) */
+  border: 1px solid var(--clip-edge);
+  border-radius: var(--tl-clip-radius);
   color: var(--text);
   text-align: left;
   white-space: nowrap;
-  /* Only the selection outline animates here; the hover lift is an overlay
-     pseudo-element's opacity (see `.clip-block::before`), never a filter. */
-  transition: outline-color 0.1s ease;
+  /* Only the edge and the selection outline animate here; the hover lift is an
+     overlay pseudo-element's opacity (see `.clip-block::before`), never a filter. */
+  transition:
+    outline-color 0.1s ease,
+    border-color 0.1s ease;
+}
+
+.clip-block:hover,
+.clip-block:focus-visible {
+  border-color: var(--clip-edge-strong);
+}
+
+/* A butt-joined cut is not a gap.
+
+   Two adjacent clips each drew a complete rounded outline, so the most ordinary
+   thing on a timeline — a hard cut — rendered as two separate boxes with a dark
+   notch between them, indistinguishable from a real few-frame hole. Squaring the
+   joined corners and removing the doubled edge leaves exactly one hairline at the
+   cut, so a run of cuts reads as one strip and an actual gap reads as a gap.
+
+   The edge is removed by WIDTH, not by colour: a transparent 1px border still
+   occupies a pixel, and what showed through it was the lane behind — which is the
+   same light seam the doubled border was drawn to fix. Every box here is
+   `border-box`, so dropping the width gives the pixel back to the clip's own
+   content rather than moving it. */
+.clip-block.is-join-l {
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+  border-left-width: 0;
+}
+
+.clip-block.is-join-r {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
 }
 
 /* Within the timeline the filmstrip canvas covers the clip body — the background
@@ -5089,32 +5245,42 @@ input[type='checkbox']:focus-visible {
 }
 
 .clip-block.is-image {
+  --clip-edge: var(--clip-image-edge);
+  --clip-edge-strong: var(--clip-image-border);
   background: var(--clip-image);
-  border-color: var(--clip-image-border);
 }
 .clip-block.is-audio {
+  --clip-edge: var(--clip-audio-edge);
+  --clip-edge-strong: var(--clip-audio-border);
   background: var(--clip-audio);
-  border-color: var(--clip-audio-border);
-  box-shadow:
-    0 1px 4px rgba(0, 0, 0, 0.4),
-    inset 0 0 0 0.5px rgba(62, 200, 232, 0.18);
+  /* The old inset ring was cyan — a fifth hue, on the one clip kind whose colour
+     is green. Nothing referenced it deliberately; it was left over from an earlier
+     palette. The edge token carries the kind now. */
 }
 .clip-block.is-caption {
+  --clip-edge: var(--clip-text-edge);
+  --clip-edge-strong: var(--clip-text-border);
   background: var(--clip-text);
-  border-color: var(--clip-text-border);
 }
 .clip-block.is-overlay {
+  --clip-edge: var(--clip-ai-edge);
+  --clip-edge-strong: var(--clip-ai-border);
   background: var(--clip-ai);
-  border-color: var(--clip-ai-border);
 }
 
-/* Selection = accent outline + subtle glow (never a different fill), so the
-   per-type clip colour stays readable underneath. */
+/* Selection = one accent ring (never a different fill), so the per-kind clip
+   colour stays readable underneath.
+
+   The ring is drawn INSIDE the clip (`outline-offset: -1px`). At offset 0 a
+   selected clip grew two pixels into whatever sat beside it, which on a
+   butt-joined run meant the selection visibly overlapped its neighbour and the
+   cut appeared to move. The dark companion rim keeps the ring legible where it
+   crosses a bright thumbnail frame. */
 .clip-block[data-selected='true'] {
-  outline: 2px solid var(--accent);
-  outline-offset: 0;
-  box-shadow: 0 0 0 1px var(--accent-subtle);
-  border-color: var(--accent);
+  outline: 2px solid var(--tl-select);
+  outline-offset: -1px;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5);
+  border-color: var(--tl-select);
 }
 
 /* Header strip (master-prompt §3): a single top row carrying the title (left,
@@ -5130,25 +5296,26 @@ input[type='checkbox']:focus-visible {
   z-index: 1;
   display: flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 2px 0.45rem;
-  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0));
+  gap: 6px;
+  padding: 3px 6px;
   pointer-events: none;
 }
 
 .clip-label {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 0.76rem;
-  font-weight: 600;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .clip-time {
   flex: 0 0 auto;
-  font-size: 0.66rem;
-  color: var(--muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.35;
+  color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -5437,7 +5604,14 @@ input[type='checkbox']:focus-visible {
   height: 11px;
 }
 
-/* Edge-trim affordances — slim, revealed on hover, full clip height. */
+/* Edge-trim affordances — slim, revealed on hover, full clip height.
+
+   The handle is the accent at LOW opacity, not a solid accent bar: at 55% of a
+   saturated colour across the full height of both edges, hovering a clip lit up
+   two bright posts that were more prominent than the clip itself, and on a
+   butt-joined run the two facing handles read as a single wide band straddling
+   the cut. The grip line inside the handle is what says "drag me"; the fill only
+   needs to say where. */
 .clip-trim {
   position: absolute;
   top: 0;
@@ -5446,42 +5620,71 @@ input[type='checkbox']:focus-visible {
   z-index: 2;
   cursor: ew-resize;
   opacity: 0;
-  background: var(--accent);
+  background: var(--tl-select);
   transition: opacity var(--dur-fast) var(--ease);
   touch-action: none;
 }
 
+/* The grip: a 1px rule down the middle of the handle, so the target reads as a
+   handle rather than a coloured margin. */
+.clip-trim::after {
+  content: '';
+  position: absolute;
+  top: 25%;
+  bottom: 25%;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: rgb(255 255 255 / 0.85);
+}
+
 .clip-trim-l {
   left: 0;
-  border-radius: 4px 0 0 4px;
+  border-radius: var(--tl-clip-radius) 0 0 var(--tl-clip-radius);
 }
 
 .clip-trim-r {
   right: 0;
-  border-radius: 0 4px 0 4px;
+  /* Was `0 4px 0 4px` — a bottom-LEFT radius on the RIGHT handle, which rounded
+     the corner it does not own and left its own bottom-right square. */
+  border-radius: 0 var(--tl-clip-radius) var(--tl-clip-radius) 0;
 }
 
 .clip-block:hover .clip-trim,
 .clip-block:focus-visible .clip-trim {
-  opacity: 0.55;
+  opacity: 0.4;
 }
 
-.clip-trim:hover {
-  opacity: 0.9;
+.clip-trim:hover,
+.clip-trim:focus-visible {
+  opacity: 0.85;
 }
 
-/* Lifted state while dragging a clip; transform/opacity only on the hot path. */
+/* Lifted state while dragging a clip.
+
+   No `filter: brightness()`. The comment on `.clip-block::before` already explains
+   why a filter is the wrong tool here — it re-rasterizes the clip's entire subtree
+   (filmstrip canvas, waveform canvas, header, badges) and defeats the
+   `content-visibility` culling underneath — and then the drag and trim states, the
+   two HOTTEST paths in the component, kept using one anyway. They now reuse the
+   same overlay pseudo-element the hover state does, which costs one solid rect. */
 .clip-block.is-move {
   z-index: var(--z-drag-ghost);
   box-shadow: var(--shadow-1);
-  filter: brightness(1.2);
+  border-color: var(--tl-select);
   cursor: grabbing;
+}
+
+.clip-block.is-move::before,
+.clip-block.is-trim-l::before,
+.clip-block.is-trim-r::before {
+  opacity: 1;
 }
 
 .clip-block.is-trim-l,
 .clip-block.is-trim-r {
   z-index: var(--z-drag-ghost);
-  filter: brightness(1.15);
+  border-color: var(--tl-select);
 }
 
 /* Cmd/Ctrl-drag duplicate (H8): the dragged preview reads as "a copy will land
@@ -5591,12 +5794,47 @@ input[type='checkbox']:focus-visible {
   z-index: 1;
 }
 
-/* Over a picture layer (waveform canvas / filmstrip) the header text gets a soft
-   shadow so the title/duration stay legible against a bright thumbnail frame. */
-.clip-block.is-audio .clip-header,
+/* A clip that carries PHOTOGRAPHIC footage has an unknowable background: it is
+   whatever the frame looks like at that instant, in either theme. So its header
+   does not inherit theme ink — it brings its own contrast, the way every tool that
+   labels a thumbnail does: a dark scrim at the top of the clip and light type on
+   it.
+
+   This is the rule the light theme was missing. There, `--text-primary` is
+   near-black and video clips are dark thumbnails, so a clip title was black on
+   black; the same clip in dark theme was legible, so the defect appeared on only
+   one of the two themes the same component has to serve.
+
+   Audio is deliberately NOT in this list even though it too draws a canvas. A
+   waveform is not a photograph: it is a known two-colour drawing on a known theme
+   fill, so it needs theme ink, not a scrim. Forcing the scrim on it laid a dark
+   smear across the top third of every pale light-theme audio clip to solve a
+   contrast problem that clip did not have. */
 .clip-block.is-video .clip-header,
 .clip-block.is-image .clip-header {
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+  background: linear-gradient(to bottom, rgb(0 0 0 / 0.62), rgb(0 0 0 / 0));
+  color: rgb(255 255 255 / 0.95);
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.75);
+}
+
+.clip-block.is-video .clip-time,
+.clip-block.is-image .clip-time {
+  color: rgb(255 255 255 / 0.68);
+}
+
+.clip-block.is-video .clip-menu-btn,
+.clip-block.is-image .clip-menu-btn {
+  color: rgb(255 255 255 / 0.72);
+}
+
+/* Audio keeps theme ink, lifted off the waveform peaks by a halo in the lane's own
+   colour — which is light in the light theme and dark in the dark one, so one
+   declaration serves both. */
+.clip-block.is-audio .clip-header {
+  color: var(--text-primary);
+  text-shadow:
+    0 1px 2px var(--bg-panel),
+    0 0 4px var(--bg-panel);
 }
 
 /* ── Selection overlay ───────────────────────────────────────────────────── */
@@ -5614,9 +5852,9 @@ input[type='checkbox']:focus-visible {
 
 /* Compatible drop target during a cross-lane move. */
 .track-lane.is-drop-target {
-  outline: 1px dashed var(--accent);
+  outline: 1px dashed var(--tl-select);
   outline-offset: -1px;
-  background-color: var(--accent-soft);
+  background-color: color-mix(in srgb, var(--tl-select) 8%, var(--bg-panel));
 }
 
 /* Razor mode — the whole lane area shows the cut cursor. */
@@ -5662,7 +5900,17 @@ input[type='checkbox']:focus-visible {
   /* Navigation only — every clip is a 2px block and the bright window is the
      viewport, so the strip needs to be legible, not tall. The height it does not
      take is height the tracks do. */
-  height: 20px;
+  height: var(--tl-minimap-h);
+  /* The lane viewport above it is `flex: 1`, so without this the strip is the only
+     flexible child left when the dock is short and it gets squeezed — it was
+     rendering as a half-height sliver clipped by the timeline's own overflow. */
+  flex: none;
+  /* Shares the LANES' x-origin, not the timeline's. The strip is a sibling of the
+     whole two-column grid, so at margin 0 its x=0 sat under the track-header
+     gutter: every block and the viewport window were drawn a full gutter width to
+     the left of the clips they map, and the strip ran under the headers, which map
+     nothing. One token keeps it aligned with the grid column it mirrors. */
+  margin-left: var(--tl-gutter-w);
   margin-top: 3px;
   border-top: 1px solid var(--border-subtle);
   /* Ordinary chrome (an abstract clip overview, not footage) — follows the
@@ -5675,26 +5923,36 @@ input[type='checkbox']:focus-visible {
 }
 
 .minimap:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
 }
 
+/* One block per clip, banded by lane.
+
+   The band separator is an inset shadow rather than a margin or a border: the row
+   height arrives as a percentage from the geometry selector, so anything that ate
+   into the box would make the rows stop tiling the strip exactly. Without it a
+   full sequence painted every band edge-to-edge and the strip read as one grey
+   bar — the lane structure it exists to summarise, erased. */
 .mm-block {
   position: absolute;
   min-width: 2px;
-  background: var(--clip-video-border);
-  opacity: 0.5;
+  background: var(--text-tertiary);
+  opacity: 0.55;
   border-radius: 1px;
+  box-shadow: inset 0 -1px 0 var(--bg-panel);
 }
 
-/* The viewport window: a translucent accent pane with crisp edges. */
+/* The viewport window. It is a WINDOW: what matters is where its edges are, so
+   the edges carry the weight and the pane stays faint enough that the blocks it
+   covers — the whole point of the strip — remain visible through it. */
 .mm-view {
   position: absolute;
   top: 0;
   bottom: 0;
-  background: var(--accent-subtle);
-  border-left: 1px solid var(--accent);
-  border-right: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--tl-select) 12%, transparent);
+  border-left: 1px solid var(--tl-select);
+  border-right: 1px solid var(--tl-select);
   pointer-events: none;
 }
 
