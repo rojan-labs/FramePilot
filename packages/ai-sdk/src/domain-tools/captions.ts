@@ -402,6 +402,8 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'it segments and writes every cue in a single call. Reach for this one only to ' +
         'patch a specific gap by hand: it needs get_mapped_transcript first, and a range ' +
         'longer than one readable phrase (3–7 words, never more than 12) is rejected. ' +
+        'If the track you name is already busy over that range the cue is placed on ' +
+        'another free caption track, or a new one carrying the same style. ' +
         'Style the completed set track-wide.',
     },
     z.object({ trackId: z.string(), start: seconds, end: seconds }).strict(),
@@ -424,12 +426,32 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
       // Cues are clips, so they cannot overlap on one lane either. A cue that
       // collides used to take the patch down with the validator's overlap error;
       // it now lands on another caption lane, or a new one, in the same patch.
-      const placed = createLaneAllocator(ctx.project.timeline).allocate(a.trackId, a.start, a.end);
+      //
+      // A relocated cue must keep the project's caption LOOK. Style resolves
+      // clip override → track default → catalog, so a cue moved to a fresh lane
+      // would silently render in the catalog default while every other cue on the
+      // original lane kept the project style — one odd-looking caption, and a
+      // later `set_track_caption_style` reaching only one of the two lanes. The
+      // source lane's default is copied onto any lane this opens.
+      const timeline = ctx.project.timeline;
+      const sourceTrack = timeline.tracks.find((t) => t.id === a.trackId);
+      const placed = createLaneAllocator(timeline).allocate(a.trackId, a.start, a.end);
+      const inheritedStyle =
+        placed.setupOps.length > 0 && sourceTrack?.captionStyle !== undefined
+          ? [
+              {
+                type: 'set_track_caption_style' as const,
+                trackId: placed.trackId,
+                captionStyle: sourceTrack.captionStyle,
+              },
+            ]
+          : [];
       const clipId = id('caption', placed.trackId, a.start);
       const first = mappedWords[0];
       const last = mappedWords[mappedWords.length - 1];
       return [
         ...placed.setupOps,
+        ...inheritedStyle,
         {
           type: 'add_caption_layer' as const,
           trackId: placed.trackId,

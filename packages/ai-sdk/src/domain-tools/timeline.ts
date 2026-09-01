@@ -363,18 +363,32 @@ function addClipOperation(
   ctx: ToolContext,
   lanes: LaneAllocator,
 ): Operation[] {
-  // Resolve the lane rather than trusting the one that was named.
+  // Resolve the lane rather than trusting the one that was named — but NEVER for
+  // picture.
   //
-  // Clips on one track can never overlap, and the description says so — but a
-  // description is a request, not a constraint. A placement that collided used to
-  // take the whole patch down with the validator's overlap error, which is a dead
-  // end for an intent ("this shot here, over that one") that lanes exist to
-  // express. The named lane still wins whenever it has room.
+  // Clips on one track can never overlap, and a placement that collided used to
+  // take the whole patch down with the validator's overlap error. For an overlay,
+  // a caption or an audio bed that is a dead end for an intent lanes exist to
+  // express, so those are relocated to a lane with room.
+  //
+  // Picture is different, and `picture-occupancy.ts` says why in as many words:
+  // the preview flattens picture clips from EVERY track into one time-ordered
+  // chain while the export composites stacked layers properly, so two picture
+  // clips overlapping IN TIME render one way and preview another (blocker #1,
+  // SUC-P1). "Overlap is measured in time, not by layer" — which means moving a
+  // colliding video or image to another lane does not solve the problem, it
+  // creates it, and hands the user an edit that looks right until they export.
+  // `add_stock` already refuses for exactly this reason; so does this, by leaving
+  // the named lane in place and letting the validator reject as before.
   //
   // The allocator, rather than a lookup, because `add_clips` plans every entry
   // against the same pre-call timeline: without booking each span as it is handed
   // out, two overlapping entries in one batch would both be told the lane was free.
-  const placed = lanes.allocate(clip.trackId, clip.start, clip.end);
+  const kind = ctx.project.assets?.find((a) => a.id === clip.assetId)?.kind;
+  const isPicture = kind === 'video' || kind === 'image' || kind === undefined;
+  const placed = isPicture
+    ? { trackId: clip.trackId, setupOps: [] as Operation[] }
+    : lanes.allocate(clip.trackId, clip.start, clip.end);
   const cropClip = { ...clip, trackId: placed.trackId };
   const crop = autoReframeCrop(ctx, cropClip);
   const clipId = crop ? placementClipId(cropClip) : undefined;

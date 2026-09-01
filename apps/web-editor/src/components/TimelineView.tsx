@@ -62,6 +62,7 @@ import {
   shouldAutoFollow,
   wheelIntent,
   magnetSnap,
+  snap,
   spanInRenderWindow,
   snapTargets,
   timelineDuration,
@@ -1810,6 +1811,12 @@ export function TimelineView({
     (event: React.PointerEvent): void => {
       const g = gestureRef.current;
       gestureRef.current = null;
+      // Release the magnet with the gesture. Clearing it only in `beginGesture`
+      // left the last hold alive between drags, and `snapValue` is shared with
+      // consumers that are NOT gestures — the asset-drop path and the effect-layer
+      // chips. A stale hold within the release radius would then pull an unrelated
+      // drop onto the cut the previous trim happened to end on.
+      magnetHeldRef.current = null;
       try {
         event.currentTarget.releasePointerCapture(event.pointerId);
       } catch {
@@ -2293,10 +2300,22 @@ export function TimelineView({
     readonly y: number;
   } | null>(null);
 
-  /** Snap helper in the shape `EffectLayerChip` wants (seconds → seconds). */
+  /**
+   * Snap helper in the shape `EffectLayerChip` wants (seconds → seconds).
+   *
+   * Deliberately NOT `snapValue`: that one is the clip gesture's magnet and carries
+   * a hold across pointer moves. An effect chip runs its own drag, and a drop is a
+   * single isolated question, so sharing the gesture's memory let one surface's
+   * hold decide another surface's answer. This is the plain, stateless snap.
+   */
   const snapSeconds = useCallback(
-    (seconds: number, disabled: boolean): number => snapValue(seconds, disabled).value,
-    [snapValue],
+    (seconds: number, disabled: boolean): number => {
+      const clamped = Math.max(0, seconds);
+      if (disabled) return clamped;
+      const targets = snapTargets(timeline, [...markers.map((m) => m.time), editor.getPlayhead()]);
+      return snap(clamped, targets, SNAP_PX / pxPerSecond);
+    },
+    [timeline, markers, pxPerSecond, editor],
   );
 
   const onSelectEffectLayer = useCallback(
@@ -2622,11 +2641,25 @@ export function TimelineView({
    * a single paint and stays exact, because it is driven by the same
    * `stepSeconds × pxPerSecond` the ruler's own labels are.
    */
+  // The pitch is taken from the ticks the ruler ACTUALLY drew, not from the
+  // interval it asked for.
+  //
+  // `rulerTicks` quantises every major tick to a whole frame, so at a fractional
+  // frame rate the two differ: at 29.97fps a requested 1s step becomes 30 frames,
+  // which is 1.001s. A 0.1% error is invisible for one tick and cumulative for a
+  // gradient — by ten minutes the grid would sit half a pitch off the ruler it is
+  // documented to be locked to. Measuring the real spacing between the first two
+  // majors keeps them identical by construction at any frame rate.
+  //
   // Clamped: a repeating gradient whose period is 0 (or NaN) is an invalid value
   // the whole background declaration is dropped for, so the lanes would silently
   // lose their grid rather than fail loudly. 8px is below any pitch the tick
   // selector can actually choose, so the clamp never alters a real zoom.
-  const gridPitchPx = Math.max(8, ticks.stepSeconds * pxPerSecond || 0);
+  const majorStepSeconds =
+    ticks.major.length >= 2
+      ? (ticks.major[1] as number) - (ticks.major[0] as number)
+      : ticks.stepSeconds;
+  const gridPitchPx = Math.max(8, majorStepSeconds * pxPerSecond || 0);
   /**
    * Whether the overview strip has anything to navigate.
    *
@@ -2766,7 +2799,9 @@ export function TimelineView({
               // Use the lane-relative cursor (clientX − lane left), not the
               // event's offsetX — offsetX is relative to whatever child took
               // the drop (often an existing clip), which mis-places the clip.
-              const { value } = snapValue(xToSeconds(event.clientX), snapDisabled(event.altKey));
+              // A drop is one isolated question, so it uses the stateless snap —
+              // the gesture magnet's hold belongs to the drag that created it.
+              const value = snapSeconds(xToSeconds(event.clientX), snapDisabled(event.altKey));
               // An effect dragged from the library lands as a new layer at the
               // drop position on this lane (schema v13).
               if (event.dataTransfer.types.includes(EFFECT_DND_TYPE)) {
@@ -3445,11 +3480,11 @@ export function TimelineView({
         — an empty area — and a large panel of nothing between the last lane and the
         overview strip reads as a broken layout rather than as room.
 
-        It is the obvious place to drop something, so it accepts a drop: media
-        landing here starts on a new lane at the sequence's own start, through the
-        same `placeAssetPatch` the empty timeline uses. Purely additive — clicking
-        it does nothing, it takes no focus, and it disappears when the lanes fill
-        the dock.
+        It is the obvious place to drop something, so it accepts a drop, through the
+        same `placeAssetPatch` the empty timeline uses: the clip lands at the time
+        under the cursor, on the frontmost lane of its kind that has room there, or
+        on a new lane when none does. Purely additive — clicking it does nothing, it
+        takes no focus, and it disappears when the lanes fill the dock.
       */}
       <div
         className={`timeline-underspace${assetOverUnderspace ? ' is-drop-target' : ''}`}
@@ -3474,7 +3509,7 @@ export function TimelineView({
         }}
       >
         {visibleTracks.length > 0 && (
-          <span className="timeline-underspace-hint">Drop media here for a new lane</span>
+          <span className="timeline-underspace-hint">Drop media here to place it</span>
         )}
       </div>
 

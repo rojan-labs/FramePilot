@@ -1132,6 +1132,24 @@ describe('mutating tools — build valid operations', () => {
   // 30-step budget, interleaved with a re-read per batch. The run managed 34 in four apply
   // turns and the batches decayed 12 → 9 → 8 → 5 as reasoning ate the output reservation.
   // Per-clip granularity is right for fixing one shot and wrong for building a sequence.
+  it('never relocates PICTURE off the lane it was aimed at, even when it collides', () => {
+    // `picture-occupancy.ts`: the preview flattens picture clips from every track
+    // into one chain while the export composites stacked layers, so two picture
+    // clips overlapping IN TIME render one way and preview another (blocker #1,
+    // SUC-P1) — "overlap is measured in time, not by layer". Moving a colliding
+    // video to another lane therefore does not avoid the problem, it creates it and
+    // hides it until export. The refusal has to stand for picture, so the op keeps
+    // the named lane and the validator rejects it exactly as before.
+    const ops = build('add_clip', {
+      trackId: 'video_1',
+      assetId: 'asset_1',
+      start: 1,
+      end: 3,
+    });
+    expect(ops.some((op) => op.type === 'add_layer')).toBe(false);
+    expect(ops[0]).toMatchObject({ type: 'add_clip', trackId: 'video_1' });
+  });
+
   it('add_clips places a whole sequence in one patch, by add_clip’s rules', () => {
     // Placed past the fixture's own clips (which fill 0–10), so the batch stays on
     // the named lane and this test stays about batching rather than placement.

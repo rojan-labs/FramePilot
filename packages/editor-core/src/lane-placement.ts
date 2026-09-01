@@ -15,10 +15,14 @@
  * separate lanes is exactly what lanes are for. So the placement resolves the
  * lane instead of trusting the caller's, the same way asset drops already did.
  *
- * This module is the shared, pure rule. It lived as three separate copies of the
- * same overlap test — one in the editor's patch builders, one in stock placement,
+ * This module is the shared, pure rule. The same overlap test lived as three
+ * separate copies — one in the editor's patch builders, one in `stock-placement.ts`,
  * one inline in the timeline's drop handler — which is three chances for the
- * tolerance or the half-open convention to drift apart.
+ * tolerance or the half-open convention to drift apart. The patch builders and the
+ * drop handler now resolve through here; `stock-placement.ts` still carries its own,
+ * because it answers a different question (see `picture-occupancy.ts`: picture may
+ * not be relocated onto a stacked lane at all) and folding it in would have made
+ * this change larger than the defect it fixes.
  */
 import type { Timeline, Track } from '@framepilot/timeline-schema';
 import type { Operation } from './operations.js';

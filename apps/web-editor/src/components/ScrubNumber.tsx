@@ -37,6 +37,8 @@ export function ScrubNumber({
   defaultValue,
 }: ScrubNumberProps): JSX.Element {
   const dragRef = useRef<{ startX: number; startValue: number } | null>(null);
+  const trackRef = useRef<HTMLSpanElement>(null);
+  const trackDragRef = useRef(false);
   const canReset = defaultValue !== undefined && value !== defaultValue;
   const progress = ((clamp(value, min, max) - min) / Math.max(Number.EPSILON, max - min)) * 100;
   const reset = (): void => {
@@ -62,6 +64,36 @@ export function ScrubNumber({
     }
   };
 
+  /**
+   * Absolute positioning for the track: where along the rail the pointer is IS the
+   * value. Quantised to `step` so it can only produce values the field could also
+   * be typed to.
+   */
+  const valueAtX = (clientX: number): number => {
+    const rail = trackRef.current?.getBoundingClientRect();
+    if (!rail || rail.width <= 0) return value;
+    const ratio = Math.min(1, Math.max(0, (clientX - rail.left) / rail.width));
+    const raw = min + ratio * (max - min);
+    return clamp(Math.round(raw / step) * step, min, max);
+  };
+  const onTrackPointerDown = (event: React.PointerEvent): void => {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    trackDragRef.current = true;
+    onChange(valueAtX(event.clientX));
+  };
+  const onTrackPointerMove = (event: React.PointerEvent): void => {
+    if (!trackDragRef.current) return;
+    onChange(valueAtX(event.clientX));
+  };
+  const onTrackPointerUp = (event: React.PointerEvent): void => {
+    trackDragRef.current = false;
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      /* ignore lost capture */
+    }
+  };
+
   return (
     <div className="scrub-number">
       <span
@@ -78,25 +110,32 @@ export function ScrubNumber({
         {label}
       </span>
       {/*
-        The track is a drag handle too, not just a readout.
+        The track is a control, not a readout — and it is operated the way it is
+        DRAWN.
 
-        It draws a filled bar with a knob at its end — the exact picture of a
-        slider — while only the label carried the pointer handlers, and in the
-        panel's own row layout that label is hidden (the row renders its own
-        label in the aligned column). So the one thing that looked draggable was
-        inert, and the one thing that was draggable was invisible: the control
-        offered an affordance it did not honour.
+        It renders a filled bar and a knob at `progress%` of its own width, which
+        is the picture of an absolute-position slider, while only the label carried
+        pointer handlers. In the inspector's row layout that label is hidden (the
+        row draws its own in the aligned column), so the one thing that looked
+        draggable was inert and the one thing that was draggable was invisible.
 
-        `role="presentation"` and `aria-hidden` stay as they were — this adds a
-        second pointer path to the same value, and the real number input beside it
-        is what assistive tech and the keyboard operate.
+        The label keeps RELATIVE scrubbing (one step per pixel, the precision
+        gesture — it can exceed the rail and does not care how wide it is). The
+        track is ABSOLUTE: pointer position maps to position in [min, max], so the
+        knob stays under the finger, a click jumps to a value, and both ends of the
+        range are reachable. Handling it relatively here would have left the knob
+        trailing the pointer and the top of the range unreachable on a 90px rail.
+
+        `aria-hidden` stays: this is a second pointer path to a value the real
+        number input beside it already exposes to assistive tech and the keyboard.
       */}
       <span
+        ref={trackRef}
         className="scrub-track"
         aria-hidden="true"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
+        onPointerDown={onTrackPointerDown}
+        onPointerMove={onTrackPointerMove}
+        onPointerUp={onTrackPointerUp}
         onDoubleClick={defaultValue !== undefined ? reset : undefined}
       >
         <span className="scrub-track-fill" style={{ width: `${progress}%` }} />

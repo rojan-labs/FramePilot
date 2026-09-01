@@ -570,15 +570,6 @@ export function snapTargets(timeline: Timeline, extra: readonly number[] = []): 
   return [...targets].sort((a, b) => a - b);
 }
 
-/**
- * Snap `time` to the nearest target within `threshold` seconds; if none is
- * close enough, `time` is returned unchanged. Negative times clamp to zero.
- *
- * @param time - The raw time (e.g. from a drag in pixels converted to seconds).
- * @param targets - Candidate snap times (see {@link snapTargets}).
- * @param threshold - Maximum distance, in seconds, at which snapping engages.
- */
-
 /** A magnet's decision: where the value landed, and which edge is holding it. */
 export interface MagnetSnap {
   /** The (possibly snapped) time. */
@@ -655,6 +646,14 @@ export function magnetSnap(
   return { value: nearest, held: nearest };
 }
 
+/**
+ * Snap `time` to the nearest target within `threshold` seconds; if none is
+ * close enough, `time` is returned unchanged. Negative times clamp to zero.
+ *
+ * @param time - The raw time (e.g. from a drag in pixels converted to seconds).
+ * @param targets - Candidate snap times (see {@link snapTargets}).
+ * @param threshold - Maximum distance, in seconds, at which snapping engages.
+ */
 export function snap(time: number, targets: readonly number[], threshold: number): number {
   const clamped = time < 0 ? 0 : time;
   let best = clamped;

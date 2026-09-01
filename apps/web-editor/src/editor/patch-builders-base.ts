@@ -868,6 +868,64 @@ export function setKeyframeAtPlayheadPatch(
 }
 
 /**
+ * Set several of a clip's properties at one time, as ONE patch.
+ *
+ * The plural of {@link setKeyframeAtPlayheadPatch}, and it exists because the
+ * toolbar's keyframe button records a *pose* — every animatable property at once.
+ * Looping the singular builder would produce one patch per property, so starting an
+ * animation would cost five presses of undo to take back, and the history would read
+ * as five unrelated edits rather than the one thing the user did.
+ *
+ * Every write goes in a single `add_keyframes` op with `replace: true`, so pressing
+ * it twice at the same time overwrites rather than accumulating duplicates at the
+ * same instant.
+ *
+ * Returns `null` when the clip is missing or nothing valid was asked for — a patch
+ * that changes nothing would still cost the user an undo press.
+ *
+ * @param timeline - Current timeline.
+ * @param clipId - The clip to animate.
+ * @param writes - Property/value pairs to record.
+ * @param time - Clip-relative time, clamped into the clip.
+ * @param easing - Interpolation for the new keyframes.
+ */
+export function setKeyframesAtPlayheadPatch(
+  timeline: Timeline,
+  clipId: string,
+  writes: readonly { readonly property: string; readonly value: number }[],
+  time: number,
+  easing: Easing = 'linear',
+): Patch | null {
+  const found = findClip(timeline, clipId);
+  if (!found) return null;
+  const valid = writes.filter((write) => Number.isFinite(write.value));
+  if (valid.length === 0) return null;
+  const at = clampToClip(found.clip, time);
+  return {
+    patchId: patchId(`setkfs_${clipId}_${ms(at)}_${valid.map((w) => w.property).join('-')}`),
+    createdBy: 'user',
+    reason:
+      valid.length === 1
+        ? `Set ${valid[0]!.property} keyframe on "${clipId}" @ ${at.toFixed(2)}s`
+        : `Add keyframe on "${clipId}" @ ${at.toFixed(2)}s`,
+    operations: [
+      {
+        type: 'add_keyframes',
+        clipId,
+        keyframes: valid.map((write) => ({
+          id: `kf_${clipId}_${write.property}_${ms(at)}`,
+          time: at,
+          property: write.property,
+          value: write.value,
+          easing,
+        })),
+        replace: true,
+      },
+    ],
+  };
+}
+
+/**
  * Remove a keyframe — one at `time`, or the property's whole animation when `time` is
  * omitted.
  *
@@ -1386,9 +1444,10 @@ export function setTrackFlagsPatch(
 // ---------------------------------------------------------------------------
 
 /** A non-colliding, deterministic id for a new layer of the given role. */
-// Was a byte-for-byte copy of the same walk in `stock-placement.ts`. Both now
-// resolve through `@framepilot/editor-core`, so the renderer, the stock placer and
-// the agent cannot drift on what a new lane is called.
+// Was a byte-for-byte copy of the same walk in `stock-placement.ts`. This one now
+// resolves through `@framepilot/editor-core`, so the renderer and the agent cannot
+// drift on what a new lane is called. `stock-placement.ts` still keeps its own — see
+// the note in `lane-placement.ts` for why it was left alone.
 const nextLayerId = coreNextLayerId;
 
 /**
@@ -1451,8 +1510,8 @@ function layerTypeForKind(kind: ClipKind): Track['type'] {
   return 'video'; // video + image are picture layers
 }
 
-// The third copy of this test lived here; it is now one shared rule (and one
-// shared epsilon) in `@framepilot/editor-core`.
+// One of three copies of this test lived here; it now uses the shared rule (and the
+// shared epsilon) from `@framepilot/editor-core`.
 const hasRoomFor = trackHasRoomFor;
 
 /**

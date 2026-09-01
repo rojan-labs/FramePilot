@@ -5987,6 +5987,19 @@ input[type='checkbox']:focus-visible {
   display: none;
 }
 
+/* ScrubNumber's rail is an absolute-position control wherever it is used, not only
+   inside `.inspector-pro` — the cursor and the touch behaviour have to say so on
+   every surface, or a touch drag scrolls the panel instead of moving the value. */
+.scrub-track {
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.scrub-label {
+  cursor: ew-resize;
+  touch-action: none;
+}
+
 /* ---- Minimap / overview strip (M2b-2) --------------------------------- */
 /* A compressed full-sequence strip under the timeline. Pure navigation: every
    clip is a tiny block; the bright window is the current viewport, draggable. */
