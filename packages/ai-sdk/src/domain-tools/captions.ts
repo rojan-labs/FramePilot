@@ -304,6 +304,10 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
       // This tool is NOT UI-dependent, though, so MCP still serves it — see
       // `UI_INDEPENDENT_HOST_TOOLS` in packages/mcp-server.
       hostUiOnly: true,
+      // One `delete_range` per existing cue, two operations per new one — and the cue
+      // count is a fact about the transcript, not something the model chose. See
+      // `ToolSpec.derivedFanOut`.
+      derivedFanOut: true,
     },
     z
       .object({

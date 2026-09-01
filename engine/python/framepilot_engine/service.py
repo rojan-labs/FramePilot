@@ -24,6 +24,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import signal
 import threading
 import time
@@ -40,6 +41,7 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic import ValidationError as PydanticValidationError
 
@@ -233,6 +235,37 @@ from framepilot_engine.visual_indexing import (
 _log = logging.getLogger(__name__)
 
 _LOGGING_CONFIGURED = False
+
+#: Longest engine failure description handed back to a caller. The AI SDK trims again at
+#: its own boundary; this one keeps a runaway ffmpeg stderr out of the response entirely.
+MAX_FAILURE_DETAIL_CHARS = 600
+
+#: Absolute POSIX-ish paths anywhere in an exception message. Reduced to their final
+#: component before the message leaves this process — see `describe_engine_failure`.
+_ABSOLUTE_PATH = re.compile(r"(?:/[^\s'\"]+)+/([^/\s'\"]+)")
+
+
+def describe_engine_failure(exc: BaseException) -> str:
+    """One line naming what failed, safe to show a model and a user.
+
+    The exception TYPE is kept because it is the part that tells a caller what class of
+    problem it hit — ``FileNotFoundError`` and ``UnicodeDecodeError`` demand different
+    next moves, and ``Exception`` alone demands none. The message is kept because engine
+    code writes it deliberately. The traceback is not, and absolute paths are reduced to
+    a basename: this string is read by a model and echoed into a chat transcript, and
+    neither needs this machine's directory layout.
+
+    A message that is empty (``raise RuntimeError()``) still yields the type, which is
+    strictly more than the bare ``Internal Server Error`` this replaces.
+    """
+    message = _ABSOLUTE_PATH.sub(r"\1", str(exc)).strip()
+    named = f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+    single_line = " ".join(named.split())
+    return (
+        single_line
+        if len(single_line) <= MAX_FAILURE_DETAIL_CHARS
+        else f"{single_line[:MAX_FAILURE_DETAIL_CHARS]}… (truncated)"
+    )
 
 
 def configure_logging() -> None:
@@ -1790,6 +1823,52 @@ def create_app(
             elapsed_ms,
         )
         return response
+
+    @app.exception_handler(Exception)
+    def _unhandled_route_error(request: Request, exc: Exception) -> Response:
+        """Answer an unexpected route failure with something the caller can act on.
+
+        WHY THIS EXISTS. Without it FastAPI answers every unhandled exception with the
+        literal body ``Internal Server Error``, and the cause survives only in this
+        process's stderr. That body is what the AI SDK puts in front of the model
+        (``sidecar-executor.ts`` surfaces the response text verbatim), so a run whose
+        engine call failed was told nothing about why and could do nothing but call
+        again. Measured in ``framepilot.runs.jsonl``: **132 of 388 ``get_frame`` calls
+        failed, 100 of them with exactly that bare sentence** — the agent's only way to
+        LOOK at its own edit, failing a third of the time with no diagnosis for the model
+        or for us. Every route in this file was equally silent; ``get_frame`` is simply
+        the one called most.
+
+        What goes back is the exception's type and message — the actionable part, and the
+        part an engine author writes deliberately (``FileNotFoundError``, an ffmpeg
+        stderr tail, an unsupported codec). What does NOT go back is the traceback, and
+        absolute paths are reduced to their final component: the response is read by a
+        model and echoed into a chat transcript, and neither needs this machine's
+        directory layout. The full traceback is logged against ``errorId`` so a developer
+        can still find it.
+
+        ``HTTPException`` and request-validation failures are deliberately untouched —
+        they are answered by FastAPI's own handlers, which is where every deliberate
+        4xx in this file already goes.
+
+        Declared ``def``, not ``async def``, for the reason
+        ``test_no_route_blocks_the_event_loop`` states: rendering a traceback is real work
+        and belongs in the threadpool, where Starlette runs a sync exception handler.
+        """
+        error_id = uuid4().hex[:12]
+        _log.exception(
+            "ERR ✗ unhandled %s %s [%s]",
+            request.method,
+            request.url.path,
+            error_id,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "detail": describe_engine_failure(exc),
+                "errorId": error_id,
+            },
+        )
 
     def sandbox(candidate: str) -> Path:
         """Resolve a caller-supplied path inside the configured sandbox root.
@@ -3971,6 +4050,35 @@ def create_app(
         )
         return VisualSearchResponse(available=True, backend=backend, packets=packets)
 
+    def _describe_uses_twelvelabs(resolved_root: Path, req: VisualDescribeRequest) -> bool:
+        """Which backend actually HOLDS evidence for this asset?
+
+        Three cases, and the middle one is the bug this answers:
+
+        - a ready ``tl:video`` mapping → TwelveLabs holds it;
+        - no mapping, but local spans exist → the on-device path holds it. This is a
+          still photo, which the INDEXER deliberately routed there because TwelveLabs
+          cannot attach one to a Marengo index;
+        - neither → TwelveLabs, so the honest ``not_indexed`` still comes from the
+          backend that WOULD index it. "Nothing found locally" would read as "there is
+          nothing in this footage" for an asset that is merely still uploading.
+
+        Fails OPEN — an unreadable brain answers True — so a genuine store problem
+        surfaces through ``_tl_describe``'s own honest reasons rather than being
+        silently rerouted to a local store that is equally unreadable.
+        """
+        try:
+            with open_brain(resolved_root, req.project_id) as store:
+                mapping = read_video_mapping(store, req.asset_id)
+                if mapping is not None and mapping.ready:
+                    return True
+                return not any(
+                    span.asset_id == req.asset_id
+                    for span in store.list_visual_spans(model=MODEL_ID)
+                )
+        except (BrainError, BrainSchemaError, PathTraversalError, OSError):
+            return True
+
     def _tl_describe(
         client: TwelveLabsClient, req: VisualDescribeRequest, resolved_root: Path
     ) -> VisualSearchResponse:
@@ -4071,8 +4179,23 @@ def create_app(
         # cached chapter map IS a time-ordered walk of the footage — exactly what
         # describe enumerates (plan FI2.2, fixes G1). Serve that instead of the old
         # "not supported" stub; still honest when the map is unavailable.
+        #
+        # PER ASSET, not per project. Indexing already routes per asset: a still photo
+        # cannot be attached to a Marengo index (TwelveLabs answers 404
+        # `resource_not_exists`), so `_asset_is_still_image` sends stills to the on-device
+        # embedder and their evidence lands in `visual_spans`/`visual_captions`. Reading
+        # did not mirror that. Any project with a TwelveLabs key configured sent EVERY
+        # describe to `_tl_describe`, which only knows `tl:video` mappings — so an asset
+        # that had been indexed perfectly well, on the path the indexer deliberately chose
+        # for it, was reported `not_indexed`.
+        #
+        # Measured on this machine: `project_champadevi_hike` holds **60 indexed spans**
+        # and answered `describe_footage` with `not_indexed` and zero packets. So did every
+        # other photo project — the ones where the built-in path is the ONLY path that can
+        # work. A routing decision made at write time has to be honoured at read time, or
+        # the store is written to and never read from.
         tl = resolve_twelvelabs(req.twelve_labs_key or settings.twelvelabs_api_key)
-        if tl.client is not None:
+        if tl.client is not None and _describe_uses_twelvelabs(root.resolve(), req):
             return _tl_describe(tl.client, req, root.resolve())
 
         project_doc: Project | None = None
@@ -4137,6 +4260,24 @@ def create_app(
             backend,
             len(packets),
         )
+        # Spans with no captions are indexed for SEARCH, not for reading. `describe`'s
+        # whole deliverable is the description, and a packet whose caption is empty is
+        # noise the model has to reason about: it reads as "this moment contains nothing",
+        # which is a claim about the footage rather than about our coverage. Say what is
+        # actually true, and name what DOES work — `get_frame` renders any moment through
+        # the export compiler and needs no index at all.
+        if packets and not caption_by_scene:
+            return VisualSearchResponse(
+                available=True,
+                backend=backend,
+                packets=[],
+                reason=(
+                    f"indexed_without_descriptions: {len(packets)} span(s) of this asset are "
+                    "embedded for search but none has been described, so there is nothing to "
+                    "read in order. Look at a moment with get_frame, or search_visual by "
+                    "content."
+                ),
+            )
         return VisualSearchResponse(available=True, backend=backend, packets=packets)
 
     @app.get("/health", response_model=HealthResponse)

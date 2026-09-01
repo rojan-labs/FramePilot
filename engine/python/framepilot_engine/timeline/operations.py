@@ -638,11 +638,38 @@ def apply_operation(timeline: Timeline, operation: Operation) -> Timeline:
     return handler(timeline, operation)
 
 
+def _source_range_rejection(label: str, clip: Clip, source_start: float, source_end: float) -> str:
+    """Say WHICH numbers are wrong, and in which time domain.
+
+    Mirrors ``packages/editor-core/src/operations.ts#sourceRangeRejection`` word for word;
+    see that docstring for the runs this wording came from. Kept in step by
+    ``tests/test_operations_parity.py``.
+    """
+
+    def r(value: float) -> str:
+        return f"{round(value, 3):g}s"
+
+    cause = (
+        f"that needs source {r(source_start)}, which is before the media starts"
+        if source_start < -_EPSILON
+        else f"that needs source {r(source_start)} to {r(source_end)}, which occupies no time"
+    )
+    clip_source_end = clip.source_end if clip.source_end is not None else clip.end - clip.start
+    return (
+        f"{label} produces an invalid source range on {clip.id}: it sits at timeline "
+        f"{r(clip.start)} to {r(clip.end)} playing source "
+        f"{r(clip.source_start)} to {r(clip_source_end)}, and {cause}. "
+        "Timeline times and source times are different domains; use get_clip to read both."
+    )
+
+
 def _apply_trim(timeline: Timeline, op: TrimClip) -> Timeline:
     loc = _find_clip(timeline, op.clip_id)
     if op.end - op.start <= _EPSILON:
         raise OperationError(
-            "invalid_range", f"trim_clip would give non-positive duration on {op.clip_id}"
+            "invalid_range",
+            f"trim_clip would leave clip {op.clip_id} with no duration: "
+            f"{round(op.start, 3):g}s → {round(op.end, 3):g}s.",
         )
     clip = loc.clip
     # Move source in/out by the same delta as the timeline edges (1:1 speed).
@@ -651,7 +678,8 @@ def _apply_trim(timeline: Timeline, op: TrimClip) -> Timeline:
     new_source_end = source_end + (op.end - clip.end)
     if new_source_start < -_EPSILON or new_source_end - new_source_start <= _EPSILON:
         raise OperationError(
-            "invalid_range", f"trim_clip produces invalid source range on {op.clip_id}"
+            "invalid_range",
+            _source_range_rejection("trim_clip", clip, new_source_start, new_source_end),
         )
     next_clip = clip.model_copy(
         update={
@@ -669,7 +697,9 @@ def _apply_set_clip_source_range(timeline: Timeline, op: SetClipSourceRange) -> 
     if op.source_start < -_EPSILON or op.source_end - op.source_start <= _EPSILON:
         raise OperationError(
             "invalid_range",
-            f"set_clip_source_range produces invalid source range on {op.clip_id}",
+            _source_range_rejection(
+                "set_clip_source_range", loc.clip, op.source_start, op.source_end
+            ),
         )
     clip = loc.clip
     speed = clip.speed if clip.speed is not None else 1.0

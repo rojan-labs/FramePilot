@@ -48,8 +48,9 @@ writes one JSON row per run.
 Scenarios: UC-01, UC-02, UC-03, UC-05, UC-08 (as a second turn after UC-01), UC-09.
 Per run record: model calls, orchestration rounds, input/output/cached tokens per call,
 prompt bytes by context tier (from the token manifest), tool calls and repeats (same tool
-+ same args), analysis calls that hit cache vs recomputed, wall time, USD, final timeline
-outcome hash. Three runs per scenario; report p50 and spread.
+
+- same args), analysis calls that hit cache vs recomputed, wall time, USD, final timeline
+  outcome hash. Three runs per scenario; report p50 and spread.
 
 Also produce the **call ledger**: for each scenario, a table of every model call with the
 question "why does this call exist?" answered in one line, and a column for the Phase 1
@@ -118,12 +119,20 @@ and failure list. The after-numbers are `01-after.md`.
 ## Discovered
 
 (Add defects found during measurement here as `- [ ] <one line> → phase N`.)
-- [ ] `POST /transcribe` on a video with no audio stream returns a 422 whose detail is the raw
-      ffmpeg banner + "Output file does not contain any stream" (`talk-1080p-98s.mp4`).
-      `/analyze-silence` already answers the same case with `{ranges: [], reason}`; transcribe
-      should probe for an audio stream first and return a typed "no audio track" outcome → Phase 5
-      (P5.4 error contracts) / Phase 8 (sidebar shows it in plain words).
-- [ ] **A run whose every model call fails still reports `completed` and applies an edit.**
+
+- [x] `POST /transcribe` on a video with no audio stream returned a 422 whose detail was the
+      raw ffmpeg banner + "Output file does not contain any stream" (`talk-1080p-98s.mp4`).
+      **Fixed 2026-09-01:** `asr.py#_decode_failure` classifies the decode failure against the
+      same ffprobe `has_audio` check `analysis/silence.py` already used, and raises a typed
+      `AsrNoAudioError` — "<file> has no audio track, so there is nothing to transcribe."
+      The route's existing `AsrError → 422` mapping carries it through. A file that DOES have
+      audio and still failed, or one ffprobe cannot answer for, keeps its original error
+      (`tests/test_asr_no_audio.py`, 3 rows).
+- [x] **A run whose every model call fails still reports `completed` and applies an edit.**
+      **Verified fixed 2026-09-01** by probing both shapes against the live orchestrator: a
+      provider that throws, and one that returns an empty response (the captured shape — 0 ms,
+      0 tokens, `errors: []`). Both settle the run as `failed` with zero diffs. Left below for
+      the record of what it was.
       Smoke run with the DeepSeek provider answering `402 Insufficient Balance`: 2 captured
       provider calls at 0 ms / 0 tokens, `errors: []`, final status `completed`, two
       `delete_range` tool calls (one repeated) and one operation applied to the podcast
@@ -137,12 +146,33 @@ and failure list. The after-numbers are `01-after.md`.
       app. Fixed at the root: `electron/env.ts` (`parseDotEnv`/`applyDotEnv`, process env
       wins, table-tested), `main.ts` uses `loadDotEnvFile`. Found while building
       `tests/e2e-desktop` (P9.0 pulled forward because P0.4/P0.6 need the desktop host).
-- [ ] **A split can leave a zero-length clip that cannot be deleted.** Montage ledger: after
+- [~] **A split can leave a zero-length clip that cannot be deleted.** **Reproduced and bounded
+  2026-09-01, deliberately not fixed — read this before attempting it.** The undeletable half is
+  already fixed (`ai-sdk/domain-tools/timeline.ts#clipDeleteOp` floors the start and ceils the end,
+  so `delete_clip` covers an off-grid clip's every frame). What remains is that the husk is still
+  CREATED. Driven through the real commit path (`commitProjectPatch`, which quantizes once per
+  ADR 0146): a clip ending **off-grid** at 134.675 with `delete_range 122.5→134.674` leaves
+  **0.008333 s** (¼ frame); the same delete against an **on-grid** clip end leaves exactly one
+  frame, which is legitimate. So the husk needs an off-grid clip edge — legacy or imported data,
+  not something a new edit creates, since every committed operation is snapped.
+  Harm is now hygiene only: sub-frame clips render as nothing and are deletable.
+  **Why it was left:** every fix considered either changes delete/ripple arithmetic (which changes
+  undo and shift amounts on the hottest path in the editor) or synthesises an outward-snapped
+  delete that can eat into a neighbouring clip. Neither is worth doing without the ability to run a
+  real agent against it. The principled fix is to snap CLIP EDGES at commit, not just operation
+  times — a deliberate semantic change that rewrites the user's timeline, and a maintainer call.
+- [ ] **(original wording, kept for the record)** A split can leave a zero-length clip that cannot be deleted. Montage ledger: after
       `ripple_delete 122.5–134.675` the right half `clip_005__r` exists with end ≤ start;
       `delete_clip` on it is rejected with "delete_range.end must be greater than start" —
       four model requests spent on it. Either the split must not create it or delete must
       accept it → Phase 4 (editor-core `timeline-engineer`).
-- [ ] **A run that has committed its edits stays in `apply` and never reaches `verify`.**
+- [x] **A run that has committed its edits stays in `apply` and never reaches `verify`.**
+      Still true of the stage machine — `stageAdvanceFor` has no `apply` case, so a run that
+      applies a patch never advances during turns. It no longer costs the run anything:
+      `get_frame` is exempt from every stage narrowing
+      (`stage-policy.ts#VERIFICATION_LOOK_TOOL_NAMES`), and as of 2026-09-01 it is in the
+      always-advertised core tool set as well, with a test asserting every stage-policy
+      exemption stays there.
       Montage ledger: from request #11 to #44 the stage is `apply`; the model's seven
       `get_frame` attempts to check its crops were refused ("unavailable this turn") across
       five requests (~110k prompt tokens). The schema list and the allowed set are the same
@@ -153,4 +183,3 @@ and failure list. The after-numbers are `01-after.md`.
 - [ ] **Baseline counters:** `tool_call` events carry a `running` and a terminal row; the
       first baseline JSON (montage r1–r3, podcast) counted both — tools/repeats there are 2×.
       Fixed in the script; the report uses the ledger run's corrected counts.
-

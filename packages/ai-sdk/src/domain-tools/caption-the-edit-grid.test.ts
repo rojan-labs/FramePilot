@@ -21,6 +21,8 @@ import { buildTimelineMap, deriveCaptionCues, captionSegmentConfig } from '@fram
 import type { AnyOperation } from '@framepilot/editor-core';
 import { assembleEdit } from '../assemble.js';
 import { getTool } from '../tool-registry.js';
+import { applyProjectPatch } from '@framepilot/editor-core';
+import { AGENT_MAX_OPS_PER_TURN } from '../kernel/conductor.js';
 
 const ASSET = 'asset_isom_batch1_assignment1';
 /** The clip the run placed: the whole recording, 0 → 49.767s. */
@@ -291,5 +293,43 @@ describe('caption_the_edit against the run 7d159862 transcript', () => {
     );
     const captioned = cues.flatMap((cue) => cue.words.map((word) => word.word));
     expect(captioned).toEqual(TRANSCRIPT.map((word) => word.word));
+  });
+});
+
+/**
+ * The SECOND defect in run `7d159862`, and the one that outlived the frame-grid fix
+ * above: the operations assemble and validate perfectly, and are then thrown away
+ * whole by a blast-radius cap that no layer reports.
+ *
+ * `caption_the_edit` emits `existingClips + 2 × cues` operations — 3 per cue on a
+ * re-caption. A 50-second talking head is ~110 of them. The streaming agent path
+ * (`orchestrator.ts`'s `agentRun`, which is what the desktop app runs) bails at
+ * `DEFAULT_MAX_OPS_PER_TURN = 100` and returns a turn result with neither a note nor
+ * a rejection; the reducer that would have printed "Turn rejected: N operations
+ * exceeds the per-turn cap" holds its own, larger copy of the same constant (200) and
+ * so never fires. The user is shown `313 proposed changes couldn't be applied to the
+ * timeline (; ; )` — three empty strings where three reasons should be.
+ *
+ * The header above records the counts this cost: 126 + 126 + 206 + 126 operations.
+ * Every one of those four attempts was over the cap the moment it was built.
+ */
+describe('caption_the_edit fits the blast-radius bound the agent enforces', () => {
+  /** The project after a first captioning pass — the state a re-caption starts from. */
+  function alreadyCaptioned(): Project {
+    const first = captionTheEdit(talkingHeadProject(30), { preset: 'short-form' });
+    return applyProjectPatch(talkingHeadProject(30), first.patch);
+  }
+
+  it('re-captions a 50s talking head within one turn', () => {
+    const project = alreadyCaptioned();
+    const captions = project.timeline.tracks.find((track) => track.id === 'captions_main');
+    expect(captions?.clips.length).toBeGreaterThan(30);
+
+    const again = captionTheEdit(project, { preset: 'short-form' });
+    expect(again.validation.issues.filter((i) => i.severity === 'error')).toEqual([]);
+    // A re-caption clears every existing cue and writes two operations per new one, so
+    // it costs roughly 3 per cue where a first pass costs 2. This is what tipped the
+    // captured run over the cap the streaming path enforces but never reports.
+    expect(again.patch.operations.length).toBeLessThanOrEqual(AGENT_MAX_OPS_PER_TURN);
   });
 });

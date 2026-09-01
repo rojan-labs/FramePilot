@@ -128,6 +128,11 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
       // Runs in the TS executor (measure via the sidecar, cut in ai-sdk); it never reaches the
       // Python dispatcher, exactly like `add_music`.
       hostUiOnly: true,
+      // One ripple_delete per measured silence — ~110 on a ten-minute podcast, and the
+      // count is a fact about the recording, not something the model chose. Without this
+      // the blast-radius bound is a ceiling on how long a recording may be de-ummed. Same
+      // reasoning as `caption_the_edit`; see `ToolSpec.derivedFanOut`.
+      derivedFanOut: true,
     },
     z
       .object({

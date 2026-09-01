@@ -631,6 +631,44 @@ def test_apply_does_not_mutate_input() -> None:
     assert _clips(timeline, "v")[0].start == 0  # original untouched
 
 
+def test_invalid_source_range_states_both_time_domains() -> None:
+    """The same sentence the TypeScript engine gives, for the same case.
+
+    Parity with ``packages/editor-core/src/operations.test.ts`` → "states both time
+    domains and both ranges when the source range is invalid". Both engines reject the
+    same trim, and a run that hits it on one path must not be told less than on the other.
+
+    The wording matters because of what it replaced: ``trim_clip produces invalid source
+    range on A`` named the clip and nothing else, and the captured runs
+    (``framepilot.runs.jsonl``) show a model reissuing the identical call rather than
+    correcting the one confusion behind it — timeline time used where the clip's SOURCE
+    range is the constraint.
+    """
+    timeline = Timeline(
+        tracks=[
+            Track(
+                id="v",
+                type=TrackType.VIDEO,
+                clips=[_clip("A", "v", 3, 10, sourceStart=1, sourceEnd=8)],
+            )
+        ]
+    )
+    with pytest.raises(OperationError) as exc:
+        apply_operation(timeline, TrimClip(clip_id="A", start=0, end=10))
+    message = str(exc.value)
+    assert "timeline 3s to 10s" in message
+    assert "source 1s to 8s" in message
+    assert "needs source -2s, which is before the media starts" in message
+    assert "get_clip" in message
+
+
+def test_a_zero_length_trim_names_the_times_it_was_given() -> None:
+    timeline = _timeline()
+    with pytest.raises(OperationError) as exc:
+        apply_operation(timeline, TrimClip(clip_id="A", start=5, end=5))
+    assert "5s → 5s" in str(exc.value)
+
+
 def test_source_end_none_is_handled() -> None:
     timeline = Timeline(
         tracks=[Track(id="v", type=TrackType.VIDEO, clips=[_clip("A", "v", 0, 4, sourceEnd=None)])]

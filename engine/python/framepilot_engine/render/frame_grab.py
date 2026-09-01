@@ -197,23 +197,34 @@ def grab_frame(
     except Exception as exc:
         raise FrameGrabError(f"Could not read the frame at {at:.3f}s: {exc}") from exc
 
-    image = Image.fromarray(pixels).convert("RGB")
-    # Usually a no-op now that the composite is already sized to the request (see
-    # `_resolve_preset`); still needed for the even-dimension rounding above and
-    # for an explicitly named export preset, which is composited as authored.
-    target = _fit_within(image.width, image.height, requested_dimension)
-    if target != (image.width, image.height):
-        # `Image.Resampling.LANCZOS` (Pillow >= 9.1) — the top-level alias mypy
-        # cannot see is deprecated.
-        image = image.resize(target, Image.Resampling.LANCZOS)
+    # Encoding is guarded for the same reason the compile above it is: everything this
+    # function raises should be a `FrameGrabError`, which the route answers as a 422 with
+    # a sentence. Anything that escapes becomes a bare 500 — and a 500 from here is what
+    # the model was handed 100 times in `framepilot.runs.jsonl` with no cause attached.
+    # A missing Pillow codec, an unusual dtype out of the compositor, an unwritable
+    # buffer: all worth naming, none worth "Internal Server Error".
+    try:
+        image = Image.fromarray(pixels).convert("RGB")
+        # Usually a no-op now that the composite is already sized to the request (see
+        # `_resolve_preset`); still needed for the even-dimension rounding above and
+        # for an explicitly named export preset, which is composited as authored.
+        target = _fit_within(image.width, image.height, requested_dimension)
+        if target != (image.width, image.height):
+            # `Image.Resampling.LANCZOS` (Pillow >= 9.1) — the top-level alias mypy
+            # cannot see is deprecated.
+            image = image.resize(target, Image.Resampling.LANCZOS)
 
-    buffer = io.BytesIO()
-    if fmt == "jpeg":
-        image.save(buffer, format="JPEG", quality=_JPEG_QUALITY, optimize=True)
-        media_type = "image/jpeg"
-    else:
-        image.save(buffer, format="PNG", optimize=True)
-        media_type = "image/png"
+        buffer = io.BytesIO()
+        if fmt == "jpeg":
+            image.save(buffer, format="JPEG", quality=_JPEG_QUALITY, optimize=True)
+            media_type = "image/jpeg"
+        else:
+            image.save(buffer, format="PNG", optimize=True)
+            media_type = "image/png"
+    except Exception as exc:
+        raise FrameGrabError(
+            f"Rendered the frame at {at:.3f}s but could not encode it as {fmt}: {exc}"
+        ) from exc
 
     data = buffer.getvalue()
     _log.info(

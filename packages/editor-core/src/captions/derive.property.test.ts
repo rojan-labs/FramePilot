@@ -237,7 +237,16 @@ describe('deriveCaptionCues across cuts', () => {
 });
 
 describe('deriveCaptionCues over generated transcripts', () => {
+  // WHY THESE COLLECT INSTEAD OF ASSERTING IN THE LOOP. Each of these walks tens of
+  // thousands of cues, and a vitest `expect` is not free — it builds a matcher and a
+  // diff context per call. Asserting per cue put the first of them at ~4.3s uninstrumented
+  // and OVER the 5,000 ms default under v8 coverage, so `pnpm verify` — which runs
+  // `test:coverage`, not plain vitest — failed here intermittently while the same suite
+  // passed locally. Raising the timeout would have hidden that; collecting the failures
+  // and asserting once is both ~40x cheaper and keeps the whole diagnostic, because the
+  // report names every offending case rather than only the first.
   it('never emits a cue the frame grid can round out of existence', () => {
+    const collapsed: string[] = [];
     for (let seed = 1; seed <= 60; seed += 1) {
       const rng = mulberry32(seed);
       const words = generateTranscript(rng, 40 + Math.floor(rng() * 60));
@@ -247,17 +256,19 @@ describe('deriveCaptionCues over generated transcripts', () => {
           const cues = deriveCaptionCues(map, words, captionSegmentConfig(preset), fps);
           for (const cue of cues) {
             const frames = snapSecondsToFrame(cue.end, fps) - snapSecondsToFrame(cue.start, fps);
-            expect(
-              frames,
+            if (frames > 0) continue;
+            collapsed.push(
               `seed ${String(seed)} ${preset} @ ${String(fps)}fps: ${JSON.stringify({ start: cue.start, end: cue.end, text: cue.text })}`,
-            ).toBeGreaterThan(0);
+            );
           }
         }
       }
     }
+    expect(collapsed).toEqual([]);
   });
 
   it('never emits two cues that overlap once snapped', () => {
+    const overlaps: string[] = [];
     for (let seed = 101; seed <= 140; seed += 1) {
       const rng = mulberry32(seed);
       const words = generateTranscript(rng, 40 + Math.floor(rng() * 60));
@@ -271,14 +282,13 @@ describe('deriveCaptionCues over generated transcripts', () => {
             }),
           );
           for (let i = 1; i < snapped.length; i += 1) {
-            expect(
-              snapped[i]!.start,
-              `seed ${String(seed)} ${preset} @ ${String(fps)}fps cue ${String(i)}`,
-            ).toBeGreaterThanOrEqual(snapped[i - 1]!.end);
+            if (snapped[i]!.start >= snapped[i - 1]!.end) continue;
+            overlaps.push(`seed ${String(seed)} ${preset} @ ${String(fps)}fps cue ${String(i)}`);
           }
         }
       }
     }
+    expect(overlaps).toEqual([]);
   });
 
   it('captions every surviving word exactly once, in order', () => {

@@ -6,6 +6,58 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **The AI can describe your footage again.** Asking it what's in a clip reported "not indexed"
+  for footage that was fully indexed — every photo project was affected. Importing a photo indexes
+  it on your own machine (the hosted service can't take stills), but the AI was only ever asking the
+  hosted service. It now reads whichever one actually holds the footage. If a clip is indexed for
+  search but has no descriptions yet, it says that plainly instead of returning empty results.
+- **When the media engine can't produce a frame, it tells you why.** The last unguarded step —
+  encoding the picture — could still surface as a bare "Internal Server Error".
+
+- **De-umming a long recording now works.** Asking the AI to cut the dead air out of
+  anything past about seventeen minutes of speech removed nothing at all — the cuts were
+  measured correctly and then discarded whole, because an internal limit on how much one
+  step may change was counting the pauses your recording happens to contain. The same
+  applied to organizing a media bin of more than ~200 clips. Both now count only the
+  changes the AI chose to make.
+- **Transcribing a video with no sound says so.** It used to answer with a page of ffmpeg
+  version and build information, which told you nothing and told the AI less. It now says
+  the file has no audio track and what to do instead.
+- **When something goes wrong inside the media engine, you're told what.** Failures used
+  to surface as a bare "Internal Server Error" — most often when the AI tried to look at a
+  frame of your edit, which it does to check its own work. The real reason now reaches
+  both you and the AI.
+- **A rejected trim explains itself.** "trim_clip produces invalid source range" named the
+  clip and nothing else; the AI would re-send the same request. It now states where the
+  clip sits, what footage it plays, and which number is out of bounds — the confusion
+  behind almost every one of these is timeline time used where source time was needed.
+
+- **Captioning a video longer than about 45 seconds now works in Agent mode.** Asking the
+  AI to add or restyle captions on anything longer was reporting "No edits were applied —
+  N proposed changes couldn't be applied to the timeline" with nothing in the brackets
+  where the reason should have been. The captions were being written correctly every time
+  and then discarded by an internal limit on how much one step may change: a caption pass
+  costs about three changes per line of speech, so a 50-second recording went past it and
+  a three-minute one went far past it. The limit now counts the changes the AI chose to
+  make rather than the ones your transcript dictates, and any step it does stop says why.
+
+### Changed
+
+- **The AI now spends its attention on your footage instead of on its own toolbox.** Every
+  request used to carry the full description of all 87 editing tools — measured on a real
+  run, that was 63% of everything the AI was reading, against 4.6% for the transcript,
+  timeline and footage it was actually editing. It now starts with the tools every edit
+  needs and picks up the specialised ones (captions, colour, audio, motion, tracking, stock)
+  as the work calls for them. Requests are roughly **55% smaller**, so runs are cheaper and
+  faster, and the AI is reading about your video rather than a menu.
+- **The AI stops forgetting what it just looked at.** Its working notes were being trimmed
+  to the last six steps regardless of how much room it had — so on a longer edit it would
+  re-read the same transcript, or re-open the same caption catalogue, several turns later
+  and pay for a whole extra round trip each time. Notes are now kept for as long as they
+  fit the space available.
+
 ### Security
 
 - **Cleared every high-severity dependency advisory the repository was carrying.** 58 of the

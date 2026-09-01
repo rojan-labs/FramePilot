@@ -64,6 +64,8 @@ export interface ToolBase {
   /** See {@link ToolSpec.serialOnly} — forwarded verbatim by the factories below. */
   readonly serialOnly?: boolean;
   readonly hostUiOnly?: boolean;
+  /** See {@link ToolSpec.derivedFanOut} — forwarded verbatim by the factories below. */
+  readonly derivedFanOut?: boolean;
 }
 
 export function readTool<S extends z.ZodType>(

@@ -78,6 +78,13 @@ describe('tool-parity fixture', () => {
         // disagree with it word by word. MCP still serves this one; see
         // `UI_INDEPENDENT_HOST_TOOLS` in packages/mcp-server.
         'caption_the_edit',
+        // Progressive tool disclosure (`tool-domains.ts`). The ledger this call writes to
+        // is a TS orchestrator RUN's, and it decides what that run's next request
+        // advertises. Neither the sidecar (no ledger, does not assemble the request) nor
+        // an external MCP client (brings its own agent and its own tool selection) can
+        // honour it, so unlike `caption_the_edit` this one is NOT in
+        // `UI_INDEPENDENT_HOST_TOOLS` either.
+        'load_tools',
       ].sort(),
     );
   });

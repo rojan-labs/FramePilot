@@ -13,6 +13,97 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on
+`fix/agent-run-reliability`. Three root causes found and fixed from captured run
+`35746d4c` (`run.md`), which spent 11 model calls, 230,473 tokens and $1.20 on a caption
+restyle and applied nothing.**
+
+- `[x]` **The per-turn op cap was two different numbers.** `orchestrator.ts` enforced 100
+  in the streaming path; `kernel/conductor.ts` reported 200 from the reducer. A 101–200-op
+  turn was refused by one half and invisible to the other, and the refusing branch stated
+  no reason — so the editor was shown `313 proposed changes couldn't be applied to the
+timeline (; ; )`. One exported constant now; the branch names the cap; the reducer refuses
+  to bank a blank reason. And the bound counts what the MODEL composed
+  (`ToolSpec.derivedFanOut`), because a re-caption is ~3 ops per cue and the cue count is a
+  fact about the transcript — **captioning any video past ~45s could not succeed at any
+  setting.** Regression test replays the real 50s talking head end to end through
+  `streamAgent`.
+- `[x]` **62.6% of that run's context was tool schemas; 4.6% was evidence about the video.**
+  Its last request: 12,823 tokens of tool definitions against 222 tokens of transcript.
+  Stage narrowing measured as a 13% cut on three stages out of eight. Progressive disclosure
+  (ADR 0167, `tool-domains.ts`): a core set plus domains pinned by `load_tools`, self-healing
+  when the model names a real tool it has not loaded. **Tool block 18,449 → 6,207 (−66%),
+  whole request 22,392 → 10,150 (−55%)**, identical events across all 8 golden sessions.
+- `[x]` **The action log discarded what the run had just learned.** Its rolling window was a
+  hard count of six entries regardless of budget — measured, it dropped the first four turns
+  of a ten-turn log while occupying 11% of its own 24,000-token budget. That is why the run
+  re-read the same transcript at turn 9 and re-browsed caption styles it had already seen.
+  The window is a floor now; the budget is the bound.
+
+Second pass, mining `framepilot.runs.jsonl` (2,783 real tool calls over four days, **325
+failed — 11.7%**) rather than waiting for the next report:
+
+- `[x]` **The same fan-out defect in two more tools.** `remove_silences` emits one
+  `ripple_delete` per measured silence (~250 on a twenty-minute interview) and
+  `manage_assets` one `move_asset` per asset (301 on a 300-photo bin). Both were charged
+  against a bound meant to stop a runaway model, so both were refused for the project being
+  large. The regression test drives 230 silences and gets **0 of 230** without the fix. The
+  first fix had stamped only the generic path and missed the four host-backed branches;
+  one helper covers all of them now, and the derived-fan-out set is asserted exactly.
+- `[x]` **A failed engine call now says what failed.** `get_frame` — the agent's only way
+  to LOOK at its own edit — failed **132 of 388 times, 100 of them with the body
+  `Internal Server Error`**, because nothing installed an exception handler and
+  `sidecar-executor.ts` shows the body verbatim. Every route was equally silent. The
+  underlying 500 is NOT fixed (not reproducible without the mission media); it is now
+  diagnosable, which it was not for 132 calls.
+- `[x]` **`trim_clip produces invalid source range on X`** named the clip and nothing else
+  — 29 of 34 `trim_clip` failures, reissued verbatim. Both engines now state both time
+  domains and both ranges, byte-identical and asserted from both sides.
+- `[x]` **Transcribing a silent video** returned ffmpeg's banner as the 422 body; it now
+  answers the way `analysis/silence.py` already did.
+- `[x]` **My own regression, caught by reading `stage-policy.ts`:** progressive disclosure
+  had hidden `get_frame`, `detect_beats` and `transcribe` behind `load_tools`, and those
+  are precisely the three tools the runtime exempts from every stage narrowing because runs
+  died without them. Now core, with a test asserting the invariant both ways.
+- `[x]` **The agent is told its tool list is not the whole product** (+101 tokens/request
+  against the 12,232 disclosure removes), so a capability it never guesses at is not a
+  feature the editor loses.
+- `[x]` **`pnpm verify` was failing intermittently** on a property test that only exceeded
+  its timeout under coverage instrumentation. Collect-then-assert: 4.3s → 556ms, and the
+  report now names every offending case rather than the first.
+
+Verified fixed while here: a run whose every model call fails settles as `failed` (both
+shapes probed against the live orchestrator).
+
+Third pass, driving the **real sidecar against the real project store** rather than fixtures:
+
+- `[x]` **`describe_footage` was reading the wrong backend.** Indexing routes per ASSET (a still
+  cannot attach to a Marengo index, so it goes on-device); reading routed per PROJECT, so any project
+  with a TwelveLabs key sent every describe to `_tl_describe`. `project_champadevi_hike` holds **60
+  indexed spans** and answered with zero packets. Now routed by which backend actually HOLDS evidence
+  for the asset. Verified live on four shapes; regression test fails without the fix.
+- `[x]` **Every frame-grab failure is now a named 422**, not a bare 500. The encode step was the last
+  unguarded stretch.
+- `[!]` **`get_frame`'s historical 500s are NOT reproducible.** Tried 7 project shapes, sequential and
+  16-way concurrent, inline and saved-path: **0 failures**. The 132/388 in `framepilot.runs.jsonl` are
+  all dated 08-28/29, before the still-image routing fix and against mission fixtures whose media is
+  not on this machine. Every escape path is now guarded, so the next occurrence names itself.
+- `[!]` **A cold frame grab costs a full timeline compile — measured 51.8 s** on `project_scenery`
+  (87 clips / 12 video assets). The composition cache makes the second grab 0.1 s, but it is keyed on
+  the project document and the agent's copy changes every edit, so its edit→look→edit→look pattern is
+  a miss every time — ~52 s per self-check against a 120 s budget. **A windowed compile was built,
+  measured (61.7 s → 14.2 s; 11.5 s → 0.1 s) and REVERTED**: pixel-comparing full vs windowed over 14
+  frames on 4 real projects found **2 wrong frames** (max ±118 and ±244), both on clips carrying a
+  `transition` effect — a transition-in dissolves against the _previous_ clip, which a time-overlap
+  filter drops. A wrong frame is worse than a slow one on the tool the model uses to check itself.
+  Needs the render engine's owner and a transition-aware window.
+- `[~]` **Sub-frame husk clips reproduced and bounded** (see `plan/system-mission/00-BASELINE.md`) —
+  needs an off-grid clip edge, so legacy data only; harm is hygiene. Deliberately not fixed; the
+  principled fix snaps clip edges at commit and is a maintainer call.
+
+Suites: ai-sdk **4028**, Python engine **2797**, e2e gate **95**, `pnpm verify` **17/17**.
+Maintainer verifies the real desktop run by hand.
+
 **Status snapshot (2026-08-29, SYSMISSION — system mission plan):** `[~]` **The end-to-end
 system mission is executed on `feat/system-mission`: 65 of 69 tasks `[x]`, none partial,
 four `[!]` that the maintainer verifies by hand (the AI journey and adversarial pass).** The suites were run: **failure paths 12/12**
@@ -28,8 +119,8 @@ preload, so the renderer had no IPC bridge while the file was intact throughout.
 remaining `[!]` tasks are the AI journey and the adversarial pass, which the maintainer
 verifies by hand. All six scenarios are measured and every one
 improved — podcast 25 → 5 model calls and 1200s → 253s at held quality; montage, beat-sync,
-dead-air, refine-tighten and memory-captions all went from *not completing* or *zero
-operations* to real edits (rubric 1.00 / **1.00** / 0.75 / 0.63–0.88 / 0.63–0.71 — beat-sync
+dead-air, refine-tighten and memory-captions all went from _not completing_ or _zero
+operations_ to real edits (rubric 1.00 / **1.00** / 0.75 / 0.63–0.88 / 0.63–0.71 — beat-sync
 reached 1.00 once `detect_beats` learned which onsets are beats rather than transients). Seven of
 nine turns went 0 → real operations. The root cause behind most of it was agent requests
 carrying no `maxTokens`, truncating at 8,192 and retrying into the same wall. A 30s 4K
@@ -271,28 +362,28 @@ police millisecond drift. ai-sdk coverage gate still green (3687 pass, 94.46%).
 Two runs of the same end-to-end "cut my talking-head footage" prompt (`run.md`, `run1.md` at
 the repo root). One was **cancelled** by the editor after 36 model calls / 354,707 tokens
 produced almost no edit; the other **failed** on a provider key limit after 33 model calls /
-402,506 tokens and 315 applied edits, with the editor's own verdict: *"no proper caption
+402,506 tokens and 315 applied edits, with the editor's own verdict: _"no proper caption
 handling creative way with emphasis / and also the background music is so loud that my actual
-voice is not audible."* Three root causes are `[x]` fixed at source (PR #67):
+voice is not audible."_ Three root causes are `[x]` fixed at source (PR #67):
 
 - `[x]` **Captioning had no bulk path.** 107 `add_caption_layer` calls for one 47 s video,
   hand-segmenting ~35 cues and being rejected mid-run for >12-word spans and cues crossing a
   cut; then a later cut made every cue stale and the only repair was to delete all 106 and
   re-add them (190 more ops). `deriveCaptionCues` in editor-core already did all of this
   correctly and idempotently — **only the web-editor UI could reach it.** New
-  `caption_the_edit` exposes it: one call captions the edit, and re-running it *is* the
+  `caption_the_edit` exposes it: one call captions the edit, and re-running it _is_ the
   repair path for what `verify_captions` reports. Measured: **107 tool calls → 1**, at
   +369 tokens/request of tool description (17,795 → 18,164, read off the regenerated
   goldens).
 - `[x]` **Emphasis could not name a phrase.** `auto_emphasize_captions` grounded keywords
-  against a *bag* of single spoken words and both renderers matched one bare token at a
+  against a _bag_ of single spoken words and both renderers matched one bare token at a
   time, so `"stop scrolling"` — plainly spoken — folded to `stopscrolling` and was rejected.
   The model asked twice across two turns and was refused both times by a rule it could not
   satisfy. Now grounded and rendered as a consecutive run over word ORDER, in parity across
   all three sites (ai-sdk grounding, `accentRunIndices`, `_accent_indices`) per the
   `captionStyle.ts` ↔ `captions.py` contract. +38 tokens/request.
 - `[x]` **The preview mixer lied about the mix.** It played every clip at flat gain, so a bed
-  authored *with* a duck was loudest exactly where the render is quietest — that is the
+  authored _with_ a duck was loudest exactly where the render is quietest — that is the
   "music is drowning my voice" complaint, about a mix the render already had right. The agent
   then cut the bed's clip gain to -16 dB: a destructive edit stacked on a working duck. A
   monitor that lies does not just mislead the person, it teaches the agent to damage the
@@ -307,7 +398,7 @@ Two more from the same runs, also `[x]` fixed:
   six of them returning byte-identical payloads. A ten-minute podcast would not have fit.
   The same function already returns the media bin as a tally for exactly this reason;
   `get_mapped_transcript` already returns the words windowed, and returns them as they play
-  *after* the edit. Transcript is now a tally too: ~21,000 chars → ~2,000, **~4,700 tokens
+  _after_ the edit. Transcript is now a tally too: ~21,000 chars → ~2,000, **~4,700 tokens
   back per call, ~42,000 across that run**, at +19 tokens/request of description. Mirrored
   key-for-key in the Python handler and pinned by literals in both suites.
 - `[x]` **A permanent failure was advertised as retryable.** The run died on
@@ -321,13 +412,13 @@ Two more from the same runs, also `[x]` fixed:
 One more from `run.md`, `[x]` fixed here:
 
 - `[x]` **"Remove the dead air" was told there was none, on a recording that is 21% dead
-  air.** Both `remove_silences` calls answered *"No dead air to cut: 0 silence(s) measured,
-  none longer than 0.55s where the asset plays."* Measured directly on the source with
+  air.** Both `remove_silences` calls answered _"No dead air to cut: 0 silence(s) measured,
+  none longer than 0.55s where the asset plays."_ Measured directly on the source with
   `silencedetect` at -30 dB: **56 gaps, 10.65 s (21% of a 49.77 s take)** at `d=0.1`, 16 at
   `d=0.2`, 7 at `d=0.3`, and **zero at `d=0.5`** — the longest pause this speaker takes is
   **0.449 s**. The zero was arithmetically true and the sentence was false: `ranges.length`
-  is a POST-FILTER count, `silencedetect` applies `d=` inside ffmpeg, so it is 0 *by
-  construction* whenever the threshold overshoots. The model read it as a footage fact,
+  is a POST-FILTER count, `silencedetect` applies `d=` inside ffmpeg, so it is 0 _by
+  construction_ whenever the threshold overshoots. The model read it as a footage fact,
   raised the threshold 0.55 → 0.65 (the wrong direction), abandoned dead-air removal, and the
   sentence was distilled into run memory and re-injected into every later prompt. The engine
   now always measures at a 0.1 s probe floor and filters in Python — same single decode — and
@@ -8527,10 +8618,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                                                    Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                                                    a pre-existing local edit commenting out temperature forwarding, untouched here);
-                                                    engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                                                    **Last updated:** 2026-08-14
+                                                          Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                                                          a pre-existing local edit commenting out temperature forwarding, untouched here);
+                                                          engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                                                          **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 

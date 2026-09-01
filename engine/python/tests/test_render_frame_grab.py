@@ -351,3 +351,37 @@ class TestCompositeSizedToTheRequest:
         # Composites at the size of the answer, in the project's aspect — never larger.
         assert len(seen) == 1 and max(seen[0]) <= 256
         assert max(frame.width, frame.height) == 256
+
+
+# --- every failure is a FrameGrabError, never a bare 500 ---------------------------
+
+
+class TestEncodeFailuresAreNamed:
+    def test_an_unencodable_frame_says_so_instead_of_escaping(
+        self,
+        project_with_media: tuple[Project, Path],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Everything this module raises must be a FrameGrabError the route answers as 422.
+
+        Anything that escapes becomes a bare 500 — and a 500 from here is exactly what the
+        model was handed 100 times in `framepilot.runs.jsonl`, with no cause attached.
+        """
+        project, project_dir = project_with_media
+
+        # Fail at the ENCODE specifically — `Image.save` runs only after the frame has
+        # been composited and read, so this cannot be caught by the compile/read guard
+        # above it. A missing JPEG plugin or an unwritable codec looks exactly like this.
+        import PIL.Image
+
+        def _boom(*_args: Any, **_kwargs: Any) -> None:
+            raise OSError("encoder error -2 when writing image file")
+
+        monkeypatch.setattr(PIL.Image.Image, "save", _boom)
+        with pytest.raises(FrameGrabError) as exc:
+            grab_frame(project, project_dir, 0.5, max_dimension=256)
+        message = str(exc.value)
+        # Names the stage, the time, the format, and the underlying cause.
+        assert "could not encode it as jpeg" in message
+        assert "0.500s" in message
+        assert "encoder error -2" in message

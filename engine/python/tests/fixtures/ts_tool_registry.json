@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 89,
+  "toolCount": 90,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -1632,6 +1632,45 @@
             "type": [
               "string"
             ]
+          }
+        }
+      }
+    },
+    "load_tools": {
+      "kind": "read",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "domains"
+        ],
+        "properties": {
+          "domains": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "string"
+              ],
+              "enum": [
+                "audio",
+                "captions",
+                "color",
+                "effects",
+                "footage",
+                "media",
+                "motion",
+                "professional",
+                "sourcing",
+                "tracking"
+              ]
+            }
           }
         }
       }
