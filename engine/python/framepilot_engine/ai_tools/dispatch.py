@@ -118,6 +118,7 @@ _HANDLERS: dict[str, Callable[[Any, ToolContext], Any]] = {
     "add_text_layer": handlers.add_text_layer,
     "add_caption_layer": handlers.add_caption_layer,
     "add_keyframes": handlers.add_keyframes,
+    "remove_keyframes": handlers.remove_keyframes,
     "punch_in": handlers.punch_in,
     "apply_color_grade": handlers.apply_color_grade,
     "adjust_audio": handlers.adjust_audio,
