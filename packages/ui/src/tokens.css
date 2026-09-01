@@ -83,6 +83,23 @@
   --track-lane: rgba(255, 255, 255, 0.02);
   --ruler-tick: rgba(255, 255, 255, 0.2);
 
+  /* Timeline — the clip EDGE at rest.
+
+     Separate from `--clip-*-border` on purpose. The border tokens are the
+     saturated statement of "this clip is a video / this one is audio"; at full
+     strength on every clip simultaneously, every block reads as selected and the
+     lane loses its rest state. The edge tokens are the same hue at roughly half
+     the contrast: kind stays legible, selection stays the only loud outline.
+     Hover and selection restore the saturated border. */
+  --clip-video-edge: rgba(35, 131, 226, 0.3);
+  --clip-image-edge: rgba(45, 196, 196, 0.3);
+  --clip-audio-edge: rgba(77, 171, 109, 0.4);
+  --clip-text-edge: rgba(217, 162, 59, 0.3);
+  --clip-ai-edge: rgba(160, 120, 235, 0.3);
+  /* The vertical rule the lanes carry at each labelled ruler tick. It is what
+     makes a stack of bars read as a *time*line; it must stay under the clips. */
+  --tl-grid: rgba(255, 255, 255, 0.045);
+
   /* ---- Legacy aliases (existing class names resolve through these) ---- */
   --bg: var(--bg-app);
   --bg-raised: #0a0a0b;
@@ -137,6 +154,20 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
+
+  /* Timeline geometry. The ruler, the gutter and the lane rhythm are read by BOTH
+     the stylesheet and the virtualizer's row arithmetic, so they resolve from one
+     place — a gutter width that disagrees with the grid column is what pushed the
+     last header control under the lanes. */
+  --tl-ruler-h: 28px;
+  --tl-gutter-w: 156px;
+  --tl-row-gap: 6px;
+  --tl-clip-radius: 4px;
+  --tl-minimap-h: 22px;
+  /* The timeline's selection/state colour. Aliased rather than hard-coded so an
+     app theme can repoint every ring, guide and marker at once (the editor points
+     it at the brand orange, which is the accent its own toolbar already uses). */
+  --tl-select: var(--accent);
 
   /* Shared control ergonomics. Glyphs may remain smaller than their hit box. */
   --control-h-xs: 24px;
@@ -240,6 +271,13 @@
     --track-lane: rgba(0, 0, 0, 0.025);
     --ruler-tick: rgba(0, 0, 0, 0.25);
 
+    --clip-video-edge: rgba(35, 131, 226, 0.34);
+    --clip-image-edge: rgba(45, 196, 196, 0.34);
+    --clip-audio-edge: rgba(43, 138, 74, 0.4);
+    --clip-text-edge: rgba(217, 162, 59, 0.38);
+    --clip-ai-edge: rgba(160, 120, 235, 0.34);
+    --tl-grid: rgba(0, 0, 0, 0.05);
+
     --bg-raised: #eef0f2;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
     --shadow-md: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.12);
@@ -308,6 +346,13 @@
   --transition-border: rgba(0, 0, 0, 0.36);
   --track-lane: rgba(0, 0, 0, 0.025);
   --ruler-tick: rgba(0, 0, 0, 0.25);
+
+  --clip-video-edge: rgba(35, 131, 226, 0.34);
+  --clip-image-edge: rgba(45, 196, 196, 0.34);
+  --clip-audio-edge: rgba(43, 138, 74, 0.4);
+  --clip-text-edge: rgba(217, 162, 59, 0.38);
+  --clip-ai-edge: rgba(160, 120, 235, 0.34);
+  --tl-grid: rgba(0, 0, 0, 0.05);
 
   --bg-raised: #eef0f2;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);

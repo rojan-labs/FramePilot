@@ -166,8 +166,8 @@ body {
  *
  * The gutter MUST be at least as wide as the row it holds, and the row is sized by
  * the hit targets below, not by the 14/16px in `styles.css`:
- *   6 (padding) + 24 (collapse) + 2 + 18 (glyph) + 2 + [4 × 24] (controls, gap 0)
- *   + 6 (padding) = 154px.
+ *   6 (padding) + 24 (collapse) + 2 + 18 (glyph) + 2 + 20 (lane name) + [4 × 24]
+ *   (controls, gap 0) + 6 (padding) = 174px.
  * At 152px every header overflowed by 12px and the last control — the lock — was drawn
  * past the column edge, underneath the lanes column that paints over it, so the header
  * ended in a clipped, broken-looking edge with the lock half-swallowed by the first clip.
@@ -176,9 +176,14 @@ body {
  * controls are `margin-left: auto`), which is what made the gutter read as loose.
  * Shrinking the controls instead would undo the accessible hit target this block
  * exists to provide, so the slack comes out of the column, not the buttons.
+ *
+ * The width itself lives in `--tl-gutter-w` (@framepilot/ui tokens), because the
+ * overview strip under the lanes must offset by exactly the same amount to share
+ * their x-origin. This block owns only the value; `.timeline-grid` in styles.css
+ * reads the token, so there is no second grid declaration to keep in sync.
  * ---------------------------------------------------------------------- */
-.timeline-grid {
-  grid-template-columns: 156px minmax(0, 1fr);
+:root {
+  --tl-gutter-w: 174px;
 }
 
 .track-head {
