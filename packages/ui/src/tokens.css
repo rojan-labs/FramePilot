@@ -191,7 +191,7 @@
      last header control under the lanes. */
   --tl-ruler-h: 28px;
   --tl-gutter-w: 156px;
-  --tl-row-gap: 6px;
+  --tl-row-gap: 2px;
   --tl-clip-radius: 4px;
   --tl-minimap-h: 22px;
   /* The timeline's selection/state colour. Aliased rather than hard-coded so an

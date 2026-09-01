@@ -21,8 +21,17 @@ import { useCallback, useMemo, useState } from 'react';
 import type { Asset, Track } from '@framepilot/timeline-schema';
 import { audioBearingTracks } from './selectors.js';
 
-/** Lane-height bounds (px). Default is 56px — tall enough for filmstrip previews. */
-export const TRACK_HEIGHT_BOUNDS = { min: 28, max: 200, default: 56 } as const;
+/**
+ * Lane-height bounds (px).
+ *
+ * 40px by default, down from 56. A lane carries a 17px name bar and, below it, a
+ * filmstrip or waveform; 56px gave that strip more room than it can use — a
+ * filmstrip frame is legible well under 24px — while costing a row of footage on
+ * every screen. At 40 a working stack of six or seven lanes fits without
+ * scrolling, which is the thing an editor actually needs from vertical space.
+ * The floor drops with it so a deliberately squashed lane can still be squashed.
+ */
+export const TRACK_HEIGHT_BOUNDS = { min: 24, max: 200, default: 40 } as const;
 
 /** Height (px) a collapsed lane shows — a thin strip with only its header chrome. */
 export const COLLAPSED_TRACK_HEIGHT = 18;

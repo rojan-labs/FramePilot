@@ -4527,8 +4527,8 @@ input[type='checkbox']:focus-visible {
      already sit in their own padded hit box; 4px on top of that spread a
      five-element row across the gutter with nothing in the space. */
   gap: 2px;
-  /* Height driven by the style prop from the virtualizer; 56px is the CSS fallback. */
-  height: 56px;
+  /* Height driven by the style prop from the virtualizer; 40px is the CSS fallback. */
+  height: 40px;
   /* See `.track` — vertical spacing is TRACK_ROW_INSET, applied inline. */
   margin: 0;
   padding: 0 6px;
@@ -5156,8 +5156,8 @@ input[type='checkbox']:focus-visible {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 56px;
-  margin: 3px 0;
+  height: 40px;
+  margin: 1px 0;
   border: 1px dashed var(--border-default);
   border-radius: var(--tl-clip-radius);
   color: var(--text-tertiary);
@@ -5187,8 +5187,8 @@ input[type='checkbox']:focus-visible {
 }
 
 .track-head-empty {
-  height: 56px;
-  margin: 3px 0;
+  height: 40px;
+  margin: 1px 0;
 }
 
 /* No margin: the row is absolutely positioned at the virtualizer's offset and
@@ -5200,8 +5200,8 @@ input[type='checkbox']:focus-visible {
 
 .track-lane {
   position: relative;
-  /* Height driven by the style prop from the virtualizer; 56px is the CSS fallback. */
-  height: 56px;
+  /* Height driven by the style prop from the virtualizer; 40px is the CSS fallback. */
+  height: 40px;
   /* ONE separator, not two. A lane drew a top AND a bottom hairline, so every
      boundary between two lanes was a 2px double rule with the row gap's background
      trapped between them — the heaviest line in a surface whose real structure is
@@ -5241,7 +5241,8 @@ input[type='checkbox']:focus-visible {
 
 .clip-block {
   position: absolute;
-  top: 3px;
+  /* 1px, matching TRACK_ROW_INSET. See TRACK_ROW_GAP for why this is not 3. */
+  top: 1px;
   /* Fill the lane height dynamically so clips scale with track resize. All
      children (header, filmstrip, waveform, badges, keyframes, trim handles)
      are absolutely positioned — no flex needed on the container.
@@ -5250,7 +5251,7 @@ input[type='checkbox']:focus-visible {
      keyframe lanes (revamp Phase 6). Subtracting it here is what makes the lanes
      sit BELOW the clips instead of over their waveforms; it is 0 on every track
      with nothing expanded, so clips are unchanged in the common case. */
-  bottom: calc(3px + var(--kf-lanes-h, 0px));
+  bottom: calc(1px + var(--kf-lanes-h, 0px));
   overflow: hidden;
   /* Horizontal culling (H6): clips scrolled out of the lane viewport skip
      layout/paint of their internals (filmstrip images, waveform canvas), so a

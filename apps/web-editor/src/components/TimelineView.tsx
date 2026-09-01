@@ -240,9 +240,19 @@ export interface TimelineViewProps {
 
 /** A non-zero lane width so an empty/short timeline is still visible. */
 const MIN_LANE_SECONDS = 10;
-/** Vertical gap (px) around each lane/header row — folded into the windowed row
- *  height so the absolutely-positioned lanes line up with the header column. */
-const TRACK_ROW_GAP = 6;
+/**
+ * Vertical gap (px) around each lane/header row — folded into the windowed row
+ * height so the absolutely-positioned lanes line up with the header column.
+ *
+ * 2px, down from 6. The gap between two clips was never just this number: each
+ * clip is also inset inside its own lane, so a 6px row gap plus two 3px insets
+ * put TWELVE pixels of empty panel between one clip and the clip below it. On a
+ * surface whose whole job is to show which things are stacked on which, that
+ * much dead space between rows reads as separation where the truth is
+ * simultaneity. Two here and one of inset leaves a 4px channel — enough to tell
+ * the lanes apart, not enough to pull them apart.
+ */
+const TRACK_ROW_GAP = 2;
 /**
  * Half the gap — the inset each row is drawn at inside its virtualizer band, so
  * the gap reads as breathing room on BOTH sides of a lane.
