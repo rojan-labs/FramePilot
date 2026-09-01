@@ -6,6 +6,32 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **Captioning a video longer than about 45 seconds now works in Agent mode.** Asking the
+  AI to add or restyle captions on anything longer was reporting "No edits were applied —
+  N proposed changes couldn't be applied to the timeline" with nothing in the brackets
+  where the reason should have been. The captions were being written correctly every time
+  and then discarded by an internal limit on how much one step may change: a caption pass
+  costs about three changes per line of speech, so a 50-second recording went past it and
+  a three-minute one went far past it. The limit now counts the changes the AI chose to
+  make rather than the ones your transcript dictates, and any step it does stop says why.
+
+### Changed
+
+- **The AI now spends its attention on your footage instead of on its own toolbox.** Every
+  request used to carry the full description of all 87 editing tools — measured on a real
+  run, that was 63% of everything the AI was reading, against 4.6% for the transcript,
+  timeline and footage it was actually editing. It now starts with the tools every edit
+  needs and picks up the specialised ones (captions, colour, audio, motion, tracking, stock)
+  as the work calls for them. Requests are roughly **55% smaller**, so runs are cheaper and
+  faster, and the AI is reading about your video rather than a menu.
+- **The AI stops forgetting what it just looked at.** Its working notes were being trimmed
+  to the last six steps regardless of how much room it had — so on a longer edit it would
+  re-read the same transcript, or re-open the same caption catalogue, several turns later
+  and pay for a whole extra round trip each time. Notes are now kept for as long as they
+  fit the space available.
+
 ### Security
 
 - **Cleared every high-severity dependency advisory the repository was carrying.** 58 of the
