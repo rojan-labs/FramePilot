@@ -5478,23 +5478,40 @@ input[type='checkbox']:focus-visible {
 .clip-transition-add {
   position: absolute;
   top: 50%;
-  width: 12px;
-  height: 16px;
+  width: 9px;
+  height: 60%;
   transform: translate(-50%, -50%);
-  border-radius: var(--radius-sm);
-  background: var(--clip-indicator-chip);
-  border: 1px dashed var(--text-secondary);
+  border-radius: var(--radius-xs);
+  /* Reads as a grip ON the cut, in the same state colour and at the same weight
+     as the trim handles it sits between — not as a dashed grey capsule parked on
+     top of the footage. It used to be a `--clip-indicator-chip` fill with a
+     dashed `--text-secondary` outline: at 0.7 opacity over a dark thumbnail that
+     is a light artifact straddling the join, which is exactly what a cut should
+     NOT look like. */
+  background: var(--tl-select);
+  border: 0;
   opacity: 0;
   cursor: copy;
-  z-index: 3;
-  transition: opacity var(--motion-fast) ease;
+  /* BELOW the trim handles (z-index 2), not above them.
+
+     Three affordances overlap at every butt-joined cut: the outgoing clip's right
+     trim, the incoming clip's left trim, and this. They are not equal — trimming
+     an edge is the far more frequent gesture and it is the one that needs the
+     exact pixel, so it wins the hit test at the edges while this holds the middle
+     of the junction. It also carries no grip line, because it is not a drag
+     handle: it is a double-click and drop target (`cursor: copy`). Giving it one
+     put three white grips within nine pixels of each other, which read as a single
+     grey widget parked on the cut. */
+  z-index: 1;
+  transition: opacity var(--dur-fast) var(--ease);
 }
+
 .track-lane:hover .clip-transition-add,
 .clip-transition-add:focus-visible {
-  opacity: 0.7;
+  opacity: 0.45;
 }
 .clip-transition-add:hover {
-  opacity: 1;
+  opacity: 0.9;
 }
 
 /* Keyframe lane — a thin dedicated track along the clip bottom (CapCut shows
@@ -5739,7 +5756,12 @@ input[type='checkbox']:focus-visible {
   inset: 0;
   display: flex;
   overflow: hidden;
-  border-radius: 3px;
+  /* Inherit, never a literal. The picture layer fills the clip, so a radius of its
+     own is a promise about the clip's shape that it cannot keep: at a butt-joined
+     cut the clip squares that corner and a hard-coded 3px kept rounding it,
+     exposing a sliver of `--clip-backing` — a light grey in the light theme —
+     right at the join. That sliver was the "gap" at every cut. */
+  border-radius: inherit;
   pointer-events: none;
   z-index: 0;
 }
