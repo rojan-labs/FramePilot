@@ -5026,8 +5026,13 @@ input[type='checkbox']:focus-visible {
    ghost, so it exists only for the duration of the gesture and takes nothing with
    it on release.
 
-   Deliberately louder than the plain snap guide, and shaped differently: a snap to
-   the playhead is alignment, this is CONTACT, and the two should not look alike.
+   WHITE, not the accent. The accent is already the playhead and the selection
+   ring, and an orange rule dropped between two clips mid-drag was indistinguishable
+   from the playhead sitting there — the one line on screen it must never be
+   confused with, since one marks time and this marks a placement. White is also
+   the only value that holds its contrast against all five clip hues and both
+   themes, which is why every NLE draws its snap indicator this way.
+
    The caps read as the seam between two blocks. */
 .edge-contact {
   position: absolute;
@@ -5037,10 +5042,10 @@ input[type='checkbox']:focus-visible {
   margin-left: -1px;
   z-index: var(--z-playhead);
   pointer-events: none;
-  background: var(--tl-select);
+  background: var(--contact-ink);
   box-shadow:
-    0 0 0 1px rgb(0 0 0 / 0.45),
-    0 0 8px color-mix(in srgb, var(--tl-select) 55%, transparent);
+    0 0 0 1px rgb(0 0 0 / 0.55),
+    0 0 7px var(--contact-glow);
   animation: edge-contact-in var(--dur-fast) var(--ease) both;
 }
 
@@ -5062,8 +5067,8 @@ input[type='checkbox']:focus-visible {
   width: 7px;
   height: 7px;
   transform: translateX(-50%) rotate(45deg);
-  background: var(--tl-select);
-  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.45);
+  background: var(--contact-ink);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.55);
 }
 
 .edge-contact::before {
@@ -5261,6 +5266,7 @@ input[type='checkbox']:focus-visible {
      nothing left to say. */
   --clip-edge: var(--clip-video-edge);
   --clip-edge-strong: var(--clip-video-border);
+  --clip-bar: var(--clip-video-bar);
   background: var(--clip-video);
   border: 1px solid var(--clip-edge);
   border-radius: var(--tl-clip-radius);
@@ -5382,11 +5388,13 @@ input[type='checkbox']:focus-visible {
 .clip-block.is-image {
   --clip-edge: var(--clip-image-edge);
   --clip-edge-strong: var(--clip-image-border);
+  --clip-bar: var(--clip-image-bar);
   background: var(--clip-image);
 }
 .clip-block.is-audio {
   --clip-edge: var(--clip-audio-edge);
   --clip-edge-strong: var(--clip-audio-border);
+  --clip-bar: var(--clip-audio-bar);
   background: var(--clip-audio);
   /* The old inset ring was cyan — a fifth hue, on the one clip kind whose colour
      is green. Nothing referenced it deliberately; it was left over from an earlier
@@ -5395,11 +5403,13 @@ input[type='checkbox']:focus-visible {
 .clip-block.is-caption {
   --clip-edge: var(--clip-text-edge);
   --clip-edge-strong: var(--clip-text-border);
+  --clip-bar: var(--clip-text-bar);
   background: var(--clip-text);
 }
 .clip-block.is-overlay {
   --clip-edge: var(--clip-ai-edge);
   --clip-edge-strong: var(--clip-ai-border);
+  --clip-bar: var(--clip-ai-bar);
   background: var(--clip-ai);
 }
 
@@ -5423,6 +5433,19 @@ input[type='checkbox']:focus-visible {
    picture/waveform body with a top-down dark gradient so the text stays legible
    over a bright thumbnail. Sits above the picture/wave (z-index 1) and below the
    trim handles (z-index 2) so edge-trim still wins at the clip edges. */
+/* The name bar.
+
+   Was a transparent row over the clip body, with a black gradient scrim added
+   back on picture kinds so the title could survive a bright thumbnail. That is
+   two mechanisms for one job, and it made a clip read as a coloured rectangle
+   with text floating on it.
+
+   It is now a solid band in the clip's own hue, one step lighter than the body,
+   closed by a hairline — the way every NLE draws a clip head. One rule serves
+   every kind and every theme: the title always has a known ground, so no scrim,
+   no text-shadow, and no per-kind exception is needed to keep it legible. It
+   also gives the picture kinds a definite top edge for the filmstrip to start
+   under, instead of thumbnails running up under the text. */
 .clip-header {
   position: absolute;
   top: 0;
@@ -5432,7 +5455,10 @@ input[type='checkbox']:focus-visible {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 6px;
+  min-height: 17px;
+  padding: 2px 6px;
+  background: var(--clip-bar, transparent);
+  border-bottom: 1px solid rgb(0 0 0 / 0.22);
   pointer-events: none;
 }
 
@@ -5457,6 +5483,7 @@ input[type='checkbox']:focus-visible {
 /* ⋯ actions button — opens the same ClipContextMenu as right-click. Icon-only,
    no layout shift on hover/focus (states change colour/background, not box). */
 .clip-menu-btn {
+  color: var(--clip-bar-ink-dim);
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -5989,31 +6016,16 @@ input[type='checkbox']:focus-visible {
    fill, so it needs theme ink, not a scrim. Forcing the scrim on it laid a dark
    smear across the top third of every pale light-theme audio clip to solve a
    contrast problem that clip did not have. */
-.clip-block.is-video .clip-header,
-.clip-block.is-image .clip-header {
-  background: linear-gradient(to bottom, rgb(0 0 0 / 0.62), rgb(0 0 0 / 0));
-  color: rgb(255 255 255 / 0.95);
-  text-shadow: 0 1px 3px rgb(0 0 0 / 0.75);
+/* The bar is a known ground, so ink is set once for every kind rather than per
+   kind. The old rules here gave picture clips white-on-scrim, audio theme ink
+   plus a two-layer halo, and everything else the default — three treatments of
+   one label. */
+.clip-header {
+  color: var(--clip-bar-ink);
 }
 
-.clip-block.is-video .clip-time,
-.clip-block.is-image .clip-time {
-  color: rgb(255 255 255 / 0.68);
-}
-
-.clip-block.is-video .clip-menu-btn,
-.clip-block.is-image .clip-menu-btn {
-  color: rgb(255 255 255 / 0.72);
-}
-
-/* Audio keeps theme ink, lifted off the waveform peaks by a halo in the lane's own
-   colour — which is light in the light theme and dark in the dark one, so one
-   declaration serves both. */
-.clip-block.is-audio .clip-header {
-  color: var(--text-primary);
-  text-shadow:
-    0 1px 2px var(--bg-panel),
-    0 0 4px var(--bg-panel);
+.clip-time {
+  color: var(--clip-bar-ink-dim);
 }
 
 /* ── Selection overlay ───────────────────────────────────────────────────── */

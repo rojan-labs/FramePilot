@@ -60,17 +60,47 @@
 
   /* Video-editor specifics. */
   --playhead: #3b9dff;
-  --clip-video: rgba(35, 131, 226, 0.22);
-  --clip-video-border: rgba(35, 131, 226, 0.5);
-  --clip-image: rgba(45, 196, 196, 0.22);
-  --clip-image-border: rgba(45, 196, 196, 0.5);
-  --clip-audio: rgba(28, 68, 48, 0.88);
-  --clip-audio-border: rgba(77, 171, 109, 0.7);
-  --clip-audio-wave: rgba(100, 210, 140, 0.82);
-  --clip-text: rgba(217, 162, 59, 0.22);
-  --clip-text-border: rgba(217, 162, 59, 0.5);
-  --clip-ai: rgba(160, 120, 235, 0.22);
-  --clip-ai-border: rgba(160, 120, 235, 0.5);
+  /* Clip bodies (see the block comment above `--clip-video-edge`).
+
+     OPAQUE and desaturated, in the manner of Premiere/Resolve, rather than the
+     translucent washes these used to be. A wash at 0.22 alpha let the lane show
+     through every clip, so kind was carried almost entirely by a saturated
+     outline: the blocks themselves were nearly the same grey, and the two loud
+     ones (a 0.88 green, a gold) read as errors next to the quiet ones. Solid
+     mid-dark fills let the HUE say what the clip is and leave contrast free to
+     say what is selected.
+
+     Each kind is one hue at three steps — body, name bar, edge — so a clip reads
+     as a single object with a labelled head, not as a rectangle with a stripe.
+     Lightness is held near-constant ACROSS kinds (bodies ~L22%, bars ~L30%) so no
+     kind shouts louder than another; only hue distinguishes them. */
+  /* Ink ON the name bar. The bar is always the lighter step of a mid-dark hue in
+     the dark theme and the deeper step of a pale one in the light theme, so two
+     values cover all five kinds — no per-kind text colour, no scrim, no halo. */
+  /* The two-clips-meet marker. Light on dark, dark on light — never the accent,
+     which the playhead and the selection ring already own. */
+  --contact-ink: #ffffff;
+  --contact-glow: rgb(255 255 255 / 0.4);
+  --clip-bar-ink: rgb(255 255 255 / 0.94);
+  --clip-bar-ink-dim: rgb(255 255 255 / 0.6);
+  --clip-video: #2c3f55;
+  --clip-video-bar: #3a5170;
+  --clip-video-border: #7098c4;
+  --clip-image: #22454a;
+  --clip-image-bar: #2d585f;
+  --clip-image-border: #63a5ad;
+  --clip-audio: #26432f;
+  --clip-audio-bar: #315740;
+  --clip-audio-border: #64a87e;
+  /* Drawn ON the audio body, so it is the same green a few steps lighter — not
+     the near-fluorescent mint it was, which fought the clip it lived inside. */
+  --clip-audio-wave: rgba(150, 209, 173, 0.62);
+  --clip-text: #4a3d2c;
+  --clip-text-bar: #5d4d38;
+  --clip-text-border: #b08f60;
+  --clip-ai: #3a3350;
+  --clip-ai-bar: #4a4167;
+  --clip-ai-border: #8b7ac0;
   --clip-indicator-ink: rgba(255, 255, 255, 0.82);
   --clip-indicator-chip: rgba(0, 0, 0, 0.34);
   --clip-keyframe: #f0c45a;
@@ -91,11 +121,11 @@
      lane loses its rest state. The edge tokens are the same hue at roughly half
      the contrast: kind stays legible, selection stays the only loud outline.
      Hover and selection restore the saturated border. */
-  --clip-video-edge: rgba(35, 131, 226, 0.3);
-  --clip-image-edge: rgba(45, 196, 196, 0.3);
-  --clip-audio-edge: rgba(77, 171, 109, 0.4);
-  --clip-text-edge: rgba(217, 162, 59, 0.3);
-  --clip-ai-edge: rgba(160, 120, 235, 0.3);
+  --clip-video-edge: #47617f;
+  --clip-image-edge: #3d6870;
+  --clip-audio-edge: #3f6650;
+  --clip-text-edge: #6b5942;
+  --clip-ai-edge: #554a77;
   /* The vertical rule the lanes carry at each labelled ruler tick. It is what
      makes a stack of bars read as a *time*line; it must stay under the clips. */
   --tl-grid: rgba(255, 255, 255, 0.045);
@@ -252,17 +282,29 @@
     --switch-knob: #ffffff;
 
     --playhead: #2563eb;
-    --clip-video: rgba(35, 131, 226, 0.16);
-    --clip-video-border: rgba(35, 131, 226, 0.55);
-    --clip-image: rgba(45, 196, 196, 0.18);
-    --clip-image-border: rgba(45, 196, 196, 0.55);
-    --clip-audio: rgba(210, 238, 221, 0.9);
-    --clip-audio-border: rgba(43, 138, 74, 0.7);
-    --clip-audio-wave: rgba(31, 122, 68, 0.85);
-    --clip-text: rgba(217, 162, 59, 0.18);
-    --clip-text-border: rgba(217, 162, 59, 0.6);
-    --clip-ai: rgba(160, 120, 235, 0.18);
-    --clip-ai-border: rgba(160, 120, 235, 0.6);
+    /* The same three-step scheme inverted: pale opaque bodies, a slightly deeper
+       name bar, ink dark enough to read on both. Held to one lightness band per
+       role so a light lane is as calm as a dark one. */
+    --contact-ink: #10141a;
+    --contact-glow: rgb(16 20 26 / 0.32);
+    --clip-bar-ink: rgb(17 20 24 / 0.92);
+    --clip-bar-ink-dim: rgb(17 20 24 / 0.58);
+    --clip-video: #cfdcea;
+    --clip-video-bar: #b3c8dd;
+    --clip-video-border: #4a7cae;
+    --clip-image: #c8e0e2;
+    --clip-image-bar: #a9cfd3;
+    --clip-image-border: #3f8b93;
+    --clip-audio: #cde5d5;
+    --clip-audio-bar: #aed4bd;
+    --clip-audio-border: #3f8a5c;
+    --clip-audio-wave: rgba(31, 105, 62, 0.72);
+    --clip-text: #e6dcc8;
+    --clip-text-bar: #d6c6a6;
+    --clip-text-border: #97783f;
+    --clip-ai: #dbd5ec;
+    --clip-ai-bar: #c4bade;
+    --clip-ai-border: #6d5aa8;
     --clip-indicator-ink: rgba(0, 0, 0, 0.72);
     --clip-indicator-chip: rgba(255, 255, 255, 0.55);
     --clip-keyframe: #b8791a;
@@ -275,11 +317,11 @@
     --track-lane: rgba(0, 0, 0, 0.025);
     --ruler-tick: rgba(0, 0, 0, 0.25);
 
-    --clip-video-edge: rgba(35, 131, 226, 0.34);
-    --clip-image-edge: rgba(45, 196, 196, 0.34);
-    --clip-audio-edge: rgba(43, 138, 74, 0.4);
-    --clip-text-edge: rgba(217, 162, 59, 0.38);
-    --clip-ai-edge: rgba(160, 120, 235, 0.34);
+    --clip-video-edge: #91aac4;
+    --clip-image-edge: #86b3b8;
+    --clip-audio-edge: #8bb79c;
+    --clip-text-edge: #bda88a;
+    --clip-ai-edge: #a89ccb;
     --tl-grid: rgba(0, 0, 0, 0.05);
 
     --bg-raised: #eef0f2;
@@ -328,17 +370,26 @@
   --switch-knob: #ffffff;
 
   --playhead: #2563eb;
-  --clip-video: rgba(35, 131, 226, 0.16);
-  --clip-video-border: rgba(35, 131, 226, 0.55);
-  --clip-image: rgba(45, 196, 196, 0.18);
-  --clip-image-border: rgba(45, 196, 196, 0.55);
-  --clip-audio: rgba(210, 238, 221, 0.9);
-  --clip-audio-border: rgba(43, 138, 74, 0.7);
-  --clip-audio-wave: rgba(31, 122, 68, 0.85);
-  --clip-text: rgba(217, 162, 59, 0.18);
-  --clip-text-border: rgba(217, 162, 59, 0.6);
-  --clip-ai: rgba(160, 120, 235, 0.18);
-  --clip-ai-border: rgba(160, 120, 235, 0.6);
+  --contact-ink: #10141a;
+  --contact-glow: rgb(16 20 26 / 0.32);
+  --clip-bar-ink: rgb(17 20 24 / 0.92);
+  --clip-bar-ink-dim: rgb(17 20 24 / 0.58);
+  --clip-video: #cfdcea;
+  --clip-video-bar: #b3c8dd;
+  --clip-video-border: #4a7cae;
+  --clip-image: #c8e0e2;
+  --clip-image-bar: #a9cfd3;
+  --clip-image-border: #3f8b93;
+  --clip-audio: #cde5d5;
+  --clip-audio-bar: #aed4bd;
+  --clip-audio-border: #3f8a5c;
+  --clip-audio-wave: rgba(31, 105, 62, 0.72);
+  --clip-text: #e6dcc8;
+  --clip-text-bar: #d6c6a6;
+  --clip-text-border: #97783f;
+  --clip-ai: #dbd5ec;
+  --clip-ai-bar: #c4bade;
+  --clip-ai-border: #6d5aa8;
   --clip-indicator-ink: rgba(0, 0, 0, 0.72);
   --clip-indicator-chip: rgba(255, 255, 255, 0.55);
   --clip-keyframe: #b8791a;
@@ -351,11 +402,11 @@
   --track-lane: rgba(0, 0, 0, 0.025);
   --ruler-tick: rgba(0, 0, 0, 0.25);
 
-  --clip-video-edge: rgba(35, 131, 226, 0.34);
-  --clip-image-edge: rgba(45, 196, 196, 0.34);
-  --clip-audio-edge: rgba(43, 138, 74, 0.4);
-  --clip-text-edge: rgba(217, 162, 59, 0.38);
-  --clip-ai-edge: rgba(160, 120, 235, 0.34);
+  --clip-video-edge: #91aac4;
+  --clip-image-edge: #86b3b8;
+  --clip-audio-edge: #8bb79c;
+  --clip-text-edge: #bda88a;
+  --clip-ai-edge: #a89ccb;
   --tl-grid: rgba(0, 0, 0, 0.05);
 
   --bg-raised: #eef0f2;

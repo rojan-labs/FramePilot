@@ -314,14 +314,20 @@ const MAGNET_RELEASE_PX = 18;
  */
 const VERTICAL_WHEEL_MIN_OVERFLOW_PX = 24;
 /**
- * How close two edges must be to count as MEETING, in seconds.
+ * How close two edges must be, in PIXELS, to read as touching.
  *
- * A frame at 240fps is ~4ms, so this sits below any real edit boundary while still
- * absorbing the float noise a drag accumulates. The magnet has already put the
- * edge on the target by the time this is asked; the tolerance only has to survive
- * the arithmetic, not do the aligning.
+ * Deliberately a pixel distance rather than a duration. The marker answers a
+ * question about what the user can SEE — "are these two flush?" — and at 200
+ * px/s a hundredth of a second is a fifth of a pixel while at 5 px/s it is half
+ * a clip. A fixed tolerance in seconds is therefore either invisible or absurd
+ * depending on the zoom, which is why the first version of this only ever lit on
+ * an exact snap landing and stayed dark the rest of the time.
+ *
+ * Six pixels is inside {@link SNAP_PX}, so an edge the magnet has captured always
+ * reads as in contact, and an edge dragged past a neighbour without the magnet
+ * (Alt held) still confirms itself when it looks flush.
  */
-const CONTACT_EPSILON = 1e-3;
+const CONTACT_PX = 6;
 /** Pointer travel (px) before a press becomes a drag rather than a click/select. */
 const DRAG_THRESHOLD_PX = 3;
 /**
@@ -504,7 +510,7 @@ interface Ghost {
    * and landing on one is not two clips meeting. Only this drives the contact
    * highlight, because only this is the placement a cut depends on.
    */
-  readonly contact: EdgeContact | null;
+  readonly contact: readonly EdgeContact[];
   /** Cmd/Ctrl held during a move — drop a copy instead of relocating the original. */
   readonly duplicate?: boolean;
   /** Cmd/Ctrl held during a trim on a butt-joined cut — roll the edit against
@@ -1747,6 +1753,28 @@ export function TimelineView({
     [timeline, markers, pxPerSecond],
   );
 
+  /**
+   * Every distinct clip edge the given times are touching, in gesture order.
+   *
+   * Deduplicated by clip and edge: a very short clip dropped into a very short
+   * gap can put both of its edges within tolerance of the same neighbouring
+   * edge, and drawing two markers on the same pixel is just a brighter line.
+   */
+  const contactsAt = useCallback(
+    (excludeClipId: string, ...times: readonly number[]): readonly EdgeContact[] => {
+      const tolerance = CONTACT_PX / pxPerSecond;
+      const found: EdgeContact[] = [];
+      for (const time of times) {
+        const hit = clipEdgeContact(timeline, time, excludeClipId, tolerance);
+        if (hit === null) continue;
+        if (found.some((f) => f.clipId === hit.clipId && f.edge === hit.edge)) continue;
+        found.push(hit);
+      }
+      return found;
+    },
+    [timeline, pxPerSecond],
+  );
+
   // --- Clip gestures (move / trim) ------------------------------------------
   // These handlers are stable (useCallback) so the memoised lanes below keep the
   // same element tree across playback frames — they only change identity when a
@@ -1801,11 +1829,10 @@ export function TimelineView({
           end: start + span,
           kind: g.kind,
           snapTime: snapped ? start : null,
-          // A move lands TWO edges; report whichever is actually touching, so
-          // butting a clip up on either side lights the marker.
-          contact:
-            clipEdgeContact(timeline, start, g.clip.id, CONTACT_EPSILON) ??
-            clipEdgeContact(timeline, start + span, g.clip.id, CONTACT_EPSILON),
+          // A move lands TWO edges, and dropping a clip into a gap that exactly
+          // fits it puts BOTH in contact at once. Report each one that touches:
+          // showing only the head would claim the tail landed by luck.
+          contact: contactsAt(g.clip.id, start, start + span),
           duplicate: event.metaKey || event.ctrlKey,
         });
         return;
@@ -1845,7 +1872,7 @@ export function TimelineView({
           end: g.clip.end,
           kind: g.kind,
           snapTime: snapped ? start : null,
-          contact: clipEdgeContact(timeline, start, g.clip.id, CONTACT_EPSILON),
+          contact: contactsAt(g.clip.id, start),
           ...(bounds && neighbor ? { rollWith: neighbor.id } : {}),
         });
         return;
@@ -1866,11 +1893,11 @@ export function TimelineView({
         end,
         kind: g.kind,
         snapTime: snapped ? end : null,
-        contact: clipEdgeContact(timeline, end, g.clip.id, CONTACT_EPSILON),
+        contact: contactsAt(g.clip.id, end),
         ...(bounds && neighbor ? { rollWith: neighbor.id } : {}),
       });
     },
-    [timeline, snapValue, snapDisabled, xToSeconds, commitGhost],
+    [timeline, snapValue, snapDisabled, xToSeconds, commitGhost, contactsAt],
   );
 
   const onClipPointerUp = useCallback(
@@ -3466,14 +3493,15 @@ export function TimelineView({
                 marker keeps the thinner guide below; it is useful, but it is not
                 two clips joining and should not claim to be.
               */}
-              {ghost?.contact != null && (
+              {ghost?.contact.map((contact) => (
                 <div
+                  key={`${contact.clipId}:${contact.edge}`}
                   className="edge-contact"
                   aria-hidden="true"
-                  style={{ left: `${secondsToPx(ghost.contact.time, pxPerSecond)}px` }}
+                  style={{ left: `${secondsToPx(contact.time, pxPerSecond)}px` }}
                 />
-              )}
-              {ghost?.snapTime != null && ghost.contact == null && (
+              ))}
+              {ghost?.snapTime != null && ghost.contact.length === 0 && (
                 <div
                   className="snap-guide"
                   aria-hidden="true"

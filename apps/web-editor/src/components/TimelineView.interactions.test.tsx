@@ -315,6 +315,73 @@ describe('TimelineView direct manipulation', () => {
     expect(container.querySelector('.edge-contact')).toBeNull();
   });
 
+  it('marks contact on BOTH edges, and without needing the magnet to fire', () => {
+    // c1 is 2s long; the gap between c0 (ends 4s) and c2 (starts 6s) is exactly
+    // 2s. Dropping c1 into it puts its head on c0's end and its tail on c2's
+    // start at the same time — two joins, so two markers.
+    const gap: Timeline = {
+      tracks: [
+        {
+          id: 'v',
+          type: 'video',
+          clips: [
+            {
+              id: 'c0',
+              assetId: 'a',
+              trackId: 'v',
+              start: 2,
+              end: 4,
+              sourceStart: 0,
+              sourceEnd: 2,
+              effects: [],
+              keyframes: [],
+            },
+            {
+              id: 'c1',
+              assetId: 'a',
+              trackId: 'v',
+              start: 10,
+              end: 12,
+              sourceStart: 0,
+              sourceEnd: 2,
+              effects: [],
+              keyframes: [],
+            },
+            {
+              id: 'c2',
+              assetId: 'a',
+              trackId: 'v',
+              start: 6,
+              end: 8,
+              sourceStart: 0,
+              sourceEnd: 2,
+              effects: [],
+              keyframes: [],
+            },
+          ],
+        },
+      ],
+    };
+    function GapHost(): JSX.Element {
+      const editor = useEditor(gap, ['a']);
+      return <TimelineView editor={editor} assets={[]} fps={30} />;
+    }
+    const { container } = render(<GapHost />);
+    const c1 = screen.getByLabelText('clip c1');
+
+    // Alt bypasses the magnet entirely, so nothing snaps and the landing time is
+    // whatever the pointer says. Contact is a question about what the edges LOOK
+    // like, not about whether the snap engine fired — at 40px/s this lands 0.05s
+    // from flush, which is 2px, and must still read as touching. Before this the
+    // marker keyed off exact equality after a snap and stayed dark all gesture.
+    fireEvent.pointerDown(c1, { clientX: 400, pointerId: 1 }); // 10s, c1's head
+    fireEvent.pointerMove(c1, { clientX: 162, pointerId: 1, altKey: true }); // 4.05s
+    const marks = container.querySelectorAll('.edge-contact');
+    expect(marks).toHaveLength(2);
+    expect([...marks].map((m) => (m as HTMLElement).style.left).sort()).toEqual(['160px', '240px']);
+    fireEvent.pointerUp(c1, { clientX: 162, pointerId: 1, altKey: true });
+  });
+
   it('moves a clip onto a compatible track under the pointer', () => {
     // Use layer_ prefix for the second track so it renders in the CapCut-style
     // visible-track filter (empty pre-seeded tracks are hidden; user-created
