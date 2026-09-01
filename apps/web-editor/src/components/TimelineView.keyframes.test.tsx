@@ -227,6 +227,44 @@ describe('markers are real objects', () => {
   });
 });
 
+describe('moving a keyframe from the keyboard', () => {
+  it('nudges by one frame per arrow press, in ONE undo step', () => {
+    // The pointer could already drag a keyframe and the keyboard could not, so the
+    // marker announced itself as an operable button and then refused to move — the
+    // same gap the fade handles were given a keydown to close.
+    render(<Host />);
+    expand();
+    const before = historyLength();
+    // 30fps, so one frame is 1/30s: scale@4 lands at 4.0333…
+    fireEvent.keyDown(screen.getByRole('button', { name: /^scale 2 @ 4\.00s/ }), {
+      key: 'ArrowRight',
+    });
+    expect(screen.getByRole('button', { name: /^scale 2 @ 4\.03s/ })).toBeDefined();
+    expect(historyLength()).toBe(before + 1);
+  });
+
+  it('nudges left, and ten frames at a time with Shift', () => {
+    render(<Host />);
+    expand();
+    fireEvent.keyDown(screen.getByRole('button', { name: /^scale 2 @ 4\.00s/ }), {
+      key: 'ArrowLeft',
+      shiftKey: true,
+    });
+    // Ten frames at 30fps is a third of a second.
+    expect(screen.getByRole('button', { name: /^scale 2 @ 3\.67s/ })).toBeDefined();
+  });
+
+  it('ignores keys that are not a nudge, so the lane keeps its own bindings', () => {
+    // Delete and Escape belong to the lane group, which owns the whole selection.
+    render(<Host />);
+    expand();
+    const before = historyLength();
+    fireEvent.keyDown(screen.getByRole('button', { name: /^scale 2 @ 4\.00s/ }), { key: 'a' });
+    expect(keyframes()).toBe('scale@0 scale@4 x@4');
+    expect(historyLength()).toBe(before);
+  });
+});
+
 describe('dragging a keyframe', () => {
   it('moves it, in ONE undo step', () => {
     render(<Host />);

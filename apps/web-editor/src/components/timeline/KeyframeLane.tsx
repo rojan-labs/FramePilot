@@ -50,6 +50,8 @@ export interface KeyframeLaneProps {
   readonly selectedKeys: ReadonlySet<string>;
   /** Whether snapping is on for this gesture (Alt inverts it, as everywhere else). */
   readonly snapEnabled: boolean;
+  /** Project frame rate — one arrow press nudges a keyframe by exactly one frame. */
+  readonly fps: number;
   readonly onSelect: (key: string, additive: boolean) => void;
   /**
    * Commit a move of the whole selection by `delta` clip-relative seconds, anchored
@@ -79,6 +81,7 @@ export function KeyframeLane({
   markers,
   selectedKeys,
   snapEnabled,
+  fps,
   onSelect,
   onMove,
   onAddAt,
@@ -178,6 +181,23 @@ export function KeyframeLane({
               inGroup ? `, 1 of ${selectedKeys.size} selected` : ''
             }${atPlayhead ? ', at the playhead' : ''}`}
             aria-pressed={selected}
+            onKeyDown={(event) => {
+              // Arrow keys move a keyframe, because the pointer already can and a
+              // capability that exists only for a mouse is not a capability. The
+              // fade handles were given the same treatment for the same reason:
+              // they announced themselves as operable and then did nothing.
+              //
+              // One frame per press, ten with Shift — the grid the rest of the
+              // editor snaps to, so a nudged keyframe lands where a dragged one
+              // would. Delete/Escape are deliberately NOT here: they belong to the
+              // lane group, which owns the whole selection.
+              const step = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
+              if (step === 0) return;
+              event.preventDefault();
+              event.stopPropagation();
+              const rate = Number.isFinite(fps) && fps > 0 ? fps : 30;
+              onMove(key, (step * (event.shiftKey ? 10 : 1)) / rate);
+            }}
             onPointerDown={(event) => {
               // BOTH, and in this order: stopPropagation keeps the clip-drag handler
               // out of it, preventDefault stops the browser's native drag/selection.

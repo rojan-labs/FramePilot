@@ -93,6 +93,7 @@ export function ClipKeyframeLanes({
           markers={markers}
           selectedKeys={selectedKeys}
           snapEnabled={snapEnabled}
+          fps={fps}
           onSelect={onSelect}
           onMove={onMove}
           onAddAt={(property, clipTime) => onAddAt(clip.id, property, clipTime)}
