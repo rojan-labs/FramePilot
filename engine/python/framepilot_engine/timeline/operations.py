@@ -668,7 +668,7 @@ def _apply_trim(timeline: Timeline, op: TrimClip) -> Timeline:
     if op.end - op.start <= _EPSILON:
         raise OperationError(
             "invalid_range",
-            f"trim_clip would give {op.clip_id} no duration: "
+            f"trim_clip would leave clip {op.clip_id} with no duration: "
             f"{round(op.start, 3):g}s → {round(op.end, 3):g}s.",
         )
     clip = loc.clip

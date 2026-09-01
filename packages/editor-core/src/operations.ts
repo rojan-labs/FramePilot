@@ -1014,7 +1014,7 @@ function applyTrim(timeline: Timeline, op: TrimClipOp): Timeline {
   if (op.end - op.start <= EPSILON) {
     throw new OperationError(
       'invalid_range',
-      `trim_clip would give ${op.clipId} no duration: ${Number(op.start.toFixed(3))}s → ${Number(op.end.toFixed(3))}s.`,
+      `trim_clip would leave clip ${op.clipId} with no duration: ${Number(op.start.toFixed(3))}s → ${Number(op.end.toFixed(3))}s.`,
     );
   }
   const { clip } = loc;
