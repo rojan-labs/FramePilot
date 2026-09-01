@@ -6435,6 +6435,10 @@ details.inspector-panel[open] > .inspector-section-head::before {
 /* Keyframes stopped being decoration here. The strip sits at the BOTTOM of the
    track lane, in the space `--kf-lanes-h` reserves (see `.clip-block`), aligned to
    the clip it belongs to. */
+/* The keyframe chrome takes the editor's STATE colour, like every other selection
+   and playhead in the timeline. It sat outside the block the redesign's accent pass
+   covered, so a selected keyframe stayed blue inside an otherwise orange surface —
+   the same two-accent seam, one region further down the file. */
 .keyframe-lanes {
   position: absolute;
   bottom: 0;
@@ -6506,7 +6510,7 @@ details.inspector-panel[open] > .inspector-section-head::before {
 }
 
 .keyframe-marker:focus-visible {
-  outline: 2px solid var(--focus-ring, var(--accent));
+  outline: 2px solid var(--focus-ring, var(--tl-select));
   outline-offset: 1px;
   border-radius: 2px;
 }
@@ -6515,9 +6519,9 @@ details.inspector-panel[open] > .inspector-section-head::before {
    two different cues, so a user who cannot separate the warm ink from the grey can
    still tell "I picked this one" from "the playhead is here". */
 .keyframe-marker[data-selected='true'] .keyframe-marker-shape {
-  background: var(--accent);
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-subtle);
+  background: var(--tl-select);
+  border-color: var(--tl-select);
+  box-shadow: 0 0 0 2px var(--tl-select-subtle);
 }
 
 .keyframe-marker[data-at-playhead='true'] .keyframe-marker-shape {
@@ -6546,7 +6550,7 @@ details.inspector-panel[open] > .inspector-section-head::before {
   bottom: -6px;
   left: 50%;
   width: 1px;
-  background: var(--accent);
+  background: var(--tl-select);
   pointer-events: none;
 }
 
@@ -6648,14 +6652,14 @@ details.inspector-panel[open] > .inspector-section-head::before {
 }
 
 .keyframe-curve-handle {
-  fill: var(--accent);
+  fill: var(--tl-select);
   stroke: var(--bg-panel);
   stroke-width: 1.5;
   cursor: grab;
 }
 
 .keyframe-curve-handle:focus-visible {
-  outline: 2px solid var(--focus-ring, var(--accent));
+  outline: 2px solid var(--focus-ring, var(--tl-select));
   outline-offset: 2px;
 }
 

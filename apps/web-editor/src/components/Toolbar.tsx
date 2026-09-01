@@ -21,13 +21,10 @@ import { Menu, MenuItem } from './Menu.js';
 import {
   deleteClipPatch,
   duplicateClipsPatch,
-  removeKeyframesPatch,
   rippleDeleteClipPatch,
-  setKeyframesAtPlayheadPatch,
   splitClipPatch,
 } from '../editor/patch-builders.js';
-import { findClip } from '../editor/selectors.js';
-import { clipKeyframeIntent } from './timeline/clip-keyframe-toggle.js';
+import { KeyframeMenuItem, KeyframeToolbarButton } from './timeline/KeyframeToolbarControl.js';
 import { MAX_PX_PER_SECOND, MIN_PX_PER_SECOND } from '../editor/store.js';
 import {
   Bookmark,
@@ -40,7 +37,6 @@ import {
   MousePointer2,
   Redo2,
   Repeat,
-  Diamond,
   Scissors,
   Trash2,
   Undo2,
@@ -130,40 +126,6 @@ export function Toolbar({
     if (patch) editor.applyPatch(patch);
   };
 
-  /**
-   * The focused clip's keyframe intent at the playhead — what the diamond would do,
-   * and whether there is anything for it to do at all.
-   *
-   * Derived on every render rather than memoised: it is two array walks over one
-   * clip's keyframes, and it has to follow the playhead, which moves constantly.
-   */
-  const keyframeTarget = selection === null ? null : findClip(timeline, selection);
-  const keyframeIntent =
-    keyframeTarget === null
-      ? { kind: 'none' as const }
-      : clipKeyframeIntent(keyframeTarget.clip, editor.getPlayhead() - keyframeTarget.clip.start);
-
-  /**
-   * Record the focused clip's pose at the playhead, or take it away again.
-   *
-   * One patch either way, so starting an animation is one press of undo to take
-   * back rather than one per property.
-   */
-  const toggleKeyframe = (): void => {
-    if (keyframeTarget === null || keyframeIntent.kind === 'none') return;
-    const clipTime = editor.getPlayhead() - keyframeTarget.clip.start;
-    const patch =
-      keyframeIntent.kind === 'remove'
-        ? removeKeyframesPatch(timeline, keyframeIntent.removals)
-        : setKeyframesAtPlayheadPatch(
-            timeline,
-            keyframeTarget.clip.id,
-            keyframeIntent.writes,
-            clipTime,
-          );
-    if (patch) editor.applyPatch(patch);
-  };
-
   const rippleRemove = (): void => {
     /* v8 ignore next */
     if (!selection) return;
@@ -250,6 +212,12 @@ export function Toolbar({
                 >
                   Split at playhead
                 </MenuItem>
+                <KeyframeMenuItem
+                  editor={editor}
+                  timeline={timeline}
+                  selection={selection}
+                  onSelected={close}
+                />
                 <MenuItem
                   icon={<Trash2 size={ICON_SIZE.sm} aria-hidden="true" />}
                   disabled={!hasSelection}
@@ -316,33 +284,7 @@ export function Toolbar({
                 <Scissors size={ICON_SIZE.sm} aria-hidden="true" />
               </Button>
             </Tooltip>
-            <Tooltip
-              label={
-                <TooltipInfo
-                  term={
-                    keyframeIntent.kind === 'remove'
-                      ? 'Remove keyframe'
-                      : 'Add keyframe at playhead'
-                  }
-                >
-                  {keyframeIntent.kind === 'remove'
-                    ? 'Removes the keyframe sitting under the playhead, so the clip stops holding a pose there.'
-                    : 'Records how the clip looks right now — position, scale, rotation and opacity — at the playhead, so it can change between here and the next keyframe. It does not move the picture; it pins what is already on screen. Once a clip is animated, this only touches the properties it already animates.'}
-                </TooltipInfo>
-              }
-            >
-              <Button
-                variant="ghost"
-                className={`icon-btn${keyframeIntent.kind === 'remove' ? ' is-active' : ''}`}
-                type="button"
-                aria-label={keyframeIntent.kind === 'remove' ? 'Remove keyframe' : 'Add keyframe'}
-                aria-pressed={keyframeIntent.kind === 'remove'}
-                onClick={toggleKeyframe}
-                disabled={keyframeIntent.kind === 'none'}
-              >
-                <Diamond size={ICON_SIZE.sm} aria-hidden="true" />
-              </Button>
-            </Tooltip>
+            <KeyframeToolbarButton editor={editor} timeline={timeline} selection={selection} />
             <Tooltip
               label={
                 <TooltipInfo term="Delete clip">
