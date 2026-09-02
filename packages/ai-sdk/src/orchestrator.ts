@@ -2083,7 +2083,84 @@ export function evidencePayload(toolName: string, value: unknown): unknown {
   };
 }
 
-export function summarizeReadResult(toolName: string, value: unknown): string {
+/**
+ * A `## <assetId> (<path>)` heading in the brain's media-bin summary.
+ *
+ * Anchored to the line start so an id containing "## " (there are none, but the pattern
+ * should not depend on that) cannot open a section from the middle of a body line.
+ */
+const BIN_SUMMARY_HEADING = /^## (\S+) \(([^)]*)\)$/;
+
+/**
+ * The brain's media-bin summary, reconciled against the bin the project ACTUALLY has.
+ *
+ * ## Why the memory has to be filtered before the model reads it
+ *
+ * `binSummary` is the project brain's record of every asset it has ever analysed. The
+ * brain accumulates; the bin does not. Remove a track, re-import a recording, and the
+ * summary still describes what used to be there — and `session_context` handed that to the
+ * model as present-tense fact about the project.
+ *
+ * Run `e8cb2636` is what it costs. The summary listed
+ * `music_openverse_63510d28_…` from an earlier session; `list_assets`, called twice in the
+ * same run, returned one asset and no music at all. The agent reasonably placed the track
+ * it had been told the project held, and `add_clip` came back "Unknown asset
+ * 'music_openverse_63510d28_…'". The bed never landed, and the run's closing summary
+ * carried the failure to the creator as a change that "did not land".
+ *
+ * The same summary named the recording as `ISOM_Batch1_Assignment1.mp4` when the bin held
+ * `ISOM_Batch1_Assignment1_2.mp4` under that id — the user had re-imported it. So the path
+ * is refreshed from the live asset too: a memory is allowed to be old, and is not allowed
+ * to be wrong about what is on disk right now.
+ *
+ * Analysis for assets still in the bin is kept untouched — that is the whole value of the
+ * memory, and none of it is invalidated by an unrelated asset leaving.
+ *
+ * Exported for tests.
+ */
+export function reconcileBinSummary(
+  summary: string,
+  assets: readonly { readonly id: string; readonly path: string }[],
+): string {
+  const byId = new Map(assets.map((asset) => [asset.id, asset.path]));
+  const lines = summary.split('\n');
+  const kept: string[] = [];
+  let dropped = 0;
+  // `undefined` until the first heading: everything before it is the file's own header,
+  // which belongs to no asset and is always kept.
+  let keepingSection: boolean | undefined;
+  for (const line of lines) {
+    const heading = BIN_SUMMARY_HEADING.exec(line);
+    if (heading) {
+      const [, assetId] = heading as unknown as [string, string, string];
+      const path = byId.get(assetId);
+      keepingSection = path !== undefined;
+      if (!keepingSection) {
+        dropped += 1;
+        continue;
+      }
+      kept.push(`## ${assetId} (${path})`);
+      continue;
+    }
+    if (keepingSection === false) continue;
+    kept.push(line);
+  }
+  if (dropped === 0) return summary;
+  // Trailing blank lines left behind by a dropped section would otherwise accumulate.
+  while (kept.length > 0 && (kept[kept.length - 1] as string).trim() === '') kept.pop();
+  const noun = dropped === 1 ? 'asset is' : 'assets are';
+  return (
+    `${kept.join('\n')}\n\n_${dropped} analysed ${noun} no longer in this project's bin and ` +
+    'have been left out of this summary; call list_assets for what the bin holds now._\n'
+  );
+}
+
+export function summarizeReadResult(
+  toolName: string,
+  value: unknown,
+  /** The project's live media bin, when the caller has it (see {@link reconcileBinSummary}). */
+  assets: readonly { readonly id: string; readonly path: string }[] = [],
+): string {
   const obj = (value ?? {}) as Record<string, unknown>;
   switch (toolName) {
     case 'search_media':
@@ -2198,7 +2275,12 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
         ['Media bin', 'binSummary'],
       ];
       const blocks = sections
-        .map(([label, key]) => [label, typeof obj[key] === 'string' ? obj[key].trim() : ''])
+        .map(([label, key]) => {
+          const body = typeof obj[key] === 'string' ? obj[key].trim() : '';
+          // The bin summary is the one section that makes claims the project can
+          // contradict, so it is the one section reconciled against it.
+          return [label, key === 'binSummary' ? reconcileBinSummary(body, assets).trim() : body];
+        })
         .filter(([, body]) => body !== '')
         .map(([label, body]) => `${label}:\n${body}`);
       return blocks.length === 0 ? 'nothing learned about this project yet' : blocks.join('\n\n');
@@ -4100,7 +4182,8 @@ export class Orchestrator {
       // Built from `data`, NOT `outcome.data`: this preview is what the model actually
       // reads (the payload is digested into the note), so a rewrite that skipped it would
       // fix the card and leave the model with the same false claim.
-      const preview = data !== undefined ? ` → ${summarizeReadResult(call.name, data)}` : '';
+      const preview =
+        data !== undefined ? ` → ${summarizeReadResult(call.name, data, ctx.project.assets)}` : '';
       return {
         ops: [],
         note: `${base}${runtimeCached ? ' (cached)' : ''}${preview}${hostEvidence ? ` [${hostEvidence.id}]` : ''}`,
@@ -4284,7 +4367,7 @@ export class Orchestrator {
         // (so it never has to invent asset/clip ids) plus the evidence handle that makes
         // the full payload retrievable for the rest of the run; the popup gets the full
         // object (`data`).
-        const preview = summarizeReadResult(call.name, value);
+        const preview = summarizeReadResult(call.name, value, ctx.project.assets);
         const note = stored ? `${desc} → ${preview} [${stored.id}]` : `${desc} → ${preview}`;
         return {
           ops: [],
