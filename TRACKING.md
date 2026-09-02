@@ -224,9 +224,14 @@ model per request, and a different model is a different cache namespace — whic
 is exactly the alternating shape above. PLAN.md's GOLDEN-C.3 audit found 95–100%
 hits and is not wrong; it measured Anthropic-direct runs.
 
-Two things follow. The cheap one: the editor should say that auto-routing costs
-roughly three times as much as pinning a model, at the point where the model is
-chosen — this is a cost-honesty surface, not a prompt change. The other, for the
+`openrouter/auto` is not a FramePilot default: `apps/desktop/electron/ai/ai-config.ts:97`
+ships `openai/gpt-4o-mini` for OpenRouter, and the run's model came from the
+user's own `models` override. So the first fix is advice, not code — **pin a
+model**. The code-shaped follow-up is a cost-honesty line wherever that override
+is entered, saying auto-routing loses the prompt cache; the codebase already
+knows the mechanism (`langchain-chat.ts:614` explains that OpenRouter passes
+`cache_control` through to Anthropic models, which is why the hits are all-or-
+nothing by underlying model). The other, for the
 maintainer: 218k output tokens over 20 calls (~10.4k per call, one call at
 16,345) is the half of the bill no cache touches, and it is worth knowing how
 much of it is tool arguments versus the multi-sentence `reason` prose each
