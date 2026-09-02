@@ -203,7 +203,12 @@ import { MusicService } from './media/music-service.js';
 import { StockService, isStockKind } from './media/stock-service.js';
 
 import { StockQuotaStore } from './media/stock-quota.js';
-import { localMusicAssetRefusal, musicErrorMessage, stockErrorMessage } from '@framepilot/ai-sdk';
+import {
+  localMusicAssetRefusal,
+  musicErrorMessage,
+  stockErrorMessage,
+  unusableHostPayload,
+} from '@framepilot/ai-sdk';
 import { createAssetEnroller } from './ai/asset-enrolment.js';
 import { createStockHost } from './ai/stock-host.js';
 import { agentSearchFailureSummary } from './ai/search-failure-summary.js';
@@ -1965,10 +1970,17 @@ function registerIpcHandlers(): void {
         const result = await transcribeTwelveLabs(project, active.path, asset.id, signal);
         if (!result.available) return { status: 'failed', summary: result.reason };
         if (result.words.length === 0) {
-          return {
-            status: 'failed',
-            summary: 'TwelveLabs returned no timed words; the existing transcript was preserved.',
-          };
+          // The SDK's own sentence, not a third copy of it. `hostTranscribe` returns
+          // before the orchestrator's `transcribe` branch ever runs, so the dead end fixed
+          // one layer down (goal.md C, run `369e8c82`) still shipped here — on the
+          // product's primary surface — until both read from one producer. WHICH provider
+          // came back empty is a log field: it is a diagnostic for us, not a different
+          // instruction to the model.
+          aiLog.warn('agent transcription returned no timed words', {
+            provider: providerName,
+            assetId: asset.id,
+          });
+          return { status: 'failed', summary: unusableHostPayload('transcribe') };
         }
         return {
           status: 'completed',
@@ -2007,10 +2019,12 @@ function registerIpcHandlers(): void {
       });
       if (!result.available) return { status: 'failed', summary: result.reason };
       if (result.words.length === 0) {
-        return {
-          status: 'failed',
-          summary: '"transcribe" returned no timed words; the existing transcript was preserved.',
-        };
+        // Same producer, same reasoning as the TwelveLabs branch above.
+        aiLog.warn('agent transcription returned no timed words', {
+          provider: providerName,
+          assetId: asset.id,
+        });
+        return { status: 'failed', summary: unusableHostPayload('transcribe') };
       }
       aiLog.action('agent transcription completed', {
         provider: providerName,

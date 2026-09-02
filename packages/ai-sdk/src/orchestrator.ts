@@ -212,6 +212,11 @@ import {
 import { ProviderError } from './reliability/types.js';
 import type { ContextBudget, ContextTier, Usage } from './reliability/types.js';
 import { plainRunFailure } from './reliability/plain-failure.js';
+import {
+  unavailableToolNote,
+  unknownToolNote,
+  unusableHostPayload,
+} from './reliability/refusal-notes.js';
 import type { AgentRunControls, AskUser, AskUserOption } from './run-controls.js';
 import { createSteeringQueue } from './run-controls.js';
 import { combineSignals } from './reliability/signals.js';
@@ -3903,7 +3908,11 @@ export class Orchestrator {
     const registered = getTool(call.name);
     const desc = describeToolCall(call, names);
     if (!registered) {
-      const note = `Refused unknown tool "${call.name}"`;
+      // One verdict, one sentence: the concurrent path below (`withheldCallOutcome`) meets
+      // the same invented name and used to answer it in better words than this one, which
+      // said only that the call was refused — not that the name does not exist, and not to
+      // stop sending it.
+      const note = unknownToolNote(call.name);
       orchestratorLog.warn('tool call refused — unknown', { tool: call.name });
       // BANKED. A name the registry has never heard of will not appear in it on the next
       // turn, so this is the most deterministic failure a run can have — and without both
@@ -3913,14 +3922,19 @@ export class Orchestrator {
       return {
         ops: [],
         note,
-        summary: note,
+        // The card keeps the short verdict; the note carries the instruction. Same split
+        // as `withheldCallOutcome`'s unknown-tool branch, which this now shares words with.
+        summary: `Refused unknown tool "${call.name}"`,
         status: 'failed',
         data: note,
         deterministicFailure: true,
       };
     }
     if (!registered.available) {
-      const note = `Skipped "${call.name}" — not available yet`;
+      // "not available yet" invited the next turn to try again; `available` is a
+      // build-time constant, so the answer never changes within a run (goal.md C, run
+      // `369e8c82`). The producer says that and closes the call off.
+      const note = unavailableToolNote(call.name);
       return { ops: [], note, summary: note, status: 'warning' };
     }
     // The mutate path (`operationsFor` → `operationsForCall`, tool-dispatch.ts) already
@@ -4138,8 +4152,10 @@ export class Orchestrator {
         const record = (outcome.data ?? {}) as Record<string, unknown>;
         const parsedWords = TranscriptWordSchema.array().safeParse(record.words);
         if (!parsedWords.success || parsedWords.data.length === 0) {
-          const note =
-            'Rejected "transcribe" — the speech-to-text provider returned no valid timed words; the existing transcript was preserved.';
+          // Shared with the desktop's `hostTranscribe` override, which returns its own
+          // failed outcome and never reaches this branch — two copies of this sentence
+          // meant the fix for one was invisible on the product's primary surface.
+          const note = unusableHostPayload('transcribe');
           return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
         }
         const ops: AnyOperation[] = [{ type: 'set_transcript', words: parsedWords.data }];
@@ -4177,8 +4193,7 @@ export class Orchestrator {
         // The measurement came back; the cuts are arithmetic (plan/system-mission P4.1).
         const parsed = SilenceRangesPayloadSchema.safeParse(outcome.data);
         if (!parsed.success) {
-          const note =
-            'Rejected "remove_silences" — the silence analysis returned no usable ranges.';
+          const note = unusableHostPayload('remove_silences');
           return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
         }
         const args = (call.arguments ?? {}) as Record<string, unknown>;
@@ -4235,8 +4250,7 @@ export class Orchestrator {
         if (!parsed.success) {
           // Fail closed. A download that produced nothing placeable must not be
           // reported as a completed edit on an unchanged timeline (ADR 0083).
-          const note =
-            'Rejected "add_music" — the download did not return a usable audio asset, so nothing was placed.';
+          const note = unusableHostPayload('add_music');
           return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
         }
         const { asset, atSeconds, duckUnderTrackId } = parsed.data;
@@ -4307,8 +4321,7 @@ export class Orchestrator {
           // reported as a completed edit on an unchanged timeline (ADR 0083) —
           // quota and disk were spent either way, and saying "added" about a
           // timeline that did not move is the one outcome the user cannot see.
-          const note =
-            'Rejected "add_stock" — the download did not return a usable photo or video asset, so nothing was placed.';
+          const note = unusableHostPayload('add_stock');
           return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
         }
         const { asset: stockAsset } = parsed.data;
@@ -4370,7 +4383,9 @@ export class Orchestrator {
       if (call.name === AUTOMATIC_TRACKING_TOOL_NAME && outcome.status === 'completed') {
         const parsedMeasurement = AutomaticTrackingMeasurementSchema.safeParse(outcome.data);
         if (!parsedMeasurement.success) {
-          const note = `Rejected "${call.name}" — the tracking host returned an invalid measurement payload.`;
+          // The constant, not `call.name`: the producer throws on a tool it has no
+          // sentence for, and this branch is already gated on that exact name.
+          const note = unusableHostPayload(AUTOMATIC_TRACKING_TOOL_NAME);
           return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
         }
         try {
@@ -7849,6 +7864,16 @@ export class Orchestrator {
           yield emit.warning(describeUnrecovered(invariants.unrecovered));
           // Integrity loss is an execution barrier. Do not call the model and do not
           // expose mutating tools while the durable ledger cannot authorize this turn.
+          //
+          // This note names no next action ON PURPOSE, and it is the one failure in this
+          // file that should not (goal.md C; exempted by name in
+          // `model-facing-failure.gate.test.ts`). It carries `done: true`, so the model is
+          // never called again and never reads it: the reducer files it as the failed plan
+          // step's detail, for the editor. There is also no move to name — the run's own
+          // objective and committed plan are what could not be recovered, so every tool
+          // the model could be pointed at would act on a ledger this turn just refused to
+          // trust. The move belongs to the person, and `describeUnrecovered` above is what
+          // reaches them.
           return turnBase(index, emit.seq(), {
             done: true,
             note: 'Run paused because its objective or committed plan could not be recovered.',
@@ -8169,9 +8194,14 @@ export class Orchestrator {
         // will read the next turn's timeline as proof that the missing call did nothing and
         // move on without it.
         for (const lost of new Set(turn.droppedToolCalls ?? [])) {
+          // The instruction has to close off the WRONG move as well as name the right
+          // one — the comment above is the whole reason this note exists, and a model that
+          // reads the next turn's timeline as proof the call did nothing moves on without
+          // it (goal.md C; `reliability/next-action.ts`).
           const note =
             `"${lost}" was not run: its arguments arrived incomplete and were discarded. ` +
-            'Nothing from that call happened. Call it again on its own.';
+            'Nothing from that call happened. Do not use the timeline as proof it did ' +
+            'nothing; call it again on its own.';
           notes.push(note);
           log.push(`Step ${index}: ${note}`);
         }
@@ -8653,12 +8683,10 @@ function withheldCallOutcome(
   // turn with having learned something, resetting the guards that exist to stop it.
   //
   // The one honest thing to say is that the name is wrong, and to say it as a failure.
-  // `runAgentCall` already answers this way on the serial path (`Refused unknown tool`);
-  // this is the same verdict for the path that never reaches it.
+  // `runAgentCall` answers this way on the serial path too, in the SAME words —
+  // `unknownToolNote` — because it is the same verdict for the path that never reaches it.
   if (!getTool(call.name)) {
-    const note =
-      `There is no tool called "${call.name}". Use one of the tools offered on this ` +
-      'turn — inventing a name will not make it exist on the next one.';
+    const note = unknownToolNote(call.name);
     // `data` + the flag, or `deterministicFailureKey` banks nothing and the sentence above
     // is all this branch achieves — the model waits a turn and calls the same invented name
     // again, which is precisely the loop described in the comment at the top of this branch.

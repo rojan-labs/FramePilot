@@ -23,27 +23,49 @@
  *     `visualReasonGuidanceEntries()` — the producer the `map_footage` dead end lived in.
  *  3. Every terminal state of the paced index job (`interpretIndexLoop`), both `wait`
  *     modes.
+ *  4. Every sentence `reliability/refusal-notes.ts` can produce — the unusable-payload
+ *     table, the unavailable-tool note, the unknown-tool note — plus a check that every
+ *     tool the table names is REGISTERED, so a rename cannot leave guidance pointing at a
+ *     tool that no longer exists.
+ *  5. Every fully-authored model-facing `note` in `orchestrator.ts`, read off the file
+ *     itself (`ORCHESTRATOR_NOTES` below). This is the half of the surface the previous
+ *     version of this header called out as unreachable: those sentences are built at
+ *     return sites inside a running turn and are registered nowhere, so the gate walks the
+ *     SOURCE instead of a list someone has to remember to update. A new inline dead end
+ *     fails here on the day it is written.
  *
  * NOT WALKED — stated plainly rather than pretended away:
  *
  *  - `ToolRefusalError` messages and `buildOps` throws in `domain-tools/*.ts`. They are
  *    built at the throw site from a project the gate would have to construct per tool; a
  *    hand-built fixture per tool is the rotting list this gate exists to avoid.
- *  - Notes authored in `orchestrator.ts` (where the SECOND historical dead end lived).
- *    Another agent owns that file this session.
+ *  - COMPOSED notes in `orchestrator.ts` — the ~35 whose instruction is interpolated from
+ *    somewhere else (`Rejected "x" — ${problems}`, `${desc} → ${recalled}`). The words are
+ *    the validator's, the engine's, or another module's, and judging the template would
+ *    grade a sentence nobody ever reads. Where the interpolation is only an id inside
+ *    quotes the note IS judged; see {@link orchestratorNoteLiterals}.
+ *  - `summary` strings in `orchestrator.ts`, which are the card's short verdict, not the
+ *    instruction — the model reads the note beside them.
  *  - Host overrides supplied by the desktop app (`hostMusicSearch`, `hostAddMusic`,
- *    `hostStockSearch`, `hostAddStock`, `hostTranscribe`) — their failure text is authored
- *    in `apps/desktop`, outside this package.
+ *    `hostStockSearch`, `hostAddStock`) — their failure text is authored in `apps/desktop`,
+ *    outside this package. `hostTranscribe` no longer belongs on this list: its two
+ *    refusals now come from `unusableHostPayload('transcribe')`, walked at (4).
  *  - Text this package forwards VERBATIM from the engine or a provider. Passing an
  *    unrecognized reason through unchanged is deliberate (`visualReasonGuidance`'s
  *    fall-through): guidance is written from evidence, never invented for a token we have
  *    not seen fail. Those paths are listed in {@link ENGINE_AUTHORED} below.
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { Project } from '@framepilot/timeline-schema';
 import { makeProject } from './__fixtures__/project.js';
 import { createAnalysisBudget } from './kernel/cost/analysis-caps.js';
 import { namesNextAction } from './reliability/next-action.js';
+import {
+  unavailableToolNote,
+  unknownToolNote,
+  unusableHostPayloadEntries,
+} from './reliability/refusal-notes.js';
 import {
   createSidecarExecutor,
   interpretIndexLoop,
@@ -122,6 +144,103 @@ class DeadEnds {
     ).toEqual([]);
   }
 }
+
+/**
+ * `orchestrator.ts`'s own text, so the walk below asserts what the file ACTUALLY says
+ * rather than a hand-kept copy of it. Same technique `orchestrator.test.ts` already uses
+ * to audit the read-digest switch, and the same reason: a list copied into a test rots the
+ * day someone edits the file, which is the failure mode this whole gate exists to end.
+ */
+const ORCHESTRATOR_SOURCE = readFileSync(new URL('./orchestrator.ts', import.meta.url), 'utf8');
+
+/** One string literal: `'…'`, or a template whose `${…}` holds no nested braces. */
+const STRING_LITERAL = String.raw`'(?:[^'\\\n]|\\.)*'|` + '`(?:[^`\\\\]|\\\\.|\\$\\{[^{}]*\\})*`';
+
+/** A whole `'a ' + 'b'` chain of them — house style wraps long sentences that way. */
+const STRING_CONCAT = new RegExp(
+  `^\\s*((?:${STRING_LITERAL})(?:\\s*\\+\\s*(?:${STRING_LITERAL}))*)`,
+);
+
+/** Where a model-facing note is authored: `const note = …` and `note: …` in a returned object. */
+const NOTE_ANCHOR = /\bconst note =|(?:^|[\s{,])note:/g;
+
+/** An interpolated identifier written INSIDE quotes — the sentence's subject, not its words. */
+const QUOTED_INTERPOLATION = /"\$\{[^{}]*\}"/g;
+
+/**
+ * Every note in `orchestrator.ts` whose WORDS are authored there, with its line.
+ *
+ * A note built by interpolating text from elsewhere (`Rejected "x" — ${problems}`,
+ * `${desc} → ${recalled}`) is skipped: the instruction in it belongs to the validator, the
+ * engine, or another module, and grading the template would grade a sentence no model ever
+ * reads. An interpolation inside quotes does NOT make a note composed — `"${call.name}"` is
+ * the call that failed and `"${asset.id}"` is an id, both subjects, and the instruction
+ * around them is still written here.
+ */
+function orchestratorNoteLiterals(): readonly { readonly line: number; readonly text: string }[] {
+  const notes: { line: number; text: string }[] = [];
+  NOTE_ANCHOR.lastIndex = 0;
+  let anchor: RegExpExecArray | null;
+  while ((anchor = NOTE_ANCHOR.exec(ORCHESTRATOR_SOURCE)) !== null) {
+    const from = anchor.index + anchor[0].length;
+    const expression = STRING_CONCAT.exec(ORCHESTRATOR_SOURCE.slice(from, from + 4000));
+    if (!expression) continue;
+    // The expression must END here, or what matched is only the head of something larger
+    // (a ternary, a call argument) whose real text is assembled elsewhere.
+    const next = ORCHESTRATOR_SOURCE.slice(from + expression[0].length).replace(/^\s*/, '')[0];
+    if (next !== ';' && next !== ',' && next !== ')' && next !== '}') continue;
+    const pieces = expression[1].match(new RegExp(STRING_LITERAL, 'g')) ?? [];
+    const text = pieces
+      .map((piece) => piece.slice(1, -1))
+      .join('')
+      .replace(/\\(['"`\\])/g, '$1');
+    if (text.trim() === '') continue; // `turnBase`'s empty default, overwritten by every caller.
+    if (text.replace(QUOTED_INTERPOLATION, '"id"').includes('${')) continue; // composed
+    notes.push({ line: ORCHESTRATOR_SOURCE.slice(0, anchor.index).split('\n').length, text });
+  }
+  return notes;
+}
+
+/**
+ * Notes that name no next action AND should not.
+ *
+ * Not a place to park a defect. Two kinds of entry belong here and nothing else: a note on
+ * an outcome that is not a failure (a success, a no-op, the editor's own Stop), and the
+ * one genuine failure with no move to name. Every entry says which it is, and the walk
+ * fails if an entry's text is no longer in the file — a stale excuse is how a rotting list
+ * starts.
+ */
+const NO_NEXT_ACTION_BY_DESIGN: readonly { readonly text: string; readonly why: string }[] = [
+  {
+    text: 'The editor dismissed the question "${parsed.question}" and stopped the run.',
+    why: 'not a failure — the editor closed the question, and the outcome settles `cancelled`, the same status this gate excludes everywhere else',
+  },
+  {
+    text: 'Asked the editor: "${parsed.question}" → they answered: "${answerText}". Follow this answer.',
+    why: 'not a failure — the editor answered, and the answer IS the result',
+  },
+  {
+    text: 'Repair pass: proposed no change.',
+    why: 'not a failure — the repair pass looked and found nothing to fix',
+  },
+  {
+    text: 'No tool calls — agent finished.',
+    why: 'not a failure — the model stopped calling tools, which is how a run ends',
+  },
+  {
+    text: 'Idempotency hit: this planned operation already succeeded.',
+    why: 'not a failure — the operation is already on the timeline, which is the outcome asked for',
+  },
+  {
+    text: 'Run paused because its objective or committed plan could not be recovered.',
+    why:
+      'a real failure with no model-side move. It is returned with `done: true`, so the model ' +
+      'is never called again and never reads it — the reducer files it as the failed plan ' +
+      "step's detail, for the editor. There is also nothing to name: the run's own objective " +
+      'and committed plan are what could not be recovered, so any tool named here would act on ' +
+      'a ledger this turn just refused to trust. `describeUnrecovered` is what reaches the person.',
+  },
+];
 
 /** A fetch that always rejects the way a refused socket does. */
 const unreachableFetch = (async () => {
@@ -203,6 +322,56 @@ describe('every model-facing failure names a next action', () => {
       dead.check(`guidance ${toolName ?? 'shared'}/${reason}`, guidance);
     }
     dead.assertNone();
+  });
+
+  it('for every sentence the refusal-note producers can hand back', () => {
+    // The producers `orchestrator.ts` now calls instead of writing the sentence inline.
+    // Adding a tool to the unusable-payload table walks it here on the same commit.
+    const entries = unusableHostPayloadEntries();
+    expect(entries.length).toBeGreaterThan(0);
+    const dead = new DeadEnds();
+    for (const { tool, note } of entries) dead.check(`unusable payload ${tool}`, note);
+    // `generate_mask` is the registry's own `available: false` entry — walked from the
+    // registry, so a second unavailable tool is covered without touching this test.
+    for (const tool of TOOL_REGISTRY.filter((candidate) => !candidate.available)) {
+      dead.check(`unavailable ${tool.name}`, unavailableToolNote(tool.name));
+    }
+    dead.check('unknown tool', unknownToolNote('frobnicate'));
+    dead.assertNone();
+  });
+
+  it('names only tools that are actually registered in the unusable-payload table', () => {
+    // Guidance that names a removed or renamed tool is worse than saying nothing: the
+    // model spends a turn calling it. `namesNextAction` already checks the SENTENCES
+    // against the live registry; this checks the KEYS, which are the routing side.
+    for (const { tool } of unusableHostPayloadEntries()) {
+      expect(TOOL_NAMES, `${tool} has payload guidance but is not in the registry`).toContain(tool);
+    }
+  });
+
+  it('for every note orchestrator.ts authors in its own words', () => {
+    const notes = orchestratorNoteLiterals();
+    // The scan is the coverage claim; assert it still reaches the file. A regex that
+    // silently stopped matching would leave this test green over an unwalked surface,
+    // which is precisely the failure the header used to describe.
+    expect(notes.length).toBeGreaterThanOrEqual(10);
+    const excused = new Map(NO_NEXT_ACTION_BY_DESIGN.map((entry) => [entry.text, entry.why]));
+    const seen = new Set<string>();
+    const dead = new DeadEnds();
+    for (const { line, text } of notes) {
+      if (excused.has(text)) {
+        seen.add(text);
+        continue;
+      }
+      dead.check(`orchestrator.ts:${String(line)}`, text);
+    }
+    dead.assertNone();
+    // A note that no longer exists must not keep its excuse: the next author reads the
+    // table as the list of what was judged, and a stale row is a claim about nothing.
+    expect(
+      [...excused.keys()].filter((text) => !seen.has(text)),
+      'NO_NEXT_ACTION_BY_DESIGN entries no longer found in orchestrator.ts',
+    ).toEqual([]);
   });
 
   it('for every terminal state of the paced index job', () => {

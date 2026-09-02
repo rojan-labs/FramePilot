@@ -31,6 +31,7 @@ import { toolRole } from './kernel/stage-policy.js';
 import { distil } from './kernel/briefing.js';
 import { makeProject } from './__fixtures__/project.js';
 import { describeTransportFailure } from './sidecar-executor.js';
+import { unknownToolNote } from './reliability/refusal-notes.js';
 import { DIMINISHING_RETURNS_TURNS, STALL_CONFIRM_TURNS } from './kernel/conductor.js';
 
 /** A provider that replays a scripted response and records the last request. */
@@ -613,7 +614,9 @@ describe('agent mode', () => {
     // did not make would leave it believing the scope was honored.
     expect(note).toMatch(/Invalid arguments for "get_transcript"/);
     expect(note).toMatch(/Unrecognized key: "bogus"/);
-    expect(note).toMatch(/Refused unknown tool "frobnicate"/);
+    // The unknown-tool verdict is now one sentence shared with the concurrent path: it
+    // says the name does not exist AND not to send it again (goal.md C).
+    expect(note).toContain(unknownToolNote('frobnicate'));
     expect(note).toMatch(/Skipped "generate_mask"/);
   });
 

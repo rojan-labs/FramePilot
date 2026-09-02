@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Orchestrator, agentCompletionReport, type StreamOptions } from './orchestrator.js';
 import { INHERITED_PREFIX, critique } from './critic.js';
+import { unusableHostPayload } from './reliability/refusal-notes.js';
 import { applyProjectPatch, invertProjectPatch, type AnyOperation } from '@framepilot/editor-core';
 import { MockProvider } from './providers/mock.js';
 import { reduceEvents, type AiEvent } from './events.js';
@@ -3521,7 +3522,11 @@ describe('streamAgent host tool execution (Phase T)', () => {
       const terminal = events.filter((e) => e.type === 'tool_call' && e.id === 't1').at(-1);
       expect(terminal).toMatchObject({ status: 'failed' });
       const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 't1');
-      expect(result?.type === 'tool_result' ? result.summary : '').toMatch(/no valid timed words/);
+      // The refusal is the shared producer's, word for word — the same sentence
+      // `apps/desktop`'s `hostTranscribe` override now returns (goal.md C).
+      expect(result?.type === 'tool_result' ? result.summary : '').toBe(
+        unusableHostPayload('transcribe'),
+      );
       expect(events.some((e) => e.type === 'diff')).toBe(false);
     });
   });

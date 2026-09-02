@@ -9,6 +9,7 @@ export * from './reliability/timeout.js';
 export * from './reliability/tracer.js';
 export * from './reliability/signals.js';
 export * from './reliability/plain-failure.js';
+export * from './reliability/refusal-notes.js';
 export * from './events.js';
 export * from './run-contracts.js';
 export * from './stable-key.js';
