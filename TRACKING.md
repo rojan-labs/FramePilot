@@ -506,12 +506,8 @@ tool definitions. ADR 0169 records it.
 2. Compositing added **after** placement — a run that places two full-frame clips and
    then adds a transition or a punch-in on the front one recreates case 1, with no
    refusal anywhere, because nothing re-tests the predicate.
-3. **Letterboxing, the biggest gap.** A source whose aspect does not match the frame is
-   fitted; the bars are transparent at export so the layer beneath shows through them,
-   while the preview paints black. `isFullFrameOpaque` reads no source dimensions and
-   cannot see this. Auto-reframe covers landscape-in-portrait *when the engine has
-   measured the asset* — an unmeasured source, or a portrait source in a landscape
-   project, is not covered.
+3. **Letterboxing.** Attempted, reverted, and the attempt found the real answer — see
+   "The letterboxing predicate is a relation, not a property" below. Still open.
 4. Same-lane overlap (a state the validator refuses) has no defined order.
 5. Colour grade remains a canvas approximation (pre-existing).
 6. New exposure rather than divergence: the WebCodecs compositor now serves stacked
@@ -521,3 +517,52 @@ tool definitions. ADR 0169 records it.
 Also fixed on the way, found by the same test: `trackTypeLookups` resolved a track's
 type against the pre-turn timeline only, so cuts on a layer the same patch opened were
 classified "not a picture track" and the whole montage escaped the beat grid.
+
+---
+
+# The letterboxing predicate is a relation, not a property
+
+I implemented the obvious fix — give `isFullFrameOpaque` the source's measured shape and
+the project frame, so it can tell a cover crop from a letterboxing one — and **reverted
+it**. It typechecked in four packages and turned 16 tests red. The tree is green again at
+`8d53f97`; nothing of this is committed.
+
+**What the attempt established, which is the useful part.**
+
+The geometry is now known exactly, and it is not the geometry I assumed:
+
+- `CropRect` is fractional **of the source**; `Asset.media.width/height` are optional pixel
+  dims (schema v21, "honestly absent rather than guessed at"); the frame is
+  `project.resolution`. The renderer **fits rather than covers** — v21's own migration note
+  says so, which is where the transparent bars come from.
+- `coverCropForFrame` only ever crops horizontally, and only fires for a **portrait project
+  with a measured landscape source**. A landscape project reframes nothing.
+
+**Why "does this clip fill the frame?" is the wrong question.** A letterboxed overlay is
+only a divergence if the base shows through its bars. When the overlay and the clip beneath
+share an aspect — the same camera, the ordinary case — both are fitted identically, the
+overlay's transparent bars sit exactly over the base's transparent bars, and both preview
+and export paint black there. **They agree.** They disagree only when the overlay's fitted
+rect fails to contain the base's: a 1:1 overlay over a 16:9 base leaks the base's left and
+right edges into the export while the monitor shows only the overlay.
+
+So the predicate wants to be a **relation between the overlay and what it covers** —
+overlay's fitted rect ⊇ every covered clip's fitted rect — not a property of one clip. For
+centred fits that means: the overlay fills the frame, **or** it shares an aspect with
+everything under it.
+
+**Why the property version cannot just be shipped.** It refuses every unmeasured asset, and
+a freshly downloaded stock clip is unmeasured at placement time. Sixteen tests went red for
+exactly that reason — the fixtures carry no dimensions — and that is not a fixture problem,
+it is the feature becoming unusable on the media a b-roll request actually reaches for. The
+relation version does not have this failure: same-aspect stacks stay legal whether or not
+anyone measured them, because equality of aspect can be established from the clips alone
+when both are unmeasured only if they share an asset — so it narrows the unmeasured refusal
+to genuinely mixed-shape stacks.
+
+**What a next session should do:** take the relation to `picturePlacementConflict`'s
+conflict list, which already knows every clip the candidate covers and their depths, and
+decide coverage there rather than in a per-clip predicate. `isFullFrameOpaque`'s other four
+arms (blend mode, keyframes, mask, transition) are correct and should stay exactly as they
+are — only the crop/geometry arm is wrong.
+
