@@ -32,6 +32,25 @@ import { DEFAULT_CAPTION_TOLERANCE_SECONDS, verifyCaptions } from '../verify.js'
 import { mutateTool, readTool } from './tool-factories.js';
 import { filterString, id, numeric, seconds } from './tool-args.js';
 
+/**
+ * The caption tracks this project actually has, appended to a track-not-found message.
+ *
+ * A wrong track id is almost always a typo on one the model has already read: run
+ * `25e06a6f` asked twice for `captains_main` on a project whose only caption track is
+ * `captions_main`, was told to "use get_timeline to list real ids", and lost the turn to
+ * the round trip. The ids are in hand right here. Naming them is not a guess — no fuzzy
+ * matching, just the fact the message was withholding.
+ */
+function captionTrackIds(project: Project): string {
+  const ids = project.timeline.tracks
+    .filter((track) => track.type === 'caption')
+    .map((track) => track.id);
+  if (ids.length === 0) {
+    return ' This project has no caption track yet — add_track with type "caption" creates one.';
+  }
+  return ` The caption track${ids.length === 1 ? '' : 's'} in this project: ${ids.join(', ')}.`;
+}
+
 /** Compare caption words the way a reader would: case- and punctuation-insensitive. */
 const normalizeCaptionWord = (value: string): string =>
   value
@@ -320,10 +339,12 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
     (a, ctx) => {
       const track = ctx.project.timeline.tracks.find((candidate) => candidate.id === a.trackId);
       if (track === undefined) {
-        throw new Error(`Unknown track "${a.trackId}". Use get_timeline to list real ids.`);
+        throw new Error(`Unknown track "${a.trackId}".${captionTrackIds(ctx.project)}`);
       }
       if (track.type !== 'caption') {
-        throw new Error(`Track "${a.trackId}" is not a caption track.`);
+        throw new Error(
+          `Track "${a.trackId}" is not a caption track.${captionTrackIds(ctx.project)}`,
+        );
       }
       if (ctx.project.transcript.length === 0) {
         throw new Error(
@@ -524,10 +545,12 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
     (a, ctx) => {
       const track = ctx.project.timeline.tracks.find((candidate) => candidate.id === a.trackId);
       if (track === undefined) {
-        throw new Error(`Unknown track "${a.trackId}". Use get_timeline to list real ids.`);
+        throw new Error(`Unknown track "${a.trackId}".${captionTrackIds(ctx.project)}`);
       }
       if (track.type !== 'caption') {
-        throw new Error(`Track "${a.trackId}" is not a caption track.`);
+        throw new Error(
+          `Track "${a.trackId}" is not a caption track.${captionTrackIds(ctx.project)}`,
+        );
       }
       const keywords = groundedCaptionKeywords(track, ctx.project, a.keywords);
       const captionStyle = {
