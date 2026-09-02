@@ -371,6 +371,13 @@ describe('a bed is trimmed to the picture it scores', () => {
     expect(clipOf(ops)).toMatchObject({ start: 0, end: 93.64 });
   });
 
+  it('treats a sub-frame sliver of room as no room at all', () => {
+    // Trimming to a millisecond produces a clip the frame grid rounds away to nothing and
+    // the validator refuses; a bed starting that close to the end is a sting, not an overrun.
+    const ops = buildAddMusicOps(scored(50).timeline, { ...asset, durationSeconds: 10 }, 49.999);
+    expect(clipOf(ops)).toMatchObject({ start: 49.999, end: 59.999 });
+  });
+
   it('lays the whole track when the bed starts past the end of the picture', () => {
     // An end-card sting after the film is a deliberate placement, not an overrun.
     const ops = buildAddMusicOps(scored(50).timeline, { ...asset, durationSeconds: 10 }, 50);
