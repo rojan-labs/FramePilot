@@ -45,6 +45,22 @@ HEVC as `hvc1` so Apple players open it. Set `FRAMEPILOT_HW_ENCODE=0` to force s
 encoding. The job record (`GET /render/jobs/{id}`) carries the target and the exact
 encoder string the export ran with.
 
+**Reproducibility.** With the software encoders the same project produces the same
+file, byte for byte — `tests/test_render_pipeline.py::test_export_is_byte_identical_across_runs`
+renders twice and compares hashes. Hardware encoders are not bit-reproducible: two
+`h264_videotoolbox` renders of one project differ inside the encoded stream (measured
+2026-09-02: one byte in `mdat`, identical metadata and audio), because the hardware rate
+controller does not replay exactly. When byte-identical output matters (a golden render,
+a diff between two builds), export with `FRAMEPILOT_HW_ENCODE=0` and check `job.encoder`
+starts with `libx264`/`libx265`.
+
+**Checks.** Every export is validated before it is handed over (`validation/render_validation.py`):
+file present and non-empty, streams as expected, duration within tolerance, the exact
+resolution and frame rate of the chosen target, not black throughout, no black tail, no
+silent tail when the timeline's sound reaches the end, no clipping. A failed check is
+reported as a sentence ("The export ends on black (1.500s)"); the per-check report is
+`job.validation`.
+
 Sources are decoded by ffmpeg at the size the export needs (a 4K file fitted into a 1080p
 frame is decoded at 1080p; a crop is given proportionally more; animated clips are decoded
 in full), so the compositor is not handed pixels it will throw away.

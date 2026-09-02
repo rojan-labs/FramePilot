@@ -421,3 +421,33 @@ def test_discarding_a_partial_survives_a_missing_or_unresolved_path(tmp_path: Pa
     job = RenderJob(id="j3", project_id="p1", state=RenderState.FAILED, error="boom")
     _discard_partial_output(job, None)
     _discard_partial_output(job, tmp_path / "never-created.mp4")
+
+
+# --- determinism: the same project produces the same file (goal.md F) ---------------
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_export_is_byte_identical_across_runs(
+    tmp_project_dir: Path, media_factory: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same project produces the same file — on the SOFTWARE encoder.
+
+    Measured 2026-09-02 on Apple Silicon: two libx264 renders of one project are
+    byte-identical; two h264_videotoolbox renders differ by one byte inside ``mdat`` —
+    the hardware rate controller is not bit-reproducible, and nothing in the muxer or
+    the audio pass is at fault. So the guarantee is stated for software encoding, which
+    is what CI runs and what ``FRAMEPILOT_HW_ENCODE=0`` selects on a desktop.
+    """
+    import hashlib
+
+    monkeypatch.setenv("FRAMEPILOT_HW_ENCODE", "0")
+    _place_asset(media_factory, tmp_project_dir, "clip.mp4", seconds=1.0, color="red")
+    first = export_video(_video_project(), base_dir=tmp_project_dir)
+    assert first.state == RenderState.COMPLETED and first.output_path
+    first_bytes = Path(first.output_path).read_bytes()
+    Path(first.output_path).unlink()
+    second = export_video(_video_project(), base_dir=tmp_project_dir)
+    assert second.state == RenderState.COMPLETED and second.output_path
+    second_bytes = Path(second.output_path).read_bytes()
+    assert first.encoder is not None and first.encoder.startswith("libx264")
+    assert hashlib.sha256(first_bytes).hexdigest() == hashlib.sha256(second_bytes).hexdigest()

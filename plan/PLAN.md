@@ -44,6 +44,11 @@ verification** (run recipe in `docs/guides/golden-eval.md`).
   and says whether sound is meant to reach the end; a failed export reads as sentences
   (`plain_failures`). 159 engine tests green across validation/compiler/pipeline. Real export
   on `mission-export-30s/60s`: **pending manual verification** (expected: all new checks PASS).
+- `[x]` GOLDEN-F.2 — **"the same project produces the same file" measured.** Software encodes
+  are byte-identical (pinned by `test_export_is_byte_identical_across_runs`); VideoToolbox
+  renders differ by one byte inside `mdat` — inherent hardware nondeterminism, documented in
+  `docs/guides/export.md`. Whether the desktop default should trade export speed for
+  reproducibility is a **maintainer decision** (currently hardware first).
 
 **Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on
 `fix/agent-run-reliability`. Three root causes found and fixed from captured run
