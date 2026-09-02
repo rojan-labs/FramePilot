@@ -21,6 +21,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **The AI no longer stacks one picture over another on a second layer.** The preview
+  can't show that yet, so it places a cutaway or tells you why it didn't — naming the clip
+  it would have covered and where there is room.
 - **When an AI run fails, you get a sentence you can act on.** Instead of the raw error
   the provider sent back, the failure card now says what happened and what to do next —
   check the API key in Settings, wait and retry a rate limit, check your connection —

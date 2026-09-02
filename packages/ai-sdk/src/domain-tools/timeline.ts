@@ -33,6 +33,7 @@ import { readEditSignals } from '../proposers/edit-signals.js';
 import type { ToolContext } from '../tool-context.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { clipCandidates } from './clip-candidates.js';
+import { assertNoPictureStacking } from './picture-layers.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
 import { boolean, filterString, numeric, seconds } from './tool-args.js';
 
@@ -391,6 +392,17 @@ function addClipOperation(
   const placed = isPicture
     ? { trackId: clip.trackId, setupOps: [] as Operation[] }
     : lanes.allocate(clip.trackId, clip.start, clip.end);
+  // The lane is settled; now the ADR 0140 rule. Picture landing on a track that
+  // is not the one already holding picture at this time is the preview-vs-export
+  // lie in its general form — `add_stock` has refused it since ADR 0140, and
+  // there is no reason the same clip placed by `add_clip` should be allowed to
+  // tell it. Same-track overlap is left to the validator, which says it better.
+  assertNoPictureStacking(ctx.project, {
+    trackId: placed.trackId,
+    assetId: clip.assetId,
+    start: clip.start,
+    end: clip.end,
+  });
   const cropClip = { ...clip, trackId: placed.trackId };
   const crop = autoReframeCrop(ctx, cropClip);
   const clipId = crop ? placementClipId(cropClip) : undefined;
@@ -810,7 +822,23 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       description: 'Move a clip to a track at a new timeline start time (duration unchanged).',
     },
     z.object({ clipId: z.string(), toTrackId: z.string(), toStart: seconds }).strict(),
-    (a) => [{ type: 'move_clip', clipId: a.clipId, toTrackId: a.toTrackId, toStart: a.toStart }],
+    (a, ctx) => {
+      // Moving picture onto a layer that already shows picture at the destination
+      // time creates the same divergence `add_clip` refuses, and by the same
+      // route — so it is refused in the same words. An unknown clip is left to
+      // the validator, which names the ids that do exist.
+      const found = findClipById(ctx.project.timeline, a.clipId);
+      if (found) {
+        assertNoPictureStacking(ctx.project, {
+          trackId: a.toTrackId,
+          assetId: found.clip.assetId,
+          start: a.toStart,
+          end: a.toStart + (found.clip.end - found.clip.start),
+          ignoreClipId: a.clipId,
+        });
+      }
+      return [{ type: 'move_clip', clipId: a.clipId, toTrackId: a.toTrackId, toStart: a.toStart }];
+    },
   ),
   mutateTool(
     {
@@ -818,8 +846,8 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       description:
         'Create a new empty track (a "layer") to get a free lane for clips that ' +
         'would otherwise overlap. Clips on one track can never overlap, so this is ' +
-        'how you stack simultaneous elements — a title over b-roll, picture-in-' +
-        'picture, an extra overlay, or a second audio bed — when no existing track ' +
+        'how you stack simultaneous elements — titles, captions, overlays or an audio ' +
+        'bed — not a second PICTURE layer, which is refused — when no existing track ' +
         "has a free range. `type` is the track's advisory role " +
         '(video/audio/caption/overlay): it sets the default label/icon only, not a ' +
         'content limit, so any clip can live on any track. `atIndex` is the z-order ' +
@@ -884,7 +912,8 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         'add_clip has no speed argument and the two must agree. To play a specific source ' +
         'range, set sourceStart and make the timeline span the same length. Read the ' +
         'timeline and assets first so you use real track/asset ids, and pick a ' +
-        'track whose range is free — clips on one track can never overlap. ' +
+        'track whose range is free — clips on one track can never overlap, and ' +
+        'picture over picture on another track is refused — use a cutaway. ' +
         'In a PORTRAIT project, a source the engine has measured as landscape gets a ' +
         'centred fill crop on the way in (a set_clip_crop you will see in the result), ' +
         'because the renderer fits rather than fills and it would otherwise export with ' +

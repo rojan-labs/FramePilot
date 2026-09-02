@@ -95,3 +95,43 @@ The predicate has to be about time, not about layers.
 - A photo has no duration, so both the panel and main use the same default still
   length. They are kept in step deliberately; a mismatch would make the button's
   enabled state disagree with what actually fits.
+
+## Amendment (2026-09-02) — the same refusal now covers every agent picture placement
+
+This ADR was written about `add_stock`, because that was the feature in front of
+us. The reason it gave was never about stock: the preview flattens picture from
+every track into one chain and the export composites it, so **any** picture over
+picture is an edit the user approves in one form and receives in another.
+
+The general agent path was still creating exactly that. `add_track` invited it in
+as many words — "stack simultaneous elements — a title over b-roll,
+picture-in-picture" — and `add_clip`/`add_clips`/`move_clip` would then put a
+video or image clip on a second video layer over existing footage. The validator
+allows it (clips on *different* tracks may overlap), so nothing refused it, and
+the preview showed the later clip alone.
+
+**The refusal now applies to every agent placement of picture media.**
+`packages/ai-sdk/src/domain-tools/picture-layers.ts` answers one question —
+which picture clips on OTHER tracks a candidate span would cover — and
+`add_clip`, `add_clips` and `move_clip` refuse when the answer is non-empty,
+naming the clip, the track, the reason and the cutaway alternative. The refusal
+is a `deterministicFailure`, so the model is stopped from retrying the identical
+call rather than walking the placement across layers one at a time.
+
+Three boundaries are deliberate:
+
+- **Same-track overlap is not this predicate's business.** The validator already
+  rejects it, with a better message. What is left is the cross-track overlap the
+  validator allows and the preview cannot show — which is why this is not
+  `editor-core`'s `picturePlacementConflict`, whose occupancy answer covers the
+  target track too because the Stock panel picks the track itself.
+- **Only picture.** Kind comes from the asset, never the layer, so text overlays
+  (`__text__`), captions (`__caption__`) and audio beds stack freely — stacking
+  them is what layers are for, and they never enter the picture chain.
+- **Manual UI editing is untouched.** A person dragging a clip onto a second
+  layer can see both, chose it, and owns the result. This constrains what the
+  agent does *for* the user.
+
+Lifting it is still `SUC-P1` and still a maintainer decision. When multi-layer
+picture preview lands, this becomes a layer choice instead of a refusal, and the
+callers are three lines in one file.
