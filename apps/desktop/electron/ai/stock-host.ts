@@ -29,7 +29,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_STOCK_STILL_SECONDS, stockPlacementConflictReason } from '@framepilot/editor-core';
-import { type HostToolOutcome, stockErrorMessage } from '@framepilot/ai-sdk';
+import { type HostToolOutcome, sourcingFailureNote } from '@framepilot/ai-sdk';
 import type { Project } from '@framepilot/timeline-schema';
 import type { StockDownloadRequest, StockDownloadResult } from '../ipc/contract.js';
 
@@ -125,7 +125,14 @@ export function createStockHost(
       operationId: `agent_${remoteId}_${randomUUID()}`,
     });
     if (!result.ok) {
-      return { status: 'failed', summary: stockErrorMessage(result.error, result.detail) };
+      // `stockErrorMessage` is the Stock PANEL's vocabulary and renders `cancelled` as the
+      // empty string on purpose — right for a person who pressed Stop, and a tool card with
+      // a red cross and no reason for the model. `sourcing-notes.ts` answers the same codes
+      // for the caller that can only act by calling something.
+      return {
+        status: 'failed',
+        summary: sourcingFailureNote('add_stock', result.error, result.detail),
+      };
     }
     const { asset } = result;
     const assetId = `stock_${asset.source.provider}_${asset.source.remoteId}`.replace(

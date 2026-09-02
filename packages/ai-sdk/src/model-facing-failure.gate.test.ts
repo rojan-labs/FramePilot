@@ -23,6 +23,9 @@
  *     `visualReasonGuidanceEntries()` — the producer the `map_footage` dead end lived in.
  *  3. Every terminal state of the paced index job (`interpretIndexLoop`), both `wait`
  *     modes.
+ *  6. Every sentence `reliability/sourcing-notes.ts` can produce — all four sourcing tools
+ *     crossed with every code of the closed union their surface reports. Both unions are
+ *     exported and closed, so an error code added tomorrow is walked tomorrow.
  *  4. Every sentence `reliability/refusal-notes.ts` can produce — the unusable-payload
  *     table, the unavailable-tool note, the unknown-tool note — plus a check that every
  *     tool the table names is REGISTERED, so a rename cannot leave guidance pointing at a
@@ -46,10 +49,13 @@
  *    quotes the note IS judged; see {@link orchestratorNoteLiterals}.
  *  - `summary` strings in `orchestrator.ts`, which are the card's short verdict, not the
  *    instruction — the model reads the note beside them.
- *  - Host overrides supplied by the desktop app (`hostMusicSearch`, `hostAddMusic`,
- *    `hostStockSearch`, `hostAddStock`) — their failure text is authored in `apps/desktop`,
- *    outside this package. `hostTranscribe` no longer belongs on this list: its two
- *    refusals now come from `unusableHostPayload('transcribe')`, walked at (4).
+ *  - Host overrides supplied by the desktop app (`hostTranscribe`, `hostMusicSearch`,
+ *    `hostAddMusic`, `hostStockSearch`, `hostAddStock`, and the automatic-tracking
+ *    executor) — the text they author themselves lives in `apps/desktop`, outside this
+ *    package, and is gated there by
+ *    `apps/desktop/electron/ai/model-facing-failure.gate.test.ts`. What THIS gate now
+ *    covers for them is the shared producers they call instead of writing their own
+ *    sentence: `unusableHostPayload` at (4) and `sourcingFailureNote` at (6).
  *  - Text this package forwards VERBATIM from the engine or a provider. Passing an
  *    unrecognized reason through unchanged is deliberate (`visualReasonGuidance`'s
  *    fall-through): guidance is written from evidence, never invented for a token we have
@@ -62,10 +68,12 @@ import { makeProject } from './__fixtures__/project.js';
 import { createAnalysisBudget } from './kernel/cost/analysis-caps.js';
 import { namesNextAction } from './reliability/next-action.js';
 import {
+  hostedTranscriptionUnavailable,
   unavailableToolNote,
   unknownToolNote,
   unusableHostPayloadEntries,
 } from './reliability/refusal-notes.js';
+import { sourcingFailureNoteEntries } from './reliability/sourcing-notes.js';
 import {
   createSidecarExecutor,
   interpretIndexLoop,
@@ -337,6 +345,14 @@ describe('every model-facing failure names a next action', () => {
       dead.check(`unavailable ${tool.name}`, unavailableToolNote(tool.name));
     }
     dead.check('unknown tool', unknownToolNote('frobnicate'));
+    // The wrapper the desktop's `hostTranscribe` puts around a provider reason it does not
+    // author. Walked with a reason that is itself a dead end (the Settings sentence the
+    // shared manual/agent path really returns), so the check grades the WRAPPER — if the
+    // appended move were ever dropped, this fails rather than passing on a borrowed hint.
+    dead.check(
+      'hosted transcription unavailable',
+      hostedTranscriptionUnavailable('Add a TwelveLabs API key in Settings.'),
+    );
     dead.assertNone();
   });
 
@@ -372,6 +388,27 @@ describe('every model-facing failure names a next action', () => {
       [...excused.keys()].filter((text) => !seen.has(text)),
       'NO_NEXT_ACTION_BY_DESIGN entries no longer found in orchestrator.ts',
     ).toEqual([]);
+  });
+
+  it('for every sentence the music/stock sourcing tables can hand back', () => {
+    // The desktop host overrides own the provider connection, so THEY answer these calls
+    // and this package never runs them. What it owns is the words — `musicErrorMessage`
+    // and `stockErrorMessage` are the panels' vocabulary and were forwarded to the model
+    // verbatim; `sourcing-notes.ts` is the model's. Walking the cross product means a new
+    // error code on either closed union is judged on the commit that adds it.
+    const entries = sourcingFailureNoteEntries();
+    expect(entries.length).toBeGreaterThanOrEqual(40);
+    const dead = new DeadEnds();
+    for (const { tool, code, note } of entries) dead.check(`${tool}/${code}`, note);
+    dead.assertNone();
+  });
+
+  it('names only tools that are actually registered in the sourcing tables', () => {
+    for (const { tool } of sourcingFailureNoteEntries()) {
+      expect(TOOL_NAMES, `${tool} has sourcing guidance but is not in the registry`).toContain(
+        tool,
+      );
+    }
   });
 
   it('for every terminal state of the paced index job', () => {

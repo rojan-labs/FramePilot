@@ -278,9 +278,16 @@ export function stockPlacementConflictReason(
   const end = start + durationSeconds;
   if (!picturePlacementConflict(timeline, assets, start, end)) return null;
   const free = firstFreePictureStart(timeline, assets, durationSeconds, start);
+  // The free second is given so the caller can act on it, and the sentence now says WHICH
+  // call to put it in. Every caller today is an agent path — the orchestrator's
+  // post-download refusal and the desktop host's pre-download one — and the property both
+  // are gated on (`ai-sdk/src/reliability/next-action.ts`) counts a move the reader has to
+  // infer as a dead end. Naming only the number was that inference.
   return (
     `There is already picture on the timeline between ${start.toFixed(1)}s and ` +
     `${end.toFixed(1)}s. Stock cannot sit on top of existing footage yet — ` +
-    `the first stretch long enough for this clip starts at ${free.toFixed(1)}s.`
+    `the first stretch long enough for this clip starts at ${free.toFixed(1)}s. ` +
+    `Call add_stock again with atSeconds ${free.toFixed(1)}, or omit atSeconds to put it ` +
+    'in the media bin and place it later with add_clip.'
   );
 }

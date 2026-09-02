@@ -10,6 +10,11 @@ export * from './reliability/tracer.js';
 export * from './reliability/signals.js';
 export * from './reliability/plain-failure.js';
 export * from './reliability/refusal-notes.js';
+export * from './reliability/sourcing-notes.js';
+// The failure-quality PREDICATE, exported so `apps/desktop` can gate its own host
+// overrides against the same property this package gates itself against. A copy of it in
+// the desktop package would be the duplicated-string defect it exists to catch.
+export * from './reliability/next-action.js';
 export * from './events.js';
 export * from './run-contracts.js';
 export * from './stable-key.js';

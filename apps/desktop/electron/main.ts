@@ -204,14 +204,13 @@ import { StockService, isStockKind } from './media/stock-service.js';
 
 import { StockQuotaStore } from './media/stock-quota.js';
 import {
+  hostedTranscriptionUnavailable,
   localMusicAssetRefusal,
-  musicErrorMessage,
-  stockErrorMessage,
+  sourcingFailureNote,
   unusableHostPayload,
 } from '@framepilot/ai-sdk';
 import { createAssetEnroller } from './ai/asset-enrolment.js';
 import { createStockHost } from './ai/stock-host.js';
-import { agentSearchFailureSummary } from './ai/search-failure-summary.js';
 import { LocalTelemetry, telemetryEnabledFromEnv } from './telemetry/telemetry.js';
 import { resolveUpdateChannel } from './updater/channel.js';
 import { createAutoUpdaterProvider, type AutoUpdaterLike } from './updater/auto-updater.js';
@@ -1947,28 +1946,61 @@ function registerIpcHandlers(): void {
   ): Promise<HostToolOutcome | null> => {
     const providerName = aiConfig.resolveAsrProvider();
     if (providerName === 'whisper-cli') return null;
+    // Every one of these three is a WRONG-ARGUMENT refusal, and the answer this codebase
+    // gives to those everywhere else is to say which arguments would be right rather than
+    // only that this one was not (commit 629b822). On desktop these run INSTEAD of the
+    // sidecar route's own checks, so a bare "not found" here is a dead end the browser
+    // build never has.
     if (typeof assetId !== 'string' || assetId.trim() === '') {
-      return { status: 'failed', summary: 'transcribe needs an asset to work on.' };
+      return {
+        status: 'failed',
+        summary:
+          'transcribe needs an assetId. Call list_assets to see the project’s media and ' +
+          'their ids, then transcribe one of the audio or video assets.',
+      };
     }
     const asset = project.assets.find((candidate) => candidate.id === assetId);
     if (!asset) {
-      return { status: 'failed', summary: `Asset "${assetId}" was not found in the project.` };
+      return {
+        status: 'failed',
+        summary:
+          `Asset "${assetId}" is not in this project, so there was nothing to transcribe. ` +
+          'Call list_assets to see the ids that do exist and transcribe one of those.',
+      };
     }
     if (asset.kind !== 'audio' && asset.kind !== 'video') {
-      return { status: 'failed', summary: 'Only audio and video assets can be transcribed.' };
+      return {
+        status: 'failed',
+        summary:
+          `Asset "${assetId}" is ${asset.kind === 'image' ? 'an image' : `a ${asset.kind} asset`}, ` +
+          'and only audio and video carry speech. Call list_assets to find an audio or ' +
+          'video asset and transcribe that one instead.',
+      };
     }
     const active = await activeProject.current();
     if (!active || active.projectId !== project.id) {
       return {
         status: 'failed',
-        summary: 'Hosted transcription needs the active on-disk project to read the audio.',
+        // Nothing the model can call fixes this: the audio is read from the project open
+        // on disk, and which project that is belongs to the editor. So it closes.
+        summary:
+          'Hosted speech-to-text reads the audio from the project open on disk, and this ' +
+          'run’s project is not the open one. Do not call transcribe again for this run — ' +
+          'read any words already stored with get_transcript, and tell the editor the ' +
+          'project has to be open for speech-to-text to run.',
       };
     }
     try {
       const projectsRoot = await ensureProjectsDir();
       if (providerName === 'twelvelabs') {
         const result = await transcribeTwelveLabs(project, active.path, asset.id, signal);
-        if (!result.available) return { status: 'failed', summary: result.reason };
+        // `transcribeTwelveLabs` is shared with the manual button, so its `reason` is
+        // written for the PERSON reading a failure card. Wrapped rather than rewritten:
+        // the reason is the only evidence of what failed, and the model's move is appended
+        // by the SDK producer both surfaces now share.
+        if (!result.available) {
+          return { status: 'failed', summary: hostedTranscriptionUnavailable(result.reason) };
+        }
         if (result.words.length === 0) {
           // The SDK's own sentence, not a third copy of it. `hostTranscribe` returns
           // before the orchestrator's `transcribe` branch ever runs, so the dead end fixed
@@ -2001,7 +2033,14 @@ function registerIpcHandlers(): void {
       // whisper-cli is handled above; a hosted provider takes audio bytes in.
       if (provider.name === 'whisper-cli') return null;
       if (provider.name === 'twelvelabs') {
-        return { status: 'failed', summary: 'TwelveLabs routing failed.' };
+        // Unreachable in practice — the TwelveLabs branch returns above — but if the two
+        // ever disagree the model must not be handed a three-word fragment.
+        return {
+          status: 'failed',
+          summary: hostedTranscriptionUnavailable(
+            'FramePilot routed this to the wrong speech-to-text provider.',
+          ),
+        };
       }
       const bytes = new Uint8Array(
         await readFile(
@@ -2017,7 +2056,11 @@ function registerIpcHandlers(): void {
         project,
         assetId: asset.id,
       });
-      if (!result.available) return { status: 'failed', summary: result.reason };
+      if (!result.available) {
+        // Same wrap, same reason: the hosted providers' sentences are the ones the manual
+        // button shows too.
+        return { status: 'failed', summary: hostedTranscriptionUnavailable(result.reason) };
+      }
       if (result.words.length === 0) {
         // Same producer, same reasoning as the TwelveLabs branch above.
         aiLog.warn('agent transcription returned no timed words', {
@@ -2038,7 +2081,10 @@ function registerIpcHandlers(): void {
         data: { words: result.words },
       };
     } catch (error) {
-      return { status: 'failed', summary: `transcribe failed: ${errorMessage(error)}` };
+      // The thrown message is passed through VERBATIM — it is the only account of what
+      // broke and we do not get to invent one — but a bare exception text names no move,
+      // so the shared wrapper supplies the move around it.
+      return { status: 'failed', summary: hostedTranscriptionUnavailable(errorMessage(error)) };
     }
   };
   /**
@@ -2060,16 +2106,13 @@ function registerIpcHandlers(): void {
       ...(signal ? { signal } : {}),
     });
     if (!result.ok) {
-      // The provider's own reason, verbatim. "Something went wrong" would leave
-      // the model unable to tell a rate limit from an outage, and it would
-      // retry the one case where retrying is exactly wrong.
+      // The MODEL's sentence for this code, not the Sounds panel's. Both audiences need
+      // the rate-limit-versus-outage distinction, but only one of them can act by waiting
+      // and clicking; `sourcing-notes.ts` carries the account of what forwarding the
+      // panel's wording (and, for `cancelled`, its empty string) cost run `f014f3ac`.
       return {
         status: 'failed',
-        summary: agentSearchFailureSummary(
-          'search_music',
-          musicErrorMessage(result.error, result.detail),
-          result.error,
-        ),
+        summary: sourcingFailureNote('search_music', result.error, result.detail),
       };
     }
     if (result.tracks.length === 0) {
@@ -2079,7 +2122,14 @@ function registerIpcHandlers(): void {
       // broader word" would be advice the harness has taken on the model's behalf.
       return {
         status: 'warning',
-        summary: `No tracks matched "${query}", including a retry on its strongest words. This library may not carry this mood — try a different one, or work without a bed.`,
+        // Names the tool for the retry it is actually recommending. "Try a different one"
+        // reads as advice to a person choosing in a panel; the model's move is another
+        // search_music call, and saying so is what makes this a next action rather than a
+        // sympathetic dead end.
+        summary:
+          `No tracks matched "${query}", including a retry on its strongest words. This ` +
+          'library may not carry this mood — call search_music once with a different mood ' +
+          'word, or continue without a music bed and tell the editor nothing matched.',
         data: { tracks: [] },
       };
     }
@@ -2147,7 +2197,10 @@ function registerIpcHandlers(): void {
       operationId: `agent_${remoteId}_${Date.now()}`,
     });
     if (!result.ok) {
-      return { status: 'failed', summary: musicErrorMessage(result.error, result.detail) };
+      return {
+        status: 'failed',
+        summary: sourcingFailureNote('add_music', result.error, result.detail),
+      };
     }
     const { asset } = result;
     return {
@@ -2203,16 +2256,12 @@ function registerIpcHandlers(): void {
       { supersedePrevious: false, ...(signal ? { signal } : {}) },
     );
     if (!result.ok) {
-      // The provider's own reason, verbatim — including the hourly-vs-monthly
-      // distinction, so the model reports the right remedy instead of telling
-      // the user to wait a month for a limit that clears in an hour.
+      // The MODEL's sentence for this code — it keeps the hourly-vs-monthly distinction
+      // the panel's wording carries, and adds the half the panel never needed: which of
+      // the two is worth another call inside this run, and what to do when it is not.
       return {
         status: 'failed',
-        summary: agentSearchFailureSummary(
-          'search_stock',
-          stockErrorMessage(result.error, result.detail),
-          result.error,
-        ),
+        summary: sourcingFailureNote('search_stock', result.error, result.detail),
       };
     }
     if (result.items.length === 0) {
@@ -2220,7 +2269,11 @@ function registerIpcHandlers(): void {
       // should build on — `warning` is the arm that says "ran, nothing to do".
       return {
         status: 'warning',
-        summary: `Nothing matched "${args.query}". Try a broader subject word.`,
+        // Same fix as `search_music`'s empty result: name the call, not a mood.
+        summary:
+          `Nothing matched "${args.query}". Call search_stock once with a broader subject ` +
+          'word; if that is empty too, build from the footage the project already holds ' +
+          '(list_assets shows it) and tell the editor stock had nothing for this subject.',
         data: { items: [] },
       };
     }

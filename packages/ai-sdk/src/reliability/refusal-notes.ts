@@ -177,6 +177,38 @@ export function unusableHostPayloadEntries(): readonly {
 }
 
 /**
+ * The refusal when the host's speech-to-text provider could not run at all.
+ *
+ * The desktop's `transcribeTwelveLabs` is shared by the manual button and the agent, so its
+ * `reason` is written for the PERSON — "Add a TwelveLabs API key in Settings → AI → Media
+ * intelligence." is exactly right on a failure card and a dead end for a caller with no
+ * Settings window (`next-action.ts`'s `HANDS_ONLY`). Rather than degrade the card's
+ * sentence for the model's benefit, the host wraps it: the reason is passed through
+ * VERBATIM, because it is the only evidence of what actually failed, and the move the
+ * model can make is appended.
+ *
+ * The move is the same one `UNUSABLE_HOST_PAYLOAD.transcribe` names, and for the same
+ * reason: a project that has been transcribed before still holds those words, and a run
+ * that cannot transcribe now can still read them.
+ *
+ * @param reason - The provider's or host's own sentence, whatever it says.
+ */
+export function hostedTranscriptionUnavailable(reason: string): string {
+  // The reason may be a card sentence (ends in a full stop) or a raw exception message
+  // (ends in nothing). Normalizing here keeps the two halves from running together into
+  // one unreadable line, which is a real cost when the whole point is that it be read.
+  const said = reason.trim();
+  const cause = said === '' ? 'the provider gave no reason' : said.replace(/[.!?]+$/, '');
+  return (
+    `Rejected "transcribe" — speech-to-text could not run: ${cause}. That is a setup or ` +
+    'provider problem, not your arguments, so calling it again with different arguments ' +
+    'will not change it. Read what the project already holds with get_transcript, and if ' +
+    'there is nothing there, tell the editor that speech-to-text is unavailable and carry ' +
+    'on without a transcript.'
+  );
+}
+
+/**
  * The refusal for a tool that is registered but whose engine is not wired up.
  *
  * `Skipped "generate_mask" — not available yet` said the fact and stopped. "Yet" reads as
