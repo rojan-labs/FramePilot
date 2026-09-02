@@ -126,7 +126,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 10873,
+      "usedTokens": 11005,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -194,7 +194,7 @@
             "id": "s9",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 2145,
+            "tokenEstimate": 2277,
             "included": true
           },
           {
@@ -209,9 +209,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 10873,
+          "estimatedInputTokensBeforeSend": 11005,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 861127,
+          "estimatedRemainingCapacity": 860995,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -314,7 +314,7 @@
             "id": "s9",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 2145,
+            "tokenEstimate": 2277,
             "included": true
           },
           {
@@ -329,7 +329,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 10873,
+          "estimatedInputTokensBeforeSend": 11005,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -653,7 +653,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 11019,
+      "usedTokens": 11151,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -721,7 +721,7 @@
             "id": "s9",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 2291,
+            "tokenEstimate": 2423,
             "included": true
           },
           {
@@ -736,9 +736,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11019,
+          "estimatedInputTokensBeforeSend": 11151,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 860981,
+          "estimatedRemainingCapacity": 860849,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -852,7 +852,7 @@
             "id": "s9",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 2291,
+            "tokenEstimate": 2423,
             "included": true
           },
           {
@@ -867,7 +867,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11019,
+          "estimatedInputTokensBeforeSend": 11151,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 0,
