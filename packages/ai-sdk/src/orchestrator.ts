@@ -153,6 +153,7 @@ import type { TemporalEvidenceAcquirer } from './temporal-evidence-client.js';
 import {
   planTemporalEvidenceForEdit,
   reviewTemporalEvidence,
+  type TemporalEvidenceRequest,
   type TemporalReviewReport,
 } from './temporal-review.js';
 import type { ProjectVisionFrameAcquirer } from './vision-evidence-client.js';
@@ -2952,6 +2953,52 @@ function summarizeArgs(args: Record<string, unknown>, max = 80): string {
  * — better to offer no jump than to send someone to 0:00 and let them conclude the finding
  * is about the opening.
  */
+/**
+ * The frame an evidence request is about, whatever kind it is.
+ *
+ * A frame request carries `atFrame`; the windowed kinds (range, audio, loudness, motion,
+ * comparison) carry `startFrame`. Probed rather than switched on `kind` so a new request
+ * shape that carries either is located without a second place to update.
+ */
+export function requestFrame(request: TemporalEvidenceRequest): number | undefined {
+  const record = request as unknown as Record<string, unknown>;
+  for (const key of ['atFrame', 'startFrame']) {
+    const value = record[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+  }
+  return undefined;
+}
+
+/**
+ * Where the earliest FAILING piece of temporal evidence sits, in seconds.
+ *
+ * `ReviewFinding.atSeconds` is documented as "where in the programme it sits, for a jump
+ * affordance", and it was filled with {@link earliestTouchedSecond} — the start of the
+ * earliest clip the reviewed TURN touched, stamped identically on every finding that turn
+ * produced. That is where the edit was, not where the defect is.
+ *
+ * Run `25e06a6f` reported `Program ending is black (frame 1493)` — 49.767s of a 49.8s
+ * programme — twice, at `0s` and at `0.067s`, because the turns that triggered those
+ * reviews had touched a clip starting at zero. An editor following the jump lands at the
+ * top of the timeline to look at a defect in its final frame.
+ *
+ * The failing request knows its own frame, so the finding is placed from that, earliest
+ * first when several failed. A review that fails with no frame anywhere (a whole-programme
+ * check) still falls back to the turn's location, which is better than nothing.
+ */
+export function failingReviewSecond(
+  requests: readonly TemporalEvidenceRequest[],
+  failing: readonly { readonly requestId: string }[],
+  fps: number,
+): number | undefined {
+  if (!(Number.isFinite(fps) && fps > 0)) return undefined;
+  const frameById = new Map(requests.map((request) => [request.requestId, requestFrame(request)]));
+  const frames = failing
+    .map((check) => frameById.get(check.requestId))
+    .filter((frame): frame is number => frame !== undefined);
+  return frames.length === 0 ? undefined : Math.min(...frames) / fps;
+}
+
 function earliestTouchedSecond(project: Project, region: TouchedRegion): number | undefined {
   let earliest: number | undefined;
   for (const track of project.timeline.tracks) {
@@ -6747,6 +6794,13 @@ export class Orchestrator {
     readonly repairable: boolean;
     readonly detail: string;
     readonly lineage: readonly string[];
+    /**
+     * Where in the programme the earliest FAILING evidence sits, when it has a frame.
+     *
+     * The finding's own location, as opposed to the reviewed turn's. See
+     * {@link failingReviewSecond}.
+     */
+    readonly atSeconds?: number;
   } | null> {
     const durationFrames = Math.max(
       1,
@@ -6776,11 +6830,13 @@ export class Orchestrator {
       .map((check) => `${check.requestId}: ${check.issues.join(' ')}`)
       .join(' ')
       .slice(0, 1000);
+    const atSeconds = failingReviewSecond(requests, failing, workingProject.fps);
     return {
       report,
       passed,
       repairable: failing.length > 0 && failing.every((check) => check.status === 'fail'),
       detail,
+      ...(atSeconds === undefined ? {} : { atSeconds }),
       lineage: [
         `temporal:revision=${report.projectRevision}`,
         `temporal:render-settings=${acquisition.renderSettings.identity}`,
@@ -6820,13 +6876,14 @@ export class Orchestrator {
       trackIds: region.trackIds,
       clipIds: region.clipIds,
     };
-    const atSeconds = earliestTouchedSecond(args.after, region);
+    // The turn's location, used only when a finding cannot place itself.
+    const turnSecond = earliestTouchedSecond(args.after, region);
     const found: ReviewFinding[] = [];
     const base = {
       turnIndex: args.turnIndex,
       scope,
       ...(args.planStepId === undefined ? {} : { planStepId: args.planStepId }),
-      ...(atSeconds === undefined ? {} : { atSeconds }),
+      ...(turnSecond === undefined ? {} : { atSeconds: turnSecond }),
     };
 
     if (args.temporal) {
@@ -6840,6 +6897,8 @@ export class Orchestrator {
       if (review && !review.passed) {
         found.push({
           ...base,
+          // The failing evidence places itself; `base`'s turn location is the fallback.
+          ...(review.atSeconds === undefined ? {} : { atSeconds: review.atSeconds }),
           id: `temporal:${args.edit.patch.patchId}`,
           detail: review.detail || 'Temporal review could not confirm this edit.',
           lineage: review.lineage,
