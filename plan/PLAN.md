@@ -61,6 +61,11 @@ verification** (run recipe in `docs/guides/golden-eval.md`).
   content SHA-256 + analyzer version + params (`analysis/tiers.py`), assets carry
   `content_sha256` in the brain store, transcription honours `use_cache`, TwelveLabs has its
   own content-keyed cache. goal.md B's "never analyzed or billed twice" holds by construction.
+- `[x]` GOLDEN-F.3 — a failed master-audio pass no longer leaves `<export>.master.tmp` beside
+  the output (`pipeline.py#_apply_master_audio_pass`, test pinned). Frame-grid parity between
+  `editor-core/frame-grid.ts` and `render/frame_grid.py` audited: one shared fixture
+  (`tests/fixtures/frame_grid_parity.json`), both runtimes tested — preview and export round
+  seconds→frames identically by construction; no change.
 
 **Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on
 `fix/agent-run-reliability`. Three root causes found and fixed from captured run

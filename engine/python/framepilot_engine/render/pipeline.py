@@ -428,7 +428,14 @@ def _apply_master_audio_pass(output: Path, preset: ExportPreset, opts: RenderOpt
     if filter_str is None:
         return
     tmp = output.with_suffix(output.suffix + ".master.tmp")
-    apply_master_audio(output, tmp, filter_str, audio_codec=preset.audio_codec)
+    try:
+        apply_master_audio(output, tmp, filter_str, audio_codec=preset.audio_codec)
+    except BaseException:
+        # ffmpeg writes `tmp` progressively, so a failed pass leaves a half-written file
+        # beside the export — and the outer handler only ever discards `output`. Remove
+        # what THIS pass was writing; the original render is untouched for the caller.
+        tmp.unlink(missing_ok=True)
+        raise
     tmp.replace(output)
 
 

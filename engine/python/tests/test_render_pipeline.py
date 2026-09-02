@@ -273,6 +273,23 @@ def test_master_audio_pass_threads_eq_and_compression(tmp_path: Path, monkeypatc
     assert output.read_bytes() == b"filtered"
 
 
+def test_master_audio_pass_failure_leaves_no_partial_temp(tmp_path: Path, monkeypatch: Any) -> None:
+    """goal.md F: cleanup of temporary artifacts on failure, not only on success."""
+    output = tmp_path / "out.mp4"
+    output.write_bytes(b"render")
+
+    def failing_apply(src: Path, dst: Path, _filter: str, *, audio_codec: str) -> None:
+        dst.write_bytes(b"half-written")
+        raise RuntimeError("ffmpeg exploded")
+
+    monkeypatch.setattr("framepilot_engine.render.pipeline.apply_master_audio", failing_apply)
+    with pytest.raises(RuntimeError, match="ffmpeg exploded"):
+        _apply_master_audio_pass(output, REELS, RenderOptions(compression="voice"))
+    assert not output.with_suffix(".mp4.master.tmp").exists()
+    # The finished render is the caller's to keep or discard; this pass never eats it.
+    assert output.read_bytes() == b"render"
+
+
 def test_master_audio_pass_noop_without_options(tmp_path: Path, monkeypatch: Any) -> None:
     called = False
 
