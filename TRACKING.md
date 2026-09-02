@@ -162,7 +162,8 @@ the same track). Three things upstream are not:
 Not reproducible on the current golden set: `mission-talk` is one narration clip
 with no overlay track, so no case has the shape that trapped the run. The fix
 needs a fixture variant with an empty video track above a fully-occupied one
-(`scripts/mission-fixture-projects.mjs`, maintainer's machine).
+(`packages/ai-sdk/scripts/mission-fixture-projects.mjs`, run on the maintainer's
+machine against a live sidecar — media is not committed).
 
 *(Checked and dismissed: the op-ledger idempotency keys read as misattributed —
 op\_92 "Set track caption style" keyed on `add_clips` — but `boundedKeySegment`
