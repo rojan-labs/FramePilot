@@ -236,3 +236,59 @@ maintainer: 218k output tokens over 20 calls (~10.4k per call, one call at
 16,345) is the half of the bill no cache touches, and it is worth knowing how
 much of it is tool arguments versus the multi-sentence `reason` prose each
 proposal carries.
+
+---
+
+# Run recipes — what to check on real media
+
+Every behaviour change on this branch, with the expected result stated in advance so a
+manual run is a verdict rather than an exploration. Rebuild first, because the desktop
+reads `@framepilot/ai-sdk` from its built `dist`:
+
+```
+pnpm --filter @framepilot/ai-sdk build && pnpm --filter @framepilot/web-editor build
+```
+
+### 1. The run budget is a setting `2eeb92e`
+
+**Do:** Settings → AI → "Run budget". Set `$2` and `3` min. Close Settings. Start an agent
+run on any project.
+
+**Expect:** the run's first line is the thinking status and **no** "This run may use up
+to…" notice. Reopen Settings after an app restart — the numbers are still `$2` / `3`.
+When the run reaches $2 it stops at the next step and says "Reached this run's $2.00
+budget after N steps".
+
+**A failure looks like:** the notice still appearing; the numbers reverting; or a run
+carrying on past $2.
+
+### 2. `map_footage` on unindexed footage `92a0387`
+
+**Do:** pull in a stock clip that has not been indexed and ask for something that makes
+the agent map it ("what happens in that clip").
+
+**Expect:** the tool result reads as a sentence naming the next move — *"this clip has not
+been indexed, so it has no chapters or highlights yet … Sample it with get_frame at a few
+times across its duration, or work from what you already know about it"* — not
+`"map_footage": not_indexed`. The agent should not call it again for the same clip.
+
+**A failure looks like:** the bare token; or six repeat calls, as in run `369e8c82`.
+
+### 3. Re-adding music or stock already in the bin `92a0387`
+
+**Do:** let the agent add a music track, then ask for the same track again.
+
+**Expect:** *"That track is already in your media bin as asset "…" — it was not downloaded
+again. Place it with add_clip on an audio track (assetId "…"), or search for a different
+track."* The agent should then place it rather than give up.
+
+**A failure looks like:** "Place it from the bin", or the agent abandoning the request.
+
+### 4. Scoring your own run transcript `64bc307`
+
+Not a real-media run — this is how a pasted `run.md` becomes numbers. The scorer reads a
+dump's compact `diff` events and reports undo as **unknown**, never as a pass. Useful
+when you want the ten metrics off a run that was not launched by the harness.
+
+*(Recipes for the run deadline and the repeated-refusal guard land with those slices.)*
+
