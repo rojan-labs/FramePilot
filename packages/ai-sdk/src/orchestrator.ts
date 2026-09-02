@@ -280,6 +280,13 @@ export interface ModelCallContext {
   /** Tokens held back for the reply; defaults to the selected model's output cap. */
   readonly reservedOutputTokens?: number;
   /**
+   * Whether {@link reservedOutputTokens} is a cap someone actually CHOSE — a caller's
+   * `budget.maxOutputTokens` — rather than the figure derived from the model's
+   * capabilities. See {@link outputRoomFor}: a derived figure for a model we do not
+   * recognise is a guess, and a guess must not go on the wire as a hard limit.
+   */
+  readonly explicitOutputCap?: boolean;
+  /**
    * The tier account from `assembleContext`. The ONLY way a dropped section reaches the
    * manifest — a trimmed tier leaves no trace in the payload, so a payload-derived
    * manifest cannot know compaction happened.
@@ -312,16 +319,46 @@ function reservedOutputFor(input: ContextInput, provider?: AiProvider): number {
 }
 
 /**
- * The `maxTokens` to put on the wire for one model call: the room the manifest reserved,
- * never more than the model's real output ceiling. Exported for tests.
+ * The `maxTokens` to put on the wire for one model call, or `undefined` to send none.
+ *
+ * ## Why an assumed ceiling must NOT be sent
+ *
+ * `maxOutputTokens` does two different jobs, and the conservative-floor rule is right for
+ * one of them and actively harmful for the other:
+ *
+ * - **Reserving room in the context budget.** Under-promising is safe: the prompt is
+ *   trimmed a little early and the request succeeds.
+ * - **The `max_tokens` we put on the wire.** Under-promising is not safe at all. It does
+ *   not make the request safer; it *cuts the model off mid-reply*.
+ *
+ * For a model the catalog does not carry, `capabilitiesFor` returns the provider's floor
+ * and says so via `source: 'provider_default'` — "we do not know this model". Sending that
+ * guess as a hard cap asserts a limit nobody measured.
+ *
+ * Run `e8cb2636` is what that costs. `openrouter/auto` is not in the catalog, so every
+ * request went out with `max_tokens: 8192` — and three consecutive steps came back having
+ * spent **exactly 8,192** output tokens. Two recovered on their retry; the third did not,
+ * and the run stopped with the stock footage it had just downloaded still sitting in the
+ * bin, unplaced. The model was never near its own limit. It was near ours.
+ *
+ * So a derived figure for an unrecognised model is omitted, and the provider applies the
+ * model's real maximum: `@langchain/openai` sends no `max_tokens` when it is not given one,
+ * and `@langchain/anthropic` — whose API requires the field — fills in its own per-model
+ * default. A cap a caller actually CHOSE is always sent, and a recognised model's ceiling
+ * is a measured number, so both still go on the wire.
+ *
+ * The reservation is unchanged: the budget still holds the conservative figure back, which
+ * is the half of this that was always right. Exported for tests.
  */
 export function outputRoomFor(
   provider: AiProvider | undefined,
-  modelCall: { readonly reservedOutputTokens?: number },
-): number {
-  const ceiling = capabilitiesFor(provider?.name, provider?.modelId).maxOutputTokens;
-  const reserved = modelCall.reservedOutputTokens ?? ceiling;
-  return Math.max(1, Math.min(reserved, ceiling));
+  modelCall: { readonly reservedOutputTokens?: number; readonly explicitOutputCap?: boolean },
+): number | undefined {
+  const capability = capabilitiesFor(provider?.name, provider?.modelId);
+  const assumed = capability.source === 'provider_default' && modelCall.explicitOutputCap !== true;
+  if (assumed) return undefined;
+  const reserved = modelCall.reservedOutputTokens ?? capability.maxOutputTokens;
+  return Math.max(1, Math.min(reserved, capability.maxOutputTokens));
 }
 
 /**
@@ -572,10 +609,11 @@ export function truncationRetryHint(dropped: readonly string[] = []): string {
  */
 export function emptyResponseDetail(
   usage: Usage | undefined,
-  reservedOutputTokens: number,
+  /** The `max_tokens` this request actually carried, or `undefined` when it carried none. */
+  sentOutputCap: number | undefined,
 ): string {
   const spent = usage?.outputTokens ?? 0;
-  if (spent > 0 && reservedOutputTokens > 0 && spent >= reservedOutputTokens) {
+  if (sentOutputCap !== undefined && spent > 0 && spent >= sentOutputCap) {
     return (
       `The model used its entire output allowance (${spent} tokens) without producing an ` +
       'answer or a tool call, on every attempt — a reasoning model can spend the whole ' +
@@ -5394,10 +5432,9 @@ export class Orchestrator {
     // OpenAI-compatible path), so a long tool-call batch was cut mid-JSON, classified
     // "truncated", retried once at the same cap, and the run failed — while the window
     // accounting believed 128k of output was available (plan/system-mission P1.1).
+    const outputRoom = request.maxTokens ?? outputRoomFor(this.provider, modelCall);
     const withOutputRoom: AiCompletionRequest =
-      request.maxTokens !== undefined
-        ? request
-        : { ...request, maxTokens: outputRoomFor(this.provider, modelCall) };
+      outputRoom === undefined ? request : { ...request, maxTokens: outputRoom };
     const modelRequest: AiCompletionRequest = captureReasoning
       ? { ...withOutputRoom, reasoningEffort: withOutputRoom.reasoningEffort ?? 'medium' }
       : withOutputRoom;
@@ -6186,6 +6223,7 @@ export class Orchestrator {
             tier: 'mid',
             contextWindow: contextWindowFor(input, this.provider),
             reservedOutputTokens: reservedOutputFor(input, this.provider),
+            explicitOutputCap: input.budget?.maxOutputTokens !== undefined,
             assembled,
           },
         );
@@ -6304,6 +6342,7 @@ export class Orchestrator {
           tier: 'mid',
           contextWindow: contextWindowFor(input, this.provider),
           reservedOutputTokens: reservedOutputFor(input, this.provider),
+          explicitOutputCap: input.budget?.maxOutputTokens !== undefined,
           assembled,
         },
       );
@@ -6346,6 +6385,7 @@ export class Orchestrator {
         tier: 'mid',
         contextWindow: contextWindowFor(input, this.provider),
         reservedOutputTokens: reservedOutputFor(input, this.provider),
+        explicitOutputCap: input.budget?.maxOutputTokens !== undefined,
         assembled,
       },
     );
@@ -6845,6 +6885,7 @@ export class Orchestrator {
         tier: 'mid',
         contextWindow: contextWindowFor(input, this.provider),
         reservedOutputTokens: reservedOutputFor(input, this.provider),
+        explicitOutputCap: input.budget?.maxOutputTokens !== undefined,
         assembled,
       },
     );
@@ -7509,6 +7550,7 @@ export class Orchestrator {
               tier: 'mid',
               contextWindow: contextWindowFor(input, self.provider),
               reservedOutputTokens: reservedOutputFor(input, self.provider),
+              explicitOutputCap: input.budget?.maxOutputTokens !== undefined,
               // What the project view actually held, tier by tier — the only way a dropped
               // section reaches the manifest, since a trimmed tier leaves no trace in the
               // payload. See `agentMessages`'s return type.
@@ -7608,13 +7650,14 @@ export class Orchestrator {
             // Unless it BILLED for the whole reply. A reasoning model handed a small output
             // cap can spend every one of those tokens thinking and emit no visible answer:
             // the wire carries an empty completion, but the cause is a budget, not an
-            // outage. The captured run charged 8,192 output tokens — exactly the reserved
-            // room — and was reported to the creator as the provider being overloaded, an
-            // explanation that pointed at the one thing they could not have fixed.
+            // outage. Measured against the cap actually SENT, never against the budget's
+            // reservation — with no cap on the wire the model stopped for its own reasons
+            // and nothing here is entitled to name one.
             const detail = emptyResponseDetail(
               turn.usage,
               outputRoomFor(self.provider, {
                 reservedOutputTokens: reservedOutputFor(input, self.provider),
+                explicitOutputCap: input.budget?.maxOutputTokens !== undefined,
               }),
             );
             if (state.cumulativeOps.length > 0) {

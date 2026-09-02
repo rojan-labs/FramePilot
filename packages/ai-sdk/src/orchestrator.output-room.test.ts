@@ -43,9 +43,38 @@ describe('outputRoomFor', () => {
     expect(outputRoomFor(p, {})).toBe(128_000);
   });
 
-  it('falls back to the provider default ceiling for an unknown model', () => {
+  it('sends NO cap for a model the catalog does not carry', () => {
+    // The captured limiter. `openrouter/auto` is not in the catalog, so every request went
+    // out with the provider FLOOR as a hard `max_tokens` — and three consecutive steps of
+    // run `e8cb2636` came back having spent exactly 8,192 output tokens. The model was
+    // never near its own limit; it was near ours. An assumed ceiling is a guess, and a
+    // guess must not truncate a reply: omit it and let the provider apply the real one.
     const p = recordingProvider('openai-compatible');
-    expect(outputRoomFor(p, { reservedOutputTokens: 50_000 })).toBe(4_096);
+    expect(outputRoomFor(p, { reservedOutputTokens: 50_000 })).toBeUndefined();
+    expect(outputRoomFor(p, {})).toBeUndefined();
+  });
+
+  it('still sends a cap the caller actually chose, whatever the model', () => {
+    // A budget someone set is a decision, not a guess.
+    const p = recordingProvider('openai-compatible');
+    expect(outputRoomFor(p, { reservedOutputTokens: 2_000, explicitOutputCap: true })).toBe(2_000);
+    // Clamped to the floor, because that is all this provider is known to take.
+    expect(outputRoomFor(p, { reservedOutputTokens: 50_000, explicitOutputCap: true })).toBe(4_096);
+  });
+});
+
+describe('agent requests for an unrecognised model', () => {
+  it('carry no maxTokens at all rather than an invented one', async () => {
+    const provider = recordingProvider('openai-compatible');
+    const orchestrator = new Orchestrator(provider);
+    for await (const _ of orchestrator.streamAgent(
+      { project: makeProject(), userPrompt: 'trim the first clip by one second' },
+      { conversationId: 'c', turnId: 't' },
+      {},
+    )); /* drain */
+    const agentRequests = provider.requests.filter((r) => r.tools && r.tools.length > 0);
+    expect(agentRequests.length).toBeGreaterThan(0);
+    for (const request of agentRequests) expect(request.maxTokens).toBeUndefined();
   });
 });
 
@@ -262,10 +291,9 @@ describe('emptyResponseDetail', () => {
     expect(detail).not.toContain('output allowance');
   });
 
-  it('names the output budget when the model spent all of it and said nothing', () => {
-    // The captured run: 8,192 output tokens charged against an 8,192-token reservation,
-    // reported to the creator as the provider being overloaded — the one cause they could
-    // not have done anything about.
+  it('names the output budget when the model spent all of the cap that was sent', () => {
+    // 8,192 output tokens charged against an 8,192-token cap, reported to the creator as
+    // the provider being overloaded — the one cause they could not have done anything about.
     const detail = emptyResponseDetail({ inputTokens: 722, outputTokens: 8_192 }, 8_192);
     expect(detail).toContain('entire output allowance');
     expect(detail).toContain('8192');
@@ -276,5 +304,13 @@ describe('emptyResponseDetail', () => {
   it('stays general when the provider reported no usage at all', () => {
     // A count is never fabricated, so an unreported turn cannot be diagnosed either.
     expect(emptyResponseDetail(undefined, 8_192)).toContain('overloaded');
+  });
+
+  it('stays general when the request carried no cap to have exhausted', () => {
+    // With no `max_tokens` on the wire the model stopped for its own reasons, and nothing
+    // here is entitled to name one.
+    expect(emptyResponseDetail({ inputTokens: 10, outputTokens: 60_000 }, undefined)).toContain(
+      'overloaded',
+    );
   });
 });
