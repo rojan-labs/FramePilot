@@ -1238,6 +1238,34 @@ function operationLine(op: AnyOperation, names?: ProjectNames): string {
  * briefing's {@link distil} uses. When the tool and the operation are the same thing
  * (`trim_clip` → `trim_clip`), naming both would only restate it, and the line is unchanged.
  */
+/**
+ * The sentence `caption_the_edit` owes the run about how its cues will LOOK, or `''`.
+ *
+ * The tool writes cue text and cue timing. It does not touch the track's design, and its
+ * note — one line per operation — never mentioned the omission, so a run had no way to
+ * tell a styled caption track from an unstyled one except by reading the track back.
+ *
+ * Run `e8cb2636` did not read it back. It captioned the edit, told the editor the cues
+ * were "already styled to a boxed template", and moved on. Nothing was styled; the claim
+ * was invented out of the silence. That is the same shape as every other honesty fix in
+ * this file: the fact existed at the moment the note was written and was not put in it.
+ *
+ * Said only when there is something to say. A track that already carries a style gets no
+ * sentence, because there is nothing left to do about it.
+ *
+ * Exported for tests.
+ */
+export function captionStyleNote(project: Project, trackId: unknown): string {
+  if (typeof trackId !== 'string') return '';
+  const track = project.timeline.tracks.find((candidate) => candidate.id === trackId);
+  if (track === undefined || track.captionStyle !== undefined) return '';
+  return (
+    ' These cues carry no track style yet, so they render in the plain default look — ' +
+    'set_track_caption_style is what gives them a design, and auto_emphasize_captions ' +
+    'is what makes individual words pop.'
+  );
+}
+
 function summarizeOperations(
   ops: readonly AnyOperation[],
   names?: ProjectNames,
@@ -4503,7 +4531,12 @@ export class Orchestrator {
       // One set of numbers, from here to the turn's patch to the ledger. `quantizePatch`
       // is idempotent, so re-normalizing at turn end is a no-op.
       const normalized = [...probe.patch.operations];
-      const note = summarizeOperations(normalized, names, call);
+      const applied = applyProjectPatch(ctx.project, probe.patch);
+      const note =
+        summarizeOperations(normalized, names, call) +
+        (call.name === 'caption_the_edit'
+          ? captionStyleNote(applied, (call.arguments as { trackId?: unknown }).trackId)
+          : '');
       orchestratorLog.action('tool produced ops', {
         tool: call.name,
         opCount: normalized.length,
@@ -4522,7 +4555,7 @@ export class Orchestrator {
         // A tool whose op count the model cannot influence does not spend the run's
         // blast-radius budget (see `ToolSpec.derivedFanOut`).
         ...derivedOps(call.name, normalized),
-        project: applyProjectPatch(ctx.project, probe.patch),
+        project: applied,
       };
     } catch (error) {
       // The old comment here claimed only a `ToolInvocationError` for invalid args could

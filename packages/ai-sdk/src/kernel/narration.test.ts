@@ -179,3 +179,61 @@ describe('createNarrationFilter', () => {
     expect(filter.flush()).toBe('');
   });
 });
+
+describe('the filter never rewrites a character it passes through', () => {
+  /** Feed `text` through the filter split at `size`-character boundaries. */
+  const stream = (text: string, size: number): string => {
+    const filter = createNarrationFilter();
+    let out = '';
+    for (let index = 0; index < text.length; index += size) {
+      out += filter.push(text.slice(index, index + size));
+    }
+    return out + filter.flush();
+  };
+
+  /**
+   * Two captured runs showed single characters inserted and dropped in the assistant's
+   * own prose — "stop-sscrolling", "white-bacck", "proof-of-caim", "poppng". This is the
+   * only place in the pipeline that holds text back and re-emits it, so it is the only
+   * place that COULD do that. These pin that it does not, at every chunk boundary,
+   * including inside the words that were corrupted.
+   */
+  const MESSAGES = [
+    'The talk is a tight, well-scripted pitch — founders stop-scrolling, white-back boxed captions that punch the key single words, proof-of-claim b-roll.',
+    'the emphasis is white-boxed and popping',
+    'Trimming the head.',
+    'One sentence. Then another. And a third!',
+    'No terminator at all',
+    '',
+    'a',
+    '\n\nLeading blank lines survive.\n',
+  ];
+
+  for (const message of MESSAGES) {
+    it(`reproduces ${JSON.stringify(message.slice(0, 40))} at every chunk size`, () => {
+      // Every split of the message, one character at a time up to the whole thing at once.
+      for (let size = 1; size <= Math.max(1, message.length); size += 1) {
+        expect(stream(message, size)).toBe(message);
+      }
+    });
+  }
+
+  it('reproduces a long message split at every single-character boundary', () => {
+    // The shape a real stream has: many tiny deltas, one of which lands mid-word.
+    const long = MESSAGES[0] as string;
+    for (let cut = 0; cut <= long.length; cut += 1) {
+      const filter = createNarrationFilter();
+      const out = filter.push(long.slice(0, cut)) + filter.push(long.slice(cut)) + filter.flush();
+      expect(out).toBe(long);
+    }
+  });
+
+  it('drops a preamble WHOLE, never part of one', () => {
+    // The one case where output legitimately differs from input: the stripped sentence
+    // goes entirely, and what survives is byte-identical to its tail.
+    const message = 'I’ll continue from the interpret stage. Trimming the head.';
+    for (let size = 1; size <= message.length; size += 1) {
+      expect(stream(message, size)).toBe('Trimming the head.');
+    }
+  });
+});

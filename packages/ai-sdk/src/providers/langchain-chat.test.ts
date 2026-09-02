@@ -508,6 +508,46 @@ describe('LangChainChatProvider.stream', () => {
     ]);
   });
 
+  it('preserves the arguments of every call in a mixed no-arg / with-arg batch', async () => {
+    // The shape of the turn that failed in run `e8cb2636`: three no-argument reads that
+    // succeeded, then three `load_skill`s that arrived with no `name` and were rejected.
+    // Nothing in the log distinguishes "the gateway sent empty arguments" from "the model
+    // sent {}", so this pins the half that IS ours — that a call needing arguments keeps
+    // them when it shares a batch with calls that need none, at any chunk boundary.
+    const chunks = await collect([
+      {
+        content: '',
+        tool_call_chunks: [{ index: 0, id: 'a', name: 'get_project_state', args: '' }],
+      },
+      { content: '', tool_call_chunks: [{ index: 1, id: 'b', name: 'list_assets', args: '{}' }] },
+      { content: '', tool_call_chunks: [{ index: 2, id: 'c', name: 'get_timeline_summary' }] },
+      {
+        content: '',
+        tool_call_chunks: [{ index: 3, id: 'd', name: 'load_skill', args: '{"name":' }],
+      },
+      { content: '', tool_call_chunks: [{ index: 3, args: '"hook-crafting"}' }] },
+      {
+        content: '',
+        tool_call_chunks: [
+          { index: 4, id: 'e', name: 'load_skill', args: '{"name":"titles-and-text"}' },
+        ],
+      },
+      { content: '', tool_call_chunks: [{ index: 5, id: 'f', name: 'load_skill', args: '{' }] },
+      { content: '', tool_call_chunks: [{ index: 5, args: '"name":"short-form-pacing"}' }] },
+    ]);
+    expect(chunks.filter((chunk) => chunk.type === 'tool-call').map((chunk) => chunk.call)).toEqual(
+      [
+        { id: 'a', name: 'get_project_state', arguments: {} },
+        { id: 'b', name: 'list_assets', arguments: {} },
+        { id: 'c', name: 'get_timeline_summary', arguments: {} },
+        { id: 'd', name: 'load_skill', arguments: { name: 'hook-crafting' } },
+        { id: 'e', name: 'load_skill', arguments: { name: 'titles-and-text' } },
+        { id: 'f', name: 'load_skill', arguments: { name: 'short-form-pacing' } },
+      ],
+    );
+    expect(chunks.at(-1)).toEqual({ type: 'done', text: '' });
+  });
+
   it('leaves a clean turn untouched', async () => {
     const chunks = await collect([
       { content: 'Trimming the head.' },
