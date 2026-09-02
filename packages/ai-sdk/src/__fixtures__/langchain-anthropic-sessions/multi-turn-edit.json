@@ -13,6 +13,14 @@
       "status": "thinking"
     },
     {
+      "id": "turn_parity:notice:2",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "notification",
+      "text": "This run may use up to 300 steps, $5.00 and 20 minutes; it stops and reports what it applied if it reaches any of them."
+    },
+    {
       "id": "turn_parity:run-state",
       "conversationId": "conv_parity",
       "ts": 1000,
@@ -96,7 +104,7 @@
       }
     },
     {
-      "id": "turn_parity:status:2",
+      "id": "turn_parity:status:3",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -347,7 +355,7 @@
       }
     },
     {
-      "id": "turn_parity:status:3",
+      "id": "turn_parity:status:4",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -378,7 +386,7 @@
       "argsSummary": "trackId: \"video_1\", start: 0, end: 2"
     },
     {
-      "id": "turn_parity:result:4",
+      "id": "turn_parity:result:5",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -387,7 +395,7 @@
       "summary": "Deleted range Video 1 · 0s–2s"
     },
     {
-      "id": "turn_parity:diff:5",
+      "id": "turn_parity:diff:6",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -497,7 +505,7 @@
       "runId": "run:turn_parity"
     },
     {
-      "id": "turn_parity:action:6",
+      "id": "turn_parity:action:7",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -623,7 +631,7 @@
       }
     },
     {
-      "id": "turn_parity:status:7",
+      "id": "turn_parity:status:8",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -878,7 +886,7 @@
       }
     },
     {
-      "id": "turn_parity:status:8",
+      "id": "turn_parity:status:9",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -909,7 +917,7 @@
       "argsSummary": "trackId: \"video_1\", start: 8, end: 9"
     },
     {
-      "id": "turn_parity:result:9",
+      "id": "turn_parity:result:10",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -918,7 +926,7 @@
       "summary": "Deleted range Video 1 · 8s–9s"
     },
     {
-      "id": "turn_parity:diff:10",
+      "id": "turn_parity:diff:11",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -1042,7 +1050,7 @@
       "runId": "run:turn_parity"
     },
     {
-      "id": "turn_parity:action:11",
+      "id": "turn_parity:action:12",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -1182,7 +1190,7 @@
       }
     },
     {
-      "id": "turn_parity:status:12",
+      "id": "turn_parity:status:13",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -1312,7 +1320,7 @@
       }
     },
     {
-      "id": "turn_parity:delta:13",
+      "id": "turn_parity:delta:14",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -1578,7 +1586,7 @@
       }
     },
     {
-      "id": "turn_parity:notice:14",
+      "id": "turn_parity:notice:15",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -1586,7 +1594,7 @@
       "text": "Deterministic self-check: Passed with 1 warning(s)."
     },
     {
-      "id": "turn_parity:notice:15",
+      "id": "turn_parity:notice:16",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -1732,7 +1740,7 @@
       }
     },
     {
-      "id": "turn_parity:usage:16",
+      "id": "turn_parity:usage:17",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -1750,7 +1758,7 @@
       "text": "**Applied 2 edits** in 2 steps — review the proposed change below.\n\n- Deleted range Video 1 · 0s–2s\n- Deleted range Video 1 · 8s–9s"
     },
     {
-      "id": "turn_parity:status:17",
+      "id": "turn_parity:status:18",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
