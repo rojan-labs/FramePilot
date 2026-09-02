@@ -306,7 +306,7 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'cue on the track — replacing whatever cues are already there. This is the tool to ' +
         'use for "add captions"; it is also how you REPAIR captions that verify_captions ' +
         'reports as stale or out of sync after a cut, because re-running it re-derives every ' +
-        'cue from the current timeline. Words in deleted footage are dropped and no cue can ' +
+        'cue from the current timeline. That re-run is local and free. Words in deleted footage are dropped and no cue can ' +
         'span a cut, so it cannot produce the errors hand-placed cues do. preset picks the ' +
         'register: short-form (default, punchy 1-2 lines), subtitle (broadcast, longer ' +
         'reading lines), one-word (one word per cue, for the one-word template family). ' +

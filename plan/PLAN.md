@@ -89,6 +89,7 @@ reconcileInheritedFailures`: a health check failing identically before and after
 - `[x]` GOLDEN-E.1 — model tiers are real: `FRAMEPILOT_TIER_*` (declared since the initial commit, read by nothing) now route `tier: 'small'` calls — the ADR 0055 route classifier — to a cheaper provider/model; opt-in, unset = byte-identical. Accuracy neutrality of classification on a small model: **pending manual verification** (run the golden set once with `FRAMEPILOT_TIER_SMALL_MODEL` set and compare intent accuracy).
 - `[x]` GOLDEN-F.4 — every reducer decision is one structured log line (`agent-graph.ts` `conductor decided`: stage, effects, guards/budget/verify texts, spend) so a run can be debugged from its log alone.
 - `[x]` GOLDEN-F.5 — a run that throws shows a plain sentence with the next action (`reliability/plain-failure.ts`), raw text in `detail`; a rejected tool call is explained in the editor's words too (`tool-dispatch.ts#describeArgValidationForEditor`, raw Zod text kept for the model); every message passes the harness's failure-quality predicate.
+- `[x]` GOLDEN-C.4 — paid/slow tools state their cost, latency and caching in their descriptions (+60 tokens/request measured).
 
 **Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on
 `fix/agent-run-reliability`. Three root causes found and fixed from captured run

@@ -10,6 +10,14 @@ import type { ToolSpec } from '../tool-registry.js';
 import { actionTool, noArgs } from './tool-factories.js';
 
 export const VERIFICATION_TOOLS: readonly ToolSpec[] = [
-  actionTool({ name: 'render_preview', description: 'Render a fast low-res preview.' }, noArgs),
+  actionTool(
+    {
+      name: 'render_preview',
+      description:
+        'Render a fast low-res preview. Encodes the whole edit — tens of seconds, ' +
+        'uncached, so run it when the edit is settled.',
+    },
+    noArgs,
+  ),
   actionTool({ name: 'export_video', description: 'Render the final export video.' }, noArgs),
 ];

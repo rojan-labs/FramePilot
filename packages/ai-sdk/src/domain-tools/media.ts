@@ -195,7 +195,8 @@ export const MEDIA_TOOLS: readonly ToolSpec[] = [
         'the "what am I looking at" primer before you plan cuts on it. Returns the same ' +
         'evidence packets as search_visual, sorted by time rather than ranked by a query, ' +
         'so you can read the footage as a sequence. Use search_visual instead when you are ' +
-        'looking for a specific thing across all footage. Optional timeRange limits the ' +
+        'looking for a specific thing across all footage. Free and fast: it reads the index ' +
+        'index_media already built. Optional timeRange limits the ' +
         'walk. Honestly reports when the asset is not indexed yet. Does not edit the timeline.',
       capabilities: ['analysis', 'visual'],
     },
@@ -228,7 +229,9 @@ export const MEDIA_TOOLS: readonly ToolSpec[] = [
       description:
         'Build (or finish) the visual index so search_visual and describe_footage can see ' +
         'the footage: samples frames, embeds them, and captions scenes. Call it when a ' +
-        'visual search reports the footage is not indexed yet. By default it waits until ' +
+        'visual search reports the footage is not indexed yet. Minutes on long footage; ' +
+        'runs in resumable slices and never re-embeds an indexed asset. ' +
+        'By default it waits until ' +
         'indexing is complete (wait: false returns after starting, to continue in the ' +
         'background); assetId indexes just that asset, omitted indexes every video/image ' +
         'the project knows. Needs an embedding key configured — reports honestly when none ' +
@@ -248,6 +251,7 @@ export const MEDIA_TOOLS: readonly ToolSpec[] = [
         'says which query actually matched, and re-running a longer one will not help. ' +
         'Returns candidate tracks { remoteId, title, durationSeconds, license, ' +
         'attributionRequired, creator }; play nothing, download nothing, spend nothing. ' +
+        'The provider rate-limits, so a repeated query is answered from cache. ' +
         'Pass a remoteId to add_music to actually use one. Every result is cleared for ' +
         'monetized video; some require crediting the artist, and the result says which. ' +
         'A result carries NO tempo, key, energy or section structure — this library does ' +
@@ -294,6 +298,7 @@ export const MEDIA_TOOLS: readonly ToolSpec[] = [
         'moment; WITHOUT atSeconds it just arrives in the media bin, which is how you ' +
         'gather several candidates before deciding the order — place them later with ' +
         'add_clip. Fetched at the project’s own resolution, so it keeps working offline. ' +
+        'A few seconds to download, and a file already fetched is reused. ' +
         'A placement FAILS with a reason if that moment already has picture on it: stock ' +
         'cannot yet sit on top of existing footage, so choose an empty stretch or make ' +
         'room first. Undoing removes the clip and the file reference in one step.',
