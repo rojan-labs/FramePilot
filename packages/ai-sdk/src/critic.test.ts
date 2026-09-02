@@ -10,13 +10,16 @@ import {
   applyProjectPatch,
 } from '@framepilot/editor-core';
 import {
+  INHERITED_PREFIX,
   critique,
   explicitDurationTarget,
+  reconcileInheritedFailures,
   explicitDurationTargetSeconds,
   repairTrailingSoundOverrun,
   standingAgainstAcceptance,
   timelineDuration,
   type CritiqueOptions,
+  type CritiqueReport,
 } from './critic.js';
 import { checkableAcceptance } from './acceptance.js';
 import { makeProject } from './__fixtures__/project.js';
@@ -1435,5 +1438,67 @@ describe('run 4c9b5f82, end to end', () => {
     });
     expect(report.checks.filter((check) => check.status === 'fail')).toEqual([]);
     expect(report.ok).toBe(true);
+  });
+});
+
+// goal.md Workstream A/D: verification judges the delta, not the absolute state.
+describe('reconcileInheritedFailures', () => {
+  type Check = CritiqueReport['checks'][number];
+  const check = (id: Check['id'], status: Check['status'], detail: string): Check => ({
+    id,
+    label: id,
+    status,
+    detail,
+  });
+  const report = (checks: readonly Check[]): CritiqueReport => ({
+    checks,
+    ok: checks.every((c) => c.status !== 'fail'),
+    summary: 'x',
+  });
+
+  it('a health check that failed identically before the run becomes an advisory', () => {
+    const before = report([check('reframe_coverage', 'fail', '5 of 5 landscape')]);
+    const after = report([check('reframe_coverage', 'fail', '5 of 5 landscape')]);
+    const out = reconcileInheritedFailures(before, after);
+    expect(out.ok).toBe(true);
+    expect(out.checks[0]).toMatchObject({
+      status: 'warn',
+      detail: `${INHERITED_PREFIX}5 of 5 landscape`,
+    });
+    expect(out.summary).toBe('Passed with 1 warning(s) (1 inherited from the footage).');
+  });
+
+  it('a request-derived check is never inherited — the run was asked to change it', () => {
+    const before = report([check('duration_target', 'fail', '136s vs 30s')]);
+    const after = report([check('duration_target', 'fail', '136s vs 30s')]);
+    const out = reconcileInheritedFailures(before, after);
+    expect(out).toBe(after);
+    expect(out.ok).toBe(false);
+  });
+
+  it("a health check whose reading changed is the edit's finding, not the footage's", () => {
+    const before = report([check('reframe_coverage', 'fail', '5 of 5 landscape')]);
+    const after = report([check('reframe_coverage', 'fail', '9 of 9 landscape')]);
+    expect(reconcileInheritedFailures(before, after).ok).toBe(false);
+  });
+
+  it("a check that passed before and fails now is the edit's finding", () => {
+    const before = report([check('picture_coverage', 'pass', 'covered')]);
+    const after = report([check('picture_coverage', 'fail', '3.2s uncovered')]);
+    expect(reconcileInheritedFailures(before, after).ok).toBe(false);
+  });
+
+  it('mixed: the summary counts remaining failures and the inherited advisory', () => {
+    const before = report([
+      check('reframe_coverage', 'fail', 'landscape'),
+      check('picture_coverage', 'pass', 'covered'),
+    ]);
+    const after = report([
+      check('reframe_coverage', 'fail', 'landscape'),
+      check('picture_coverage', 'fail', '3.2s uncovered'),
+    ]);
+    const out = reconcileInheritedFailures(before, after);
+    expect(out.ok).toBe(false);
+    expect(out.summary).toBe('1 check(s) failed, 1 warning(s) (1 inherited from the footage).');
   });
 });

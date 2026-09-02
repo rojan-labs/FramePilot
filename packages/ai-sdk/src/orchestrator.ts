@@ -65,6 +65,7 @@ import {
   repairTrailingSoundOverrun,
   standingAgainstAcceptance,
   timelineDuration,
+  reconcileInheritedFailures,
 } from './critic.js';
 import { describeOperation, describeToolCall } from './describe.js';
 import {
@@ -8058,7 +8059,11 @@ export class Orchestrator {
           state.cumulativeOps.length > 0,
           evidence,
         );
-        let report = critique(working, verifyOptions);
+        // The self-check grades what the run CHANGED. A defect the footage already had —
+        // measured on the project the run started from, with the same reading — is said as
+        // an advisory and does not fail a correct edit (`reconcileInheritedFailures`).
+        const inheritedFrom = critique(input.project, verifyOptions);
+        let report = reconcileInheritedFailures(inheritedFrom, critique(working, verifyOptions));
         const repairOps: AnyOperation[] = [];
         let repairOutcome: RepairOutcome | undefined;
         if ((agentOptions.autoRepair ?? true) && !report.ok) {
@@ -8111,7 +8116,10 @@ export class Orchestrator {
               turnIndex: state.planSteps.length + 1,
               runId: analysisRunId,
             });
-            report = critique(working, self.critiqueOptions(input, agentOptions, true, evidence));
+            report = reconcileInheritedFailures(
+              inheritedFrom,
+              critique(working, self.critiqueOptions(input, agentOptions, true, evidence)),
+            );
           }
         }
         const named = (status: 'fail' | 'warn'): { label: string; detail: string }[] =>
@@ -8176,7 +8184,10 @@ export class Orchestrator {
         // said nothing about any of them, because this gate treated "cancelled" as "there
         // is nothing to report". The last word the editor got was a perceptual warning
         // about frames, over a timeline they had no summary of.
-        if (!effect.failed && reportedOps.length > 0) {
+        // A FAILED run that applied something gets the receipt too. The edits are on the
+        // timeline whether or not verification passed; withholding the list left the
+        // editor with a bare "failed" over a project that had changed under them.
+        if (reportedOps.length > 0) {
           yield emit.assistant(
             emit.assistantId,
             agentCompletionReport({
@@ -8187,6 +8198,7 @@ export class Orchestrator {
               rejectionReasons: effect.rejectionReasons,
               contentEvidence: sawContentEvidence,
               ...(effect.cancelled ? { cancelled: true } : {}),
+              ...(effect.failed && !effect.cancelled ? { failed: true } : {}),
               ...(offGridNote ? { offGrid: offGridNote } : {}),
               ...(asksForFile ? { deliverableFileRequested: true } : {}),
             }),
@@ -8478,6 +8490,11 @@ export function agentCompletionReport(args: {
    * accounting for; only the claim that the work is finished changes.
    */
   cancelled?: boolean;
+  /**
+   * True when the run settled `failed` after applying these edits (verification did not
+   * pass). The list is the same receipt; the head stops claiming the work is done.
+   */
+  failed?: boolean;
 }): string {
   const maxLines = 10;
   // Collapse lines that render identically. Eight successive restyles of one caption track
@@ -8496,9 +8513,12 @@ export function agentCompletionReport(args: {
     .map(([line, count]) => `- ${line}${count > 1 ? ` (×${count})` : ''}`);
   const more = distinct.length - maxLines;
   if (more > 0) lines.push(`- …and ${more} more`);
+  const applied = `**Applied ${args.ops.length} edit${args.ops.length === 1 ? '' : 's'}** in ${args.steps} step${args.steps === 1 ? '' : 's'}`;
   const head = args.cancelled
-    ? `**Applied ${args.ops.length} edit${args.ops.length === 1 ? '' : 's'}** in ${args.steps} step${args.steps === 1 ? '' : 's'} before you stopped the run — they are on your timeline and can be undone.`
-    : `**Applied ${args.ops.length} edit${args.ops.length === 1 ? '' : 's'}** in ${args.steps} step${args.steps === 1 ? '' : 's'} — review the proposed change below.`;
+    ? `${applied} before you stopped the run — they are on your timeline and can be undone.`
+    : args.failed
+      ? `${applied}, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.`
+      : `${applied} — review the proposed change below.`;
   const skipped =
     args.rejectedOpCount > 0
       ? `\n\n**Skipped:** ${args.rejectedOpCount} proposed change${args.rejectedOpCount === 1 ? '' : 's'} did not validate (${args.rejectionReasons.join('; ')}).`

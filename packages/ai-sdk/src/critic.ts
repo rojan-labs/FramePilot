@@ -1904,6 +1904,67 @@ export function standingAgainstAcceptance(
     .map((c) => c.detail);
 }
 
+/**
+ * Checks that judge what the REQUEST asked for rather than the timeline's own health. A
+ * failure here can never be "inherited" from the starting project: a 136-second timeline
+ * fails a 30-second duration target before AND after a run that never shortened it, and
+ * that is the run's failure, not the footage's.
+ */
+const REQUEST_CHECKS: ReadonlySet<CheckId> = new Set<CheckId>([
+  'request_match',
+  'duration_target',
+  'shot_count',
+  'shot_length_target',
+  'treatment_coverage',
+  'temporal_evidence',
+  'vision_review',
+  'export_settings',
+]);
+
+/** How an inherited finding is worded, so the editor can tell it from one the run caused. */
+export const INHERITED_PREFIX = 'Already so before this edit, not caused by it — ';
+
+/**
+ * Verification judges the DELTA, not the absolute state (goal.md Workstream A/D).
+ *
+ * A failing check that already failed on the project the run started from, with the
+ * identical detail, describes something the footage had before the agent touched it —
+ * five landscape sources in a portrait frame, a jump cut the user made last week. Failing
+ * a correct edit for it costs a paid repair turn that cannot fix it (the repair pass is
+ * scoped to the edit), and settles the run as `failed` over work that was right. Such
+ * findings are carried as advisories: said, once, and not blocking. A request-derived
+ * check (see {@link REQUEST_CHECKS}) is never excused this way, and neither is a health
+ * check whose detail changed — that is a finding the edit touched.
+ *
+ * @param before - The critique of the project the run started from, same options.
+ * @param after - The critique of the project the run produced.
+ * @returns `after` with inherited failures downgraded to `warn`, and `ok`/`summary` recomputed.
+ */
+export function reconcileInheritedFailures(
+  before: CritiqueReport,
+  after: CritiqueReport,
+): CritiqueReport {
+  const priorFailures = new Map(
+    before.checks.filter((c) => c.status === 'fail').map((c) => [c.id, c.detail] as const),
+  );
+  let inherited = 0;
+  const checks = after.checks.map((check): CriticCheck => {
+    if (check.status !== 'fail' || REQUEST_CHECKS.has(check.id)) return check;
+    if (priorFailures.get(check.id) !== check.detail) return check;
+    inherited += 1;
+    return { ...check, status: 'warn', detail: `${INHERITED_PREFIX}${check.detail}` };
+  });
+  if (inherited === 0) return after;
+  const fails = checks.filter((c) => c.status === 'fail').length;
+  const warns = checks.filter((c) => c.status === 'warn').length;
+  const ok = fails === 0;
+  const tail = `${String(inherited)} inherited from the footage`;
+  const summary = ok
+    ? `Passed with ${String(warns)} warning(s) (${tail}).`
+    : `${String(fails)} check(s) failed, ${String(warns)} warning(s) (${tail}).`;
+  return { checks, ok, summary };
+}
+
 export function critique(project: Project, options: CritiqueOptions = {}): CritiqueReport {
   const timeline = project.timeline;
   // Every editorial threshold is stated in frames, so every editorial check needs the

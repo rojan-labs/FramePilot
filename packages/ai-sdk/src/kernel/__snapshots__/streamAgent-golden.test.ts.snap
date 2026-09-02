@@ -2127,6 +2127,15 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
+      "id": "turn_1:notice:29",
+      "message": "Applied 2 changes, but the run could not finish: the self-check still fails — Picture covers the programme, Duration on target. The changes are on your timeline; undo reverts them, or ask for the specific fix.",
+      "retryable": false,
+      "ts": 1000,
+      "turnId": "turn_1",
+      "type": "error",
+    },
+    {
+      "conversationId": "conv_1",
       "id": "turn_1:run-state",
       "ts": 1000,
       "turnId": "turn_1",
@@ -2296,7 +2305,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
-      "id": "turn_1:usage:29",
+      "id": "turn_1:usage:30",
       "modelCalls": 7,
       "tokens": 0,
       "ts": 1000,
@@ -2306,7 +2315,18 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
-      "id": "turn_1:status:30",
+      "id": "turn_1:assistant",
+      "text": "**Applied 2 edits** in 2 steps, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.
+
+- Deleted range Video 1 · 0s–3s
+- Deleted range Video 1 · 0s–1s",
+      "ts": 1000,
+      "turnId": "turn_1",
+      "type": "assistant_message",
+    },
+    {
+      "conversationId": "conv_1",
+      "id": "turn_1:status:31",
       "status": "failed",
       "ts": 1000,
       "turnId": "turn_1",
@@ -9231,6 +9251,15 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:16",
+      "message": "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix.",
+      "retryable": false,
+      "ts": 1000,
+      "turnId": "turn_1",
+      "type": "error",
+    },
+    {
+      "conversationId": "conv_1",
+      "id": "turn_1:notice:17",
       "text": "Not everything in the plan was done — 1 of 2 planned tasks completed.",
       "ts": 1000,
       "turnId": "turn_1",
@@ -9402,7 +9431,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
-      "id": "turn_1:usage:17",
+      "id": "turn_1:usage:18",
       "modelCalls": 3,
       "tokens": 0,
       "ts": 1000,
@@ -9412,7 +9441,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
-      "id": "turn_1:status:18",
+      "id": "turn_1:assistant",
+      "text": "**Applied 1 edit** in 1 step, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.
+
+- Deleted range Video 1 · 0s–3s",
+      "ts": 1000,
+      "turnId": "turn_1",
+      "type": "assistant_message",
+    },
+    {
+      "conversationId": "conv_1",
+      "id": "turn_1:status:19",
       "status": "failed",
       "ts": 1000,
       "turnId": "turn_1",
@@ -10040,6 +10079,15 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
+      "id": "turn_1:notice:6",
+      "message": "Applied 1 change, but the run could not finish: No traceable project mutation for the committed plan. The changes are on your timeline; undo reverts them, or ask for the specific fix.",
+      "retryable": false,
+      "ts": 1000,
+      "turnId": "turn_1",
+      "type": "error",
+    },
+    {
+      "conversationId": "conv_1",
       "id": "turn_1:run-state",
       "ts": 1000,
       "turnId": "turn_1",
@@ -10143,7 +10191,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
-      "id": "turn_1:usage:6",
+      "id": "turn_1:usage:7",
       "modelCalls": 1,
       "tokens": 0,
       "ts": 1000,
@@ -10153,7 +10201,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
-      "id": "turn_1:status:7",
+      "id": "turn_1:assistant",
+      "text": "**Applied 1 edit** in 1 step, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.
+
+- Deleted range Video 1 · 0s–3s",
+      "ts": 1000,
+      "turnId": "turn_1",
+      "type": "assistant_message",
+    },
+    {
+      "conversationId": "conv_1",
+      "id": "turn_1:status:8",
       "status": "failed",
       "ts": 1000,
       "turnId": "turn_1",
@@ -10795,6 +10853,17 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "turnId": "turn_1",
       "type": "usage",
       "usd": 0,
+    },
+    {
+      "conversationId": "conv_1",
+      "id": "turn_1:assistant",
+      "text": "**Applied 2 edits** in 2 steps, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.
+
+- Deleted range Video 1 · 0s–2s
+- Deleted range Video 1 · 3s–4s",
+      "ts": 1000,
+      "turnId": "turn_1",
+      "type": "assistant_message",
     },
     {
       "conversationId": "conv_1",

@@ -2429,6 +2429,21 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
     });
   }
   const failed = !verificationPassed || working.stage !== 'complete';
+  const appliedCount = state.cumulativeOps.length + r.repairOps.length;
+  // A run that applied work and then could not finish must say so as ONE failure card,
+  // not as a bare `failed` status behind a list of check warnings. The editor's timeline
+  // has changed; the card says that, why the run stopped, and that undo takes it back.
+  if (failed && !state.cancelled && appliedCount > 0) {
+    events.push(
+      em.error(
+        failedAfterApplyMessage(
+          appliedCount,
+          r.ok ? (failureReason(false) ?? r.summary) : r.failedChecks.map((c) => c.label),
+        ),
+        { retryable: false },
+      ),
+    );
+  }
   return finalize(
     {
       ...state,
@@ -2439,6 +2454,17 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
     em,
     events,
   );
+}
+
+/** The failure card for a run that applied edits and then could not settle as complete. */
+export function failedAfterApplyMessage(
+  appliedCount: number,
+  why: string | readonly string[],
+): string {
+  const applied = `Applied ${String(appliedCount)} change${appliedCount === 1 ? '' : 's'}, but the run could not finish`;
+  const reason =
+    typeof why === 'string' ? `: ${why}` : `: the self-check still fails — ${why.join(', ')}.`;
+  return `${applied}${reason} The changes are on your timeline; undo reverts them, or ask for the specific fix.`;
 }
 
 /** Fold a runtime {@link ConductorResult} back into the run (the pure `onEffectResult`). */

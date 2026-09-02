@@ -1457,9 +1457,54 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
       }),
     );
     expect(state.phase).toBe('review');
-    expect(types(events)).toEqual(['notification', 'warning']);
+    // …and, because work was applied and the run still could not finish, ONE error card
+    // that says the edits are on the timeline and why the run stopped.
+    expect(types(events)).toEqual(['notification', 'warning', 'error']);
     expect(events[0]).toMatchObject({ text: 'Deterministic self-check: one issue' });
-    expect(effects[0]).toMatchObject({ kind: 'finalize', ops: s.cumulativeOps, cancelled: false });
+    expect(events[2]).toMatchObject({
+      type: 'error',
+      message: expect.stringContaining(
+        'Applied 2 changes, but the run could not finish: the self-check still fails — Duration',
+      ),
+      retryable: false,
+    });
+    expect(effects[0]).toMatchObject({
+      kind: 'finalize',
+      ops: s.cumulativeOps,
+      cancelled: false,
+      failed: true,
+    });
+  });
+
+  it('a failed run that applied nothing gets no "applied" error card', () => {
+    const s = started({ phase: 'verifying', cumulativeOps: [], appliedTurns: 0 });
+    const { events } = onEffectResult(
+      s,
+      verify({
+        ok: false,
+        summary: 'one issue',
+        failedChecks: [{ label: 'Duration', detail: 'too long' }],
+      }),
+    );
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+  });
+
+  it('a cancelled run never gets the failure card — the checkpoint is its account', () => {
+    const s = started({
+      phase: 'verifying',
+      cumulativeOps: ops(2),
+      appliedTurns: 1,
+      cancelled: true,
+    });
+    const { events } = onEffectResult(
+      s,
+      verify({
+        ok: false,
+        summary: 'one issue',
+        failedChecks: [{ label: 'Duration', detail: 'too long' }],
+      }),
+    );
+    expect(events.some((e) => e.type === 'error')).toBe(false);
   });
 
   // GAP-010 (run `fc10301a`). Advisory checks are non-blocking on purpose, and the price
@@ -1482,7 +1527,7 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
     );
     // The failure is a warning event; the advisory is a notification — the severity
     // distinction survives to the stream rather than being flattened.
-    expect(types(events)).toEqual(['notification', 'warning', 'notification']);
+    expect(types(events)).toEqual(['notification', 'warning', 'notification', 'error']);
     expect(events[2]).toMatchObject({
       text: 'Reframing is consistent: any landscape source will render…',
     });

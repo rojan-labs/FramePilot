@@ -8,6 +8,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **A problem your footage already had no longer fails a correct edit.** The agent's
+  self-check now grades what the edit *changed*: a finding that was already true before
+  the run — five landscape clips in a portrait sequence, say — is reported once as an
+  advisory ("Already so before this edit, not caused by it") instead of failing the run
+  and spending a repair turn that could not fix it. Anything the request asked for (a
+  target length, a shot count) is still held to the letter.
+- **A run that applies edits and then cannot finish says so in one place.** Instead of a
+  bare "failed" over a timeline that had changed, you now get a single error card — what
+  was applied, why the run stopped, and that undo takes it back — followed by the usual
+  receipt of what landed.
+
 - **The timeline has been redesigned.** Every lane now carries its name (`V1`, `A2`,
   `C1`), the ruler labels itself only as finely as the current zoom can distinguish
   (`0:02` where it used to print `00:00:02:00` and clip the first label), and the lanes

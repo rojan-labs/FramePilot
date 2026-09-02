@@ -7,6 +7,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Orchestrator, agentCompletionReport, type StreamOptions } from './orchestrator.js';
+import { INHERITED_PREFIX, critique } from './critic.js';
 import { applyProjectPatch, invertProjectPatch, type AnyOperation } from '@framepilot/editor-core';
 import { MockProvider } from './providers/mock.js';
 import { reduceEvents, type AiEvent } from './events.js';
@@ -2307,6 +2308,73 @@ describe('streamAgent robustness (parity with agent())', () => {
     expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Repair pass'))).toBe(
       false,
     );
+  });
+
+  // goal.md Workstream A/D: verification judges the delta, not the absolute state. The
+  // mission-montage fixture is five landscape camera files in a 9:16 frame; every correct
+  // trim on it used to fail "Reframing is consistent", buy a repair turn that could not fix
+  // it, and settle `failed` — with the edit applied and no error card.
+  it('a defect the footage already had does not fail a correct edit (inherited advisory)', async () => {
+    const portrait = makeProject({
+      resolution: { width: 1080, height: 1920 },
+      assets: [
+        {
+          id: 'asset_1',
+          path: 'media/a.mp4',
+          kind: 'video',
+          durationSeconds: 30,
+          media: { width: 1920, height: 1080 },
+        },
+      ],
+    });
+    // Sanity: the starting project already fails the reframing check on its own.
+    expect(
+      critique(portrait).checks.find((c) => c.id === 'reframe_coverage')?.status,
+    ).toBe('fail');
+    const provider = new ScriptedProvider([
+      { text: 'edit', toolCalls: [deleteRange('a', 0, 1)] },
+      { text: 'done' },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(
+        { project: portrait, userPrompt: 'trim the first second' },
+        opts(),
+        { autoRepair: false },
+      ),
+    );
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
+    // Said, once, as an advisory — not withheld, not blocking.
+    expect(
+      events.some((e) => e.type === 'notification' && e.text.includes(INHERITED_PREFIX)),
+    ).toBe(true);
+    expect(events.some((e) => e.type === 'warning' && e.text.startsWith('Reframing'))).toBe(false);
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+  });
+
+  it('a failed run that applied edits gets one error card and still gets its receipt', async () => {
+    // A 1s duration target the edited fixture cannot meet: request-derived, never inherited.
+    const provider = new ScriptedProvider([
+      { text: 'edit', toolCalls: [deleteRange('a', 0, 1)] },
+      { text: 'done' },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), {
+        durationTargetSeconds: 1,
+        autoRepair: false,
+      }),
+    );
+    expect(events.at(-1)).toMatchObject({ status: 'failed' });
+    const errors = events.filter((e) => e.type === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      message: expect.stringContaining('Applied 1 change, but the run could not finish'),
+      retryable: false,
+    });
+    expect(errors[0]).toMatchObject({ message: expect.stringContaining('undo reverts them') });
+    const receipt = events.filter((e) => e.type === 'assistant_message').at(-1);
+    expect(receipt).toMatchObject({
+      text: expect.stringContaining('but the run did not finish cleanly'),
+    });
   });
 
   it('runs one bounded repair pass that applies a fix, then re-checks (R3 C3)', async () => {

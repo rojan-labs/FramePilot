@@ -25,8 +25,18 @@ cost/duration estimate before the run, and `golden-gate.mjs` as the regression g
 Real-media runs are the maintainer's; the baseline for the new cases is **pending manual
 verification** (run recipe in `docs/guides/golden-eval.md`).
 
-- `[~]` GOLDEN-0.1 — golden set + rubric + metrics + runner + gate + operator guide.
+- `[x]` GOLDEN-0.1 — golden set + rubric + metrics + runner + gate + operator guide
+  (fixture-verified; commit `2ac473c`).
 - `[ ]` GOLDEN-0.2 — maintainer runs `pnpm eval:golden --yes`; floor written with `--write`.
+- `[x]` GOLDEN-A.1 — **verification judges the delta.** Found by the harness's mock smoke:
+  a correct trim on the montage fixture (landscape sources, 9:16 frame) failed "Reframing is
+  consistent" — a defect the footage had BEFORE the edit — bought a repair turn that could not
+  fix it, and settled `failed` with the edit applied and no error card. `critic.ts#
+  reconcileInheritedFailures`: a health check failing identically before and after is an
+  advisory; request-derived checks are never excused. A failed run that applied work now
+  emits one `error` card (`conductor.ts#failedAfterApplyMessage`) and still gets its receipt.
+  Real-media effect on `trim-first-clip-10s`/`reorder-last-first`: **pending manual
+  verification** (expected: `completed`, advisory notice, no repair turn).
 
 **Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on
 `fix/agent-run-reliability`. Three root causes found and fixed from captured run
