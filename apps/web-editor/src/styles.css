@@ -10276,6 +10276,33 @@ a.export-credits-license {
 .ai-agent-option-hint {
   color: var(--text-tertiary);
 }
+/* The run-budget row carries two fields plus a full sentence — it wraps rather than
+   pushing the composer off the panel in a narrow sidebar. */
+.ai-agent-option--budget {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: var(--space-1);
+}
+.ai-budget-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  cursor: text;
+}
+/* Narrow enough to read as an inline value in the sentence, wide enough for "120". */
+.ai-budget-input {
+  width: 52px;
+  padding: 2px var(--space-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+}
+.ai-budget-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 
 /* Composer — the row holding the textarea + send/stop inside the shell well. */
 .ai-composer {

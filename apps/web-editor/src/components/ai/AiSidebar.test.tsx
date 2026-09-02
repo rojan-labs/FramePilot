@@ -1200,7 +1200,12 @@ describe('AiSidebar', () => {
     });
     // P11.3: requirePlanApproval mirrors planFirst — the gate only ever fires when a
     // plan was actually drafted, so it's threaded 1:1 with the existing toggle.
-    await waitFor(() => expect(seen).toEqual([{ planFirst: true, requirePlanApproval: true }]));
+    await waitFor(() =>
+      expect(seen).toEqual([
+        // The run budget (Workstream D) rides the same options object, at its defaults.
+        { planFirst: true, requirePlanApproval: true, maxUsd: 5, maxMinutes: 20 },
+      ]),
+    );
 
     // Turning it off threads planFirst:false (and the gate off with it) on the next run.
     fireEvent.click(toggle);
@@ -1208,7 +1213,14 @@ describe('AiSidebar', () => {
     await act(async () => {
       fireEvent.click(screen.getByLabelText('Send'));
     });
-    await waitFor(() => expect(seen[1]).toEqual({ planFirst: false, requirePlanApproval: false }));
+    await waitFor(() =>
+      expect(seen[1]).toEqual({
+        planFirst: false,
+        requirePlanApproval: false,
+        maxUsd: 5,
+        maxMinutes: 20,
+      }),
+    );
 
     // In Chat mode the toggle is hidden and no agent options are sent.
     fireEvent.click(screen.getByRole('button', { name: 'AI mode' }));

@@ -27,6 +27,8 @@ import {
   createPlanApprovalGate,
   createSteeringQueue,
   createTurnEmitter,
+  DEFAULT_MAX_RUN_MINUTES,
+  DEFAULT_MAX_RUN_USD,
   projectNames,
   readMemory,
   recordAccepted,
@@ -165,6 +167,71 @@ function loadPlanFirst(): boolean {
     return true;
   }
 }
+
+/** Persisted run-budget preferences. The SDK bounds every run by cost and wall clock
+    and announces the bound as the run's second event; without these the editor could
+    only ever be *told* the default. Like plan-first these are UI preferences, not
+    project state — no schema, no migration. */
+const MAX_USD_STORAGE_KEY = 'framepilot.ai.maxUsd';
+const MAX_MINUTES_STORAGE_KEY = 'framepilot.ai.maxMinutes';
+/** Bounds on the bound. Below the floor a run cannot finish even a trivial edit;
+    above the ceiling the budget stops being a guard rail. */
+const MIN_RUN_USD = 0.5;
+const MAX_RUN_USD = 50;
+const RUN_USD_STEP = 0.5;
+const MIN_RUN_MINUTES = 1;
+const MAX_RUN_MINUTES = 120;
+/** Said in the panel, in the words the run itself uses when it stops. */
+const RUN_BUDGET_HINT =
+  'The AI stops at the next step once a run reaches either limit, and tells you what it applied.';
+
+/** Clamp a candidate budget into range, falling back to `fallback` for anything that is
+    not a finite number. Guarantees a number on the wire — never `NaN`, never a bound the
+    SDK would reject. */
+function coerceBudget(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+  integer: boolean,
+): number {
+  const parsed = typeof value === 'number' ? value : Number(String(value ?? '').trim());
+  if (!Number.isFinite(parsed)) return fallback;
+  const clamped = Math.min(max, Math.max(min, parsed));
+  return integer ? Math.round(clamped) : clamped;
+}
+
+/** Read a saved budget. A missing, malformed or OUT-OF-RANGE stored value falls back to
+    the SDK default rather than being clamped — a stored value outside the range was never
+    a choice this UI could have written, so it is not trusted as one. */
+function loadBudget(
+  key: string,
+  fallback: number,
+  min: number,
+  max: number,
+  integer: boolean,
+): number {
+  try {
+    const raw = globalThis.localStorage?.getItem(key);
+    if (raw === null || raw === undefined || raw.trim() === '') return fallback;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < min || parsed > max) return fallback;
+    return integer ? Math.round(parsed) : parsed;
+  } catch {
+    return fallback;
+  }
+}
+
+const loadMaxUsd = (): number =>
+  loadBudget(MAX_USD_STORAGE_KEY, DEFAULT_MAX_RUN_USD, MIN_RUN_USD, MAX_RUN_USD, false);
+const loadMaxMinutes = (): number =>
+  loadBudget(
+    MAX_MINUTES_STORAGE_KEY,
+    DEFAULT_MAX_RUN_MINUTES,
+    MIN_RUN_MINUTES,
+    MAX_RUN_MINUTES,
+    true,
+  );
 
 const newId = (): string => globalThis.crypto.randomUUID();
 /** True for the `AbortError` a Stop/close raises through the browser stream — a clean
@@ -394,6 +461,45 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       /* storage unavailable (private mode / SSR) — keep the in-memory choice */
     }
   }, []);
+  // Agent-mode option (Workstream D): the run budget. The SDK bounds every run by cost
+  // and wall clock; these are the editor's way to set the bound it is announced. The
+  // committed numbers are what go on the wire; the drafts are what the user is typing,
+  // so a half-entered "1." never reaches the SDK.
+  const [maxUsd, setMaxUsdState] = useState<number>(loadMaxUsd);
+  const [maxMinutes, setMaxMinutesState] = useState<number>(loadMaxMinutes);
+  const [maxUsdDraft, setMaxUsdDraft] = useState<string>(() => String(loadMaxUsd()));
+  const [maxMinutesDraft, setMaxMinutesDraft] = useState<string>(() => String(loadMaxMinutes()));
+  const persistBudget = useCallback((key: string, value: number) => {
+    try {
+      globalThis.localStorage?.setItem(key, String(value));
+    } catch {
+      /* storage unavailable (private mode / SSR) — keep the in-memory choice */
+    }
+  }, []);
+  const commitMaxUsd = useCallback(
+    (raw: string) => {
+      const next = coerceBudget(raw, DEFAULT_MAX_RUN_USD, MIN_RUN_USD, MAX_RUN_USD, false);
+      setMaxUsdState(next);
+      setMaxUsdDraft(String(next));
+      persistBudget(MAX_USD_STORAGE_KEY, next);
+    },
+    [persistBudget],
+  );
+  const commitMaxMinutes = useCallback(
+    (raw: string) => {
+      const next = coerceBudget(
+        raw,
+        DEFAULT_MAX_RUN_MINUTES,
+        MIN_RUN_MINUTES,
+        MAX_RUN_MINUTES,
+        true,
+      );
+      setMaxMinutesState(next);
+      setMaxMinutesDraft(String(next));
+      persistBudget(MAX_MINUTES_STORAGE_KEY, next);
+    },
+    [persistBudget],
+  );
   // Edit-mode option: opt in to 2 alternative takes on the same request (H1.5/P13.1 —
   // "variations / A-B compare"). Off by default — each extra take is a REAL, separately
   // billed model call (cost-honesty invariant, lens §2.5.6), so this is never silently
@@ -1437,7 +1543,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
           // classifies to an edit it delegates to the very same agent loop (ADR 0055).
           ...(runMode === 'agent' || runMode === 'auto'
             ? {
-                agentOptions: { planFirst, requirePlanApproval: planFirst },
+                agentOptions: { planFirst, requirePlanApproval: planFirst, maxUsd, maxMinutes },
                 controls: { planApproval: planApprovalGate, steering: steeringQueue },
               }
             : {}),
@@ -1567,6 +1673,8 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       activeProviderName,
       activeProvider,
       planFirst,
+      maxUsd,
+      maxMinutes,
       wantVariations,
       composerSelection,
       pinnedEntities,
@@ -1651,6 +1759,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         ...(activeProviderName !== 'mock' ? { provider: activeProviderName } : {}),
         agentOptions: {
           planFirst,
+          // A resumed run is a fresh run to the SDK, so it needs the budget too.
+          maxUsd,
+          maxMinutes,
           resume: {
             ops: cp.ops as readonly AnyOperation[],
             log: cp.log,
@@ -1687,6 +1798,8 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     projectRevision,
     activeProviderName,
     planFirst,
+    maxUsd,
+    maxMinutes,
     conversations,
   ]);
 
@@ -2315,6 +2428,59 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
               >
                 Set API key
               </button>
+            </div>
+          )}
+
+          {/* Run budget (Workstream D). Docked in the mode's existing options row rather
+              than the header: the header has room for a switch, not for two fields and the
+              sentence that makes them mean something. Same row, same classes the edit-mode
+              option uses — one options surface, not two. Agent mode only; chat/edit ignore
+              agentOptions entirely. */}
+          {mode === 'agent' && (
+            <div className="ai-agent-options">
+              <div
+                className="ai-agent-option ai-agent-option--budget"
+                role="group"
+                aria-label="Run budget"
+              >
+                <label className="ai-budget-field">
+                  <span>Stop a run after $</span>
+                  <input
+                    className="ai-budget-input"
+                    type="number"
+                    inputMode="decimal"
+                    min={MIN_RUN_USD}
+                    max={MAX_RUN_USD}
+                    step={RUN_USD_STEP}
+                    value={maxUsdDraft}
+                    data-testid="ai-max-usd"
+                    onChange={(event) => setMaxUsdDraft(event.target.value)}
+                    onBlur={(event) => commitMaxUsd(event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') event.currentTarget.blur();
+                    }}
+                  />
+                </label>
+                <label className="ai-budget-field">
+                  <input
+                    className="ai-budget-input"
+                    type="number"
+                    inputMode="numeric"
+                    min={MIN_RUN_MINUTES}
+                    max={MAX_RUN_MINUTES}
+                    step={1}
+                    value={maxMinutesDraft}
+                    data-testid="ai-max-minutes"
+                    onChange={(event) => setMaxMinutesDraft(event.target.value)}
+                    onBlur={(event) => commitMaxMinutes(event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') event.currentTarget.blur();
+                    }}
+                  />
+                  <span>min</span>
+                </label>
+                <span className="ai-agent-option-hint">{RUN_BUDGET_HINT}</span>
+              </div>
             </div>
           )}
 
