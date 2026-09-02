@@ -127,6 +127,38 @@ export function distil(args: {
   };
 }
 
+/**
+ * Collapse repeated intents into one line each, carrying how many times each happened.
+ *
+ * The ledger records one {@link OperationRecord} per *timeline operation*, and a caption
+ * pass builds one operation per cue — so run `369e8c82` rendered `- Added captions`
+ * thirty-four times and `- Set caption cue` thirty-four times: 1,819 characters, ~455
+ * tokens, on every turn after the caption pass, carrying no information the first two
+ * lines had not already carried.
+ *
+ * A count is the right compression for what this section is FOR. It exists so a run does
+ * not redo work it has already done, and "captions were added" is what stops the redo;
+ * thirty-four identical restatements of it do not stop it thirty-four times harder. The
+ * count is kept rather than dropped because the magnitude is occasionally the point — a
+ * run that reads `Set caption cue (×34)` can tell a finished caption pass from a single
+ * stray cue, which a bare deduped line cannot.
+ *
+ * Distinct intents are NOT capped. Each one is the only record that a distinct piece of
+ * work happened, so dropping one re-enables exactly the repeat this section prevents; the
+ * redundancy was the cost, not the length. First-seen order is kept so the section still
+ * reads as the order the run did things.
+ *
+ * A single occurrence renders exactly as it did before — no `(×1)` — so a run that did
+ * each thing once pays nothing for this and its recordings do not move.
+ */
+function tallyIntents(records: readonly { readonly intent: string }[]): readonly string[] {
+  const counts = new Map<string, number>();
+  for (const record of records) counts.set(record.intent, (counts.get(record.intent) ?? 0) + 1);
+  return [...counts].map(([intent, count]) =>
+    count > 1 ? `- ${intent} (×${count})` : `- ${intent}`,
+  );
+}
+
 /** Render one fact with its evidence handles, so any claim can be checked. */
 function renderFact(fact: Fact): string {
   const cites = fact.evidenceIds.length > 0 ? ` [${fact.evidenceIds.join(', ')}]` : '';
@@ -254,9 +286,7 @@ export function buildStateBriefing(
   const succeeded = state.operations.filter((o) => o.status === 'succeeded');
   const failed = state.operations.filter((o) => o.status === 'failed');
   if (succeeded.length > 0) {
-    sections.push(
-      `ALREADY APPLIED — do not repeat\n${succeeded.map((o) => `- ${o.intent}`).join('\n')}`,
-    );
+    sections.push(`ALREADY APPLIED — do not repeat\n${tallyIntents(succeeded).join('\n')}`);
   }
   if (failed.length > 0) {
     sections.push(

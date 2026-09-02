@@ -1420,7 +1420,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s9",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 2505,
+            "tokenEstimate": 2502,
             "type": "system",
           },
           {
@@ -1434,8 +1434,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 11257,
-          "estimatedRemainingCapacity": 180551,
+          "estimatedInputTokensBeforeSend": 11254,
+          "estimatedRemainingCapacity": 180554,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -1445,7 +1445,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 11257,
+      "usedTokens": 11254,
     },
     {
       "conversationId": "conv_1",
@@ -1892,7 +1892,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s9",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 2745,
+            "tokenEstimate": 2743,
             "type": "system",
           },
           {
@@ -1906,8 +1906,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 10876,
-          "estimatedRemainingCapacity": 180932,
+          "estimatedInputTokensBeforeSend": 10874,
+          "estimatedRemainingCapacity": 180934,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -1917,7 +1917,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 10876,
+      "usedTokens": 10874,
     },
     {
       "conversationId": "conv_1",

@@ -6,6 +6,7 @@
  * restatements of things already recorded.
  */
 import { describe, expect, it } from 'vitest';
+import { estimateTokens } from '../context-builder.js';
 import { buildStateBriefing, distil } from './briefing.js';
 import {
   advanceStage,
@@ -179,7 +180,11 @@ describe('buildStateBriefing', () => {
   // 47.8-second bed on turn five against a 27.5-second target, which decided both of its
   // terminal failures, and learned about neither for seventeen turns.
   it('shows where the cut stands against its target, while the run can still act', () => {
-    const state = initialWorkingState({ runId: 'run_1', request: 'a 30s reel', projectRevision: 0 });
+    const state = initialWorkingState({
+      runId: 'run_1',
+      request: 'a 30s reel',
+      projectRevision: 0,
+    });
     const text = buildStateBriefing(state, [
       'Timeline is 47.8s but the target is 27.5s (off by 20.3s).',
       '23.7s of the 47.8s programme has no picture under it — that renders as black.',
@@ -190,7 +195,11 @@ describe('buildStateBriefing', () => {
   });
 
   it('says nothing about where it stands when every condition is met', () => {
-    const state = initialWorkingState({ runId: 'run_1', request: 'a 30s reel', projectRevision: 0 });
+    const state = initialWorkingState({
+      runId: 'run_1',
+      request: 'a 30s reel',
+      projectRevision: 0,
+    });
     expect(buildStateBriefing(state, [])).not.toContain('WHERE YOU STAND');
   });
 
@@ -307,6 +316,106 @@ describe('buildStateBriefing', () => {
     expect(text).toContain('ripple_delete 2:10–3:40');
     expect(text).toContain('FAILED — fix the cause, do not retry unchanged');
     expect(text).toContain('overlaps clip_b');
+  });
+
+  describe('ALREADY APPLIED collapses repetition without losing work', () => {
+    /** The ledger's fan-out: one record per timeline operation, distinct idempotency keys. */
+    const fanOut = (
+      state: RunWorkingState,
+      intents: readonly string[],
+      keyPrefix = 'op',
+    ): RunWorkingState =>
+      intents.reduce(
+        (acc, intent, index) =>
+          recordOperation(acc, {
+            intent,
+            status: 'succeeded',
+            idempotencyKey: `${keyPrefix}_${index}`,
+          }),
+        state,
+      );
+
+    const applied = (text: string): string[] => {
+      const section = text.split('\n\n').find((s) => s.startsWith('ALREADY APPLIED'));
+      return (section ?? '').split('\n').slice(1);
+    };
+
+    it('renders a lone operation exactly as it always did — no count on one', () => {
+      // A run that did each thing once must pay nothing for this collapse, and its frozen
+      // recordings must not move because of it.
+      const text = buildStateBriefing(fanOut(base(), ['Trimmed Intro.mp4 · 0s–3.2s']));
+      expect(applied(text)).toEqual(['- Trimmed Intro.mp4 · 0s–3.2s']);
+    });
+
+    it('collapses a caption pass to one line per intent, carrying the count', () => {
+      // The shape of captured run `369e8c82`: `caption_the_edit` builds one operation per
+      // cue, so the ledger held 34 + 34 records and the briefing restated two facts 68
+      // times on every turn after the pass.
+      const intents = [
+        ...Array.from({ length: 34 }, () => 'Added captions'),
+        ...Array.from({ length: 34 }, () => 'Set caption cue'),
+      ];
+      const text = buildStateBriefing(fanOut(base(), intents));
+      expect(applied(text)).toEqual(['- Added captions (×34)', '- Set caption cue (×34)']);
+    });
+
+    it('holds flat at a hundred repeats of one intent', () => {
+      const text = buildStateBriefing(
+        fanOut(
+          base(),
+          Array.from({ length: 100 }, () => 'Set caption cue'),
+        ),
+      );
+      expect(applied(text)).toEqual(['- Set caption cue (×100)']);
+    });
+
+    it('keeps every DISTINCT operation, in the order the run did them', () => {
+      // The section exists so a run does not redo work. A distinct intent is the only
+      // record that a distinct piece of work happened, so it is never elided — the
+      // redundancy was the cost, not the length.
+      const intents = Array.from({ length: 100 }, (_, i) => `Trimmed clip_${i}`);
+      const lines = applied(buildStateBriefing(fanOut(base(), intents)));
+      expect(lines).toHaveLength(100);
+      expect(lines[0]).toBe('- Trimmed clip_0');
+      expect(lines.at(-1)).toBe('- Trimmed clip_99');
+    });
+
+    it('orders by first occurrence, not by count', () => {
+      const text = buildStateBriefing(
+        fanOut(base(), ['Trimmed clip_a', 'Added captions', 'Added captions', 'Trimmed clip_a']),
+      );
+      expect(applied(text)).toEqual(['- Trimmed clip_a (×2)', '- Added captions (×2)']);
+    });
+
+    it('leaves FAILED alone — a reason is what distinguishes two failures', () => {
+      let state = recordOperation(base(), {
+        intent: 'add_clip',
+        status: 'failed',
+        failureReason: 'overlaps clip_b',
+        idempotencyKey: 'f1',
+      });
+      state = recordOperation(state, {
+        intent: 'add_clip',
+        status: 'failed',
+        failureReason: 'clip not found',
+        idempotencyKey: 'f2',
+      });
+      const text = buildStateBriefing(state);
+      expect(text).toContain('overlaps clip_b');
+      expect(text).toContain('clip not found');
+    });
+
+    it('costs a bounded number of tokens for the captured run (gated, Workstream E)', () => {
+      // Prompt cost as an assertion, not an intuition. The pre-collapse rendering of this
+      // exact ledger was 1,189 characters / 298 estimated tokens, paid on EVERY turn after
+      // the caption pass. Loosen this only with a measured accuracy reason.
+      const intents = [
+        ...Array.from({ length: 34 }, () => 'Added captions'),
+        ...Array.from({ length: 34 }, () => 'Set caption cue'),
+      ];
+      const section = applied(buildStateBriefing(fanOut(base(), intents))).join('\n');
+      expect(estimateTokens(section)).toBeLessThanOrEqual(20);
+    });
   });
 
   it('reports a failure with no recorded reason honestly', () => {
