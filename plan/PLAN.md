@@ -92,6 +92,14 @@ reconcileInheritedFailures`: a health check failing identically before and after
 - `[x]` GOLDEN-C.4 — paid/slow tools state their cost, latency and caching in their descriptions (+60 tokens/request measured).
 - `[x]` GOLDEN-A.2 — a wrong clip id is answered with the nearest real ids and what is on the timeline (mirrors `dca15af` for tracks), so mistargeting costs a sentence, not a turn.
 - `[x]` GOLDEN-D.3 — the run budget is the editor's to set: "Stop a run after $__ / __ min" in **Settings → AI**, persisted in `framepilot.settings`, sent as `maxUsd`/`maxMinutes` on every run including a resumed one. Maintainer decision (2026-09-02): the budget is surfaced **permanently in Settings**, not announced per run — the SDK's opening `budgetNotice` is deleted, so a run's first event is the `thinking` status. This supersedes goal.md D's "surfaced before an expensive operation starts"; `budgetExhausted` still says why a run stopped.
+- `[x]` GOLDEN-C.5 — **two tool results that named no next move** (run `369e8c82`).
+  `map_footage` interpolated the engine's bare `not_indexed` token; it now goes through the
+  same expansion `describe_footage` uses, with mapping-specific wording (sampling across the
+  asset, not one `get_frame`) via a per-tool override table on the same reason vocabulary.
+  `add_music` / `add_stock` refused a re-add with the panel's "Place it from the bin", which
+  names no tool; both now name `add_clip` and hand over the asset id. Unrecognized reasons
+  still pass through verbatim. Open: the re-add case could simply succeed by placing the
+  asset already in the project — **maintainer decision**, it changes what the tool does.
 - `[ ]` GOLDEN-D.5 — **the wall-clock budget cannot fire during a step.** Captured run
   `369e8c82` (`run.md`) hung at 15:16:45 mid-`generating` and died with the app at 15:55:33 —
   68 minutes against a 37-minute bound. `budgetExhausted` is read only by `advance()`, which

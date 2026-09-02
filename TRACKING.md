@@ -147,14 +147,14 @@ the same track). What is wrong is upstream: state advertises a placement target
 that cannot hold a clip, and the repeat-call ledger records the identical
 `add_clips:{"trackId":"b_roll",…}` key each time without it changing anything.
 
-### R3 — `map_footage` answers `not_indexed` six times and says nothing useful `[ ]`
+### R3 — `map_footage` answers `not_indexed` six times and says nothing useful `[x]` `92a0387`
 
 Six stock clips, six warnings, `durationSec: 0`, `summary: ""`, no next action.
 The agent then placed that stock blind. goal.md C: an error is a prompt — it must
 say what a valid next action looks like ("not indexed; index it with … or use the
 provider's own description").
 
-### R4 — `add_music` refuses in the panel's words, not the agent's `[ ]`
+### R4 — `add_music` refuses in the panel's words, not the agent's `[x]` `92a0387`
 
 > That track is already in your media bin — it was not downloaded again. Place it
 > from the bin, or pick a different track.
