@@ -309,11 +309,28 @@ export type RunPhase =
   | 'review'
   | 'cancelled';
 
+/**
+ * Default cost bound on one run, in USD (goal.md Workstream D: "bound every run with
+ * explicit turn, time, and cost budgets, surfaced to the user before an expensive
+ * operation starts"). Generous on purpose — a good thirty-call montage on a large model
+ * costs a few dollars, and a cap that kills a valid long run trades correctness for
+ * cost, which the priority order forbids. What it stops is the run that spends without
+ * landing anything: the captured run in plan/PLAN.md burned $1.20 applying nothing, and
+ * nothing bounded it. An unpriced provider (usd stays 0) never trips this.
+ */
+export const DEFAULT_MAX_RUN_USD = 5;
+/** Default wall-clock bound on one run, in minutes; checked at turn boundaries. */
+export const DEFAULT_MAX_RUN_MINUTES = 20;
+
 /** Run bounds resolved from the command's {@link AgentOptions} (with defaults). */
 export interface ConductorConfig {
   readonly maxSteps: number;
   readonly maxOpsPerTurn: number;
   readonly maxOpsPerRun: number;
+  /** Cost bound in USD — see {@link DEFAULT_MAX_RUN_USD}. */
+  readonly maxUsd: number;
+  /** Wall-clock bound in milliseconds — see {@link DEFAULT_MAX_RUN_MINUTES}. */
+  readonly maxWallMs: number;
   /** Gate a high-blast-radius drafted plan for approval (P11.3) — see `AgentOptions.requirePlanApproval`. */
   readonly planApprovalGated: boolean;
   /** Consecutive low-delta, zero-edit turns that confirm convergence (E4). */
@@ -448,6 +465,14 @@ export interface ConductorState {
    */
   readonly verifyFixTurns: number;
   /**
+   * What the run has spent so far, folded from each turn's {@link AgentTurnResult.runUsd}
+   * / {@link AgentTurnResult.runElapsedMs} so the pure reducer can hold the run to its
+   * budget without a clock or a price table of its own. Always present; 0 until a turn
+   * reports.
+   */
+  readonly runUsd: number;
+  readonly runElapsedMs: number;
+  /**
    * The action log the handlers build (byte-identical to streamAgent's), mirrored
    * here so the resume {@link CheckpointEvent} the reducer emits carries it.
    */
@@ -491,6 +516,8 @@ export function initialConductorState(turnRef: TurnRef): ConductorState {
       maxSteps: DEFAULT_MAX_AGENT_STEPS,
       maxOpsPerTurn: DEFAULT_MAX_OPS_PER_TURN,
       maxOpsPerRun: DEFAULT_MAX_OPS_PER_RUN,
+      maxUsd: DEFAULT_MAX_RUN_USD,
+      maxWallMs: DEFAULT_MAX_RUN_MINUTES * 60_000,
       planApprovalGated: false,
       diminishingReturnsTurns: DIMINISHING_RETURNS_TURNS,
       diminishingReturnsMinOutputTokens: DIMINISHING_RETURNS_MIN_OUTPUT_TOKENS,
@@ -508,6 +535,8 @@ export function initialConductorState(turnRef: TurnRef): ConductorState {
     rejectedOpCount: 0,
     rejectionReasons: [],
     lastRejectionReason: '',
+    runUsd: 0,
+    runElapsedMs: 0,
     working: initialWorkingState({ runId: turnRef.turnId, request: '' }),
     recentIntents: [],
     noProgressStreak: 0,
@@ -697,6 +726,10 @@ export interface TurnCallFact {
 export interface AgentTurnResult {
   readonly kind: 'agent_turn';
   readonly stepIndex: number;
+  /** The run's cumulative cost in USD after this turn (the runtime keeps the meter). */
+  readonly runUsd?: number;
+  /** Milliseconds since the run started, at the end of this turn. */
+  readonly runElapsedMs?: number;
   /** The run's signal aborted at the turn boundary / mid-stream (no plan event). */
   readonly aborted: boolean;
   /** The model made no tool calls — it considers the goal met. */
@@ -1154,8 +1187,45 @@ function cancelFinalize(state: ConductorState, em: Emitter, events: AiEvent[]): 
   return finalize({ ...state, cancelled: true }, em, events);
 }
 
-/** Continue to the next turn, or verify once the step cap is reached. */
+/** The one-line budget announcement for a run about to start. */
+export function budgetNotice(config: ConductorConfig): string {
+  const minutes = Math.round(config.maxWallMs / 60_000);
+  return (
+    `This run may use up to ${String(config.maxSteps)} steps, $${config.maxUsd.toFixed(2)} ` +
+    `and ${String(minutes)} minutes; it stops and reports what it applied if it reaches any of them.`
+  );
+}
+
+/**
+ * Why the run must stop now on its cost or time budget, or `undefined` while within both.
+ * Cost is only ever compared when a turn reported a price; an unpriced run (usd 0) is
+ * never stopped for money it could not measure.
+ */
+export function budgetExhausted(state: ConductorState): string | undefined {
+  const { maxUsd, maxWallMs } = state.config;
+  const steps = `${String(state.stepIndex)} step${state.stepIndex === 1 ? '' : 's'}`;
+  if (state.runUsd > 0 && state.runUsd >= maxUsd) {
+    return (
+      `Reached this run's $${maxUsd.toFixed(2)} budget after ${steps} ` +
+      `($${state.runUsd.toFixed(2)} spent) — stopping and reporting what was applied.`
+    );
+  }
+  if (state.runElapsedMs >= maxWallMs) {
+    return (
+      `Reached this run's ${String(Math.round(maxWallMs / 60_000))}-minute limit after ${steps} ` +
+      `— stopping and reporting what was applied.`
+    );
+  }
+  return undefined;
+}
+
+/** Continue to the next turn, or verify once the step cap — or the cost/time budget — is reached. */
 function advance(state: ConductorState, em: Emitter, events: AiEvent[]): ConductorStep {
+  const exhausted = budgetExhausted(state);
+  if (exhausted !== undefined) {
+    events.push(em.notification(exhausted));
+    return toVerify(state, em, events);
+  }
   if (state.stepIndex < state.config.maxSteps) {
     const stepIndex = state.stepIndex + 1;
     return {
@@ -1189,6 +1259,8 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
     maxSteps: ao.maxSteps ?? DEFAULT_MAX_AGENT_STEPS,
     maxOpsPerTurn: ao.maxOpsPerTurn ?? DEFAULT_MAX_OPS_PER_TURN,
     maxOpsPerRun: ao.maxOpsPerRun ?? DEFAULT_MAX_OPS_PER_RUN,
+    maxUsd: ao.maxUsd ?? DEFAULT_MAX_RUN_USD,
+    maxWallMs: (ao.maxMinutes ?? DEFAULT_MAX_RUN_MINUTES) * 60_000,
     planApprovalGated: !!ao.requirePlanApproval,
     diminishingReturnsTurns: ao.diminishingReturns?.turns ?? DIMINISHING_RETURNS_TURNS,
     diminishingReturnsMinOutputTokens:
@@ -1199,7 +1271,9 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
   // (each step's `run_turn` streams its own `${turnId}:reasoning:${index}` node), so there
   // is no shared per-run reasoning node to open here — that node was the one every later
   // step overwrote.
-  const events: AiEvent[] = [em.status('thinking')];
+  // The budget is SAID before the first model call, so an expensive run starts with the
+  // editor knowing what bounds it (goal.md D). One line, plain words.
+  const events: AiEvent[] = [em.status('thinking'), em.notification(budgetNotice(config))];
 
   const resuming = !!(ao.resume && ao.resume.ops.length > 0);
   const planning = !resuming && !!ao.planFirst && !command.stream.signal?.aborted;
@@ -1309,6 +1383,8 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
     rejectedOpCount: 0,
     rejectionReasons: [],
     lastRejectionReason: '',
+    runUsd: 0,
+    runElapsedMs: 0,
     cancelled: false,
     integrityFailed: false,
     verifyFixTurns: 0,
@@ -1542,10 +1618,17 @@ export function onResumeResult(state: ConductorState, r: ResumeResult, em: Emitt
 
 /** Fold one executed turn's outcome and decide the next step (the loop body). */
 export function onTurnResult(
-  state: ConductorState,
+  stateIn: ConductorState,
   r: AgentTurnResult,
   em: Emitter,
 ): ConductorStep {
+  // The meter first: every path below derives its next state from `state`, so folding the
+  // turn's spend here is what lets `advance` hold the run to its budget on any of them.
+  let state: ConductorState = {
+    ...stateIn,
+    runUsd: r.runUsd ?? stateIn.runUsd,
+    runElapsedMs: r.runElapsedMs ?? stateIn.runElapsedMs,
+  };
   const events: AiEvent[] = [];
   // FIRST, before any other read of the ledger.
   //

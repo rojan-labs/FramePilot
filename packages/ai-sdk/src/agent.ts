@@ -78,6 +78,18 @@ export interface AgentOptions {
    */
   readonly maxOpsPerRun?: number;
   /**
+   * Cost bound on the run in USD; the run stops at a turn boundary once its metered
+   * spend reaches it and reports what it applied. Defaults to
+   * `DEFAULT_MAX_RUN_USD` (`kernel/conductor.ts`). Never trips on an unpriced provider.
+   */
+  readonly maxUsd?: number;
+  /**
+   * Wall-clock bound on the run in minutes, checked at turn boundaries. Defaults to
+   * `DEFAULT_MAX_RUN_MINUTES`. A host that needs a hard mid-turn stop still uses the
+   * abort signal; this is the bound the editor is told about before the run starts.
+   */
+  readonly maxMinutes?: number;
+  /**
    * Whether to grant one bounded Critic-driven repair pass after the run when fixable
    * findings remain (R3 C3). Still human-approved; never auto-applies. Defaults to true.
    */

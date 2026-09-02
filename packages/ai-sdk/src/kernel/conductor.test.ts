@@ -147,7 +147,8 @@ describe('onCommand', () => {
     ]);
     // No run-level reasoning node any more — reasoning is opened PER STEP inside each
     // run_turn (`${turnId}:reasoning:${index}`). onCommand only emits the header spinner.
-    expect(types(events)).toEqual(['status']);
+    // The header spinner, then the run's budget said before any model call (goal.md D).
+    expect(types(events)).toEqual(['status', 'notification']);
     expect(events[0]).toMatchObject({ type: 'status', status: 'thinking' });
   });
 
@@ -218,6 +219,8 @@ describe('onCommand', () => {
       maxSteps: 300,
       maxOpsPerTurn: 200,
       maxOpsPerRun: 800,
+      maxUsd: 5,
+      maxWallMs: 20 * 60_000,
       planApprovalGated: false,
       diminishingReturnsTurns: DIMINISHING_RETURNS_TURNS,
       diminishingReturnsMinOutputTokens: DIMINISHING_RETURNS_MIN_OUTPUT_TOKENS,
@@ -229,6 +232,8 @@ describe('onCommand', () => {
           maxSteps: 3,
           maxOpsPerTurn: 5,
           maxOpsPerRun: 9,
+          maxUsd: 2,
+          maxMinutes: 1,
           diminishingReturns: { turns: 4, minOutputTokens: 50 },
         }),
       ).state.config,
@@ -236,6 +241,8 @@ describe('onCommand', () => {
       maxSteps: 3,
       maxOpsPerTurn: 5,
       maxOpsPerRun: 9,
+      maxUsd: 2,
+      maxWallMs: 60_000,
       planApprovalGated: false,
       diminishingReturnsTurns: 4,
       diminishingReturnsMinOutputTokens: 50,
@@ -1442,6 +1449,56 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     const plan = events[0] as { steps: PlanStep[] };
     expect(plan.steps).toHaveLength(2);
     expect(plan.steps[1]).toMatchObject({ id: 'step-2', status: 'completed' });
+  });
+});
+
+// goal.md Workstream D: every run is bounded by explicit turn, time and cost budgets,
+// surfaced before the first model call.
+describe('run budgets', () => {
+  it('announces the budget before the first turn', () => {
+    const { events } = onCommand(idle, command());
+    const notice = events.find((e) => e.type === 'notification');
+    expect(notice).toMatchObject({
+      text: expect.stringMatching(/^This run may use up to \d+ steps, \$5\.00 and 20 minutes;/),
+    });
+    // Said before anything runs: the status opener, then the budget, then the work.
+    expect(types(events).slice(0, 2)).toEqual(['status', 'notification']);
+  });
+
+  it('honours the caller\'s own caps in the announcement', () => {
+    const { events, state } = onCommand(idle, command({ maxUsd: 1.5, maxMinutes: 3 }));
+    expect(state.config).toMatchObject({ maxUsd: 1.5, maxWallMs: 180_000 });
+    expect(events[1]).toMatchObject({ text: expect.stringContaining('$1.50 and 3 minutes') });
+  });
+
+  it('stops at the cost budget and verifies what was applied', () => {
+    const s = started({ config: { ...started().config, maxUsd: 1 } });
+    const { state, effects, events } = onEffectResult(s, turn({ applied: true, turnOpCount: 1, appliedOps: ops(1), runUsd: 1.25 }));
+    expect(state.runUsd).toBe(1.25);
+    expect(effects[0]).toMatchObject({ kind: 'run_verify' });
+    expect(events.some((e) => e.type === 'notification' && e.text.startsWith("Reached this run's $1.00 budget after 1 step ($1.25 spent)"))).toBe(true);
+  });
+
+  it('stops at the time limit', () => {
+    const s = started({ config: { ...started().config, maxWallMs: 60_000 } });
+    const { effects, events } = onEffectResult(s, turn({ runElapsedMs: 61_000 }));
+    expect(effects[0]).toMatchObject({ kind: 'run_verify' });
+    expect(events.some((e) => e.type === 'notification' && e.text.includes("1-minute limit"))).toBe(true);
+  });
+
+  it('within budget, the run advances; an unpriced run is never stopped for money', () => {
+    const s = started({ config: { ...started().config, maxUsd: 1 } });
+    const within = onEffectResult(s, turn({ runUsd: 0.4 }));
+    expect(within.effects[0]).toMatchObject({ kind: 'run_turn' });
+    const unpriced = onEffectResult(s, turn({ runUsd: 0 }));
+    expect(unpriced.effects[0]).toMatchObject({ kind: 'run_turn' });
+    expect(unpriced.events.some((e) => e.type === 'notification' && e.text.includes('budget'))).toBe(false);
+  });
+
+  it('a turn that does not report spend keeps the last known figures', () => {
+    const s = started({ runUsd: 0.7, runElapsedMs: 5_000 });
+    const { state } = onEffectResult(s, turn({}));
+    expect(state).toMatchObject({ runUsd: 0.7, runElapsedMs: 5_000 });
   });
 });
 

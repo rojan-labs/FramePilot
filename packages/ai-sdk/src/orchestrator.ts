@@ -7170,6 +7170,7 @@ export class Orchestrator {
     // ADR 0057: agent runs advertise the bundled skills manifest by default.
     input = this.withSkills(input);
     const now = options.now ?? Date.now;
+    const runStartedAt = now();
     const signal = options.signal;
     const maxOpsPerTurn = agentOptions.maxOpsPerTurn ?? DEFAULT_MAX_OPS_PER_TURN;
     const { runtime: effectRuntime, finish: finishEffects } = this.createRunRuntime(
@@ -7370,6 +7371,9 @@ export class Orchestrator {
       intent: '',
       log: [...log],
       endSeq,
+      // The run's meter and clock, so the reducer can hold the run to its budget.
+      runUsd: usageUsd,
+      runElapsedMs: now() - runStartedAt,
       ...(hostRefusals.length > 0 ? { hostRefusals: hostRefusals.splice(0) } : {}),
       ...over,
     });

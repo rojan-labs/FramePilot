@@ -319,6 +319,8 @@ export function parseAgentOptions(value: unknown): AiStreamAgentOptions | undefi
     'maxSteps',
     'maxOpsPerTurn',
     'maxOpsPerRun',
+    'maxUsd',
+    'maxMinutes',
     'durationTargetSeconds',
   ] as const) {
     const n = record[key];

@@ -2377,6 +2377,36 @@ describe('streamAgent robustness (parity with agent())', () => {
     });
   });
 
+  // goal.md Workstream D: a run is bounded by a wall-clock budget it announced up front.
+  it('announces its budget, then stops at the time limit and still reports what it applied', async () => {
+    const provider = new ScriptedProvider([
+      { text: 'edit', toolCalls: [deleteRange('a', 0, 1)] },
+      { text: 'edit', toolCalls: [deleteRange('b', 6, 7)] },
+      { text: 'done' },
+    ]);
+    // A clock that jumps eleven minutes per read: the first turn boundary already sees
+    // more than the two-minute limit below.
+    let t = 1_000;
+    const now = () => (t += 11 * 60_000);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(input, { ...opts(), now }, {
+        maxMinutes: 2,
+        autoRepair: false,
+      }),
+    );
+    expect(events[1]).toMatchObject({
+      type: 'notification',
+      text: expect.stringContaining('$5.00 and 2 minutes'),
+    });
+    expect(events.some((e) => e.type === 'notification' && e.text.includes('2-minute limit'))).toBe(true);
+    // One turn landed; the second scripted edit never ran.
+    expect(events.filter((e) => e.type === 'diff')).toHaveLength(1);
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
+    expect(events.filter((e) => e.type === 'assistant_message').at(-1)).toMatchObject({
+      text: expect.stringContaining('Applied 1 edit'),
+    });
+  });
+
   it('runs one bounded repair pass that applies a fix, then re-checks (R3 C3)', async () => {
     const provider = new ScriptedProvider([
       { text: 'edit', toolCalls: [deleteRange('a', 0, 3)] }, // turn 1 applies

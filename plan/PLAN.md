@@ -49,6 +49,18 @@ verification** (run recipe in `docs/guides/golden-eval.md`).
   renders differ by one byte inside `mdat` — inherent hardware nondeterminism, documented in
   `docs/guides/export.md`. Whether the desktop default should trade export speed for
   reproducibility is a **maintainer decision** (currently hardware first).
+- `[x]` GOLDEN-D.1 — **runs are bounded by cost and time, announced up front.** No USD or
+  wall-clock bound existed (only steps/ops). `ConductorConfig.maxUsd/maxWallMs`
+  (`AgentOptions.maxUsd/maxMinutes`, defaults $5 / 20 min), the meter folded from each
+  turn (`AgentTurnResult.runUsd/runElapsedMs`), `budgetNotice` said as the second event of
+  every run, `budgetExhausted` routed through verify so applied work is still reported.
+  Desktop IPC allowlists the two keys; no settings UI yet (defaults apply). Whether $5/20 min
+  are the right desktop defaults: **maintainer decision**; effect on real runs **pending
+  manual verification** (expected: the notice at the top of every run; no valid run stopped).
+- `[x]` GOLDEN-B.0 — **index cache audited, no change:** analysis results are keyed by
+  content SHA-256 + analyzer version + params (`analysis/tiers.py`), assets carry
+  `content_sha256` in the brain store, transcription honours `use_cache`, TwelveLabs has its
+  own content-keyed cache. goal.md B's "never analyzed or billed twice" holds by construction.
 
 **Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on
 `fix/agent-run-reliability`. Three root causes found and fixed from captured run

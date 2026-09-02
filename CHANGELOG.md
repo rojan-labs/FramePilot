@@ -14,6 +14,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   advisory ("Already so before this edit, not caused by it") instead of failing the run
   and spending a repair turn that could not fix it. Anything the request asked for (a
   target length, a shot count) is still held to the letter.
+- **Every agent run states its budget up front and stops when it reaches it.** The first
+  line of a run now says how many steps, how many dollars and how many minutes it may
+  use. If a run reaches its cost or time limit it stops at the next step boundary, checks
+  and reports what it applied, and says which limit it hit — instead of spending on
+  without landing anything. The defaults are generous (a good long edit fits inside them);
+  hosts can set `maxUsd` / `maxMinutes` per run.
 - **Every export is now checked against what you asked for.** After encoding, FramePilot
   verifies the file's size and frame rate match the chosen export target, that a
   timeline with sound produced sound, and that the picture and the audio run to the end —
