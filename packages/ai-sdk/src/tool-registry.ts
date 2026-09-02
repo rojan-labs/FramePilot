@@ -504,17 +504,14 @@ const askTools: ToolSpec[] = [
       description:
         'Ask the editor a question and wait for their answer. Use it when only they can ' +
         'settle something: the request is ambiguous, a capability you need does not exist ' +
-        'so you must offer alternatives, you are about to do something large or hard to ' +
-        'undo, or the answer depends on taste or on what they know about the footage. ' +
-        'Write your own question and, when it is a choice, 2-5 concrete options (a short ' +
-        'label each, plus a description when the consequence is not obvious); omit options ' +
-        'to invite a free-text answer. Their answer comes back as the result and you ' +
-        'continue from it. This tool is the ONLY way to ask: a question written into your ' +
-        'reply text cannot be clicked or answered — this call renders your options as ' +
-        'selectable choices and pauses until the editor picks. Ask instead of guessing ' +
-        'when a wrong guess would waste their footage or their time — but never ask what ' +
-        'a tool can tell you, and never ask twice about the same thing. Does not edit ' +
-        'the timeline.',
+        'so you must offer alternatives, or the answer depends on taste or on what they ' +
+        'know about the footage. Write your own question and, when it is a choice, 2-5 ' +
+        'concrete options (a short label each, plus a description when the consequence is ' +
+        'not obvious); omit options to invite a free-text answer. Their answer comes back ' +
+        'as the result and you continue from it. This tool is the ONLY way to ask: a ' +
+        'question written into your reply text cannot be clicked or answered — this call ' +
+        'renders your options as selectable choices and pauses until the editor picks. ' +
+        'Does not edit the timeline.',
     },
     askUserSchema,
   ),
