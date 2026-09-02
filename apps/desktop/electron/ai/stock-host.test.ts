@@ -6,6 +6,7 @@
  * four gathers arrive for a bin that has no span to conflict with.
  */
 import { describe, expect, it, vi } from 'vitest';
+import { STOCK_ERROR_CODES } from '@framepilot/ai-sdk';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import type { StockDownloadResult } from '../ipc/contract.js';
 import { createStockHost, type StockHostIO } from './stock-host.js';
@@ -142,6 +143,8 @@ describe('createStockHost — a given atSeconds still means the timeline', () =>
     // The whole point of the refusal: it says where to go instead. 7.767s is the
     // end of the clip in the way, and nothing follows it.
     expect(outcome.summary).toMatch(/starts at 7.8s/);
+    // And it DECLARES the rule it refused under, which is what makes the run remember it.
+    expect(outcome.refusalCause).toBe('picture_over_picture');
     expect(deps.download).not.toHaveBeenCalled();
   });
 
@@ -180,5 +183,59 @@ describe('createStockHost — a given atSeconds still means the timeline', () =>
     expect(outcome.status).toBe('failed');
     expect(outcome.summary).toMatch(/between 0.0s and 5.0s/);
     expect(deps.download).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * WHICH failures declare a cause, and which must not.
+ *
+ * A declared `refusalCause` is the one way a host outcome earns a run-memory key
+ * (`orchestrator.ts#deterministicFailureKey`), and the key is permanent for the run. That
+ * is the right answer for a POLICY verdict — this module's placement refusal is a pure
+ * function of the arguments and the project, decided before a byte is spent, and
+ * undeclared it was the last unbounded arm of run `369e8c82`'s loop: four refusals of ADR
+ * 0140 in fifteen minutes, none of them matching, because the sentence interpolates the
+ * times and the colliding clip.
+ *
+ * It is the WRONG answer for anything that merely failed. A download timeout, a provider
+ * 5xx, a rate limit, a missing key, an id from a closed session — every one of those can
+ * succeed on the next attempt, and a permanent block would lose `add_stock` for the rest
+ * of the run over a bad network moment. So this walks the module's other failure exits and
+ * pins that they declare nothing.
+ */
+describe('createStockHost — only the policy refusal declares a cause', () => {
+  it('leaves an unresolvable id undeclared, so the model may try another', async () => {
+    const host = createStockHost({ ...io(), unresolvableReason: () => 'That clip is gone.' });
+    const outcome = await host(emptyProject(), { remoteId: 'x', kind: 'video' });
+    expect(outcome.status).toBe('failed');
+    expect(outcome).not.toHaveProperty('refusalCause');
+  });
+
+  it('leaves a failed download undeclared, however it failed', async () => {
+    // Walked over the whole closed union rather than a sample: a code added tomorrow must
+    // be answered deliberately, and none of these says anything about PLACEMENT — they say
+    // the fetch did not happen, which the next attempt may well change.
+    for (const error of STOCK_ERROR_CODES) {
+      const deps = io();
+      const host = createStockHost({
+        ...deps,
+        download: (async () => ({ ok: false, error })) as unknown as StockHostIO['download'],
+      });
+      const outcome = await host(emptyProject(), { remoteId: '8475065', kind: 'video' });
+      expect(outcome.status).toBe('failed');
+      expect(outcome).not.toHaveProperty('refusalCause');
+    }
+  });
+
+  it('declares nothing on the paths that succeed', async () => {
+    const host = createStockHost(io(13));
+    const placed = await host(projectWithClipAtHead(), {
+      remoteId: '8475065',
+      kind: 'video',
+      atSeconds: 10,
+    });
+    const binned = await host(projectWithClipAtHead(), { remoteId: '8475065', kind: 'video' });
+    expect(placed).not.toHaveProperty('refusalCause');
+    expect(binned).not.toHaveProperty('refusalCause');
   });
 });

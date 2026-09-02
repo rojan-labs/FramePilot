@@ -26,6 +26,7 @@ import type { Project } from '@framepilot/timeline-schema';
 import type { AnalysisBudget } from './kernel/cost/analysis-caps.js';
 import type { EditorInteractionContext } from './editor-context/interaction-context.js';
 import type { AiImage, ToolCall } from './providers/types.js';
+import type { RefusalCause } from './tool-refusal.js';
 
 const log = createLogger('ai-sdk:tool-executor');
 
@@ -94,6 +95,34 @@ export interface HostToolOutcome {
    * dropped.
    */
   readonly images?: readonly AiImage[];
+  /**
+   * Which RULE this host refused under — set ONLY on a `failed` outcome the host reached
+   * as a POLICY decision about the project it was handed, never on a failure of the work.
+   *
+   * ## Why a host needs this channel at all
+   *
+   * The orchestrator deliberately gives host outcomes no run-memory key
+   * (`orchestrator.ts#deterministicFailureKey`): a sidecar restart, a download timeout, a
+   * provider 5xx are transient, and remembering one as proof the tool cannot work would
+   * lose the tool for the rest of the run over a bad network moment. That default is
+   * right for everything a host can FAIL at, and wrong for the one thing a host can
+   * REFUSE: `stock-host.ts` answers ADR 0140's picture-over-picture rule BEFORE spending
+   * the download, by reading the same `editor-core` occupancy predicate `add_clip` uses.
+   * Same rule, same working copy, same verdict every time — and until this field existed
+   * the outcome had no way to say so, so on desktop that refusal cost nothing per
+   * iteration and could repeat without limit. Run `369e8c82` spent roughly fifteen of its
+   * sixty-eight minutes being refused this rule four times.
+   *
+   * A declared cause makes the outcome `deterministicFailure` and keys run memory on the
+   * RULE rather than the sentence — the sentence names the asset and the times, so four
+   * refusals of one rule banked four keys and matched nothing. Absent (the default, and
+   * the right answer for every transient failure) ⇒ unkeyed and retryable, exactly as
+   * before.
+   *
+   * Declare it only when the verdict is a function of the arguments and the project, and
+   * would be identical if the call were repeated with nothing changed.
+   */
+  readonly refusalCause?: RefusalCause;
 }
 
 /**

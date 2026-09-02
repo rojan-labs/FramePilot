@@ -16,7 +16,9 @@
  *
  * - **`atSeconds` given** — the clip is meant for the timeline. Refuse before
  *   spending the download if that span already holds picture (ADR 0140); the
- *   answer does not depend on the bytes. Echo the clamped position back.
+ *   answer does not depend on the bytes. That refusal DECLARES its rule
+ *   (`refusalCause`), so the run remembers it by what it is rather than by a
+ *   sentence that changes with every placement. Echo the clamped position back.
  * - **`atSeconds` absent** — the clip is meant for the MEDIA BIN. There is no
  *   span to check, so there is nothing to refuse: this is how a run gathers
  *   several candidates before choosing a running order, and it is placed later
@@ -110,7 +112,21 @@ export function createStockHost(
         durationSeconds,
       );
       if (conflict !== null) {
-        return { status: 'failed', summary: conflict };
+        // DECLARED, so the run remembers it by its RULE.
+        //
+        // This is a policy verdict, not a failure of the work: it is a pure function of
+        // the arguments and the project handed in, reached before a byte is spent, and it
+        // would say exactly the same thing if the identical call were made again. Every
+        // OTHER `failed` this module returns — the unresolvable id above, the download
+        // failure below — stays undeclared and therefore retryable, which is the default
+        // host outcomes are given for good reason.
+        //
+        // Undeclared, this branch was the last unbounded arm of run `369e8c82`'s loop and
+        // the one a real b-roll request hits FIRST: the orchestrator keys no host failure,
+        // so the desktop refusal cost nothing per iteration and could repeat forever. The
+        // sentence cannot be the identity — it interpolates both times and the conflicting
+        // clip, so 4.48–6s and 4.2–6s read as two unrelated failures.
+        return { status: 'failed', summary: conflict, refusalCause: 'picture_over_picture' };
       }
     }
 

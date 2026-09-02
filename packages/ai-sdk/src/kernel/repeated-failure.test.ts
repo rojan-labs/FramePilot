@@ -449,16 +449,19 @@ describe('add_stock — a placement refused after the download is keyed on the r
     expect(results[1]?.summary).not.toContain('already failed');
   });
 
-  it('never keys a HOST refusal — the pre-download check must stay retryable', async () => {
-    // THE METERED BOUNDARY, pinned. `stock-host.ts` refuses the same ADR 0140 conflict
-    // BEFORE spending the download and returns a plain host `failed`. That outcome carries
-    // no `deterministicFailure` and must never acquire one by association with the
-    // in-process refusal above: `failed` from the host is also what a download timeout, a
-    // provider 5xx and an unresolvable remoteId look like, and a permanent block on any of
-    // those would lose the tool for the rest of the run over a fault it had no part in.
+  it('never keys an UNDECLARED host failure — a transient one must stay retryable', async () => {
+    // THE INVARIANT, pinned. A host `failed` that declares nothing carries no
+    // `deterministicFailure` and must never acquire one by association with the refusals
+    // around it: `failed` from the host is what a download timeout, a provider 5xx, a
+    // missing API key and an unresolvable remoteId all look like, and a permanent block on
+    // any of those would lose the tool for the rest of the run over a fault it had no part
+    // in. One bad network moment must not end `add_stock`.
     //
-    // Simplifying this away — keying every `add_stock` failure rather than only the
-    // post-download policy verdict — is what this test exists to fail.
+    // The host CAN now opt in, by declaring a `refusalCause` for a policy verdict it read
+    // off the project (the describe below). This test is the other half of that boundary:
+    // opting in has to be the only way across it. Simplifying it away — keying every
+    // `add_stock` failure rather than only a declared verdict and the post-download one —
+    // is what this test exists to fail.
     let calls = 0;
     const executor: HostToolExecutor = {
       run: async () => {
@@ -476,5 +479,157 @@ describe('add_stock — a placement refused after the download is keyed on the r
     const results = toolResults(events);
     expect(results).toHaveLength(2);
     for (const result of results) expect(result.summary).not.toContain('already failed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A host DECLARING its refusal — the same rule, refused BEFORE the download.
+// ---------------------------------------------------------------------------
+
+/**
+ * The last unbounded arm of run `369e8c82`'s loop, and the one a real b-roll request on
+ * DESKTOP reaches first.
+ *
+ * `stock-host.ts` answers ADR 0140's picture-over-picture rule before spending the
+ * download, by reading the same `editor-core` occupancy predicate `add_clip` uses. That
+ * reached the orchestrator as an ordinary host `failed`, and host failures are
+ * deliberately never keyed — so on the product's primary surface the refusal cost nothing
+ * per iteration and could repeat without limit. The browser build, which has no stock host
+ * at all, never saw it.
+ *
+ * The fix is a channel, not a special case: `HostToolOutcome.refusalCause` lets a host say
+ * WHY it refused, and a declared cause is keyed exactly like an in-process one. The
+ * vocabulary is the single `RefusalCause` union, so the rule refused before the download
+ * and the same rule refused after it (`stockOpsFromPayload`, above) produce ONE key —
+ * `add_stock:picture_over_picture` — and the second attempt is answered as a repeat
+ * whichever side said no first.
+ *
+ * The sentences below deliberately differ between the two attempts, exactly as the real
+ * one does: `stockPlacementConflictReason` interpolates the requested span, the clip it
+ * collides with and the next free moment. If the key were the text, these would be two
+ * unrelated failures — which is precisely how the captured run banked four keys and
+ * matched none of them.
+ */
+const conflictSentence = (atSeconds: number): string =>
+  `That span (${atSeconds.toFixed(1)}s–${(atSeconds + 4).toFixed(1)}s) is already picture on ` +
+  'the timeline, and FramePilot previews one picture layer. The first free moment is 10.0s ' +
+  '— place it there, or split the clip underneath and put this on the same track.';
+
+/**
+ * A stand-in for `stock-host.ts`: refuses a placement over the fixture's picture BEFORE
+ * downloading and declares the rule, and otherwise reports a successful download.
+ */
+const declaringStockHost = (counter: { calls: number }): HostToolExecutor => ({
+  run: async (call) => {
+    counter.calls += 1;
+    const { atSeconds } = call.arguments as { atSeconds?: number };
+    if (atSeconds !== undefined && atSeconds < 10) {
+      return {
+        status: 'failed',
+        summary: conflictSentence(atSeconds),
+        refusalCause: 'picture_over_picture',
+      };
+    }
+    return {
+      status: 'completed',
+      summary: 'Downloaded "stock/9001.mp4".',
+      data: stockPayload(atSeconds),
+    };
+  },
+});
+
+describe('add_stock — a placement the HOST refused before the download is keyed too', () => {
+  it('refuses the second refused placement even though the sentence differs', async () => {
+    const counter = { calls: 0 };
+    const provider = new RecordingProvider([addStock('s1', 2), addStock('s2', 3), done]);
+    const events = await drain(
+      new Orchestrator(provider, { executor: declaringStockHost(counter) }).streamAgent(
+        stockInput,
+        baseOpts(),
+        {},
+      ),
+    );
+
+    const results = toolResults(events);
+    expect(results).toHaveLength(2);
+    // First attempt: the host's own sentence, unchanged and un-prefixed — a refusal is not
+    // a bad argument, so nothing is put in front of it.
+    expect(results[0]?.summary).toBe(conflictSentence(2));
+    expect(results[0]?.summary).not.toContain('already failed');
+    // Second attempt: a DIFFERENT sentence (3.0s–7.0s, not 2.0s–6.0s) and the same rule.
+    expect(results[1]?.summary).toBe('Refused repeat of "add_stock" — it already failed this run');
+    // THE REMEDY SURVIVES. A guard that closed the loop by handing back a dead end would be
+    // worse than the loop: the free moment and the split-and-place move are the whole
+    // reason the refusal is worth reading.
+    const seenByModel = modelFacingText(provider);
+    expect(seenByModel).toContain('already failed this run for this same reason');
+    expect(seenByModel).toContain('The first free moment is 10.0s');
+    expect(seenByModel).toContain('Do what that reason names instead');
+  });
+
+  it('keys the host refusal on the RULE, so a repeat matches on nothing else', async () => {
+    // The narrow claim, isolated: the two calls share no argument value and no sentence,
+    // and are still one key. Nothing but the declared cause can be doing that.
+    const counter = { calls: 0 };
+    const provider = new RecordingProvider([addStock('s1', 2), addStock('s2', 3), done]);
+    await drain(
+      new Orchestrator(provider, { executor: declaringStockHost(counter) }).streamAgent(
+        stockInput,
+        baseOpts(),
+        {},
+      ),
+    );
+    expect(conflictSentence(2)).not.toBe(conflictSentence(3));
+    // Both calls reached the host: the key is computed once a call SETTLES, so the guard
+    // never pre-empts a tool on its name. It costs nothing here — this host refuses before
+    // it spends anything, which is exactly why the branch is safe to key.
+    expect(counter.calls).toBe(2);
+  });
+
+  it('does not block a CORRECTED placement into a free span', async () => {
+    const counter = { calls: 0 };
+    const provider = new RecordingProvider([addStock('s1', 2), addStock('s2', 12), done]);
+    const events = await drain(
+      new Orchestrator(provider, { executor: declaringStockHost(counter) }).streamAgent(
+        stockInput,
+        baseOpts(),
+        {},
+      ),
+    );
+
+    const results = toolResults(events);
+    expect(results).toHaveLength(2);
+    expect(results[0]?.summary).toBe(conflictSentence(2));
+    // 12s is past the fixture's picture, so the host downloads and the placement lands. A
+    // corrected retry never computes a key, so it has nothing to match the banked one.
+    expect(results[1]?.summary).not.toContain('already failed');
+    expect(results[1]?.summary).toContain('Downloaded');
+    expect(counter.calls).toBe(2);
+  });
+
+  it('answers the same key whichever side of the download said no', async () => {
+    // The host refuses 2s before spending anything; the run then asks for 3s against a
+    // host that downloads regardless, and the IN-PROCESS check refuses that one. Two
+    // different modules, one rule, one key — so the second is answered as a repeat rather
+    // than starting the loop again from the other side of the metered line.
+    const counter = { calls: 0 };
+    const provider = new RecordingProvider([addStock('s1', 2), addStock('s2', 3), done]);
+    let first = true;
+    const mixedHost: HostToolExecutor = {
+      run: async (call, ctx, signal) => {
+        if (first) {
+          first = false;
+          return declaringStockHost(counter).run(call, ctx, signal);
+        }
+        return downloadingHost(counter).run(call, ctx, signal);
+      },
+    };
+    const events = await drain(
+      new Orchestrator(provider, { executor: mixedHost }).streamAgent(stockInput, baseOpts(), {}),
+    );
+
+    const results = toolResults(events);
+    expect(results[0]?.summary).toBe(conflictSentence(2));
+    expect(results[1]?.summary).toBe('Refused repeat of "add_stock" — it already failed this run');
   });
 });

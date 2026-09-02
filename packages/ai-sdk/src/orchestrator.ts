@@ -1692,6 +1692,12 @@ interface AgentCallOutcome {
    * loop the memory exists to stop. So a failure is transient unless the branch that
    * produced it says otherwise here.
    *
+   * A HOST outcome says otherwise the only way it can — by declaring a
+   * {@link HostToolOutcome.refusalCause}, which the host-tool branch converts into this
+   * flag. That is a policy verdict the host read off the project (ADR 0140's picture rule,
+   * checked before the download), not work that failed, and it is the whole of the
+   * exception: an undeclared host `failed` is still transient however often it repeats.
+   *
    * Consumed by `executeToolCalls` to build `TurnCallFact.failureKey`; absent ⇒ nothing
    * about this failure is remembered for the rest of the run.
    */
@@ -1703,6 +1709,10 @@ interface AgentCallOutcome {
    * and therefore varies with the placement: run `369e8c82` was refused ADR 0140's
    * picture-over-picture rule four times and banked four keys. Absent ⇒ the failure is
    * remembered by its text, exactly as before.
+   *
+   * Set from the thrown {@link ToolInvocationError} on the in-process path, and from
+   * {@link HostToolOutcome.refusalCause} when a HOST declared one — one vocabulary, so a
+   * rule refused before a download and the same rule refused after it are one key.
    */
   refusalCause?: RefusalCause;
   /** The working copy advanced by this call's validated ops (mutating calls only). */
@@ -4475,6 +4485,33 @@ export class Orchestrator {
       // fix the card and leave the model with the same false claim.
       const preview =
         data !== undefined ? ` → ${summarizeReadResult(call.name, data, ctx.project.assets)}` : '';
+      // THE ONE HOST FAILURE THE RUN IS ALLOWED TO REMEMBER — the one that says so itself.
+      //
+      // The call site of `deterministicFailureKey` states that host work is never keyed,
+      // and that stays true of every host failure that merely HAPPENED: a sidecar restart,
+      // a download timeout, a provider 5xx, an unresolvable id, a missing key. Keying one
+      // of those would refuse, for the rest of the run, work the next attempt would have
+      // completed. The exception is narrow and opt-in: a host that declares a
+      // `refusalCause` is asserting the outcome is a POLICY verdict it reached from the
+      // project it was handed — `stock-host.ts` answering ADR 0140's picture-over-picture
+      // rule before spending the download, through the same `editor-core` predicate
+      // `add_clip` uses. Undeclared, that refusal was the last unbounded arm of run
+      // `369e8c82`'s loop, and on desktop it is the arm a b-roll request reaches FIRST.
+      //
+      // `deterministicFailure` as well as the cause, because the key function gates on the
+      // flag BEFORE it ever looks at the cause — a cause alone would be inert — and because
+      // the flag is documented as the single opt-in discriminator every `failed` branch
+      // answers for itself. The host has now answered it.
+      //
+      // `data` carries the SENTENCE, for the same reason the post-download refusal's does:
+      // a key promises `repeatedFailureOutcome` something to quote back, and a host refusal
+      // usually returns no `data` at all. Set AFTER the `data` spread and after `note` is
+      // built, so the model's note keeps reading as the refusal itself rather than gaining
+      // a `→ …` echo of its own sentence.
+      const declaredRefusal =
+        outcome.status === 'failed' && outcome.refusalCause !== undefined
+          ? outcome.refusalCause
+          : undefined;
       return {
         ops: [],
         note: `${base}${runtimeCached ? ' (cached)' : ''}${preview}${hostEvidence ? ` [${hostEvidence.id}]` : ''}`,
@@ -4483,6 +4520,13 @@ export class Orchestrator {
         ...(runtimeCached ? { fromCache: true } : {}),
         ...(data !== undefined ? { data } : {}),
         ...(outcome.images && outcome.images.length > 0 ? { images: outcome.images } : {}),
+        ...(declaredRefusal === undefined
+          ? {}
+          : {
+              deterministicFailure: true,
+              refusalCause: declaredRefusal,
+              data: typeof data === 'string' && data.trim() !== '' ? data : outcome.summary,
+            }),
       };
     }
     if (tool.kind === 'read' && tool.read) {
@@ -6175,9 +6219,13 @@ export class Orchestrator {
         // overlapped a clip at 3s. Refusing a corrected retry is a worse bug than the loop.
         //
         // Nothing is wasted by letting it settle: every branch that can produce a
-        // `deterministicFailure` is in-process and side-effect-free (schema parse, op
-        // build, validator probe). Host work never reaches this test, because a host
-        // failure is never given a key.
+        // `deterministicFailure` is side-effect-free (schema parse, op build, validator
+        // probe). Host work that merely FAILED still never reaches this test — a timeout,
+        // a 5xx, an unresolvable id and a missing key are all transient and are given no
+        // key. The single exception is a host that DECLARES a `refusalCause`
+        // (`tool-executor.ts#HostToolOutcome`): that is a policy verdict the host reached
+        // from the project, not work it attempted, and `stock-host.ts` reaches it before
+        // spending the download — so letting it settle still costs nothing.
         const bankedKey = deterministicFailureKey(call.name, settledOutcome);
         const isRepeat = bankedKey !== undefined && seenFailureKeys?.has(bankedKey) === true;
         if (isRepeat) {
@@ -8774,7 +8822,10 @@ function withheldCallOutcome(
  *
  * Only a {@link AgentCallOutcome.deterministicFailure} yields a key: a host or transport
  * failure is transient by nature, and a permanent block on one would refuse work that the
- * next attempt would have completed.
+ * next attempt would have completed. A host outcome earns the flag in exactly one way —
+ * by DECLARING a {@link HostToolOutcome.refusalCause}, which asserts a policy verdict read
+ * off the project rather than work that failed. Nothing else about a host outcome, however
+ * byte-identical it repeats, is ever keyed.
  */
 function deterministicFailureKey(
   callName: string,
