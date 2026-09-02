@@ -20,6 +20,13 @@ export interface ContextWindowState {
   readonly usedTokens: number;
   readonly contextWindow: number;
   readonly estimated: boolean;
+  /**
+   * True when the capacity above is the provider's conservative floor rather than a real
+   * model window — the id the host configured is not one the capability table knows (see
+   * `model-capabilities.ts`, rule 1). Surfaced because a guessed ceiling presented as fact
+   * is what let a whole run size its budget against a number nobody had verified.
+   */
+  readonly limitAssumed: boolean;
   /** The full account of the latest request, when one has been emitted. */
   readonly manifest?: ContextManifest;
   /**
@@ -31,7 +38,12 @@ export interface ContextWindowState {
 }
 
 /** Nothing sent yet: an honest zero against no known model, not a fabricated capacity. */
-const EMPTY_CONTEXT: ContextWindowState = { usedTokens: 0, contextWindow: 0, estimated: true };
+const EMPTY_CONTEXT: ContextWindowState = {
+  usedTokens: 0,
+  contextWindow: 0,
+  estimated: true,
+  limitAssumed: false,
+};
 
 /**
  * The phase of the current model request. Distinguished because one generic spinner for
@@ -95,6 +107,7 @@ export function latestContextWindow(events: readonly AiEvent[] | undefined): Con
     usedTokens: Math.min(selected.contextWindow, Math.max(0, selected.usedTokens)),
     contextWindow: Math.max(1, selected.contextWindow),
     estimated: selected.estimated,
+    limitAssumed: selected.manifest?.usage.limitAssumed === true,
     ...(selected.manifest ? { manifest: selected.manifest } : {}),
     ...(requestsSinceCompaction !== undefined ? { requestsSinceCompaction } : {}),
   };
@@ -238,13 +251,26 @@ export function ContextWindowIndicator({
 
   const figures = useMemo(() => {
     if (value.contextWindow <= 0) return 'No request accounted for yet';
-    return `${compactTokens(value.usedTokens)} of ${compactTokens(value.contextWindow)} tokens${
+    const capacity = `${compactTokens(value.contextWindow)} tokens${
+      value.limitAssumed ? ' (assumed)' : ''
+    }`;
+    return `${compactTokens(value.usedTokens)} of ${capacity}${
       manifest?.usage.calculationSource === 'provider_reported' ? ', reported' : ', estimated'
     }`;
-  }, [manifest, value.contextWindow, value.usedTokens]);
+  }, [manifest, value.contextWindow, value.limitAssumed, value.usedTokens]);
 
   const spokenPhase =
     phase === 'assembling' ? 'Preparing context. ' : phase === 'generating' ? 'Generating. ' : '';
+
+  /**
+   * Plain language for an editor, not a provider-API sentence: what is wrong, what it
+   * costs, and the one place to fix it. Shown only when the capacity is a guess.
+   */
+  const assumedNote = value.limitAssumed
+    ? `Capacity is assumed: "${
+        manifest?.model ?? manifest?.provider ?? 'this model'
+      }" is not a model this app knows, so the meter uses the provider's floor and the run budget cannot be sized to the real limit. Pin a specific model in Settings → AI.`
+    : undefined;
 
   const reserved = manifest?.usage.reservedOutputTokens ?? 0;
   const available = manifest?.usage.estimatedRemainingCapacity ?? 0;
@@ -265,10 +291,13 @@ export function ContextWindowIndicator({
         type="button"
         ref={buttonRef}
         className="ai-context-trigger"
-        aria-label={`${spokenPhase}Context: ${figures}. ${percent}% used.`}
+        aria-label={`${spokenPhase}Context: ${figures}. ${percent}% used.${
+          value.limitAssumed ? ' Model capacity assumed.' : ''
+        }`}
         aria-describedby={open ? tooltipId : undefined}
         data-phase={phase}
         data-estimated={value.estimated}
+        data-limit-assumed={value.limitAssumed}
         data-empty={value.contextWindow <= 0}
         onClick={() => setOpen((v) => !v)}
         onFocus={() => setOpen(true)}
@@ -302,6 +331,7 @@ export function ContextWindowIndicator({
               )} reserved for the reply`}
             </p>
           ) : null}
+          {assumedNote ? <p className="ai-context-line">{assumedNote}</p> : null}
           {compaction ? <p className="ai-context-line">{compaction}</p> : null}
           <p className="ai-context-explain">
             This is the primary context request for your latest message. Internal planning and tool

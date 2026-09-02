@@ -46,7 +46,24 @@ const state: ContextWindowState = {
   usedTokens: 17_000,
   contextWindow: 1_000_000,
   estimated: true,
+  limitAssumed: false,
   manifest: manifest(),
+};
+
+/**
+ * The shape of the captured `openrouter/auto` run: no such model in the capability table,
+ * so the window is the OpenRouter floor and every figure downstream is a guess.
+ */
+const assumedState: ContextWindowState = {
+  usedTokens: 40_000,
+  contextWindow: 128_000,
+  estimated: true,
+  limitAssumed: true,
+  manifest: manifest({
+    provider: 'openrouter',
+    model: 'openrouter/auto',
+    usage: { ...manifest().usage, modelContextLimit: 128_000, limitAssumed: true },
+  }),
 };
 
 function hover(value: ContextWindowState = state): HTMLElement {
@@ -176,9 +193,36 @@ describe('ContextWindowIndicator', () => {
   });
 
   it('renders an empty state without inventing a capacity', () => {
-    hover({ usedTokens: 0, contextWindow: 0, estimated: true });
+    hover({ usedTokens: 0, contextWindow: 0, estimated: true, limitAssumed: false });
     expect(screen.getByRole('button').textContent).toBe('—');
     expect(screen.getByText('No request accounted for yet')).toBeTruthy();
+  });
+
+  it('qualifies an assumed capacity everywhere the figure is read', () => {
+    hover(assumedState);
+    expect(screen.getByText(/40K of 128K tokens \(assumed\), estimated/)).toBeTruthy();
+    expect(screen.getByRole('button').getAttribute('data-limit-assumed')).toBe('true');
+    expect(screen.getByRole('button').getAttribute('aria-label')).toContain('capacity assumed');
+    expect(
+      screen.getByText(/"openrouter\/auto" is not a model this app knows/),
+    ).toBeTruthy();
+    expect(screen.getByText(/Pin a specific model in Settings → AI/)).toBeTruthy();
+  });
+
+  it('says nothing about assumption when the model window is a known fact', () => {
+    hover();
+    expect(screen.queryByText(/\(assumed\)/)).toBeNull();
+    expect(screen.queryByText(/is not a model this app knows/)).toBeNull();
+    expect(screen.getByRole('button').getAttribute('data-limit-assumed')).toBe('false');
+    expect(screen.getByRole('button').getAttribute('aria-label')).not.toContain(
+      'capacity assumed',
+    );
+  });
+
+  it('does not claim an assumption before any request has been accounted for', () => {
+    hover({ usedTokens: 0, contextWindow: 0, estimated: true, limitAssumed: false });
+    expect(screen.getByRole('button').getAttribute('data-limit-assumed')).toBe('false');
+    expect(screen.queryByText(/is not a model this app knows/)).toBeNull();
   });
 
   it('shows the dev inspector only when the parent passes one', () => {
@@ -272,8 +316,26 @@ describe('latestContextWindow', () => {
       usedTokens: 0,
       contextWindow: 0,
       estimated: true,
+      limitAssumed: false,
     });
     expect(latestContextWindow([])).toMatchObject({ contextWindow: 0 });
+  });
+
+  it('carries the manifest\u2019s assumed-limit flag through to the meter', () => {
+    const assumed = manifest({
+      provider: 'openrouter',
+      model: 'openrouter/auto',
+      usage: { ...manifest().usage, modelContextLimit: 128_000, limitAssumed: true },
+    });
+    const events = [
+      emit.contextUsage({
+        usedTokens: 40_000,
+        contextWindow: 128_000,
+        estimated: true,
+        manifest: assumed,
+      }),
+    ];
+    expect(latestContextWindow(events).limitAssumed).toBe(true);
   });
 
   it('clamps a used figure that exceeds the window', () => {
