@@ -44,6 +44,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   for music or stock it had already downloaded used to answer "place it from the bin" — an
   instruction meant for a person looking at the bin, which the assistant has no way to
   follow, so it abandoned the request. It now places what it already has.
+- **When something the assistant tries fails, it is told what to do next — always.** A
+  failure that named no next move used to send it round the same loop: one run asked the
+  same unanswerable question six times. Thirteen such messages were rewritten to say what
+  happened and what to do instead, and a build check now fails if a new one is added.
 - **When footage hasn't been indexed yet, the assistant is told what to do instead.** It
   used to get back the bare word `not_indexed` and kept asking the same question of the
   same clip. It now hears that indexing may not finish during this run, and to look at a

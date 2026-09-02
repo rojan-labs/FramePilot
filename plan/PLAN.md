@@ -137,6 +137,27 @@ reconcileInheritedFailures`: a health check failing identically before and after
   span, so the state stops advertising a layer nothing may go on. Not reproducible on the
   golden set — every mission fixture has one video track; see TRACKING.md for the shape.
 - `[x]` GOLDEN-A.3 — ADR 0140's refusal extended from stock to every agent picture placement (`picture-layers.ts`); `add_track`/`add_clip` no longer invite picture-in-picture. Preview and export cannot disagree on an agent edit until SUC-P1 lifts the constraint.
+- `[x]` GOLDEN-C.6 — **failure quality is a gate, not a habit** (`6e39e64`). `92a0387` fixed
+  two dead-end failures found by reading run `369e8c82` by hand; this makes the property
+  testable. `reliability/next-action.ts#namesNextAction` requires a failure to say what
+  happened (4+ real words, killing a bare token) AND name a move the model can execute — a
+  tool in the LIVE registry, or an explicit closing directive. No "offers an alternative"
+  arm: `add_music`'s "or pick a different track" offered one and was still a dead end, and
+  the two historical strings are negative fixtures. A third property, deliberately not a
+  reuse of `plain-failure.ts` (the editor's words) or `golden-metrics#failureQuality`
+  (whether the editor was told anything) — the module documents all three so they cannot
+  drift. The gate walks the real registry and the real executor rather than a hand-copied
+  list, reaching 21 sentences ≈ a quarter of the package's surface; its header states what
+  it cannot see (`orchestrator.ts`'s 36 note sites, the domain tools' 36 throw sites, the
+  desktop host overrides). 13 dead ends fixed, 6 of them collapsed into 2 shared producers;
+  1 exemption recorded with its reason.
+- `[ ]` GOLDEN-C.7 — **seven dead ends the gate cannot reach yet.** Fully-literal failures in
+  `orchestrator.ts` that name no next action: `:3923` skipped-tool, `:4141` transcribe
+  no-timed-words (the same defect fixed a layer down), `:4180` remove_silences no ranges,
+  `:4238` add_music no asset, `:4310` add_stock no asset, `:4373` tracking invalid payload,
+  `:7854` objective/plan not recovered. Plus `apps/desktop/electron/main.ts:1970` and
+  `:2012`, which carry the OLD transcribe sentence verbatim — the `hostTranscribe` override
+  bypasses the fixed copy. Fixing these is also what extends the gate past a quarter.
 - `[x]` GOLDEN-E.2 — **the duplicated edit prose costs the model nothing: audited, no
   change.** Run `369e8c82` shows the same 4-sentence paragraph as the diff card's `Summary`
   and its `Reason` in all 6 (in the full export, 9) proposed-edit blocks. Mechanically

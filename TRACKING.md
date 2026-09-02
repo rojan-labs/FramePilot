@@ -395,3 +395,12 @@ commits' *source* changes are correctly separated, and the branch state is what 
 verified — 794 tests across 135 suites, no frozen fixture moved. Reviewing
 `f51fe20` alone will show its tests missing; they are in the commit before it.
 
+- **Seven dead-end failures the gate cannot reach** (`GOLDEN-C.7`). All in
+  `orchestrator.ts`, which was owned by another agent while the gate was built:
+  `:3923`, `:4141`, `:4180`, `:4238`, `:4310`, `:4373`, `:7854`. Plus
+  `apps/desktop/electron/main.ts:1970` / `:2012`, which still carry the OLD
+  transcribe sentence — the `hostTranscribe` override bypasses the copy that was
+  fixed. Fixing them is also what takes the gate past a quarter of the surface.
+- **`GOLDEN-E.3` and the briefing's 68 duplicate lines** are one slice, and it must
+  be done alone: both move token goldens, and the golden diff IS the measurement.
+
