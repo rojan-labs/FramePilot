@@ -238,10 +238,13 @@ describe('streamAgent refuses a call the run has already been refused', () => {
     // Second attempt, different arguments, identical error: refused.
     expect(results[1]?.summary).toBe('Refused repeat of "trim_clip" — it already failed this run');
 
-    // The refusal must be ACTIONABLE where the model actually reads it.
+    // The refusal must be ACTIONABLE where the model actually reads it. "for this same
+    // reason" rather than "with exactly this error" since run `369e8c82`: a policy refusal
+    // keys on its RULE, so the sentence that reaches here can be one the run has never
+    // seen even though the reason behind it is one it has.
     const seenByModel = modelFacingText(provider);
-    expect(seenByModel).toContain('already failed this run with exactly this error');
-    expect(seenByModel).toContain('Retrying it cannot succeed');
+    expect(seenByModel).toContain('already failed this run for this same reason');
+    expect(seenByModel).toContain('Do what that reason names instead');
   });
 
   it('settles the refusal as failed, never as a warning', async () => {

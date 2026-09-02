@@ -29,6 +29,34 @@
  */
 
 /**
+ * The stable, machine-readable identity of a refusal — what the rule IS, with none
+ * of the sentence's particulars in it.
+ *
+ * ## Why the sentence cannot be the identity
+ *
+ * The run's proven-refusal guard (`orchestrator.ts#deterministicFailureKey`) keys run
+ * memory on the failure text, so two refusals read as one only when they read the same.
+ * A validator rejection does: its message is a schema fact. A POLICY refusal does not —
+ * the picture-over-picture sentence names the asset, both times and the conflicting clip,
+ * so in run `369e8c82` four refusals of the same rule produced four keys:
+ *
+ *     "Video_10374888….mp4" at 4.48–6s would sit on top of clip__v_main_…_0 …
+ *     "Video_10374888….mp4" at 4.2–6s   would sit on top of clip__v_main_…_0 …
+ *     "Video_10374888….mp4" at 4.2–6.2s would sit on top of clip__v_main_…_0 …
+ *     "Video_5495901….mp4"  at 32.6–35.8s would sit on top of clip__v_main_…__split_4400 …
+ *
+ * Nothing matched, nothing was refused as a repeat, and roughly fifteen minutes of a
+ * sixty-eight minute run went into the loop. Stripping prose the way `failureCause`
+ * strips a validator's operation locator cannot help here: the varying parts ARE the
+ * sentence. So the rule says its own name, once, and the sentence stays free to be as
+ * specific as the editor needs.
+ *
+ * Add a member only when a refusal needs run-memory identity of its own. A refusal with
+ * no cause keys on its text exactly as it always has.
+ */
+export type RefusalCause = 'picture_over_picture';
+
+/**
  * A tool declining to act on arguments it understood.
  *
  * `message` is the whole model-facing sentence and is used verbatim in both
@@ -38,10 +66,16 @@
  *
  * @param message - Why the tool refused, and what to do instead. One or two
  *   sentences, no schema jargon, always naming a legal next move.
+ * @param options.refusalCause - Which rule said no, for run memory. See
+ *   {@link RefusalCause}. Absent ⇒ the refusal is remembered by its text.
  */
 export class ToolRefusalError extends Error {
-  public constructor(message: string, options?: { cause?: unknown }) {
+  /** Which rule refused, when the rule has a name. See {@link RefusalCause}. */
+  public readonly refusalCause?: RefusalCause;
+
+  public constructor(message: string, options?: { cause?: unknown; refusalCause?: RefusalCause }) {
     super(message, options);
     this.name = 'ToolRefusalError';
+    if (options?.refusalCause) this.refusalCause = options.refusalCause;
   }
 }

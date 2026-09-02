@@ -832,6 +832,71 @@ describe('agent auto-repair (C3) and plan ledger (C4)', () => {
     // An empty track is named, not omitted: a run needs to know it exists and is free,
     // which is exactly the question a missing row leaves it guessing at.
     expect(line).toContain('audio_1 [audio] empty');
+    // …and with one picture track there is no cross-track constraint to report, so the
+    // row is exactly the row it has always been. (Frozen golden corpora hold this text.)
+    expect(line).not.toContain('no free span');
+  });
+
+  /**
+   * Run `369e8c82`. `b_roll [video] empty` was rendered on every one of sixty-eight
+   * minutes' worth of turns while `v_main` carried narration across the whole sequence,
+   * so ADR 0140 refused every placement the line invited. A row that advertises a layer
+   * nothing may go on is worse than no row.
+   */
+  describe('a video track with nowhere to put picture', () => {
+    const stacked = (tailStart: number): Project =>
+      makeProject({
+        assets: [{ id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 30 }],
+        timeline: {
+          tracks: [
+            {
+              id: 'v_main',
+              type: 'video',
+              clips: [
+                {
+                  id: 'clip_head',
+                  assetId: 'asset_1',
+                  trackId: 'v_main',
+                  start: 0,
+                  end: 5,
+                  sourceStart: 0,
+                  sourceEnd: 5,
+                  effects: [],
+                  keyframes: [],
+                },
+                {
+                  id: 'clip_tail',
+                  assetId: 'asset_1',
+                  trackId: 'v_main',
+                  start: tailStart,
+                  end: 10,
+                  sourceStart: tailStart,
+                  sourceEnd: 10,
+                  effects: [],
+                  keyframes: [],
+                },
+              ],
+            },
+            { id: 'b_roll', type: 'video', clips: [] },
+            { id: 'audio_1', type: 'audio', clips: [] },
+          ],
+        },
+      } as unknown as Partial<Project>);
+
+    it('says so on its own row, in the refusal’s own words', () => {
+      const line = arrangementLine(stacked(5));
+      expect(line).toContain('b_roll [video] empty — no free span (picture covers 0–10s)');
+      // The track doing the covering is not itself covered, and says nothing extra.
+      expect(line).toContain('v_main [video] 2 clips 0–10s;');
+      // Audio stacks freely — that is what layers are for.
+      expect(line).toContain('audio_1 [audio] empty');
+      expect(line).not.toContain('audio_1 [audio] empty — no free span');
+    });
+
+    it('says nothing when the track still has a gap to land in', () => {
+      // A 5–7s hole in the narration is a legal cutaway span, so the row must stay quiet.
+      expect(arrangementLine(stacked(7))).not.toContain('no free span');
+    });
   });
 
   // GAP-007 (run `fc10301a`). The run shipped a timeline whose last 23.7 of 47.8 seconds

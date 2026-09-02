@@ -33,7 +33,7 @@ import { readEditSignals } from '../proposers/edit-signals.js';
 import type { ToolContext } from '../tool-context.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { clipCandidates } from './clip-candidates.js';
-import { assertNoPictureStacking } from './picture-layers.js';
+import { assertNoPictureStacking, tracksWithNoFreePictureSpan } from './picture-layers.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
 import { boolean, filterString, numeric, seconds } from './tool-args.js';
 
@@ -507,12 +507,19 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     },
     noArgs,
     (_args, ctx) => {
+      // Which video tracks have nowhere to put picture, because another video track
+      // already covers the whole sequence. `arrangementLine` reports the same fact from
+      // the same helper — a run that reads this tool and a run that reads the arrangement
+      // fact must hold the timeline in the same terms, and run `369e8c82` spent fifteen
+      // minutes placing stock onto an "empty" track neither of them said was unusable.
+      const blocked = tracksWithNoFreePictureSpan(ctx.project);
       const tracks = ctx.project.timeline.tracks.map((track) => ({
         id: track.id,
         type: track.type,
         clipCount: track.clips.length,
         firstClipStart: track.clips.length ? Math.min(...track.clips.map((c) => c.start)) : null,
         lastClipEnd: track.clips.length ? Math.max(...track.clips.map((c) => c.end)) : null,
+        ...(blocked.has(track.id) ? { noFreePictureSpan: true } : {}),
         ...(track.muted !== undefined ? { muted: track.muted } : {}),
         ...(track.locked !== undefined ? { locked: track.locked } : {}),
         ...(track.hidden !== undefined ? { hidden: track.hidden } : {}),

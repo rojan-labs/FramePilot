@@ -9,7 +9,7 @@ import { createLogger } from '@framepilot/shared-types';
 import type { AnyOperation } from '@framepilot/editor-core';
 import type { ToolCall } from './providers/types.js';
 import { withToolInputContract } from './tool-input-contract.js';
-import { ToolRefusalError } from './tool-refusal.js';
+import { ToolRefusalError, type RefusalCause } from './tool-refusal.js';
 import { type ToolSpec, getTool } from './tool-registry.js';
 import type { ToolContext } from './tool-context.js';
 
@@ -185,6 +185,14 @@ export class ToolInvocationError extends Error {
    */
   public readonly editorSummary: string;
 
+  /**
+   * For a `refusal`, which RULE said no — the stable identity the run remembers it by
+   * (`ToolRefusalError.refusalCause`). Carried on this error rather than fished back out
+   * of `cause` so the orchestrator, which already narrows to this type, needs no second
+   * import to read it. Absent on every other code, and on a refusal whose rule has no name.
+   */
+  public readonly refusalCause?: RefusalCause;
+
   public constructor(
     /**
      * `refusal` is NOT a mistake the model made — see `tool-refusal.ts`. It is kept
@@ -196,11 +204,12 @@ export class ToolInvocationError extends Error {
     public readonly code: 'unknown_tool' | 'unavailable_tool' | 'invalid_args' | 'refusal',
     public readonly toolName: string,
     message: string,
-    options?: { cause?: unknown; editorSummary?: string },
+    options?: { cause?: unknown; editorSummary?: string; refusalCause?: RefusalCause },
   ) {
     super(message, options);
     this.name = 'ToolInvocationError';
     this.editorSummary = options?.editorSummary ?? message;
+    if (options?.refusalCause) this.refusalCause = options.refusalCause;
   }
 }
 
@@ -250,6 +259,10 @@ export function operationsForCall(call: ToolCall, ctx: ToolContext): AnyOperatio
         // Refusals are written in plain language for the model, which is the same
         // language the editor needs. No second string.
         editorSummary: cause.message,
+        // …and the rule's own name alongside it, because the sentence is too specific to
+        // be an identity: run `369e8c82` was refused the same picture-over-picture rule
+        // four times and banked four different keys off four different sentences.
+        ...(cause.refusalCause ? { refusalCause: cause.refusalCause } : {}),
       });
     }
     const reason = describeArgValidationError(cause);

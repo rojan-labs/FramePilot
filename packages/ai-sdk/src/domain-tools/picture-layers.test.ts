@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import { getTool } from '../tool-registry.js';
 import { ToolInvocationError, operationsForCall } from '../tool-dispatch.js';
-import { pictureOverlapAcross } from './picture-layers.js';
+import { pictureOverlapAcross, tracksWithNoFreePictureSpan } from './picture-layers.js';
 import type { AnyOperation } from '@framepilot/editor-core';
 
 const TEXT_ASSET = '__text__';
@@ -355,5 +355,127 @@ describe('agent picture placement is refused across tracks', () => {
     expect(ops).toEqual([
       { type: 'move_clip', clipId: 'clip_zz', toTrackId: 'video_2', toStart: 4 },
     ]);
+  });
+});
+
+/**
+ * The refusal's machine identity, and the same rule asked track-wide.
+ *
+ * Run `369e8c82` was refused this rule four times and the run remembered none of them,
+ * because run memory keyed on the refusal SENTENCE — which names the asset, both times
+ * and the conflicting clip, and so differs on every attempt.
+ */
+describe('the refusal names its rule, and the arrangement can ask about it', () => {
+  it('carries `picture_over_picture` as the cause, all the way to the tool boundary', () => {
+    try {
+      operationsForCall(
+        {
+          id: 'c1',
+          name: 'add_clip',
+          arguments: { trackId: 'video_2', assetId: 'asset_v2', start: 2, end: 6 },
+        },
+        { project: baseProject() },
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(ToolInvocationError);
+      expect((error as ToolInvocationError).code).toBe('refusal');
+      expect((error as ToolInvocationError).refusalCause).toBe('picture_over_picture');
+      return;
+    }
+    throw new Error('add_clip did not refuse');
+  });
+
+  it('gives two placements that differ in every visible way the SAME cause', () => {
+    // Asset, times and conflicting clip all differ — which is exactly what defeated the
+    // prose key. The sentences must differ (they are written to be acted on) and the
+    // cause must not.
+    const project = projectWith([
+      {
+        id: 'video_1',
+        type: 'video',
+        clips: [
+          { id: 'clip_a', assetId: 'asset_v', start: 0, end: 5 },
+          { id: 'clip_b', assetId: 'asset_v', start: 5, end: 10 },
+        ],
+      },
+      { id: 'video_2', type: 'video', clips: [] },
+    ]);
+    const refuse = (assetId: string, start: number, end: number): ToolInvocationError => {
+      try {
+        operationsForCall(
+          { id: 'c', name: 'add_clip', arguments: { trackId: 'video_2', assetId, start, end } },
+          { project },
+        );
+      } catch (error) {
+        return error as ToolInvocationError;
+      }
+      throw new Error('add_clip did not refuse');
+    };
+    const first = refuse('asset_v2', 1, 3);
+    const second = refuse('asset_img', 6, 8);
+    expect(first.message).not.toBe(second.message);
+    expect(first.refusalCause).toBe(second.refusalCause);
+  });
+});
+
+describe('tracksWithNoFreePictureSpan', () => {
+  it('names an empty video track that picture covers end to end', () => {
+    const blocked = tracksWithNoFreePictureSpan(
+      projectWith([
+        {
+          id: 'video_1',
+          type: 'video',
+          clips: [
+            { id: 'clip_a', assetId: 'asset_v', start: 0, end: 5 },
+            { id: 'clip_b', assetId: 'asset_v', start: 5, end: 10 },
+          ],
+        },
+        { id: 'video_2', type: 'video', clips: [] },
+        { id: 'overlay_1', type: 'overlay', clips: [] },
+        { id: 'audio_1', type: 'audio', clips: [] },
+      ]),
+    );
+    // Only the covered picture layer. `video_1` does the covering; overlay and audio
+    // composite outside the picture chain and stack freely, which is the point of layers.
+    expect([...blocked]).toEqual(['video_2']);
+  });
+
+  it('leaves a track alone when there is a gap, however small', () => {
+    const blocked = tracksWithNoFreePictureSpan(
+      projectWith([
+        {
+          id: 'video_1',
+          type: 'video',
+          clips: [
+            { id: 'clip_a', assetId: 'asset_v', start: 0, end: 5 },
+            { id: 'clip_b', assetId: 'asset_v', start: 5.5, end: 10 },
+          ],
+        },
+        { id: 'video_2', type: 'video', clips: [] },
+      ]),
+    );
+    expect([...blocked]).toEqual([]);
+  });
+
+  it('does not count a text overlay sitting on a video track as picture', () => {
+    // Kind comes from the asset, exactly as `pictureOverlapAcross` reads it — otherwise
+    // a title parked on a video layer would falsely close every other layer.
+    const blocked = tracksWithNoFreePictureSpan(
+      projectWith([
+        {
+          id: 'video_1',
+          type: 'video',
+          clips: [{ id: 'clip_t', assetId: TEXT_ASSET, start: 0, end: 10 }],
+        },
+        { id: 'video_2', type: 'video', clips: [] },
+      ]),
+    );
+    expect([...blocked]).toEqual([]);
+  });
+
+  it('blocks nothing on an empty timeline', () => {
+    expect([
+      ...tracksWithNoFreePictureSpan(projectWith([{ id: 'video_1', type: 'video', clips: [] }])),
+    ]).toEqual([]);
   });
 });

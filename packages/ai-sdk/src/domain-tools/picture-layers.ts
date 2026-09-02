@@ -160,9 +160,19 @@ export function pictureOverlapRefusal(
  *
  * A throw, not a return, because that is the tool boundary's own idiom: the
  * orchestrator catches it out of `buildOps`, settles the call as `failed` with
- * the sentence as its `data`, and marks it `deterministicFailure` so the model
- * cannot retry the identical call (`deterministicFailureKey`). No patch is
+ * the sentence as its `data`, and marks it `deterministicFailure`. No patch is
  * assembled and nothing else in the turn is lost.
+ *
+ * The refusal carries `picture_over_picture` as its `RefusalCause` (`tool-refusal.ts`), and that,
+ * not the sentence, is what run memory keys on (`deterministicFailureKey`). This
+ * comment used to claim the guard already stopped the model retrying; run `369e8c82`
+ * proved otherwise. The sentence names the asset, both times and the conflicting clip,
+ * so a model that nudged 4.48–6s to 4.2–6s — believing it was trying something new —
+ * produced a second key and was refused from scratch, four times over fifteen minutes.
+ * The cause is the same for all four, so the second one is answered "you already tried
+ * this" instead. A CORRECTED placement is untouched: the key is computed after the call
+ * settles, so a placement into a free span never refuses and so never has a key to
+ * match.
  *
  * A {@link ToolRefusalError} specifically, so the note reads `Refused "add_clip":
  * <sentence>` and not `Invalid arguments for "add_clip"` — the arguments were
@@ -172,5 +182,71 @@ export function pictureOverlapRefusal(
 export function assertNoPictureStacking(project: Project, candidate: PictureCandidate): void {
   const conflicts = pictureOverlapAcross(project, candidate);
   if (conflicts.length === 0) return;
-  throw new ToolRefusalError(pictureOverlapRefusal(project, candidate, conflicts));
+  throw new ToolRefusalError(pictureOverlapRefusal(project, candidate, conflicts), {
+    refusalCause: 'picture_over_picture',
+  });
+}
+
+/**
+ * Float slack for comparing frame-quantized times. Cut points land on the grid, so any
+ * real gap is at least one frame wide and nothing this small is ever an editorial gap.
+ */
+const COVERAGE_EPSILON = 1e-6;
+
+/**
+ * The video tracks with nowhere left to put a picture clip — because picture on the
+ * OTHER video tracks already covers every instant of the sequence.
+ *
+ * ## Why the state summary needs this
+ *
+ * `arrangementLine` renders `b_roll [video] empty; v_main [video] 1 clips 0–49.77s` every
+ * turn. In run `369e8c82` that was a standing invitation: an empty video track reads as a
+ * free layer, and the run took it four times, each time meeting
+ * {@link assertNoPictureStacking}. The refusal is a good sentence, but it arrives after
+ * the call; the summary is what the model plans from, and it was saying the opposite.
+ *
+ * Exactly the rule {@link pictureOverlapAcross} enforces, asked track-wide instead of
+ * placement-wide, so the two can never disagree about what is legal.
+ *
+ * Bounded like the line it feeds: one asset map, one pass over the clips to collect the
+ * picture spans, then one sweep per video track. A project has few tracks.
+ *
+ * @param project - The project as the run currently holds it.
+ * @returns The ids of the video tracks where every placement would be refused. Empty
+ *   when the sequence is empty, since an empty timeline blocks nothing.
+ */
+export function tracksWithNoFreePictureSpan(project: Project): ReadonlySet<string> {
+  const assetById = new Map<string, Asset>(
+    (project.assets ?? []).map((asset) => [asset.id, asset]),
+  );
+  const spansByTrack = new Map<string, { start: number; end: number }[]>();
+  let sequenceEnd = 0;
+  for (const track of project.timeline.tracks) {
+    for (const clip of track.clips) sequenceEnd = Math.max(sequenceEnd, clip.end);
+    if (!carriesPicture(track)) continue;
+    spansByTrack.set(
+      track.id,
+      track.clips
+        .filter((clip) => PICTURE_KINDS.has(clipKindOf(clip, assetById)))
+        .map((clip) => ({ start: clip.start, end: clip.end })),
+    );
+  }
+  if (sequenceEnd <= 0) return new Set();
+  const blocked = new Set<string>();
+  for (const trackId of spansByTrack.keys()) {
+    // The other video tracks' picture, swept in time order: `covered` walks forward only
+    // while the spans keep touching, so the first real gap ends the sweep and the track
+    // still has somewhere to go.
+    const others = [...spansByTrack.entries()]
+      .filter(([id]) => id !== trackId)
+      .flatMap(([, spans]) => spans)
+      .sort((a, b) => a.start - b.start);
+    let covered = 0;
+    for (const span of others) {
+      if (span.start > covered + COVERAGE_EPSILON) break;
+      covered = Math.max(covered, span.end);
+    }
+    if (covered + COVERAGE_EPSILON >= sequenceEnd) blocked.add(trackId);
+  }
+  return blocked;
 }

@@ -36,6 +36,7 @@ import {
   automaticTrackingOpsFromMeasurement,
 } from './domain-tools/automatic-tracking.js';
 import { clipCandidates } from './domain-tools/clip-candidates.js';
+import { tracksWithNoFreePictureSpan } from './domain-tools/picture-layers.js';
 import {
   TranscriptWordSchema,
   type Asset,
@@ -236,6 +237,7 @@ import {
   sanitizeToolArgs,
 } from './tool-dispatch.js';
 import { type HostToolExecutor, type HostToolOutcome } from './tool-executor.js';
+import type { RefusalCause } from './tool-refusal.js';
 import { withToolInputContract } from './tool-input-contract.js';
 import { toolContract } from './tool-contract.js';
 import { concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
@@ -1683,6 +1685,15 @@ interface AgentCallOutcome {
    * about this failure is remembered for the rest of the run.
    */
   deterministicFailure?: boolean;
+  /**
+   * Which RULE refused this call, when a policy refusal named one
+   * (`tool-refusal.ts#RefusalCause`). `deterministicFailureKey` keys run memory on this
+   * in preference to the sentence, because a refusal sentence is written to be acted on
+   * and therefore varies with the placement: run `369e8c82` was refused ADR 0140's
+   * picture-over-picture rule four times and banked four keys. Absent ⇒ the failure is
+   * remembered by its text, exactly as before.
+   */
+  refusalCause?: RefusalCause;
   /** The working copy advanced by this call's validated ops (mutating calls only). */
   project?: Project;
   /** How many proposed ops the validator rejected (drives the empty-run notice). */
@@ -1781,6 +1792,13 @@ const round2 = (n: number): string => (Math.round(n * 100) / 100).toString();
  * and clip counts, then a row per track with its span — so a run that reads the tool and a
  * run that reads this fact hold the timeline in the same terms.
  *
+ * A video track with nowhere to put picture says so on its own row. Run `369e8c82` read
+ * `b_roll [video] empty; v_main [video] 1 clips 0–49.77s` every turn and took the
+ * invitation four times, each time meeting ADR 0140's picture-over-picture refusal
+ * (`domain-tools/picture-layers.ts`) because the narration on `v_main` covers the whole
+ * sequence. The refusal arrives after the call; this line is what the run PLANS from, and
+ * it was advertising a layer that could not be used.
+ *
  * Bounded by construction: one row per track, and a project has few of those.
  */
 export function arrangementLine(project: Project): string {
@@ -1790,12 +1808,18 @@ export function arrangementLine(project: Project): string {
     (max, track) => track.clips.reduce((m, clip) => Math.max(m, clip.end), max),
     0,
   );
+  const blocked = tracksWithNoFreePictureSpan(project);
   const rows = tracks
     .map((track) => {
-      if (track.clips.length === 0) return `${track.id} [${track.type}] empty`;
+      // Same words the refusal uses ("a free span"), so the constraint the run reads here
+      // and the answer it gets from the tool are recognizably one rule.
+      const noRoom = blocked.has(track.id)
+        ? ` — no free span (picture covers 0–${round2(end)}s)`
+        : '';
+      if (track.clips.length === 0) return `${track.id} [${track.type}] empty${noRoom}`;
       const first = track.clips.reduce((m, c) => Math.min(m, c.start), Infinity);
       const last = track.clips.reduce((m, c) => Math.max(m, c.end), 0);
-      return `${track.id} [${track.type}] ${String(track.clips.length)} clips ${round2(first)}–${round2(last)}s`;
+      return `${track.id} [${track.type}] ${String(track.clips.length)} clips ${round2(first)}–${round2(last)}s${noRoom}`;
     })
     .join('; ');
   return `Timeline now: sequence ${round2(end)}s, ${String(tracks.length)} tracks, ${String(clipCount)} clips — ${rows}`;
@@ -2519,7 +2543,10 @@ export function summarizeReadResult(
             typeof t.firstClipStart === 'number' && typeof t.lastClipEnd === 'number'
               ? ` ${round2(t.firstClipStart)}–${round2(t.lastClipEnd)}s`
               : ''
-          }`,
+            // The same words `arrangementLine` uses for the same fact, per its doc comment:
+            // the tool and the arrangement fact must describe the timeline identically, or
+            // a run that read one plans against a constraint the other never mentioned.
+          }${t.noFreePictureSpan === true ? ` — no free span (picture covers 0–${duration})` : ''}`,
         'tracks',
       )}`;
     }
@@ -4619,7 +4646,9 @@ export class Orchestrator {
       // of ADR 0140, a caption cue that would cross a cut — and telling the model its
       // arguments were invalid sends it to fix a `start` that was already correct instead
       // of taking the alternative the sentence names. So the sentence stands alone.
-      const refused = error instanceof ToolInvocationError && error.code === 'refusal';
+      const refusal =
+        error instanceof ToolInvocationError && error.code === 'refusal' ? error : undefined;
+      const refused = refusal !== undefined;
       const reason = error instanceof Error ? error.message : String(error);
       const note = refused
         ? `Refused "${call.name}": ${reason}`
@@ -4635,6 +4664,19 @@ export class Orchestrator {
         status: 'failed',
         data: reason,
         deterministicFailure: true,
+        // The rule's name, so run memory identifies the refusal by what it IS rather than
+        // by a sentence that changes with every placement (see `deterministicFailureKey`).
+        ...(refusal?.refusalCause ? { refusalCause: refusal.refusalCause } : {}),
+        // A refusal loses its call's work, and until now it left NO trace in the run's
+        // working state: only a landed patch's `describedActions` reach `recordOperation`,
+        // so the remedy lived in a tool result and aged out of the window with it. Run
+        // `369e8c82`'s briefing never once carried the picture-over-picture rule. The
+        // ledger's existing route in is the per-call rejection tally the conductor reads
+        // as `lostOpsPerCall`, which files the turn as a `failed` operation carrying this
+        // note — and the note is the refusal sentence, remedy included. One, not
+        // `ops.length`: the throw came out of `buildOps`, so no operations were ever built
+        // to count.
+        ...(refused ? { rejectedOpCount: 1 } : {}),
       };
     }
     try {
@@ -8618,12 +8660,21 @@ function withheldCallOutcome(
  */
 function deterministicFailureKey(
   callName: string,
-  outcome: Pick<AgentCallOutcome, 'status' | 'data' | 'deterministicFailure'>,
+  outcome: Pick<AgentCallOutcome, 'status' | 'data' | 'deterministicFailure' | 'refusalCause'>,
 ): string | undefined {
   if (outcome.status !== 'failed' || outcome.deterministicFailure !== true) return undefined;
   // The error text is the key's whole discriminating power; without it every failure of a
-  // tool would collapse to one key and the guard would block the tool outright.
+  // tool would collapse to one key and the guard would block the tool outright. Tested
+  // before the cause branch as well, because a key promises the caller a sentence to
+  // hand back (`repeatedFailureOutcome`), and a refusal always has one.
   if (typeof outcome.data !== 'string' || outcome.data.trim() === '') return undefined;
+  // A POLICY refusal that named its rule is keyed on the RULE. Its sentence is written to
+  // be acted on, so it carries the asset, the times and the conflicting clip — and in run
+  // `369e8c82` that made four refusals of one rule into four keys. Nothing matched, and
+  // the model, nudging 4.48–6s to 4.2–6s to 4.2–6.2s, spent fifteen minutes discovering
+  // the same "no" three more times. Prose-stripping cannot rescue that the way it rescues
+  // a validator locator: here the varying parts are the whole body of the sentence.
+  if (outcome.refusalCause !== undefined) return `${callName}:${outcome.refusalCause}`;
   return `${callName}:${failureCause(outcome.data)}`;
 }
 
@@ -8655,28 +8706,39 @@ function failureCause(error: string): string {
 }
 
 /**
- * The outcome for a call the run has already been refused with, word for word.
+ * The outcome for a call the run has already been refused for the same CAUSE.
+ *
+ * It used to say "with exactly this error", and while the key was the error text that was
+ * literally true. It no longer is: a policy refusal keys on its rule
+ * ({@link deterministicFailureKey}), so run `369e8c82`'s second attempt — a different
+ * asset at different times against a different clip — reaches here with a sentence the run
+ * has never seen, matched to a rule it has.
  *
  * Settled as `failed`, NOT `warning` — the same trap `withheldCallOutcome`'s unknown-tool
  * branch documents. `callAnswered` treats a warning as an answer, so a warning here would
  * credit the turn with progress and bank the call's novelty key, which is to say the guard
  * against spinning would reset the guards against spinning.
  *
- * The message names a way out, because a refusal with no legal move left is how a run gets
- * stranded: fix the precondition the error names, pick a different tool, or move on.
+ * The REMEDY has to survive, and that is the whole reason `error` is quoted in full rather
+ * than summarized. This note REPLACES the refusal the model would otherwise have read, and
+ * the picture-over-picture sentence is where "split at the in/out and place it on the same
+ * track" lives. Dropping it would turn a helpful refusal into a dead end — worse than the
+ * loop it is closing.
  */
 function repeatedFailureOutcome(call: ToolCall, error: string): AgentCallOutcome {
   const note =
-    `"${call.name}" already failed this run with exactly this error: ${error} ` +
-    'Retrying it cannot succeed. Fix the precondition it names, use a different tool, ' +
-    'or move on to the next part of the request.';
+    `"${call.name}" already failed this run for this same reason: ${error} ` +
+    'The arguments changed and the answer did not, so nudging them again will not help. ' +
+    'Do what that reason names instead, use a different tool, or move on to the next ' +
+    'part of the request.';
   return {
     ops: [],
     note,
     summary: `Refused repeat of "${call.name}" — it already failed this run`,
     status: 'failed',
-    // The ORIGINAL error, so this refusal keys back to the entry it matched instead of
-    // banking a second, wordier key for the same cause.
+    // The ORIGINAL error, not the wrapper prose. This outcome carries no `refusalCause`,
+    // so a policy repeat banks its own text key beside the rule key that caught it —
+    // harmless bookkeeping, since the rule key is what every further attempt matches on.
     data: error,
     deterministicFailure: true,
   };
