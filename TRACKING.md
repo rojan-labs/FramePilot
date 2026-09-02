@@ -472,44 +472,52 @@ available and costs no code — but it is a claim, not a measurement, until this
 
 ---
 
-# A regression already on this branch, found by attribution
+# The picture guard, and what replaced it (ADR 0169)
 
-**`beat-grid-wiring.test.ts` is 2 passed / 8 failed, and `61ac69f` is the cause** —
-a commit that was on `feat/golden-eval-harness` before this session started, not one
-of mine. I found it because a slice reported it as "pre-existing at HEAD"; HEAD
-already contained it, so that check could not have distinguished the two. Isolated by
-reverting single files against `main`:
+`beat-grid-wiring.test.ts` was **2 passed / 8 failed** on this branch, and nothing
+surfaced it. Found by attribution after a slice reported it as "pre-existing at HEAD" —
+HEAD already carried the cause, so that check could not distinguish. Isolated by
+reverting single files against `main`: `domain-tools/timeline.ts` alone flipped it
+2/8 → 10/10.
 
-| tree | result |
-|---|---|
-| branch as committed | 2 pass / 8 fail |
-| `orchestrator.ts` + `sidecar-executor.ts` + `domain-tools/timeline.ts` from `main` | **10 pass / 0 fail** |
-| `sidecar-executor.ts` alone from `main` | 2 pass / 8 fail |
-| **`domain-tools/timeline.ts` alone from `main`** | **10 pass / 0 fail** |
+`61ac69f` had extended ADR 0140's picture-over-picture refusal from stock to **every**
+agent placement. The fixture carries picture 0–10s and builds a montage on a second
+track, so every `add_clip` was refused, the run applied nothing, and beat-grid
+enforcement never ran. On a talking-head project the main track is occupied
+everywhere — so the agent could not build a montage or a layered cutaway **at all**.
 
-`61ac69f` (GOLDEN-A.3) extended ADR 0140's picture-over-picture refusal from stock to
-**every agent picture placement**, adding `assertNoPictureStacking` to
-`addClipOperation`. The beat-grid fixture's `video_1` carries picture continuously
-0–10s, and the test builds a montage on `video_2` at 0–3s. Every one of those
-`add_clip` calls is now refused, the run applies nothing, and beat-grid enforcement
-never gets to run — which is why the failures read `expected 0 to be greater than 0`
-and `No edits were applied — 2 proposed changes…`.
+**Maintainer decision (2026-09-03): auto-create a track above and place there.** The
+guard was answering the wrong question. `pictureSegments` flattened picture from every
+track sorted by START alone, no z-order, and its own doc said it "assumes no overlaps" —
+so the preview did not show the wrong layer, it produced nonsense. The export composites
+correctly by track order. Teach the preview z-order and a full-frame opaque overlay
+previews exactly as it exports.
 
-**This is ADR 0166's failure mode in the wild: a guard refusing a legitimate edit.**
-Cutting a montage onto a second video track over an existing programme is ordinary
-editing, and the agent can no longer do it at all while the main track is occupied —
-which, on a talking-head project, is always. It is the same trap as run `369e8c82`'s
-`b_roll`, seen from the other side: there the refusal was right and the state was
-lying about it; here the refusal itself is the thing in question.
+Shipped in `bf16f10` + `2acdb9b`: the preview resolves by z-order, `add_clip` opens a
+front layer when the lane is busy, `isFullFrameOpaque` (in `editor-core`, read by both
+the guard and the preview so they cannot drift) decides what is still refused, and
+`beat-grid-wiring.test.ts` is 10/10 **unedited**. Cost: +125 tokens per request on the
+tool definitions. ADR 0169 records it.
 
-**This needs a decision, and it is genuinely ambiguous — see the question in the
-session.** The three readings are: keep the guard and accept that agent montage on a
-second video track is impossible until SUC-P1 lands (then the tests encode a workflow
-we have withdrawn and must be rewritten); narrow the guard so it refuses only what
-ADR 0140 actually decided, which was STOCK placement; or make the preview honest
-about layered picture, which is SUC-P1 itself and a much larger piece of work.
+**What still diverges between preview and export** — the list the next person needs:
 
-Note what it is not: it is not caught by any gate, and it shipped with eight red
-tests that nothing surfaced, because CI runs the suite and this branch's checks were
-never read against the exact head SHA.
+1. A non-full-frame layer a **person** drags over picture. The agent can no longer make
+   one; a human still can.
+2. Compositing added **after** placement — a run that places two full-frame clips and
+   then adds a transition or a punch-in on the front one recreates case 1, with no
+   refusal anywhere, because nothing re-tests the predicate.
+3. **Letterboxing, the biggest gap.** A source whose aspect does not match the frame is
+   fitted; the bars are transparent at export so the layer beneath shows through them,
+   while the preview paints black. `isFullFrameOpaque` reads no source dimensions and
+   cannot see this. Auto-reframe covers landscape-in-portrait *when the engine has
+   measured the asset* — an unmeasured source, or a portrait source in a landscape
+   project, is not covered.
+4. Same-lane overlap (a state the validator refuses) has no defined order.
+5. Colour grade remains a canvas approximation (pre-existing).
+6. New exposure rather than divergence: the WebCodecs compositor now serves stacked
+   projects instead of handing them to the DOM player, so it runs on sliced segment
+   shapes it has never seen. Unit-tested; no real-media run.
 
+Also fixed on the way, found by the same test: `trackTypeLookups` resolved a track's
+type against the pre-turn timeline only, so cuts on a layer the same patch opened were
+classified "not a picture track" and the whole montage escaped the beat grid.
