@@ -193,10 +193,39 @@ reconcileInheritedFailures`: a health check failing identically before and after
   reason. Both halves pinned, including the two-different-assets case.
   Desktop's WAL now records `refusalCause` on a host result, so a run nobody watched shows
   WHY a repeat was refused rather than only that it was.
-- `[ ]` GOLDEN-A.9 — **the five host-backed validator probes still file no ledger trace.**
-  They lose real operations and set no `rejectedOpCount`, so a run that lost everything to
-  one of them still reports "reviewed the footage but never made a change". Left for its own
-  change: it moves the empty-run and partial-run notices for five tools.
+- `[x]` GOLDEN-A.9 — **a run that lost its work to a validator probe now says what it lost,
+  and how much.** The five host-backed probes returned `ops: []` with the operations they
+  refused carried nowhere, so the turn reported zero, `lostOpsPerCall` saw nothing, no
+  ledger row was written, and a run that lost everything to one of them closed with
+  "reviewed the footage but never made a change" — true of the timeline, false about the
+  run, and the class of report goal.md's release gate names outright. Fixed the way
+  `b7f1fd3` fixed the refusal paths, with the one difference that matters: a refusal loses
+  ONE proposed change, a probe loses every operation the tool built, so the count is
+  `ops.length` and not `1` — three for a music bed, one `ripple_delete` per silence cut,
+  one `set_transcript`, the stock placement's own list, the compiled tracking batch. The
+  helper takes the OPERATIONS rather than a number so a site cannot report a count that is
+  not the list it refused. `emptyRunMessage`, `partialRunMessage` and the completion
+  report's "Skipped: N proposed changes did not validate" all print that number, so a
+  hardcoded `1` in front of a fifty-cut silence pass would have been its own small
+  dishonesty. Every consumer re-checked: the per-call accumulation and `rejectionNotes`,
+  the conductor's fold and `lostOpsPerCall` → `recordOperation`, the `rejectionReasons`
+  tally and its cap of three, the three closing notices, the completion report and the
+  plan-step status (already `failed` via `anyToolFailed`). Pinned end to end: an empty run,
+  a partial run and the ledger row read back through the briefing.
+  `track_subject_automatically`'s op-build catch branch, the adjacent leftover, is keyed
+  and traced too. It is a throw out of the BUILDER rather than a probe, so its count is
+  `1` — nothing was built to count — but everything it can throw (`compileTrackingCommand`'s
+  eleven rejection codes, `validateProfessionalOperationBatch`'s validator and
+  apply/invert round-trip) is a pure verdict over the working copy, and each unkeyed repeat
+  re-ran an isolated pack worker over the media. The key still cannot pre-empt that worker:
+  it is read off a settled outcome, so the measurement is always made and only the prose of
+  a call that already failed is replaced.
+  Left recorded, not fixed: `unusableHostPayload` and the generic invalid-args rejection
+  still file no count, so a run whose only work was one of those still reads as a run that
+  never tried; a repeat answered by `repeatedFailureOutcome` files no count either, so a
+  re-proposal of the same lost operations is not counted twice; and the reasons list is
+  capped at three while the count is not, so a large N prints a sample of reasons without
+  saying it is a sample.
 - `[x]` GOLDEN-A.5 — **a refused stock placement can no longer repeat without limit**
   (`760bc57`). `add_stock`'s placement refusal set no `deterministicFailure` and put a
   refusal RECORD where `deterministicFailureKey` needs a string, so it had no key on two

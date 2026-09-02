@@ -18,6 +18,7 @@
  * and not on the arguments.
  */
 import { describe, expect, it } from 'vitest';
+import { parseProject, type Project } from '@framepilot/timeline-schema';
 import type { ContextInput } from '../context-builder.js';
 import type { AiEvent } from '../events.js';
 import type { AiCompletionRequest, AiProvider, AiResponse } from '../providers/types.js';
@@ -918,6 +919,251 @@ describe('a host-backed validator rejection is remembered like any other', () =>
     expect(results[0]?.summary).toContain('must be greater than start');
     expect(results[1]?.summary).not.toContain('already failed');
     expect(results[1]?.summary).toContain('Downloaded');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GOLDEN-A.9 — a run that lost its work to a validator probe says WHAT it lost.
+//
+// The probes returned `ops: []` and set no `rejectedOpCount`, so the operations they
+// refused were carried nowhere: the turn reported zero, `lostOpsPerCall` saw nothing, no
+// ledger row was written, and the run closed with "reviewed the footage but never made a
+// change" — true of the timeline, false about the run. goal.md's release gate names that
+// class of report outright, and `b7f1fd3` fixed exactly this shape for the refusal paths.
+//
+// The COUNT is the second half. A refusal loses one proposed change; a probe loses every
+// operation the tool built — three for a bed (`add_asset`, `add_layer`, `add_clip`) — and
+// the closing message prints that number, so `1` there would be its own small dishonesty.
+// ---------------------------------------------------------------------------
+
+/** What `buildAddMusicOps` lays down for an unducked bed: bin, layer, clip. */
+const ADD_MUSIC_OP_COUNT = 3;
+
+describe('a run whose work the validator probe refused reports what it lost', () => {
+  it('says the real number and the validator’s reason, not "never made a change"', async () => {
+    const counter = { calls: 0 };
+    const provider = new RecordingProvider([addMusic('m1', undefined, 0), done]);
+    const events = await drain(
+      new Orchestrator(provider, {
+        executor: musicHostAt(counter, [ZERO_LENGTH_AT]),
+      }).streamAgent(musicInput, baseOpts(), {}),
+    );
+
+    const said = warnings(events).join('\n');
+    expect(said).toContain('No edits were applied');
+    // THE COUNT, spelled out: the three operations the probe actually refused.
+    expect(said).toContain(
+      `${String(ADD_MUSIC_OP_COUNT)} proposed changes couldn't be applied to the timeline`,
+    );
+    // The validator's own sentence, in the run's account of itself — not only in a tool
+    // result that ages out of the context window with the turn (run `369e8c82`).
+    expect(said).toContain('must be greater than start');
+    // The notice this run used to fall through to. The run tried; it must not say it did not.
+    expect(said).not.toContain('never made a change');
+  });
+
+  it('files the refused operations as a FAILED ledger row the briefing shows', async () => {
+    // The ledger half, end to end rather than at the seam: `rejectedOpCount` is what
+    // `lostOpsPerCall` reads, and a lost-ops turn is recorded as `failed` with the
+    // per-call note as its cause. Read back through the briefing the next turn is built
+    // from, which is where the remedy has to survive to.
+    const counter = { calls: 0 };
+    const provider = new RecordingProvider([addMusic('m1', undefined, 0), done]);
+    const events = await drain(
+      new Orchestrator(provider, {
+        executor: musicHostAt(counter, [ZERO_LENGTH_AT]),
+      }).streamAgent(musicInput, baseOpts(), {}),
+    );
+
+    const refusal = toolResults(events)[0]!.summary;
+    // The REAL sentence, not a hand-written stand-in — the test degrades honestly if the
+    // run's first result ever stops being this rejection.
+    expect(refusal).toContain('Rejected "add_music"');
+    const step = onEffectResult(
+      started(),
+      turn({
+        signature: 'add_music:{"remoteId":"ov_1","atSeconds":0}',
+        rejectedOpCount: ADD_MUSIC_OP_COUNT,
+        rejectionNotes: [refusal],
+      }),
+    );
+
+    expect(step.state.working.operations).toHaveLength(1);
+    expect(step.state.working.operations[0]?.status).toBe('failed');
+    const briefing = buildStateBriefing(step.state.working);
+    expect(briefing).toContain('FAILED — fix the cause, do not retry unchanged');
+    expect(briefing).toContain('must be greater than start');
+    expect(briefing).not.toContain('ALREADY APPLIED');
+  });
+
+  it('accounts for the loss in a run that also landed something', async () => {
+    // The partial case, which is the one a creator cannot see for themselves: two beds
+    // asked for, one on the timeline, one refused. Before the count the report was
+    // indistinguishable from a run that did everything it was asked.
+    const counter = { calls: 0 };
+    const provider = new RecordingProvider([
+      addMusic('m1', undefined, 0),
+      addMusic('m2', undefined, 2),
+      done,
+    ]);
+    const events = await drain(
+      new Orchestrator(provider, {
+        executor: musicHostAt(counter, [0, ZERO_LENGTH_AT]),
+      }).streamAgent(musicInput, baseOpts(), {}),
+    );
+
+    const said = warnings(events).join('\n');
+    expect(said).toContain('Some of this edit did not land');
+    expect(said).toContain(
+      `${String(ADD_MUSIC_OP_COUNT)} proposed changes couldn't be applied to the timeline`,
+    );
+    expect(said).toContain('must be greater than start');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `track_subject_automatically`'s op-build throw — the same two fixes, one branch later.
+//
+// It is not a validator probe: the throw comes out of `automaticTrackingOpsFromMeasurement`,
+// so no operation was ever built. It is deterministic all the same — `compileTrackingCommand`
+// and `validateProfessionalOperationBatch` are pure verdicts over the working copy — and it
+// was the last unkeyed, untraced one of the group.
+// ---------------------------------------------------------------------------
+
+/** A clip carrying a drawn rectangle mask: what the tracking compiler needs to exist. */
+const maskedProject = (): Project =>
+  parseProject({
+    id: 'auto_tracking_project',
+    name: 'Automatic tracking fixture',
+    version: 1,
+    fps: 24,
+    resolution: { width: 1920, height: 1080 },
+    assets: [{ id: 'asset', path: 'shot.mp4', kind: 'video', durationSeconds: 900 }],
+    timeline: {
+      revision: 7,
+      tracks: [
+        {
+          id: 'v1',
+          type: 'video',
+          clips: [
+            {
+              id: 'shot',
+              assetId: 'asset',
+              trackId: 'v1',
+              start: 0,
+              end: 4,
+              sourceStart: 0,
+              sourceEnd: 4,
+              effects: [
+                {
+                  id: 'shot__mask',
+                  type: 'mask',
+                  params: {
+                    shape: 'rectangle',
+                    bounds: { x: 0.2, y: 0.1, width: 0.25, height: 0.4 },
+                  },
+                  keyframes: [],
+                },
+              ],
+              keyframes: [],
+            },
+          ],
+        },
+      ],
+    },
+    transcript: [],
+    aiMemory: {},
+    history: [],
+  });
+
+const trackSubject = (id: string): AiResponse => ({
+  text: '',
+  toolCalls: [
+    {
+      id,
+      name: 'track_subject_automatically',
+      arguments: { intent: 'track_subject_automatically', target: 'this', subject: 'region' },
+    },
+  ],
+});
+
+/**
+ * A pack worker that measured the clip and came back with nothing usable — every sample
+ * occluded and under the confidence floor. The measurement PARSES; the compiler is what
+ * refuses it, which is the branch under test.
+ */
+const unusableTrackHost = (counter: { calls: number }): HostToolExecutor => ({
+  run: async () => {
+    counter.calls += 1;
+    return {
+      status: 'completed',
+      summary: 'Measured the subject.',
+      data: {
+        objective: { intent: 'track_subject_automatically', target: 'this', subject: 'region' },
+        plan: {
+          clipId: 'shot',
+          maskEffectId: 'shot__mask',
+          capability: 'tracking.region',
+          fps: 24,
+          startSeconds: 0,
+        },
+        samples: [
+          {
+            frame: 0,
+            box: { x: 0.2, y: 0.1, width: 0.25, height: 0.4 },
+            confidence: 0.05,
+            occluded: true,
+          },
+        ],
+        engine: 'framepilot.tracking-lite@1.0.0-dev.local',
+        backend: 'opencv',
+      },
+    };
+  },
+});
+
+const trackingInput = (): ContextInput => ({
+  project: maskedProject(),
+  userPrompt: 'track the subject',
+});
+
+describe('a refused automatic track is remembered, and the run says it was refused', () => {
+  it('reports the refusal instead of reading as a run that never tried', async () => {
+    const counter = { calls: 0 };
+    const events = await drain(
+      new Orchestrator(new RecordingProvider([trackSubject('t1'), done]), {
+        executor: unusableTrackHost(counter),
+      }).streamAgent(trackingInput(), baseOpts(), {}),
+    );
+
+    const said = warnings(events).join('\n');
+    expect(said).toContain('No edits were applied');
+    // ONE, and honestly so: the throw came out of the op builder, so nothing was built to
+    // count — one refused call is one thing the run could not do.
+    expect(said).toContain("1 proposed change couldn't be applied to the timeline");
+    // The compiler's own verdict, where the next turn and the editor can both read it.
+    expect(said).toContain('unusable_track');
+    expect(said).not.toContain('never made a change');
+  });
+
+  it('answers the second identical refusal as a repeat, having still run the worker', async () => {
+    const counter = { calls: 0 };
+    const events = await drain(
+      new Orchestrator(new RecordingProvider([trackSubject('t1'), trackSubject('t2'), done]), {
+        executor: unusableTrackHost(counter),
+      }).streamAgent(trackingInput(), baseOpts(), {}),
+    );
+
+    const results = toolResults(events);
+    expect(results).toHaveLength(2);
+    expect(results[0]?.summary).toContain('unusable_track');
+    expect(results[1]?.summary).toBe(
+      'Refused repeat of "track_subject_automatically" — it already failed this run',
+    );
+    // The key is read off a SETTLED outcome, so it never pre-empts the measurement — the
+    // pack worker ran both times, and a re-measure that produced a usable track would have
+    // landed with no key to match.
+    expect(counter.calls).toBe(2);
   });
 });
 

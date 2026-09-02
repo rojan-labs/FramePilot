@@ -1717,7 +1717,18 @@ interface AgentCallOutcome {
   refusalCause?: RefusalCause;
   /** The working copy advanced by this call's validated ops (mutating calls only). */
   project?: Project;
-  /** How many proposed ops the validator rejected (drives the empty-run notice). */
+  /**
+   * How many proposed ops this call lost (drives the empty-run notice AND the ledger).
+   *
+   * Non-zero is the ONLY route a call that landed nothing has into the run's durable
+   * account of itself: the conductor reads it as `lostOpsPerCall` and files the turn as a
+   * `failed` operation whose reason is {@link AgentCallOutcome.note}. Absent ⇒ the run
+   * reports as though the call never tried.
+   *
+   * The unit is operations where operations were built (`ops.length`, the validator
+   * probes and the generic mutate path), and one where the call was refused before it
+   * built any — one refused call being one thing the run could not do.
+   */
   rejectedOpCount?: number;
   /**
    * How many of this call's applied ops are DERIVED fan-out rather than model-composed
@@ -4174,7 +4185,7 @@ export class Orchestrator {
            references to check (see validator.ts), so a schema-valid word array can
            never fail validation; kept defensive, not reachable. */
         if (!probe.validation.valid) {
-          return hostBackedValidatorRejection('transcribe', probe.validation.issues);
+          return hostBackedValidatorRejection('transcribe', probe.validation.issues, ops);
         }
         /* v8 ignore stop */
         // The transcript itself was just rewritten, so transcript-derived evidence is
@@ -4232,7 +4243,7 @@ export class Orchestrator {
         }
         const probe = assembleEdit(ctx.project, ops, 'Remove dead air', 'agent');
         if (!probe.validation.valid) {
-          return hostBackedValidatorRejection('remove_silences', probe.validation.issues);
+          return hostBackedValidatorRejection('remove_silences', probe.validation.issues, ops);
         }
         const summary = `Removed ${String(cuts.length)} silence(s), ${removedSeconds.toFixed(1)}s in total`;
         return {
@@ -4320,7 +4331,7 @@ export class Orchestrator {
         const ops = buildAddMusicOps(ctx.project.timeline, asset, atSeconds, duckUnderTrackId);
         const probe = assembleEdit(ctx.project, ops, 'Add background music', 'agent');
         if (!probe.validation.valid) {
-          return hostBackedValidatorRejection('add_music', probe.validation.issues);
+          return hostBackedValidatorRejection('add_music', probe.validation.issues, ops);
         }
         // Tell the model about the credit rather than leaving it a surprise for the
         // user at publish time: it can then mention it in its own summary.
@@ -4421,7 +4432,7 @@ export class Orchestrator {
         const ops = [...placement.operations];
         const probe = assembleEdit(ctx.project, ops, 'Add stock media', 'agent');
         if (!probe.validation.valid) {
-          return hostBackedValidatorRejection('add_stock', probe.validation.issues);
+          return hostBackedValidatorRejection('add_stock', probe.validation.issues, ops);
         }
         // Same reasoning as `add_music`: tell the model about the credit now, so
         // it can mention it, rather than leaving it a surprise at publish time.
@@ -4460,7 +4471,7 @@ export class Orchestrator {
           const ops = automaticTrackingOpsFromMeasurement(parsedMeasurement.data, ctx);
           const probe = assembleEdit(ctx.project, ops, 'Track subject automatically', 'agent');
           if (!probe.validation.valid) {
-            return hostBackedValidatorRejection(call.name, probe.validation.issues);
+            return hostBackedValidatorRejection(call.name, probe.validation.issues, ops);
           }
           return {
             ops,
@@ -4473,7 +4484,39 @@ export class Orchestrator {
         } catch (cause) {
           const reason = cause instanceof Error ? cause.message : String(cause);
           const note = `Rejected "${call.name}" — ${reason}`;
-          return { ops: [], note, summary: note, status: 'failed', data: reason };
+          // KEYED, on the same argument as the probe above and for a stricter reason than
+          // the probe has. Everything this `try` can throw is a pure verdict over the
+          // working copy: `compileTrackingCommand`'s eleven rejection codes (`missing_mask`,
+          // `locked_track`, `unusable_track`, …) read the timeline and the compiled samples,
+          // and `validateProfessionalOperationBatch` runs the validator and the
+          // apply/invert round-trip. Same measurement, same project, same sentence, every
+          // time — so without a key this refusal could be re-earned every turn for the
+          // length of the run, and each repeat re-runs an isolated pack worker over the
+          // media, which is the most expensive loop any of these branches can spin.
+          //
+          // The guard cannot pre-empt that worker even so: a key is read off a SETTLED
+          // outcome (see the repeat gate in `executeToolCalls`), so the measurement is
+          // always made and only the prose of a call that already failed is replaced. And a
+          // re-measure that produces a usable track never fails, so it never has a key to
+          // match — a corrected mask is never refused for an earlier one's verdict.
+          //
+          // `rejectedOpCount: 1`, not a count of operations, and the difference from the
+          // probe above is the point: the throw comes out of the op BUILDER, so no
+          // operation was ever built to count. One refused call is one thing the run could
+          // not do — the same reading `b7f1fd3` gave the refusal paths. Without it a run
+          // whose only work was a refused track reported "reviewed the footage but never
+          // made a change", and the compiler's remedy ("draw a rectangle mask on the clip
+          // first", "the track is too unreliable") aged out of the context window with the
+          // tool result, exactly as run `369e8c82`'s did.
+          return {
+            ops: [],
+            note,
+            summary: note,
+            status: 'failed',
+            data: reason,
+            deterministicFailure: true,
+            rejectedOpCount: 1,
+          };
         }
       }
       // A cached replay reports the call itself (`desc`), not the original outcome's
@@ -8871,19 +8914,39 @@ function withheldCallOutcome(
  * the validator names the clip ids, track ids and times it objected to and `failureCause`
  * strips only the operation locator. The remedy transfers because it is the same remedy.
  *
- * `rejectedOpCount` is NOT set here, and that is a gap left open rather than a judgement
- * that it should stay open: these five lose real operations, and `lostOpsPerCall`'s whole
- * argument is that the ledger must show what a run TRIED — which is what the generic path's
- * `rejectedOpCount: ops.length` gives it. Left for its own change, because it moves the
- * empty-run and partial-run notices for five tools and deserves to be reviewed as that.
+ * `rejectedOpCount` IS the trace, and without it the run lied about itself. These five
+ * return `ops: []` with the operations they lost carried nowhere, so the turn reported zero
+ * operations, `lostOpsPerCall` saw nothing, no `failed` ledger row was written, and a run
+ * that lost everything to one of them closed with "this run reviewed the footage but never
+ * made a change" — true of the timeline, false about the run, and the class of dishonest
+ * report goal.md's release gate names outright. It is the same defect `b7f1fd3` closed for
+ * the declared host refusal, and the same route out: the count reaches the conductor's
+ * `lostOpsPerCall`, which files the turn as a `failed` operation whose `failureReason` is
+ * this note — so the validator's sentence reaches the state briefing's "FAILED — fix the
+ * cause" section and the closing empty-/partial-run notice, instead of ageing out of the
+ * context window with the tool result the way run `369e8c82`'s remedy did.
+ *
+ * The count is the REAL one, not the refusal path's `1`. A refusal is reached before any
+ * operation is built; these five have already built theirs and lose every one — three for a
+ * music bed (`add_asset`, `add_layer`, `add_clip`, four with a duck), one `ripple_delete`
+ * per silence cut, one per compiled tracking operation. `emptyRunMessage` and
+ * `agentCompletionReport` both say "N proposed change(s)", so a hardcoded `1` in front of a
+ * fifty-cut silence pass would be its own small dishonesty. The unit is the one the generic
+ * mutate path's byte-identical branch already uses (`rejectedOpCount: ops.length`), so an
+ * operation lost behind a host and one lost in process are counted the same way.
+ *
+ * The OPERATIONS are taken rather than a number so a call site cannot report a count that
+ * does not belong to the list the probe actually refused.
  *
  * @param callName - The tool being refused — the note the model reads and the key's prefix.
  * @param issues - The probe's validation issues; only errors are quoted.
+ * @param refusedOps - The operations the probe refused; their count is what the run lost.
  * @returns A failed outcome the run can remember for the rest of its life.
  */
 function hostBackedValidatorRejection(
   callName: string,
   issues: readonly ValidationIssue[],
+  refusedOps: readonly AnyOperation[],
 ): AgentCallOutcome {
   const problems = issues
     .filter((issue) => issue.severity === 'error')
@@ -8897,6 +8960,7 @@ function hostBackedValidatorRejection(
     status: 'failed',
     data: problems,
     deterministicFailure: true,
+    rejectedOpCount: refusedOps.length,
   };
 }
 
