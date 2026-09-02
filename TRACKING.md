@@ -551,14 +551,24 @@ overlay's fitted rect ⊇ every covered clip's fitted rect — not a property of
 centred fits that means: the overlay fills the frame, **or** it shares an aspect with
 everything under it.
 
-**Why the property version cannot just be shipped.** It refuses every unmeasured asset, and
-a freshly downloaded stock clip is unmeasured at placement time. Sixteen tests went red for
-exactly that reason — the fixtures carry no dimensions — and that is not a fixture problem,
-it is the feature becoming unusable on the media a b-roll request actually reaches for. The
-relation version does not have this failure: same-aspect stacks stay legal whether or not
-anyone measured them, because equality of aspect can be established from the clips alone
-when both are unmeasured only if they share an asset — so it narrows the unmeasured refusal
-to genuinely mixed-shape stacks.
+**Correction to my own first reading of the 16 failures.** I wrote that they proved the
+feature would be unusable because "a freshly downloaded stock clip is unmeasured at
+placement time". **That is wrong, and checking it is what corrected it.**
+`apps/desktop/electron/media/stock-service.ts:908–923` already records `width`/`height` on
+every downloaded stock asset — the engine's derived measurement when it has one, the
+provider's variant dimensions otherwise (Pexels returns both, and `pexels-stock.ts` already
+parses them). A user's own footage is probed when the engine derives its proxies. So on the
+desktop path **both sides of a real b-roll stack are measured**, and the 16 red tests were
+red because the FIXTURES are minimal, not because production media is unmeasured.
+
+That materially changes the trade-off: fail-closed costs far less in production than those
+failures suggested. It does not rescue the property version, which is still asking the
+wrong question — but the honest reason to prefer the relation is correctness, not
+unusability, and a future session should not revert it for the reason I first gave.
+
+The relation version additionally keeps same-aspect stacks legal whether or not anyone
+measured them when both clips share an asset (identical fit by construction) — which is
+exactly the beat-grid montage fixture, and why it would stay green.
 
 **What a next session should do:** take the relation to `picturePlacementConflict`'s
 conflict list, which already knows every clip the candidate covers and their depths, and
