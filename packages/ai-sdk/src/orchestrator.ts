@@ -17,7 +17,11 @@ import {
   noCutsNote,
   silenceCutOps,
 } from './silence-cut.js';
-import { type AnyOperation, applyProjectPatch } from '@framepilot/editor-core';
+import {
+  type AnyOperation,
+  type ValidationIssue,
+  applyProjectPatch,
+} from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
 import {
   DEFAULT_DUCK_DB,
@@ -31,6 +35,7 @@ import {
   AutomaticTrackingMeasurementSchema,
   automaticTrackingOpsFromMeasurement,
 } from './domain-tools/automatic-tracking.js';
+import { clipCandidates } from './domain-tools/clip-candidates.js';
 import {
   TranscriptWordSchema,
   type Asset,
@@ -3069,6 +3074,33 @@ function measuredSilences(evidence: EvidenceStore): Pick<CritiqueOptions, 'silen
   return {};
 }
 
+/**
+ * The clip ids a rejected patch was withholding.
+ *
+ * `editor-core` rejects a bad clip reference with `Clip not found: <id>` and stops there —
+ * correctly, since it must not import the AI layer, and it already names the clip and the
+ * operation. But the model reads only this note, and "not found" alone leaves it re-issuing
+ * the same id or spending a turn on `get_clips`. This is the same repair `dca15af` made for
+ * tracks, applied where validation issues become the model's note: append the real ids once,
+ * for the first unknown clip in the batch (a batch tool usually mistyped one id, and eight
+ * copies of the timeline listing would cost more than the rejection itself).
+ *
+ * Matched on the message rather than on `missing_reference`: the same `Clip not found: <id>`
+ * reaches here as `unsupported_operation` when the semantic contract replay is what rejected
+ * it, and the reader cannot tell — or care — which gate caught the typo.
+ *
+ * @param project - The working copy the operations were validated against.
+ * @param issues - The error-severity issues, in the order they are reported.
+ * @returns The candidates line, or `''` when no issue names an unknown clip.
+ */
+function unknownClipHelp(project: Project, issues: readonly ValidationIssue[]): string {
+  for (const issue of issues) {
+    const named = /Clip not found: ([^\s,;]+)/.exec(issue.message);
+    if (named) return clipCandidates(project, named[1]!);
+  }
+  return '';
+}
+
 export class Orchestrator {
   private readonly executor: HostToolExecutor | undefined;
   /** P7.3 dev/debug affordance — see {@link OrchestratorOptions.recordEffects}. */
@@ -4600,10 +4632,16 @@ export class Orchestrator {
         // the model's only move is to reissue the identical call. `probe.patch.operations`
         // is the list the issues were raised against — normalized when the rejection came
         // after quantization, raw when it came before.
-        const problems = probe.validation.issues
-          .filter((i) => i.severity === 'error')
+        const errors = probe.validation.issues.filter((i) => i.severity === 'error');
+        const located = errors
           .map((i) => describeValidationIssue(i, probe.patch.operations))
           .join('; ');
+        const clipHelp = unknownClipHelp(ctx.project, errors);
+        // `Clip not found: clip_zz` ends without one, and two sentences need the stop.
+        const problems =
+          clipHelp === ''
+            ? located
+            : `${located}${located.endsWith('.') ? '' : '.'} ${clipHelp}`;
         const note = `Rejected "${call.name}" — ${problems}`;
         orchestratorLog.warn('tool call rejected — validator', { tool: call.name, problems });
         return {

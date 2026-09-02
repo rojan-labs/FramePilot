@@ -90,6 +90,7 @@ reconcileInheritedFailures`: a health check failing identically before and after
 - `[x]` GOLDEN-F.4 — every reducer decision is one structured log line (`agent-graph.ts` `conductor decided`: stage, effects, guards/budget/verify texts, spend) so a run can be debugged from its log alone.
 - `[x]` GOLDEN-F.5 — a run that throws shows a plain sentence with the next action (`reliability/plain-failure.ts`), raw text in `detail`; a rejected tool call is explained in the editor's words too (`tool-dispatch.ts#describeArgValidationForEditor`, raw Zod text kept for the model); every message passes the harness's failure-quality predicate.
 - `[x]` GOLDEN-C.4 — paid/slow tools state their cost, latency and caching in their descriptions (+60 tokens/request measured).
+- `[x]` GOLDEN-A.2 — a wrong clip id is answered with the nearest real ids and what is on the timeline (mirrors `dca15af` for tracks), so mistargeting costs a sentence, not a turn.
 
 **Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on
 `fix/agent-run-reliability`. Three root causes found and fixed from captured run

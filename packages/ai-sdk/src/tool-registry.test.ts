@@ -2155,7 +2155,7 @@ describe('token-friendly reads — get_timeline_summary / get_clips / get_clip /
     expect(clips.clips.map((c) => c.id)).toEqual(['clip_c', 'clip_a']);
   });
 
-  it('get_clip returns the full clip with trackId, or an error steering to get_clips', () => {
+  it('get_clip returns the full clip with trackId, or an error naming the real ids', () => {
     const found = getTool('get_clip')?.read?.({ clipId: 'clip_b' }, ctx) as {
       trackId: string;
       clip: { id: string; effects: unknown[] };
@@ -2163,8 +2163,11 @@ describe('token-friendly reads — get_timeline_summary / get_clips / get_clip /
     expect(found.trackId).toBe('video_1');
     expect(found.clip.id).toBe('clip_b');
     expect(found.clip.effects).toEqual([]);
+    // The ids themselves, not a round trip to `get_clips` for a fact already in hand.
     expect(getTool('get_clip')?.read?.({ clipId: 'nope' }, ctx)).toEqual({
-      error: 'Unknown clip "nope". Use get_clips to list real ids.',
+      error:
+        'Unknown clip "nope". Clips on the timeline: clip_a (video_1 0–6s), ' +
+        'clip_b (video_1 6–10s).',
     });
   });
 
@@ -2190,9 +2193,9 @@ describe('precise deletes & track tools — delete_clip / delete_clips / remove_
     ]);
   });
 
-  it('delete_clip rejects an unknown clip id with a model-facing message', () => {
+  it('delete_clip rejects an unknown clip id by naming the real ones', () => {
     expect(() => build('delete_clip', { clipId: 'ghost' })).toThrow(
-      /Unknown clip "ghost".*get_clips/,
+      /Unknown clip "ghost"\. Clips on the timeline: clip_a \(video_1 0–6s\)/,
     );
   });
 

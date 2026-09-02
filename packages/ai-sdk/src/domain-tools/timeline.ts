@@ -32,6 +32,7 @@ import { frameToSeconds, secondsToFrame } from '../frame-time.js';
 import { readEditSignals } from '../proposers/edit-signals.js';
 import type { ToolContext } from '../tool-context.js';
 import type { ToolSpec } from '../tool-registry.js';
+import { clipCandidates } from './clip-candidates.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
 import { boolean, filterString, numeric, seconds } from './tool-args.js';
 
@@ -61,14 +62,15 @@ import { boolean, filterString, numeric, seconds } from './tool-args.js';
  * changes the off-grid case that was broken.
  */
 const clipDeleteOp = (
-  timeline: Timeline,
+  project: ToolContext['project'],
   clipId: string,
   ripple: boolean,
-  fps: number,
 ): { type: 'delete_range' | 'ripple_delete'; trackId: string; start: number; end: number } => {
+  const timeline = project.timeline;
+  const fps = project.fps;
   const found = findClipById(timeline, clipId);
   if (!found) {
-    throw new Error(`Unknown clip "${clipId}". Use get_clips to list real clip ids.`);
+    throw new Error(`Unknown clip "${clipId}". ${clipCandidates(project, clipId)}`);
   }
   return {
     type: ripple ? 'ripple_delete' : 'delete_range',
@@ -709,7 +711,9 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     z.object({ clipId: z.string() }).strict(),
     (a, ctx) => {
       const found = findClipById(ctx.project.timeline, a.clipId);
-      if (!found) return { error: `Unknown clip "${a.clipId}". Use get_clips to list real ids.` };
+      if (!found) {
+        return { error: `Unknown clip "${a.clipId}". ${clipCandidates(ctx.project, a.clipId)}` };
+      }
       return { trackId: found.track.id, clip: found.clip };
     },
   ),
@@ -763,7 +767,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         'ripple_delete when you mean a specific clip — no hand-computed times.',
     },
     z.object({ clipId: z.string(), ripple: boolean().optional() }).strict(),
-    (a, ctx) => [clipDeleteOp(ctx.project.timeline, a.clipId, a.ripple ?? false, ctx.project.fps)],
+    (a, ctx) => [clipDeleteOp(ctx.project, a.clipId, a.ripple ?? false)],
   ),
   mutateTool(
     {
@@ -782,7 +786,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     (a, ctx) => {
       const ripple = a.ripple ?? false;
       const ops = [...new Set(a.clipIds)].map((clipId) =>
-        clipDeleteOp(ctx.project.timeline, clipId, ripple, ctx.project.fps),
+        clipDeleteOp(ctx.project, clipId, ripple),
       );
       // Ripple shifts everything after each cut earlier, so delete back-to-front:
       // the ranges were computed against the CURRENT timeline and stay correct

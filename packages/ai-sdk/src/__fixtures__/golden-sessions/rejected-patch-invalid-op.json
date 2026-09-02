@@ -278,8 +278,8 @@
       "turnId": "turn_golden",
       "type": "tool_result",
       "toolCallId": "t",
-      "summary": "Trimming does_not_exist — rejected: op 1 of 1 (trim_clip, 0s–2s): Clip not found: does_not_exist",
-      "result": "op 1 of 1 (trim_clip, 0s–2s): Clip not found: does_not_exist"
+      "summary": "Trimming does_not_exist — rejected: op 1 of 1 (trim_clip, 0s–2s): Clip not found: does_not_exist. Clips on the timeline: clip_a (video_1 0–6s), clip_b (video_1 6–10s).",
+      "result": "op 1 of 1 (trim_clip, 0s–2s): Clip not found: does_not_exist. Clips on the timeline: clip_a (video_1 0–6s), clip_b (video_1 6–10s)."
     },
     {
       "id": "turn_golden:run-state",
@@ -359,7 +359,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:trim_clip:{\"clipId\":\"does_not_exist\",\"start\":0,\"end\":2}:failed",
             "projectRevisionBefore": 0,
             "projectRevisionAfter": 0,
-            "failureReason": "Rejected \"trim_clip\" — op 1 of 1 (trim_clip, 0s–2s): Clip not found: does_not_exist"
+            "failureReason": "Rejected \"trim_clip\" — op 1 of 1 (trim_clip, 0s–2s): Clip not found: does_not_exist. Clips on the timeline: clip_a (video_1 0–6s), clip_b (video_1 6–10s)."
           }
         ],
         "verifications": [],
@@ -403,7 +403,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11104,
+      "usedTokens": 11139,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -471,7 +471,7 @@
             "id": "s9",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 2370,
+            "tokenEstimate": 2405,
             "included": true
           },
           {
@@ -486,9 +486,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11104,
+          "estimatedInputTokensBeforeSend": 11139,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180704,
+          "estimatedRemainingCapacity": 180669,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -614,7 +614,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:trim_clip:{\"clipId\":\"does_not_exist\",\"start\":0,\"end\":2}:failed",
             "projectRevisionBefore": 0,
             "projectRevisionAfter": 0,
-            "failureReason": "Rejected \"trim_clip\" — op 1 of 1 (trim_clip, 0s–2s): Clip not found: does_not_exist"
+            "failureReason": "Rejected \"trim_clip\" — op 1 of 1 (trim_clip, 0s–2s): Clip not found: does_not_exist. Clips on the timeline: clip_a (video_1 0–6s), clip_b (video_1 6–10s)."
           }
         ],
         "verifications": [],
@@ -641,7 +641,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "warning",
-      "text": "No edits were applied — 1 proposed change couldn't be applied to the timeline (Rejected \"trim_clip\" — op 1 of 1 (trim_clip, 0s–2s): Clip not found: does_not_exist). Try rephrasing the request."
+      "text": "No edits were applied — 1 proposed change couldn't be applied to the timeline (Rejected \"trim_clip\" — op 1 of 1 (trim_clip, 0s–2s): Clip not found: does_not_exist. Clips on the timeline: clip_a (video_1 0–6s), clip_b (video_1 6–10s).). Try rephrasing the request."
     },
     {
       "id": "turn_golden:run-state",
@@ -721,7 +721,7 @@
             "idempotencyKey": "turn_golden:plan_turn_golden_1:trim_clip:{\"clipId\":\"does_not_exist\",\"start\":0,\"end\":2}:failed",
             "projectRevisionBefore": 0,
             "projectRevisionAfter": 0,
-            "failureReason": "Rejected \"trim_clip\" — op 1 of 1 (trim_clip, 0s–2s): Clip not found: does_not_exist"
+            "failureReason": "Rejected \"trim_clip\" — op 1 of 1 (trim_clip, 0s–2s): Clip not found: does_not_exist. Clips on the timeline: clip_a (video_1 0–6s), clip_b (video_1 6–10s)."
           }
         ],
         "verifications": [
