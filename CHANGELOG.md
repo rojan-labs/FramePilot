@@ -38,6 +38,33 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **An edit you have made before is no longer refused forever.** Every edit a project
+  had already committed became permanently un-repeatable: the check that recognises a
+  repeat compared the AI's written reason, which is different wording every time, so a
+  second run that legitimately produced the same edit was rejected with "the proposed
+  edit failed authoritative validation" and rejected again on every retry. One run lost
+  its whole first turn this way — 149 transcribed words for a re-imported recording
+  never landed, and the captions that followed were built on the previous recording's
+  transcript. When an edit genuinely cannot be committed, the message now says why
+  instead of naming nothing.
+- **Music is trimmed to the film it plays under.** Adding a downloaded track laid its
+  whole length down whatever it was scoring, so a 94-second song under a 50-second talk
+  produced a 94-second video with 44 seconds of black on the end. It now stops where the
+  picture stops — unless there is no picture yet, which is the music-first montage where
+  laying the whole song down is the point. Same for tracks you add yourself from the
+  Sounds panel.
+- **The AI is no longer cut off mid-edit by a limit nobody set.** For a model we don't
+  have measurements for, a conservative guess at how much it could write was being sent
+  as a hard limit — so three steps of one run stopped dead at exactly that number, and
+  the run ended with the stock footage it had just fetched still sitting in the bin.
+  Where the limit is a guess it is no longer sent, and the model writes up to its own
+  real maximum.
+- **The AI no longer reaches for media you have deleted.** Its memory of your media bin
+  kept every file it had ever analysed, and that memory was handed over as fact — so it
+  placed a music track from an earlier session that the project no longer had, and the
+  edit failed. The memory is now checked against the bin before the AI reads it, and
+  file paths are refreshed for anything you re-imported.
+
 - **The AI no longer loses tool calls in transit.** When a reply was cut off part-way
   through asking for an edit, the half-finished request was sent to the tool anyway,
   where it was rejected as malformed — and the run then refused to let the AI try that
