@@ -15,6 +15,7 @@ import type { Project } from '@framepilot/timeline-schema';
 import {
   MusicAssetPayloadSchema,
   buildAddMusicOps,
+  pictureEndSeconds,
   localMusicAssetRefusal,
   musicDuckSidechainIssue,
   nextMusicLayerId,
@@ -303,5 +304,136 @@ describe('localMusicAssetRefusal', () => {
     // A model reaching for `add_music` with a photo id has a different mistake, and the
     // sentence should not tell it the photo is a track.
     expect(localMusicAssetRefusal(bin, 'asset_photo_1')).toContain('an asset already');
+  });
+});
+
+describe('a bed is trimmed to the picture it scores', () => {
+  /** The captured run's shape: a 49.767s talking head on a video track, nothing else. */
+  function scored(pictureEnd: number): Project {
+    return {
+      ...project(),
+      timeline: {
+        tracks: [
+          {
+            id: 'v_main',
+            type: 'video',
+            clips: [
+              {
+                id: 'clip_talk',
+                assetId: 'cam',
+                trackId: 'v_main',
+                start: 0,
+                end: pictureEnd,
+                sourceStart: 0,
+                sourceEnd: pictureEnd,
+                effects: [],
+                keyframes: [],
+              },
+            ],
+          },
+        ],
+      },
+    } as unknown as Project;
+  }
+
+  const clipOf = (ops: readonly unknown[]) =>
+    ops.find((op) => (op as { type?: string }).type === 'add_clip') as {
+      start: number;
+      end: number;
+      sourceStart: number;
+      sourceEnd: number;
+    };
+
+  it('does not lay 43.9 seconds of music over an empty frame', () => {
+    // Run `e8cb2636` scored a 49.767s talking head with a 93.64s track and shipped a
+    // 93.633s programme. Its own self-check reported "43.867s of the 93.633s programme has
+    // no picture under it … that renders as black" — as a warning, after the fact, and the
+    // run completed anyway.
+    const ops = buildAddMusicOps(scored(49.767).timeline, { ...asset, durationSeconds: 93.64 });
+    expect(clipOf(ops)).toMatchObject({ start: 0, end: 49.767, sourceStart: 0, sourceEnd: 49.767 });
+  });
+
+  it('leaves a bed shorter than the picture exactly as long as it is', () => {
+    // Trimming is a ceiling, never a stretch: a 30s track under a 50s film stays 30s.
+    const ops = buildAddMusicOps(scored(50).timeline, { ...asset, durationSeconds: 30 });
+    expect(clipOf(ops)).toMatchObject({ start: 0, end: 30, sourceEnd: 30 });
+  });
+
+  it('measures the room from where the bed starts, not from zero', () => {
+    const ops = buildAddMusicOps(scored(50).timeline, { ...asset, durationSeconds: 93.64 }, 20);
+    expect(clipOf(ops)).toMatchObject({ start: 20, end: 50, sourceStart: 0, sourceEnd: 30 });
+  });
+
+  it('lays the whole track when there is no picture to score yet', () => {
+    // A music-led montage puts the song down first and cuts to it. Trimming to a picture
+    // that does not exist would place a zero-length clip and fail the validator.
+    const ops = buildAddMusicOps(scored(0).timeline, { ...asset, durationSeconds: 93.64 });
+    expect(clipOf(ops)).toMatchObject({ start: 0, end: 93.64 });
+  });
+
+  it('lays the whole track when the bed starts past the end of the picture', () => {
+    // An end-card sting after the film is a deliberate placement, not an overrun.
+    const ops = buildAddMusicOps(scored(50).timeline, { ...asset, durationSeconds: 10 }, 50);
+    expect(clipOf(ops)).toMatchObject({ start: 50, end: 60 });
+  });
+});
+
+describe('pictureEndSeconds', () => {
+  it('reads the latest end on the video tracks', () => {
+    const timeline = {
+      tracks: [
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [
+            {
+              id: 'a',
+              assetId: 'cam',
+              trackId: 'v_main',
+              start: 0,
+              end: 5,
+              sourceStart: 0,
+              sourceEnd: 5,
+              effects: [],
+              keyframes: [],
+            },
+            {
+              id: 'b',
+              assetId: 'cam',
+              trackId: 'v_main',
+              start: 5,
+              end: 12,
+              sourceStart: 0,
+              sourceEnd: 7,
+              effects: [],
+              keyframes: [],
+            },
+          ],
+        },
+        // Captions sit OVER the picture and cannot stand in for it.
+        {
+          id: 'captions_main',
+          type: 'caption',
+          clips: [
+            {
+              id: 'c',
+              assetId: '__caption__',
+              trackId: 'captions_main',
+              start: 0,
+              end: 40,
+              sourceStart: 0,
+              sourceEnd: 40,
+              effects: [],
+              keyframes: [],
+            },
+          ],
+        },
+      ],
+    };
+    expect(pictureEndSeconds(timeline as never)).toBe(12);
+  });
+
+  it('is zero for a timeline with no picture', () => {
+    expect(pictureEndSeconds({ tracks: [] } as never)).toBe(0);
   });
 });

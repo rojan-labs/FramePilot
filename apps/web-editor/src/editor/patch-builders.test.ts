@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAddMusicOps, type Operation } from '@framepilot/editor-core';
+import { buildAddMusicOps, pictureEndSeconds, type Operation } from '@framepilot/editor-core';
 import { applyUserPatch, createEditorState, redoEdit, undoEdit } from './store.js';
 
 type AddKeyframesOp = Extract<Operation, { type: 'add_keyframes' }>;
@@ -1110,15 +1110,27 @@ describe('addMusicTrackPatch (fetched music bed)', () => {
     expect(added.asset.source?.attributionRequired).toBe(true);
   });
 
-  it('spans the track its full duration from the requested start', () => {
+  it('stops the bed where the picture stops, rather than spanning the whole track', () => {
+    // This used to assert the full 92s from a start of 5s — a 97-second timeline under a
+    // 14-second film, with 83 seconds of black after it. The same builder serves the
+    // agent's `add_music`, and run `e8cb2636` shipped exactly that: a 49.767s talking head
+    // scored by a 93.64s track, 43.9 seconds of music over an empty frame. Dropping a song
+    // on a film is asking for a bed under the film, not for the film to become as long as
+    // the song.
     const patch = addMusicTrackPatch(tl, bed, 5);
     expect(patch.operations[2]).toMatchObject({
       type: 'add_clip',
       start: 5,
-      end: 97,
+      end: pictureEndSeconds(tl),
       sourceStart: 0,
-      sourceEnd: 92,
+      sourceEnd: pictureEndSeconds(tl) - 5,
     });
+  });
+
+  it('still lays the whole track down when there is no picture to score', () => {
+    // A music-led montage puts the song first and cuts to it.
+    const patch = addMusicTrackPatch({ ...tl, tracks: [] }, bed, 0);
+    expect(patch.operations[2]).toMatchObject({ type: 'add_clip', start: 0, end: 92 });
   });
 
   it('clamps a negative start to zero rather than producing an invalid clip', () => {
