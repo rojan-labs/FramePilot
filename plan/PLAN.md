@@ -72,6 +72,11 @@ verification** (run recipe in `docs/guides/golden-eval.md`).
   `reports/golden/baseline.json` (skips until it exists), the nightly runs the six mission
   scenarios with `--force` (the runner resumes from per-case files by default, which would
   otherwise make a nightly re-run nothing) and gates `reports/golden/nightly.json`.
+- `[x]` GOLDEN-0.4 — a second phrasing for each core verb (`trim-opening-10s`,
+  `reorder-swap-first-two`, `captions-uppercase-bottom`; 20 cases) so the release gate's
+  "no core verb materially below the others" has six samples per verb at `--runs 3`.
+  Validation rejections audited: `ValidationIssue{code, severity, message, operationIndex}`
+  is already machine-readable (goal.md A); no change.
 
 **Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on
 `fix/agent-run-reliability`. Three root causes found and fixed from captured run

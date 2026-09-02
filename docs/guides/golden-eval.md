@@ -10,7 +10,7 @@ recipe.
 
 | Piece | Where | What it does |
 | --- | --- | --- |
-| Golden set | `packages/ai-sdk/src/eval/golden-cases.ts` | 17 cases, one per request category: trim, silence, reorder, captions, pacing, hook, b-roll, audio, compound, vague, impossible, guard (must confirm), clarify (must ask), plus the six mission scenarios. Each turn names its rubric and the intent the agent should form. |
+| Golden set | `packages/ai-sdk/src/eval/golden-cases.ts` | 20 cases — one per request category plus a second phrasing of each core verb (trim, reorder, captions): trim, silence, reorder, captions, pacing, hook, b-roll, audio, compound, vague, impossible, guard (must confirm), clarify (must ask), plus the six mission scenarios. Each turn names its rubric and the intent the agent should form. |
 | Rubric | `packages/ai-sdk/src/eval/mission-rubric.ts` | Checkable assertions on the resulting **edit state** — clip geometry, source ranges, captions, music, transcript words. Never a string match on prose. Checks are faceted `target` / `boundary` so the metrics can read them. |
 | Metrics | `packages/ai-sdk/src/eval/golden-metrics.ts` | Intent accuracy, target resolution, boundary precision, operation validity, first-pass acceptance, silent successes, turns and tool calls, tokens and USD **per accepted edit**, latency to first progress and to done (p50/p95), reversibility (undo restores the prior project), failure quality. Pure functions over the event stream + applied patches. |
 | Runner | `packages/ai-sdk/scripts/mission-baseline.mjs` | Real `Orchestrator.streamAgent`, real provider, real sidecar. One command per case. Per-case result files (resumable). Effect recordings for replay. Cost estimate before the run. |

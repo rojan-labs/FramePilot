@@ -9,7 +9,7 @@ Nothing below is a real-media number unless it says which file it came from.
 
 | Claim | Evidence |
 | --- | --- |
-| Every goal.md category has a golden case, and every case is scorable | `golden-cases.test.ts` (17 cases, 13 required categories + the 6 mission scenarios) |
+| Every goal.md category has a golden case, and every case is scorable | `golden-cases.test.ts` (20 cases: 13 required categories, a second phrasing of trim/reorder/captions, and the 6 mission scenarios) |
 | Rubric checks decide correctly on synthetic timelines, incl. one-frame-off, stray-clip, gap, out-of-programme cue, unquiet music | `mission-rubric.test.ts` |
 | Undo of real `editor-core` patches (`trim_clip` + `delete_range`) restores the project identically (`timeline.revision` excluded — monotonic by design) | `golden-metrics.test.ts › checkReversibility` |
 | Intent is read from events (ask > edit > decline > silent; failed/cancelled from status); silent success = completed + expected edit + zero ops | `golden-metrics.test.ts › observeIntent / measureGoldenTurn` |

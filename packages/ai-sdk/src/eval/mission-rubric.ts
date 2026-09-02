@@ -50,7 +50,11 @@ export type MissionScenarioId =
   | 'music-bed'
   | 'compound-silence-captions'
   | 'unchanged'
-  | 'vague-not-destructive';
+  | 'vague-not-destructive'
+  // Second phrasings of the core verbs, so each has six samples at three runs.
+  | 'trim-first-clip-head'
+  | 'reorder-swap-first-two'
+  | 'captions-styled';
 
 export interface RubricContext {
   /** The project the run started from (needed for before/after checks). */
@@ -68,6 +72,10 @@ export interface RubricContext {
   readonly cutawayWindowSeconds?: readonly [number, number];
   /** `music-bed`: the asset the request named as the music. */
   readonly musicAssetId?: string;
+  /** `trim-first-clip-head`: how many seconds the request cut off the opening clip's head. */
+  readonly expectedHeadTrimSeconds?: number;
+  /** `captions-styled`: the style words the request used, as schema values. */
+  readonly captionStyle?: { readonly textTransform?: string; readonly position?: string };
 }
 
 const FRAME_EPSILON = 1e-6;
@@ -461,6 +469,65 @@ export function checkNotDestructive(ctx: RubricContext): RubricCheck {
   };
 }
 
+/** The first picture clip now starts `seconds` later in its source — frame-exact. */
+export function checkFirstClipHeadTrimmed(ctx: RubricContext, seconds: number): RubricCheck {
+  const b = pictureClips(ctx.before)[0];
+  const a = pictureClips(ctx.after)[0];
+  if (!b || !a) return { id: 'first-clip-head-trimmed', ok: false, detail: 'no picture clip', weight: 2, facet: 'boundary' };
+  const frames = Math.abs(a.sourceStart - (b.sourceStart + seconds)) * ctx.after.fps;
+  return {
+    id: 'first-clip-head-trimmed',
+    ok: a.assetId === b.assetId && frames < 0.5,
+    detail: `opens at source ${a.sourceStart.toFixed(4)}s, asked ${(b.sourceStart + seconds).toFixed(4)}s (${frames.toFixed(2)} frame(s) off)`,
+    weight: 2,
+    facet: 'boundary',
+  };
+}
+
+/** The first two picture clips (by content) changed places; the rest kept their order. */
+export function checkFirstTwoSwapped(ctx: RubricContext): RubricCheck {
+  const before = pictureClips(ctx.before).map(contentKey);
+  const after = pictureClips(ctx.after).map(contentKey);
+  if (before.length < 2) return { id: 'first-two-swapped', ok: false, detail: 'fewer than two clips', weight: 2, facet: 'target' };
+  const expected = [before[1]!, before[0]!, ...before.slice(2)];
+  const ok = JSON.stringify(after) === JSON.stringify(expected);
+  return {
+    id: 'first-two-swapped',
+    ok,
+    detail: ok ? 'first two swapped, rest in place' : `order is [${after.map((k) => k.split('|')[0]).join(', ')}]`,
+    weight: 2,
+    facet: 'target',
+  };
+}
+
+/**
+ * Every caption cue carries the requested style, read as the renderer would: the cue's
+ * own style first, else its track's. A missing `position` is the schema default, bottom.
+ */
+export function checkCaptionStyleMatches(
+  project: Project,
+  want: { readonly textTransform?: string; readonly position?: string },
+): RubricCheck {
+  const tracks = project.timeline.tracks.filter((t) => t.type === 'caption');
+  const cues = tracks.flatMap((t) => t.clips.map((c) => ({ clip: c, track: t })));
+  const off = cues.filter(({ clip, track }) => {
+    const style = { ...(track.captionStyle ?? {}), ...(clip.captionStyle ?? {}) } as {
+      textTransform?: string;
+      position?: string;
+    };
+    if (want.textTransform !== undefined && (style.textTransform ?? 'none') !== want.textTransform) return true;
+    if (want.position !== undefined && (style.position ?? 'bottom') !== want.position) return true;
+    return false;
+  });
+  return {
+    id: 'caption-style-matches',
+    ok: cues.length > 0 && off.length === 0,
+    detail: `${off.length}/${cues.length} cue(s) not ${JSON.stringify(want)}`,
+    weight: 2,
+    facet: 'target',
+  };
+}
+
 const COMMON = (p: Project): RubricCheck[] => [
   checkValidRefs(p),
   checkNoOverlaps(p),
@@ -577,5 +644,31 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
       return scored(scenario, [checkUnchanged(ctx), ...COMMON(p)]);
     case 'vague-not-destructive':
       return scored(scenario, [checkNotDestructive(ctx), ...COMMON(p)]);
+    case 'trim-first-clip-head': {
+      const first = pictureClips(ctx.before)[0];
+      return scored(scenario, [
+        checkChanged(ctx),
+        checkFirstClipHeadTrimmed(ctx, ctx.expectedHeadTrimSeconds ?? 10),
+        checkOnlyClipsTouched(ctx, first ? [first.id] : []),
+        ...COMMON(p),
+      ]);
+    }
+    case 'reorder-swap-first-two':
+      return scored(scenario, [
+        checkChanged(ctx),
+        checkFirstTwoSwapped(ctx),
+        checkContentPreserved(ctx),
+        checkNoGaps(p),
+        ...COMMON(p),
+      ]);
+    case 'captions-styled':
+      return scored(scenario, [
+        checkChanged(ctx),
+        checkHasCaptions(p),
+        checkCaptionsWellFormed(p),
+        checkCaptionStyleMatches(p, ctx.captionStyle ?? {}),
+        checkContentPreserved(ctx),
+        ...COMMON(p),
+      ]);
   }
 }

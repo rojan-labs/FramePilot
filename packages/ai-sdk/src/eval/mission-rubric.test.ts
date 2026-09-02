@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { Clip, Project } from '@framepilot/timeline-schema';
 import { makeProject } from '../__fixtures__/project.js';
 import {
+  checkCaptionStyleMatches,
   checkCaptionsWellFormed,
+  checkFirstClipHeadTrimmed,
+  checkFirstTwoSwapped,
   checkContentPreserved,
   checkCutawayInWindow,
   checkDurationKept,
@@ -293,5 +296,60 @@ describe('golden-set checks', () => {
       expect(s.score, id).toBeLessThan(1);
       expect(s.checks.some((c) => c.facet === 'target' || c.facet === 'boundary'), `${id} has a faceted check`).toBe(true);
     }
+  });
+});
+
+describe('second phrasings of the core verbs', () => {
+  const five = () =>
+    withClips([clip('c1', 0, 40), clip('c2', 40, 62), clip('c3', 62, 71), clip('c4', 71, 86), clip('c5', 86, 136)]);
+
+  it('checkFirstClipHeadTrimmed wants the source start moved by exactly N seconds', () => {
+    const before = five();
+    const headTrimmed = withClips([clip('c1', 0, 30, { sourceStart: 10, sourceEnd: 40 }), clip('c2', 30, 52, { sourceStart: 40, sourceEnd: 62 })]);
+    expect(checkFirstClipHeadTrimmed({ before, after: headTrimmed }, 10).ok).toBe(true);
+    // Trimming the END by ten seconds is the other verb, and it does not pass.
+    const tailTrimmed = withClips([clip('c1', 0, 30, { sourceStart: 0, sourceEnd: 30 })]);
+    expect(checkFirstClipHeadTrimmed({ before, after: tailTrimmed }, 10).ok).toBe(false);
+    const oneFrameOff = withClips([clip('c1', 0, 30, { sourceStart: 10 + 1 / 30, sourceEnd: 40 + 1 / 30 })]);
+    expect(checkFirstClipHeadTrimmed({ before, after: oneFrameOff }, 10).ok).toBe(false);
+    expect(checkFirstClipHeadTrimmed({ before: withClips([]), after: before }, 10).ok).toBe(false);
+  });
+
+  it('checkFirstTwoSwapped accepts only the swap', () => {
+    const before = five();
+    const swapped = withClips([
+      clip('c2', 0, 22, { sourceStart: 40, sourceEnd: 62 }),
+      clip('c1', 22, 62, { sourceStart: 0, sourceEnd: 40 }),
+      clip('c3', 62, 71, { sourceStart: 62, sourceEnd: 71 }),
+      clip('c4', 71, 86, { sourceStart: 71, sourceEnd: 86 }),
+      clip('c5', 86, 136, { sourceStart: 86, sourceEnd: 136 }),
+    ]);
+    expect(checkFirstTwoSwapped({ before, after: swapped }).ok).toBe(true);
+    expect(checkFirstTwoSwapped({ before, after: before }).ok).toBe(false);
+    expect(checkFirstTwoSwapped({ before: withClips([clip('c1', 0, 1)]), after: before }).ok).toBe(false);
+    expect(scoreMissionScenario('reorder-swap-first-two', { before, after: swapped }).score).toBe(1);
+  });
+
+  it('checkCaptionStyleMatches reads the cue style, else the track default', () => {
+    const base = withClips([clip('talk', 0, 30)]);
+    const captions = (trackStyle: object | undefined, cues: Clip[]) =>
+      ({
+        ...base,
+        timeline: {
+          ...base.timeline,
+          tracks: [
+            ...base.timeline.tracks,
+            { id: 'caption_1', type: 'caption', clips: cues, ...(trackStyle ? { captionStyle: trackStyle } : {}) },
+          ],
+        },
+      }) as Project;
+    const cue = (id: string, style?: object) =>
+      clip(id, 0, 2, { assetId: '__caption__', captionCue: { text: 'hi', words: [] }, ...(style ? { captionStyle: style } : {}) } as Partial<Clip>);
+    const want = { textTransform: 'uppercase', position: 'bottom' };
+    expect(checkCaptionStyleMatches(captions({ textTransform: 'uppercase' }, [cue('k1'), cue('k2')]), want).ok).toBe(true);
+    expect(checkCaptionStyleMatches(captions(undefined, [cue('k1', { textTransform: 'uppercase' }), cue('k2')]), want).ok).toBe(false);
+    expect(checkCaptionStyleMatches(captions({ textTransform: 'uppercase', position: 'top' }, [cue('k1')]), want).ok).toBe(false);
+    expect(checkCaptionStyleMatches(captions({ textTransform: 'uppercase' }, []), want).ok).toBe(false);
+    expect(checkCaptionStyleMatches(captions(undefined, [cue('k1')]), {}).ok).toBe(true);
   });
 });

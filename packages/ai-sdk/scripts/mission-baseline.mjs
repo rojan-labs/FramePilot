@@ -456,6 +456,8 @@ async function runCase(goldenCase, run) {
       brollAssetIds,
       cutawayWindowSeconds: turn.cutawayWindowSeconds,
       musicAssetId,
+      expectedHeadTrimSeconds: turn.expectedHeadTrimSeconds,
+      captionStyle: turn.captionStyle,
     });
     const golden = measureGoldenTurn({
       events: outcome.events,

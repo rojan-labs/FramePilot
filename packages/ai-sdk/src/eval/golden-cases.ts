@@ -76,7 +76,9 @@ export interface GoldenTurn {
   /** `refine-tighten`: the clips the request names as "keep" are resolved at run time. */
   readonly keep?: 'first-last';
   readonly expectedFirstClipEndSeconds?: number;
+  readonly expectedHeadTrimSeconds?: number;
   readonly cutawayWindowSeconds?: readonly [number, number];
+  readonly captionStyle?: { readonly textTransform?: string; readonly position?: string };
   /**
    * What the scripted operator answers if the agent asks. Absent ⇒
    * {@link DEFAULT_ASK_ANSWER}, which ends the turn without an edit so the rubric can
@@ -221,6 +223,20 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     ],
   },
   {
+    id: 'trim-opening-10s',
+    category: 'trim',
+    project: 'mission-montage',
+    why: 'The same verb phrased from the head of the clip: "cut off the first N seconds" must move the source start, not the end.',
+    turns: [
+      {
+        prompt: 'Cut the first 10 seconds off the opening clip.',
+        rubric: 'trim-first-clip-head',
+        intent: 'edit',
+        expectedHeadTrimSeconds: 10,
+      },
+    ],
+  },
+  {
     id: 'reorder-last-first',
     category: 'reorder',
     project: 'mission-montage',
@@ -234,11 +250,32 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     ],
   },
   {
+    id: 'reorder-swap-first-two',
+    category: 'reorder',
+    project: 'mission-montage',
+    why: 'A reorder phrased as a swap: two targets resolved by position, everything else left in place.',
+    turns: [{ prompt: 'Swap the first two clips.', rubric: 'reorder-swap-first-two', intent: 'edit' }],
+  },
+  {
     id: 'captions-plain',
     category: 'captions',
     project: 'mission-talk',
     why: 'The plainest caption request; cues must sit inside the programme and carry text.',
     turns: [{ prompt: 'Add captions to this video.', rubric: 'captions', intent: 'edit' }],
+  },
+  {
+    id: 'captions-uppercase-bottom',
+    category: 'captions',
+    project: 'mission-talk',
+    why: 'Captions with two style words the schema can check: every cue must carry them, not just the first.',
+    turns: [
+      {
+        prompt: 'Add captions in all caps at the bottom of the frame.',
+        rubric: 'captions-styled',
+        intent: 'edit',
+        captionStyle: { textTransform: 'uppercase', position: 'bottom' },
+      },
+    ],
   },
   {
     id: 'hook-strongest-line',
