@@ -144,7 +144,9 @@ export function WebCodecsPreviewPlayer({
   };
 
   const assetById = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
-  const eligible = canvasPreviewEligible(editor.state.timeline, assetById);
+  // `resolution` is the project frame the canvas composites into, and coverage is a relation
+  // between the stacked clips and that frame (ADR 0170).
+  const eligible = canvasPreviewEligible(editor.state.timeline, assetById, resolution);
   const segments = useMemo(
     () => (eligible ? pictureSegments(editor.state.timeline, assetById) : []),
     [eligible, editor.state.timeline, assetById],

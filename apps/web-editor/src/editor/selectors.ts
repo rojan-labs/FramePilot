@@ -201,8 +201,9 @@ export function effectLayersInApplyOrder(timeline: Timeline): readonly EffectLay
 export function webCodecsPreviewEligible(
   timeline: Timeline,
   assetById: ReadonlyMap<string, Asset>,
+  resolution: { readonly width: number; readonly height: number },
 ): boolean {
-  if (!baseWebCodecsPreviewEligible(timeline, assetById)) return false;
+  if (!baseWebCodecsPreviewEligible(timeline, assetById, resolution)) return false;
   const sourceIds = new Set<string>();
   let estimatedAudioBytes = 0;
   for (const track of timeline.tracks) {

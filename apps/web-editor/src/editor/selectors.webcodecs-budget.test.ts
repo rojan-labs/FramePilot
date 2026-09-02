@@ -7,6 +7,10 @@ import {
 
 const bytesPerSecond = 48_000 * 2 * 4;
 
+/** The project frame the stack would be fitted into (ADR 0170). Nothing here stacks, so it
+    only has to be a real size. */
+const FRAME = { width: 1920, height: 1080 };
+
 function asset(id: string, durationSeconds: number): Asset {
   return {
     id,
@@ -42,7 +46,9 @@ describe('WebCodecs preview audio admission', () => {
     const overBudgetSeconds = MAX_WEBCODECS_DECODED_AUDIO_BYTES / bytesPerSecond + 1;
     const media = asset('long', overBudgetSeconds);
 
-    expect(webCodecsPreviewEligible(timelineFor(['long']), new Map([[media.id, media]]))).toBe(false);
+    expect(
+      webCodecsPreviewEligible(timelineFor(['long']), new Map([[media.id, media]]), FRAME),
+    ).toBe(false);
   });
 
   it('counts one source once even when several timeline clips reference it', () => {
@@ -53,6 +59,7 @@ describe('WebCodecs preview audio admission', () => {
       webCodecsPreviewEligible(
         timelineFor(['shared', 'shared', 'shared']),
         new Map([[media.id, media]]),
+        FRAME,
       ),
     ).toBe(true);
   });

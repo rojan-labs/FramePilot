@@ -28,7 +28,10 @@ import {
 import { LEGACY_TRANSITION_IDS } from '@framepilot/timeline-schema/transition-catalog';
 import {
   hasTimeBasedSource,
+  hidesWhatIsBehind,
   isFullFrameOpaque,
+  type ShapedClip,
+  type SourceShape,
   TRANSITION_OUT_EFFECT_TYPE,
 } from '@framepilot/editor-core';
 
@@ -348,10 +351,15 @@ export function clipKind(clip: Clip, assetById: ReadonlyMap<string, Asset>): Cli
 export function canvasPreviewEligible(
   timeline: Timeline,
   assetById: ReadonlyMap<string, Asset>,
+  resolution: { readonly width: number; readonly height: number },
 ): boolean {
   const stacked = stackedPictureClips(timeline, assetById);
   if (stacked.length === 0) return false;
   for (const { clip } of stacked) if (clipSpeed(clip) !== 1) return false;
+  const shaped = (entry: StackedPicture): ShapedClip => ({
+    clip: entry.clip,
+    source: sourceShape(assetById.get(entry.clip.assetId)),
+  });
   // Stacked picture is admissible only where the compositor and the export agree.
   //
   // The canvas paints ONE clip per run of the flattened chain — the front-most —
@@ -360,12 +368,20 @@ export function canvasPreviewEligible(
   // (`isFullFrameOpaque`, ADR 0169): the layer in front hides what is under it,
   // and the export has nothing left to blend in.
   //
-  // The same predicate also protects the clip UNDERNEATH. A covered clip is cut
-  // into two runs, and the engine derives both its source time and its
-  // clip-relative compositing time from the run's `projectStart` — correct for
-  // the source (the run carries its own sliced in/out) and wrong for anything
-  // animated. A full-frame opaque clip has no keyframes and no transition, so
-  // there is nothing clip-relative left to get wrong.
+  // ADR 0170 made that a RELATION rather than a property of the front clip. The renderer
+  // FITS rather than covers, so a source whose aspect does not match the frame is
+  // letterboxed and its bars are transparent at export — but the clip behind it is fitted
+  // by the same renderer, and when the two are the same shape their bars coincide exactly.
+  // Both paint black there. What actually diverges is a front clip whose fitted rect fails
+  // to CONTAIN the ones it covers.
+  //
+  // `isFullFrameOpaque` stays as a separate check on the COVERED clips, because it protects
+  // something else. A covered clip is cut into two runs, and the engine derives both its
+  // source time and its clip-relative compositing time from the run's `projectStart` —
+  // correct for the source (the run carries its own sliced in/out) and wrong for anything
+  // animated. A clip with no keyframes and no transition has nothing clip-relative left to
+  // get wrong. That guarantee is about the clip underneath, not about coverage, so the
+  // relation does not replace it.
   for (const run of pictureRuns(stacked)) {
     if (run.covering.length < 2) continue;
     // Two clips on ONE lane have no defined order — which is why the validator refuses
@@ -373,8 +389,26 @@ export function canvasPreviewEligible(
     // fallback rather than being painted in an order nobody chose.
     if (run.covering[0]?.depth === run.covering[1]?.depth) return false;
     if (!run.covering.every(({ clip }) => isFullFrameOpaque(clip))) return false;
+    const [front, ...behind] = run.covering;
+    /* v8 ignore next -- `covering.length >= 2` was just established */
+    if (!front) continue;
+    if (!hidesWhatIsBehind(shaped(front), behind.map(shaped), resolution)) return false;
   }
   return true;
+}
+
+/**
+ * An asset's measured source shape, or `undefined` when nothing probed it.
+ *
+ * Both dimensions or neither: `Asset.media.width/height` are optional since schema v21 and
+ * are "honestly absent rather than guessed at", and half a shape is not a shape.
+ */
+function sourceShape(asset: Asset | undefined): SourceShape | undefined {
+  const width = asset?.media?.width;
+  const height = asset?.media?.height;
+  if (typeof width !== 'number' || typeof height !== 'number') return undefined;
+  if (width <= 0 || height <= 0) return undefined;
+  return { width, height };
 }
 
 /**
@@ -390,8 +424,9 @@ export function canvasPreviewEligible(
 export function webCodecsPreviewEligible(
   timeline: Timeline,
   assetById: ReadonlyMap<string, Asset>,
+  resolution: { readonly width: number; readonly height: number },
 ): boolean {
-  if (!canvasPreviewEligible(timeline, assetById)) return false;
+  if (!canvasPreviewEligible(timeline, assetById, resolution)) return false;
 
   for (const track of timeline.tracks) {
     if (track.hidden) continue;
