@@ -137,6 +137,48 @@ reconcileInheritedFailures`: a health check failing identically before and after
   span, so the state stops advertising a layer nothing may go on. Not reproducible on the
   golden set — every mission fixture has one video track; see TRACKING.md for the shape.
 - `[x]` GOLDEN-A.3 — ADR 0140's refusal extended from stock to every agent picture placement (`picture-layers.ts`); `add_track`/`add_clip` no longer invite picture-in-picture. Preview and export cannot disagree on an agent edit until SUC-P1 lifts the constraint.
+- `[x]` GOLDEN-E.2 — **the duplicated edit prose costs the model nothing: audited, no
+  change.** Run `369e8c82` shows the same 4-sentence paragraph as the diff card's `Summary`
+  and its `Reason` in all 6 (in the full export, 9) proposed-edit blocks. Mechanically
+  verified from `run.md`: in every block `Summary == Reason ==` that turn's assistant chat
+  message, byte for byte. They are ONE string, produced once, assigned at one site —
+  `assemble.ts#assembleEdit(project, operations, reason)` returns `{patch: {…, reason}, …,
+  text: reason}`, fed from `orchestrator.ts#applyAgentTurn`'s `rationale`, which is
+  `turn.text` (`orchestrator.ts:8238`). The model never re-reads it: the agent loop rebuilds
+  its prompt every turn from `assembleContext` + the stable head + the briefing
+  (`orchestrator.ts#agentMessages`) — it does not replay a transcript — the briefing renders
+  applied work as `o.intent` only (`briefing.ts:258`, from `describeOperation`'s "Added
+  captions", not the prose), and `rationale` reaches the reducer only through
+  `normalizeIntent`, which collapses it to a one-word enum (`loop-detector.ts:133`). Cost of
+  the duplication: **0 model tokens**; ~3.3 KB per extra copy in a 2.0 MB conversation export
+  (0.33%). Both fields are load-bearing for different audiences and lifetimes —
+  `patch.reason` is persisted in the project file, read by the History panel
+  (`HistoryPanel.tsx:246`), by `history.ts#mergedReason` when collapsing entries, and prefixed as
+  `Revert: …` by the inverse patch (`patch.ts:247`); `edit.text` lives in the conversation
+  (search, export). Restructuring the event contract to save those bytes was rejected.
+  **Where the run's 218,036 output tokens over 20 calls actually went:** not into any
+  artifact the export can show. Model-authored output across the WHOLE run totals ~7.2 KB of
+  assistant text (19 messages) plus ~10 KB of non-derived operation JSON — under ~5,000
+  tokens; the two largest patches (`set_transcript` 19 KB, 69 caption ops 22 KB) are
+  `derivedFanOut` tools, built from the transcript, not written by the model. The 20 turns
+  spent 4,067 s "thinking" with zero reasoning text captured — 218,036 / 4,067 s ≈ 54 tok/s,
+  i.e. the routed model was generating for essentially the entire 68-minute run. **≥95% of
+  the bill is invisible reasoning tokens from `openrouter/auto`**, which the SDK never
+  requests, never bounds (correctly — `outputRoomFor` omits `max_tokens` for a model the
+  catalog does not carry) and cannot see. Input was never the problem: the context manifests
+  hold 40 k/turn at the peak (15 k cached tool schemas + 20 k turn message). The lever here
+  is model/route selection, not prompt trimming.
+- `[ ]` GOLDEN-E.3 — **accepted-edit reasons are unbounded in the memory block (browser path
+  only).** `memory-store.ts#summarizeMemory` joins EVERY `acceptedEdits[].reason` and
+  `rejectedEdits[].reason` into the `memory` context tier with no cap, and since a turn's
+  `reason` is now the model's full narration, each accepted turn adds ~370 chars to a block
+  re-sent on every request of every future run and persisted in `project.fp.json`. It does
+  not fire on desktop — `AiSidebar.tsx`'s auto-apply effect returns early when
+  `commitProjectPatch` exists, so `recordAccepted` is never reached for host-committed
+  diffs, which is why run `369e8c82`'s `project memory` section measured 53 tokens. Not
+  fixed here: the fix moves a token golden, and regenerating one while another agent is in
+  `ai-sdk` would corrupt it. Intended change: cap the two lists to the most recent N and
+  truncate each reason to one clause.
 
 **Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on
 `fix/agent-run-reliability`. Three root causes found and fixed from captured run
