@@ -24,6 +24,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **The AI no longer stacks one picture over another on a second layer.** The preview
   can't show that yet, so it places a cutaway or tells you why it didn't — naming the clip
   it would have covered and where there is room.
+- **When the assistant declines to do something, it no longer blames your arguments.** A
+  refusal it made on purpose — it won't stack a second picture layer, it won't stretch one
+  caption cue across a cut — used to reach the assistant labelled "invalid arguments", so
+  it went off adjusting numbers that were already right instead of taking the alternative
+  it had just been given. The refusal now reads as one, and the failure card shows the
+  same plain sentence.
 - **When an AI run fails, you get a sentence you can act on.** Instead of the raw error
   the provider sent back, the failure card now says what happened and what to do next —
   check the API key in Settings, wait and retry a rate limit, check your connection —

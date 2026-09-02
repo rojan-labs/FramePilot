@@ -32,6 +32,7 @@
  */
 import type { Asset, Clip, Project, Track } from '@framepilot/timeline-schema';
 import { clipKindOf } from '../project-index.js';
+import { ToolRefusalError } from '../tool-refusal.js';
 
 /** Clip kinds that flow through the preview's single picture chain. */
 const PICTURE_KINDS: ReadonlySet<string> = new Set(['video', 'image']);
@@ -162,9 +163,14 @@ export function pictureOverlapRefusal(
  * the sentence as its `data`, and marks it `deterministicFailure` so the model
  * cannot retry the identical call (`deterministicFailureKey`). No patch is
  * assembled and nothing else in the turn is lost.
+ *
+ * A {@link ToolRefusalError} specifically, so the note reads `Refused "add_clip":
+ * <sentence>` and not `Invalid arguments for "add_clip"` — the arguments were
+ * read and understood, and telling the model otherwise sends it to nudge a
+ * `start` that was already right instead of placing the cutaway.
  */
 export function assertNoPictureStacking(project: Project, candidate: PictureCandidate): void {
   const conflicts = pictureOverlapAcross(project, candidate);
   if (conflicts.length === 0) return;
-  throw new Error(pictureOverlapRefusal(project, candidate, conflicts));
+  throw new ToolRefusalError(pictureOverlapRefusal(project, candidate, conflicts));
 }

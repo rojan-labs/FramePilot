@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import { getTool } from '../tool-registry.js';
+import { ToolInvocationError, operationsForCall } from '../tool-dispatch.js';
 import { pictureOverlapAcross } from './picture-layers.js';
 import type { AnyOperation } from '@framepilot/editor-core';
 
@@ -182,6 +183,23 @@ function buildOps(toolName: string, args: Record<string, unknown>, project: Proj
   return tool.buildOps(args, { project }) as AnyOperation[];
 }
 
+/**
+ * The note the MODEL reads, assembled exactly as `runAgentCall`'s mutating path
+ * assembles it from the thrown `ToolInvocationError` (orchestrator.ts). Built
+ * here rather than asserted through a whole streamed run, because the only thing
+ * under test is which of the two prefixes the refusal earns.
+ */
+function modelNote(toolName: string, args: Record<string, unknown>, project: Project): string {
+  try {
+    operationsForCall({ id: 'c1', name: toolName, arguments: args }, { project });
+  } catch (error) {
+    const refused = error instanceof ToolInvocationError && error.code === 'refusal';
+    const reason = (error as Error).message;
+    return refused ? `Refused "${toolName}": ${reason}` : `Rejected "${toolName}": ${reason}`;
+  }
+  throw new Error(`${toolName} did not refuse`);
+}
+
 describe('agent picture placement is refused across tracks', () => {
   it('add_clip onto a second video layer over existing picture is refused, with no ops', () => {
     const project = baseProject();
@@ -192,6 +210,47 @@ describe('agent picture placement is refused across tracks', () => {
         project,
       ),
     ).toThrow(/Refused: "b-roll\.mp4" at 2–6s would sit on top of clip_a on video_1/);
+  });
+
+  it('reaches the model as `Refused "add_clip":` — never as invalid arguments', () => {
+    // The whole point of the refusal code. "Invalid arguments" would send the
+    // model to fix a `start` that is already correct, and the alternative the
+    // sentence names — the cutaway — would go untaken.
+    const note = modelNote(
+      'add_clip',
+      { trackId: 'video_2', assetId: 'asset_v2', start: 2, end: 6, sourceStart: 0 },
+      baseProject(),
+    );
+    expect(note.startsWith('Refused "add_clip": Refused: "b-roll.mp4" at 2–6s')).toBe(true);
+    expect(note).not.toContain('Invalid arguments');
+    expect(note).not.toContain('Rejected');
+  });
+
+  it('move_clip earns the same prefix', () => {
+    const project = projectWith([
+      {
+        id: 'video_1',
+        type: 'video',
+        clips: [{ id: 'clip_a', assetId: 'asset_v', start: 0, end: 10 }],
+      },
+      {
+        id: 'video_2',
+        type: 'video',
+        clips: [{ id: 'clip_b', assetId: 'asset_v2', start: 20, end: 26 }],
+      },
+    ]);
+    const note = modelNote(
+      'move_clip',
+      { clipId: 'clip_b', toTrackId: 'video_2', toStart: 4 },
+      project,
+    );
+    expect(note.startsWith('Refused "move_clip": Refused: ')).toBe(true);
+    expect(note).not.toContain('Invalid arguments');
+  });
+
+  it('a genuinely malformed add_clip is still "Rejected" with the argument text', () => {
+    const note = modelNote('add_clip', { trackId: 'video_2' }, baseProject());
+    expect(note.startsWith('Rejected "add_clip": Invalid arguments for "add_clip":')).toBe(true);
   });
 
   it('the refusal names the reason, the ADR, and the cutaway alternative', () => {

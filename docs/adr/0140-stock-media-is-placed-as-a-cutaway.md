@@ -135,3 +135,28 @@ Three boundaries are deliberate:
 Lifting it is still `SUC-P1` and still a maintainer decision. When multi-layer
 picture preview lands, this becomes a layer choice instead of a refusal, and the
 callers are three lines in one file.
+
+### A refusal is not a bad argument (follow-up)
+
+Extending the rule surfaced a defect in the tool boundary that predates it.
+`operationsForCall` wrapped *every* throw out of `buildOps` as `invalid_args`, so
+this refusal reached the model as `Invalid arguments for "add_clip": Refused: …`.
+That prefix argues against the sentence behind it: told its arguments are wrong,
+a model fixes arguments — nudging `start`, trying another `trackId` — instead of
+placing the cutaway the refusal names.
+
+`ToolRefusalError` (`packages/ai-sdk/src/tool-refusal.ts`, imports nothing so
+neither the dispatcher nor the tool families gain a cycle) says which kind of
+"no" it was. `operationsForCall` re-labels it as the `refusal` code, and the
+orchestrator writes `Refused "add_clip": <sentence>` with nothing in front of it.
+Still `deterministicFailure` — a policy refusal is the most certainly repeatable
+failure there is — and the editor's card shows the same plain sentence, because a
+refusal is already written in the language a human needs.
+
+Three existing sites were reclassified with their wording untouched: caption cues
+that would cross an edit boundary or run too long for `add_caption_layer`,
+captioning a project with no transcript or no surviving speech, and a punch-in
+asked of a caption clip. Argument errors around them — an unknown template, an
+unbundled font, an ungrounded emphasis keyword, an unknown `effectId`, an
+inverted `apply_effect` window — stay `invalid_args`, because for those the
+arguments really are what is wrong.

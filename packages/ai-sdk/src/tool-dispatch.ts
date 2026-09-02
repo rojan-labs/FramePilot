@@ -9,6 +9,7 @@ import { createLogger } from '@framepilot/shared-types';
 import type { AnyOperation } from '@framepilot/editor-core';
 import type { ToolCall } from './providers/types.js';
 import { withToolInputContract } from './tool-input-contract.js';
+import { ToolRefusalError } from './tool-refusal.js';
 import { type ToolSpec, getTool } from './tool-registry.js';
 import type { ToolContext } from './tool-context.js';
 
@@ -185,7 +186,14 @@ export class ToolInvocationError extends Error {
   public readonly editorSummary: string;
 
   public constructor(
-    public readonly code: 'unknown_tool' | 'unavailable_tool' | 'invalid_args',
+    /**
+     * `refusal` is NOT a mistake the model made — see `tool-refusal.ts`. It is kept
+     * on this error rather than escaping as its own type so every caller that
+     * already handles the tool boundary (the orchestrator's mutating path, the
+     * streaming path's `editorSummary` read) keeps working unchanged, and only the
+     * callers that care about the distinction test the code.
+     */
+    public readonly code: 'unknown_tool' | 'unavailable_tool' | 'invalid_args' | 'refusal',
     public readonly toolName: string,
     message: string,
     options?: { cause?: unknown; editorSummary?: string },
@@ -231,6 +239,19 @@ export function operationsForCall(call: ToolCall, ctx: ToolContext): AnyOperatio
     log.action('operationsForCall → dispatched', { tool: call.name, opCount: ops.length });
     return ops;
   } catch (cause) {
+    // A REFUSAL is not bad arguments, and must never be dressed as them. The tool
+    // read the call, understood it, and is declining — so the sentence travels
+    // verbatim in both directions, with no "Invalid arguments for" in front of it
+    // sending the model off to fix a `start` that was right all along.
+    if (cause instanceof ToolRefusalError) {
+      log.warn('operationsForCall → refused', { tool: call.name, reason: cause.message });
+      throw new ToolInvocationError('refusal', call.name, cause.message, {
+        cause,
+        // Refusals are written in plain language for the model, which is the same
+        // language the editor needs. No second string.
+        editorSummary: cause.message,
+      });
+    }
     const reason = describeArgValidationError(cause);
     log.warn('operationsForCall → invalid args', { tool: call.name, reason });
     throw new ToolInvocationError(

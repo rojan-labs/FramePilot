@@ -14,6 +14,7 @@ import { CAPTION_ASSET_ID, punchInKeyframes, type Easing } from '@framepilot/edi
 import type { Keyframe, Timeline } from '@framepilot/timeline-schema';
 import type { ToolSpec } from '../tool-registry.js';
 import { mutateTool } from './tool-factories.js';
+import { ToolRefusalError } from '../tool-refusal.js';
 import { id, numeric, seconds } from './tool-args.js';
 
 const easingEnum = z.enum(['linear', 'ease-in', 'ease-out', 'ease-in-out', 'hold', 'bezier']);
@@ -42,7 +43,7 @@ function refuseCaptionKeyframes(timeline: Timeline, clipId: string): void {
     const clip = track.clips.find((c) => c.id === clipId);
     if (!clip) continue;
     if (clip.assetId === CAPTION_ASSET_ID) {
-      throw new Error(
+      throw new ToolRefusalError(
         `"${clipId}" is a caption clip, and captions do not read transform keyframes — ` +
           'their motion comes from the caption style. Use set_track_caption_style (or ' +
           'set_caption_style for one cue) to change how the words animate. Text overlays ' +

@@ -4598,10 +4598,24 @@ export class Orchestrator {
       ops = this.operationsFor(call, host.evidence ? { ...ctx, evidence: host.evidence } : ctx);
     } catch (error) {
       // `operationsForCall` only ever throws `ToolInvocationError` (unknown/unavailable/
-      // invalid args) — all three are the model's to fix and all three are worth banking.
+      // invalid args/refusal) — all four are the model's to act on and all four are worth
+      // banking.
+      //
+      // A REFUSAL is worded differently on purpose. The other three are mistakes, and
+      // "Rejected … Invalid arguments for …" is the right thing to say about a mistake. A
+      // refusal is the tool declining a call it understood — the picture-over-picture rule
+      // of ADR 0140, a caption cue that would cross a cut — and telling the model its
+      // arguments were invalid sends it to fix a `start` that was already correct instead
+      // of taking the alternative the sentence names. So the sentence stands alone.
+      const refused = error instanceof ToolInvocationError && error.code === 'refusal';
       const reason = error instanceof Error ? error.message : String(error);
-      const note = `Rejected "${call.name}": ${reason}`;
-      orchestratorLog.warn('tool call rejected — invalid args', { tool: call.name, reason });
+      const note = refused
+        ? `Refused "${call.name}": ${reason}`
+        : `Rejected "${call.name}": ${reason}`;
+      orchestratorLog.warn(
+        refused ? 'tool call refused — policy' : 'tool call rejected — invalid args',
+        { tool: call.name, reason },
+      );
       return {
         ops: [],
         note,
@@ -4639,9 +4653,7 @@ export class Orchestrator {
         const clipHelp = unknownClipHelp(ctx.project, errors);
         // `Clip not found: clip_zz` ends without one, and two sentences need the stop.
         const problems =
-          clipHelp === ''
-            ? located
-            : `${located}${located.endsWith('.') ? '' : '.'} ${clipHelp}`;
+          clipHelp === '' ? located : `${located}${located.endsWith('.') ? '' : '.'} ${clipHelp}`;
         const note = `Rejected "${call.name}" — ${problems}`;
         orchestratorLog.warn('tool call rejected — validator', { tool: call.name, problems });
         return {
